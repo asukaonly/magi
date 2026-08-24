@@ -93,7 +93,6 @@ def create_core_llm_adapter(llm_pool: ScenarioLLMPool) -> LLMAdapter:
 
 
 REQUIRED_RUNTIME_LLM_SCENARIOS = (
-    LLMScenario.CONTEXT_DECIDER.value,
     LLMScenario.CORE.value,
 )
 

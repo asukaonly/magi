@@ -164,6 +164,7 @@ const renderSendHook = ({
     allowInterjection: true,
     pendingAsk,
     recallFeedbackDraft: null,
+    reasoningPreference: 'auto',
     appendPendingTurn,
     removePendingMessage,
     setCurrentSessionId: vi.fn(),

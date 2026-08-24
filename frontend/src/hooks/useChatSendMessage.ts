@@ -45,6 +45,7 @@ import {
   type RetryableSendDraftKind,
 } from './chatRetryableSendStorage';
 import type { ComposerDraftItem } from './useChatDraftAttachments';
+import type { ReasoningPreference } from '@/components/chat/ComposerReasoningControl';
 import { isFileDraftAttachment, isMcpDraftAttachment } from './useChatDraftAttachments';
 
 const USER_ID = DEFAULT_USER_ID;
@@ -67,6 +68,7 @@ export type UseChatSendMessageOptions = {
   pendingAsk: PendingAskSendContext | null;
   firstContextQuestion?: FirstContextQuestionContext | null;
   recallFeedbackDraft: RecallFeedbackDraft | null;
+  reasoningPreference: ReasoningPreference;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   removePendingMessage: (sessionId: string, messageId: string) => void;
   setCurrentSessionId: (sessionId: string | null) => void;
@@ -122,6 +124,7 @@ export function useChatSendMessage({
   pendingAsk,
   firstContextQuestion = null,
   recallFeedbackDraft,
+  reasoningPreference,
   appendPendingTurn,
   removePendingMessage,
   setCurrentSessionId,
@@ -806,6 +809,7 @@ export function useChatSendMessage({
           reply_to_message_id: replyTarget?.messageId,
           workspace_path: currentWorkspacePath ?? null,
           client_turn_id: turnId,
+          reasoning_preference: reasoningPreference,
           ...(firstContextQuestion ? {
             interaction_kind: 'first_context_story' as const,
             first_context: {
@@ -860,6 +864,7 @@ export function useChatSendMessage({
     onPendingResponseFailure,
     onPendingResponseTurn,
     recallFeedbackDraft,
+    reasoningPreference,
     reconcileChangedDraftOperation,
     reconcileExternalTurnBeforeSend,
     removePendingMessage,

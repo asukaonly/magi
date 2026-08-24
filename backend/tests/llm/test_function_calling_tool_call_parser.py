@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
+from agent.agent_run_helpers import run_agent
 
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
@@ -21,7 +22,6 @@ from magi.agent.execution.function_calling import (
     ToolCallResult,
 )
 from magi.config.models import ThinkingDepth
-from magi.tools.context_routing import RouteDecision
 from magi.tools.schema import ToolResult
 from magi.agent.turn_input import UserTurnInput
 
@@ -90,6 +90,9 @@ class _RecordingToolRegistry:
         _ = name
         return False
 
+    def get_tool(self, name: str) -> Any:
+        return _read_only_tool(name)
+
     def get_tool_info(self, name: str) -> Dict[str, Any] | None:
         if name in {"bash", "agent"}:
             return {
@@ -114,6 +117,9 @@ class _SequencedToolRegistry:
     def is_skill(self, name: str) -> bool:
         _ = name
         return False
+
+    def get_tool(self, name: str) -> Any:
+        return _read_only_tool(name)
 
     def get_tool_info(self, name: str) -> Dict[str, Any] | None:
         return {
@@ -144,6 +150,18 @@ class _DummyOpenAIClient:
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
+def _read_only_tool(name: str) -> Any:
+    schema = SimpleNamespace(
+        name=name,
+        effect_class="read_only",
+        effect_replay_policy="read_only",
+        dangerous=False,
+        requires_auth=False,
+        metadata={},
+    )
+    return SimpleNamespace(get_schema=lambda: schema)
+
+
 @pytest.mark.asyncio
 async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     registry = _RecordingToolRegistry()
@@ -167,7 +185,7 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
         tool_registry=registry,  # type: ignore[arg-type]
     )
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(
             text="run legacy tool calls", attachments=[], user_id=None, session_id=None
         ),
@@ -181,7 +199,14 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
     assert result.content == "final answer"
     assert len(registry.calls) == 2
     assert registry.calls[0] == ("bash", {"command": "echo one"})
-    assert registry.calls[1] == ("agent", {"timeout_seconds": 5, "run_in_background": True})
+    assert registry.calls[1] == (
+        "agent",
+        {
+            "timeout_seconds": 5,
+            "run_in_background": True,
+            "subagent_type": "general-purpose",
+        },
+    )
 
 
 def test_build_tool_message_payload_compacts_glob_matches() -> None:
@@ -311,7 +336,7 @@ def test_build_tool_message_payload_includes_recovery_guidance_for_ambiguous_sco
 
 
 @pytest.mark.asyncio
-async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
+async def test_max_iterations_fallback_does_not_execute_tool_markup() -> None:
     registry = _RecordingToolRegistry()
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
@@ -342,7 +367,7 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["bash", "agent"],
@@ -353,14 +378,11 @@ async def test_max_iterations_fallback_executes_legacy_tool_call_once() -> None:
     assert result.status == "completed"
     assert result.content == "final answer"
     assert _fake_call_llm_without_tools.calls == 2  # type: ignore[attr-defined]
-    assert registry.calls == [
-        ("bash", {"command": "echo one"}),
-        ("agent", {"timeout_seconds": 5, "run_in_background": True}),
-    ]
+    assert registry.calls == [("bash", {"command": "echo one"})]
 
 
 @pytest.mark.asyncio
-async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_tool_calls() -> None:
+async def test_max_iterations_fallback_fails_after_repeated_tool_markup() -> None:
     registry = _RecordingToolRegistry()
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
@@ -401,7 +423,7 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
         system_prompt="sys\n# Tool Use Guidance\nuse tools",
         selected_tools=["bash", "agent", "grep"],
@@ -409,17 +431,14 @@ async def test_max_iterations_fallback_forces_plain_text_after_repeated_legacy_t
         max_iterations=1,
     )
 
-    assert result.status == "completed"
-    assert result.content == "final explanation"
-    assert len(captured_calls) == 3
+    assert result.status == "failed"
+    assert result.content == ""
+    assert len(captured_calls) == 2
     assert "Tool Use Guidance" not in captured_calls[0]["system_prompt"]
     assert "Do not emit tool calls" in captured_calls[0]["system_prompt"]
-    assert captured_calls[2]["thinking_depth"] == ThinkingDepth.NONE
-    assert "This is the final retry" in captured_calls[2]["messages"][-1]["content"]
-    assert registry.calls == [
-        ("bash", {"command": "echo one"}),
-        ("agent", {"timeout_seconds": 5, "run_in_background": True}),
-    ]
+    assert captured_calls[1]["thinking_depth"] == ThinkingDepth.NONE
+    assert "This is the final retry" in captured_calls[1]["messages"][-1]["content"]
+    assert registry.calls == [("bash", {"command": "echo one"})]
 
 
 def test_build_tool_message_payload_compacts_agent_run_state() -> None:
@@ -936,52 +955,6 @@ def test_build_tool_message_payload_sanitizes_assistant_payload_and_chat_attachm
 
 
 @pytest.mark.asyncio
-async def test_agent_launch_uses_orchestration_default_leaf_type() -> None:
-    registry = _RecordingToolRegistry()
-    executor = FunctionCallingOrchestrator(
-        llm_adapter=_DummyLLMAdapter(),
-        tool_registry=registry,  # type: ignore[arg-type]
-    )
-
-    result = await executor._execute_tool_call(
-        tool_call=ToolCall(
-            id="call_plan",
-            name="agent",
-            arguments={
-                "action": "launch",
-                "description": "Analyze repo architecture",
-                "prompt": "Analyze the repo and split work.",
-            },
-        ),
-        user_id="u1",
-        session_id="s1",
-        turn_id="turn_1",
-        intent="planning",
-        execution_agent_id="chat_agent",
-        execution_workspace="/tmp",
-        route_decision=RouteDecision(
-            profile="explore",
-            graph_shape="plan_fanout",
-            complexity="medium",
-        ),
-    )
-
-    assert result.success is True
-    assert registry.calls == [
-        (
-            "agent",
-            {
-                "action": "launch",
-                "description": "Analyze repo architecture",
-                "prompt": "Analyze the repo and split work.",
-                "run_in_background": True,
-                "subagent_type": "CodeExplore",
-            },
-        )
-    ]
-
-
-@pytest.mark.asyncio
 async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> None:
     registry = _SequencedToolRegistry(
         results={
@@ -1059,7 +1032,7 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
 
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="inspect backend", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["grep", "glob"],
@@ -1156,7 +1129,7 @@ async def test_execute_with_tools_blocks_unchanged_failed_tool_retry() -> None:
 
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="inspect backend", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["grep"],
@@ -1222,7 +1195,7 @@ async def test_execute_with_tools_stops_repeated_blocker_across_success() -> Non
 
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(
             text="organize files",
             attachments=[],
@@ -1258,7 +1231,7 @@ async def test_worker_origin_cannot_execute_todo_write() -> None:
         user_id="u1",
         session_id="s1",
         turn_id="t1",
-        intent="worker_coding",
+        execution_preset="worker_coding",
         execution_agent_id="worker_123",
         execution_workspace="/tmp",
     )
@@ -1315,7 +1288,7 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="search docs", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["web_search"],
@@ -1379,7 +1352,7 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
     executor._call_llm_with_tools = _fake_call_llm_with_tools  # type: ignore[method-assign]
     executor._call_llm_without_tools = _fake_call_llm_without_tools  # type: ignore[method-assign]
 
-    result = await executor.execute_with_tools(
+    result = await run_agent(executor,
         turn=UserTurnInput(text="search docs", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["web_search", "grep"],
@@ -1397,14 +1370,14 @@ def test_function_calling_tools_request_kind_distinguishes_worker_and_chat() -> 
     assert (
         function_calling_llm_invocation_module.resolve_tools_request_kind(
             execution_agent_id="worker_123",
-            intent="worker_general",
+            execution_preset="worker_general",
         )
         == "function_calling:worker_tools"
     )
     assert (
         function_calling_llm_invocation_module.resolve_tools_request_kind(
             execution_agent_id="chat_session",
-            intent="chat",
+            execution_preset="chat",
         )
         == "function_calling:chat_tools"
     )

@@ -171,7 +171,7 @@ class MemoryStoreModule(LifecycleModule):
             unified_memory,
             config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
             llm_provider_bridge=LLMProviderBridge(
-                scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
+                scenario_llm_pool.get(LLMScenario.AUXILIARY)
             ),
         )
 

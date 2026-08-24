@@ -57,10 +57,12 @@ class _FakeHandlerRegistry:
 
 
 def _coordinator(result: ExecutionResult, registry: _FakeChannelRegistry) -> ChatExecutionCoordinator:
+    handler = _FakeHandler(result)
     return ChatExecutionCoordinator(
-        context_decider=SimpleNamespace(tool_registry=None),
+        tool_registry=SimpleNamespace(list_tools=lambda **_kwargs: []),
         fact_classifier=SimpleNamespace(),
-        handler_registry=_FakeHandlerRegistry(_FakeHandler(result)),
+        handler_registry=_FakeHandlerRegistry(handler),
+        agent_run_handler=handler,
         delivery_dispatcher=ChatDeliveryDispatcher.from_registry(
             channel_registry=registry,
         ),

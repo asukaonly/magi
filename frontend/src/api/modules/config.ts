@@ -34,7 +34,7 @@ export type LLMProvider =
   | 'custom'
   | 'local';
 export type ApiFormat = 'openai' | 'anthropic';
-export type LLMScenario = 'context_decider' | 'core' | 'memory_summarizer' | 'embedding' | 'image_generation';
+export type LLMScenario = 'auxiliary' | 'core' | 'memory_summarizer' | 'embedding' | 'image_generation';
 
 export interface UserPreferences {
   onboarding_completed: boolean;
@@ -689,7 +689,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   llm: {
     providers: {},
     selections: {
-      context_decider: {
+      auxiliary: {
         provider_id: '',
         model: '',
         embedding_dimension: null,

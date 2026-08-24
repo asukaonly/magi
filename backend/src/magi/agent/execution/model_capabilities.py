@@ -1,0 +1,48 @@
+"""Stable provider capability contract used before a unified agent run."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCapabilityProfile:
+    """Model features that affect message/tool assembly, not task semantics."""
+
+    supports_images: bool = False
+    supports_tool_calls: bool = True
+    supports_images_with_tools: bool = False
+    supports_parallel_tools: bool = False
+    max_tool_schemas: int | None = None
+    max_schema_tokens: int | None = None
+    reasoning_dialects: tuple[str, ...] = ()
+
+    @classmethod
+    def from_model_context(cls, context: Any) -> "ModelCapabilityProfile":
+        """Project the active model context into the runtime contract."""
+
+        return cls(
+            supports_images=bool(getattr(context, "supports_images", False)),
+            supports_tool_calls=bool(getattr(context, "supports_tool_calls", True)),
+            supports_images_with_tools=bool(
+                getattr(context, "supports_images_with_tools", False)
+            ),
+            supports_parallel_tools=bool(
+                getattr(context, "supports_parallel_tools", False)
+            ),
+        )
+
+    def validate_run(self, *, has_images: bool, tool_count: int) -> str | None:
+        if has_images and not self.supports_images:
+            return "attachments_unsupported"
+        if tool_count and not self.supports_tool_calls:
+            return "tool_calls_unsupported"
+        if has_images and tool_count and not self.supports_images_with_tools:
+            return "attachment_observation_required"
+        if self.max_tool_schemas is not None and tool_count > self.max_tool_schemas:
+            return "tool_schema_limit_exceeded"
+        return None
+
+
+__all__ = ["ModelCapabilityProfile"]

@@ -3,14 +3,49 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.execution.function_calling.loop_runner import FunctionCallingLoopRunner
-from magi.agent.execution.function_calling.run_input import EngineRunInput
+from magi.agent.execution.function_calling.run_input import AgentRunRequest
 from magi.agent.execution.function_calling.step_models import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
 from magi.agent.execution.function_calling.types import ExecutionOutcome
+from magi.agent.execution.model_capabilities import ModelCapabilityProfile
 from magi.agent.turn_input import UserTurnInput
 from magi.control.run_control import null_run_control
+
+
+@pytest.mark.asyncio
+async def test_required_capability_fails_before_model_call_when_tools_are_unsupported() -> None:
+    class _StepExecutor:
+        async def execute_step(self, **kwargs: object) -> FunctionCallingStepOutcome:
+            raise AssertionError("model call must not run")
+
+    class _Host:
+        step_executor = _StepExecutor()
+        _current_messages: list[dict[str, object]] = []
+
+        def build_step_state(self, **kwargs: object) -> FunctionCallingStepState:
+            return FunctionCallingStepState(
+                messages=[{"role": "user", "content": "inspect the attachment"}],
+                effective_system_prompt="system",
+                tools=[],
+            )
+
+    runner = FunctionCallingLoopRunner(_Host())
+    outcome = await runner.run(
+        AgentRunRequest(
+            turn=UserTurnInput(text="inspect the attachment"),
+            system_prompt="system",
+            selected_tools=[],
+            user_id="user-1",
+            capability_resolution={"required_tools": ["photo_resolver"]},
+            model_capabilities=ModelCapabilityProfile(supports_tool_calls=False),
+        ),
+        control=null_run_control(),
+    )
+
+    assert outcome.status == "failed"
+    assert outcome.failure_reason == "tool_calls_unsupported"
 
 
 @pytest.mark.asyncio
@@ -48,7 +83,7 @@ async def test_compacts_before_first_model_request() -> None:
 
     host = _Host()
     runner = FunctionCallingLoopRunner(host)
-    run_input = EngineRunInput(
+    run_input = AgentRunRequest(
         turn=UserTurnInput(text="hello"),
         system_prompt="system",
         selected_tools=["demo"],
@@ -100,7 +135,7 @@ async def test_context_failure_stops_before_model_request() -> None:
             )
 
     runner = FunctionCallingLoopRunner(_Host())
-    run_input = EngineRunInput(
+    run_input = AgentRunRequest(
         turn=UserTurnInput(text="hello"),
         system_prompt="system",
         selected_tools=[],

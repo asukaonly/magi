@@ -22,7 +22,7 @@ from ..services.config_secrets import normalize_masked_secrets
 from ..services.llm_testing_service import get_llm_provider_registry
 from .config_schemas import LLMSelectionConfigModel, SystemConfigModel
 
-CHAT_SCENARIOS = {"context_decider", "core", "memory_summarizer"}
+CHAT_SCENARIOS = {"auxiliary", "core", "memory_summarizer"}
 
 
 def _provider_type_value(provider: Any) -> str:
@@ -211,7 +211,7 @@ def _apply_chat_selection_defaults(
 
 
 def _default_chat_model_for_selection(selection_id: str, provider_meta: Any) -> str:
-    if selection_id == "context_decider":
+    if selection_id == "auxiliary":
         return (
             provider_meta.default_classify_model
             or provider_meta.default_model

@@ -10,69 +10,63 @@ from typing import Any, Awaitable, Callable
 
 from magi.core.logger import get_logger
 from magi.llm.streaming_events import LLMStreamEvent
-from magi.tools.context_decider import ContextDecider
+from magi.agent.execution.capability_resolver import CapabilityResolver
 from magi.agent.task_agents.common import (
     ExecutionHandlerRegistry,
     ExecutionRequest,
     ToolSelection,
 )
-from magi.agent.task_agents.handlers.turn_route_resolver import TurnRouteResolver
 from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
     IntentDecision,
 )
 from magi_plugin_sdk.delivery import DeliveryContent
-from magi.agent.run.execution_engine import TaskAgentExecutionEngine
-from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
+from magi.agent.execution.attachment_resolver import (
+    AttachmentResolverPort,
+    NullAttachmentResolver,
+)
 from magi.delivery.contracts import DeliveryFanoutResult
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
-from .intent_resolution_service import ChatIntentResolutionService
+from .turn_admission_service import ChatTurnAdmissionService
 from magi.agent.response_rhythm import strip_segmentation_sentinel
-from .run_placement_service import ChatBackgroundLaunchRequest, ChatRunPlacementService
-from .tool_selection_service import ChatToolSelectionService, ToolAdvisoryProvider
-from .turn_ux_planner import TurnUXPlanner
+
+ToolAdvisoryProvider = Callable[
+    [str | None, list[str] | None, int], Awaitable[list[dict[str, Any]]]
+]
 
 logger = get_logger(__name__)
 
 
-IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
 ToolSelectionTraceCallback = Callable[
     [ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None
 ]
 
 
 class ChatExecutionCoordinator:
-    """Coordinates intent routing, request building, and handler dispatch."""
+    """Admit domain facts and build one unified model-facing run."""
 
     def __init__(
         self,
         *,
-        context_decider: ContextDecider,
+        tool_registry: Any,
         fact_classifier: ChatFactClassifier,
         handler_registry: ExecutionHandlerRegistry,
-        intent_trace_callback: IntentTraceCallback | None = None,
+        agent_run_handler: Any,
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
         tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
-        session_run_store: Any | None = None,
         delivery_dispatcher: ChatDeliveryDispatchPort | None = None,
         conversation_log: Any | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
-        execution_engine: TaskAgentExecutionEngine | None = None,
-        run_placement_service: ChatRunPlacementService | None = None,
     ) -> None:
-        self._context_decider = context_decider
         self._fact_classifier = fact_classifier
         # Resolves managed attachment payloads when classifying a turn's
         # effective attachments. Chat wires a chat-backed resolver; defaults
         # to a null resolver for legacy / test callers.
         self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._handler_registry = handler_registry
-        self._intent_trace_callback = intent_trace_callback
+        self._agent_run_handler = agent_run_handler
         self._tool_selection_trace_callback = tool_selection_trace_callback
-        # Optional store handed to the agent execution engine for resumable
-        # multi-step turns. None for legacy / test callers.
-        self._session_run_store = session_run_store
         self._delivery_dispatcher = delivery_dispatcher
         # Phase F Task 10: optional ConversationLog. When supplied,
         # ``execute()`` records this run as a consumer of the currently
@@ -80,52 +74,60 @@ class ChatExecutionCoordinator:
         # propagate via ``ConversationLog.find_dependents``. None for
         # legacy callers / tests — recording is silently skipped.
         self._conversation_log = conversation_log
-        tool_registry = getattr(context_decider, "tool_registry", None)
-        self._tool_selection_service = ChatToolSelectionService(
-            tool_registry=tool_registry,
-            tool_advisory_provider=tool_advisory_provider,
-        )
-        self._turn_route_resolver = TurnRouteResolver()
-        self._turn_ux_planner = TurnUXPlanner()
-        self._intent_resolution_service = ChatIntentResolutionService(
-            context_decider=context_decider,
-            tool_selection_service=self._tool_selection_service,
-            attachment_resolver=self._attachment_resolver,
-            turn_route_resolver=self._turn_route_resolver,
-            turn_ux_planner=self._turn_ux_planner,
-        )
-        self._run_placement_service = run_placement_service or ChatRunPlacementService()
-        self._execution_engine = execution_engine or TaskAgentExecutionEngine(
-            handler_registry=handler_registry,
-            tool_registry=tool_registry,
-            snapshot_store=session_run_store,
-        )
+        self._tool_advisory_provider = tool_advisory_provider
+        self._turn_admission_service = ChatTurnAdmissionService()
+        self._capability_resolver = CapabilityResolver(tool_registry)
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
-        intent_decision = self._intent_resolution_service.resolve_system_fact_intent(context)
-        if intent_decision is None:
-            intent_decision = await self._intent_resolution_service.resolve_user_intent(
-                context,
-            )
-        if self._intent_trace_callback is not None:
-            callback_result = self._intent_trace_callback(context, intent_decision)
-            if inspect.isawaitable(callback_result):
-                await callback_result
-        return intent_decision
+        return self._turn_admission_service.resolve(context)
 
     async def match_tools(
         self, context: ChatRuntimeContext, intent: IntentDecision
     ) -> ToolSelection:
-        tool_selection = await self._tool_selection_service.select_tools(
-            context=context,
-            intent=intent,
+        if intent.execution_mode is not None:
+            return ToolSelection(reasoning=intent.reasoning)
+        resolution = self._capability_resolver.resolve(
+            user_message=context.latest_user_message,
+            attachment_tools=_attachment_resolver_tools(context),
+            recent_tool_errors=context.recent_tool_errors,
+            model_supports_tool_calls=context.core_model_supports_tool_calls,
         )
-        intent.recommended_tools = list(tool_selection.recommended_tools)
+        advisories = await self._load_capability_advisories(
+            context.latest_user_message,
+            list(resolution.initial_exposed_tools),
+        )
+        resolution = _rerank_capability_resolution(resolution, advisories)
+        intent.capability_resolution = resolution
+        intent.tools = list(resolution.initial_exposed_tools)
+        intent.recommended_tools = list(advisories)
+        tool_selection = ToolSelection(
+            tools=list(resolution.initial_exposed_tools),
+            reasoning="Deterministic resident, continuity, and metadata discovery.",
+        )
         if self._tool_selection_trace_callback is not None:
             callback_result = self._tool_selection_trace_callback(context, intent, tool_selection)
             if inspect.isawaitable(callback_result):
                 await callback_result
         return tool_selection
+
+    async def _load_capability_advisories(
+        self,
+        user_message: str,
+        tool_names: list[str],
+    ) -> list[dict[str, Any]]:
+        if self._tool_advisory_provider is None or not tool_names:
+            return []
+        try:
+            return list(
+                await self._tool_advisory_provider(
+                    user_message,
+                    tool_names,
+                    len(tool_names),
+                )
+            )
+        except Exception as exc:
+            logger.debug("Capability advisory lookup failed: %s", exc)
+            return []
 
     async def assemble_request(
         self,
@@ -139,65 +141,50 @@ class ChatExecutionCoordinator:
             intent=intent,
             tool_selection=tool_selection,
         )
-        background_request = await (
-            self._run_placement_service.maybe_prepare_background_launch(request)
-        )
-        if background_request is not None:
-            return background_request
-        handler = self._handler_registry.get(intent.execution_mode)
+        handler = self._resolve_handler(intent.execution_mode)
         return await handler.build_request(request)
 
     async def execute(self, request: ExecutionRequest):
-        route_decision = getattr(request.intent, "route_decision", None)
-        if route_decision is not None:
-            session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
-            session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
+        session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
+        session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
 
-            # Phase F Task 10: tag this run as a consumer of the currently
-            # visible history. ConversationLog.find_dependents reverses this
-            # map for cross-run retract propagation (Task 11). Failures are
-            # swallowed so a log outage never blocks execution — the cost
-            # of a missed record is at worst a future retract that doesn't
-            # propagate to this run.
-            if self._conversation_log is not None and session_id and session_run_id:
+        if self._conversation_log is not None and session_id and session_run_id:
+            try:
+                message_ids = await self._conversation_log.list_visible_message_ids(
+                    session_id=session_id,
+                )
+            except Exception:
+                logger.warning(
+                    "ConversationLog.list_visible_message_ids failed",
+                    exc_info=True,
+                )
+                message_ids = []
+            if message_ids:
                 try:
-                    message_ids = await self._conversation_log.list_visible_message_ids(
+                    await self._conversation_log.record_consumed(
                         session_id=session_id,
+                        run_id=session_run_id,
+                        revision=int(
+                            getattr(request.context, "session_run_revision", 0) or 0
+                        ),
+                        message_ids=message_ids,
                     )
                 except Exception:
                     logger.warning(
-                        "ConversationLog.list_visible_message_ids failed",
+                        "ConversationLog.record_consumed failed",
                         exc_info=True,
                     )
-                    message_ids = []
-                if message_ids:
-                    try:
-                        await self._conversation_log.record_consumed(
-                            session_id=session_id,
-                            run_id=session_run_id,
-                            revision=int(
-                                getattr(request.context, "session_run_revision", 0) or 0
-                            ),
-                            message_ids=message_ids,
-                        )
-                    except Exception:
-                        logger.warning(
-                            "ConversationLog.record_consumed failed",
-                            exc_info=True,
-                        )
-
-        if isinstance(request, ChatBackgroundLaunchRequest):
-            background_result = await self._run_placement_service.launch_background(request)
-            if background_result is not None:
-                return background_result
-            handler = self._handler_registry.get(request.mode)
-            request = await handler.build_request(request)
-
-        execution_outcome = await self._execution_engine.execute(request)
+        handler = self._resolve_handler(request.mode)
+        execution_outcome = await handler.execute(request)
         # Final channel delivery belongs to chat post-processing. That seam runs
         # only after the matching chat outcome is durable, so an interrupted
         # execution cannot send an external reply that has no local record.
-        return execution_outcome.result
+        return execution_outcome
+
+    def _resolve_handler(self, mode: Any) -> Any:
+        if mode is None:
+            return self._agent_run_handler
+        return self._handler_registry.get(mode)
 
     async def _fanout_to_origin_channels(
         self,
@@ -271,7 +258,6 @@ class ChatExecutionCoordinator:
             exclude_chat_sse=exclude_chat_sse,
             exclude_channel_types=exclude_channel_types,
         )
-
     async def dispatch_stream_chunk(
         self,
         *,
@@ -302,3 +288,61 @@ class ChatExecutionCoordinator:
             event=event,
             persona_id=persona_id,
         )
+
+
+def _attachment_resolver_tools(context: ChatRuntimeContext) -> list[str]:
+    """Pin tools required to resolve current or explicitly replied-to assets."""
+
+    names: list[str] = []
+
+    def collect(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("resolver_tool") or "").strip()
+            if name and name not in names:
+                names.append(name)
+
+    latest_payload = getattr(context, "latest_payload", None)
+    collect(getattr(latest_payload, "attachments", None))
+    reply_context = getattr(context, "reply_context", None)
+    if bool(getattr(reply_context, "is_explicit_reply", False)):
+        payload = getattr(reply_context, "structured_payload", None)
+        if isinstance(payload, dict):
+            collect(payload.get("asset_refs"))
+            collect(payload.get("attachments"))
+    return names
+
+
+def _rerank_capability_resolution(resolution, advisories: list[dict[str, Any]]):
+    """Rerank optional candidates without changing runtime authorization."""
+
+    if not advisories:
+        return resolution
+    advisory_by_name = {
+        str(item.get("tool_name") or item.get("name") or "").strip(): item
+        for item in advisories
+        if isinstance(item, dict)
+    }
+    required = list(
+        dict.fromkeys(
+            [*resolution.resident_tools, *resolution.continuity_pinned_tools]
+            + list(resolution.pinned_tools)
+        )
+    )
+    optional = [
+        name for name in resolution.initial_exposed_tools if name not in required
+    ]
+
+    def rank(name: str) -> tuple[int, float, str]:
+        advisory = advisory_by_name.get(name) or {}
+        breaker = str(advisory.get("breaker_state") or "closed").strip().lower()
+        success_rate = float(advisory.get("success_rate") or 0.0)
+        return (0 if breaker == "closed" else 1, -success_rate, name)
+
+    return replace(
+        resolution,
+        initial_exposed_tools=tuple([*required, *sorted(optional, key=rank)]),
+    )

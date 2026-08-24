@@ -82,7 +82,7 @@ class L2LLMJsonClientMixin:
         turn_id: str | None = None,
         session_id: str | None = None,
         log_context: dict[str, Any] | None = None,
-        scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER,
+        scenario: LLMScenario = LLMScenario.AUXILIARY,
         disable_thinking: bool = True,
         priority: LLMRequestPriority | str | int | None = None,
         required_fields: dict[str, type] | None = None,
@@ -378,7 +378,7 @@ class L2LLMJsonClientMixin:
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         return bool(is_rate_limit_exception(exc))
 
-    def _get_adapter(self, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER) -> Optional[Any]:
+    def _get_adapter(self, scenario: LLMScenario = LLMScenario.AUXILIARY) -> Optional[Any]:
         host = self._llm_json_client_host()
         if host._scenario_llm_pool is None:
             logger.warning("L2 LLM adapter unavailable: scenario_llm_pool is None")
@@ -390,7 +390,7 @@ class L2LLMJsonClientMixin:
             return None
 
     def _get_llm_target(
-        self, *, scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER
+        self, *, scenario: LLMScenario = LLMScenario.AUXILIARY
     ) -> Optional[tuple[Any, LLMProviderBridge]]:
         adapter = self._get_adapter(scenario=scenario)
         if adapter is None:

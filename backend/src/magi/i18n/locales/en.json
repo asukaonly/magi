@@ -16,7 +16,7 @@
     },
     "runtime": {
       "not_ready": {
-        "llm_selection_pending": "AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",
+        "llm_selection_pending": "AI runtime is not ready yet. Please complete the core model configuration first.",
         "configuration_invalid": "AI runtime configuration is invalid. Please check the enabled provider and model selection.",
         "starting": "AI runtime is still starting. Please retry in a moment.",
         "startup_pending": "AI runtime is not ready yet. Please wait for startup to finish and try again."

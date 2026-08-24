@@ -17,7 +17,7 @@ import {
   resolveProviderModels,
 } from '@/api/modules/config';
 
-export const BUILTIN_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
+export const BUILTIN_SCENARIOS: LLMScenario[] = ['auxiliary', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 
 export type LLMProviderServiceName = 'chat' | 'embedding' | 'image_generation';
 
@@ -156,7 +156,7 @@ export const cloneLLMConfig = (value?: LLMConfig): LLMConfig => ({
     Object.entries(value?.providers || {}).map(([providerId, provider]) => [providerId, cloneProvider(provider)])
   ),
   selections: {
-    context_decider: cloneSelection(value?.selections?.context_decider),
+    auxiliary: cloneSelection(value?.selections?.auxiliary),
     core: cloneSelection(value?.selections?.core),
     memory_summarizer: cloneSelection(value?.selections?.memory_summarizer ?? value?.selections?.core),
     embedding: cloneSelection(value?.selections?.embedding),
@@ -466,7 +466,7 @@ export const resolveProviderDefaultModel = (
     const imageModels = resolvedModels.image_generation_models.filter((model) => !model.hidden);
     return imageModels[0]?.id || '';
   }
-  if (scenario === 'context_decider') {
+  if (scenario === 'auxiliary') {
     return (
       providerMeta?.default_classify_model ||
       providerMeta?.default_model ||

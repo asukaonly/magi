@@ -11,6 +11,9 @@ from typing import Any
 
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ...cancel import CancelToken
+from ..contracts import AgentRunEventType
+from ..evidence import ToolExecutionEvidence
+from ..tool_metadata import resolve_tool_capability_metadata
 from .step_models import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
@@ -19,6 +22,20 @@ from .step_models import (
 from .types import ToolCallResult
 
 MAX_RUNTIME_STATUS_CHARS = 2_000
+_ADMISSION_REJECTION_CODES = frozenset(
+    {
+        "ACCESS_DENIED",
+        "AUTH_REQUIRED",
+        "PERMISSION_DENIED",
+        "POLICY_BLOCKED",
+        "READ_ONLY",
+        "ROLE_NOT_ALLOWED",
+        "TOOL_EFFECT_ALREADY_COMPLETED",
+        "TOOL_EFFECT_IDENTITY_REQUIRED",
+        "TOOL_EFFECT_LEDGER_UNAVAILABLE",
+        "TOOL_EFFECT_UNCERTAIN",
+    }
+)
 
 
 def _normalize_runtime_status_text(value: Any) -> str:
@@ -28,6 +45,10 @@ def _normalize_runtime_status_text(value: Any) -> str:
     if len(text) <= MAX_RUNTIME_STATUS_CHARS:
         return text
     return f"{text[:MAX_RUNTIME_STATUS_CHARS].rstrip()}..."
+
+
+def _tool_execution_was_admitted(result: ToolCallResult) -> bool:
+    return str(result.error_code or "").strip().upper() not in _ADMISSION_REJECTION_CODES
 
 
 @dataclass(slots=True)
@@ -57,6 +78,7 @@ class FunctionCallingToolBatchExecutor:
     ) -> FunctionCallingStepOutcome:
         tool_calls = response["tool_calls"]
         await self._record_tool_request(
+            state=state,
             tool_calls=tool_calls,
             response=response,
             ctx=ctx,
@@ -80,6 +102,7 @@ class FunctionCallingToolBatchExecutor:
             ctx=ctx,
             iteration=iteration,
         )
+        self._apply_task_persona_clamp(state)
         return await self._finish_tool_batch(
             state=state,
             tool_results=tool_results,
@@ -87,6 +110,23 @@ class FunctionCallingToolBatchExecutor:
             iteration=iteration,
             iteration_started_at_ms=iteration_started_at_ms,
         )
+
+    @staticmethod
+    def _apply_task_persona_clamp(state: FunctionCallingStepState) -> None:
+        if state.persona_task_clamp_applied:
+            return
+        state.messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "[Runtime expression policy]\n"
+                    "This run has entered execution. Keep subsequent decisions and synthesis "
+                    "focused, concrete, and evidence-led. Personality may shape phrasing but "
+                    "must not weaken task progress, validation, or factual precision."
+                ),
+            }
+        )
+        state.persona_task_clamp_applied = True
 
     async def _finish_tool_batch(
         self,
@@ -117,6 +157,7 @@ class FunctionCallingToolBatchExecutor:
     async def _record_tool_request(
         self,
         *,
+        state: FunctionCallingStepState,
         tool_calls: list[Any],
         response: dict[str, Any],
         ctx: StepExecutionContext,
@@ -132,6 +173,21 @@ class FunctionCallingToolBatchExecutor:
                     step_label="tool_call_narration",
                 )
             )
+        if state.journal is not None:
+            await state.journal.append(
+                AgentRunEventType.TOOL_CALL_REQUESTED,
+                step_index=iteration,
+                payload={
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "name": tool_call.name,
+                            "arguments": tool_call.arguments,
+                        }
+                        for tool_call in tool_calls
+                    ]
+                },
+            )
         await self._driver._emit_loop_event(
             {
                 "stage": "llm_requested_tools",
@@ -143,7 +199,7 @@ class FunctionCallingToolBatchExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
@@ -275,13 +331,12 @@ class FunctionCallingToolBatchExecutor:
                 session_run_id=ctx.session_run_id,
                 session_run_revision=ctx.session_run_revision,
                 turn_id=ctx.turn_id,
-                intent=ctx.intent,
+                execution_preset=ctx.execution_preset,
                 execution_agent_id=ctx.execution_agent_id,
                 iteration=iteration,
                 execution_workspace=ctx.execution_workspace,
                 cancel_token=cancel_token,
                 recent_messages=state.messages,
-                route_decision=ctx.route_decision,
             ),
         )
         return _ToolExecutionRecord(
@@ -369,6 +424,50 @@ class FunctionCallingToolBatchExecutor:
         iteration: int,
     ) -> None:
         result = record.result
+        metadata = resolve_tool_capability_metadata(
+            self._driver.tool_registry,
+            record.tool_call.name,
+        )
+        evidence = ToolExecutionEvidence(
+            tool_name=record.tool_call.name,
+            success=result.success,
+            effect_class=metadata.effect_class.value,
+            replay_policy=metadata.replay_policy.value,
+            error_code=result.error_code,
+            result=result.data if result.success else result.error,
+            tool_call_id=record.tool_call.id,
+        )
+        state.tool_evidence.append(evidence)
+        self._append_tool_message(state, record)
+        if state.journal is not None:
+            if _tool_execution_was_admitted(result):
+                await state.journal.append(
+                    AgentRunEventType.TOOL_EFFECT_ADMITTED,
+                    step_index=iteration,
+                    payload={
+                        "tool_name": record.tool_call.name,
+                        "tool_call_id": record.tool_call.id,
+                        "effect_class": metadata.effect_class.value,
+                        "replay_policy": metadata.replay_policy.value,
+                    },
+                )
+            await state.journal.append(
+                AgentRunEventType.TOOL_RESULT,
+                step_index=iteration,
+                payload={
+                    **evidence.to_ref().to_dict(),
+                    "model_observation": dict(state.messages[-1]),
+                },
+            )
+            if record.tool_call.name == "verify":
+                await state.journal.append(
+                    AgentRunEventType.VALIDATION_COMPLETED,
+                    step_index=iteration,
+                    payload={
+                        "success": result.success,
+                        "evidence": evidence.to_ref().to_dict(),
+                    },
+                )
         await self._driver._emit_loop_event(
             {
                 "stage": "tool_executed",
@@ -381,7 +480,7 @@ class FunctionCallingToolBatchExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
@@ -390,7 +489,7 @@ class FunctionCallingToolBatchExecutor:
             session_id=ctx.session_id,
             turn_id=ctx.turn_id,
             user_message=ctx.user_message,
-            intent=ctx.intent,
+            execution_preset=ctx.execution_preset,
             iteration=iteration,
             tool_call=record.tool_call,
             result=result,
@@ -402,7 +501,6 @@ class FunctionCallingToolBatchExecutor:
             tool_call=record.tool_call,
             result=result,
         )
-        self._append_tool_message(state, record)
 
     async def _apply_tool_batch_side_effects(
         self,
@@ -462,6 +560,15 @@ class FunctionCallingToolBatchExecutor:
                 iteration=iteration,
             )
         if expanded_tools:
+            if state.journal is not None:
+                await state.journal.append(
+                    AgentRunEventType.CAPABILITIES_EXPANDED,
+                    step_index=iteration,
+                    payload={
+                        "dynamically_discovered_tools": list(expanded_tools),
+                        "effective_tool_catalog": list(state.selected_tool_names),
+                    },
+                )
             await self._emit_tool_expansion_event(
                 state=state,
                 expanded_tools=expanded_tools,
@@ -499,7 +606,7 @@ class FunctionCallingToolBatchExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
@@ -521,7 +628,7 @@ class FunctionCallingToolBatchExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
@@ -604,7 +711,7 @@ class FunctionCallingToolBatchExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )

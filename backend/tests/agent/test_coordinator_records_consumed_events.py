@@ -1,7 +1,7 @@
 """Phase F Task 10: ChatExecutionCoordinator records which messages each
 run consumed into ConversationLog.
 
-When the coordinator drives a route_decision-backed execution, it must
+When the coordinator drives a unified agent run, it must
 emit a ``record_consumed(session_id, run_id, revision, message_ids)``
 call before the runner starts, so that a later cross-run retract can
 find this run via ``ConversationLog.find_dependents``.
@@ -18,7 +18,6 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
     ExecutionHandlerRegistry,
-    ExecutionMode,
     UserMessagePayload,
 )
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
@@ -33,7 +32,6 @@ from magi.agent.task_agents.common.contracts import (
     ToolSelection,
 )
 from magi.events.events import EventTypes
-from magi.tools.context_routing import RouteDecision
 
 
 # ---------------------------------------------------------------------------
@@ -84,34 +82,24 @@ class _RaisingLog(_RecordingLog):
 
 
 class _FakeToolRegistry:
-    def list_tools(self) -> list[str]:
+    def list_tools(self, **kwargs) -> list[str]:  # type: ignore[no-untyped-def]
+        _ = kwargs
         return []
 
+    def get_skill_names(self) -> list[str]:
+        return []
 
-class _FakeContextDecider:
-    def __init__(self) -> None:
-        self.tool_registry = _FakeToolRegistry()
-
-
-class _FakeExecutionOutcome:
-    def __init__(self, result: ExecutionResult, *, used_graph: bool = True) -> None:
-        self.result = result
-        self.used_graph = used_graph
-
-
-class _FakeExecutionEngine:
-    """Returns a canned graph-backed result for any request."""
-
+class _FakeAgentRunHandler:
     def __init__(self, response_text: str = "ok") -> None:
         self._result = ExecutionResult(
-            mode=ExecutionMode.DIRECT_LLM,
+            mode=None,
             response_text=response_text,
         )
         self.requests = []
 
     async def execute(self, request):
         self.requests.append(request)
-        return _FakeExecutionOutcome(self._result)
+        return self._result
 
 
 def _build_context(
@@ -151,22 +139,13 @@ def _build_context(
 
 
 def _build_request(ctx: ChatRuntimeContext) -> ExecutionRequest:
-    route = RouteDecision(
-        profile="chat",
-        graph_shape="reply",
-        complexity="simple",
-        tools=[],
-        reasoning="",
-    )
     intent = IntentDecision(
         intent="chat",
-        difficulty="normal",
-        execution_mode=ExecutionMode.DIRECT_LLM,
-        route_decision=route,
+        execution_mode=None,
         reasoning="",
     )
     return ExecutionRequest(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         context=ctx,
         intent=intent,
         tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
@@ -175,9 +154,10 @@ def _build_request(ctx: ChatRuntimeContext) -> ExecutionRequest:
 
 def _build_coordinator(*, conversation_log) -> ChatExecutionCoordinator:
     return ChatExecutionCoordinator(
-        context_decider=_FakeContextDecider(),
+        tool_registry=_FakeToolRegistry(),
         fact_classifier=ChatFactClassifier(),
         handler_registry=ExecutionHandlerRegistry(),
+        agent_run_handler=_FakeAgentRunHandler(),
         conversation_log=conversation_log,
     )
 
@@ -193,7 +173,6 @@ async def test_execute_records_consumed_message_ids() -> None:
     records the run as a consumer of those message_ids."""
     log = _RecordingLog(visible_ids=["m1", "m2", "m3"])
     coord = _build_coordinator(conversation_log=log)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=0)
     await coord.execute(_build_request(ctx))
@@ -213,7 +192,6 @@ async def test_execute_uses_context_revision_for_record_consumed() -> None:
     pre- vs post-interrupt consumption."""
     log = _RecordingLog(visible_ids=["m1"])
     coord = _build_coordinator(conversation_log=log)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=2)
     await coord.execute(_build_request(ctx))
@@ -224,10 +202,9 @@ async def test_execute_uses_context_revision_for_record_consumed() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_skips_record_consumed_with_no_log() -> None:
-    """Backward compat: when conversation_log is None, execute must still
+    """When conversation_log is None, execute must still
     drive the runner and return a result without crashing."""
     coord = _build_coordinator(conversation_log=None)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     result = await coord.execute(_build_request(ctx))
@@ -239,7 +216,6 @@ async def test_execute_swallows_log_failure() -> None:
     """A failing log.list_visible_message_ids must not break the run."""
     log = _RaisingLog(visible_ids=[])
     coord = _build_coordinator(conversation_log=log)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     # Should NOT raise. No record either (since lookup failed).
@@ -253,7 +229,6 @@ async def test_execute_skips_record_consumed_when_no_session_or_run_id() -> None
     """No session_id / run_id → can't record, just drive the runner."""
     log = _RecordingLog(visible_ids=["m1"])
     coord = _build_coordinator(conversation_log=log)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="", run_id="")
     await coord.execute(_build_request(ctx))
@@ -265,7 +240,6 @@ async def test_execute_skips_record_consumed_when_history_empty() -> None:
     """First-ever turn: nothing to consume, so no record is written."""
     log = _RecordingLog(visible_ids=[])
     coord = _build_coordinator(conversation_log=log)
-    coord._execution_engine = _FakeExecutionEngine()
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     await coord.execute(_build_request(ctx))

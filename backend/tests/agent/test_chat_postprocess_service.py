@@ -34,6 +34,7 @@ from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionResult,
     IncomingFactKind,
+    ToolSelection,
     UserMessagePayload,
 )
 from magi.agent.runtime.contracts import FactRecord
@@ -283,7 +284,7 @@ class _RecordingTaskAgentManager:
 class _FakeIntentDecision:
     def __init__(self) -> None:
         self.intent = "chat"
-        self.execution_mode = ExecutionMode.DIRECT_LLM
+        self.execution_mode = None
         self.tools: list[str] = []
         self.task_hint: dict[str, object] = {}
         self.recommended_tools: list[dict[str, object]] = []
@@ -882,9 +883,9 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
             "user_message",
         ]
         assert [turn.execution_mode for turn in analyzed_batches[0]] == [
-            "direct_llm",
-            "direct_llm",
-            "direct_llm",
+                "agent_run",
+                "agent_run",
+                "agent_run",
         ]
         assert [turn.persona_id for turn in analyzed_batches[0]] == [
             "seven",
@@ -2157,452 +2158,6 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
     assert context_assembler.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
 
 
-@pytest.mark.asyncio
-async def test_record_intent_resolution_stops_emitting_runtime_trace_events(
-    runtime_trace_store: RuntimeTraceStore,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "hello",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="hello",
-            turn_id="turn-1",
-        ),
-    )
-
-    await service.record_intent_resolution(context, _FakeIntentDecision())
-
-    assert event_emitter.runtime_events == []
-
-
-@pytest.mark.asyncio
-async def test_record_intent_resolution_persists_turn_and_intent_trace_rows(
-    runtime_trace_store: RuntimeTraceStore,
-    trace_event_bus,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        max_fact_memory=10,
-        event_bus=trace_event_bus,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "hello",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="hello",
-            turn_id="turn-1",
-        ),
-    )
-
-    await service.record_intent_resolution(context, _FakeIntentDecision())
-    await trace_event_bus.drain()
-
-    turn = await runtime_trace_store.get_turn("turn-1")
-    intent_span = await runtime_trace_store.get_span("turn-1:intent_resolution")
-    intent_resolution = await runtime_trace_store.get_intent_resolution("turn-1:intent_resolution")
-    notifications = await runtime_trace_store.list_notifications(after_id=0)
-
-    assert turn is not None
-    assert turn.trace_id == "trace:turn-1"
-    assert turn.status == "running"
-    assert turn.user_message_preview == "hello"
-    assert intent_span is not None
-    assert intent_span.parent_span_id == "turn-1:turn"
-    assert intent_span.node_type == "intent_resolution"
-    assert intent_span.status == "completed"
-    assert intent_resolution is not None
-    assert intent_resolution.intent == "chat"
-    assert intent_resolution.execution_mode == "direct_llm"
-    assert json.loads(intent_resolution.selected_tools_json) == {
-        "router_tools": [],
-        "selected_tools": [],
-        "task_hint": {},
-        "recommended_tools": [],
-        # commit efc3161b (align runtime trace flow) added the optional
-        # llm_trace payload to the persisted selected_tools_json so the
-        # frontend can render provider/model/token details inline.
-        "llm_trace": {
-            "provider": "openai",
-            "model": "gpt-4.1-mini",
-            "input_tokens": 48,
-            "output_tokens": 12,
-            "total_tokens": 60,
-            "reasoning_tokens": 0,
-            "thinking_enabled": False,
-            "duration_ms": 310,
-        },
-    }
-    assert len(notifications) == 1
-    assert notifications[0].channel == "turn_ux_plan"
-    assert json.loads(notifications[0].payload_json)["ux_plan"]["assistant_surface_mode"] == "final_only"
-
-
-@pytest.mark.asyncio
-async def test_record_tool_selection_updates_structured_intent_trace_payload(
-    runtime_trace_store: RuntimeTraceStore,
-    trace_event_bus,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        max_fact_memory=10,
-        event_bus=trace_event_bus,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "分析 backend/src/magi/agent 的调用链路",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-tools",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="分析 backend/src/magi/agent 的调用链路",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="分析 backend/src/magi/agent 的调用链路",
-            turn_id="turn-tools",
-        ),
-    )
-    decision = _FakeIntentDecision()
-    decision.execution_mode = ExecutionMode.FUNCTION_CALLING
-    decision.tools = ["file_read", "grep", "glob"]
-    decision.task_hint = {
-        "task_intent": "trace_implementation",
-        "domain": "codebase",
-        "operation": "discover",
-    }
-
-    await service.record_intent_resolution(context, decision)
-    await trace_event_bus.drain()
-    await service.record_tool_selection(
-        context,
-        decision,
-        type(
-            "_ToolSelection",
-            (),
-            {
-                "tools": ["glob", "grep", "file_read"],
-                "task_hint": decision.task_hint,
-                "recommended_tools": [{"tool": "glob"}, {"tool": "grep"}],
-            },
-        )(),
-    )
-    await trace_event_bus.drain()
-
-    intent_resolution = await runtime_trace_store.get_intent_resolution("turn-tools:intent_resolution")
-
-    assert intent_resolution is not None
-    payload = json.loads(intent_resolution.selected_tools_json)
-    assert payload["router_tools"] == ["file_read", "grep", "glob"]
-    assert payload["selected_tools"] == ["glob", "grep", "file_read"]
-    assert payload["task_hint"]["task_intent"] == "trace_implementation"
-    assert payload["recommended_tools"][0]["tool"] == "glob"
-
-
-@pytest.mark.asyncio
-async def test_record_intent_resolution_commits_interim_turn_state_before_notification(
-    runtime_trace_store: RuntimeTraceStore,
-    chat_store: ChatStore,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        chat_store=chat_store,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "hello",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-interim",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="hello",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="hello",
-            turn_id="turn-interim",
-        ),
-    )
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-interim",
-        message_text="hello",
-        created_at_ms=1710000000000,
-    )
-    decision = _FakeIntentDecision()
-    decision.execution_mode = ExecutionMode.ORCHESTRATION_LAUNCH
-    decision.ux_plan = type(
-        "_UxPlan",
-        (),
-        {
-            "to_dict": staticmethod(
-                lambda: {
-                    "assistant_surface_mode": "interim_then_final",
-                    "thinking_indicator": "hidden",
-                    "trace_display_mode": "collapsible",
-                    "allow_trace_collapse": True,
-                    "interim_text": "稍等我查一下",
-                }
-            )
-        },
-    )()
-
-    seen_kinds_at_notify: list[str] = []
-    original_emit = service._emit_turn_ux_plan_notification
-
-    async def _wrapped_emit_turn_ux_plan_notification(**kwargs):  # type: ignore[no-untyped-def]
-        messages = await chat_store.list_messages(session_id="session-1")
-        seen_kinds_at_notify.extend(message.message_kind for message in messages)
-        await original_emit(**kwargs)
-
-    service._emit_turn_ux_plan_notification = _wrapped_emit_turn_ux_plan_notification  # type: ignore[method-assign]
-
-    await service.record_intent_resolution(context, decision)
-
-    turn = await chat_store.get_turn("turn-interim")
-    messages = await chat_store.list_messages(session_id="session-1")
-    notifications = await runtime_trace_store.list_notifications(after_id=0)
-
-    assert turn is not None
-    assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "interim_then_final"
-    assert "assistant_interim" in seen_kinds_at_notify
-    assert [message.message_kind for message in messages] == ["user_text", "assistant_interim"]
-    assert messages[-1].content_text == "稍等我查一下"
-    payload = json.loads(notifications[0].payload_json)
-    assert payload["message_id"] == messages[-1].message_id
-    assert payload["message_kind"] == "assistant_interim"
-
-
-@pytest.mark.asyncio
-async def test_record_intent_resolution_commits_reaction_turn_state_before_notification(
-    runtime_trace_store: RuntimeTraceStore,
-    chat_store: ChatStore,
-) -> None:
-    event_emitter = _FakeEventEmitter()
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        runtime_trace_store=runtime_trace_store,
-        chat_store=chat_store,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={
-            "content": "嗯",
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-reaction",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="嗯",
-        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="嗯",
-            turn_id="turn-reaction",
-        ),
-    )
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-reaction",
-        message_text="嗯",
-        created_at_ms=1710000000000,
-    )
-    decision = _FakeIntentDecision()
-    decision.execution_mode = ExecutionMode.DIRECT_LLM
-    decision.ux_plan = type(
-        "_UxPlan",
-        (),
-        {
-            "to_dict": staticmethod(
-                lambda: {
-                    "assistant_surface_mode": "reaction_only",
-                    "thinking_indicator": "hidden",
-                    "trace_display_mode": "none",
-                    "allow_trace_collapse": False,
-                    "reaction_style": "acknowledge",
-                }
-            )
-        },
-    )()
-
-    await service.record_intent_resolution(context, decision)
-
-    turn = await chat_store.get_turn("turn-reaction")
-    messages = await chat_store.list_messages(session_id="session-1")
-    notifications = await runtime_trace_store.list_notifications(after_id=0)
-
-    assert turn is not None
-    assert json.loads(turn.ux_plan_json)["assistant_surface_mode"] == "reaction_only"
-    assert [message.message_kind for message in messages] == ["user_text"]
-    assert messages[-1].label is not None
-    assert messages[-1].label.to_dict() == {
-        "kind": "emoji",
-        "text": "👌",
-        "applied_by": "assistant",
-        "source": "reaction_only",
-        "created_at_ms": 1710000000000,
-    }
-    payload = json.loads(notifications[0].payload_json)
-    assert payload["message_id"] is None
-    assert payload["message_kind"] is None
-
 
 @pytest.mark.asyncio
 async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
@@ -2828,16 +2383,16 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         ),
     )
     decision = _FakeIntentDecision()
-    decision.execution_mode = ExecutionMode.FUNCTION_CALLING
+    decision.execution_mode = None
 
-    await service.record_intent_resolution(first_context, decision)
+    await service.record_tool_selection(first_context, decision, ToolSelection())
     await service.persist_turn_supersessions(
         superseded_turns=[
             TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="interrupt"),
         ],
         updated_at_ms=1710000001000,
     )
-    await service.record_intent_resolution(second_context, decision)
+    await service.record_tool_selection(second_context, decision, ToolSelection())
     await trace_event_bus.drain()
 
     first_trace = await runtime_trace_store.get_turn("turn-1")
@@ -2902,7 +2457,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="You bring up Asuka a lot.",
         correlation_id="corr-1",
         turn_id="turn-1",
@@ -2968,7 +2523,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="final answer",
         correlation_id="corr-1",
         turn_id="turn-1",
@@ -3055,7 +2610,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="final answer",
         correlation_id="corr-1",
         turn_id="turn-1",
@@ -3166,7 +2721,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         persona_id="persona-seven",
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="final answer",
         correlation_id="corr-1",
         turn_id="turn-final",
@@ -3314,7 +2869,7 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
         created_at_ms=1710000000000,
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="first part second part",
         correlation_id="corr-1",
         turn_id="turn-fallback",
@@ -3409,7 +2964,7 @@ async def test_handle_strips_sentinel_from_history_and_events() -> None:
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="alpha‖beta",
         correlation_id="corr-sentinel",
         turn_id="turn-sentinel",
@@ -3502,7 +3057,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
         created_at_ms=1710000000000,
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text=response_text,
         skip_emit=skip_emit,
         correlation_id="corr-cancelled",
@@ -3597,7 +3152,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         created_at_ms=1710000000000,
     )
     reaction_decision = _FakeIntentDecision()
-    reaction_decision.execution_mode = ExecutionMode.DIRECT_LLM
+    reaction_decision.execution_mode = None
     reaction_decision.ux_plan = type(
         "_UxPlan",
         (),
@@ -3613,10 +3168,8 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
             )
         },
     )()
-    await service.record_intent_resolution(context, reaction_decision)
-
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="收到啦",
         correlation_id="corr-1",
         turn_id="turn-react-final",
@@ -3719,7 +3272,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
     )
 
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="",
         skip_emit=True,
         correlation_id="corr-none",
@@ -3814,7 +3367,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         created_at_ms=1710000000000,
     )
     reaction_decision = _FakeIntentDecision()
-    reaction_decision.execution_mode = ExecutionMode.DIRECT_LLM
+    reaction_decision.execution_mode = None
     reaction_decision.ux_plan = type(
         "_UxPlan",
         (),
@@ -3830,10 +3383,8 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
             )
         },
     )()
-    await service.record_intent_resolution(context, reaction_decision)
-
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="",
         skip_emit=True,
         correlation_id="corr-react-empty",
@@ -4004,7 +3555,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="Hi!",
         correlation_id="corr-1",
         turn_id="turn-1",
@@ -4116,7 +3667,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="Why did the chicken cross the road?",
         correlation_id="corr-stream",
         turn_id="turn-streamed",
@@ -4335,7 +3886,7 @@ def _plain_non_streamed_context_and_result(*, turn_id: str = "turn-1"):
         ),
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="final answer",
         correlation_id="corr-1",
         turn_id=turn_id,
@@ -5614,7 +5165,7 @@ async def test_segmented_agent_response_routes_each_segment_through_seam(
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
     )
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="part one part two",
         turn_id="turn-seg",
         ux_plan={"assistant_surface_mode": "final_only"},

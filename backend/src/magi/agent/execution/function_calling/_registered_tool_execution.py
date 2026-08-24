@@ -56,7 +56,7 @@ class _RegisteredToolExecutor:
         self, request: _RegisteredToolExecutionRequest
     ) -> dict[str, Any] | ToolCallResult:
         arguments, guardrail_error = self._host._apply_worker_explore_guardrails(
-            intent=request.intent,
+            execution_preset=request.execution_preset,
             tool_name=request.tool_name,
             arguments=request.arguments,
             execution_workspace=request.execution_workspace,
@@ -70,10 +70,10 @@ class _RegisteredToolExecutor:
         )
         if full_content_logging_enabled():
             logger.warning(
-                "[FunctionCalling] Blocked by guardrail: %s | intent=%s | "
+                "[FunctionCalling] Blocked by guardrail: %s | execution_preset=%s | "
                 "workspace=%s | args=%s | reason=%s",
                 request.tool_name,
-                request.intent,
+                request.execution_preset,
                 request.workspace_root,
                 arguments,
                 guardrail_error,
@@ -123,7 +123,7 @@ class _RegisteredToolExecutor:
                 "user_id": request.user_id,
                 "session_id": request.session_id or "",
                 "turn_id": request.turn_id or "",
-                "intent": request.intent,
+                "execution_preset": request.execution_preset,
                 "run_id": request.session_run_id or "",
                 "run_revision": str(request.session_run_revision),
                 "target_task_agent_type": "chat",
@@ -148,7 +148,6 @@ class _RegisteredToolExecutor:
             return arguments
         return self._host._normalize_agent_launch_arguments(
             arguments=arguments,
-            route_decision=request.route_decision,
         )
 
     async def _check_permission_gateway(
@@ -169,7 +168,7 @@ class _RegisteredToolExecutor:
             session_id=request.session_id,
             turn_id=request.turn_id,
             workspace=workspace,
-            intent=request.intent,
+            execution_preset=request.execution_preset,
             start_time=request.start_time,
             gateway=gateway,
         )

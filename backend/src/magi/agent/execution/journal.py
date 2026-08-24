@@ -47,6 +47,14 @@ class AgentRunJournal:
         if self._store is not None:
             await self._store.upsert_run_manifest(manifest.to_dict())
 
+    async def resume(self) -> None:
+        """Continue event numbering for an already persisted run."""
+        if self._store is None:
+            return
+        events = await self._store.list_run_events(self.run_id)
+        if events:
+            self._sequence = max(int(item["sequence"]) for item in events)
+
     async def append(
         self,
         event_type: AgentRunEventType,

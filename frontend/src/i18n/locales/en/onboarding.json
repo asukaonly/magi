@@ -768,7 +768,7 @@
       "timeout": "Image Timeout (seconds)"
     },
     "scenarios": {
-      "context_decider": {
+      "auxiliary": {
         "title": "Planning Model",
         "desc": "Quickly analyzes each message to determine intent, select tools, and plan the execution path. A fast, cost-effective model is recommended."
       },

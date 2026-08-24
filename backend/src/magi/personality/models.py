@@ -35,9 +35,3 @@ class EmotionalState:
     focus_state: str = "normal"
     social_state: str = "neutral"
     updated_at: float = field(default_factory=time.time)
-    # Trigger IDs that fired on the previous turn. The planner consumes this
-    # as carryover when the current turn produces no fresh triggers, so the
-    # persona does not snap from "angry" to "neutral" between adjacent
-    # turns. Only NEW (non-carryover) triggers are written here, so the
-    # carryover effect is bounded to one hop.
-    recent_active_trigger_ids: List[str] = field(default_factory=list)

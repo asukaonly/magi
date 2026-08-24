@@ -46,11 +46,10 @@ async def test_fork_depth_resets_on_exit(monkeypatch):
     sub = SkillSubagent(skill=skill, llm_adapter=MagicMock())
 
     # Stub out the actual heavy paths so execute returns quickly.
-    async def fake_direct(**kwargs):
+    async def fake_agent_run(**kwargs):
         return "ok"
 
-    sub._execute_direct = fake_direct  # type: ignore[assignment]
-    sub._should_use_tools = lambda *_: False  # type: ignore[assignment]
+    sub._execute_agent_run = fake_agent_run  # type: ignore[method-assign]
 
     before = subagent_module._fork_depth.get()
     result = await sub.execute(user_message="hi", system_prompt="sys")

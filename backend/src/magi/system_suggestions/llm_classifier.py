@@ -1,7 +1,7 @@
 """Batch LLM classifier for system suggestions.
 
-Given recent conversation text + candidate capabilities, asks the
-context_decider scenario model which capabilities are genuinely relevant.
+Given recent conversation text + candidate capabilities, asks the core model
+which capabilities are genuinely relevant.
 Thinking is off; output is structured JSON. Used off the user-latency path
 (fires after a turn); the engine degrades to keyword scoring on any failure.
 """
@@ -67,11 +67,11 @@ def parse_classify_response(raw: str) -> dict[str, float]:
 
 
 async def classify_with_core_model(recent_text: str, candidates: list[dict], locale: str) -> dict[str, float]:
-    """Production classify: one context_decider call, thinking off, JSON out."""
+    """Classify suggestions off the interactive user-latency path."""
     from magi.config.models import LLMScenario
     from magi.llm.provider import get_scenario_llm_pool
 
-    adapter = get_scenario_llm_pool().get(LLMScenario.CONTEXT_DECIDER)
+    adapter = get_scenario_llm_pool().get(LLMScenario.CORE)
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": build_user_prompt(recent_text, candidates, locale)},

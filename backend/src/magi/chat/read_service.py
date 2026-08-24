@@ -484,6 +484,17 @@ class ChatReadService(
                     (user_id, session_id),
                 )
             if "agent_run_manifests" in existing_tables:
+                if "agent_run_events" in existing_tables:
+                    conn.execute(
+                        """
+                        DELETE FROM agent_run_events
+                        WHERE run_id IN (
+                            SELECT run_id FROM agent_run_manifests
+                            WHERE user_id = ? AND session_id = ?
+                        )
+                        """,
+                        (user_id, session_id),
+                    )
                 conn.execute(
                     "DELETE FROM agent_run_manifests WHERE user_id = ? AND session_id = ?",
                     (user_id, session_id),
@@ -516,6 +527,7 @@ class ChatReadService(
             return
         conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
         try:
+            conn.execute("PRAGMA secure_delete=ON")
             existing_tables = {
                 str(row[0])
                 for row in conn.execute(
@@ -552,6 +564,17 @@ class ChatReadService(
                     (user_id, session_id, turn_id),
                 )
             if "agent_run_manifests" in existing_tables:
+                if "agent_run_events" in existing_tables:
+                    conn.execute(
+                        """
+                        DELETE FROM agent_run_events
+                        WHERE run_id IN (
+                            SELECT run_id FROM agent_run_manifests
+                            WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                        )
+                        """,
+                        (user_id, session_id, turn_id),
+                    )
                 conn.execute(
                     """
                     DELETE FROM agent_run_manifests

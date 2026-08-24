@@ -39,7 +39,7 @@ class _PermissionGateRequest:
     session_id: Optional[str]
     turn_id: Optional[str]
     workspace: Optional[str]
-    intent: str
+    execution_preset: str
     start_time: float
 
 
@@ -67,7 +67,7 @@ class FunctionCallingPermissionMixin:
         session_id: Optional[str],
         turn_id: Optional[str],
         workspace: Optional[str],
-        intent: str,
+        execution_preset: str,
         start_time: float,
         gateway: Any = None,
     ) -> Optional[ToolCallResult]:
@@ -85,7 +85,7 @@ class FunctionCallingPermissionMixin:
             session_id=session_id,
             turn_id=turn_id,
             workspace=workspace,
-            intent=intent,
+            execution_preset=execution_preset,
             start_time=start_time,
         )
         tool_info = host.tool_registry.get_tool_info(tool_name) or {}
@@ -102,7 +102,7 @@ class FunctionCallingPermissionMixin:
                 tool_name=tool_name,
                 arguments=arguments,
                 agent_id=agent_id,
-                origin=_tool_origin(imports, intent),
+                origin=_tool_origin(imports, execution_preset),
                 session_id=session_id,
                 turn_id=turn_id,
                 workspace=workspace,
@@ -135,8 +135,8 @@ def _load_permission_gate_imports() -> _PermissionGateImports | None:
     )
 
 
-def _tool_origin(imports: _PermissionGateImports, intent: str) -> Any:
-    if isinstance(intent, str) and intent.startswith("worker_"):
+def _tool_origin(imports: _PermissionGateImports, execution_preset: str) -> Any:
+    if isinstance(execution_preset, str) and execution_preset.startswith("worker_"):
         return imports.tool_origin.SUBAGENT
     return imports.tool_origin.CHAT
 

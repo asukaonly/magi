@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from typing import TYPE_CHECKING
-
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ...cancel import CancelToken, null_cancel_token
@@ -16,10 +14,6 @@ from .step_models import (
     StepExecutionContext,
 )
 from .step_tool_batch import FunctionCallingToolBatchExecutor
-
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
-
 
 class FunctionCallingStepExecutor:
     """Execute one LLM decision and at most one tool batch."""
@@ -33,19 +27,19 @@ class FunctionCallingStepExecutor:
         *,
         state: FunctionCallingStepState,
         user_message: str,
+        requested_thinking_depth: ThinkingDepth | None = None,
         thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         user_id: str,
         session_id: str | None,
         session_run_id: str | None = None,
         session_run_revision: int = 0,
         turn_id: str | None,
-        intent: str,
+        execution_preset: str,
         execution_agent_id: str,
         execution_workspace: str | None = None,
         llm_timeout_seconds: float | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
-        route_decision: "RouteDecision | None" = None,
     ) -> FunctionCallingStepOutcome:
         """Run one bounded loop iteration and return control to the caller."""
         token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -56,14 +50,14 @@ class FunctionCallingStepExecutor:
             session_run_id=session_run_id,
             session_run_revision=session_run_revision,
             turn_id=turn_id,
-            intent=intent,
+            execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
-            route_decision=route_decision,
         )
         return await self._execute_step_with_context(
             state=state,
             ctx=ctx,
+            requested_thinking_depth=requested_thinking_depth or thinking_depth,
             thinking_depth=thinking_depth,
             llm_timeout_seconds=llm_timeout_seconds,
             cancel_token=token,
@@ -75,6 +69,7 @@ class FunctionCallingStepExecutor:
         *,
         state: FunctionCallingStepState,
         ctx: StepExecutionContext,
+        requested_thinking_depth: ThinkingDepth,
         thinking_depth: ThinkingDepth,
         llm_timeout_seconds: float | None,
         cancel_token: CancelToken,
@@ -82,6 +77,23 @@ class FunctionCallingStepExecutor:
     ) -> FunctionCallingStepOutcome:
         state.iteration += 1
         iteration = state.iteration
+        if state.journal is not None:
+            from ..contracts import AgentRunEventType
+
+            if state.repair_iterations:
+                await state.journal.append(
+                    AgentRunEventType.REPAIR_STEP_STARTED,
+                    step_index=iteration,
+                    payload={"repair_iteration": state.repair_iterations},
+                )
+            await state.journal.append(
+                AgentRunEventType.STEP_STARTED,
+                step_index=iteration,
+                payload={
+                    "requested_reasoning_depth": requested_thinking_depth.value,
+                    "effective_reasoning_depth": thinking_depth.value,
+                },
+            )
         iteration_started_at_ms = await self._start_iteration(ctx, iteration)
         response, terminal_outcome = await self._call_llm_for_step(
             state=state,
@@ -100,6 +112,30 @@ class FunctionCallingStepExecutor:
             state.latest_context_usage = dict(response["context_usage"])
 
         assistant_message = response.get("assistant_message")
+        if state.journal is not None:
+            from ..contracts import AgentRunEventType
+
+            await state.journal.append(
+                AgentRunEventType.MODEL_OUTPUT,
+                step_index=iteration,
+                payload={
+                    "assistant_message": (
+                        dict(assistant_message)
+                        if isinstance(assistant_message, dict)
+                        else None
+                    ),
+                    "content": response.get("content"),
+                    "tool_calls": [
+                        {
+                            "id": getattr(tool_call, "id", None),
+                            "name": getattr(tool_call, "name", None),
+                            "arguments": getattr(tool_call, "arguments", None),
+                        }
+                        for tool_call in (response.get("tool_calls") or [])
+                    ],
+                    "llm_trace": dict(response.get("llm_trace") or {}),
+                },
+            )
         if assistant_message:
             self._driver._append_message(state.messages, assistant_message)
 
@@ -133,7 +169,7 @@ class FunctionCallingStepExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )
@@ -159,7 +195,7 @@ class FunctionCallingStepExecutor:
                 timeout_seconds=llm_timeout_seconds,
                 session_id=ctx.session_id,
                 turn_id=ctx.turn_id,
-                intent=ctx.intent,
+                execution_preset=ctx.execution_preset,
                 execution_agent_id=ctx.execution_agent_id,
                 iteration=iteration,
                 control=control,
@@ -265,7 +301,7 @@ class FunctionCallingStepExecutor:
                 "user_id": ctx.user_id,
                 "session_id": ctx.session_id,
                 "turn_id": ctx.turn_id,
-                "intent": ctx.intent,
+                "execution_preset": ctx.execution_preset,
                 "execution_agent_id": ctx.execution_agent_id,
             }
         )

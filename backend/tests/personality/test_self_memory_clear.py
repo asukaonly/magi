@@ -132,7 +132,6 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     assert behavior._stats_cache == {}
     assert emotion._current_state is not None
     assert emotion._current_state.current_mood == "neutral"
-    assert emotion._current_state.recent_active_trigger_ids == []
     assert emotion._event_history == []
     assert growth._relationship_cache == {}
     assert growth._milestone_cache is None

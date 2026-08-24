@@ -10,11 +10,17 @@ from .models import (
     TaskBehaviorProfile,
 )
 from .self_memory import SelfMemory
-from .turn_planner import ActivePersonaTrigger, PersonaTurnPlan, PersonaTurnPlanner
+from .turn_planner import (
+    ActivePersonaTrigger,
+    PersonaRegisterCandidate,
+    PersonaTurnPlan,
+    PersonaTurnPlanner,
+)
 
 __all__ = [
     "AmbiguityTolerance",
     "ActivePersonaTrigger",
+    "PersonaRegisterCandidate",
     "BehaviorEvolutionEngine",
     "EmotionalState",
     "EmotionalStateEngine",

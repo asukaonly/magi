@@ -3,7 +3,7 @@
 These thin factories let lower layers (e.g. ``magi.skills.subagent``) drive a
 headless function-calling run without importing the agent execution engine
 directly. The composition root injects them downward; the agent layer owns the
-concrete ``FunctionCallingOrchestrator`` / ``EngineRunInput`` construction here.
+concrete ``FunctionCallingOrchestrator`` / ``AgentRunRequest`` construction here.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from .orchestrator import FunctionCallingOrchestrator
-from .run_input import EngineRunInput
+from .run_input import AgentRunRequest
 
 
 def build_function_calling_orchestrator(
@@ -36,6 +36,6 @@ def build_function_calling_orchestrator(
     )
 
 
-def build_headless_engine_run_input(**kwargs: Any) -> EngineRunInput:
-    """Build an :class:`EngineRunInput` for a headless (subagent) run."""
-    return EngineRunInput.headless(**kwargs)
+def build_headless_agent_run_request(**kwargs: Any) -> AgentRunRequest:
+    """Build an :class:`AgentRunRequest` for a headless run."""
+    return AgentRunRequest.headless(**kwargs)

@@ -461,7 +461,7 @@ providers:
         default_model: glm-5.2
         default_classify_model: glm-4.7
         default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
-        allowed_scenarios: [context_compact, context_decider, core]
+        allowed_scenarios: [context_compact, auxiliary, core]
         endpoints:
           - id: china
             label: China
@@ -997,7 +997,7 @@ providers:
         default_model: qwen3.7-plus
         default_classify_model: qwen3.6-plus
         default_base_url: https://coding.dashscope.aliyuncs.com/v1
-        allowed_scenarios: [context_compact, context_decider, core]
+        allowed_scenarios: [context_compact, auxiliary, core]
         endpoints:
           - id: china
             label: China
@@ -1366,7 +1366,7 @@ providers:
         default_model: MiniMax-M2.7
         default_classify_model: MiniMax-M2.7
         default_base_url: https://api.minimaxi.com/v1
-        allowed_scenarios: [context_compact, context_decider, core]
+        allowed_scenarios: [context_compact, auxiliary, core]
         endpoints:
           - id: china
             label: China
@@ -1474,7 +1474,7 @@ providers:
         default_model: mimo-v2.5-pro
         default_classify_model: mimo-v2.5
         default_base_url: https://token-plan-cn.xiaomimimo.com/v1
-        allowed_scenarios: [context_compact, context_decider, core]
+        allowed_scenarios: [context_compact, auxiliary, core]
         endpoints:
           - id: china
             label: China

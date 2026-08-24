@@ -261,7 +261,6 @@ class AgentRuntimeModule(LifecycleModule):
             chat_store=deps.chat_store,
             chat_read_service_factory=self._chat_read_service_factory,
             config=deps.config,
-            background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
             background_launch_service=(
                 background_wiring.launch_service if bg_settings.enabled else None
             ),

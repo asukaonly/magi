@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 from threading import RLock
-from typing import TYPE_CHECKING
-
 from magi.control.run_control import RunControl
 from .execution_state_store import SessionExecutionStateStore
 from .run_store_conversion import SessionRunConversionMixin
 from .run_store_lifecycle import SessionRunLifecycleMixin
 from .run_store_results import SessionRunResultMixin
-
-if TYPE_CHECKING:
-    from magi.agent.run.snapshot import RunSnapshot
-
 
 class SessionRunStore(
     SessionRunLifecycleMixin,
@@ -40,8 +34,6 @@ class SessionRunStore(
         self._workbench_store = workbench_store
         self._lock = RLock()
         self._run_controls: dict[tuple[str, str], RunControl] = {}
-        # Phase E: per-run snapshot storage (in-memory; persistence via background task spec)
-        self._run_snapshots: dict[tuple[str, str], "RunSnapshot"] = {}
 
 
 __all__ = ["SessionRunStore"]

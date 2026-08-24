@@ -84,7 +84,6 @@ _RUNTIME_CONFIG_INIT_FIELDS = (
     "runtime_trace_store",
     "chat_store",
     "chat_read_service_factory",
-    "background_dispatcher",
     "background_launch_service",
     "permission_gateway_provider",
     "control_session_store_provider",
@@ -99,6 +98,7 @@ class _ChatRuntimePreferences:
     streaming_chat_enabled: bool
     allow_media_grounding_for_conversation: bool
     core_model_supports_vision: bool
+    core_model_supports_tool_calls: bool
 
 
 @dataclass(slots=True)
@@ -146,7 +146,6 @@ class ChatTaskAgent(
         runtime_trace_store: RuntimeTraceStore | None = None,
         chat_store: ChatStore | None = None,
         chat_read_service_factory: Callable[[], ChatReadService] | None = None,
-        background_dispatcher: Any | None = None,
         background_launch_service: Any | None = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         control_session_store_provider: Callable[[], Any] | None = None,
@@ -206,7 +205,6 @@ class ChatTaskAgent(
 
     def _install_runtime_parts(self, runtime_parts: Any) -> None:
         self._chat_read_service_factory = runtime_parts.chat_read_service_factory
-        self.context_decider = runtime_parts.context_decider
         self.prompt_context_assembler = runtime_parts.prompt_context_assembler
         self.prompt_context_renderer = runtime_parts.prompt_context_renderer
         self._chat_read_service = runtime_parts.chat_read_service
@@ -770,6 +768,9 @@ class ChatTaskAgent(
                 context_inputs.preferences.allow_media_grounding_for_conversation
             ),
             core_model_supports_vision=context_inputs.preferences.core_model_supports_vision,
+            core_model_supports_tool_calls=(
+                context_inputs.preferences.core_model_supports_tool_calls
+            ),
             control=turn_control,
         )
 
@@ -1307,10 +1308,14 @@ def _resolve_chat_runtime_preferences() -> _ChatRuntimePreferences:
     core_model_supports_vision = bool(
         getattr(getattr(core_selection, "capabilities", None), "vision", False)
     )
+    core_model_supports_tool_calls = bool(
+        getattr(getattr(core_selection, "capabilities", None), "tool_calling", True)
+    )
     return _ChatRuntimePreferences(
         streaming_chat_enabled=streaming_chat_enabled,
         allow_media_grounding_for_conversation=bool(
             get_user_preference("allow_media_grounding_for_conversation", False)
         ),
         core_model_supports_vision=core_model_supports_vision,
+        core_model_supports_tool_calls=core_model_supports_tool_calls,
     )

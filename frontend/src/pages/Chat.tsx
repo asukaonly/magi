@@ -542,10 +542,12 @@ export const ChatPage: React.FC = () => {
     recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,
+    reasoningPreference,
     sendingMessage,
     setAttachmentMenuOpen,
     setInputValue,
     setReplyTarget,
+    setReasoningPreference,
     startRecallFeedback,
     cancelRecallFeedback,
     convertRecallFeedbackToNormal,
@@ -1275,6 +1277,8 @@ export const ChatPage: React.FC = () => {
         recallFeedbackDraft={recallFeedbackDraft}
         onCancelRecallFeedback={cancelRecallFeedback}
         onConvertRecallFeedbackToNormal={convertRecallFeedbackToNormal}
+        reasoningPreference={reasoningPreference}
+        onReasoningPreferenceChange={setReasoningPreference}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}

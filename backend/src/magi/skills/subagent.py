@@ -16,7 +16,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from magi_plugin_sdk.subprocess import hidden_process_kwargs
 from .schema import SkillContent, SkillResult
@@ -24,8 +24,6 @@ from .tool_registry_port import ToolRegistryPort
 from magi_plugin_sdk.turn import UserTurnInput
 from ..utils.runtime import get_default_chat_workspace_path
 from ..llm.base import LLMAdapter
-from ..llm.provider_bridge import LLMProviderBridge
-from ..config.constants import DEFAULT_SKILL_MAX_TOKENS
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +72,9 @@ class SkillSubagent:
         permission_gateway_provider: Callable[[], Any] | None = None,
         tool_registry: ToolRegistryPort | None = None,
         orchestrator_factory: Callable[..., Any] | None = None,
-        engine_run_input_factory: Callable[..., Any] | None = None,
+        agent_run_request_factory: Callable[..., Any] | None = None,
         active_model_provider: Callable[..., Any] | None = None,
         scenario_llm_pool: Any | None = None,
-        llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize the skill subagent.
@@ -89,11 +86,11 @@ class SkillSubagent:
             tool_registry: The shared tool registry (injected by the
                 composition root). When ``None`` the subagent exposes no
                 tools — equivalent to an empty registry.
-            orchestrator_factory: Builds the function-calling orchestrator.
+            orchestrator_factory: Builds the unified agent orchestrator.
                 Injected by the composition root so the skills layer does not
                 import the agent execution engine.
-            engine_run_input_factory: Builds the headless engine run input
-                (wraps ``EngineRunInput.headless``). Injected for the same
+            agent_run_request_factory: Builds the headless engine run input
+                (wraps ``AgentRunRequest.headless``). Injected for the same
                 reason.
         """
         self.skill = skill
@@ -102,17 +99,15 @@ class SkillSubagent:
         self.permission_gateway_provider = permission_gateway_provider
         self._tool_registry = tool_registry
         self._orchestrator_factory = orchestrator_factory
-        self._engine_run_input_factory = engine_run_input_factory
+        self._agent_run_request_factory = agent_run_request_factory
         self._active_model_provider = active_model_provider
         self._scenario_llm_pool = scenario_llm_pool
-        self._llm_call_reserver = llm_call_reserver
         self.subagent_id = f"skill-{skill.name}-{uuid.uuid4().hex[:8]}"
 
         # Create restricted tool registry view
         self._available_tools = self._build_available_tools()
 
-        # Create function calling orchestrator with restricted tools (lazy)
-        self._function_calling_orchestrator = None
+        self._agent_orchestrator = None
 
         logger.info(
             f"SkillSubagent created | id={self.subagent_id} | "
@@ -169,7 +164,7 @@ class SkillSubagent:
         logger.info(f"SkillSubagent executing | id={self.subagent_id} | depth={depth + 1}")
 
         try:
-            result_content = await self._execute_selected_mode(
+            result_content = await self._execute_agent_run(
                 user_message=user_message,
                 system_prompt=system_prompt,
                 context=context,
@@ -201,25 +196,6 @@ class SkillSubagent:
             execution_time=0.0,
         )
 
-    async def _execute_selected_mode(
-        self,
-        *,
-        user_message: str,
-        system_prompt: str,
-        context: Dict[str, Any],
-    ) -> str:
-        if len(self._available_tools) > 0 and self._should_use_tools(user_message):
-            return await self._execute_with_tools(
-                user_message=user_message,
-                system_prompt=system_prompt,
-                context=context,
-            )
-        return await self._execute_direct(
-            user_message=user_message,
-            system_prompt=system_prompt,
-            context=context,
-        )
-
     def _success_result(self, content: str, execution_time: float) -> SkillResult:
         return SkillResult(
             success=True,
@@ -243,50 +219,14 @@ class SkillSubagent:
             execution_time=execution_time,
         )
 
-    def _should_use_tools(self, user_message: str) -> bool:
-        """
-        Determine if tools should be used for this request.
-
-        Simple heuristic: if allowed_tools is specified and non-empty,
-        we assume tools might be needed.
-
-        Args:
-            user_message: The user's request
-
-        Returns:
-            True if tools should be used
-        """
-        # If tools are restricted, we likely need them
-        if self.allowed_tools:
-            return True
-
-        # Simple heuristics for tool need
-        tool_keywords = [
-            "read",
-            "write",
-            "file",
-            "search",
-            "execute",
-            "run",
-            "bash",
-            "powershell",
-            "command",
-            "fetch",
-            "get",
-            "list",
-            "directory",
-        ]
-        message_lower = user_message.lower()
-        return any(kw in message_lower for kw in tool_keywords)
-
-    async def _execute_with_tools(
+    async def _execute_agent_run(
         self,
         user_message: str,
         system_prompt: str,
         context: Dict[str, Any],
     ) -> str:
         """
-        Execute using function calling with restricted tools.
+        Execute through the unified agent loop, including zero-tool runs.
 
         Args:
             user_message: User's request
@@ -296,15 +236,14 @@ class SkillSubagent:
         Returns:
             Result content
         """
-        if self._orchestrator_factory is None or self._engine_run_input_factory is None:
+        if self._orchestrator_factory is None or self._agent_run_request_factory is None:
             raise RuntimeError(
-                "SkillSubagent tool execution requires orchestrator_factory and "
-                "engine_run_input_factory to be injected by the composition root."
+                "SkillSubagent execution requires orchestrator_factory and "
+                "agent_run_request_factory to be injected by the composition root."
             )
 
-        # Lazy init function calling orchestrator
-        if self._function_calling_orchestrator is None:
-            self._function_calling_orchestrator = self._orchestrator_factory(
+        if self._agent_orchestrator is None:
+            self._agent_orchestrator = self._orchestrator_factory(
                 llm_adapter=self.llm,
                 tool_registry=self._tool_registry,
                 skill_runner=None,
@@ -325,10 +264,10 @@ class SkillSubagent:
             full_system_prompt = full_system_prompt + tool_notice
 
         # Execute with tools via the engine front door (ADR-0004 P4). The
-        # headless EngineRunInput is built by the injected factory so the
+        # headless AgentRunRequest is built by the injected factory so the
         # skills layer does not import the agent execution engine.
-        result = await self._function_calling_orchestrator.run(
-            self._engine_run_input_factory(
+        result = await self._agent_orchestrator.run(
+            self._agent_run_request_factory(
                 turn=UserTurnInput(
                     text=user_message,
                     attachments=[],
@@ -340,8 +279,7 @@ class SkillSubagent:
                 user_id=context.get("user_id", "subagent"),
                 session_id=self.subagent_id,
                 conversation_history=[],
-                disable_thinking=True,
-                intent="skill_execution",
+                execution_preset="skill_execution",
                 execution_workspace=self._resolve_workspace(context),
             )
         )
@@ -358,43 +296,6 @@ class SkillSubagent:
             or get_default_chat_workspace_path()
         )
         return str(Path(raw_workspace).expanduser().resolve())
-
-    async def _execute_direct(
-        self,
-        user_message: str,
-        system_prompt: str,
-        context: Dict[str, Any],
-    ) -> str:
-        """
-        Execute directly without tools.
-
-        Args:
-            user_message: User's request
-            system_prompt: System prompt
-            context: Execution context
-
-        Returns:
-            Result content
-        """
-        provider_bridge = LLMProviderBridge(self.llm)
-        messages = [{"role": "user", "content": user_message}]
-
-        if self._llm_call_reserver is not None:
-            # A fork is an additional branch call, not the parent's prepaid
-            # continuation, so it must reserve fresh task-wide capacity.
-            await self._llm_call_reserver()
-        return await provider_bridge.chat(
-            system_prompt=system_prompt,
-            messages=messages,
-            max_tokens=DEFAULT_SKILL_MAX_TOKENS,
-            temperature=0.7,
-            disable_thinking=True,
-            event_context={
-                "request_kind": "skill_subagent:direct",
-                "session_id": self.subagent_id,
-                "agent_id": self.subagent_id,
-            },
-        )
 
     async def execute_script(
         self,
@@ -446,10 +347,9 @@ def create_skill_subagent(
     permission_gateway_provider: Callable[[], Any] | None = None,
     tool_registry: ToolRegistryPort | None = None,
     orchestrator_factory: Callable[..., Any] | None = None,
-    engine_run_input_factory: Callable[..., Any] | None = None,
+    agent_run_request_factory: Callable[..., Any] | None = None,
     active_model_provider: Callable[..., Any] | None = None,
     scenario_llm_pool: Any | None = None,
-    llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
 ) -> SkillSubagent:
     """
     Factory function to create a SkillSubagent.
@@ -458,9 +358,9 @@ def create_skill_subagent(
         skill: The skill content
         llm_adapter: LLM adapter
         tool_registry: The shared tool registry, injected by the caller.
-        orchestrator_factory: Builds the function-calling orchestrator
+        orchestrator_factory: Builds the unified agent orchestrator
             (injected by the composition root).
-        engine_run_input_factory: Builds the headless engine run input
+        agent_run_request_factory: Builds the headless engine run input
             (injected by the composition root).
 
     Returns:
@@ -474,10 +374,9 @@ def create_skill_subagent(
         permission_gateway_provider=permission_gateway_provider,
         tool_registry=tool_registry,
         orchestrator_factory=orchestrator_factory,
-        engine_run_input_factory=engine_run_input_factory,
+        agent_run_request_factory=agent_run_request_factory,
         active_model_provider=active_model_provider,
         scenario_llm_pool=scenario_llm_pool,
-        llm_call_reserver=llm_call_reserver,
     )
 
 

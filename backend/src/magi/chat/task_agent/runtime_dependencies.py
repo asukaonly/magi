@@ -32,7 +32,6 @@ def build_chat_task_agent_runtime_parts(
 
     return ChatTaskAgentRuntimeParts(
         chat_read_service_factory=context_parts.chat_read_service_factory,
-        context_decider=context_parts.context_decider,
         prompt_context_assembler=context_parts.prompt_context_assembler,
         prompt_context_renderer=context_parts.prompt_context_renderer,
         chat_read_service=context_parts.chat_read_service,

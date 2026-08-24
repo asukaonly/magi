@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ....agent.run.ports import AttachmentResolverPort
+from ....agent.execution.attachment_resolver import AttachmentResolverPort
 
 
 def resolve_effective_turn_attachments(

@@ -368,10 +368,10 @@ def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch)
 
     assert llm_data == {}
     assert config.llm.providers == {}
-    assert "context_decider" in config.llm.selections
+    assert "auxiliary" in config.llm.selections
     assert "core" in config.llm.selections
-    assert config.llm.selections["context_decider"].provider_id == ""
-    assert config.llm.selections["context_decider"].model == ""
+    assert config.llm.selections["auxiliary"].provider_id == ""
+    assert config.llm.selections["auxiliary"].model == ""
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
 
@@ -386,8 +386,8 @@ def test_loader_ignores_llm_environment_overrides(tmp_path: Path, monkeypatch) -
     config = loader.load()
 
     assert config.llm.providers == {}
-    assert config.llm.selections["context_decider"].provider_id == ""
-    assert config.llm.selections["context_decider"].model == ""
+    assert config.llm.selections["auxiliary"].provider_id == ""
+    assert config.llm.selections["auxiliary"].model == ""
     assert config.llm.selections["core"].provider_id == ""
     assert config.llm.selections["core"].model == ""
 

@@ -25,8 +25,8 @@ RUN_TRIGGER_PRIORITIES = frozenset({"foreground", "background", "deferred"})
 class RunTrigger:
     """Describes how / why a run was started.
 
-    Carried on ``AgentRun.trigger`` so downstream consumers (RouteDecision
-    prompt, observability, retract propagation) can reason about provenance.
+    Carried on ``AgentRun.trigger`` so observability, delivery, and retract
+    propagation can preserve provenance.
     """
     trigger_type: str
     source_channel: str | None

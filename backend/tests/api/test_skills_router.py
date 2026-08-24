@@ -9,8 +9,7 @@ from dependency_injector import providers
 from magi.api.routers import skills as skills_router_module
 from magi.core.container import get_container
 from magi.skills import service_access as skills_runtime_service
-from magi.tools.context_decider import ContextDecider
-from magi.tools.context_decider_context import ContextDeciderContext
+from magi.tools.discovery_index import ToolDiscoveryIndex
 from magi.tools.registry import tool_registry
 
 
@@ -86,23 +85,13 @@ def test_build_skills_runtime_registers_only_enabled_skills(isolated_skills_stat
 
     assert set(tool_registry.get_skill_names()) == {"enabled-skill"}
 
-    decider = ContextDecider(tool_registry=tool_registry, llm_adapter=None)
-    prompt = (
-        decider._build_prompt(  # noqa: SLF001 - direct contract verification for routing prompt
-            user_message="Use a skill",
-            available_tools=decider._get_available_tools(),  # noqa: SLF001
-            context=ContextDeciderContext(
-                os_name="Darwin",
-                os_version="25.0.0",
-                current_datetime="2026-03-25T12:00:00+08:00",
-                timezone="Asia/Shanghai",
-            ),
-        )
+    results = ToolDiscoveryIndex.from_registry(tool_registry).search(
+        query="Enabled skill description",
+        limit=10,
     )
-
-    assert "## Available Skills" in prompt
-    assert "/enabled-skill" in prompt
-    assert "/disabled-skill" not in prompt
+    result_names = {str(item.get("name") or "") for item in results}
+    assert "enabled-skill" in result_names
+    assert "disabled-skill" not in result_names
 
 
 @pytest.mark.asyncio

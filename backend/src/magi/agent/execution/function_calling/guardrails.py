@@ -56,7 +56,7 @@ class FunctionCallingGuardrailsMixin:
 
     def _apply_worker_explore_guardrails(
         self,
-        intent: str,
+        execution_preset: str,
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None = None,
@@ -70,7 +70,7 @@ class FunctionCallingGuardrailsMixin:
             workspace_root = self._resolve_execution_workspace(execution_workspace)
             scan_root = self._resolve_scan_root_path(safe_args.get("path"), execution_workspace)
             if (
-                intent not in {"worker_explore", "worker_plan"}
+                execution_preset not in {"worker_explore", "worker_plan"}
                 and not self._path_within_root(scan_root, workspace_root)
                 and not outside_workspace_allowed
             ):
@@ -82,10 +82,10 @@ class FunctionCallingGuardrailsMixin:
                     "path or use web-search first."
                 )
 
-        if intent not in {"worker_explore", "worker_plan"}:
+        if execution_preset not in {"worker_explore", "worker_plan"}:
             return safe_args, None
 
-        scan_label = "CodeExplore" if intent == "worker_explore" else "Plan"
+        scan_label = "CodeExplore" if execution_preset == "worker_explore" else "Plan"
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
             if not pattern:
@@ -101,7 +101,7 @@ class FunctionCallingGuardrailsMixin:
                     safe_args["pattern"] = "*"
             safe_args["max_results"] = self._bounded_max_results(
                 safe_args.get("max_results"),
-                cap=200 if intent == "worker_explore" else 120,
+                cap=200 if execution_preset == "worker_explore" else 120,
             )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None
@@ -120,7 +120,7 @@ class FunctionCallingGuardrailsMixin:
                 safe_args["recursive"] = "**" in file_glob
             safe_args["max_results"] = self._bounded_max_results(
                 safe_args.get("max_results"),
-                cap=200 if intent == "worker_explore" else 120,
+                cap=200 if execution_preset == "worker_explore" else 120,
             )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None

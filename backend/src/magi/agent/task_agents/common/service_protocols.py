@@ -1,6 +1,6 @@
 """Ring-2 service protocols for the generic run-loop handlers.
 
-The generic execution handlers (``DirectLLMHandler``, ``FunctionCallingHandler``
+The generic execution handlers (``AgentRunHandler``
 and the explore render/route helpers) are architecturally generic: they drive a
 run loop without owning any chat-domain behavior. They receive their
 collaborators through ``ChatHandlerDependencies``, but they only ever touch a

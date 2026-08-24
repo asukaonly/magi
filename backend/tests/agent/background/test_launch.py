@@ -22,6 +22,8 @@ from magi_plugin_sdk.run_trigger import RunTrigger
 
 from magi.agent.cancel import CancelToken, EventCancelToken, null_cancel_token
 from magi.agent.execution.function_calling import ExecutionOutcome
+from magi.agent.execution.checkpoint import AgentRunCheckpoint
+from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 from magi.agent.execution.task_budget import (
     consume_task_llm_calls,
     current_task_budget,
@@ -29,7 +31,6 @@ from magi.agent.execution.task_budget import (
 from magi.agent.task_agents.common.contracts import (
     BaseIntentDecision,
     BaseRuntimeContext,
-    ExecutionMode,
     ExecutionRequest,
     IncomingFactKind,
     ToolSelection,
@@ -73,10 +74,10 @@ def _make_request(
     )
     intent = BaseIntentDecision(
         intent="chat",
-        execution_mode=ExecutionMode.FUNCTION_CALLING,
+        execution_mode=None,
     )
     return ExecutionRequest(
-        mode=ExecutionMode.FUNCTION_CALLING,
+        mode=None,
         context=context,
         intent=intent,
         tool_selection=ToolSelection(tools=list(tools or [])),
@@ -235,7 +236,7 @@ async def test_launch_service_enqueues_task_and_returns_ack(
         request, trigger_source=BackgroundTaskTriggerSource.RULE
     )
 
-    assert result.mode is ExecutionMode.FUNCTION_CALLING
+    assert result.mode is None
     assert result.turn_id == "turn-7"
     assert result.orchestration_id  # task id surfaced back to caller
     assert result.orchestration_id.startswith("bg_")
@@ -299,19 +300,15 @@ async def test_launch_service_uses_custom_ack_builder(
 
 
 class _RecordingOrchestrator:
-    """Stand-in for FunctionCallingOrchestrator — records kwargs & returns a
-    scripted outcome."""
+    """Stand-in for the unified orchestrator."""
 
     def __init__(self, outcome: ExecutionOutcome) -> None:
         self._outcome = outcome
-        self.calls: list[dict[str, Any]] = []
+        self.calls: list[Any] = []
 
-    async def execute_with_tools(self, **kwargs: Any) -> ExecutionOutcome:
-        self.calls.append(kwargs)
+    async def run(self, run_input: Any) -> ExecutionOutcome:
+        self.calls.append(run_input)
         return self._outcome
-
-    async def run(self, run_input: Any) -> ExecutionOutcome:  # engine front door (ADR-0004 P4)
-        return await self.execute_with_tools(**run_input.to_execute_kwargs())
 
 
 class _BudgetConsumingOrchestrator:
@@ -365,16 +362,17 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert result.result_payload["status"] == "completed"
     assert len(orchestrator.calls) == 1
     call = orchestrator.calls[0]
-    assert call["turn"].text == "do the thing"
-    assert call["selected_tools"] == ["deep_research"]
-    assert call["user_id"] == "u1"
-    assert call["session_id"] == "s1"
-    assert call["execution_workspace"] == "/w"
-    assert call["max_iterations"] == 7
-    assert call["intent"] == "background"
-    assert call["execution_agent_id"] == f"background:{task.task_id}"
+    assert call.turn.text == "do the thing"
+    assert call.selected_tools == ["deep_research"]
+    assert call.user_id == "u1"
+    assert call.session_id == "s1"
+    assert call.execution_workspace == "/w"
+    assert call.max_iterations == 7
+    assert call.execution_preset == "background"
+    assert call.execution_agent_id == f"background:{task.task_id}"
     # Cancellation is plumbed through.
-    assert call["cancel_token"] is not None
+    assert call.control is not None
+    assert call.control.cancel_token is not None
 
 
 @pytest.mark.asyncio
@@ -399,7 +397,7 @@ async def test_run_fn_passes_cancel_token_through() -> None:
     result = await run_fn(task, token)
 
     assert result.summary == ""
-    assert orchestrator.calls[0]["cancel_token"] is token
+    assert orchestrator.calls[0].control.cancel_token is token
 
 
 @pytest.mark.asyncio
@@ -487,11 +485,7 @@ async def test_chat_background_run_continues_root_turn_budget(
 
 
 @pytest.mark.asyncio
-async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
-    """When a spec carries an OrchestratorSnapshot's messages, the run
-    function must pass them as ``conversation_history`` and leave
-    ``user_message`` empty so the resumed turn is not duplicated.
-    """
+async def test_run_fn_resumes_from_agent_checkpoint() -> None:
     outcome = ExecutionOutcome(
         status="completed", content="resumed answer", tool_failures=[], iterations=2
     )
@@ -503,6 +497,17 @@ async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
         {"role": "assistant", "content": "", "tool_calls": [{"id": "c1"}]},
         {"role": "tool", "tool_call_id": "c1", "content": "{}"},
     ]
+    policy = ReasoningPolicy()
+    checkpoint = AgentRunCheckpoint(
+        run_id="run-1",
+        messages=snapshot_messages,
+        effective_system_prompt="system",
+        tools=[],
+        iteration=1,
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+        selected_tool_names=["deep_research"],
+    )
     spec = BackgroundTaskSpec(
         user_id="u1",
         session_id="s1",
@@ -511,7 +516,7 @@ async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
         goal="please analyse the repo",
         selected_tools=["deep_research"],
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
-        initial_messages=snapshot_messages,
+        agent_run_checkpoint=checkpoint.to_dict(),
     )
     from magi.agent.background.contracts import BackgroundTask
 
@@ -520,16 +525,23 @@ async def test_run_fn_resumes_from_initial_messages_when_present() -> None:
 
     assert result.summary == "resumed answer"
     call = orchestrator.calls[0]
-    assert call["turn"].text == ""
-    assert call["conversation_history"] == snapshot_messages
-    # The background runner must deep-copy so a later mutation of the
-    # spec payload cannot retroactively change the live orchestrator
-    # input.
-    assert call["conversation_history"] is not snapshot_messages
+    assert call.checkpoint is not None
+    assert call.checkpoint.messages == snapshot_messages
+    assert call.run_id == "run-1"
 
 
-def test_spec_roundtrip_preserves_initial_messages() -> None:
+def test_spec_roundtrip_preserves_agent_checkpoint() -> None:
     messages = [{"role": "user", "content": "resume me"}]
+    policy = ReasoningPolicy()
+    checkpoint = AgentRunCheckpoint(
+        run_id="run-1",
+        messages=messages,
+        effective_system_prompt="system",
+        tools=[],
+        iteration=1,
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    )
     spec = BackgroundTaskSpec(
         user_id="u",
         session_id="s",
@@ -537,17 +549,17 @@ def test_spec_roundtrip_preserves_initial_messages() -> None:
         title="T",
         goal="g",
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
-        initial_messages=messages,
+        agent_run_checkpoint=checkpoint.to_dict(),
     )
     restored = BackgroundTaskSpec.from_dict(spec.to_dict())
-    assert restored.initial_messages == messages
+    assert restored.agent_run_checkpoint == checkpoint.to_dict()
     # Deep copy: mutating the original must not reach the restored spec.
     messages[0]["content"] = "edited"
-    assert restored.initial_messages is not None
-    assert restored.initial_messages[0]["content"] == "resume me"
+    assert restored.agent_run_checkpoint is not None
+    assert restored.agent_run_checkpoint["messages"][0]["content"] == "resume me"
 
 
-def test_spec_roundtrip_without_initial_messages_stays_none() -> None:
+def test_spec_roundtrip_without_checkpoint_stays_none() -> None:
     spec = BackgroundTaskSpec(
         user_id="u",
         session_id="s",
@@ -557,4 +569,4 @@ def test_spec_roundtrip_without_initial_messages_stays_none() -> None:
         trigger_source=BackgroundTaskTriggerSource.RULE,
     )
     restored = BackgroundTaskSpec.from_dict(spec.to_dict())
-    assert restored.initial_messages is None
+    assert restored.agent_run_checkpoint is None

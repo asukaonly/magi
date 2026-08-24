@@ -16,7 +16,7 @@
     },
     "runtime": {
       "not_ready": {
-        "llm_selection_pending": "AI 运行时尚未就绪。请先完成核心模型或 context_decider 模型配置。",
+        "llm_selection_pending": "AI 运行时尚未就绪。请先完成核心模型配置。",
         "configuration_invalid": "AI 运行时配置无效。请检查已启用的提供商和模型选择。",
         "starting": "AI 运行时仍在启动中。请稍后重试。",
         "startup_pending": "AI 运行时尚未就绪。请等待启动完成后再试。"

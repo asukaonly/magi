@@ -1,32 +1,18 @@
-"""Typed orchestration plan derived from routing decisions."""
+"""Typed orchestration plan for domain-owned explore task agents."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from magi.tools.context_routing import RouteDecision
 
 
 @dataclass(slots=True)
 class OrchestrationPlan:
-    """Structured orchestration plan chosen by intent routing."""
+    """Structured orchestration plan owned by a specialized domain driver."""
 
     mode: str = "direct"
     planner: str = "task_agent"
     default_leaf_type: str = "CodeExplore"
     allow_parallel: bool = True
     route_to_explore_task_agent: bool = False
-
-    @classmethod
-    def from_route_decision(cls, route_decision: "RouteDecision") -> "OrchestrationPlan":
-        return cls(
-            mode=route_decision.orchestration_mode,
-            planner=route_decision.orchestration_planner,
-            default_leaf_type=route_decision.default_leaf_type,
-            allow_parallel=route_decision.allow_parallel,
-        )
-
 
 __all__ = ["OrchestrationPlan"]

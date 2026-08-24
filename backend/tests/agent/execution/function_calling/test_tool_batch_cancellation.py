@@ -32,10 +32,9 @@ def _context() -> StepExecutionContext:
         session_run_id="run-1",
         session_run_revision=0,
         turn_id="turn-1",
-        intent="test",
+        execution_preset="test",
         execution_agent_id="agent-1",
         execution_workspace="/tmp/workspace",
-        route_decision=None,
     )
 
 

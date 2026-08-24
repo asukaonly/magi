@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ...asset_refs import normalize_asset_ref_payload
 from .types import ToolCallResult
-
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
-
 
 class FunctionCallingResponseMixin:
     """Build final-answer prompts and aggregate tool result presentation data."""
@@ -321,7 +317,6 @@ class FunctionCallingResponseMixin:
     def _normalize_agent_launch_arguments(
         self,
         arguments: dict[str, Any],
-        route_decision: RouteDecision | None = None,
     ) -> dict[str, Any]:
         normalized = dict(arguments)
         action = str(normalized.get("action", "launch"))
@@ -333,18 +328,8 @@ class FunctionCallingResponseMixin:
         if normalized.pop("inherit_context", False) and self._current_messages:
             normalized["parent_context_summary"] = self._build_parent_context_summary()
 
-        if route_decision is not None:
-            if route_decision.profile == "coding" or route_decision.may_write:
-                preferred_type = "Coding"
-            elif route_decision.profile == "explore":
-                preferred_type = "CodeExplore"
-            else:
-                preferred_type = "general-purpose"
-        else:
-            preferred_type = ""
-
-        if preferred_type and not str(normalized.get("subagent_type", "")).strip():
-            normalized["subagent_type"] = preferred_type
+        if not str(normalized.get("subagent_type", "")).strip():
+            normalized["subagent_type"] = "general-purpose"
         return normalized
 
     def _build_parent_context_summary(self) -> str:

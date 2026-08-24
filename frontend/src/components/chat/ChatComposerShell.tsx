@@ -10,6 +10,10 @@ import { ComposerDraftAttachments } from './ComposerDraftAttachments';
 import { ComposerReplyPreview } from './ComposerReplyPreview';
 import { ContextUsageRing } from './ContextUsageRing';
 import { ComposerRecallFeedbackBanner } from './ComposerRecallFeedbackBanner';
+import {
+  ComposerReasoningControl,
+  type ReasoningPreference,
+} from './ComposerReasoningControl';
 
 type ComposerDraftAttachmentItem =
   | {
@@ -59,6 +63,8 @@ export type ChatComposerShellProps = {
   recallFeedbackDraft?: RecallFeedbackDraft | null;
   onCancelRecallFeedback?: () => void;
   onConvertRecallFeedbackToNormal?: () => void;
+  reasoningPreference: ReasoningPreference;
+  onReasoningPreferenceChange: (value: ReasoningPreference) => void;
   /** Inline controls rendered directly above the textarea. */
   askAnswerSlot?: ReactNode;
   /** Picker(s) rendered absolute-positioned above the input area. */
@@ -97,6 +103,8 @@ export const ChatComposerShell = ({
   recallFeedbackDraft = null,
   onCancelRecallFeedback,
   onConvertRecallFeedbackToNormal,
+  reasoningPreference,
+  onReasoningPreferenceChange,
   askAnswerSlot,
   pickerSlot,
 }: ChatComposerShellProps) => {
@@ -176,6 +184,11 @@ export const ChatComposerShell = ({
           <ContextUsageRing
             sessionId={sessionId}
             configuredWindowSize={coreModelContextWindow}
+          />
+          <ComposerReasoningControl
+            value={reasoningPreference}
+            onChange={onReasoningPreferenceChange}
+            disabled={feedbackMode || answeringAsk || effectiveWaitingForReply}
           />
         </div>
         <div data-testid="chat-composer-primary-action">

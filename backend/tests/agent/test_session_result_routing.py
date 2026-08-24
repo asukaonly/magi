@@ -7,7 +7,6 @@ import pytest
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
-from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, _start_explore_task_agent
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.prompt_service import ChatPromptService
 from magi.llm.model_context import unknown_model_context
@@ -21,7 +20,6 @@ from magi.agent.task_agents.common import (
     UserMessagePayload,
     WorkerUpdatePayload,
 )
-from magi.tools.context_routing import RouteDecision
 from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
 from magi.agent.task_agents.explore.postprocess_service import ExplorePostProcessService
 from magi.agent.task_orchestrator import TaskOrchestrator
@@ -631,7 +629,7 @@ async def test_function_calling_agent_tool_treats_blank_session_id_as_missing() 
         user_id="user-1",
         session_id="   ",
         turn_id="turn-1",
-        intent="planning",
+        execution_preset="planning",
         execution_agent_id="chat:user-1",
         execution_workspace="/tmp",
     )
@@ -641,79 +639,6 @@ async def test_function_calling_agent_tool_treats_blank_session_id_as_missing() 
     _, _, context = registry.calls[0]
     assert context.env_vars["target_task_agent_id"] == "user-1"
     assert context.env_vars["session_id"] == "   "
-
-
-@pytest.mark.asyncio
-async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> None:
-    manager = _RecordingTaskAgentManager()
-    deps = ChatHandlerDependencies(
-        context_service=SimpleNamespace(),
-        prompt_service=_FakePromptService(),
-        planning_service=SimpleNamespace(),
-        function_calling_orchestrator=SimpleNamespace(),
-        task_orchestrator=SimpleNamespace(),
-        context_assembler=_FakeContextAssembler(),
-        model_context_provider=lambda: unknown_model_context(None),
-        agent_id="chat:user-1",
-        get_task_agent_manager=lambda: manager,
-    )
-    request = ExecutionRequest(
-        mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-        context=ChatRuntimeContext(
-            latest_fact=FactRecord(
-                agent_id="chat:session-1",
-                event_type="USER_MESSAGE",
-                payload={"user_id": "user-1", "session_id": "session-1", "content": "analyze repo"},
-                agent_type="chat",
-                agent_instance_id="session-1",
-                correlation_id="corr-1",
-                user_message_generation=7,
-            ),
-            recent_facts=[],
-            batch_facts=[],
-            agent_id="user-1",
-            agent_type="chat",
-            runtime_key="chat:user-1",
-            user_id="user-1",
-            session_id="session-1",
-            history_key="user-1::session-1",
-            history=[],
-            conversation_history=[],
-            active_orchestrations=[],
-            active_run=SimpleNamespace(root_turn_id="turn-root"),
-            recent_tool_errors=[],
-            latest_user_message="analyze repo",
-            incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
-            latest_payload=UserMessagePayload(
-                user_id="user-1",
-                session_id="session-1",
-                content="analyze repo",
-                turn_id="turn-1",
-            ),
-        ),
-        intent=IntentDecision(
-            intent="repo_analysis",
-            difficulty="normal",
-            execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            route_decision=RouteDecision(
-                profile="explore",
-                graph_shape="plan_fanout",
-                complexity="medium",
-            ),
-        ),
-        tool_selection=ToolSelection(),
-    )
-
-    result = await _start_explore_task_agent(deps, request)
-
-    assert result is not None
-    assert len(manager.calls) == 1
-    _, agent_id, fact = manager.calls[0]
-    assert agent_id == "user-1"
-    assert fact.payload["upstream_task_agent_type"] == "chat"
-    assert fact.payload["upstream_task_agent_id"] == "session-1"
-    assert fact.payload["root_turn_id"] == "turn-root"
-    assert fact.user_message_generation == 7
 
 
 @pytest.mark.asyncio

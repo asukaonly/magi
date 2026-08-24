@@ -70,7 +70,7 @@ class _ToolsLlmCallParams:
     timeout_seconds: Optional[float]
     session_id: Optional[str]
     turn_id: Optional[str]
-    intent: str
+    execution_preset: str
     execution_agent_id: str
     iteration: int | None
     control: RunControl | None
@@ -85,7 +85,7 @@ class _FinalLlmCallParams:
     timeout_seconds: Optional[float]
     session_id: Optional[str]
     turn_id: Optional[str]
-    intent: str
+    execution_preset: str
     execution_agent_id: str
     iteration: int | None
     control: RunControl | None
@@ -103,7 +103,7 @@ class FunctionCallingLlmMixin:
         timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
-        intent: str = "unknown",
+        execution_preset: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
         control: RunControl | None = None,
@@ -117,7 +117,7 @@ class FunctionCallingLlmMixin:
             timeout_seconds=timeout_seconds,
             session_id=session_id,
             turn_id=turn_id,
-            intent=intent,
+            execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             iteration=iteration,
             control=control,
@@ -133,7 +133,7 @@ class FunctionCallingLlmMixin:
         timeout_seconds: Optional[float] = None,
         session_id: Optional[str] = None,
         turn_id: Optional[str] = None,
-        intent: str = "unknown",
+        execution_preset: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
         control: RunControl | None = None,
@@ -147,7 +147,7 @@ class FunctionCallingLlmMixin:
             timeout_seconds=timeout_seconds,
             session_id=session_id,
             turn_id=turn_id,
-            intent=intent,
+            execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             iteration=iteration,
             control=control,
@@ -298,7 +298,7 @@ def _build_tools_request(
         request_id=request_id,
         request_kind=resolve_tools_request_kind(
             execution_agent_id=params.execution_agent_id,
-            intent=params.intent,
+            execution_preset=params.execution_preset,
         ),
         system_prompt=params.system_prompt,
         messages=params.messages,
@@ -307,7 +307,7 @@ def _build_tools_request(
         session_id=params.session_id,
         turn_id=params.turn_id,
         execution_agent_id=params.execution_agent_id,
-        intent=params.intent,
+        execution_preset=params.execution_preset,
         iteration=params.iteration,
     )
 
@@ -345,7 +345,7 @@ def _build_final_response_request(
         session_id=params.session_id,
         turn_id=params.turn_id,
         execution_agent_id=params.execution_agent_id,
-        intent=params.intent,
+        execution_preset=params.execution_preset,
         iteration=params.iteration,
     )
 

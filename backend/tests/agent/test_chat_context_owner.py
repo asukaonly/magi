@@ -56,9 +56,8 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             latest_payload=GenericFactPayload(),
         )
         intent_result = IntentDecision(
-            intent="chat",
-            difficulty="normal",
-            execution_mode=ExecutionMode.FUNCTION_CALLING,
+            intent="unified_agent_run",
+            execution_mode=None,
             tools=["weather"],
         )
         tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
@@ -70,17 +69,18 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             session_id="s-1",
             user_message="今天天气怎么样",
             attachments=[],
-            task_category="chat",
+            task_category="general",
             tools=["weather"],
+            persona_action_tools=[],
             scenario="chat",
             recent_tool_errors=[],
             workspace_path=None,
             persona_id=None,
-            persona_routing_hint=None,
+            allow_implicit_memory=True,
         )
         self.assertEqual(llm_params.system_prompt, "owned-by-context-layer")
 
-    async def test_chat_handlers_add_memory_query_guidance_for_explicit_memory_route(self):
+    async def test_chat_handlers_add_memory_query_guidance_when_capability_is_selected(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
         agent._context_service.build_prompt_package = AsyncMock(  # type: ignore[attr-defined]
             return_value=PromptPackage(
@@ -109,14 +109,13 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             latest_payload=GenericFactPayload(),
         )
         intent_result = IntentDecision(
-            intent="chat",
-            difficulty="normal",
-            execution_mode=ExecutionMode.FUNCTION_CALLING,
+            intent="unified_agent_run",
+            execution_mode=None,
             tools=["weather", "memory_query"],
-            memory_route="explicit_query",
         )
         tool_result = ToolSelection(tools=["weather", "memory_query"], reasoning="history lookup")
 
         llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
 
-        self.assertEqual(llm_params.selected_tools[0], "memory_query")
+        self.assertIn("memory_query", llm_params.selected_tools)
+        self.assertIn("source of truth", llm_params.system_prompt.lower())

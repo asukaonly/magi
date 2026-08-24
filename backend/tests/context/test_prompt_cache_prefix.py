@@ -218,7 +218,7 @@ def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
     assert prompt.index("## Baseline Voice") < i_boundary
 
     # Per-turn steer — below the boundary (moved to the message tail).
-    assert i_boundary < prompt.index("## Current Register")
+    assert i_boundary < prompt.index("## Expression Policy")
     assert i_boundary < prompt.index("## Dynamic Modulation")
     assert i_boundary < prompt.index("## Relevant Persona Examples")
 

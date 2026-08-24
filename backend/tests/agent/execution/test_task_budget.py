@@ -11,6 +11,7 @@ from magi.agent.execution.function_calling.llm import _prepare_llm_call
 from magi.agent.execution.function_calling.orchestrator import (
     FunctionCallingOrchestrator,
 )
+from magi.agent.execution.function_calling.run_input import AgentRunRequest
 from magi.agent.execution.function_calling.types import ExecutionOutcome
 from magi.agent.execution.task_budget import (
     DEFAULT_TASK_MAX_LLM_CALLS,
@@ -77,12 +78,9 @@ async def test_nested_scope_releases_only_its_own_prepaid_calls() -> None:
 async def test_orchestrator_root_budget_is_independent_from_local_iteration_limit(
     max_iterations: int,
 ) -> None:
-    class _ProbeOrchestrator:
-        execute_with_tools = FunctionCallingOrchestrator.execute_with_tools
-        _resolve_control = staticmethod(FunctionCallingOrchestrator._resolve_control)
-
-        async def _execute_with_tools_impl(self, **kwargs):  # type: ignore[no-untyped-def]
-            _ = kwargs
+    class _LoopRunner:
+        async def run(self, request, *, control):  # type: ignore[no-untyped-def]
+            _ = (request, control)
             budget = current_task_budget()
             assert budget is not None
             await reserve_task_llm_calls(2)
@@ -91,12 +89,19 @@ async def test_orchestrator_root_budget_is_independent_from_local_iteration_limi
                 content=str(budget.max_llm_calls),
             )
 
-    outcome = await _ProbeOrchestrator().execute_with_tools(
-        turn=UserTurnInput(text="probe"),
-        system_prompt="",
-        selected_tools=[],
-        user_id="u-budget",
-        max_iterations=max_iterations,
+    orchestrator = FunctionCallingOrchestrator(
+        tool_registry=SimpleNamespace(),  # type: ignore[arg-type]
+        llm_adapter=SimpleNamespace(model_name="fake"),  # type: ignore[arg-type]
+    )
+    orchestrator._loop_runner = _LoopRunner()  # type: ignore[assignment]
+    outcome = await orchestrator.run(
+        AgentRunRequest(
+            turn=UserTurnInput(text="probe"),
+            system_prompt="",
+            selected_tools=[],
+            user_id="u-budget",
+            max_iterations=max_iterations,
+        )
     )
 
     assert outcome.content == str(DEFAULT_TASK_MAX_LLM_CALLS)
@@ -312,12 +317,14 @@ async def test_last_budget_slot_forces_a_tool_turn_to_finalize() -> None:
     orchestrator.provider_bridge.chat_response = _without_tools  # type: ignore[method-assign]
 
     async with task_execution_budget_scope(max_llm_calls=1) as budget:
-        result = await orchestrator.execute_with_tools(
-            turn=UserTurnInput(text="Use a tool if needed."),
-            system_prompt="Finish the task.",
-            selected_tools=["demo"],
-            user_id="budget-user",
-            final_response_json_mode=True,
+        result = await orchestrator.run(
+            AgentRunRequest(
+                turn=UserTurnInput(text="Use a tool if needed."),
+                system_prompt="Finish the task.",
+                selected_tools=["demo"],
+                user_id="budget-user",
+                final_response_json_mode=True,
+            )
         )
 
     assert result.content == '{"result_status":"success"}'
@@ -393,44 +400,6 @@ async def test_task_agent_stream_reserves_before_opening_provider(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_task_agent_execution_engine_binds_root_budget() -> None:
-    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
-    from magi.agent.task_agents.common.contracts import ExecutionMode, ExecutionResult
-
-    class _Handler:
-        observed_budget = None
-
-        async def execute(self, request):  # type: ignore[no-untyped-def]
-            _ = request
-            self.observed_budget = current_task_budget()
-            return ExecutionResult(
-                mode=ExecutionMode.DIRECT_LLM,
-                response_text="done",
-            )
-
-    class _Registry:
-        def __init__(self, handler: _Handler) -> None:
-            self._handler = handler
-
-        def get(self, mode):  # type: ignore[no-untyped-def]
-            _ = mode
-            return self._handler
-
-    handler = _Handler()
-    engine = TaskAgentExecutionEngine(handler_registry=_Registry(handler))
-    request = SimpleNamespace(
-        mode=ExecutionMode.DIRECT_LLM,
-        intent=SimpleNamespace(route_decision=None),
-    )
-
-    outcome = await engine.execute(request)  # type: ignore[arg-type]
-
-    assert outcome.result is not None
-    assert handler.observed_budget is not None
-    assert current_task_budget() is None
-
-
-@pytest.mark.asyncio
 async def test_explore_planning_and_workers_share_one_root_budget() -> None:
     from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent
 
@@ -471,94 +440,19 @@ async def test_explore_planning_and_workers_share_one_root_budget() -> None:
 
 
 @pytest.mark.asyncio
-async def test_persistent_task_agent_actor_does_not_inherit_worker_budget() -> None:
-    from magi.agent.run.execution_engine import TaskAgentExecutionEngine
-    from magi.agent.runtime.contracts import FactRecord
-    from magi.agent.runtime.task_agent import TaskAgent
-    from magi.agent.task_agents.common.contracts import ExecutionMode
-
-    observed_budgets: asyncio.Queue[object] = asyncio.Queue()
-
-    class _Handler:
-        @staticmethod
-        async def execute(request):  # type: ignore[no-untyped-def]
-            _ = request
-            budget = current_task_budget()
-            assert budget is not None
-            await reserve_task_llm_calls()
-            await observed_budgets.put(budget)
-            return object()
-
-    class _Registry:
-        @staticmethod
-        def get(mode):  # type: ignore[no-untyped-def]
-            if mode != ExecutionMode.DIRECT_LLM:
-                raise KeyError(mode)
-            return _Handler()
-
-    class _PersistentAgent(TaskAgent):
-        def __init__(self) -> None:
-            TaskAgent.__init__(self, agent_type="probe", agent_id="persistent")
-            self._engine = TaskAgentExecutionEngine(handler_registry=_Registry())
-
-        async def assemble_llm_params(self, context, intent_result, tool_result):  # type: ignore[no-untyped-def]
-            _ = (context, intent_result, tool_result)
-            return SimpleNamespace(
-                mode=ExecutionMode.DIRECT_LLM,
-                intent=SimpleNamespace(route_decision=None),
-            )
-
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
-            _ = context
-            return (await self._engine.execute(llm_params)).result
-
-        async def parse_result(self, context, raw_result):  # type: ignore[no-untyped-def]
-            _ = (context, raw_result)
-
-    agent = _PersistentAgent()
-    try:
-        async with task_execution_budget_scope(max_llm_calls=10) as worker_budget:
-            await agent.start(event_emitter=None)
-            assert await agent.add_fact(
-                FactRecord(agent_id="probe:persistent", event_type="first", payload={})
-            )
-            first_budget = await asyncio.wait_for(observed_budgets.get(), timeout=1)
-
-        assert await agent.add_fact(
-            FactRecord(agent_id="probe:persistent", event_type="second", payload={})
-        )
-        second_budget = await asyncio.wait_for(observed_budgets.get(), timeout=1)
-    finally:
-        await agent.stop()
-
-    assert first_budget is not worker_budget
-    assert second_budget is not worker_budget
-    assert first_budget is not second_budget
-    assert first_budget.llm_calls == 1  # type: ignore[union-attr]
-    assert second_budget.llm_calls == 1  # type: ignore[union-attr]
-
-
-@pytest.mark.asyncio
-async def test_fork_skill_direct_call_does_not_consume_outer_reservation(
-    monkeypatch,
-) -> None:
-    from magi.skills import subagent as subagent_module
+async def test_fork_skill_agent_run_reuses_outer_reservation() -> None:
     from magi.skills.schema import SkillContent, SkillFrontmatter
     from magi.skills.subagent import SkillSubagent
 
-    provider_calls = 0
-
-    class _Bridge:
-        def __init__(self, llm) -> None:  # type: ignore[no-untyped-def]
-            _ = llm
-
-        async def chat(self, **kwargs):  # type: ignore[no-untyped-def]
-            nonlocal provider_calls
-            _ = kwargs
-            provider_calls += 1
-            return "translated"
-
-    monkeypatch.setattr(subagent_module, "LLMProviderBridge", _Bridge)
+    class _Orchestrator:
+        async def run(self, request):  # type: ignore[no-untyped-def]
+            _ = request
+            await consume_task_llm_calls()
+            return SimpleNamespace(
+                succeeded=True,
+                content="translated",
+                failure_reason=None,
+            )
     skill = SkillContent(
         name="translate",
         frontmatter=SkillFrontmatter(
@@ -571,7 +465,8 @@ async def test_fork_skill_direct_call_does_not_consume_outer_reservation(
     subagent = SkillSubagent(
         skill=skill,
         llm_adapter=object(),  # type: ignore[arg-type]
-        llm_call_reserver=reserve_task_llm_calls,
+        orchestrator_factory=lambda **kwargs: _Orchestrator(),
+        agent_run_request_factory=lambda **kwargs: SimpleNamespace(**kwargs),
     )
 
     async with task_execution_budget_scope(max_llm_calls=2) as budget:
@@ -580,12 +475,11 @@ async def test_fork_skill_direct_call_does_not_consume_outer_reservation(
             user_message="hello",
             system_prompt="Translate the input.",
         )
-        assert budget.llm_calls == 2
+        assert budget.llm_calls == 1
         await consume_task_llm_calls()
 
     assert result.success is True
     assert result.content == "translated"
-    assert provider_calls == 1
     assert budget.llm_calls == 2
 
 

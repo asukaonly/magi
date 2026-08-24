@@ -17,6 +17,11 @@ export type StreamTextFlushPayload = {
   personaId?: string | null;
 };
 
+export type StreamTextResetPayload = {
+  turnId: string;
+  personaId?: string | null;
+};
+
 export type StreamReasoningDeltaPayload = {
   turnId: string;
   source: string;
@@ -236,6 +241,31 @@ export const applyStreamTextFlush = (
     content: trimTrailingStreamNewlines(existing.content),
     personaId: personaId ?? existing.personaId ?? null,
     streaming: false,
+  };
+  return { messages: nextMessages, changed: true, needsSession: false };
+};
+
+export const applyStreamTextReset = (
+  previousMessages: ChatTimelineMessage[],
+  payload: StreamTextResetPayload,
+): StreamMessageUpdate => {
+  const { turnId, personaId } = payload;
+  if (!turnId) {
+    return unchanged(previousMessages);
+  }
+  const existingIndex = previousMessages.findIndex(
+    (message) => message.role === 'assistant' && message.turnId === turnId && !message.messageId,
+  );
+  if (existingIndex < 0) {
+    return unchanged(previousMessages);
+  }
+  const existing = previousMessages[existingIndex];
+  const nextMessages = [...previousMessages];
+  nextMessages[existingIndex] = {
+    ...existing,
+    content: '',
+    personaId: personaId ?? existing.personaId ?? null,
+    streaming: true,
   };
   return { messages: nextMessages, changed: true, needsSession: false };
 };

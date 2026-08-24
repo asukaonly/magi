@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
+from ..evidence import ToolExecutionEvidence
+from ..journal import AgentRunJournal
+from ..reasoning import ReasoningPolicy, ReasoningState
 
 
 @dataclass(slots=True)
@@ -32,6 +33,13 @@ class FunctionCallingStepState:
     ephemeral_context_message_index: int | None = None
     ephemeral_context_original_content: Any | None = None
     latest_context_usage: dict[str, Any] | None = None
+    tool_evidence: list[ToolExecutionEvidence] = field(default_factory=list)
+    repair_iterations: int = 0
+    journal: AgentRunJournal | None = None
+    run_id: str = ""
+    reasoning_policy: ReasoningPolicy | None = None
+    reasoning_state: ReasoningState | None = None
+    persona_task_clamp_applied: bool = False
 
 
 @dataclass(slots=True)
@@ -55,7 +63,6 @@ class StepExecutionContext:
     session_run_id: str | None
     session_run_revision: int
     turn_id: str | None
-    intent: str
+    execution_preset: str
     execution_agent_id: str
     execution_workspace: str | None
-    route_decision: "RouteDecision | None"

@@ -160,6 +160,6 @@ def test_resolve_analysis_bridge_falls_back_to_core() -> None:
         assert _resolve_analysis_bridge() is bridge
 
     assert pool.get.call_args_list == [
-        call(LLMScenario.CONTEXT_DECIDER),
+        call(LLMScenario.AUXILIARY),
         call(LLMScenario.CORE),
     ]

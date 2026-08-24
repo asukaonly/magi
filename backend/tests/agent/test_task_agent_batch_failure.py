@@ -237,7 +237,7 @@ class _EmptyVisibleResponseChatAgent(ChatTaskAgent):
     async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
         turn_id = str(context.latest_payload.turn_id)
         return ExecutionResult(
-            mode=ExecutionMode.DIRECT_LLM,
+            mode=None,
             response_text="",
             turn_id=turn_id,
             ux_plan={"assistant_surface_mode": "final_only"},
@@ -262,7 +262,7 @@ class _SuccessfulVisibleResponseChatAgent(ChatTaskAgent):
     async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
         turn_id = str(context.latest_payload.turn_id)
         return ExecutionResult(
-            mode=ExecutionMode.DIRECT_LLM,
+            mode=None,
             response_text=f"reply to {turn_id}",
             turn_id=turn_id,
             ux_plan={"assistant_surface_mode": "final_only"},

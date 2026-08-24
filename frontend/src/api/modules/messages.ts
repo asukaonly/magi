@@ -33,6 +33,7 @@ export interface UserMessageRequest {
     question_id: string;
     question_text: string;
   };
+  reasoning_preference?: 'auto' | 'fast' | 'deep';
   metadata?: Record<string, any>;
 }
 

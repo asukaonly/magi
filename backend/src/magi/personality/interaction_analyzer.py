@@ -119,7 +119,7 @@ def _resolve_analysis_bridge() -> LLMProviderBridge | None:
         return None
 
     try:
-        adapter = pool.get(LLMScenario.CONTEXT_DECIDER)
+        adapter = pool.get(LLMScenario.AUXILIARY)
     except (ValueError, KeyError):
         try:
             adapter = pool.get(LLMScenario.CORE)

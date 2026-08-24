@@ -219,7 +219,7 @@ class ChatSseChannel(Channel):
         """
         session_id = target.magi_session_id
         # Phase G+1 fix: take turn_id from the chunk itself when the handler
-        # supplies it (DirectLLMHandler now does). Frontend filters chunks
+        # supplies it. Frontend filters chunks
         # by turn_id — empty string was silently dropped, causing the chat
         # UI to look one-shot even though backend emitted 100+ chunks.
         turn_id = str(chunk.turn_id or "")

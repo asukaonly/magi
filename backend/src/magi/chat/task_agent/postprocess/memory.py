@@ -196,7 +196,7 @@ class ChatPostprocessMemoryMixin:
                         incoming_fact_kind=self._enum_value(
                             context.incoming_fact_kind
                         ),
-                        execution_mode=self._enum_value(result.mode),
+                        execution_mode=self._enum_value(result.mode) or "agent_run",
                         task_id=background_task_id or None,
                         task_attempt=(
                             background_task_attempt

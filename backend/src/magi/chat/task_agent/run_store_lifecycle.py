@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from threading import RLock
 from time import time
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from magi_plugin_sdk.run_trigger import RunTrigger
@@ -13,9 +13,6 @@ from magi_plugin_sdk.run_trigger import RunTrigger
 from magi.core.logger import get_logger
 from magi.control.run_control import RunControl
 from magi.agent.task_agents.handlers.run_contracts import AgentRun, ActiveRun, PendingTurn
-
-if TYPE_CHECKING:
-    from magi.agent.run.snapshot import RunSnapshot
 
 logger = get_logger(__name__)
 
@@ -27,7 +24,6 @@ class SessionRunLifecycleMixin:
     _execution_store: Any
     _workbench_store: Any
     _run_controls: "dict[tuple[str, str], RunControl]"
-    _run_snapshots: "dict[tuple[str, str], RunSnapshot]"
 
     def create_active_run(
         self,
@@ -493,42 +489,5 @@ class SessionRunLifecycleMixin:
         """
         runs = self.list_active_runs(session_id)
         return runs[0] if runs else None
-
-    def save_run_snapshot(
-        self,
-        session_id: str,
-        run_id: str,
-        snapshot: "RunSnapshot",
-    ) -> None:
-        """Persist the snapshot for ``(session_id, run_id)``.
-
-        Called by ChatTaskAgent (or the NodeSequenceRunner driver) after
-        each node completes, so detach mid-sequence resumes from the
-        latest snapshot. In-memory only — restart loses snapshots.
-        Background-detached runs serialise the snapshot into
-        ``BackgroundTaskSpec.initial_run_snapshot`` for cross-process
-        survival.
-        """
-        with self._lock:
-            self._run_snapshots[(session_id, run_id)] = snapshot
-
-    def get_run_snapshot(
-        self,
-        session_id: str,
-        run_id: str,
-    ) -> "RunSnapshot | None":
-        """Return the most recent snapshot for ``(session_id, run_id)``."""
-        with self._lock:
-            return self._run_snapshots.get((session_id, run_id))
-
-    def clear_run_snapshot(
-        self,
-        session_id: str,
-        run_id: str,
-    ) -> None:
-        """Drop the snapshot. No-op if not present."""
-        with self._lock:
-            self._run_snapshots.pop((session_id, run_id), None)
-
 
 __all__ = ["SessionRunLifecycleMixin"]

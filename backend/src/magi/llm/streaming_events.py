@@ -22,6 +22,7 @@ StreamEventKind = Literal[
     "reasoning_delta",
     "status_update",
     "text_flush",
+    "text_reset",
     "tool_call_start",
     "tool_call_args",
     "tool_call_end",
@@ -95,7 +96,7 @@ def get_stream_source() -> Optional[str]:
 
 
 _USER_VISIBLE_TEXT_KINDS: frozenset[str] = frozenset(
-    {"text_delta", "text_flush", "reasoning_delta"}
+    {"text_delta", "text_flush", "text_reset", "reasoning_delta"}
 )
 _USER_VISIBLE_SOURCES: frozenset[str] = frozenset(
     {"chat", "aggregator", "failure_status"}

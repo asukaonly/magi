@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional
+from dataclasses import asdict, dataclass, field, is_dataclass
+from typing import Any, Awaitable, Callable
 
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
@@ -11,7 +11,8 @@ from ....events.first_context import build_first_context_runtime_guidance
 from ....agent.background.launch import BackgroundLaunchService
 from magi.control.run_control import null_run_control
 from ....agent.turn_input import UserTurnInput
-from ....agent.execution.function_calling import EngineRunInput
+from ....agent.execution.function_calling import AgentRunRequest
+from ....agent.execution.reasoning import ReasoningPolicy
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
@@ -20,15 +21,13 @@ from ..common import (
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
-    FunctionCallingExecutionResult,
-    FunctionCallingRequest,
+    AgentRunExecutionResult,
+    PreparedAgentRunRequest,
 )
 from ..common.service_protocols import (
     HistoryServiceProtocol,
     PromptServiceProtocol,
 )
-from .checkpoint_loop import FunctionCallingCheckpointLoop
-from .explore_render import start_explore_task_agent
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
     MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -39,13 +38,57 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 from .attachment_context import resolve_effective_turn_attachments
-from .tool_exposure_policy import default_tool_exposure_policy
-from .turn_route_resolver import TurnRouteResolver
-from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
+from .recall_feedback import (
+    build_recall_feedback_message_payload,
+    build_recall_feedback_prompt,
+)
+from ...execution.attachment_resolver import AttachmentResolverPort, NullAttachmentResolver
 from ....llm.model_context import ModelContextProfile
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
+
+
+def _build_context_sources(
+    request: ExecutionRequest,
+    prompt_context: Any,
+) -> tuple[dict[str, Any], ...]:
+    """Snapshot bounded context owners represented in the effective prompt."""
+
+    sources: list[dict[str, Any]] = []
+    self_memory = getattr(prompt_context, "self_memory", None)
+    retrieval = getattr(self_memory, "retrieval_memory", None)
+    if retrieval is not None:
+        sources.append(
+            {
+                "provider": "memory",
+                "snapshot": asdict(retrieval) if is_dataclass(retrieval) else {},
+                "availability": "available",
+            }
+        )
+    persona_plan = getattr(self_memory, "persona_turn_plan", None)
+    if persona_plan is not None:
+        sources.append(
+            {
+                "provider": "persona",
+                "snapshot": asdict(persona_plan) if is_dataclass(persona_plan) else {},
+            }
+        )
+    sources.append(
+        {
+            "provider": "continuity",
+            "recent_tool_errors": list(
+                getattr(request.context, "recent_tool_errors", None) or []
+            )[:3],
+            "recent_tool_state": list(
+                getattr(request.context, "recent_tool_state", None) or []
+            )[:3],
+            "pending_interaction": bool(
+                getattr(request.context, "recall_feedback", None)
+            ),
+        }
+    )
+    return tuple(sources)
 
 
 @dataclass(slots=True)
@@ -66,7 +109,6 @@ class ChatHandlerDependencies:
     task_orchestrator: TaskOrchestrator
     context_assembler: HistoryServiceProtocol
     agent_id: str
-    get_task_agent_manager: callable
     model_context_provider: Callable[[], ModelContextProfile]
     # Resolves managed attachment payloads for a turn. Chat wires a
     # chat-backed resolver; defaults to a null resolver so tests / non-chat
@@ -87,7 +129,6 @@ def build_common_handler_dependencies(
 ):
     return CommonHandlerDependencies(
         task_orchestrator=deps.task_orchestrator,
-        start_specialized_orchestration=lambda request: _start_explore_task_agent(deps, request),
         build_cancel_token=lambda request: _build_common_cancel_token(deps, request),
     )
 
@@ -110,14 +151,10 @@ def _build_common_cancel_token(
     )
 
 
-def _is_emotional_or_crisis(request: ExecutionRequest) -> bool:
-    routing_hint = getattr(request.intent, "persona_routing_hint", None)
-    routing_register = routing_hint.register if routing_hint is not None else None
-    return routing_register in {"emotional", "crisis"}
+class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
+    """Prepare and execute every ordinary user turn through the unified loop."""
 
-
-class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
-    mode = ExecutionMode.FUNCTION_CALLING
+    mode = None
 
     @property
     def _attachment_resolver(self) -> AttachmentResolverPort:
@@ -127,15 +164,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         resolver = getattr(self._deps, "attachment_resolver", None)
         return resolver if resolver is not None else NullAttachmentResolver()
 
-    def _build_checkpoint_loop(self) -> FunctionCallingCheckpointLoop:
-        return FunctionCallingCheckpointLoop(
-            deps=self._deps,
-            attachment_resolver=self._attachment_resolver,
-            detached_result_builder=self._build_detached_chat_result,
-            drain_pending_steer_turns=self._drain_pending_steer_turns,
-        )
-
-    async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
+    async def build_request(self, request: ExecutionRequest) -> PreparedAgentRunRequest:
         prompt_package = await self._build_prompt_package(request)
         selected_tools = list(request.tool_selection.tools)
         system_prompt, selected_tools = self._apply_prompt_guidance(
@@ -143,7 +172,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             system_prompt=prompt_package.system_prompt,
             selected_tools=selected_tools,
         )
-        selected_tools = self._resolve_execution_tools(request, selected_tools)
         system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
             system_prompt=system_prompt,
             reply_context=getattr(request.context, "reply_context", None),
@@ -158,7 +186,8 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         )
         if first_context_guidance:
             system_prompt = f"{system_prompt}\n\n{first_context_guidance}"
-        return FunctionCallingRequest(
+        context_sources = _build_context_sources(request, prompt_package.prompt_context)
+        return PreparedAgentRunRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
@@ -166,7 +195,10 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             prompt_context=prompt_package.prompt_context,
             system_prompt=system_prompt,
             selected_tools=selected_tools,
-            thinking_depth=request.intent.thinking_depth,
+            reasoning_policy=ReasoningPolicy.from_preference(
+                request.intent.reasoning_preference
+            ),
+            context_sources=context_sources,
         )
 
     async def _build_prompt_package(self, request: ExecutionRequest) -> Any:
@@ -177,13 +209,14 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             attachments=resolve_effective_turn_attachments(
                 request.context, resolver=self._attachment_resolver
             ),
-            task_category=request.intent.intent,
+            task_category="general",
             tools=request.tool_selection.tools,
+            persona_action_tools=[],
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
             workspace_path=_resolve_turn_workspace_path(request.context),
             persona_id=getattr(request.context, "active_persona_id", None),
-            persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
+            allow_implicit_memory=getattr(request.context, "recall_feedback", None) is None,
         )
 
     def _apply_prompt_guidance(
@@ -194,51 +227,28 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         selected_tools: list[str],
     ) -> tuple[str, list[str]]:
         if "memory_query" in selected_tools:
-            # Attach the don't-paraphrase guidance whenever memory_query is in
-            # the selected tools, regardless of how the upstream router
-            # classified the turn (memory_route). Originally this was gated on
-            # memory_route == "explicit_query"; turns where the selector pulled
-            # in memory_query through other routes (low-confidence routing,
-            # selector LLM picking it directly, future route values) got the
-            # tool without the guidance — reintroducing the paraphrase bug.
-            if request.intent.memory_route == "explicit_query":
-                selected_tools = ["memory_query"] + [
-                    tool for tool in selected_tools if tool != "memory_query"
-                ]
+            # Keep retrieval observations verbatim whenever the resident
+            # memory capability is exposed to the model.
             system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
 
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.tool_selection, "task_hint", None)
             or getattr(request.intent, "task_hint", None)
         )
-        if scope_guidance_block and not _is_emotional_or_crisis(request):
+        if scope_guidance_block:
             system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
 
         attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
         if attachment_guidance_block:
             system_prompt = f"{system_prompt}\n\n{attachment_guidance_block}"
+        recall_feedback_prompt = build_recall_feedback_prompt(
+            getattr(request.context, "recall_feedback", None)
+        )
+        if recall_feedback_prompt:
+            system_prompt = f"{system_prompt}\n\n{recall_feedback_prompt}"
         return system_prompt, selected_tools
 
-    def _resolve_execution_tools(
-        self,
-        request: ExecutionRequest,
-        selected_tools: list[str],
-    ) -> list[str]:
-        _orchestrator = getattr(self._deps, "function_calling_orchestrator", None)
-        _registry = getattr(_orchestrator, "tool_registry", None)
-        _route = getattr(request.intent, "route_decision", None)
-        _policy = getattr(self._deps, "tool_exposure_policy", default_tool_exposure_policy)
-        return TurnRouteResolver(tool_exposure_policy=_policy).resolve_execution_tools(
-            requested_tools=selected_tools,
-            route_decision=_route,
-            tool_registry=_registry,
-            session_key=(
-                f"{getattr(request.context, 'agent_id', '')}:"
-                f"{getattr(request.context, 'session_id', '')}"
-            ),
-        )
-
-    async def execute(self, request: FunctionCallingRequest) -> ExecutionResult:
+    async def execute(self, request: PreparedAgentRunRequest) -> ExecutionResult:
         execution_workspace = _resolve_execution_workspace(request)
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
@@ -256,25 +266,11 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             steer_inbox=steer_inbox,
         )
         try:
-            if self._can_use_checkpoint_loop(request):
-                result = await self._execute_checkpoint_loop(
-                    request,
-                    execution_workspace=execution_workspace,
-                    control=control,
-                )
-                result.streamed = streaming_enabled
-                handoff = await self._maybe_handoff_detached_outcome(request, result)
-                if handoff is not None:
-                    return handoff
-                return result
-
-            route_decision = getattr(request.intent, "route_decision", None)
             execution_outcome = await self._execute_orchestrator_run(
                 request,
                 execution_workspace=execution_workspace,
                 turn_id=turn_id,
                 control=control,
-                route_decision=route_decision,
             )
 
             fc_result = self._build_execution_result(
@@ -289,27 +285,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             return fc_result
         finally:
             self._release_detach_signal(session_id=session_id, detach_signal=detach_signal)
-
-    def _can_use_checkpoint_loop(self, request: FunctionCallingRequest) -> bool:
-        return (
-            self._deps.session_run_coordinator is not None
-            and request.context.session_run_id
-            and hasattr(self._deps.function_calling_orchestrator, "step_executor")
-            and hasattr(self._deps.function_calling_orchestrator, "build_step_state")
-        )
-
-    async def _execute_checkpoint_loop(
-        self,
-        request: FunctionCallingRequest,
-        *,
-        execution_workspace: str | None,
-        control: Any,
-    ) -> FunctionCallingExecutionResult:
-        return await self._build_checkpoint_loop().run(
-            request,
-            execution_workspace=execution_workspace,
-            control=control,
-        )
 
     @staticmethod
     def _build_run_control(
@@ -331,33 +306,30 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
 
     async def _execute_orchestrator_run(
         self,
-        request: FunctionCallingRequest,
+        request: PreparedAgentRunRequest,
         *,
         execution_workspace: str | None,
         turn_id: str | None,
         control: Any,
-        route_decision: Any,
     ) -> Any:
         return await self._deps.function_calling_orchestrator.run(
-            self._build_engine_run_input(
+            self._build_agent_run_request(
                 request,
                 execution_workspace=execution_workspace,
                 turn_id=turn_id,
                 control=control,
-                route_decision=route_decision,
             )
         )
 
-    def _build_engine_run_input(
+    def _build_agent_run_request(
         self,
-        request: FunctionCallingRequest,
+        request: PreparedAgentRunRequest,
         *,
         execution_workspace: str | None,
         turn_id: str | None,
         control: Any,
-        route_decision: Any,
-    ) -> EngineRunInput:
-        return EngineRunInput(
+    ) -> AgentRunRequest:
+        return AgentRunRequest(
             turn=UserTurnInput(
                 text=request.context.latest_user_message,
                 attachments=resolve_effective_turn_attachments(
@@ -377,27 +349,37 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             session_summary=getattr(request.context, "session_summary", None),
             session_origin=getattr(request.context, "session_origin", None),
             reply_context=getattr(request.context, "reply_context", None),
-            thinking_depth=request.thinking_depth,
-            intent=request.intent.intent,
+            reasoning_policy=request.reasoning_policy,
+            execution_preset="chat",
             execution_agent_id=request.context.runtime_key,
             execution_workspace=execution_workspace,
             control=control,
-            route_decision=route_decision,
+            context_sources=request.context_sources,
+            capability_resolution=(
+                request.intent.capability_resolution.to_event_payload()
+                if request.intent.capability_resolution is not None
+                else {}
+            ),
         )
 
     @staticmethod
     def _build_execution_result(
         *,
-        request: FunctionCallingRequest,
+        request: PreparedAgentRunRequest,
         execution_outcome: Any,
         turn_id: str | None,
         streamed: bool,
-    ) -> FunctionCallingExecutionResult:
-        return FunctionCallingExecutionResult(
+    ) -> AgentRunExecutionResult:
+        return AgentRunExecutionResult(
             mode=request.mode,
             response_text=execution_outcome.content,
             attachments=list(getattr(execution_outcome, "attachments", []) or []),
-            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            message_payload={
+                **dict(getattr(execution_outcome, "message_payload", {}) or {}),
+                **build_recall_feedback_message_payload(
+                    getattr(request.context, "recall_feedback", None)
+                ),
+            },
             context_usage=(
                 dict(execution_outcome.context_usage)
                 if isinstance(getattr(execution_outcome, "context_usage", None), dict)
@@ -409,10 +391,3 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             ux_plan=_serialize_ux_plan(request.intent),
             streamed=streamed,
         )
-
-
-async def _start_explore_task_agent(
-    deps: ChatHandlerDependencies,
-    request: ExecutionRequest,
-) -> Optional[ExecutionResult]:
-    return await start_explore_task_agent(deps, request)

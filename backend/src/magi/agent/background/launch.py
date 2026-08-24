@@ -13,7 +13,7 @@ This is the last piece of the background-task runtime (phase 3c):
   :class:`BackgroundTaskRunFn` closure that the manager invokes for
   each scheduled task. The closure is a thin bridge:
   :class:`BackgroundTask` + :class:`CancelToken` →
-  :meth:`FunctionCallingOrchestrator.execute_with_tools` →
+  :meth:`FunctionCallingOrchestrator.run` →
   :class:`BackgroundTaskRunResult`.
 
 These two pieces are intentionally decoupled: the launch service does
@@ -30,8 +30,10 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 import structlog
 
 from ..cancel import CancelToken
+from ...control.run_control import null_run_control
 from ..turn_input import UserTurnInput
-from ..execution.function_calling.run_input import EngineRunInput
+from ..execution.checkpoint import AgentRunCheckpoint
+from ..execution.function_calling.run_input import AgentRunRequest
 from ..execution.task_budget import TaskExecutionBudgetStore, task_execution_budget_scope
 from .contracts import (
     BackgroundTask,
@@ -93,7 +95,7 @@ def build_spec_from_request(
     trigger: "RunTrigger | None" = None,
     timeout_seconds: int | None = 1800,
     max_iterations: int = 50,
-    initial_messages: list[dict[str, Any]] | None = None,
+    agent_run_checkpoint: dict[str, Any] | None = None,
 ) -> BackgroundTaskSpec:
     """Construct a :class:`BackgroundTaskSpec` from a chat
     :class:`ExecutionRequest`.
@@ -103,11 +105,9 @@ def build_spec_from_request(
     live chat history is intentionally not included — on retry the
     executor will rebuild its own prompt package.
 
-    When the caller already has an :class:`OrchestratorSnapshot` in hand
-    (typical for detach-to-background hand-offs), pass its
-    ``messages`` through ``initial_messages`` so the background run can
-    resume from the same LLM turn instead of restarting from
-    ``spec.goal``.
+    A detach-to-background handoff supplies the complete unified-loop
+    checkpoint so the worker resumes governance state and model context
+    together.
     """
     context = request.context
     latest_payload = getattr(context, "latest_payload", None)
@@ -134,8 +134,10 @@ def build_spec_from_request(
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
         task_budget_root_turn_id=task_budget_root_turn_id,
-        initial_messages=(
-            [dict(m) for m in initial_messages] if initial_messages is not None else None
+        agent_run_checkpoint=(
+            dict(agent_run_checkpoint)
+            if agent_run_checkpoint is not None
+            else None
         ),
     )
 
@@ -150,7 +152,7 @@ class BackgroundLaunchService:
 
     The service is deliberately handler-agnostic: it returns a plain
     :class:`ExecutionResult` that any caller (phase 3d will wire the
-    coordinator / FunctionCallingHandler) can forward as the turn's
+    coordinator / AgentRunHandler) can forward as the turn's
     final result. The ack text is built via an injectable callback so
     product surfaces can localise it without touching runtime code.
     """
@@ -172,7 +174,7 @@ class BackgroundLaunchService:
         trigger: "RunTrigger | None" = None,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 50,
-        initial_messages: list[dict[str, Any]] | None = None,
+        agent_run_checkpoint: dict[str, Any] | None = None,
     ) -> "ExecutionResult":
         # Imported here to avoid a module-load-time cycle:
         # task_agents.common.contracts -> task_agents/__init__.py ->
@@ -185,7 +187,7 @@ class BackgroundLaunchService:
             trigger=trigger,
             timeout_seconds=timeout_seconds,
             max_iterations=max_iterations,
-            initial_messages=initial_messages,
+            agent_run_checkpoint=agent_run_checkpoint,
         )
         task = await self._manager.enqueue(spec)
         ack = self._ack_builder(spec, task)
@@ -237,7 +239,7 @@ def build_background_run_fn(
     """Return a :class:`BackgroundTaskRunFn` bound to ``orchestrator``.
 
     The closure invokes
-    :meth:`FunctionCallingOrchestrator.execute_with_tools` with the
+    :meth:`FunctionCallingOrchestrator.run` with the
     task's own spec + the provided :class:`CancelToken`, then wraps the
     outcome into :class:`BackgroundTaskRunResult`. ``system_prompt`` is
     left blank so the orchestrator falls back to its built-in scenario
@@ -254,26 +256,20 @@ def build_background_run_fn(
     async def _run(task: BackgroundTask, cancel_token: CancelToken) -> BackgroundTaskRunResult:
         spec = task.spec
         execution_agent_id = f"{execution_agent_id_prefix}:{task.task_id}"
-        # Resume path: when a foreground run detached and handed us its
-        # OrchestratorSnapshot, start with the captured messages instead
-        # of reseeding goal as a fresh user turn. Keep ``user_message``
-        # empty so ``append_latest_user_message`` does not duplicate the
-        # final user entry already present in the snapshot.
-        if spec.initial_messages:
-            user_message: str = ""
-            conversation_history: list[dict[str, Any]] = [dict(m) for m in spec.initial_messages]
-        else:
-            user_message = spec.goal
-            conversation_history = []
+        checkpoint = (
+            AgentRunCheckpoint.from_dict(spec.agent_run_checkpoint)
+            if spec.agent_run_checkpoint is not None
+            else None
+        )
         async with _background_task_budget_scope(
             task=task,
             chat_store=chat_task_budget_store,
             background_store=background_task_budget_store,
         ):
             outcome = await function_calling_orchestrator.run(
-                EngineRunInput.headless(
+                AgentRunRequest.headless(
                     turn=UserTurnInput(
-                        text=user_message,
+                        text=spec.goal,
                         attachments=[],
                         user_id=spec.user_id,
                         session_id=spec.session_id or None,
@@ -282,12 +278,12 @@ def build_background_run_fn(
                     user_id=spec.user_id,
                     session_id=spec.session_id or None,
                     turn_id=spec.origin_turn_id or None,
-                    conversation_history=conversation_history,
                     max_iterations=spec.max_iterations,
-                    intent=intent_label,
+                    execution_preset=intent_label,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=spec.workspace_path,
-                    cancel_token=cancel_token,
+                    control=_background_run_control(cancel_token),
+                    checkpoint=checkpoint,
                 )
             )
         summary = (outcome.content or "").strip()
@@ -298,6 +294,12 @@ def build_background_run_fn(
         )
 
     return _run
+
+
+def _background_run_control(cancel_token: CancelToken):
+    control = null_run_control()
+    control.cancel_token = cancel_token
+    return control
 
 
 @asynccontextmanager

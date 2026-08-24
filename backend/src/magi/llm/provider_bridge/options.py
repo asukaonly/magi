@@ -143,6 +143,33 @@ class ProviderBridgeOptionsMixin:
             return ReasoningDialect.ANTHROPIC_BUDGET
         return resolve_dialect(self._resolve_model_vendor())
 
+    def resolve_effective_reasoning_depth(
+        self,
+        requested: ThinkingDepth,
+    ) -> ThinkingDepth:
+        """Return the closest depth the active provider dialect can express."""
+
+        dialect = self._resolve_reasoning_dialect()
+        if dialect is ReasoningDialect.NONE:
+            return ThinkingDepth.NONE
+        if dialect is ReasoningDialect.OPENAI_EFFORT:
+            if not self._model_supports_reasoning():
+                return ThinkingDepth.NONE
+            return ThinkingDepth.HIGH if requested is ThinkingDepth.MAX else requested
+        if dialect is ReasoningDialect.DEEPSEEK_THINKING:
+            if requested is ThinkingDepth.NONE:
+                return ThinkingDepth.NONE
+            return ThinkingDepth.MAX if requested is ThinkingDepth.MAX else ThinkingDepth.HIGH
+        if dialect in {ReasoningDialect.DASHSCOPE_ENABLE, ReasoningDialect.GLM_TOGGLE}:
+            return ThinkingDepth.NONE if requested is ThinkingDepth.NONE else ThinkingDepth.HIGH
+        if dialect is ReasoningDialect.ANTHROPIC_BUDGET:
+            model_id = str(getattr(self.llm, "model_name", ""))
+            if requested is not ThinkingDepth.NONE and anthropic_thinking_is_adaptive_only(
+                model_id
+            ):
+                return ThinkingDepth.HIGH
+        return requested
+
     def _apply_anthropic_thinking_options(
         self,
         kwargs: Dict[str, Any],

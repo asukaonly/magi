@@ -8,10 +8,12 @@ import pytest
 from magi.control.run_control import (
     DetachRequested,
     DetachSignal,
-    OrchestratorSnapshot,
     SteerInbox,
     SteerMessage,
 )
+from magi.agent.execution.checkpoint import AgentRunCheckpoint
+from magi.agent.execution.evidence import ToolExecutionEvidence
+from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 
 
 @pytest.mark.asyncio
@@ -93,31 +95,47 @@ async def test_detach_signal_wait_returns_payload() -> None:
     assert payload.reason == "user_request"
 
 
-def test_orchestrator_snapshot_roundtrips_through_dict() -> None:
-    snap = OrchestratorSnapshot(
+def _checkpoint() -> AgentRunCheckpoint:
+    policy = ReasoningPolicy()
+    return AgentRunCheckpoint(
+        run_id="run-1",
         messages=[{"role": "user", "content": "hi"}],
-        iterations=3,
+        effective_system_prompt="system",
+        tools=[{"type": "function", "function": {"name": "read"}}],
+        iteration=3,
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+        selected_tool_names=["read"],
+        tool_evidence=[
+            ToolExecutionEvidence(
+                tool_name="read",
+                success=True,
+                effect_class="read_only",
+                replay_policy="safe",
+            )
+        ],
         reason="user_request",
         note="transfer",
     )
-    restored = OrchestratorSnapshot.from_dict(snap.to_dict())
+
+
+def test_agent_run_checkpoint_roundtrips_through_dict() -> None:
+    snap = _checkpoint()
+    restored = AgentRunCheckpoint.from_dict(snap.to_dict())
+    assert restored.run_id == snap.run_id
     assert restored.messages == snap.messages
-    assert restored.iterations == snap.iterations
+    assert restored.iteration == snap.iteration
+    assert restored.tools == snap.tools
+    assert restored.selected_tool_names == snap.selected_tool_names
+    assert restored.tool_evidence[0].evidence_id == snap.tool_evidence[0].evidence_id
     assert restored.reason == snap.reason
     assert restored.note == snap.note
 
 
-def test_orchestrator_snapshot_messages_are_copies() -> None:
-    original = [{"role": "user", "content": "hi"}]
-    snap = OrchestratorSnapshot(messages=original, iterations=1, reason="x")
-
-    original[0]["content"] = "mutated"
-
-    # Dataclass frozen=True only blocks rebinding; the messages list
-    # itself is a separate reference, so we rely on callers using
-    # ``to_dict``/``from_dict`` for full isolation. Verify that path.
-    assert snap.messages[0]["content"] == "mutated"
-
-    restored = OrchestratorSnapshot.from_dict(snap.to_dict())
+def test_agent_run_checkpoint_roundtrip_isolates_mutable_state() -> None:
+    snap = _checkpoint()
+    restored = AgentRunCheckpoint.from_dict(snap.to_dict())
     restored.messages[0]["content"] = "edited-again"
-    assert snap.messages[0]["content"] == "mutated"  # round-trip isolates
+    restored.selected_tool_names.append("write")
+    assert snap.messages[0]["content"] == "hi"
+    assert snap.selected_tool_names == ["read"]

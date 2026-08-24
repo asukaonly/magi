@@ -114,6 +114,11 @@ class ChatOutcomeWriter:
             run_revision=run_revision,
             run_disposition=run_disposition,
         )
+        if committed is not None:
+            await self._apply_committed_reaction(
+                turn_write=turn_write,
+                updated_at_ms=completed_at_ms,
+            )
         return committed is not None
 
     async def commit_segmented_chat_outcome(
@@ -202,6 +207,11 @@ class ChatOutcomeWriter:
             run_revision=run_revision,
             run_disposition=run_disposition,
         )
+        if committed is not None:
+            await self._apply_committed_reaction(
+                turn_write=turn_write,
+                updated_at_ms=completed_at_ms,
+            )
         return (
             (False, [])
             if committed is None
@@ -306,6 +316,11 @@ class ChatOutcomeWriter:
             run_revision=run_revision,
             run_disposition=run_disposition,
         )
+        if committed is not None:
+            await self._apply_committed_reaction(
+                turn_write=turn_write,
+                updated_at_ms=completed_at_ms,
+            )
         return committed is not None
 
     async def persist_segmented_chat_outcome(
@@ -371,7 +386,27 @@ class ChatOutcomeWriter:
             run_revision=run_revision,
             run_disposition=run_disposition,
         )
+        if committed is not None:
+            await self._apply_committed_reaction(
+                turn_write=turn_write,
+                updated_at_ms=completed_at_ms,
+            )
         return committed or []
+
+    async def _apply_committed_reaction(
+        self,
+        *,
+        turn_write: Any,
+        updated_at_ms: int,
+    ) -> None:
+        if turn_write.response_mode != "reaction_only":
+            return
+        await self._message_writer.apply_reaction_label(
+            turn=turn_write.turn,
+            turn_id=turn_write.turn_id,
+            ux_plan=turn_write.ux_plan,
+            updated_at_ms=updated_at_ms,
+        )
 
     async def persist_turn_supersession(
         self,

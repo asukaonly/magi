@@ -768,7 +768,7 @@
       "timeout": "生图超时（秒）"
     },
     "scenarios": {
-      "context_decider": {
+      "auxiliary": {
         "title": "规划模型",
         "desc": "每条消息先经过它快速分析意图、选择工具和规划执行路径。推荐使用响应快、成本低的模型。"
       },

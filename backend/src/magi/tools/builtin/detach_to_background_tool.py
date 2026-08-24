@@ -12,7 +12,7 @@ The actual handoff is a two-step dance:
    :class:`DetachSignal` already observed by the orchestrator loop.
 2. At the next tool boundary the orchestrator exits with
    ``ExecutionOutcome(status="detached")`` plus a
-   :class:`OrchestratorSnapshot`, and a higher-level handler (chat
+   typed agent-run checkpoint, and a higher-level handler (chat
    post-processor) is responsible for seeding a
    :class:`BackgroundTaskSpec` from that snapshot.
 

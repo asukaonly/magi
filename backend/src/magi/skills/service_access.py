@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from typing import Any
@@ -77,12 +77,11 @@ def build_skills_runtime(
     *,
     tool_registry: ToolRegistryPort,
     orchestrator_factory=None,
-    engine_run_input_factory=None,
-    llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
+    agent_run_request_factory=None,
 ) -> SkillsRuntimeBindings:
     """Build shared skills runtime services without storing module-level globals.
 
-    ``orchestrator_factory`` / ``engine_run_input_factory`` are injected by the
+    ``orchestrator_factory`` / ``agent_run_request_factory`` are injected by the
     composition root and threaded to the skill sub-agent so the skills layer
     does not import the agent execution engine.
     """
@@ -99,10 +98,9 @@ def build_skills_runtime(
         permission_gateway_provider=permission_gateway_provider,
         tool_registry=tool_registry,
         orchestrator_factory=orchestrator_factory,
-        engine_run_input_factory=engine_run_input_factory,
+        agent_run_request_factory=agent_run_request_factory,
         active_model_provider=active_model_provider,
         scenario_llm_pool=scenario_llm_pool,
-        llm_call_reserver=llm_call_reserver,
     )
 
     skills = skill_indexer.scan_all()

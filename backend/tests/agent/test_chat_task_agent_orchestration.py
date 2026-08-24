@@ -29,7 +29,6 @@ from magi.agent.task_agents.handlers import (
     ToolSelection,
 )
 from magi.chat.task_agent import planning_service as planning_service_module
-from magi.tools.context_routing import RouteDecision
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.agent.task_agents.explore_task_agent import (
     EXPLORE_TASK_COMPLETED,
@@ -671,17 +670,10 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path,
         ],
     }
 
-    request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
-        ExecutionRequest(
-            mode=ExecutionMode.DIRECT_LLM,
-            context=context,
-            intent=IntentDecision(
-                intent="chat",
-                difficulty="normal",
-                execution_mode=ExecutionMode.DIRECT_LLM,
-            ),
-            tool_selection=ToolSelection(),
-        )
+    request = await agent.assemble_llm_params(
+        context,
+        IntentDecision(intent="unified_agent_run", execution_mode=None),
+        ToolSelection(),
     )
 
     assert "BASE SYSTEM PROMPT" in request.system_prompt
@@ -690,10 +682,6 @@ async def test_chat_task_agent_builds_reply_aware_prompt_context(tmp_path: Path,
     assert 'Run the desktop dev script from the repo root.' in request.system_prompt
     assert '"attachment_id": "att-root-1"' in request.system_prompt
     assert '"asset_ref_id": "asset-root-1"' in request.system_prompt
-    assert request.messages[-1]["role"] == "user"
-    assert "What if I only want the backend?" in request.messages[-1]["content"]
-    assert "[Current message reply target]" in request.messages[-1]["content"]
-    assert "attachment_id=att-root-1" in request.messages[-1]["content"]
     assert original_user_message.reply_to_message_id is None
 
 
@@ -784,17 +772,10 @@ async def test_chat_task_agent_falls_back_to_recent_photo_context_without_explic
         ]
     }
 
-    request = await agent._handler_registry.get(ExecutionMode.DIRECT_LLM).build_request(
-        ExecutionRequest(
-            mode=ExecutionMode.DIRECT_LLM,
-            context=context,
-            intent=IntentDecision(
-                intent="chat",
-                difficulty="normal",
-                execution_mode=ExecutionMode.DIRECT_LLM,
-            ),
-            tool_selection=ToolSelection(),
-        )
+    request = await agent.assemble_llm_params(
+        context,
+        IntentDecision(intent="unified_agent_run", execution_mode=None),
+        ToolSelection(),
     )
 
     assert "Most recent assistant turn includes reusable context:" in request.system_prompt
@@ -832,73 +813,29 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
     agent._orchestration_store = OrchestrationStore(tmp_path / "orchestrations.json")
     agent._task_orchestrator._orchestration_store = agent._orchestration_store
 
-    async def _fake_generate_subtask_plan(*args, **kwargs):  # type: ignore[no-untyped-def]
-        _ = (args, kwargs)
-        return SubtaskPlan(
-            summary="planned",
-            subtasks=[
-                PlannedSubtask(
-                    description="scan backend",
-                    subagent_type="CodeExplore",
-                    prompt="Inspect backend layout",
-                    parallel_group="group_a",
-                )
-            ],
-        )
-
-    async def _fake_launch(state, **_kwargs):  # type: ignore[no-untyped-def]
-        state.subtasks[0].worker_id = "worker_1"
-        state.subtasks[0].status = "running"
-        await agent._orchestration_store.save_orchestration(state)
-        return None
-
     async def _fake_aggregate(state):  # type: ignore[no-untyped-def]
         assert state.subtasks[0].worker_result is not None
         return "aggregated answer"
 
-    monkeypatch.setattr(agent._task_orchestrator, "_plan_subtasks", _fake_generate_subtask_plan)
-    monkeypatch.setattr(agent._task_orchestrator, "_launch_workers", _fake_launch)
     monkeypatch.setattr(agent._task_orchestrator, "_aggregate_orchestration", _fake_aggregate)
-
-    user_fact = FactRecord(
-        agent_id="chat:u-chat",
-        event_type=EventTypes.USER_MESSAGE,
-        payload={"content": "Analyze repo architecture", "user_id": "u-chat", "session_id": "s-chat"},
-        agent_type="chat",
-        agent_instance_id="u-chat",
-        correlation_id="corr_1",
+    state = TaskOrchestrationState(
+        orchestration_id="orch-worker-update",
+        user_id="u-chat",
+        session_id="s-chat",
+        root_user_message="Analyze repo architecture",
+        planner="agent_tool",
+        subtasks=[
+            SubtaskDefinition(
+                subtask_id="subtask-1",
+                description="scan backend",
+                subagent_type="CodeExplore",
+                prompt="Inspect backend layout",
+                status="running",
+                worker_id="worker_1",
+            )
+        ],
     )
-    merged = await agent.merge_facts([user_fact])
-    context = await agent.build_context(merged)
-    request = ExecutionRequest(
-        mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-        context=context,
-        intent=IntentDecision(
-            intent="repo_analysis",
-            difficulty="normal",
-            execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            route_decision=RouteDecision(
-                profile="research",
-                graph_shape="plan_fanout",
-                complexity="large",
-            ),
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                default_leaf_type="general-purpose",
-                allow_parallel=True,
-            ),
-        ),
-        tool_selection=ToolSelection(),
-    )
-    request = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).build_request(request)
-    launch_result = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).execute(request)
-    assert launch_result.skip_emit is True
-
-    states = await agent._orchestration_store.list_orchestrations(user_id="u-chat", session_id="s-chat")
-    assert len(states) == 1
-    state = states[0]
-    assert state.subtasks[0].worker_id == "worker_1"
-    assert state.subtasks[0].status == "running"
+    await agent._orchestration_store.save_orchestration(state)
 
     completed_fact = FactRecord(
         agent_id="chat:u-chat",
@@ -931,7 +868,6 @@ async def test_chat_task_agent_completes_orchestration_after_worker_fact(tmp_pat
         context=update_context,
         intent=IntentDecision(
             intent="worker_orchestration_update",
-            difficulty="normal",
             execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
         ),
         tool_selection=ToolSelection(),
@@ -1144,19 +1080,8 @@ async def test_aggregate_orchestration_uses_fast_failure_status_when_all_subtask
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkeypatch) -> None:
+async def test_chat_task_agent_admits_repo_analysis_to_the_unified_loop() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    captured = {}
-
-    class _FakeManager:
-        async def add_fact_to_agent(self, agent_type, agent_id, fact):  # type: ignore[no-untyped-def]
-            captured["agent_type"] = agent_type
-            captured["agent_id"] = agent_id
-            captured["fact"] = fact
-            return True
-
-    agent._task_agent_manager = _FakeManager()
-
     user_fact = FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
@@ -1167,32 +1092,13 @@ async def test_chat_task_agent_routes_large_explore_to_explore_task_agent(monkey
     )
     merged = await agent.merge_facts([user_fact])
     context = await agent.build_context(merged)
-    agent._context_assembler.append_user_message("u-chat::s-chat", "看下代码架构")
-    request = ExecutionRequest(
-        mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-        context=context,
-        intent=IntentDecision(
-            intent="repo_analysis",
-            difficulty="normal",
-            execution_mode=ExecutionMode.ORCHESTRATION_LAUNCH,
-            route_decision=RouteDecision(
-                profile="explore",
-                graph_shape="plan_fanout",
-                complexity="large",
-            ),
-            orchestration_plan=OrchestrationPlan(
-                mode="decompose",
-                default_leaf_type="CodeExplore",
-                allow_parallel=True,
-            ),
-        ),
-        tool_selection=ToolSelection(),
-    )
-    request = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).build_request(request)
-    result = await agent._handler_registry.get(ExecutionMode.ORCHESTRATION_LAUNCH).execute(request)
+    intent = await agent.match_intent(context)
+    tool_selection = await agent.match_tools(context, intent)
+    request = await agent.assemble_llm_params(context, intent, tool_selection)
 
-    assert result.skip_emit is True
-    assert captured["agent_type"] == TaskAgentType.EXPLORE
+    assert intent.intent == "unified_agent_run"
+    assert intent.execution_mode is None
+    assert request.mode is None
 
 
 @pytest.mark.asyncio
@@ -1356,7 +1262,6 @@ async def test_chat_task_agent_renders_explore_dossier_with_analysis_prompt(monk
         context=context,
         intent=IntentDecision(
             intent="explore_task_completed",
-            difficulty="normal",
             execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
         ),
         tool_selection=ToolSelection(),

@@ -81,6 +81,10 @@ class UserMessageRequest(BaseModel):
         None,
         description="Question context for a first-context answer",
     )
+    reasoning_preference: Optional[Literal["auto", "fast", "deep"]] = Field(
+        None,
+        description="Optional structured reasoning preference for this turn",
+    )
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
 
     @model_validator(mode="after")

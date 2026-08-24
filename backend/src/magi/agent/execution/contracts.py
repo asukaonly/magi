@@ -11,6 +11,7 @@ class AgentRunEventType(str, Enum):
     """Stable event names persisted by the agent runtime."""
 
     RUN_STARTED = "run_started"
+    RUN_RESUMED = "run_resumed"
     CONTEXT_PREPARED = "context_prepared"
     STEP_STARTED = "step_started"
     REASONING_POLICY_RESOLVED = "reasoning_policy_resolved"
@@ -21,6 +22,8 @@ class AgentRunEventType(str, Enum):
     TOOL_RESULT = "tool_result"
     CAPABILITIES_RESOLVED = "capabilities_resolved"
     CAPABILITIES_EXPANDED = "capabilities_expanded"
+    ATTACHMENT_OBSERVED = "attachment_observed"
+    CONTROL_RECEIVED = "control_received"
     VALIDATION_COMPLETED = "validation_completed"
     COMPLETION_REQUESTED = "completion_requested"
     COMPLETION_REJECTED = "completion_rejected"
@@ -78,6 +81,7 @@ class RunContextManifest:
     system_prompt_hash: str
     messages: tuple[dict[str, Any], ...]
     tool_catalog: tuple[str, ...]
+    tool_schemas: tuple[dict[str, Any], ...]
     tool_schema_hashes: dict[str, str]
     context_sources: tuple[dict[str, Any], ...] = ()
     provider: str | None = None
@@ -95,6 +99,7 @@ class RunContextManifest:
             "system_prompt_hash": self.system_prompt_hash,
             "messages": [dict(item) for item in self.messages],
             "tool_catalog": list(self.tool_catalog),
+            "tool_schemas": [dict(item) for item in self.tool_schemas],
             "tool_schema_hashes": dict(self.tool_schema_hashes),
             "context_sources": [dict(item) for item in self.context_sources],
             "provider": self.provider,
@@ -118,6 +123,11 @@ class RunContextManifest:
                 if isinstance(item, dict)
             ),
             tool_catalog=tuple(str(item) for item in value.get("tool_catalog", []) if item),
+            tool_schemas=tuple(
+                dict(item)
+                for item in value.get("tool_schemas", [])
+                if isinstance(item, dict)
+            ),
             tool_schema_hashes={
                 str(key): str(item)
                 for key, item in dict(value.get("tool_schema_hashes") or {}).items()

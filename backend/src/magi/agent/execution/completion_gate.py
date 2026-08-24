@@ -45,7 +45,19 @@ class CompletionGate:
             evidence,
             validation_tool_names=policy.validation_tool_names,
         )
-        if failed_validation:
+        successful_validation = successful_validation_evidence(
+            evidence,
+            validation_tool_names=policy.validation_tool_names,
+        )
+        latest_failed_validation_index = max(
+            (index for index, item in enumerate(evidence) if item in failed_validation),
+            default=-1,
+        )
+        latest_successful_validation_index = max(
+            (index for index, item in enumerate(evidence) if item in successful_validation),
+            default=-1,
+        )
+        if latest_failed_validation_index > latest_successful_validation_index:
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -68,15 +80,22 @@ class CompletionGate:
         local_writes = [
             item for item in evidence if item.success and item.effect_class == "local_write"
         ]
-        successful_validation = successful_validation_evidence(
-            evidence,
-            validation_tool_names=policy.validation_tool_names,
+        unknown_effects = [
+            item for item in evidence if item.success and item.effect_class == "unknown"
+        ]
+        guarded_effects = [
+            *(local_writes if policy.require_local_write_validation else []),
+            *(unknown_effects if policy.require_unknown_effect_validation else []),
+        ]
+        last_guarded_effect_index = max(
+            (index for index, item in enumerate(evidence) if item in guarded_effects),
+            default=-1,
         )
-        if (
-            policy.require_local_write_validation
-            and local_writes
-            and not successful_validation
-        ):
+        validation_is_current = any(
+            index > last_guarded_effect_index and item in successful_validation
+            for index, item in enumerate(evidence)
+        )
+        if last_guarded_effect_index >= 0 and not validation_is_current:
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -88,7 +107,7 @@ class CompletionGate:
                 outcome=CompletionOutcome.CONTINUE,
                 reason_code="validation_required",
                 observations=(
-                    "Local files changed. Run an appropriate verification step before presenting a final answer.",
+                    "The run changed state or used an unknown-effect capability. Run an appropriate verification step after the latest effect before presenting a final answer.",
                 ),
                 evidence_refs=refs,
                 repairable=True,

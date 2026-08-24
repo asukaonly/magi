@@ -84,15 +84,6 @@ class SignatureTrigger:
     exit_behavior: str = ""
     """How the persona returns to baseline when the condition ends."""
 
-    emotion_impact: Dict[str, float] = field(default_factory=dict)
-    """Per-turn delta applied to emotional state when this trigger fires.
-
-    Keys: ``mood``, ``stress``, ``energy``. Values are signed floats clamped
-    by the engine. When omitted, a family-default lookup keyed on
-    ``trigger_id`` is used (see ``trigger_emotion_impact.py``); when
-    explicitly set, the override replaces the default entirely. Empty dict
-    + unknown trigger_id family = no emotion impact.
-    """
 
 
 @dataclass
@@ -254,24 +245,9 @@ def _parse_signature_triggers(raw: List[Any]) -> List[SignatureTrigger]:
                 behavior_shift=str(st.get("behavior_shift", "")),
                 intensity_levels=dict(st.get("intensity_levels", {})),
                 exit_behavior=str(st.get("exit_behavior", "")),
-                emotion_impact=_parse_emotion_impact(st.get("emotion_impact") or {}),
             )
         )
     return signature_triggers
-
-
-def _parse_emotion_impact(raw: Any) -> Dict[str, float]:
-    emotion_impact: Dict[str, float] = {}
-    if not isinstance(raw, dict):
-        return emotion_impact
-    for key, value in raw.items():
-        if key not in {"mood", "stress", "energy"}:
-            continue
-        try:
-            emotion_impact[key] = float(value)
-        except (TypeError, ValueError):
-            continue
-    return emotion_impact
 
 
 def _parse_persona_layers(raw: List[Any]) -> List[PersonaLayer]:

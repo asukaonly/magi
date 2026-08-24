@@ -96,6 +96,7 @@ async def _render_seven_prompt(
         user_id="local_user",
         self_memory=_SevenMemory(relationship=relationship, milestones=milestones),
         tool_result={"tools": list(tools or [])},
+        persona_action_tools=list(tools or []),
         retrieved_memory_payload={},
         persona_name="seven_hacker",
         user_message=user_message,
@@ -124,6 +125,7 @@ async def _render_persona_prompt(
         user_id="local_user",
         self_memory=_PresetMemory(config, relationship=relationship, milestones=milestones),
         tool_result={"tools": list(tools or [])},
+        persona_action_tools=list(tools or []),
         retrieved_memory_payload={},
         persona_name=persona_name,
         user_message=user_message,
@@ -137,11 +139,11 @@ async def test_seven_prompt_keeps_ordinary_chat_low_intensity() -> None:
 
     assert "# Persona Runtime Plan" in prompt
     assert "* Persona: 七号" in prompt
-    assert "* Register: chat" in prompt
+    assert "* Candidate: chat" in prompt
     assert "* Persona Intensity: 1/3" in prompt
     assert "默认 1-3 句" in prompt
     assert "你喜欢吃什么" not in prompt
-    assert "## Active Persona Triggers" not in prompt
+    assert "## Persona Trigger Candidates" not in prompt
     assert "所有阴阳怪气消失" not in prompt
 
 
@@ -153,7 +155,7 @@ async def test_seven_prompt_uses_analysis_register_without_play_trigger_for_arch
         task_category="analysis",
     )
 
-    assert "* Register: analysis" in prompt
+    assert "* Candidate: analysis" in prompt
     assert "* Condition: focused_work" in prompt
     assert "* Persona Intensity: 1/3" in prompt
     assert "absurdity" not in prompt
@@ -163,7 +165,7 @@ async def test_seven_prompt_uses_analysis_register_without_play_trigger_for_arch
 async def test_seven_prompt_adds_emotional_quiet_clamp_for_low_mood() -> None:
     prompt = await _render_seven_prompt(user_message="今天心情好差，什么都不想干")
 
-    assert "* Register: emotional" in prompt
+    assert "* Candidate: emotional" in prompt
     assert "* Condition: emotional_support" in prompt
     assert "sarcasm: none_to_light" in prompt
     assert "* Persona Intensity: 1/3" in prompt
@@ -173,7 +175,7 @@ async def test_seven_prompt_adds_emotional_quiet_clamp_for_low_mood() -> None:
 async def test_seven_prompt_adds_emotional_quiet_clamp_for_fatigue_language() -> None:
     prompt = await _render_seven_prompt(user_message="我靠咖啡续命啊")
 
-    assert "* Register: emotional" in prompt
+    assert "* Candidate: emotional" in prompt
     assert "* Condition: emotional_support" in prompt
     assert "第几杯了" in prompt
     assert "你喜欢吃什么" not in prompt
@@ -183,8 +185,8 @@ async def test_seven_prompt_adds_emotional_quiet_clamp_for_fatigue_language() ->
 async def test_seven_prompt_does_not_treat_generic_difficulty_as_fatigue() -> None:
     prompt = await _render_seven_prompt(user_message="这个问题有点困难，随便聊聊")
 
-    assert "* Register: chat" in prompt
-    assert "* Register: emotional" not in prompt
+    assert "* Candidate: chat" in prompt
+    assert "* Candidate: emotional" not in prompt
 
 
 @pytest.mark.asyncio
@@ -197,7 +199,7 @@ async def test_echo_prompt_avoids_fixed_presence_tail() -> None:
     )
 
     assert "* Persona: Echo-01" in prompt
-    assert "* Register: chat" in prompt
+    assert "* Candidate: chat" in prompt
     assert "固定追加在场确认句" in prompt
     assert "我在" not in prompt
     assert "服务队列" not in prompt
@@ -233,7 +235,7 @@ async def test_nova_prompt_avoids_fixed_parameter_tail() -> None:
 async def test_seven_prompt_renders_only_active_absurdity_trigger() -> None:
     prompt = await _render_seven_prompt(user_message="我整了个特别离谱的活，你听完别笑")
 
-    assert "## Active Persona Triggers" in prompt
+    assert "## Persona Trigger Candidates" in prompt
     assert "absurdity (mid)" in prompt
     assert "当场认大哥" in prompt
     assert "crisis (mid)" not in prompt
@@ -244,7 +246,7 @@ async def test_seven_prompt_renders_only_active_absurdity_trigger() -> None:
 async def test_seven_prompt_renders_only_active_hostility_trigger() -> None:
     prompt = await _render_seven_prompt(user_message="别又拿宏大叙事和道德说教压我，这套太空了")
 
-    assert "## Active Persona Triggers" in prompt
+    assert "## Persona Trigger Candidates" in prompt
     assert "hostility (mid)" in prompt
     assert "逻辑漏洞" in prompt
     assert "absurdity (mid)" not in prompt
@@ -260,16 +262,16 @@ async def test_seven_prompt_suppresses_play_trigger_during_tool_execution() -> N
         tools=["edit_file"],
     )
 
-    assert "* Register: task" in prompt
+    assert "* Candidate: task" in prompt
     assert "* Condition: focused_work" in prompt
-    assert "## Active Persona Triggers" not in prompt
+    assert "## Persona Trigger Candidates" not in prompt
 
 
 @pytest.mark.asyncio
 async def test_seven_prompt_crisis_register_suppresses_performance() -> None:
     prompt = await _render_seven_prompt(user_message="紧急，我的密码泄露了，账号可能被盗")
 
-    assert "* Register: crisis" in prompt
+    assert "* Required Register: crisis" in prompt
     assert "* Persona Intensity: 0/3" in prompt
     assert "* Condition: crisis" in prompt
     assert "sarcasm: none" in prompt

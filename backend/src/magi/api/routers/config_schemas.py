@@ -87,7 +87,7 @@ class LLMConfigModel(BaseModel):
     providers: Dict[str, LLMProviderConfigModel] = Field(default_factory=dict)
     selections: Dict[str, LLMSelectionConfigModel] = Field(
         default_factory=lambda: {
-            "context_decider": LLMSelectionConfigModel(),
+            "auxiliary": LLMSelectionConfigModel(),
             "core": LLMSelectionConfigModel(),
             "memory_summarizer": LLMSelectionConfigModel(),
             "embedding": LLMSelectionConfigModel(

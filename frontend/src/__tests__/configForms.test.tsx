@@ -152,7 +152,7 @@ vi.mock('../api/modules/config', async () => {
             default_model: 'glm-5',
             default_classify_model: 'glm-5-code',
             default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-            allowed_scenarios: ['context_compact', 'context_decider', 'core'],
+            allowed_scenarios: ['context_compact', 'auxiliary', 'core'],
             endpoints: [
               {
                 id: 'china',
@@ -843,7 +843,7 @@ describe('config forms', () => {
       },
     },
     selections: {
-      context_decider: {
+      auxiliary: {
         provider_id: 'openai',
         model: 'gpt-5.2',
         capability_override_enabled: false,
@@ -980,8 +980,8 @@ describe('config forms', () => {
         model_metadata_overrides: {},
       },
     };
-    customValue.selections.context_decider = {
-      ...structuredClone(llmValue.selections.context_decider),
+    customValue.selections.auxiliary = {
+      ...structuredClone(llmValue.selections.auxiliary),
       provider_id: 'custom_proxy',
       model: 'manual-model',
     };
@@ -1698,7 +1698,7 @@ describe('config forms', () => {
         },
       },
       selections: {
-        context_decider: {
+        auxiliary: {
           provider_id: 'openai',
           model: 'alpha-model',
           capability_override_enabled: false,
@@ -1929,7 +1929,7 @@ describe('config forms', () => {
     const blankValue = {
       providers: {},
       selections: {
-        context_decider: {
+        auxiliary: {
           provider_id: '',
           model: '',
           capability_override_enabled: false,
@@ -2026,8 +2026,8 @@ describe('config forms', () => {
     const latest = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? blankValue;
 
     expect(latest.providers).toEqual({});
-    expect(latest.selections.context_decider.provider_id).toBe('');
-    expect(latest.selections.context_decider.model).toBe('');
+    expect(latest.selections.auxiliary.provider_id).toBe('');
+    expect(latest.selections.auxiliary.model).toBe('');
     expect(latest.selections.core.provider_id).toBe('');
     expect(latest.selections.core.model).toBe('');
   });
@@ -2254,8 +2254,8 @@ describe('config forms', () => {
       ...llmValue,
       selections: {
         ...llmValue.selections,
-        context_decider: {
-          ...llmValue.selections.context_decider,
+        auxiliary: {
+          ...llmValue.selections.auxiliary,
           provider_id: 'openai',
           model: 'gpt-5.2',
         },

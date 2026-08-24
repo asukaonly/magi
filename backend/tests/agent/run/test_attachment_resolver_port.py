@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from magi.agent.run.ports import (
+from magi.agent.execution.attachment_resolver import (
     AttachmentResolverPort,
     LazyAttachmentResolver,
     NullAttachmentResolver,

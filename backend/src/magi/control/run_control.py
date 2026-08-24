@@ -65,7 +65,6 @@ if TYPE_CHECKING:
 __all__ = [
     "DetachRequested",
     "DetachSignal",
-    "OrchestratorSnapshot",
     "RetractRequested",
     "RetractSignal",
     "RunControl",
@@ -173,40 +172,6 @@ class DetachSignal:
         # payload is always non-None here.
         assert self._payload is not None
         return self._payload
-
-
-@dataclass(slots=True, frozen=True)
-class OrchestratorSnapshot:
-    """Serialisable in-progress state captured at a tool boundary.
-
-    Produced when the orchestrator observes a :class:`DetachSignal`
-    request and exits with ``ExecutionOutcome.status == "detached"``.
-    ``messages`` is a deep copy of the orchestrator's message history
-    at that point; callers may therefore hand the snapshot to a
-    background worker that continues from the same LLM turn.
-    """
-
-    messages: list[dict[str, Any]]
-    iterations: int
-    reason: SteerReason
-    note: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "messages": [dict(msg) for msg in self.messages],
-            "iterations": int(self.iterations),
-            "reason": str(self.reason),
-            "note": str(self.note),
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OrchestratorSnapshot":
-        return cls(
-            messages=[dict(msg) for msg in (data.get("messages") or [])],
-            iterations=int(data.get("iterations") or 0),
-            reason=str(data.get("reason") or "detached"),
-            note=str(data.get("note") or ""),
-        )
 
 
 @dataclass(slots=True, frozen=True)
@@ -377,7 +342,7 @@ def null_run_control() -> RunControl:
 # parameter (ToolExecutionContext is product-agnostic and must not
 # leak orchestration internals). Instead the orchestrator binds the
 # active signal into this ContextVar for the duration of
-# ``execute_with_tools``; the ``detach_to_background`` builtin tool
+# the unified run entry; the ``detach_to_background`` builtin tool
 # reads it to flag a detach request. Tools running outside an
 # orchestrator loop see ``None`` and can report "not supported here".
 

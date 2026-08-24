@@ -148,7 +148,7 @@ async def test_function_calling_orchestrator_uses_injected_active_model() -> Non
 def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_explore",
+        execution_preset="worker_explore",
         tool_name="glob",
         arguments={"pattern": "*", "path": "~/code/magi"},
     )
@@ -163,7 +163,7 @@ def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
 def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_explore",
+        execution_preset="worker_explore",
         tool_name="glob",
         arguments={"pattern": "frontend/*.tsx"},
     )
@@ -177,7 +177,7 @@ def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
 def test_explore_guardrail_rewrites_recursive_wildcard_glob() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_explore",
+        execution_preset="worker_explore",
         tool_name="glob",
         arguments={"pattern": "**/*", "recursive": True},
     )
@@ -191,7 +191,7 @@ def test_explore_guardrail_rewrites_recursive_wildcard_glob() -> None:
 def test_explore_guardrail_clamps_max_results_for_grep() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_explore",
+        execution_preset="worker_explore",
         tool_name="grep",
         arguments={"pattern": "TODO", "glob": "backend/**/*.py", "max_results": 5000},
     )
@@ -205,7 +205,7 @@ def test_explore_guardrail_clamps_max_results_for_grep() -> None:
 def test_plan_guardrail_rewrites_root_recursive_glob_to_bounded_scan() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_plan",
+        execution_preset="worker_plan",
         tool_name="glob",
         arguments={"pattern": "**/*", "path": "/tmp/repo", "recursive": True, "max_results": 5000},
         execution_workspace="/tmp/repo",
@@ -221,7 +221,7 @@ def test_plan_guardrail_rewrites_root_recursive_glob_to_bounded_scan() -> None:
 def test_plan_guardrail_blocks_root_wide_grep_in_workspace() -> None:
     executor = _executor()
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="worker_plan",
+        execution_preset="worker_plan",
         tool_name="grep",
         arguments={"pattern": "TODO", "glob": "**/*", "path": "~/repo"},
         execution_workspace=os.path.expanduser("~/repo"),
@@ -267,7 +267,7 @@ def test_chat_guardrail_blocks_scan_outside_active_workspace(tmp_path) -> None:
     outside.mkdir()
 
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="chat",
+        execution_preset="chat",
         tool_name="glob",
         arguments={"pattern": "**/*.py", "path": str(outside)},
         execution_workspace=str(workspace),
@@ -290,7 +290,7 @@ def test_chat_guardrail_allows_scan_within_active_workspace(tmp_path) -> None:
     nested.mkdir(parents=True)
 
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="chat",
+        execution_preset="chat",
         tool_name="grep",
         arguments={"pattern": "todo", "path": str(nested), "glob": "*.py"},
         execution_workspace=str(workspace),
@@ -312,7 +312,7 @@ def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_p
     outside.mkdir()
 
     guarded_args, error = executor._apply_worker_explore_guardrails(
-        intent="chat",
+        execution_preset="chat",
         tool_name="glob",
         arguments={
             "pattern": "**/*.py",
@@ -342,7 +342,7 @@ async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_
         user_id="u",
         session_id="s",
         turn_id="t",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=str(workspace),
     )

@@ -104,16 +104,13 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
         def list_tools(self) -> list[str]:
             return ["file_read"]
 
-    class _FakeFunctionCallingOrchestrator:
-        async def execute_with_tools(self, **kwargs):
-            recorded.update(kwargs)
+    class _FakeAgentOrchestrator:
+        async def run(self, run_input):  # type: ignore[no-untyped-def]
+            recorded["run_input"] = run_input
             return SimpleNamespace(succeeded=True, content="done", failure_reason=None)
 
-        async def run(self, run_input):  # engine front door → forwards (ADR-0004 P4)
-            return await self.execute_with_tools(**run_input.to_execute_kwargs())
-
     from magi.agent.execution.function_calling.headless_factory import (
-        build_headless_engine_run_input,
+        build_headless_agent_run_request,
     )
 
     skill = SkillContent(
@@ -130,8 +127,8 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
         skill=skill,
         llm_adapter=object(),
         tool_registry=_FakeRegistry(),
-        orchestrator_factory=lambda **kwargs: _FakeFunctionCallingOrchestrator(),
-        engine_run_input_factory=build_headless_engine_run_input,
+        orchestrator_factory=lambda **kwargs: _FakeAgentOrchestrator(),
+        agent_run_request_factory=build_headless_agent_run_request,
     )
 
     result = await subagent.execute(
@@ -141,7 +138,7 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
     )
 
     assert result.success is True
-    assert recorded["execution_workspace"] == str(workspace.resolve())
+    assert recorded["run_input"].execution_workspace == str(workspace.resolve())
 
 
 def test_skill_indexer_project_local_location_is_repo_relative_not_cwd(

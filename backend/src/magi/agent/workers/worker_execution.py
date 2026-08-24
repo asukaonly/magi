@@ -7,10 +7,12 @@ import time
 from typing import Any, Dict, List, Protocol, cast
 
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
-from ...agent.execution.function_calling.run_input import EngineRunInput
+from ...agent.execution.function_calling.run_input import AgentRunRequest
+from ...agent.execution.reasoning import ReasoningPolicy
 from ...agent.orchestration import WorkerResult
 from ...agent.turn_input import UserTurnInput
 from ...config.models import ThinkingDepth
+from ...control.run_control import null_run_control
 from ...core.logger import get_logger
 from ...llm.streaming_events import stream_source
 from .worker_state import (
@@ -118,7 +120,7 @@ class WorkerExecutionMixin:
         executor = self._build_worker_executor(run_state)
         async with stream_source("worker"):
             return await executor.run(
-                _build_engine_run_input(
+                _build_agent_run_request(
                     run_state,
                     worker_system_prompt=worker_system_prompt,
                     selected_tools=selected_tools,
@@ -345,15 +347,15 @@ class WorkerExecutionMixin:
         )
 
 
-def _build_engine_run_input(
+def _build_agent_run_request(
     run_state: WorkerRunState,
     *,
     worker_system_prompt: str,
     selected_tools: List[str],
     max_iterations: int,
     execution_workspace: str,
-) -> EngineRunInput:
-    return EngineRunInput.headless(
+) -> AgentRunRequest:
+    return AgentRunRequest.headless(
         turn=UserTurnInput(
             text=run_state.prompt,
             attachments=[],
@@ -367,21 +369,31 @@ def _build_engine_run_input(
         turn_id=run_state.turn_id,
         conversation_history=[],
         max_iterations=max_iterations,
-        thinking_depth=_worker_thinking_depth(run_state),
-        intent=_worker_intent(run_state),
+        reasoning_policy=_worker_reasoning_policy(run_state),
+        execution_preset=_worker_intent(run_state),
         execution_agent_id=run_state.worker_id,
         execution_workspace=execution_workspace,
         llm_timeout_seconds=_worker_llm_timeout_seconds(run_state),
         final_response_json_mode=True,
-        cancel_token=run_state.cancel_token,
+        control=_worker_run_control(run_state),
         ephemeral_context=run_state.parent_context_summary,
     )
 
 
-def _worker_thinking_depth(run_state: WorkerRunState) -> ThinkingDepth:
+def _worker_reasoning_policy(run_state: WorkerRunState) -> ReasoningPolicy:
     if run_state.subagent_type == "Plan":
-        return ThinkingDepth.HIGH
-    return ThinkingDepth.NONE
+        return ReasoningPolicy(
+            initial_depth=ThinkingDepth.MEDIUM,
+            maximum_depth=ThinkingDepth.HIGH,
+            max_escalations=1,
+        )
+    return ReasoningPolicy()
+
+
+def _worker_run_control(run_state: WorkerRunState):
+    control = null_run_control()
+    control.cancel_token = run_state.cancel_token
+    return control
 
 
 def _worker_intent(run_state: WorkerRunState) -> str:

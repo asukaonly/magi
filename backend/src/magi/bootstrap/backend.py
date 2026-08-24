@@ -94,7 +94,7 @@ def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> Non
     try:
         from ..agent.execution.function_calling.headless_factory import (
             build_function_calling_orchestrator,
-            build_headless_engine_run_input,
+            build_headless_agent_run_request,
         )
         from ..skills.service_access import build_skills_runtime
         from ..tools import tool_registry
@@ -103,7 +103,7 @@ def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> Non
             llm_adapter=None,
             tool_registry=tool_registry,
             orchestrator_factory=build_function_calling_orchestrator,
-            engine_run_input_factory=build_headless_engine_run_input,
+            agent_run_request_factory=build_headless_agent_run_request,
         )
         container.skill_indexer.override(providers.Object(bindings.skill_indexer))
         container.skill_loader.override(providers.Object(bindings.skill_loader))
@@ -174,7 +174,7 @@ async def initialize_agent_runtime() -> None:
         if exc.pending_selection:
             logger.info(
                 "LLM runtime initialization deferred: required selections are incomplete "
-                "(context_decider/core provider+model)."
+                "(core provider+model)."
             )
         else:
             logger.warning("=" * 60)

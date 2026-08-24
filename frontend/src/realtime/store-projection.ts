@@ -167,6 +167,15 @@ export const applyRealtimeStoreProjection = (
       return true;
     }
 
+    if (streamEvent?.kind === 'text_reset') {
+      conversationStore.appendStreamTextReset({
+        sessionId,
+        turnId,
+        personaId,
+      });
+      return true;
+    }
+
     if (streamEvent?.kind === 'reasoning_delta' && streamEvent.text) {
       conversationStore.appendStreamReasoningDelta({
         sessionId,

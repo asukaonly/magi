@@ -8,7 +8,6 @@ from typing import Any, Callable
 
 from ..core.logger import get_logger
 from ..personality.models import EmotionalState
-from ..personality.turn_planner import PersonaRoutingHint
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import PromptPackage
 from .policy import ContextPolicy
@@ -82,12 +81,12 @@ class ContextAssemblyService:
         attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
+        persona_action_tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
-        persona_routing_hint: PersonaRoutingHint | None = None,
         allow_implicit_memory: bool = True,
     ) -> PromptPackage:
         policy = self._policy.decide(
@@ -128,12 +127,12 @@ class ContextAssemblyService:
             user_id=user_id,
             self_memory=prompt_memory,
             tool_result={"tools": list(tools or [])},
+            persona_action_tools=list(persona_action_tools or []),
             retrieved_memory_payload=retrieved_memory_payload,
             persona_name=prompt_persona_name,
             user_message=user_message,
             workspace_path=resolved_workspace_path,
             attachments=list(attachments or []),
-            persona_routing_hint=persona_routing_hint,
         )
         if resolved_persona_id:
             prompt_context.metadata["persona_id"] = resolved_persona_id
@@ -159,12 +158,12 @@ class ContextAssemblyService:
         attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
+        persona_action_tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
-        persona_routing_hint: PersonaRoutingHint | None = None,
         allow_implicit_memory: bool = True,
     ):
         package = await self.build_prompt_package(
@@ -174,12 +173,12 @@ class ContextAssemblyService:
             attachments=attachments,
             task_category=task_category,
             tools=tools,
+            persona_action_tools=persona_action_tools,
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
-            persona_routing_hint=persona_routing_hint,
             allow_implicit_memory=allow_implicit_memory,
         )
         return package.prompt_context
@@ -193,12 +192,12 @@ class ContextAssemblyService:
         attachments: list[dict[str, Any]] | None = None,
         task_category: str,
         tools: list[str] | None = None,
+        persona_action_tools: list[str] | None = None,
         scenario: str = Scenario.CHAT,
         recent_tool_errors: list[dict[str, Any]] | None = None,
         workspace_path: str | None = None,
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
-        persona_routing_hint: PersonaRoutingHint | None = None,
         allow_implicit_memory: bool = True,
     ) -> str:
         package = await self.build_prompt_package(
@@ -208,12 +207,12 @@ class ContextAssemblyService:
             attachments=attachments,
             task_category=task_category,
             tools=tools,
+            persona_action_tools=persona_action_tools,
             scenario=scenario,
             recent_tool_errors=recent_tool_errors,
             workspace_path=workspace_path,
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
-            persona_routing_hint=persona_routing_hint,
             allow_implicit_memory=allow_implicit_memory,
         )
         return package.system_prompt

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from magi.control.run_control import OrchestratorSnapshot
+    from ..checkpoint import AgentRunCheckpoint
 
 
 @dataclass
@@ -54,7 +54,7 @@ class ExecutionOutcome:
     message_payload: dict[str, Any] = field(default_factory=dict)
     context_usage: dict[str, Any] | None = None
     iterations: int = 0
-    snapshot: "OrchestratorSnapshot | None" = None
+    snapshot: "AgentRunCheckpoint | None" = None
 
     @property
     def succeeded(self) -> bool:

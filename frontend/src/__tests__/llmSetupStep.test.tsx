@@ -392,7 +392,7 @@ describe('LLMSetupStep', () => {
       expect(service.api_key).toBe('sk-test');
     }
     expect(latest.selections.core.model).toBe('gpt-4o');
-    expect(latest.selections.context_decider.model).toBe('gpt-4o-mini');
+    expect(latest.selections.auxiliary.model).toBe('gpt-4o-mini');
   });
 
   it('clears every recovered service credential from the single onboarding key field', async () => {

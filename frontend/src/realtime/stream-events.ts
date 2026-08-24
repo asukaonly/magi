@@ -3,6 +3,7 @@ export type RealtimeStreamEventKind =
   | 'reasoning_delta'
   | 'status_update'
   | 'text_flush'
+  | 'text_reset'
   | 'tool_call_start'
   | 'tool_call_args'
   | 'tool_call_end'
@@ -29,6 +30,7 @@ const STREAM_EVENT_KINDS = new Set<RealtimeStreamEventKind>([
   'reasoning_delta',
   'status_update',
   'text_flush',
+  'text_reset',
   'tool_call_start',
   'tool_call_args',
   'tool_call_end',

@@ -5,7 +5,6 @@ from __future__ import annotations
 from ..bootstrap.lifecycle import LifecycleInitDeferred, LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from . import LLMScenario
 from .factory import create_core_llm_adapter, create_scenario_llm_pool, is_llm_selection_pending
 
 logger = get_logger(__name__)
@@ -42,7 +41,6 @@ class LLMRuntimeModule(LifecycleModule):
         config = require_initialized(self._context.core.config, "runtime config")
         try:
             self._context.llm.scenario_llm_pool = create_scenario_llm_pool(config)
-            self._context.llm.scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
             self._context.llm.llm_adapter = create_core_llm_adapter(
                 self._context.llm.scenario_llm_pool
             )

@@ -52,7 +52,7 @@ class TestPersonaTurnPlanRendering:
 
         assert "# Persona Runtime Plan" in text  # identity head
         assert "Distrusts empty systems." in text  # identity head
-        assert "Register: analysis" in text  # turn steer
+        assert "Candidate: analysis" in text  # turn steer
         assert "domain_hotzone" in text  # turn steer
         assert "Increase technical judgment." in text  # turn steer
         assert "focused_work" in text  # turn steer

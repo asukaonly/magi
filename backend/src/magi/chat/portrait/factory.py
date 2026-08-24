@@ -254,7 +254,7 @@ def _build_topic_bridge_factory(llm_scenario_enum: Any, thinking_depth_enum: Any
     def topic_bridge_factory():
         return _build_bridge(
             "topic",
-            (llm_scenario_enum.CONTEXT_DECIDER, llm_scenario_enum.CORE),
+            (llm_scenario_enum.AUXILIARY, llm_scenario_enum.CORE),
             thinking_depth_enum.NONE,
             timeout_seconds=25.0,
         )

@@ -126,7 +126,7 @@ const stubCatalog = () => ({
           default_model: "glm-5.1",
           default_classify_model: "glm-4.5-air",
           default_base_url: "https://open.bigmodel.cn/api/coding/paas/v4",
-          allowed_scenarios: ["context_compact", "context_decider", "core"],
+          allowed_scenarios: ["context_compact", "auxiliary", "core"],
           endpoints: [
             {
               id: "china",
@@ -1650,11 +1650,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
     const draftPayload = vi.mocked(configApi.updateOnboardingDraft).mock
       .calls[1][0] as any;
-    expect(draftPayload.llm.selections.context_decider.model).toBe(
+    expect(draftPayload.llm.selections.auxiliary.model).toBe(
       "glm-4.5-air",
     );
     expect(
-      draftPayload.llm.selections.context_decider.limits.context_window,
+      draftPayload.llm.selections.auxiliary.limits.context_window,
     ).toBe(204800);
     expect(draftPayload.llm.selections.memory_summarizer.provider_id).toBe("");
     expect(draftPayload.llm.selections.memory_summarizer.model).toBe("");
@@ -1910,8 +1910,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     };
     initialConfig.llm.selections.core.provider_id = "custom";
     initialConfig.llm.selections.core.model = "local-model";
-    initialConfig.llm.selections.context_decider.provider_id = "custom";
-    initialConfig.llm.selections.context_decider.model = "local-model";
+    initialConfig.llm.selections.auxiliary.provider_id = "custom";
+    initialConfig.llm.selections.auxiliary.model = "local-model";
 
     render(<OnboardingFlow initialConfig={initialConfig} />);
     await user.click(

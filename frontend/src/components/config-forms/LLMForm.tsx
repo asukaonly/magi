@@ -64,7 +64,7 @@ const areSelectionsEquivalent = (
 ): boolean => llmSignature({
   providers: {},
   selections: {
-    context_decider: cloneSelection(left),
+    auxiliary: cloneSelection(left),
     core: cloneSelection(right),
     memory_summarizer: cloneSelection(right),
     embedding: cloneSelection(),
@@ -74,7 +74,7 @@ const areSelectionsEquivalent = (
 }) === llmSignature({
   providers: {},
   selections: {
-    context_decider: cloneSelection(right),
+    auxiliary: cloneSelection(right),
     core: cloneSelection(left),
     memory_summarizer: cloneSelection(left),
     embedding: cloneSelection(),
@@ -277,7 +277,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const scenarioConcurrency = useMemo<Record<LLMScenario, ScenarioConcurrencyState>>(() => {
     if (!registry) {
       return {
-        context_decider: {
+        auxiliary: {
           runtimeKey: null,
           effectiveMaxConcurrency: null,
           overrideMaxConcurrency: null,

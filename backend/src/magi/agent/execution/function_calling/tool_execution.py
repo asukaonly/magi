@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from ...cancel import CancelToken, null_cancel_token
 from ._registered_tool_execution import _RegisteredToolExecutor
@@ -17,9 +17,6 @@ from ._tool_execution_contracts import (
     _failed_tool_call_result,
 )
 from .types import ToolCall, ToolCallResult
-
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
 
 logger = logging.getLogger(__name__)
 
@@ -127,14 +124,13 @@ def _build_registered_tool_execution_request(
     user_id: str,
     session_id: str | None,
     turn_id: str | None,
-    intent: str,
+    execution_preset: str,
     execution_agent_id: str,
     execution_workspace: str | None,
     session_run_id: str | None,
     session_run_revision: int,
     user_message: str | None,
     iteration: int | None,
-    route_decision: "RouteDecision | None",
     start_time: float,
     token: CancelToken,
     workspace_root: str,
@@ -146,14 +142,13 @@ def _build_registered_tool_execution_request(
         user_id=user_id,
         session_id=session_id,
         turn_id=turn_id,
-        intent=intent,
+        execution_preset=execution_preset,
         execution_agent_id=execution_agent_id,
         execution_workspace=execution_workspace,
         session_run_id=session_run_id,
         session_run_revision=session_run_revision,
         user_message=user_message,
         iteration=iteration,
-        route_decision=route_decision,
         start_time=start_time,
         token=token,
         workspace_root=workspace_root,
@@ -167,7 +162,7 @@ def _prepare_registered_tool_execution_request(
     user_id: str,
     session_id: str | None,
     turn_id: str | None,
-    intent: str,
+    execution_preset: str,
     execution_agent_id: str,
     execution_workspace: str | None,
     session_run_id: str | None,
@@ -176,7 +171,6 @@ def _prepare_registered_tool_execution_request(
     iteration: int | None,
     cancel_token: CancelToken | None,
     recent_messages: list[dict[str, Any]] | None,
-    route_decision: "RouteDecision | None",
 ) -> _RegisteredToolExecutionRequest:
     start_time = time.time()
     token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -190,14 +184,13 @@ def _prepare_registered_tool_execution_request(
         user_id=user_id,
         session_id=session_id,
         turn_id=turn_id,
-        intent=intent,
+        execution_preset=execution_preset,
         execution_agent_id=execution_agent_id,
         execution_workspace=execution_workspace,
         session_run_id=session_run_id,
         session_run_revision=session_run_revision,
         user_message=user_message,
         iteration=iteration,
-        route_decision=route_decision,
         start_time=start_time,
         token=token,
         workspace_root=host._resolve_execution_workspace(execution_workspace),
@@ -212,7 +205,7 @@ class FunctionCallingToolExecutionMixin:
         user_id: str,
         session_id: str | None,
         turn_id: str | None,
-        intent: str,
+        execution_preset: str,
         execution_agent_id: str,
         execution_workspace: str | None,
         session_run_id: str | None = None,
@@ -221,7 +214,6 @@ class FunctionCallingToolExecutionMixin:
         iteration: int | None = None,
         cancel_token: CancelToken | None = None,
         recent_messages: list[dict[str, Any]] | None = None,
-        route_decision: "RouteDecision | None" = None,
     ) -> ToolCallResult:
         """Execute a single tool call."""
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
@@ -231,7 +223,7 @@ class FunctionCallingToolExecutionMixin:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id,
-            intent=intent,
+            execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
             session_run_id=session_run_id,
@@ -240,7 +232,6 @@ class FunctionCallingToolExecutionMixin:
             iteration=iteration,
             cancel_token=cancel_token,
             recent_messages=recent_messages,
-            route_decision=route_decision,
         )
 
         if await request.token.is_cancelled():
@@ -286,7 +277,7 @@ class FunctionCallingToolExecutionMixin:
         if request.tool_name != "todo_write":
             return None
         if not (
-            str(request.intent or "").startswith("worker_")
+            str(request.execution_preset or "").startswith("worker_")
             or str(request.execution_agent_id or "").startswith("worker_")
         ):
             return None

@@ -2,37 +2,22 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
 from magi.control.run_control import RunControl
+from ..contracts import AgentRunEventType
 from .step_executor import FunctionCallingStepState
-from .types import ExecutionOutcome, ToolCall, ToolCallResult
+from .types import ExecutionOutcome
 
 logger = logging.getLogger(__name__)
 _FallbackStepResult = TypeVar("_FallbackStepResult")
 
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
-
-
-class FallbackPostprocessorProtocol(Protocol):
-    def build_tool_message_payload(
-        self,
-        *,
-        tool_name: str,
-        result: ToolCallResult,
-    ) -> dict[str, Any]: ...
-
-
 class FallbackHostProtocol(Protocol):
-    postprocessor: FallbackPostprocessorProtocol
-
     async def _emit_loop_event(self, payload: dict[str, Any]) -> None: ...
 
     def _build_final_response_system_prompt(
@@ -58,7 +43,7 @@ class FallbackHostProtocol(Protocol):
         timeout_seconds: float | None = None,
         session_id: str | None = None,
         turn_id: str | None = None,
-        intent: str = "unknown",
+        execution_preset: str = "unknown",
         execution_agent_id: str = "chat_agent",
         iteration: int | None = None,
         control: RunControl | None = None,
@@ -80,27 +65,6 @@ class FallbackHostProtocol(Protocol):
 
     def _classify_exception_failure(self, exc: Exception) -> str: ...
 
-    async def _execute_tool_call(
-        self,
-        tool_call: ToolCall,
-        user_id: str,
-        session_id: str | None,
-        turn_id: str | None,
-        intent: str,
-        execution_agent_id: str,
-        execution_workspace: str | None,
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
-        user_message: str | None = None,
-        iteration: int | None = None,
-        recent_messages: list[dict[str, Any]] | None = None,
-        route_decision: "RouteDecision | None" = None,
-    ) -> ToolCallResult: ...
-
-    def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None: ...
-
-    async def _persist_tool_trace(self, **kwargs: Any) -> None: ...
-
     async def _persist_llm_trace(self, **kwargs: Any) -> None: ...
 
     def _classify_final_failure(
@@ -117,7 +81,7 @@ class FallbackExecutionContext:
     session_run_id: str | None
     session_run_revision: int
     turn_id: str | None
-    intent: str
+    execution_preset: str
     execution_agent_id: str
     execution_workspace: str | None
     llm_timeout_seconds: float | None
@@ -125,7 +89,6 @@ class FallbackExecutionContext:
     final_response_reason: str
     thinking_depth: ThinkingDepth
     control: RunControl | None
-    route_decision: "RouteDecision | None"
 
 
 def _fallback_event_payload(
@@ -140,7 +103,7 @@ def _fallback_event_payload(
         "user_id": context.user_id,
         "session_id": context.session_id,
         "turn_id": context.turn_id,
-        "intent": context.intent,
+        "execution_preset": context.execution_preset,
         "execution_agent_id": context.execution_agent_id,
     }
 
@@ -203,7 +166,24 @@ async def _call_fallback_llm(
     messages: list[dict[str, Any]],
     thinking_depth: ThinkingDepth,
 ) -> dict[str, Any]:
-    return await host._call_llm_without_tools(
+    if state.journal is not None:
+        await state.journal.append(
+            AgentRunEventType.CONTEXT_PREPARED,
+            step_index=state.iteration,
+            payload={
+                "mode": "fallback_finalization",
+                "system_prompt": system_prompt,
+                "messages": [dict(message) for message in messages],
+                "tools": [],
+                "requested_reasoning_depth": (
+                    state.reasoning_state.requested_depth.value
+                    if state.reasoning_state is not None
+                    else thinking_depth.value
+                ),
+                "effective_reasoning_depth": thinking_depth.value,
+            },
+        )
+    response = await host._call_llm_without_tools(
         system_prompt=system_prompt,
         messages=messages,
         thinking_depth=thinking_depth,
@@ -211,96 +191,36 @@ async def _call_fallback_llm(
         timeout_seconds=context.llm_timeout_seconds,
         session_id=context.session_id,
         turn_id=context.turn_id,
-        intent=context.intent,
+        execution_preset=context.execution_preset,
         execution_agent_id=context.execution_agent_id,
         iteration=state.iteration,
         control=context.control,
     )
-
-
-def _record_rescue_tool_failure(
-    state: FunctionCallingStepState,
-    result: ToolCallResult,
-) -> None:
-    state.tool_failures.append(
-        {
-            "tool_call_id": result.tool_call_id,
-            "tool_name": result.tool_name,
-            "error": result.error or "unknown error",
-            "error_code": result.error_code,
-            "execution_time": round(result.execution_time, 3),
-        }
-    )
-
-
-def _append_rescue_tool_message(
-    host: FallbackHostProtocol,
-    state: FunctionCallingStepState,
-    *,
-    tool_call: ToolCall,
-    result: ToolCallResult,
-) -> None:
-    host._append_message(
-        state.messages,
-        {
-            "role": "tool",
-            "tool_call_id": tool_call.id,
-            "content": json.dumps(
-                host.postprocessor.build_tool_message_payload(
-                    tool_name=tool_call.name,
-                    result=result,
+    if state.journal is not None:
+        assistant_message = response.get("assistant_message")
+        await state.journal.append(
+            AgentRunEventType.MODEL_OUTPUT,
+            step_index=state.iteration,
+            payload={
+                "mode": "fallback_finalization",
+                "assistant_message": (
+                    dict(assistant_message)
+                    if isinstance(assistant_message, dict)
+                    else None
                 ),
-                ensure_ascii=False,
-            ),
-        },
-    )
-
-
-async def _run_fallback_tool_rescue_pass(
-    host: FallbackHostProtocol,
-    state: FunctionCallingStepState,
-    context: FallbackExecutionContext,
-    *,
-    fallback_content: str,
-    fallback_tool_calls: list[ToolCall],
-) -> None:
-    if fallback_content:
-        host._append_message(
-            state.messages,
-            {"role": "assistant", "content": fallback_content},
+                "content": response.get("content"),
+                "tool_calls": [
+                    {
+                        "id": getattr(tool_call, "id", None),
+                        "name": getattr(tool_call, "name", None),
+                        "arguments": getattr(tool_call, "arguments", None),
+                    }
+                    for tool_call in (response.get("tool_calls") or [])
+                ],
+                "llm_trace": dict(response.get("llm_trace") or {}),
+            },
         )
-
-    for tool_call in fallback_tool_calls:
-        result = await host._execute_tool_call(
-            tool_call=tool_call,
-            user_id=context.user_id,
-            session_id=context.session_id,
-            session_run_id=context.session_run_id,
-            session_run_revision=context.session_run_revision,
-            turn_id=context.turn_id,
-            intent=context.intent,
-            execution_agent_id=context.execution_agent_id,
-            execution_workspace=context.execution_workspace,
-            user_message=None,
-            iteration=state.iteration,
-            recent_messages=state.messages,
-            route_decision=context.route_decision,
-        )
-        if not result.success:
-            _record_rescue_tool_failure(state, result)
-        _append_rescue_tool_message(
-            host,
-            state,
-            tool_call=tool_call,
-            result=result,
-        )
-        await host._persist_tool_trace(
-            turn_id=context.turn_id,
-            iteration=state.iteration,
-            execution_agent_id=context.execution_agent_id,
-            tool_call=tool_call,
-            result=result,
-        )
+    return response
 
 
 async def _force_plain_text_retry_if_needed(
@@ -309,9 +229,7 @@ async def _force_plain_text_retry_if_needed(
     context: FallbackExecutionContext,
     final_response: dict[str, Any],
 ) -> dict[str, Any]:
-    if not (
-        final_response.get("tool_calls") and not str(final_response.get("content", "")).strip()
-    ):
+    if not final_response.get("tool_calls"):
         return final_response
 
     logger.warning(
@@ -353,42 +271,6 @@ async def _request_initial_fallback_response(
     return final_system_prompt, final_response
 
 
-async def _request_rescue_followup_response(
-    host: FallbackHostProtocol,
-    state: FunctionCallingStepState,
-    context: FallbackExecutionContext,
-    *,
-    final_system_prompt: str,
-    final_response: dict[str, Any],
-) -> dict[str, Any]:
-    fallback_tool_calls = list(final_response.get("tool_calls") or [])
-    if not fallback_tool_calls:
-        return final_response
-
-    logger.info(
-        "[FunctionCalling] Fallback response returned %s tool call(s), executing rescue pass",
-        len(fallback_tool_calls),
-    )
-    await _run_fallback_tool_rescue_pass(
-        host,
-        state,
-        context,
-        fallback_content=final_response.get("content", ""),
-        fallback_tool_calls=fallback_tool_calls,
-    )
-    return await _call_fallback_llm(
-        host,
-        state,
-        context,
-        system_prompt=final_system_prompt,
-        messages=host._build_final_response_messages(
-            state.messages,
-            force_plain_text=True,
-        ),
-        thinking_depth=context.thinking_depth,
-    )
-
-
 async def _completed_fallback_outcome(
     host: FallbackHostProtocol,
     state: FunctionCallingStepState,
@@ -408,6 +290,8 @@ async def _completed_fallback_outcome(
         status="completed",
         content=final_content,
         tool_failures=list(state.tool_failures),
+        attachments=list(state.chat_attachments),
+        message_payload=dict(state.message_payload),
         context_usage=(
             dict(state.latest_context_usage)
             if isinstance(state.latest_context_usage, dict)
@@ -453,29 +337,6 @@ async def _initial_fallback_or_failure(
         state,
         context,
         lambda: _request_initial_fallback_response(host, state, context),
-        complete_iteration_trace=True,
-    )
-
-
-async def _rescue_followup_or_failure(
-    host: FallbackHostProtocol,
-    state: FunctionCallingStepState,
-    context: FallbackExecutionContext,
-    *,
-    final_system_prompt: str,
-    final_response: dict[str, Any],
-) -> tuple[dict[str, Any] | None, ExecutionOutcome | None]:
-    return await _run_fallback_step(
-        host,
-        state,
-        context,
-        lambda: _request_rescue_followup_response(
-            host,
-            state,
-            context,
-            final_system_prompt=final_system_prompt,
-            final_response=final_response,
-        ),
         complete_iteration_trace=True,
     )
 
@@ -562,19 +423,7 @@ async def execute_fallback_response_flow(
     if failure is not None:
         return failure
     assert initial_response is not None
-    final_system_prompt, final_response = initial_response
-
-    rescue_response, failure = await _rescue_followup_or_failure(
-        host,
-        state,
-        context,
-        final_system_prompt=final_system_prompt,
-        final_response=final_response,
-    )
-    if failure is not None:
-        return failure
-    assert rescue_response is not None
-    final_response = rescue_response
+    _, final_response = initial_response
 
     retry_response, failure = await _plain_text_retry_or_failure(
         host, state, context, final_response

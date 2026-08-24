@@ -50,12 +50,12 @@ interface LLMModelSelectionSectionProps {
   onCrossEncoderConfigChange?: (updater: (draft: CrossEncoderConfig) => void) => void;
 }
 
-const BASE_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'embedding', 'image_generation'];
-const ADVANCED_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
-const ALL_SCENARIOS: LLMScenario[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
+const BASE_SCENARIOS: LLMScenario[] = ['core', 'embedding', 'image_generation'];
+const ADVANCED_SCENARIOS: LLMScenario[] = ['core', 'auxiliary', 'memory_summarizer', 'embedding', 'image_generation'];
+const ALL_SCENARIOS: LLMScenario[] = ['auxiliary', 'core', 'memory_summarizer', 'embedding', 'image_generation'];
 type ModelTab = LLMScenario | 'reranker';
-const ADVANCED_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'memory_summarizer', 'embedding', 'image_generation', 'reranker'];
-const BASE_MODEL_TABS: ModelTab[] = ['context_decider', 'core', 'embedding', 'image_generation', 'reranker'];
+const ADVANCED_MODEL_TABS: ModelTab[] = ['core', 'auxiliary', 'memory_summarizer', 'embedding', 'image_generation', 'reranker'];
+const BASE_MODEL_TABS: ModelTab[] = ['core', 'embedding', 'image_generation', 'reranker'];
 
 const compareOptionLabels = (left: { label: string; value: string }, right: { label: string; value: string }) => {
   const labelComparison = left.label.localeCompare(right.label, 'en', { sensitivity: 'base' });
@@ -433,7 +433,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         </div>
       ) : null}
 
-      <Tabs defaultValue="context_decider">
+      <Tabs defaultValue="core">
         <TabsList className="w-full justify-start">
           {visibleTabs.map((tab) => (
             <TabsTrigger key={tab} value={tab} className="gap-1">

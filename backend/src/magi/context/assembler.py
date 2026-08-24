@@ -18,7 +18,6 @@ from .renderer import PromptContextRenderer as PromptContextRenderer
 from .self_memory import PromptSelfMemoryMixin
 from .user_profile_service import UserProfileService
 from ..personality.persona_journal_service import PersonaJournalService
-from ..personality.turn_planner import PersonaRoutingHint
 
 
 IDENTITY_TEMPLATE = "\n".join(
@@ -91,12 +90,12 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         user_id: str,
         self_memory=None,
         tool_result: Optional[Dict[str, Any]] = None,
+        persona_action_tools: Optional[List[str]] = None,
         retrieved_memory_payload: Optional[Dict[str, Any]] = None,
         persona_name: str,
         user_message: str = "",
         workspace_path: str | None = None,
         attachments: Optional[List[Dict[str, Any]]] = None,
-        persona_routing_hint: PersonaRoutingHint | None = None,
     ) -> PromptAssemblyContext:
         identity = self._build_identity_constraints()
         self_mem = await self._build_self_memory_context(
@@ -105,10 +104,9 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
             user_message=user_message,
             task_category=task_category,
             scenario=scenario,
-            selected_tools=[str(tool) for tool in (tool_result or {}).get("tools", []) if tool],
+            selected_tools=[str(tool) for tool in (persona_action_tools or []) if tool],
             retrieved_memory_payload=retrieved_memory_payload,
             persona_name=persona_name,
-            persona_routing_hint=persona_routing_hint,
         )
         profile = await self._build_profile_memory_context(
             self_memory=self_memory,

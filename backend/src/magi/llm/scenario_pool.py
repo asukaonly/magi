@@ -20,6 +20,7 @@ from .model_context import ModelContextProfile, ResolvedModel
 AdapterFactory = Callable[..., object]
 
 _OPTIONAL_SCENARIO_FALLBACKS = {
+    LLMScenario.AUXILIARY: LLMScenario.CORE,
     LLMScenario.MEMORY_SUMMARIZER: LLMScenario.CORE,
     LLMScenario.TIMELINE_DIARY_NARRATIVE: LLMScenario.CORE,
 }
@@ -70,6 +71,21 @@ class ScenarioLLMPool:
                     if isinstance(max_output_tokens, int) and max_output_tokens > 0
                     else None
                 ),
+                supports_images=bool(
+                    getattr(getattr(selection, "capabilities", None), "vision", False)
+                ),
+                supports_tool_calls=bool(
+                    getattr(getattr(selection, "capabilities", None), "tool_calling", True)
+                ),
+                supports_images_with_tools=bool(
+                    getattr(getattr(selection, "capabilities", None), "vision", False)
+                    and getattr(
+                        getattr(selection, "capabilities", None),
+                        "tool_calling",
+                        True,
+                    )
+                ),
+                supports_parallel_tools=False,
             ),
         )
 
@@ -169,7 +185,7 @@ class ScenarioLLMPool:
 
     def _selection_for_scenario(self, scenario: LLMScenario) -> object | None:
         selection = self._config.llm.selections.get(scenario.value)
-        if selection is not None:
+        if selection is not None and str(getattr(selection, "model", "") or "").strip():
             return selection
         fallback = _OPTIONAL_SCENARIO_FALLBACKS.get(scenario)
         if fallback is None:

@@ -126,14 +126,8 @@ class OrchestrationLaunchHandler(BaseExecutionHandler):
             if self._deps.build_cancel_token is not None
             else null_cancel_token()
         )
-        # Read the RunControl bundle from the chat runtime context (Task 8
-        # ensures it's always present on ChatRuntimeContext). Overlay the
-        # cancel_token built above so legacy cancel-button paths continue
-        # to function alongside the bundle's other signals.
-        #
-        # We use getattr with a fallback to null_run_control() so this handler
-        # stays safe against non-chat contexts that may not carry a .control
-        # field, while still reading request.context.control when present.
+        # Reuse the domain context control bundle when present and overlay the
+        # cancellation token selected for this orchestration.
         _ctx_control = request.context.control if hasattr(request.context, "control") else None
         control = _ctx_control if _ctx_control is not None else null_run_control()
         control.cancel_token = cancel_token

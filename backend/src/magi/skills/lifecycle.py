@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
@@ -25,8 +25,7 @@ class SkillsModule(LifecycleModule):
         tool_registry: ToolRegistryPort,
         *,
         orchestrator_factory: Callable[..., Any],
-        engine_run_input_factory: Callable[..., Any],
-        llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
+        agent_run_request_factory: Callable[..., Any],
     ):
         super().__init__(
             name="runtime_skills",
@@ -35,8 +34,7 @@ class SkillsModule(LifecycleModule):
         self._context = context
         self._tool_registry = tool_registry
         self._orchestrator_factory = orchestrator_factory
-        self._engine_run_input_factory = engine_run_input_factory
-        self._llm_call_reserver = llm_call_reserver
+        self._agent_run_request_factory = agent_run_request_factory
 
     async def init(self) -> None:
         if self._context.runtime_commands.full_clear_recovery_pending:
@@ -56,8 +54,7 @@ class SkillsModule(LifecycleModule):
             permission_gateway_provider=get_permission_gateway,
             tool_registry=self._tool_registry,
             orchestrator_factory=self._orchestrator_factory,
-            engine_run_input_factory=self._engine_run_input_factory,
-            llm_call_reserver=self._llm_call_reserver,
+            agent_run_request_factory=self._agent_run_request_factory,
         )
         self._context.skills.skill_indexer = bindings.skill_indexer
         self._context.skills.skill_loader = bindings.skill_loader

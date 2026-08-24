@@ -82,7 +82,7 @@ async def test_gateway_allows_low_risk_and_registry_runs() -> None:
         user_id="u",
         session_id="s",
         turn_id="t",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -102,7 +102,7 @@ async def test_gateway_blocks_kill_listed_and_returns_tool_error() -> None:
         user_id="u",
         session_id=None,
         turn_id=None,
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -130,7 +130,7 @@ async def test_gateway_user_denial_surfaces_reason_to_llm() -> None:
         user_id="u",
         session_id="s",
         turn_id="t",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -154,7 +154,7 @@ async def test_gateway_off_mode_passes_dangerous_npm_install() -> None:
         user_id="u",
         session_id=None,
         turn_id=None,
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -185,7 +185,7 @@ async def test_worker_intent_tags_origin_as_subagent() -> None:
         user_id="u",
         session_id="s",
         turn_id="t",
-        intent="worker_explore",
+        execution_preset="worker_explore",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -205,7 +205,7 @@ async def test_orchestrator_without_gateway_behaves_as_before() -> None:
         user_id="u",
         session_id=None,
         turn_id=None,
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -230,7 +230,7 @@ async def test_gateway_provider_blocks_when_constructor_gateway_absent() -> None
         user_id="u",
         session_id=None,
         turn_id=None,
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
     )
@@ -289,7 +289,7 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
         user_id="u",
         session_id="parent-session",
         turn_id="t",
-        intent="worker_explore",  # subagent intent
+        execution_preset="worker_explore",
         execution_agent_id="a",
         execution_workspace=None,
     )

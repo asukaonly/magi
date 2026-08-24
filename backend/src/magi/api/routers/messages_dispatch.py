@@ -38,7 +38,7 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
     if startup_state == "deferred" and deferred_reason == "llm_selection_pending":
         message = core_i18n.t(
             "chat.runtime.not_ready.llm_selection_pending",
-            fallback="AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",
+            fallback="AI runtime is not ready yet. Please complete the core model configuration first.",
         )
     elif startup_state == "deferred" and deferred_reason == "llm_configuration_invalid":
         message = core_i18n.t(
@@ -133,8 +133,11 @@ async def _prepare_api_dispatch_metadata(
     metadata.pop("recall_feedback", None)
     metadata.pop("interaction_kind", None)
     metadata.pop("first_context", None)
+    metadata.pop("reasoning_preference", None)
     if request.recall_feedback is not None:
         metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
+    if request.reasoning_preference is not None:
+        metadata["reasoning_preference"] = request.reasoning_preference
     metadata.update(
         await build_bootstrap_l2_priority_metadata(
             user_id=request.user_id,

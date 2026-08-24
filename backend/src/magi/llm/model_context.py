@@ -14,6 +14,10 @@ class ModelContextProfile:
     model_id: str
     context_window: int | None
     max_output_tokens: int | None
+    supports_images: bool = False
+    supports_tool_calls: bool = True
+    supports_images_with_tools: bool = False
+    supports_parallel_tools: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +45,10 @@ def unknown_model_context(adapter: Any | None) -> ModelContextProfile:
         model_id=model_id,
         context_window=None,
         max_output_tokens=None,
+        supports_images=False,
+        supports_tool_calls=True,
+        supports_images_with_tools=False,
+        supports_parallel_tools=False,
     )
 
 

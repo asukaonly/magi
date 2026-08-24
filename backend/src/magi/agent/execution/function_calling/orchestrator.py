@@ -9,16 +9,14 @@ from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
 from ....runtime_trace import RuntimeTraceStore
-from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
 from ....llm.model_context import ResolvedModel, unknown_model_context
 from ....tools.system_tools import resolve_resident_system_tools
-from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
+from ..attachment_resolver import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
 from magi.control.run_control import (
     DetachSignal,
-    OrchestratorSnapshot,
     RetractSignal,
     RunControl,
     SteerInbox,
@@ -27,6 +25,7 @@ from magi.control.run_control import (
     null_run_control,
 )
 from ..context_compactor import ContextCompactor
+from ..checkpoint import AgentRunCheckpoint
 from ..task_budget import (
     release_prepaid_task_llm_calls,
     task_execution_budget_scope,
@@ -40,7 +39,7 @@ from .messages import FunctionCallingMessageHistoryMixin
 from .permission import FunctionCallingPermissionMixin
 from .postprocessor import FunctionCallingPostprocessor
 from .responses import FunctionCallingResponseMixin
-from .run_input import EngineRunInput
+from .run_input import AgentRunRequest
 from .step_executor import (
     FunctionCallingStepExecutor,
     FunctionCallingStepState,
@@ -56,7 +55,6 @@ from .types import ExecutionOutcome
 
 if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
-    from ....tools.context_routing import RouteDecision
 
 logger = logging.getLogger(__name__)
 
@@ -316,149 +314,15 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             raise ValueError("FunctionCallingOrchestrator requires an LLM adapter or llm_pool")
         return self.llm
 
-    async def execute_with_tools(
-        self,
-        turn: UserTurnInput,
-        system_prompt: str,
-        selected_tools: List[str],
-        user_id: str,
-        session_id: Optional[str] = None,
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
-        turn_id: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, Any]]] = None,
-        session_summary: str | None = None,
-        session_origin: str | None = None,
-        reply_context: Any | None = None,
-        ephemeral_context: str | None = None,
-        max_iterations: int = MAX_ITERATIONS,
-        disable_thinking: bool = True,
-        intent: str = "unknown",
-        execution_agent_id: str = "chat_agent",
-        execution_workspace: Optional[str] = None,
-        llm_timeout_seconds: Optional[float] = None,
-        final_response_json_mode: bool = False,
-        thinking_depth: ThinkingDepth | None = None,
-        cancel_token: CancelToken | None = None,
-        steer_inbox: SteerInbox | None = None,
-        detach_signal: DetachSignal | None = None,
-        control: RunControl | None = None,
-        route_decision: "RouteDecision | None" = None,
-    ) -> ExecutionOutcome:
-        """Execute with continuous tool calling.
-
-        Either pass a ``control`` bundle (preferred) or the legacy trio of
-        ``cancel_token`` / ``steer_inbox`` / ``detach_signal`` kwargs.  When
-        ``control`` is supplied it takes precedence and the legacy kwargs are
-        ignored; when only legacy kwargs are supplied they are folded into a
-        fresh :func:`null_run_control` bundle via :meth:`_resolve_control`.
-        """
+    async def run(self, request: AgentRunRequest) -> ExecutionOutcome:
+        """Run one bounded LLM/tool lifecycle through the only engine entry."""
         async with task_execution_budget_scope():
             try:
-                effective = self._resolve_control(
-                    control=control,
-                    cancel_token=cancel_token,
-                    steer_inbox=steer_inbox,
-                    detach_signal=detach_signal,
-                )
+                effective = request.control or null_run_control()
                 with bind_detach_signal(effective.detach_signal):
-                    return await self._execute_with_tools_impl(
-                        turn=turn,
-                        system_prompt=system_prompt,
-                        selected_tools=selected_tools,
-                        user_id=user_id,
-                        session_id=session_id,
-                        session_run_id=session_run_id,
-                        session_run_revision=session_run_revision,
-                        turn_id=turn_id,
-                        intent=intent,
-                        execution_agent_id=execution_agent_id,
-                        execution_workspace=execution_workspace,
-                        llm_timeout_seconds=llm_timeout_seconds,
-                        conversation_history=conversation_history,
-                        session_summary=session_summary,
-                        session_origin=session_origin,
-                        reply_context=reply_context,
-                        ephemeral_context=ephemeral_context,
-                        max_iterations=max_iterations,
-                        thinking_depth=thinking_depth,
-                        disable_thinking=disable_thinking,
-                        final_response_json_mode=final_response_json_mode,
-                        control=effective,
-                        route_decision=route_decision,
-                    )
+                    return await self._loop_runner.run(request, control=effective)
             finally:
                 await release_prepaid_task_llm_calls()
-
-    async def run(self, run_input: "EngineRunInput") -> ExecutionOutcome:
-        """Engine front door (ADR-0004 P4): run one bounded LLM↔tool run from a
-        single typed :class:`EngineRunInput`.
-
-        A pure adapter over :meth:`execute_with_tools` — it forwards every field
-        verbatim (the parity test in
-        ``tests/agent/execution/test_engine_run_input.py`` guarantees the field
-        set always matches the method signature), so behavior and call-kwarg
-        expectations are unchanged. New surfaces should build an
-        ``EngineRunInput`` (or ``EngineRunInput.headless(...)``) and call this
-        instead of hand-wiring the keyword arguments.
-        """
-        return await self.execute_with_tools(**run_input.to_execute_kwargs())
-
-    async def _execute_with_tools_impl(
-        self,
-        *,
-        turn: UserTurnInput,
-        system_prompt: str,
-        selected_tools: list[str],
-        user_id: str,
-        session_id: Optional[str],
-        session_run_id: Optional[str],
-        session_run_revision: int,
-        turn_id: Optional[str],
-        intent: str,
-        execution_agent_id: str,
-        execution_workspace: Optional[str],
-        llm_timeout_seconds: Optional[float],
-        conversation_history: Optional[List[Dict[str, Any]]],
-        session_summary: str | None,
-        session_origin: str | None,
-        reply_context: Any | None,
-        ephemeral_context: str | None,
-        max_iterations: int,
-        thinking_depth: Optional[ThinkingDepth],
-        disable_thinking: bool,
-        final_response_json_mode: bool,
-        control: RunControl,
-        route_decision: "RouteDecision | None" = None,
-    ) -> ExecutionOutcome:
-        return await self._loop_runner.run(
-            EngineRunInput(
-                turn=turn,
-                system_prompt=system_prompt,
-                selected_tools=selected_tools,
-                user_id=user_id,
-                session_id=session_id,
-                session_run_id=session_run_id,
-                session_run_revision=session_run_revision,
-                turn_id=turn_id,
-                intent=intent,
-                execution_agent_id=execution_agent_id,
-                execution_workspace=execution_workspace,
-                llm_timeout_seconds=llm_timeout_seconds,
-                conversation_history=conversation_history,
-                session_summary=session_summary,
-                session_origin=session_origin,
-                reply_context=reply_context,
-                ephemeral_context=ephemeral_context,
-                max_iterations=max_iterations,
-                disable_thinking=disable_thinking,
-                final_response_json_mode=final_response_json_mode,
-                thinking_depth=thinking_depth,
-                control=control,
-                route_decision=route_decision,
-            ),
-            control=control,
-        )
 
     async def _prepare_context_for_model(
         self,
@@ -607,21 +471,31 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self,
         state: FunctionCallingStepState,
         steer_inbox: SteerInbox,
-    ) -> None:
+    ) -> list[dict[str, Any]]:
         """Drain ``steer_inbox`` and append each message to ``state.messages``."""
         pending = await steer_inbox.drain()
         if not pending:
-            return
+            return []
+        injected: list[dict[str, Any]] = []
         for message in pending:
             content = (message.content or "").strip()
             if not content:
                 continue
-            state.messages.append({"role": "user", "content": content})
+            model_message = {"role": "user", "content": content}
+            state.messages.append(model_message)
+            injected.append(
+                {
+                    "reason": message.reason,
+                    "metadata": dict(message.metadata),
+                    "model_message": model_message,
+                }
+            )
             logger.info(
                 "[FunctionCalling] Steer message injected at iteration=%s reason=%s",
                 state.iteration,
                 message.reason,
             )
+        return injected
 
     def _build_detached_outcome(
         self,
@@ -632,12 +506,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         payload = detach_signal.payload
         reason = payload.reason if payload is not None else "detached"
         note = payload.note if payload is not None else ""
-        snapshot = OrchestratorSnapshot(
-            messages=[dict(msg) for msg in state.messages],
-            iterations=state.iteration,
-            reason=reason,
-            note=note,
-        )
+        snapshot = self._build_checkpoint(state, reason=reason, note=note)
         logger.info(
             "[FunctionCalling] Detach signal observed at iteration=%s reason=%s",
             state.iteration,
@@ -664,12 +533,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         payload = retract_signal.payload
         reason = payload.reason if payload is not None else "user_retract"
         note = payload.note if payload is not None else ""
-        snapshot = OrchestratorSnapshot(
-            messages=[dict(msg) for msg in state.messages],
-            iterations=state.iteration,
-            reason=reason,
-            note=note,
-        )
+        snapshot = self._build_checkpoint(state, reason=reason, note=note)
         logger.info(
             "[FunctionCalling] Retract signal observed at iteration=%s reason=%s",
             state.iteration,
@@ -695,12 +559,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         payload = suspend_signal.payload
         reason = payload.reason if payload is not None else "window_closed"
         note = payload.note if payload is not None else ""
-        snapshot = OrchestratorSnapshot(
-            messages=[dict(msg) for msg in state.messages],
-            iterations=state.iteration,
-            reason=reason,
-            note=note,
-        )
+        snapshot = self._build_checkpoint(state, reason=reason, note=note)
         logger.info(
             "[FunctionCalling] Suspend signal observed at iteration=%s reason=%s",
             state.iteration,
@@ -714,29 +573,39 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         )
 
     @staticmethod
-    def _resolve_control(
+    def _build_checkpoint(
+        state: FunctionCallingStepState,
         *,
-        control: RunControl | None,
-        cancel_token: CancelToken | None,
-        steer_inbox: SteerInbox | None,
-        detach_signal: DetachSignal | None,
-    ) -> RunControl:
-        """Bridge the legacy 3-kwarg API to the new :class:`RunControl` bundle.
-
-        If ``control`` is supplied, use it directly (legacy kwargs are
-        ignored — the bundle is canonical). Otherwise, build a fresh
-        :func:`null_run_control` and overlay any non-None legacy kwargs.
-        """
-        if control is not None:
-            return control
-        bundle = null_run_control()
-        if cancel_token is not None:
-            bundle.cancel_token = cancel_token
-        if steer_inbox is not None:
-            bundle.steer_inbox = steer_inbox
-        if detach_signal is not None:
-            bundle.detach_signal = detach_signal
-        return bundle
+        reason: str,
+        note: str,
+    ) -> AgentRunCheckpoint:
+        if state.reasoning_policy is None or state.reasoning_state is None:
+            raise RuntimeError("Agent run reasoning state is unavailable at checkpoint boundary")
+        return AgentRunCheckpoint(
+            run_id=state.run_id,
+            messages=[dict(message) for message in state.messages],
+            effective_system_prompt=state.effective_system_prompt,
+            tools=[dict(tool) for tool in state.tools],
+            iteration=state.iteration,
+            reasoning_policy=state.reasoning_policy,
+            reasoning_state=state.reasoning_state,
+            selected_tool_names=list(state.selected_tool_names),
+            repair_iterations=state.repair_iterations,
+            tool_evidence=list(state.tool_evidence),
+            tool_failures=[dict(item) for item in state.tool_failures],
+            chat_attachments=[dict(item) for item in state.chat_attachments],
+            message_payload=dict(state.message_payload),
+            tool_expansion_count=state.tool_expansion_count,
+            consecutive_failed_tool_iterations=state.consecutive_failed_tool_iterations,
+            all_tools_failed=state.all_tools_failed,
+            failed_tool_call_fingerprints=set(state.failed_tool_call_fingerprints),
+            failure_signature_counts=dict(state.failure_signature_counts),
+            repeated_blocker_tool_names=set(state.repeated_blocker_tool_names),
+            suppressed_tool_names=set(state.suppressed_tool_names),
+            persona_task_clamp_applied=state.persona_task_clamp_applied,
+            reason=reason,
+            note=note,
+        )
 
     def _build_tools_parameter(self, selected_tools: List[str]) -> List[Dict]:
         return build_tools_parameter(self.tool_registry, selected_tools)

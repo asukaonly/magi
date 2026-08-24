@@ -82,7 +82,7 @@ async def compose_outreach_line(
     try:
         pool = get_scenario_llm_pool()
         try:
-            adapter = pool.get(LLMScenario.CONTEXT_DECIDER)
+            adapter = pool.get(LLMScenario.AUXILIARY)
         except (ValueError, KeyError):
             adapter = pool.get(LLMScenario.CORE)
         bridge = LLMProviderBridge(adapter)

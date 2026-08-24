@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from magi.agent.execution.task_budget import consume_task_llm_calls
-from magi.agent.run.ports import LazyAttachmentResolver
+from magi.agent.execution.attachment_resolver import LazyAttachmentResolver
 from magi.agent.runtime.types import TaskAgentType
 from magi.chat import ChatReadService
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
@@ -22,7 +21,6 @@ from magi.context import (
 from magi.config.models import LLMScenario
 from magi.llm.model_context import ModelContextProfile, unknown_model_context
 from magi.context.user_profile_service import UserProfileService
-from magi.tools.context_decider import ContextDecider
 from magi.tools.registry import tool_registry
 from magi.utils.runtime import get_runtime_paths
 
@@ -36,7 +34,6 @@ from .runtime_contracts import (
 @dataclass(slots=True)
 class ChatContextRuntimeParts:
     chat_read_service_factory: Callable[[], ChatReadService]
-    context_decider: ContextDecider
     prompt_context_assembler: PromptContextAssembler
     prompt_context_renderer: PromptContextRenderer
     chat_read_service: ChatReadService
@@ -69,7 +66,6 @@ def build_chat_context_runtime_parts(
     model_context_provider = _build_model_context_provider(config)
     return ChatContextRuntimeParts(
         chat_read_service_factory=chat_read_service_factory,
-        context_decider=_build_context_decider(config),
         prompt_context_assembler=prompt_context_assembler,
         prompt_context_renderer=prompt_context_renderer,
         chat_read_service=chat_read_service_factory(),
@@ -102,15 +98,6 @@ def _build_model_context_provider(
     if config.llm_pool is not None:
         return lambda: config.llm_pool.resolve(LLMScenario.CORE).context
     return lambda: unknown_model_context(config.llm_adapter)
-
-
-def _build_context_decider(config: ChatTaskAgentRuntimeConfig) -> ContextDecider:
-    return ContextDecider(
-        tool_registry=tool_registry,
-        llm_adapter=config.llm_adapter,
-        llm_pool=config.llm_pool,
-        llm_call_budget_consumer=consume_task_llm_calls,
-    )
 
 
 def _build_context_service(

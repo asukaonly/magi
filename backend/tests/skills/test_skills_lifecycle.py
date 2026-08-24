@@ -19,9 +19,6 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     fake_runner = object()
     captured: dict[str, object] = {}
 
-    async def _reserve_llm_call() -> None:
-        return None
-
     def _fake_build_skills_runtime(
         llm_adapter=None,
         permission_gateway_provider=None,
@@ -30,8 +27,7 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
         *,
         tool_registry,
         orchestrator_factory=None,
-        engine_run_input_factory=None,
-        llm_call_reserver=None,
+        agent_run_request_factory=None,
     ):
         captured["llm_adapter"] = llm_adapter
         captured["permission_gateway_provider"] = permission_gateway_provider
@@ -39,8 +35,7 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
         captured["scenario_llm_pool"] = scenario_llm_pool
         captured["tool_registry"] = tool_registry
         captured["orchestrator_factory"] = orchestrator_factory
-        captured["engine_run_input_factory"] = engine_run_input_factory
-        captured["llm_call_reserver"] = llm_call_reserver
+        captured["agent_run_request_factory"] = agent_run_request_factory
         return SimpleNamespace(
             skill_indexer=fake_indexer,
             skill_loader=fake_loader,
@@ -54,13 +49,12 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
 
     fake_registry = object()
     fake_orchestrator_factory = object()
-    fake_engine_run_input_factory = object()
+    fake_agent_run_request_factory = object()
     module = SkillsModule(
         context,
         tool_registry=fake_registry,
         orchestrator_factory=fake_orchestrator_factory,
-        engine_run_input_factory=fake_engine_run_input_factory,
-        llm_call_reserver=_reserve_llm_call,
+        agent_run_request_factory=fake_agent_run_request_factory,
     )
     await module.init()
 
@@ -71,5 +65,4 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     assert callable(captured["permission_gateway_provider"])
     assert captured["tool_registry"] is fake_registry
     assert captured["orchestrator_factory"] is fake_orchestrator_factory
-    assert captured["engine_run_input_factory"] is fake_engine_run_input_factory
-    assert captured["llm_call_reserver"] is _reserve_llm_call
+    assert captured["agent_run_request_factory"] is fake_agent_run_request_factory

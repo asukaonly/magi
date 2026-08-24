@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
-    from magi.agent.run.ports import LazyAttachmentResolver
+    from magi.agent.execution.attachment_resolver import LazyAttachmentResolver
     from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
     from magi.agent.task_orchestrator import TaskOrchestrator
     from magi.agent.execution.function_calling import FunctionCallingOrchestrator
@@ -27,7 +27,6 @@ if TYPE_CHECKING:
         PromptContextRenderer,
     )
     from magi.runtime_trace import RuntimeTraceStore
-    from magi.tools.context_decider import ContextDecider
 
 
 def default_chat_read_service_factory() -> ChatReadService:
@@ -51,7 +50,6 @@ class ChatTaskAgentRuntimeConfig:
     runtime_trace_store: RuntimeTraceStore | None = None
     chat_store: ChatStore | None = None
     chat_read_service_factory: Callable[[], ChatReadService] | None = None
-    background_dispatcher: Any | None = None
     background_launch_service: Any | None = None
     permission_gateway_provider: Callable[[], Any] | None = None
     control_session_store_provider: Callable[[], Any] | None = None
@@ -76,7 +74,6 @@ class ChatTaskAgentRuntimeCallbacks:
 @dataclass(slots=True)
 class ChatTaskAgentRuntimeParts:
     chat_read_service_factory: Callable[[], ChatReadService]
-    context_decider: ContextDecider
     prompt_context_assembler: PromptContextAssembler
     prompt_context_renderer: PromptContextRenderer
     chat_read_service: ChatReadService

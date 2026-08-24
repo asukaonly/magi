@@ -103,8 +103,25 @@ class _FakeFunctionCallingOrchestrator:
         self.last_max_iterations = None
         self.last_cancel_token = None
 
-    async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
-        return await self.execute_with_tools(**run_input.to_execute_kwargs())
+    async def run(self, run_input):
+        return await self.execute_with_tools(
+            turn=run_input.turn,
+            system_prompt=run_input.system_prompt,
+            selected_tools=run_input.selected_tools,
+            user_id=run_input.user_id,
+            session_id=run_input.session_id,
+            turn_id=run_input.turn_id,
+            conversation_history=run_input.conversation_history,
+            max_iterations=run_input.max_iterations,
+            intent=run_input.execution_preset,
+            execution_agent_id=run_input.execution_agent_id,
+            execution_workspace=run_input.execution_workspace,
+            llm_timeout_seconds=run_input.llm_timeout_seconds,
+            final_response_json_mode=run_input.final_response_json_mode,
+            thinking_depth=run_input.reasoning_policy.initial_depth,
+            cancel_token=run_input.control.cancel_token,
+            control=run_input.control,
+        )
 
     async def execute_with_tools(
         self,
@@ -195,9 +212,7 @@ class _FakeFunctionCallingOrchestrator:
                 }
             )
         await asyncio.sleep(0.01)
-        is_plan = thinking_depth is not None and getattr(
-            thinking_depth, "value", str(thinking_depth)
-        ) not in ("none", "")
+        is_plan = intent == "worker_plan"
         if is_plan:
             content = (
                 '{"result_status":"success","summary":"plan ready","findings":[{"title":"plan","detail":"created subtasks"}],'
@@ -1280,8 +1295,9 @@ async def test_empty_worker_result_is_marked_failed(monkeypatch):
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
 
-        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
-            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+        async def run(self, run_input):
+            _ = run_input
+            return await self.execute_with_tools()
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
@@ -1330,8 +1346,9 @@ async def test_invalid_json_worker_result_is_marked_failed(monkeypatch):
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
 
-        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
-            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+        async def run(self, run_input):
+            _ = run_input
+            return await self.execute_with_tools()
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
@@ -1387,8 +1404,9 @@ async def test_embedded_json_worker_result_is_accepted(monkeypatch):
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
 
-        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
-            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+        async def run(self, run_input):
+            _ = run_input
+            return await self.execute_with_tools()
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
@@ -1461,8 +1479,9 @@ async def test_structured_failed_worker_result_is_not_marked_completed(monkeypat
         def __init__(self, *args, **kwargs):
             _ = (args, kwargs)
 
-        async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
-            return await self.execute_with_tools(**run_input.to_execute_kwargs())
+        async def run(self, run_input):
+            _ = run_input
+            return await self.execute_with_tools()
 
         async def execute_with_tools(self, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs

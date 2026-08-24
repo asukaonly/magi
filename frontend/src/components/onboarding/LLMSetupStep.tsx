@@ -100,8 +100,7 @@ function isValidConfig(value: LLMConfig): boolean {
   }
 
   const hasCore = Boolean(value.selections?.core?.model);
-  const hasContextDecider = Boolean(value.selections?.context_decider?.model);
-  if (!hasCore || !hasContextDecider) {
+  if (!hasCore) {
     return false;
   }
 
@@ -277,11 +276,11 @@ function buildNextConfig(
   registry: LLMProviderRegistry,
   providerId: string,
   providerInput: LLMProviderConfig,
-  overrides: Partial<Record<'core' | 'context_decider' | 'embedding', string>> = {}
+  overrides: Partial<Record<'core' | 'auxiliary' | 'embedding', string>> = {}
 ): LLMConfig {
   const currentCore = value.selections?.core?.provider_id === providerId ? value.selections.core.model : undefined;
   const currentContext =
-    value.selections?.context_decider?.provider_id === providerId ? value.selections.context_decider.model : undefined;
+    value.selections?.auxiliary?.provider_id === providerId ? value.selections.auxiliary.model : undefined;
 
   const coreModel = resolveScenarioModel(
     registry,
@@ -294,8 +293,8 @@ function buildNextConfig(
     registry,
     providerId,
     providerInput,
-    'context_decider',
-    overrides.context_decider ?? currentContext
+    'auxiliary',
+    overrides.auxiliary ?? currentContext
   );
   const provider = withCustomModels(providerInput, coreModel, contextModel || coreModel);
   const embeddingModel = resolveScenarioModel(
@@ -309,11 +308,11 @@ function buildNextConfig(
   const next = cloneLLMConfig(value);
   next.providers = { [providerId]: provider };
   next.selections.core = buildSelection(registry, providerId, provider, 'core', coreModel);
-  next.selections.context_decider = buildSelection(
+  next.selections.auxiliary = buildSelection(
     registry,
     providerId,
     provider,
-    'context_decider',
+    'auxiliary',
     contextModel || coreModel
   );
   next.selections.memory_summarizer = isProviderAllowedForScenario(
@@ -372,7 +371,7 @@ export function LLMSetupStep({
     ? 'custom'
     : activeProvider?.provider_type || '';
   const currentCoreModel = value.selections?.core?.model || '';
-  const currentContextModel = value.selections?.context_decider?.model || '';
+  const currentContextModel = value.selections?.auxiliary?.model || '';
   useEffect(() => {
     return () => {
       catalogResolutionRequestIdRef.current += 1;
@@ -464,7 +463,7 @@ export function LLMSetupStep({
   const commitProvider = (
     providerId: string,
     provider: LLMProviderConfig,
-    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+    overrides?: Partial<Record<'core' | 'auxiliary' | 'embedding', string>>
   ) => {
     if (!registry) {
       return;
@@ -479,7 +478,7 @@ export function LLMSetupStep({
   const commitProviderWithResolvedRegistry = async (
     providerId: string,
     provider: LLMProviderConfig,
-    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+    overrides?: Partial<Record<'core' | 'auxiliary' | 'embedding', string>>
   ) => {
     if (!registry) {
       return;
@@ -544,7 +543,7 @@ export function LLMSetupStep({
 
   const updateActiveProvider = (
     updater: (draft: LLMProviderConfig) => void,
-    overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
+    overrides?: Partial<Record<'core' | 'auxiliary' | 'embedding', string>>
   ) => {
     if (!activeProviderId || !activeProvider) {
       return;
@@ -580,7 +579,7 @@ export function LLMSetupStep({
     }
     void commitProviderWithResolvedRegistry(activeProviderId, nextProvider, {
       core: selectedPlan?.default_model || undefined,
-      context_decider: selectedPlan?.default_classify_model || selectedPlan?.default_model || undefined,
+      auxiliary: selectedPlan?.default_classify_model || selectedPlan?.default_model || undefined,
       embedding: nextProvider.services.embedding.enabled ? undefined : '',
     });
   };
@@ -885,7 +884,7 @@ export function LLMSetupStep({
                           (provider) => {
                             provider.custom_default_model = model;
                           },
-                          { core: model, context_decider: currentContextModel || model }
+                          { core: model, auxiliary: currentContextModel || model }
                         );
                       }}
                     />
@@ -1025,7 +1024,7 @@ export function LLMSetupStep({
                             const model = event.target.value;
                             updateActiveProvider(
                               () => undefined,
-                              { core: model, context_decider: currentContextModel || model }
+                              { core: model, auxiliary: currentContextModel || model }
                             );
                           }}
                         />
@@ -1044,7 +1043,7 @@ export function LLMSetupStep({
                           const model = event.target.value;
                           updateActiveProvider(
                             () => undefined,
-                            { core: currentCoreModel, context_decider: model || currentCoreModel }
+                            { core: currentCoreModel, auxiliary: model || currentCoreModel }
                           );
                         }}
                       />

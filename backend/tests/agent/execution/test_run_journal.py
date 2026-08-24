@@ -30,6 +30,7 @@ async def test_run_journal_persists_manifest_and_ordered_events(tmp_path) -> Non
         messages=({"role": "user", "content": "hello"},),
         tool_catalog=("memory_query",),
         tool_schema_hashes={"memory_query": "schema-hash"},
+        tool_schemas=({"type": "function", "function": {"name": "memory_query"}},),
         created_at_ms=100,
     )
 
@@ -72,9 +73,52 @@ async def test_run_manifest_is_recorded_once() -> None:
         messages=(),
         tool_catalog=(),
         tool_schema_hashes={},
+        tool_schemas=(),
     )
 
     await journal.record_manifest(manifest)
 
     with pytest.raises(ValueError, match="only be recorded once"):
         await journal.record_manifest(manifest)
+
+
+@pytest.mark.asyncio
+async def test_run_journal_resume_continues_persisted_sequence(tmp_path) -> None:
+    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await store.initialize()
+    first = AgentRunJournal(
+        run_id="run-1",
+        turn_id="turn-1",
+        session_id="session-1",
+        user_id="user-1",
+        store=store,
+    )
+    await first.record_manifest(
+        RunContextManifest(
+            run_id="run-1",
+            turn_id="turn-1",
+            session_id="session-1",
+            user_id="user-1",
+            prompt_assembly_version="test-v1",
+            system_prompt_hash="hash",
+            messages=(),
+            tool_catalog=(),
+            tool_schema_hashes={},
+            tool_schemas=(),
+        )
+    )
+    await first.append(AgentRunEventType.RUN_STARTED)
+
+    resumed = AgentRunJournal(
+        run_id="run-1",
+        turn_id="turn-1",
+        session_id="session-1",
+        user_id="user-1",
+        store=store,
+    )
+    await resumed.resume()
+    event = await resumed.append(AgentRunEventType.STEP_STARTED, step_index=1)
+
+    assert event.sequence == 2
+    assert [item["sequence"] for item in await store.list_run_events("run-1")] == [1, 2]
+    await store.shutdown()

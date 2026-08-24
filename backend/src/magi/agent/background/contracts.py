@@ -7,6 +7,7 @@ behavior — the store owns IO, the manager owns lifecycle transitions.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from time import time
@@ -126,24 +127,8 @@ class BackgroundTaskSpec:
     batch, and manually-created tasks leave it unset and use ``task_id`` as
     their background-owned budget identity.
     """
-    initial_messages: list[dict[str, Any]] | None = None
-    """Optional resume payload from an orchestrator snapshot.
-
-    When set, the background runner seeds the orchestrator with these
-    messages as ``conversation_history`` and leaves ``user_message``
-    empty so the latest user turn is not duplicated. This is how a
-    detached foreground run hands off its in-progress state to the
-    background worker without losing any context.
-    """
-    # === Phase E ===
-    initial_run_snapshot: dict[str, Any] | None = None
-    """Optional RunSnapshot dict for multi-node run resume.
-
-    When set, the background dispatcher prefers this over the legacy
-    ``initial_messages`` (FC-only) shape. The dict is the result of
-    ``RunSnapshot.to_dict()`` and is passed to
-    ``NodeSequenceRunner.run_with_snapshot(resume_from=RunSnapshot.from_dict(...))``.
-    """
+    agent_run_checkpoint: dict[str, Any] | None = None
+    """Complete unified-loop checkpoint used for foreground handoff."""
     pending_message_id: str | None = None
     """Id of the placeholder ``background_task_pending`` chat message.
 
@@ -196,13 +181,10 @@ class BackgroundTaskSpec:
                 int(self.timeout_seconds) if self.timeout_seconds is not None else None
             ),
             "task_budget_root_turn_id": self.task_budget_root_turn_id,
-            "initial_messages": (
-                [dict(m) for m in self.initial_messages]
-                if self.initial_messages is not None
+            "agent_run_checkpoint": (
+                deepcopy(self.agent_run_checkpoint)
+                if self.agent_run_checkpoint is not None
                 else None
-            ),
-            "initial_run_snapshot": (
-                dict(self.initial_run_snapshot) if self.initial_run_snapshot is not None else None
             ),
             "pending_message_id": self.pending_message_id,
         }
@@ -235,14 +217,9 @@ class BackgroundTaskSpec:
                 if data.get("task_budget_root_turn_id") is not None
                 else None
             ),
-            initial_messages=(
-                [dict(m) for m in data["initial_messages"]]
-                if data.get("initial_messages") is not None
-                else None
-            ),
-            initial_run_snapshot=(
-                dict(data["initial_run_snapshot"])
-                if data.get("initial_run_snapshot") is not None
+            agent_run_checkpoint=(
+                deepcopy(data["agent_run_checkpoint"])
+                if data.get("agent_run_checkpoint") is not None
                 else None
             ),
             pending_message_id=(

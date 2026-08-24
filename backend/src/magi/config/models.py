@@ -225,7 +225,7 @@ class LLMScenario(str, Enum):
     """Supported runtime LLM scenarios."""
 
     CONTEXT_COMPACT = "context_compact"
-    CONTEXT_DECIDER = "context_decider"
+    AUXILIARY = "auxiliary"
     CORE = "core"
     MEMORY_SUMMARIZER = "memory_summarizer"
     EMBEDDING = "embedding"
@@ -312,7 +312,7 @@ class LLMSettings(BaseModel):
     providers: Dict[str, LLMProviderSettings] = Field(default_factory=dict)
     selections: Dict[str, LLMSelectionSettings] = Field(
         default_factory=lambda: {
-            LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(),
+            LLMScenario.AUXILIARY.value: LLMSelectionSettings(),
             LLMScenario.CORE.value: LLMSelectionSettings(),
             LLMScenario.MEMORY_SUMMARIZER.value: LLMSelectionSettings(),
             LLMScenario.EMBEDDING.value: LLMSelectionSettings(
@@ -332,7 +332,6 @@ class LLMSettings(BaseModel):
     def validate_required_selections(self) -> "LLMSettings":
         # EMBEDDING is optional - system falls back to local model if not configured
         required_scenarios = {
-            LLMScenario.CONTEXT_DECIDER.value,
             LLMScenario.CORE.value,
         }
         missing_scenarios = required_scenarios.difference(self.selections.keys())

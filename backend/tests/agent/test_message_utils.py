@@ -7,7 +7,7 @@ from magi.agent.message_utils import (
     append_latest_user_message,
     group_prompt_history_turns,
 )
-from magi.agent.run.ports import NullAttachmentResolver
+from magi.agent.execution.attachment_resolver import NullAttachmentResolver
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
 from magi.utils.runtime import RuntimePaths

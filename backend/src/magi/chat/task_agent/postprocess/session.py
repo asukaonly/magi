@@ -207,7 +207,7 @@ class ChatPostprocessSessionMixin:
                     if active_run is not None
                     else str(context.latest_user_message or "")
                 ),
-                mode=str(existing_turn.execution_mode or "function_calling"),
+                mode=str(existing_turn.execution_mode or "agent_run"),
                 run_id=existing_turn.run_id or context.session_run_id,
                 run_revision=existing_turn.run_revision
                 or int(context.session_run_revision or 0),

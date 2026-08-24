@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import pytest
+from agent.agent_run_helpers import run_agent
 
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
@@ -15,6 +16,7 @@ from magi.control.run_control import (
     DetachSignal,
     bind_detach_signal,
     current_detach_signal,
+    null_run_control,
 )
 from magi.tools.builtin.detach_to_background_tool import DetachToBackgroundTool
 from magi.tools.schema import ToolExecutionContext
@@ -71,6 +73,12 @@ def _ctx_with(port) -> ToolExecutionContext:
     """Context with a DetachPort wired into capabilities."""
     caps = ToolCapabilities(detach=port)
     return ToolExecutionContext(agent_id="test-agent", capabilities=caps)
+
+
+def _run_control_with_detach(detach_signal: DetachSignal):
+    control = null_run_control()
+    control.detach_signal = detach_signal
+    return control
 
 
 # ---------------------------------------------------------------------------
@@ -283,13 +291,13 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="do a long task", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["detach_to_background"],
         user_id="u",
         max_iterations=5,
-        detach_signal=detach,
+        control=_run_control_with_detach(detach),
     )
 
     assert outcome.status == "detached"

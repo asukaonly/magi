@@ -182,8 +182,11 @@ async def test_prepare_context_drops_lower_priority_optional_tools_until_fit() -
     failure = await orchestrator._prepare_context_for_model(state)
 
     assert failure is None
-    assert state.selected_tool_names == ["primary"]
-    assert [tool["function"]["name"] for tool in state.tools] == ["primary"]
+    assert state.selected_tool_names == ["primary", "find-relevant-tools"]
+    assert [tool["function"]["name"] for tool in state.tools] == [
+        "find-relevant-tools",
+        "primary",
+    ]
 
 
 @pytest.mark.asyncio
@@ -237,7 +240,7 @@ async def test_prepare_context_never_drops_only_capability_tool() -> None:
     failure = await orchestrator._prepare_context_for_model(state)
 
     assert failure is not None
-    assert state.selected_tool_names == ["primary"]
+    assert state.selected_tool_names == ["primary", "find-relevant-tools"]
 
 
 @pytest.mark.asyncio

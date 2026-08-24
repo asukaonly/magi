@@ -210,7 +210,7 @@ async def test_postprocess_forwards_persona_and_raw_response_to_rhythm_planner()
 
     signal = RhythmPersonaSignal(register="chat", persona_intensity=2, sentence_style="爱用短句")
     result = ExecutionResult(
-        mode=ExecutionMode.DIRECT_LLM,
+        mode=None,
         response_text="alpha‖beta",
         root_user_message="hi",
         persona_rhythm=signal,

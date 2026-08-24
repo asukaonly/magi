@@ -10,6 +10,7 @@ import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
 import type { PendingResponseTurnIdentity } from '@/domain/chat/turn-completion';
 import { useChatDraftAttachments } from './useChatDraftAttachments';
 import type { RunCancelOutcome } from './useChatExecutionControls';
+import type { ReasoningPreference } from '@/components/chat/ComposerReasoningControl';
 import {
   useChatSendMessage,
   type ComposerSendDraftKind,
@@ -67,6 +68,7 @@ export function useChatComposerController({
   const [pendingAskDraft, setPendingAskDraft] = useState<PendingAskDraft | null>(null);
   const [recallFeedbackDraft, setRecallFeedbackDraft] = useState<RecallFeedbackDraft | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
+  const [reasoningPreference, setReasoningPreference] = useState<ReasoningPreference>('auto');
   const [pendingResponseTurnsBySession, setPendingResponseTurnsBySession] = useState<Record<string, string>>({});
   const pendingResponseTurnsRef = useRef<Record<string, string>>({});
   const currentSessionIdRef = useRef(currentSessionId);
@@ -86,6 +88,7 @@ export function useChatComposerController({
   const clearSessionTransientState = useCallback(() => {
     setReplyTarget(null);
     setRecallFeedbackDraft(null);
+    setReasoningPreference('auto');
   }, []);
 
   const {
@@ -142,6 +145,7 @@ export function useChatComposerController({
           replyTarget?.messageId || null,
           firstContextQuestion?.questionId || null,
           currentWorkspacePath || null,
+          reasoningPreference,
         ],
   );
   const composerClearSignature = JSON.stringify(
@@ -167,6 +171,7 @@ export function useChatComposerController({
           draftAttachments.map((attachment) => [attachment.kind, attachment.id]),
           replyTarget?.messageId || null,
           currentWorkspacePath || null,
+          reasoningPreference,
         ],
   );
   const composerDraftIdentity = JSON.stringify([
@@ -268,6 +273,7 @@ export function useChatComposerController({
     setNormalInputValue('');
     clearDraftAttachments();
     setReplyTarget(null);
+    setReasoningPreference('auto');
   }, [clearDraftAttachments]);
 
   const startRecallFeedback = useCallback((draft: Omit<RecallFeedbackDraft, 'customText'>) => {
@@ -412,6 +418,7 @@ export function useChatComposerController({
     pendingAsk,
     firstContextQuestion,
     recallFeedbackDraft,
+    reasoningPreference,
     appendPendingTurn,
     removePendingMessage,
     setCurrentSessionId,
@@ -497,10 +504,12 @@ export function useChatComposerController({
     recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,
+    reasoningPreference,
     sendingMessage,
     setAttachmentMenuOpen,
     setInputValue,
     setReplyTarget,
+    setReasoningPreference,
     startRecallFeedback,
     cancelRecallFeedback: clearRecallFeedback,
     convertRecallFeedbackToNormal,

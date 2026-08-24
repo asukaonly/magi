@@ -12,7 +12,7 @@ Implements the "Execute" phase of the skill system:
 import logging
 import os
 import time
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from ..utils.diagnostic_logging import full_content_logging_enabled
 from ..utils.runtime import get_default_chat_workspace_path
@@ -43,10 +43,9 @@ class SkillRunner:
         permission_gateway_provider: Callable[[], Any] | None = None,
         tool_registry: ToolRegistryPort | None = None,
         orchestrator_factory: Callable[..., Any] | None = None,
-        engine_run_input_factory: Callable[..., Any] | None = None,
+        agent_run_request_factory: Callable[..., Any] | None = None,
         active_model_provider: Callable[..., Any] | None = None,
         scenario_llm_pool: Any | None = None,
-        llm_call_reserver: Callable[[], Awaitable[None]] | None = None,
     ):
         """
         Initialize the skill runner.
@@ -60,7 +59,7 @@ class SkillRunner:
             orchestrator_factory: Builds the function-calling orchestrator;
                 injected by the composition root and threaded to sub-agents
                 so the skills layer does not import the agent engine.
-            engine_run_input_factory: Builds the headless engine run input;
+            agent_run_request_factory: Builds the headless engine run input;
                 injected and threaded for the same reason.
         """
         self.loader = loader
@@ -68,10 +67,9 @@ class SkillRunner:
         self.permission_gateway_provider = permission_gateway_provider
         self._tool_registry = tool_registry
         self._orchestrator_factory = orchestrator_factory
-        self._engine_run_input_factory = engine_run_input_factory
+        self._agent_run_request_factory = agent_run_request_factory
         self._active_model_provider = active_model_provider
         self._scenario_llm_pool = scenario_llm_pool
-        self._llm_call_reserver = llm_call_reserver
 
     async def execute(
         self,
@@ -293,10 +291,9 @@ class SkillRunner:
             permission_gateway_provider=self.permission_gateway_provider,
             tool_registry=self._tool_registry,
             orchestrator_factory=self._orchestrator_factory,
-            engine_run_input_factory=self._engine_run_input_factory,
+            agent_run_request_factory=self._agent_run_request_factory,
             active_model_provider=self._active_model_provider,
             scenario_llm_pool=self._scenario_llm_pool,
-            llm_call_reserver=self._llm_call_reserver,
         )
         user_message = context.get("user_message", "")
 

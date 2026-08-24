@@ -129,9 +129,8 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             latest_payload=GenericFactPayload(),
         )
         intent_result = IntentDecision(
-            intent="chat",
-            difficulty="normal",
-            execution_mode=ExecutionMode.FUNCTION_CALLING,
+            intent="unified_agent_run",
+            execution_mode=None,
             tools=["weather"],
         )
         tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
@@ -143,7 +142,7 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
         self.assertIn("# System Definition", system_prompt)
         self.assertIn("# Tool Use Guidance", system_prompt)
         self.assertNotIn("weather", system_prompt)
-        self.assertEqual(llm_params.mode, ExecutionMode.FUNCTION_CALLING)
+        self.assertIsNone(llm_params.mode)
 
     async def test_chat_task_agent_uses_core_scenario_from_pool(self):
         pool = _RecordingLLMPool(_FakeLLMAdapter())
@@ -173,9 +172,8 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             latest_payload=GenericFactPayload(),
         )
         intent_result = IntentDecision(
-            intent="chat",
-            difficulty="normal",
-            execution_mode=ExecutionMode.DIRECT_LLM,
+            intent="unified_agent_run",
+            execution_mode=None,
             tools=[],
         )
         tool_result = ToolSelection(tools=[], reasoning="direct reply")

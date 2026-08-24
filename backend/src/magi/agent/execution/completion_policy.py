@@ -11,6 +11,7 @@ class CompletionPolicy:
 
     max_repair_iterations: int = 2
     require_local_write_validation: bool = True
+    require_unknown_effect_validation: bool = True
     require_effect_terminal_state: bool = True
     validation_tool_names: frozenset[str] = field(
         default_factory=lambda: frozenset({"verify"})

@@ -61,7 +61,7 @@ def _build_test_config() -> AppConfig:
                 },
             },
             "selections": {
-                "context_decider": {
+                "auxiliary": {
                     "provider_id": "openai",
                     "model": "gpt-5-mini",
                 },
@@ -89,8 +89,8 @@ def _add_dashscope_coding_plan(config: AppConfig, plan_id: str = "codeplan") -> 
     config.llm.providers["dashscope"] = provider
     config.llm.selections["core"].provider_id = "dashscope"
     config.llm.selections["core"].model = "qwen3.7-plus"
-    config.llm.selections["context_decider"].provider_id = "dashscope"
-    config.llm.selections["context_decider"].model = "qwen3.6-plus"
+    config.llm.selections["auxiliary"].provider_id = "dashscope"
+    config.llm.selections["auxiliary"].model = "qwen3.6-plus"
 
 
 def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
@@ -114,7 +114,7 @@ def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
 
     pool = ScenarioLLMPool(config=_build_test_config(), adapter_factory=adapter_factory)
 
-    context_llm = pool.get(LLMScenario.CONTEXT_DECIDER)
+    context_llm = pool.get(LLMScenario.AUXILIARY)
     core_llm = pool.get(LLMScenario.CORE)
 
     assert context_llm.model_name == "gpt-5-mini"
@@ -153,7 +153,7 @@ def test_scenario_llm_pool_allows_interactive_scenarios_for_coding_plan() -> Non
     pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
 
     assert pool.get(LLMScenario.CORE).model_name == "qwen3.7-plus"
-    assert pool.get(LLMScenario.CONTEXT_DECIDER).model_name == "qwen3.6-plus"
+    assert pool.get(LLMScenario.AUXILIARY).model_name == "qwen3.6-plus"
     assert [item["provider_plan"] for item in created] == ["codeplan", "codeplan"]
 
 

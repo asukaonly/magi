@@ -30,12 +30,14 @@ import {
   applyStreamStatusUpdate,
   applyStreamTextDelta,
   applyStreamTextFlush,
+  applyStreamTextReset,
   applyStreamToolCall,
   type StreamMessageUpdate,
   type StreamReasoningDeltaPayload,
   type StreamStatusUpdatePayload,
   type StreamTextDeltaPayload,
   type StreamTextFlushPayload,
+  type StreamTextResetPayload,
   type StreamToolCallPayload,
 } from '@/stores/conversation-streaming';
 
@@ -92,6 +94,7 @@ type ConversationState = {
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
   appendStreamTextDelta: (payload: StreamTextDeltaPayload & { sessionId: string }) => void;
   appendStreamTextFlush: (payload: StreamTextFlushPayload & { sessionId: string }) => void;
+  appendStreamTextReset: (payload: StreamTextResetPayload & { sessionId: string }) => void;
   appendStreamReasoningDelta: (payload: StreamReasoningDeltaPayload & { sessionId: string }) => void;
   appendStreamStatusUpdate: (payload: StreamStatusUpdatePayload & { sessionId: string }) => void;
   appendStreamToolCall: (payload: StreamToolCallPayload & { sessionId: string }) => void;
@@ -490,6 +493,16 @@ export const useConversationStore = create<ConversationState>((set) => ({
       state,
       sessionId,
       applyStreamTextFlush(state.messagesBySession[sessionId] || [], payload),
+    );
+  }),
+  appendStreamTextReset: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    return applyStreamUpdateToState(
+      state,
+      sessionId,
+      applyStreamTextReset(state.messagesBySession[sessionId] || [], payload),
     );
   }),
   appendStreamReasoningDelta: ({ sessionId, ...payload }) => set((state) => {

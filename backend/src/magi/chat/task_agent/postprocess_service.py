@@ -24,14 +24,14 @@ from magi.runtime_trace import (
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionResult,
-    FunctionCallingExecutionResult,
+    AgentRunExecutionResult,
     IncomingFactKind,
 )
 from magi.agent.task_agents.handlers.contracts import ChatParseOutcome, ChatRuntimeContext
 from .context_assembler import ChatContextAssembler
 from .postprocess.components import ChatOutcomeWriter, ChatRuntimeNotifier
 from .postprocess.delivery import ChatPostprocessDeliveryMixin
-from .postprocess.intent import ChatPostprocessIntentMixin
+from .postprocess.capability_projection import ChatPostprocessCapabilityMixin
 from .postprocess.memory import ChatPostprocessMemoryMixin
 from .postprocess.outcomes import ChatPostprocessOutcomeMixin
 from .postprocess.session import ChatPostprocessSessionMixin
@@ -541,7 +541,7 @@ class ChatPostProcessService:
             return raw_response_text, response_text
 
         execution_outcome = (
-            result.execution_outcome if isinstance(result, FunctionCallingExecutionResult) else {}
+            result.execution_outcome if isinstance(result, AgentRunExecutionResult) else {}
         )
         if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "failed":
             failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
@@ -1175,7 +1175,7 @@ class _ChatPostProcessOperations(
     ChatPostprocessToolEventMixin,
     ChatPostprocessOutcomeMixin,
     ChatPostprocessMemoryMixin,
-    ChatPostprocessIntentMixin,
+    ChatPostprocessCapabilityMixin,
 ):
     def __init__(self, host: ChatPostProcessService) -> None:
         self._host = host

@@ -22,7 +22,6 @@ from magi.control.run_control import DetachSignal, null_run_control
 from magi.events.contracts import RuntimeCommandType, UserMessageCommand
 from magi.events.events import EventTypes
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
-from magi.tools.context_routing import RouteDecision
 
 
 class _FakeLLMAdapter:
@@ -171,19 +170,9 @@ class _AroutePausedChatAgent(ChatTaskAgent):
                 streaming_chat_enabled=False,
                 allow_media_grounding_for_conversation=False,
                 core_model_supports_vision=False,
+                core_model_supports_tool_calls=True,
             ),
         )
-
-
-def _make_decision(user_message: str) -> RouteDecision:
-    return RouteDecision(
-        profile="chat",
-        graph_shape="reply",
-        complexity="simple",
-        tools=[],
-        reasoning=f"route:{user_message}",
-        memory_route="none",
-    )
 
 
 class _StubInterruptionClassifier:
@@ -478,16 +467,8 @@ async def test_chat_task_agent_uses_injected_chat_read_service_for_workspace() -
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_batch(monkeypatch) -> None:
+async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_batch() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
-    seen_messages: list[str] = []
-
-    async def _fake_decide(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
-        _ = decision_context
-        seen_messages.append(user_message)
-        return _make_decision(user_message)
-
-    monkeypatch.setattr(agent.context_decider, "decide", _fake_decide)
     user_fact = _user_fact("Help me inspect the login flow.", turn_id="turn-1")
     tool_loop_fact = _tool_loop_fact()
 
@@ -499,12 +480,11 @@ async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_b
     assert context.planner_fact == user_fact
     assert context.planner_fact_kind == IncomingFactKind.USER_MESSAGE
     assert context.latest_user_message == "Help me inspect the login flow."
-    assert decision.execution_mode == ExecutionMode.DIRECT_LLM
-    assert seen_messages == ["Help me inspect the login flow."]
+    assert decision.execution_mode is None
 
 
 @pytest.mark.asyncio
-async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monkeypatch) -> None:
+async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     # The sync InterruptionClassifier only emits INTERRUPT / DEFER. Force
     # AUGMENT so the coordinator queues the second turn for checkpoint
@@ -512,14 +492,6 @@ async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monke
     agent._session_run_coordinator._interruption_classifier = _StubInterruptionClassifier(
         [InterruptionDisposition.AUGMENT]
     )
-    seen_messages: list[str] = []
-
-    async def _fake_decide(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
-        _ = decision_context
-        seen_messages.append(user_message)
-        return _make_decision(user_message)
-
-    monkeypatch.setattr(agent.context_decider, "decide", _fake_decide)
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     first_context = await agent.build_context(await agent.merge_facts([first_fact]))
     await agent.match_intent(first_context)
@@ -545,16 +517,12 @@ async def test_chat_task_agent_routes_pending_augment_into_next_checkpoint(monke
             "Instead of the login flow, inspect the signup flow.",
         ]
     )
-    assert checkpoint_decision.execution_mode == ExecutionMode.DIRECT_LLM
-    assert seen_messages == [
-        "Inspect the login flow.",
-        "Inspect the login flow.\n\nInstead of the login flow, inspect the signup flow.",
-    ]
+    assert checkpoint_decision.execution_mode is None
 
 
 @pytest.mark.asyncio
 async def test_chat_task_agent_marks_augmented_turn_as_merged(
-    runtime_paths_with_schema, monkeypatch
+    runtime_paths_with_schema,
 ) -> None:
     chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
@@ -577,11 +545,6 @@ async def test_chat_task_agent_marks_augmented_turn_as_merged(
         [InterruptionDisposition.AUGMENT]
     )
 
-    async def _fake_decide(user_message: str, decision_context: dict):  # type: ignore[no-untyped-def]
-        _ = decision_context
-        return _make_decision(user_message)
-
-    monkeypatch.setattr(agent.context_decider, "decide", _fake_decide)
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     first_context = await agent.build_context(await agent.merge_facts([first_fact]))
     await agent.match_intent(first_context)
@@ -751,7 +714,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         active_orchestrations=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
 
     assert len(emitted) == 2
     assert emitted[0]["kind"] == "text_delta"
@@ -804,7 +767,7 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
         active_orchestrations=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
 
     assert emitted == []
     assert "rate" in result.response_text.lower()
@@ -850,7 +813,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
         active_orchestrations=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=ExecutionMode.DIRECT_LLM))
+    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
 
     assert emitted == []
     assert "RuntimeError" in result.response_text
@@ -885,7 +848,7 @@ async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch
 
     result = await agent.call_llm(
         first_context,
-        SimpleNamespace(mode=ExecutionMode.DIRECT_LLM),
+        SimpleNamespace(mode=None),
     )
     await agent.parse_result(first_context, result)
 

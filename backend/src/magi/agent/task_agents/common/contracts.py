@@ -13,8 +13,7 @@ from ....events.first_context import (
 )
 from ....events.recall_feedback import RecallFeedbackRequest
 from ...orchestration_plan import OrchestrationPlan
-from ....config.models import ThinkingDepth
-from ....tools.context_routing import RouteDecision
+from ...execution.reasoning import ReasoningPolicy
 from ...orchestration import WorkerResult
 
 
@@ -30,11 +29,9 @@ class IncomingFactKind(str, Enum):
 
 
 class ExecutionMode(str, Enum):
-    """Execution paths supported by task agents."""
+    """Deterministic domain-event handlers outside the ordinary agent run."""
 
     FACT_ONLY = "fact_only"
-    DIRECT_LLM = "direct_llm"
-    FUNCTION_CALLING = "function_calling"
     ORCHESTRATION_LAUNCH = "orchestration_launch"
     ORCHESTRATION_UPDATE = "orchestration_update"
     EXPLORE_TASK_RENDER = "explore_task_render"
@@ -78,6 +75,7 @@ class UserMessagePayload:
     recall_feedback: RecallFeedbackRequest | None = None
     interaction_kind: str | None = None
     first_context: dict[str, str] | None = None
+    reasoning_preference: str | None = None
     source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +97,8 @@ class UserMessagePayload:
         if self.interaction_kind is not None and self.first_context is not None:
             payload["interaction_kind"] = self.interaction_kind
             payload["first_context"] = dict(self.first_context)
+        if self.reasoning_preference is not None:
+            payload["reasoning_preference"] = self.reasoning_preference
         return payload
 
     @classmethod
@@ -139,6 +139,10 @@ class UserMessagePayload:
                 else None
             ),
             first_context=normalized_first_context,
+            reasoning_preference=_optional_string(
+                payload.get("reasoning_preference")
+                or metadata.get("reasoning_preference")
+            ),
             source=str(raw_source) if raw_source else "api",
         )
 
@@ -369,12 +373,11 @@ class BaseRuntimeContext:
 
 @dataclass(slots=True)
 class BaseIntentDecision:
-    """Common intent-routing result shared across task-agent pipelines."""
+    """Deterministic fact-admission result shared across task agents."""
 
     intent: str
-    execution_mode: ExecutionMode
+    execution_mode: ExecutionMode | None
     reasoning: str = ""
-    route_decision: RouteDecision | None = None
     orchestration_plan: OrchestrationPlan | None = None
 
 
@@ -382,30 +385,21 @@ class BaseIntentDecision:
 class ExecutionRequest:
     """Normalized request passed into an execution handler."""
 
-    mode: ExecutionMode
+    mode: ExecutionMode | None
     context: BaseRuntimeContext
     intent: BaseIntentDecision
     tool_selection: ToolSelection
 
 
 @dataclass(slots=True)
-class DirectLLMRequest(ExecutionRequest):
-    """Typed request for direct LLM rendering."""
-
-    prompt_context: Optional[dict[str, Any]] = None
-    system_prompt: str = ""
-    messages: list[dict[str, str]] = field(default_factory=list)
-    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
-
-
-@dataclass(slots=True)
-class FunctionCallingRequest(ExecutionRequest):
-    """Typed request for function-calling execution."""
+class PreparedAgentRunRequest(ExecutionRequest):
+    """Chat-prepared inputs used to build the engine-level AgentRunRequest."""
 
     prompt_context: Optional[dict[str, Any]] = None
     system_prompt: str = ""
     selected_tools: list[str] = field(default_factory=list)
-    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
+    reasoning_policy: ReasoningPolicy = field(default_factory=ReasoningPolicy)
+    context_sources: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(slots=True)
@@ -466,7 +460,7 @@ class RhythmPersonaSignal:
 class ExecutionResult:
     """Normalized execution result returned from a handler."""
 
-    mode: ExecutionMode
+    mode: ExecutionMode | None
     response_text: str = ""
     response_plan: Optional[AssistantResponsePlan] = None
     attachments: list[dict[str, Any]] = field(default_factory=list)
@@ -485,8 +479,8 @@ class ExecutionResult:
 
 
 @dataclass(slots=True)
-class FunctionCallingExecutionResult(ExecutionResult):
-    """Execution result carrying structured function-calling outcome details."""
+class AgentRunExecutionResult(ExecutionResult):
+    """Execution result carrying the structured unified-loop outcome."""
 
     execution_outcome: dict[str, Any] = field(default_factory=dict)
 

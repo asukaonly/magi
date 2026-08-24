@@ -8,7 +8,7 @@ from typing import Any
 from magi.core.chat_assets.io import open_managed_chat_attachment
 from magi.context.window_budget import estimate_context_tokens
 
-from .run.ports import AttachmentResolverPort
+from .execution.attachment_resolver import AttachmentResolverPort
 from .turn_input import UserTurnInput
 from ..utils.message_text import (
     _extract_text_content,

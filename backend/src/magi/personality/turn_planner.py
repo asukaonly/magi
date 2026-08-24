@@ -105,25 +105,19 @@ class ActivePersonaTrigger:
     reason: str = ""
 
 
-@dataclass(slots=True, frozen=True)
-class PersonaRoutingHint:
-    """Per-persona routing decisions supplied by the unified ContextDecider.
+@dataclass(slots=True)
+class PersonaRegisterCandidate:
+    """One compact expression option exposed to the main model."""
 
-    Carried separately from ``ContextDecision`` so the personality and context
-    layers do not need a structural dependency on ``tools/context_routing``.
-    Build one from a ContextDecision at the chat-coordinator boundary; pass
-    it through context-assembly layers to the planner.
-    """
-
-    register: str | None = None
-    active_trigger_ids: tuple[str, ...] = ()
-    situation_strength: str = "ordinary"
-    quiet_hour_hints: tuple[str, ...] = ()
+    register: str
+    description: str = ""
+    behavior: str = ""
+    reason: str = ""
 
 
 @dataclass(slots=True)
 class PersonaTurnPlan:
-    """Persona behavior plan consumed by prompt rendering for one model call."""
+    """Persona policy, hard clamps, and candidates for one model call."""
 
     persona_name: str
     identity_core: dict[str, Any] = field(default_factory=dict)
@@ -131,6 +125,8 @@ class PersonaTurnPlan:
     register: str = "casual"
     register_description: str = ""
     register_behavior: str = ""
+    register_candidates: list[PersonaRegisterCandidate] = field(default_factory=list)
+    register_is_hard_clamp: bool = False
     situation_strength: str = "ordinary"
     quiet_hours: list[dict[str, Any]] = field(default_factory=list)
     persona_intensity: int = 1
@@ -284,8 +280,6 @@ class PersonaTurnPlanner:
         relationship: dict[str, Any] | None = None,
         emotional_state: Any | None = None,
         milestones: list[dict[str, Any]] | None = None,
-        routing_hint: "PersonaRoutingHint | None" = None,
-        previous_trigger_ids: list[str] | None = None,
     ) -> PersonaTurnPlan:
         """Build a per-turn persona behavior plan."""
         turn = _turn_planning_context(
@@ -301,7 +295,6 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=turn.tools,
-            routing_hint=routing_hint,
         )
         state = self._select_turn_plan_state(
             turn=turn,
@@ -309,8 +302,6 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             emotional_state=emotional_state,
-            routing_hint=routing_hint,
-            previous_trigger_ids=previous_trigger_ids,
         )
         return self._assemble_turn_plan(turn, state)
 
@@ -341,8 +332,6 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         emotional_state: Any | None,
-        routing_hint: "PersonaRoutingHint | None",
-        previous_trigger_ids: list[str] | None,
     ) -> _TurnPlanState:
         register = turn.config.registers.get(register_name) or Register()
         active_layer, layer_modifiers, dynamic_modulations = self._select_expression_state(
@@ -354,21 +343,17 @@ class PersonaTurnPlanner:
             register=register_name,
             scenario=scenario,
             task_category=task_category,
-            routing_hint=routing_hint,
-            previous_trigger_ids=previous_trigger_ids,
         )
         quiet_hours = self._select_turn_quiet_hours(
             turn=turn,
             register=register_name,
             scenario=scenario,
             task_category=task_category,
-            routing_hint=routing_hint,
         )
         persona_intensity, situation_strength = self._select_turn_strengths(
             register=register_name,
             active_triggers=active_triggers,
             quiet_hours=quiet_hours,
-            routing_hint=routing_hint,
         )
         return _TurnPlanState(
             register_name=register_name,
@@ -405,7 +390,6 @@ class PersonaTurnPlanner:
         register: str,
         active_triggers: list[ActivePersonaTrigger],
         quiet_hours: list[dict[str, Any]],
-        routing_hint: "PersonaRoutingHint | None",
     ) -> tuple[int, str]:
         persona_intensity = self._persona_intensity(
             register=register,
@@ -415,7 +399,6 @@ class PersonaTurnPlanner:
         situation_strength = self._resolve_situation_strength(
             register=register,
             active_triggers=active_triggers,
-            routing_hint=routing_hint,
         )
         return persona_intensity, situation_strength
 
@@ -426,8 +409,6 @@ class PersonaTurnPlanner:
         register: str,
         scenario: str,
         task_category: str,
-        routing_hint: "PersonaRoutingHint | None",
-        previous_trigger_ids: list[str] | None,
     ) -> list[ActivePersonaTrigger]:
         return self._select_active_triggers_for_turn(
             config=turn.config,
@@ -436,8 +417,6 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=turn.tools,
-            routing_hint=routing_hint,
-            previous_trigger_ids=previous_trigger_ids,
         )
 
     def _select_turn_quiet_hours(
@@ -447,7 +426,6 @@ class PersonaTurnPlanner:
         register: str,
         scenario: str,
         task_category: str,
-        routing_hint: "PersonaRoutingHint | None",
     ) -> list[dict[str, Any]]:
         return self._select_quiet_hours(
             config=turn.config,
@@ -456,7 +434,6 @@ class PersonaTurnPlanner:
             scenario=scenario,
             task_category=task_category,
             tools=turn.tools,
-            routing_hint=routing_hint,
         )
 
     def _select_active_triggers_for_turn(
@@ -468,23 +445,13 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
-        routing_hint: "PersonaRoutingHint | None",
-        previous_trigger_ids: list[str] | None,
     ) -> list[ActivePersonaTrigger]:
-        active_triggers = self._select_triggers(
+        return self._select_triggers(
             config=config,
             user_message=user_message,
             register=register,
             scenario=scenario,
             task_category=task_category,
-            tools=tools,
-            routing_hint=routing_hint,
-        )
-        if active_triggers or not previous_trigger_ids:
-            return active_triggers
-        return self._build_carryover_triggers(
-            config=config,
-            previous_trigger_ids=previous_trigger_ids,
             tools=tools,
         )
 
@@ -503,6 +470,11 @@ class PersonaTurnPlanner:
         dynamic_modulations: dict[str, Any],
         user_message: str,
     ) -> PersonaTurnPlan:
+        register_names, register_is_hard_clamp = self._select_register_candidates(
+            config=config,
+            user_message=user_message,
+            fallback_register=register_name,
+        )
         return PersonaTurnPlan(
             persona_name=config.name,
             identity_core=asdict(config.identity_core),
@@ -510,6 +482,20 @@ class PersonaTurnPlanner:
             register=register_name,
             register_description=register.description,
             register_behavior=register.behavior,
+            register_candidates=[
+                PersonaRegisterCandidate(
+                    register=name,
+                    description=(config.registers.get(name) or Register()).description,
+                    behavior=(config.registers.get(name) or Register()).behavior,
+                    reason=(
+                        "required safety or explicit seriousness clamp"
+                        if register_is_hard_clamp
+                        else "retrieved expression candidate"
+                    ),
+                )
+                for name in register_names
+            ],
+            register_is_hard_clamp=register_is_hard_clamp,
             situation_strength=situation_strength,
             quiet_hours=quiet_hours,
             persona_intensity=persona_intensity,
@@ -520,16 +506,61 @@ class PersonaTurnPlanner:
             selected_examples=self._select_examples(register=register, user_message=user_message),
         )
 
+    def _select_register_candidates(
+        self,
+        *,
+        config: PersonalityConfig,
+        user_message: str,
+        fallback_register: str,
+    ) -> tuple[list[str], bool]:
+        """Retrieve a bounded candidate set without pre-classifying the turn."""
+
+        if self._contains_any(user_message, _CRISIS_TERMS):
+            return [fallback_register], True
+        if self._contains_any(user_message, _SERIOUS_TERMS):
+            return (
+                self._available_registers(
+                    config,
+                    ("analysis", "task", fallback_register),
+                    limit=2,
+                ),
+                True,
+            )
+
+        candidates = [fallback_register]
+        if self._contains_any(user_message, _EMOTIONAL_TERMS):
+            candidates.extend(("emotional", "casual", "chat"))
+        elif self._contains_any(user_message, _DOMAIN_TERMS):
+            candidates.extend(("analysis", "task", "casual"))
+        elif self._contains_any(user_message, _PLAY_TERMS):
+            candidates.extend(("casual", "chat"))
+        else:
+            candidates.extend(("casual", "chat", "analysis"))
+        return self._available_registers(config, tuple(candidates), limit=3), False
+
+    @staticmethod
+    def _available_registers(
+        config: PersonalityConfig,
+        candidates: tuple[str, ...],
+        *,
+        limit: int,
+    ) -> list[str]:
+        selected: list[str] = []
+        for candidate in candidates:
+            if candidate in config.registers and candidate not in selected:
+                selected.append(candidate)
+            if len(selected) >= limit:
+                break
+        if not selected:
+            selected.append(next(iter(config.registers), candidates[0]))
+        return selected
+
     @staticmethod
     def _resolve_situation_strength(
         *,
         register: str,
         active_triggers: list["ActivePersonaTrigger"],
-        routing_hint: "PersonaRoutingHint | None",
     ) -> str:
-        hinted = getattr(routing_hint, "situation_strength", "") if routing_hint else ""
-        if isinstance(hinted, str) and hinted.strip().lower() in {"ordinary", "strong", "crisis"}:
-            return hinted.strip().lower()
         if register == "crisis":
             return "crisis"
         return "strong" if active_triggers else "ordinary"
@@ -542,35 +573,11 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
-        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> str:
-        # Unified router (LLM) decides the register when wired through
-        # ContextDecider. Keyword fallback below is the offline/testing path
-        # and the safety net when the LLM omits or invalidates the field.
-        hinted = getattr(routing_hint, "register", None) if routing_hint else None
-        if isinstance(hinted, str) and hinted.strip().lower() in {
-            "casual",
-            "chat",
-            "task",
-            "analysis",
-            "emotional",
-            "crisis",
-        }:
-            normalized_hint = hinted.strip().lower()
-            # The product enum is the same 5 across personas, but persona
-            # presets may have inherited a "chat" alias. Resolve to whichever
-            # actually exists in this persona's register dict.
-            if normalized_hint == "casual":
-                return self._first_available(config, ("casual", "chat"))
-            if normalized_hint == "chat":
-                return self._first_available(config, ("chat", "casual"))
-            return self._first_available(
-                config,
-                (normalized_hint, "task", "analysis", "chat", "casual"),
-            )
-
         if self._contains_any(user_message, _CRISIS_TERMS):
             return self._first_available(config, ("crisis", "task", "analysis", "chat", "casual"))
+        if self._contains_any(user_message, _SERIOUS_TERMS):
+            return self._first_available(config, ("analysis", "task", "chat", "casual"))
         normalized_scenario = str(scenario or "").lower()
         normalized_task_category = str(task_category or "").lower()
         if normalized_scenario in {"analysis"} or "analysis" in normalized_task_category:
@@ -596,17 +603,7 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
-        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[ActivePersonaTrigger]:
-        hinted_ids = (
-            list(getattr(routing_hint, "active_trigger_ids", []) or []) if routing_hint else []
-        )
-        if hinted_ids:
-            return self._select_hint_triggers(
-                config=config,
-                hinted_ids=hinted_ids,
-                tools=tools,
-            )
         return self._select_keyword_triggers(
             config=config,
             user_message=user_message,
@@ -615,29 +612,6 @@ class PersonaTurnPlanner:
             task_category=task_category,
             tools=tools,
         )
-
-    def _select_hint_triggers(
-        self,
-        *,
-        config: PersonalityConfig,
-        hinted_ids: list[Any],
-        tools: list[str],
-    ) -> list[ActivePersonaTrigger]:
-        by_id = _signature_triggers_by_id(config)
-        selected: list[ActivePersonaTrigger] = []
-        for raw_id in hinted_ids:
-            trigger_id = str(raw_id or "").strip()
-            if not trigger_id:
-                continue
-            trigger = by_id.get(trigger_id)
-            if trigger is None:
-                continue
-            if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
-                continue
-            selected.append(_active_trigger(trigger_id, trigger, reason="routing_hint"))
-            if len(selected) >= 2:
-                break
-        return selected
 
     def _select_keyword_triggers(
         self,
@@ -667,49 +641,6 @@ class PersonaTurnPlanner:
             if not reason:
                 continue
             selected.append(_active_trigger(trigger_id, trigger, reason=reason))
-            if len(selected) >= 2:
-                break
-        return selected
-
-    def _build_carryover_triggers(
-        self,
-        *,
-        config: PersonalityConfig,
-        previous_trigger_ids: list[str],
-        tools: list[str],
-    ) -> list[ActivePersonaTrigger]:
-        """Resurrect last turn's triggers at one-notch-lower intensity.
-
-        Carryover is bounded: the caller writes only NEW trigger_ids (those
-        with reason != "carryover") back into emotional state, so a carryover
-        does not propagate to a third turn unless something fresh fires
-        between them. The execution suppression rule still applies — task
-        and analysis turns drop carryover absurdity / hostility just like
-        they drop fresh ones.
-        """
-        by_id: dict[str, SignatureTrigger] = {
-            str(t.trigger_id or "").strip(): t
-            for t in config.signature_triggers
-            if str(t.trigger_id or "").strip()
-        }
-        selected: list[ActivePersonaTrigger] = []
-        for raw_id in previous_trigger_ids:
-            trigger_id = str(raw_id or "").strip()
-            if not trigger_id:
-                continue
-            trigger = by_id.get(trigger_id)
-            if trigger is None:
-                continue
-            if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
-                continue
-            selected.append(
-                ActivePersonaTrigger(
-                    trigger_id=trigger_id,
-                    intensity=self._downgrade_intensity(trigger.intensity_levels),
-                    behavior_shift=trigger.behavior_shift,
-                    reason="carryover",
-                )
-            )
             if len(selected) >= 2:
                 break
         return selected
@@ -748,14 +679,6 @@ class PersonaTurnPlanner:
             # about this turn.
             return list(examples[:limit])
         return [example for _, _, example in scored[:limit]]
-
-    @staticmethod
-    def _downgrade_intensity(levels: dict[str, str]) -> str:
-        """Pick the quietest available intensity level for a carryover trigger."""
-        for preferred in ("low", "mild", "mid", "medium", "high", "peak"):
-            if preferred in levels:
-                return preferred
-        return "low"
 
     @staticmethod
     def _should_suppress_trigger_for_execution(*, trigger_id: str, tools: list[str]) -> bool:
@@ -816,16 +739,9 @@ class PersonaTurnPlanner:
         scenario: str,
         task_category: str,
         tools: list[str],
-        routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[dict[str, Any]]:
         quiet_hours = _built_in_quiet_hours(register=register, tools=tools)
-        hinted_conditions = (
-            list(getattr(routing_hint, "quiet_hour_hints", []) or []) if routing_hint else []
-        )
-        if hinted_conditions:
-            quiet_hours.extend(_quiet_hours_from_hints(config, hinted_conditions))
-        else:
-            quiet_hours.extend(self._fallback_quiet_hours(config, user_message))
+        quiet_hours.extend(self._fallback_quiet_hours(config, user_message))
         _ = (scenario, task_category)
         return quiet_hours
 
@@ -1017,7 +933,7 @@ def _tokenize_for_overlap(text: str) -> list[str]:
 
 __all__ = [
     "ActivePersonaTrigger",
-    "PersonaRoutingHint",
+    "PersonaRegisterCandidate",
     "PersonaTurnPlan",
     "PersonaTurnPlanner",
 ]

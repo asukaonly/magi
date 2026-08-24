@@ -79,7 +79,7 @@ def test_builtin_subscription_plans_match_provider_allowlists() -> None:
         plan = _provider(registry, provider_id).plans[0]
         assert [scenario.value for scenario in plan.allowed_scenarios or []] == [
             "context_compact",
-            "context_decider",
+            "auxiliary",
             "core",
         ]
 
@@ -105,7 +105,7 @@ def test_multiple_accounts_for_the_same_builtin_provider_are_allowed() -> None:
             "openai-personal": LLMProviderSettings(provider_type="openai"),
         },
         selections={
-            "context_decider": LLMSelectionSettings(
+            "auxiliary": LLMSelectionSettings(
                 provider_id="openai-work", model="gpt-5.6-luna"
             ),
             "core": LLMSelectionSettings(

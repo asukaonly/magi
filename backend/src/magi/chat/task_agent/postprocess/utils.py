@@ -42,4 +42,4 @@ def resolve_started_at_ms(result: ExecutionResult | None, latest_fact: FactRecor
 
 
 def normalize_mode(mode: Any) -> str:
-    return str(getattr(mode, "value", mode) or "unknown")
+    return str(getattr(mode, "value", mode) or "agent_run")

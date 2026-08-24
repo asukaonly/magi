@@ -1,7 +1,7 @@
 """Verify _build_latest_user_message_content emits MCP resource blocks."""
 
 from magi.agent.message_utils import append_latest_user_message
-from magi.agent.run.ports import NullAttachmentResolver
+from magi.agent.execution.attachment_resolver import NullAttachmentResolver
 from magi.agent.turn_input import UserTurnInput
 
 _NULL_RESOLVER = NullAttachmentResolver()

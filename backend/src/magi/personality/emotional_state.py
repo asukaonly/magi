@@ -62,31 +62,11 @@ def apply_decay_to_state(
             state.mood_intensity = 0.5
 
 
-def _trigger_emotion_deltas(
-    triggered_emotion_impacts: list[dict[str, float]] | None,
-) -> tuple[float, float, float]:
-    mood_delta = 0.0
-    energy_delta = 0.0
-    stress_delta = 0.0
-    for impact in triggered_emotion_impacts or []:
-        try:
-            mood_delta += float(impact.get("mood", 0.0) or 0.0)
-            energy_delta += float(impact.get("energy", 0.0) or 0.0)
-            stress_delta += float(impact.get("stress", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            continue
-    return mood_delta, energy_delta, stress_delta
-
-
 def _interaction_cause(
     outcome: InteractionOutcome,
     user_engagement: EngagementLevel,
-    triggered_emotion_impacts: list[dict[str, float]] | None,
 ) -> str:
-    cause = f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
-    if triggered_emotion_impacts:
-        cause += f", triggers_applied={len(triggered_emotion_impacts)}"
-    return cause
+    return f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
 
 
 def _log_interaction_update(
@@ -119,23 +99,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         self.persona_id = persona_id
         self._current_state: Optional[EmotionalState] = None
         self._event_history: List[EmotionalEvent] = []
-
-    async def set_recent_active_trigger_ids(self, trigger_ids: List[str]) -> None:
-        """Persist the trigger_ids that fired on the current turn.
-
-        The planner reads this on the next turn via
-        ``previous_trigger_ids`` to allow one-hop carryover when nothing
-        fresh fires. The list must be the NEW (non-carryover) trigger IDs
-        from the current plan; passing carryover IDs would chain the effect
-        indefinitely. Empty list clears carryover.
-        """
-        state = await self.get_current_state()
-        normalized = [str(tid).strip() for tid in trigger_ids if str(tid).strip()]
-        if state.recent_active_trigger_ids == normalized:
-            return
-        state.recent_active_trigger_ids = normalized
-        state.updated_at = time.time()
-        await self._save_current_state()
 
     async def get_current_state(self) -> EmotionalState:
         """Return the current emotional state, applying lazy time-based decay.
@@ -175,19 +138,8 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         user_engagement: EngagementLevel = EngagementLevel.MEDIUM,
         complexity: float = 0.5,
         description: str = "",
-        *,
-        triggered_emotion_impacts: list[dict[str, float]] | None = None,
     ) -> EmotionalState:
-        """Update mood/energy/stress after an interaction and persist the new state.
-
-        ``triggered_emotion_impacts`` carries per-trigger deltas from
-        signature triggers that fired this turn (see
-        ``trigger_emotion_impact.resolve_emotion_impacts_for_ids``). Each
-        impact is a dict like ``{"mood": +0.10, "stress": -0.05}``; values
-        are summed on top of the outcome-based deltas so a persona's
-        configured triggers drive mood divergence between personas that
-        share the same outcome math.
-        """
+        """Update mood, energy, and stress after an interaction."""
         state = await self.get_current_state()
         old_mood = state.current_mood
         old_energy = state.energy_level
@@ -197,7 +149,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             outcome=outcome,
             user_engagement=user_engagement,
             complexity=complexity,
-            triggered_emotion_impacts=triggered_emotion_impacts,
         )
         self._apply_interaction_deltas(
             state=state,
@@ -211,7 +162,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             previous_mood=old_mood,
             outcome=outcome,
             user_engagement=user_engagement,
-            triggered_emotion_impacts=triggered_emotion_impacts,
             mood_change=mood_change,
             energy_change=energy_change,
             stress_change=stress_change,
@@ -232,19 +182,11 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         outcome: InteractionOutcome,
         user_engagement: EngagementLevel,
         complexity: float,
-        triggered_emotion_impacts: list[dict[str, float]] | None,
     ) -> tuple[float, float, float]:
         mood_change = self._calculate_mood_change(outcome, user_engagement, complexity)
         energy_change = self._calculate_energy_change(outcome, complexity)
         stress_change = self._calculate_stress_change(outcome, complexity)
-        trigger_mood, trigger_energy, trigger_stress = _trigger_emotion_deltas(
-            triggered_emotion_impacts
-        )
-        return (
-            mood_change + trigger_mood,
-            energy_change + trigger_energy,
-            stress_change + trigger_stress,
-        )
+        return mood_change, energy_change, stress_change
 
     def _apply_interaction_deltas(
         self,
@@ -270,7 +212,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         previous_mood: str,
         outcome: InteractionOutcome,
         user_engagement: EngagementLevel,
-        triggered_emotion_impacts: list[dict[str, float]] | None,
         mood_change: float,
         energy_change: float,
         stress_change: float,
@@ -282,7 +223,7 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             mood_delta=mood_change,
             energy_delta=energy_change,
             stress_delta=stress_change,
-            cause=_interaction_cause(outcome, user_engagement, triggered_emotion_impacts),
+            cause=_interaction_cause(outcome, user_engagement),
         )
 
     async def update_after_task_completion(

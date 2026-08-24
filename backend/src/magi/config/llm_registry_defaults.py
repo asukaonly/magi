@@ -183,7 +183,7 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
     return {
         "providers": providers,
         "selections": {
-            "context_decider": dict(empty_selection),
+            "auxiliary": dict(empty_selection),
             "core": dict(empty_selection),
             "memory_summarizer": dict(empty_selection),
             "embedding": embedding_selection,

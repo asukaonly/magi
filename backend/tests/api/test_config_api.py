@@ -175,7 +175,7 @@ def test_system_config_defaults_include_llm_provider_pool_and_selections():
 
     assert hasattr(config.llm, "providers")
     assert hasattr(config.llm, "selections")
-    assert "context_decider" in config.llm.selections
+    assert "auxiliary" in config.llm.selections
     assert "core" in config.llm.selections
     assert hasattr(config.llm, "model_runtime_overrides")
     assert config.llm.model_runtime_overrides == {}
@@ -431,7 +431,7 @@ def test_llm_settings_allow_multiple_instances_of_same_provider_type():
             },
         },
         selections={
-            "context_decider": LLMSelectionSettings(provider_id="openai_primary", model="gpt-5.2"),
+            "auxiliary": LLMSelectionSettings(provider_id="openai_primary", model="gpt-5.2"),
             "core": LLMSelectionSettings(provider_id="openai_primary", model="gpt-5.2"),
         },
     )
@@ -439,11 +439,11 @@ def test_llm_settings_allow_multiple_instances_of_same_provider_type():
     assert set(settings.providers) == {"openai_primary", "openai_image"}
 
 
-def test_llm_settings_require_context_decider_and_core_selections():
+def test_llm_settings_require_core_selection():
     with pytest.raises(ValueError):
         LLMSettings(
             selections={
-                "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
+                "auxiliary": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             }
         )
 
@@ -754,7 +754,7 @@ def test_masked_llm_settings_override_restores_backend_owned_keys():
     masked = LLMSettings(
         providers={"openai": _provider_settings(api_key="***")},
         selections={
-            "context_decider": LLMSelectionSettings(
+            "auxiliary": LLMSelectionSettings(
                 provider_id="openai",
                 model="gpt-5.6-mini",
             ),
@@ -789,7 +789,7 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
             base_url="",
         )
     }
-    config.llm.selections["context_decider"] = LLMSelectionConfigModel(provider_id="glm", model="")
+    config.llm.selections["auxiliary"] = LLMSelectionConfigModel(provider_id="glm", model="")
     config.llm.selections["core"] = LLMSelectionConfigModel(provider_id="glm", model="")
     config.llm.selections["embedding"] = LLMSelectionConfigModel(provider_id="glm", model="")
 
@@ -798,7 +798,7 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7-flash"
+    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-4.7-flash"
     assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
     assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
@@ -1173,7 +1173,7 @@ def test_update_paths_apply_provider_plan_defaults():
             base_url="",
         )
     }
-    config.llm.selections["context_decider"] = LLMSelectionConfigModel(
+    config.llm.selections["auxiliary"] = LLMSelectionConfigModel(
         provider_id="glm",
         model="",
     )
@@ -1188,7 +1188,7 @@ def test_update_paths_apply_provider_plan_defaults():
     assert persisted_provider["provider_type"] == "glm"
     assert persisted_provider["provider_plan"] == "codeplan"
     assert persisted_provider["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7"
+    assert updates["llm.selections"]["auxiliary"]["model"] == "glm-4.7"
     assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
 
 
@@ -1343,8 +1343,8 @@ def test_runtime_llm_defaults_use_scenario_llm_structure():
     assert "provider" not in data
     assert "model" not in data
     assert data["providers"] == {}
-    assert data["selections"]["context_decider"]["provider_id"] == ""
-    assert data["selections"]["context_decider"]["model"] == ""
+    assert data["selections"]["auxiliary"]["provider_id"] == ""
+    assert data["selections"]["auxiliary"]["model"] == ""
     assert data["selections"]["core"]["provider_id"] == ""
     assert data["selections"]["core"]["model"] == ""
     assert "model_runtime_overrides" in data
@@ -1820,7 +1820,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
         api_key="glm-key",
         base_url="https://open.bigmodel.cn/api/paas/v4",
     )
-    payload.llm.selections["context_decider"] = LLMSelectionConfigModel(
+    payload.llm.selections["auxiliary"] = LLMSelectionConfigModel(
         provider_id="glm",
         model="glm-4.6",
     )

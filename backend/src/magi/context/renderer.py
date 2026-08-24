@@ -182,13 +182,36 @@ class PromptContextRenderer:
         lines = ["# Persona Turn Steer"]
         lines.append("")
 
-        lines.append("## Current Register")
-        lines.append(f"* Register: {plan.register}")
+        lines.append("## Expression Policy")
+        if plan.register_is_hard_clamp:
+            lines.append(
+                "[System Notice: The register below is a mandatory safety or explicit-user clamp.]"
+            )
+            lines.append(f"* Required Register: {plan.register}")
+        else:
+            lines.append(
+                "[System Notice: Choose the expression that best fits the user's actual meaning "
+                "from these compact candidates during this same model call. The first candidate "
+                "is a deterministic fallback, not a semantic classification.]"
+            )
+            if plan.register_candidates:
+                for candidate in plan.register_candidates:
+                    lines.append(f"* Candidate: {candidate.register}")
+                    if candidate.description:
+                        lines.append(f"  - Description: {candidate.description}")
+                    if candidate.behavior:
+                        lines.append(f"  - Behavior: {candidate.behavior}")
+            else:
+                lines.append(f"* Candidate: {plan.register}")
+                if plan.register_description:
+                    lines.append(f"  - Description: {plan.register_description}")
+                if plan.register_behavior:
+                    lines.append(f"  - Behavior: {plan.register_behavior}")
         lines.append(f"* Situation Strength: {plan.situation_strength}")
         lines.append(f"* Persona Intensity: {plan.persona_intensity}/3")
-        if plan.register_description:
+        if plan.register_is_hard_clamp and plan.register_description:
             lines.append(f"* Description: {plan.register_description}")
-        if plan.register_behavior:
+        if plan.register_is_hard_clamp and plan.register_behavior:
             lines.append(f"* Behavior: {plan.register_behavior}")
         lines.append("")
 
@@ -204,7 +227,11 @@ class PromptContextRenderer:
             lines.append("")
 
         if plan.active_triggers:
-            lines.append("## Active Persona Triggers")
+            lines.append("## Persona Trigger Candidates")
+            lines.append(
+                "[System Notice: Use a candidate only when it genuinely matches the turn; "
+                "these candidates are retrieval hints, not pre-decided semantic state.]"
+            )
             for trigger in plan.active_triggers:
                 lines.append(
                     f"* {trigger.trigger_id} ({trigger.intensity}): {trigger.behavior_shift}"

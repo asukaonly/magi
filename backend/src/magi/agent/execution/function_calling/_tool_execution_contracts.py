@@ -4,14 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from ...cancel import CancelToken
 from .types import ToolCall, ToolCallResult
-
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
-
 
 class _ToolRegistryProtocol(Protocol):
     def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
@@ -31,7 +27,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
     def _apply_worker_explore_guardrails(
         self,
         *,
-        intent: str,
+        execution_preset: str,
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None,
@@ -42,7 +38,6 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
     def _normalize_agent_launch_arguments(
         self,
         arguments: dict[str, Any],
-        route_decision: "RouteDecision | None" = None,
     ) -> dict[str, Any]: ...
 
     def _resolve_permission_gateway(self) -> Any: ...
@@ -59,7 +54,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         session_id: str | None,
         turn_id: str | None,
         workspace: str | None,
-        intent: str,
+        execution_preset: str,
         start_time: float,
         gateway: Any = None,
     ) -> ToolCallResult | None: ...
@@ -75,14 +70,13 @@ class _RegisteredToolExecutionRequest:
     user_id: str
     session_id: str | None
     turn_id: str | None
-    intent: str
+    execution_preset: str
     execution_agent_id: str
     execution_workspace: str | None
     session_run_id: str | None
     session_run_revision: int
     user_message: str | None
     iteration: int | None
-    route_decision: "RouteDecision | None"
     start_time: float
     token: CancelToken
     workspace_root: str

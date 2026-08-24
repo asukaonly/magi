@@ -54,7 +54,7 @@ def _llm_settings(api_key: str) -> LLMSettings:
     return LLMSettings(
         providers={"openai": provider},
         selections={
-            LLMScenario.CONTEXT_DECIDER.value: LLMSelectionSettings(
+            LLMScenario.AUXILIARY.value: LLMSelectionSettings(
                 provider_id="openai",
                 model="gpt-5.6-mini",
             ),
@@ -221,7 +221,7 @@ def test_post_preview_threads_llm_override_to_deps() -> None:
         },
         "selections": {
             "core": {"provider_id": "openai", "model": "gpt-4o"},
-            "context_decider": {"provider_id": "openai", "model": "gpt-4o-mini"},
+            "auxiliary": {"provider_id": "openai", "model": "gpt-4o-mini"},
         },
     }
     client = TestClient(app)

@@ -170,7 +170,7 @@ def _build_test_llm_config(*, override_limit: int | None = None):
             )
         },
         selections={
-            "context_decider": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
+            "auxiliary": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             "core": LLMSelectionSettings(provider_id="openai", model="gpt-5.2"),
             "embedding": LLMSelectionSettings(provider_id="openai", model="text-embedding-3-small"),
         },

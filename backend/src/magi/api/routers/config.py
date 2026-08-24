@@ -462,8 +462,7 @@ async def get_config_template(request: Request):
 @config_router.post("/test", response_model=ConfigResponse)
 async def test_config(request: Request, config: SystemConfigModel):
     core_selection = config.llm.selections.get("core")
-    context_selection = config.llm.selections.get("context_decider")
-    if not core_selection or not context_selection:
+    if not core_selection:
         return ConfigResponse(
             success=False,
             message=_t(
@@ -471,7 +470,10 @@ async def test_config(request: Request, config: SystemConfigModel):
             ),
             data=None,
         )
-    for selection in (core_selection, context_selection):
+    optional_auxiliary = config.llm.selections.get("auxiliary")
+    for selection in (core_selection, optional_auxiliary):
+        if selection is None:
+            continue
         if bool(selection.provider_id) != bool(selection.model):
             return ConfigResponse(
                 success=False,

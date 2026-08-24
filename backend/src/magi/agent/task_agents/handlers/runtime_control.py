@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 from ....agent.background.contracts import BackgroundTaskTriggerSource
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from magi.control.run_control import (
     DetachSignal,
-    OrchestratorSnapshot,
     SteerInbox,
-    SteerMessage,
 )
 from ....core.logger import get_logger
-from ..common import ExecutionResult, FunctionCallingExecutionResult, FunctionCallingRequest
-from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
+from ..common import AgentRunExecutionResult, ExecutionResult, PreparedAgentRunRequest
 
 if TYPE_CHECKING:
     from magi_plugin_sdk.run_trigger import RunTrigger
@@ -27,45 +23,6 @@ class FunctionCallingRuntimeControlMixin:
     """Background dispatch, detach handoff, steer, and cancellation helpers."""
 
     _deps: Any
-
-    def _build_detached_chat_result(
-        self,
-        *,
-        request: FunctionCallingRequest,
-        step_state: Any,
-        detach_signal: DetachSignal,
-        current_user_message: str,
-        current_turn_id: str | None,
-    ) -> FunctionCallingExecutionResult:
-        """Wrap a detach-triggered exit as a function-calling result."""
-        payload = detach_signal.payload
-        reason = payload.reason if payload is not None else "detached"
-        note = payload.note if payload is not None else ""
-        snapshot = OrchestratorSnapshot(
-            messages=[dict(msg) for msg in step_state.messages],
-            iterations=step_state.iteration,
-            reason=reason,
-            note=note,
-        )
-        return FunctionCallingExecutionResult(
-            mode=request.mode,
-            response_text="",
-            attachments=list(getattr(step_state, "chat_attachments", []) or []),
-            message_payload=dict(getattr(step_state, "message_payload", {}) or {}),
-            root_user_message=current_user_message,
-            execution_outcome={
-                "status": "detached",
-                "content": "",
-                "failure_reason": None,
-                "attachments": list(getattr(step_state, "chat_attachments", []) or []),
-                "message_payload": dict(getattr(step_state, "message_payload", {}) or {}),
-                "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                "iterations": step_state.iteration,
-                "snapshot": snapshot.to_dict(),
-            },
-            turn_id=current_turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
-        )
 
     def _build_detach_signal(self, *, session_id: str = "") -> DetachSignal | None:
         """Return a fresh detach signal for this turn, or ``None``."""
@@ -91,7 +48,7 @@ class FunctionCallingRuntimeControlMixin:
         release_signal(session_id, detach_signal)
 
     async def _build_steer_inbox(
-        self, request: FunctionCallingRequest
+        self, request: PreparedAgentRunRequest
     ) -> SteerInbox | None:
         """Return an empty steer inbox for this turn, or ``None``."""
         coordinator = self._deps.session_run_coordinator
@@ -100,83 +57,25 @@ class FunctionCallingRuntimeControlMixin:
             return None
         return SteerInbox()
 
-    async def _drain_pending_steer_turns(
-        self,
-        *,
-        session_id: str,
-        revision: int,
-        steer_inbox: SteerInbox | None,
-        step_state: Any,
-        latest_fact_timestamp: float | None,
-    ) -> None:
-        """Pull freshly persisted STEER turns into ``steer_inbox``."""
-        coordinator = self._deps.session_run_coordinator
-        if coordinator is None or steer_inbox is None or not session_id:
-            return
-        apply_steer = getattr(
-            self._deps.function_calling_orchestrator, "apply_steer_messages", None
-        )
-        if apply_steer is None:
-            return
-        drained = coordinator.consume_steer_turns(session_id, revision=revision)
-        if not drained:
-            await apply_steer(step_state, steer_inbox)
-            return
-
-        for pending_turn in drained:
-            await steer_inbox.push(
-                SteerMessage(
-                    content=pending_turn.content,
-                    reason="steer",
-                    metadata={"turn_id": pending_turn.turn_id},
-                )
-            )
-        await apply_steer(step_state, steer_inbox)
-
-        persist = self._deps.persist_turn_supersessions
-        if persist is None:
-            return
-        active_run = coordinator.get_active_run(session_id)
-        if active_run is None:
-            return
-        supersessions = coordinator._build_steer_supersessions(
-            root_turn_id=active_run.root_turn_id,
-            pending_turns=drained,
-            anchor_turn_id=drained[-1].turn_id,
-        )
-        if not supersessions:
-            return
-        updated_at_ms = (
-            int(latest_fact_timestamp * 1000)
-            if latest_fact_timestamp is not None
-            else int(time.time() * 1000)
-        )
-        await persist(supersessions, updated_at_ms)
-
     async def _maybe_handoff_detached_outcome(
         self,
-        request: FunctionCallingRequest,
+        request: PreparedAgentRunRequest,
         result: ExecutionResult,
     ) -> ExecutionResult | None:
         """Launch detached results in the background when possible."""
         launch_service = self._deps.background_launch_service
         if launch_service is None:
             return None
-        if not isinstance(result, FunctionCallingExecutionResult):
+        if not isinstance(result, AgentRunExecutionResult):
             return None
         execution_outcome = result.execution_outcome
         if not isinstance(execution_outcome, dict):
             return None
         if execution_outcome.get("status") != "detached":
             return None
-        snapshot = execution_outcome.get("snapshot")
-        initial_messages: list[dict[str, Any]] | None = None
-        if isinstance(snapshot, dict):
-            raw_messages = snapshot.get("messages")
-            if isinstance(raw_messages, list):
-                initial_messages = [
-                    dict(msg) for msg in raw_messages if isinstance(msg, dict)
-                ]
+        checkpoint = execution_outcome.get("snapshot")
+        if not isinstance(checkpoint, dict):
+            return None
         # ADR-0004 P3: the detaching run carries a typed RunTrigger describing
         # its origin (e.g. weixin/iMessage). Hand it to the background spec so a
         # completed task can be delivered back to that channel, and derive the
@@ -189,7 +88,7 @@ class FunctionCallingRuntimeControlMixin:
                 request,
                 trigger_source=BackgroundTaskTriggerSource.from_trigger(run_trigger),
                 trigger=run_trigger,
-                initial_messages=initial_messages,
+                agent_run_checkpoint=dict(checkpoint),
             )
         except Exception as exc:  # noqa: BLE001 - degrade safe: surface detach
             logger.warning(
@@ -228,7 +127,7 @@ class FunctionCallingRuntimeControlMixin:
         return getattr(active_run, "trigger", None)
 
     def _build_cancel_token(
-        self, request: FunctionCallingRequest
+        self, request: PreparedAgentRunRequest
     ) -> CancelToken:
         """Build a cancel token bound to one specific run revision."""
         coordinator = self._deps.session_run_coordinator

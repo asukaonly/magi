@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import time
-from typing import Any, Optional
+from typing import Any
 
 from ....config.models import ThinkingDepth
 from ....core.logger import get_logger
 from ....agent.runtime.contracts import FactRecord
-from ....agent.runtime.types import TaskAgentType
 from ....context.scenarios import Scenario
 from ....i18n import t
 from ....utils.diagnostic_logging import full_content_logging_enabled
@@ -18,88 +16,12 @@ from ..common import (
     ExecutionRequest,
     ExecutionResult,
     ExploreTaskCompletedPayload,
-    ExploreTaskRequestPayload,
     ExploreRenderRequest,
     IncomingFactKind,
 )
-from ..explore.constants import EXPLORE_TASK_REQUEST
 from .handler_helpers import serialize_ux_plan as _serialize_ux_plan
 
 logger = get_logger(__name__)
-
-
-async def start_explore_task_agent(
-    deps: Any,
-    request: ExecutionRequest,
-) -> Optional[ExecutionResult]:
-    route_decision = getattr(request.intent, "route_decision", None)
-    if route_decision is None or getattr(route_decision, "profile", None) != "explore":
-        return None
-    latest_fact = request.context.latest_fact
-    history = deps.prompt_service.filter_history_for_aggregation(request.context.history)
-    payload = ExploreTaskRequestPayload(
-        user_id=request.context.user_id,
-        session_id=request.context.session_id,
-        content=request.context.latest_user_message,
-        run_id=request.context.session_run_id,
-        run_revision=request.context.session_run_revision,
-        history_snapshot=history,
-        upstream_task_agent_type=TaskAgentType.CHAT.value,
-        upstream_task_agent_id=request.context.session_id or request.context.user_id,
-        turn_id=getattr(request.context.latest_payload, "turn_id", None),
-        root_turn_id=getattr(
-            getattr(request.context, "active_run", None),
-            "root_turn_id",
-            None,
-        ),
-    )
-    fact = FactRecord(
-        agent_id=f"{TaskAgentType.EXPLORE.value}:{request.context.user_id}",
-        event_type=EXPLORE_TASK_REQUEST,
-        payload=payload.to_dict(),
-        agent_type=TaskAgentType.EXPLORE.value,
-        agent_instance_id=request.context.user_id,
-        timestamp=time.time(),
-        correlation_id=latest_fact.correlation_id if isinstance(latest_fact, FactRecord) else None,
-        user_message_generation=(
-            request.context.user_message_generation
-            if request.context.user_message_generation is not None
-            else (
-                latest_fact.user_message_generation
-                if isinstance(latest_fact, FactRecord)
-                else None
-            )
-        ),
-    )
-    manager = deps.get_task_agent_manager()
-    try:
-        enqueued = False if manager is None else await manager.add_fact_to_agent(TaskAgentType.EXPLORE, request.context.user_id, fact)
-    except Exception as exc:
-        logger.warning(
-            "Failed to route request to ExploreTaskAgent | user_id=%s error=%s",
-            request.context.user_id,
-            exc,
-        )
-        enqueued = False
-    if not enqueued:
-        return ExecutionResult(
-            mode=request.mode,
-            response_text="Failed to start Explore task decomposition for this request.",
-            root_user_message=request.context.latest_user_message,
-            correlation_id=fact.correlation_id,
-            turn_id=payload.turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
-        )
-    deps.context_assembler.append_user_message(
-        request.context.history_key,
-        request.context.latest_user_message,
-    )
-    return ExecutionResult(
-        mode=request.mode,
-        skip_emit=True,
-        turn_id=payload.turn_id,
-        ux_plan=_serialize_ux_plan(request.intent),
-    )
 
 
 class ExploreRenderHandler(BaseExecutionHandler):
@@ -178,7 +100,6 @@ class ExploreRenderHandler(BaseExecutionHandler):
             scenario=Scenario.ANALYSIS,
             include_tool_catalog=False,
             persona_id=getattr(request.context, "active_persona_id", None),
-            persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
         )
         messages = filtered_history + [
             {
@@ -234,4 +155,4 @@ class ExploreRenderHandler(BaseExecutionHandler):
         )
 
 
-__all__ = ["ExploreRenderHandler", "start_explore_task_agent"]
+__all__ = ["ExploreRenderHandler"]

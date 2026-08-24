@@ -71,7 +71,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
 
         Looks up the active run, then its registered RunControl, then
         fires the bundle's ``retract_signal``. The execution path
-        (DirectLLMHandler / FunctionCallingHandler / OrchestrationLaunchHandler)
+        (AgentRunHandler / domain handlers)
         observes the signal on its next iteration boundary or LLM-stream
         chunk and returns a retracted outcome.
 
@@ -300,7 +300,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         if self._should_consume_checkpoint_augment(classified_fact, active_run):
             return self._checkpoint_augment_decision(classified_fact, active_run)
 
-        return self._default_route_decision(classified_fact, active_run)
+        return self._default_fact_decision(classified_fact, active_run)
 
     def _stale_result_decision(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
@@ -373,7 +373,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         )
 
     @staticmethod
-    def _default_route_decision(
+    def _default_fact_decision(
         classified_fact: ClassifiedFact,
         active_run: ActiveRun | None,
     ) -> SessionFactDecision:

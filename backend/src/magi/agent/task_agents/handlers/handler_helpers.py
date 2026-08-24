@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from ..common import FunctionCallingRequest
+from ..common import PreparedAgentRunRequest
 
 
 def build_attachment_preparation_guidance_block(selected_tools: list[str]) -> str:
@@ -67,7 +67,7 @@ def serialize_ux_plan(intent: object) -> dict | None:
     return to_dict() if callable(to_dict) else plan
 
 
-def resolve_execution_workspace(request: FunctionCallingRequest) -> str | None:
+def resolve_execution_workspace(request: PreparedAgentRunRequest) -> str | None:
     prompt_context = getattr(request, "prompt_context", None)
     runtime_system = getattr(prompt_context, "runtime_system", None)
     prompt_cwd = str(getattr(runtime_system, "cwd", "") or "").strip()

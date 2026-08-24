@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
+from agent.agent_run_helpers import run_agent
 
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
@@ -82,6 +84,17 @@ class _DummyToolRegistry:
             "parameters": [],
         }
 
+    def get_tool(self, name: str) -> Any:
+        schema = SimpleNamespace(
+            name=name,
+            effect_class="read_only",
+            effect_replay_policy="read_only",
+            dangerous=False,
+            requires_auth=False,
+            metadata={},
+        )
+        return SimpleNamespace(get_schema=lambda: schema)
+
 
 @pytest.fixture
 async def runtime_trace_store(runtime_paths_with_schema):
@@ -151,7 +164,7 @@ async def test_execute_with_tools_persists_iteration_llm_and_tool_rows(
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="search Hangzhou news", attachments=[], user_id=None, session_id=None),
         system_prompt="You are helpful.",
         selected_tools=["web-search"],

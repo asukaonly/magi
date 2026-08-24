@@ -1,0 +1,76 @@
+"""Deterministic domain admission for chat facts."""
+
+from __future__ import annotations
+
+from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.execution.reasoning import ReasoningPreference
+
+
+class ChatTurnAdmissionService:
+    """Separate domain events from ordinary user turns without semantic routing."""
+
+    def resolve(self, context: ChatRuntimeContext) -> IntentDecision:
+        kind = _resolve_fact_kind(context)
+        if kind is IncomingFactKind.WORKER_UPDATE:
+            return _decision(
+                "worker_orchestration_update",
+                ExecutionMode.ORCHESTRATION_UPDATE,
+                "Worker event requires deterministic orchestration state handling.",
+            )
+        if kind in {
+            IncomingFactKind.EXPLORE_TASK_COMPLETED,
+            IncomingFactKind.EXPLORE_TASK_FAILED,
+        }:
+            return _decision(
+                "explore_task_result",
+                ExecutionMode.EXPLORE_TASK_RENDER,
+                "Explore result is already a domain artifact and must be rendered directly.",
+            )
+        if kind is IncomingFactKind.OTHER_FACT:
+            return _decision(
+                "non_user_fact",
+                ExecutionMode.FACT_ONLY,
+                "Non-user fact does not start a model-facing run.",
+            )
+        return _decision(
+            "unified_agent_run",
+            None,
+            "Ordinary user turns enter the unified agent loop without classification.",
+            reasoning_preference=_reasoning_preference(context),
+        )
+
+
+def _decision(
+    intent: str,
+    mode: ExecutionMode | None,
+    reasoning: str,
+    reasoning_preference: ReasoningPreference = ReasoningPreference.AUTO,
+) -> IntentDecision:
+    return IntentDecision(
+        intent=intent,
+        execution_mode=mode,
+        reasoning=reasoning,
+        reasoning_preference=reasoning_preference,
+    )
+
+
+def _reasoning_preference(context: ChatRuntimeContext) -> ReasoningPreference:
+    value = str(
+        getattr(context.latest_payload, "reasoning_preference", "") or ""
+    ).strip()
+    if not value:
+        return ReasoningPreference.AUTO
+    try:
+        return ReasoningPreference(value)
+    except ValueError:
+        return ReasoningPreference.AUTO
+
+
+def _resolve_fact_kind(context: ChatRuntimeContext) -> IncomingFactKind:
+    if context.planner_fact is not None or context.planner_fact_kind is not IncomingFactKind.OTHER_FACT:
+        return context.planner_fact_kind
+    return context.incoming_fact_kind
+
+
+__all__ = ["ChatTurnAdmissionService"]

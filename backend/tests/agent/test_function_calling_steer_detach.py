@@ -4,6 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from agent.agent_run_helpers import run_agent
 
 from magi.agent.execution.function_calling import (
     ExecutionOutcome,
@@ -16,6 +17,7 @@ from magi.control.run_control import (
     DetachSignal,
     SteerInbox,
     SteerMessage,
+    null_run_control,
 )
 from magi.agent.turn_input import UserTurnInput
 
@@ -33,6 +35,15 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
         tool_registry=_FakeToolRegistry(),
         llm_adapter=SimpleNamespace(model_name="fake-model", provider_name="fake-provider"),
     )
+
+
+def _run_control(*, steer_inbox=None, detach_signal=None):  # type: ignore[no-untyped-def]
+    control = null_run_control()
+    if steer_inbox is not None:
+        control.steer_inbox = steer_inbox
+    if detach_signal is not None:
+        control.detach_signal = detach_signal
+    return control
 
 
 def _patch_trace_and_event_helpers(monkeypatch, orchestrator: FunctionCallingOrchestrator) -> None:
@@ -75,13 +86,13 @@ async def test_execute_with_tools_injects_steer_messages_before_next_llm_call(
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="Write a sorting example.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=[],
         user_id="u",
         max_iterations=5,
-        steer_inbox=inbox,
+        control=_run_control(steer_inbox=inbox),
     )
 
     assert outcome.status == "completed"
@@ -115,13 +126,13 @@ async def test_execute_with_tools_skips_empty_steer_messages(monkeypatch) -> Non
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
         user_id="u",
         max_iterations=3,
-        steer_inbox=inbox,
+        control=_run_control(steer_inbox=inbox),
     )
     assert outcome.status == "completed"
 
@@ -174,13 +185,13 @@ async def test_execute_with_tools_returns_detached_with_snapshot(monkeypatch) ->
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="start work", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["noop_tool"],
         user_id="u",
         max_iterations=5,
-        detach_signal=detach,
+        control=_run_control(detach_signal=detach),
     )
 
     assert isinstance(outcome, ExecutionOutcome)
@@ -213,13 +224,13 @@ async def test_execute_with_tools_detach_before_first_llm_call(monkeypatch) -> N
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
         user_id="u",
         max_iterations=5,
-        detach_signal=detach,
+        control=_run_control(detach_signal=detach),
     )
 
     assert outcome.status == "detached"
@@ -246,7 +257,7 @@ async def test_execute_with_tools_without_signals_behaves_like_before(monkeypatc
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],

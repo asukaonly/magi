@@ -323,7 +323,7 @@ async def test_persona_intent_route_restores_masked_llm_override(monkeypatch) ->
     real_provider.api_key = "sk-backend-owned"
     real_provider.services.chat.api_key = "sk-backend-owned"
     selections = {
-        "context_decider": LLMSelectionSettings(
+        "auxiliary": LLMSelectionSettings(
             provider_id="openai",
             model="gpt-5.6-mini",
         ),
@@ -567,7 +567,7 @@ async def test_ai_generate_personality_prefers_llm_override(monkeypatch) -> None
                 "draft-provider": draft_provider
             },
             selections={
-                "context_decider": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
+                "auxiliary": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
                 "core": LLMSelectionSettings(provider_id="draft-provider", model="claude-sonnet-4-6"),
             },
         ),
@@ -616,7 +616,7 @@ async def test_ai_generate_personality_uses_registry_default_base_url_for_builti
                 "glm": glm_provider
             },
             selections={
-                "context_decider": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),
+                "auxiliary": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),
                 "core": LLMSelectionSettings(provider_id="glm", model="glm-4.7-flash"),
             },
         ),

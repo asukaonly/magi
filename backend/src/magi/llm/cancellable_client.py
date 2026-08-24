@@ -1,19 +1,18 @@
 """Cancellable LLM client wrapping LLMProviderBridge with RunControl polling.
 
-This is the single LLM entry point used by all run-graph nodes
-(ReplyNode / ToolLoopNode / PlanFanoutNode / ValidateNode). It wraps
+This is the cancellable LLM entry point used by the unified agent loop and
+domain orchestration planners. It wraps
 :class:`~magi.llm.provider_bridge.LLMProviderBridge` and polls the
 caller-supplied :class:`~magi.control.run_control.RunControl` between
 stream chunks, raising :class:`CancellationRaised` or
-:class:`RetractRaised` as appropriate so the calling node can return the
-right :class:`NodeResult` status.
+:class:`RetractRaised` so the caller can project the corresponding run state.
 
 Design notes
 ------------
 * Suspend and detach are *not* raised here — those are graceful
   boundaries observed by the calling node, not transport aborts.
 * Steer messages are not drained here either — they are consumed at
-  node iteration boundaries, not mid-LLM-call.
+  agent-step boundaries, not mid-LLM-call.
 * Non-streaming :meth:`call` cannot poll mid-flight, so it only checks
   cancel/retract once before dispatch. Streaming :meth:`stream` checks
   before every yielded chunk.
@@ -49,8 +48,7 @@ class LLMCallResult:
 
 class CancellationRaised(Exception):
     """Raised when ``CancelToken.is_cancelled()`` returns True during a
-    cancellable LLM call. Calling node should map this to
-    ``NodeResult(status='cancelled')``."""
+    cancellable LLM call."""
 
     def __init__(self, reason: str | None) -> None:
         super().__init__(f"LLM call cancelled: {reason or '(no reason)'}")
@@ -59,9 +57,7 @@ class CancellationRaised(Exception):
 
 class RetractRaised(Exception):
     """Raised when ``RetractSignal.is_requested()`` is true during a
-    cancellable LLM call. Calling node should map this to
-    ``NodeResult(status='retracted')`` and feed receipts to
-    ``DeliveryRouter.fanout_retract``."""
+    cancellable LLM call."""
 
     def __init__(self, payload: RetractRequested | None) -> None:
         super().__init__(f"LLM call retracted: {payload.reason if payload else 'unknown'}")

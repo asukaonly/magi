@@ -1,6 +1,6 @@
 """Bootstrap wiring for the background-task runtime.
 
-This helper composes the persistence store, manager, dispatcher, launch
+This helper composes the persistence store, manager, launch
 service, and retention schedule contributor into a single bundle that
 :mod:`magi.agent.lifecycle` wires into ``AgentRuntimeModule``. Keeping the
 plumbing here means the lifecycle module stays a thin assembly site.
@@ -13,7 +13,6 @@ from typing import Any, Callable
 from magi.config.models import LLMScenario
 
 from ..agent.background import (
-    BackgroundDispatcher,
     BackgroundLaunchService,
     BackgroundTaskManager,
     BackgroundTaskRetentionScheduleContrib,
@@ -28,14 +27,12 @@ from ..tools import tool_registry
 class BackgroundTaskWiring:
     """Runtime-owned background-task components.
 
-    The dispatcher and launch service are shared by every chat agent
-    instance (they are stateless). The manager owns concurrency state
-    and the persistence store.
+    The launch service is shared by every chat agent instance. The manager
+    owns concurrency state and the persistence store.
     """
 
     store: BackgroundTaskStore
     manager: BackgroundTaskManager
-    dispatcher: BackgroundDispatcher
     launch_service: BackgroundLaunchService
     retention_schedule: BackgroundTaskRetentionScheduleContrib
 
@@ -78,10 +75,6 @@ def build_background_task_wiring(
         run_fn=run_fn,
         max_concurrent=max_concurrent,
     )
-    dispatcher = BackgroundDispatcher(
-        llm_adapter=llm_adapter,
-        llm_pool=llm_pool,
-    )
     launch_service = BackgroundLaunchService(manager=manager)
     retention_schedule = BackgroundTaskRetentionScheduleContrib(
         store=store,
@@ -89,7 +82,6 @@ def build_background_task_wiring(
     return BackgroundTaskWiring(
         store=store,
         manager=manager,
-        dispatcher=dispatcher,
         launch_service=launch_service,
         retention_schedule=retention_schedule,
     )

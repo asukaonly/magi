@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken
@@ -14,10 +14,6 @@ from .fallback_flow import (
 )
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome
-
-if TYPE_CHECKING:
-    from ....tools.context_routing import RouteDecision
-
 
 class FunctionCallingFallbackMixin:
     """Run the bounded no-tools fallback once the normal tool loop stops."""
@@ -32,7 +28,7 @@ class FunctionCallingFallbackMixin:
         session_run_id: str | None,
         session_run_revision: int,
         turn_id: str | None,
-        intent: str,
+        execution_preset: str,
         execution_agent_id: str,
         execution_workspace: str | None,
         llm_timeout_seconds: float | None,
@@ -40,9 +36,8 @@ class FunctionCallingFallbackMixin:
         final_response_reason: str = "max_iterations_reached",
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
-        route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
-        """Run the legacy no-tools fallback once the bounded step loop stops."""
+        """Run the no-tools finalization pass once the bounded loop stops."""
         host = cast(FallbackHostProtocol, self)
         context = FallbackExecutionContext(
             user_id=user_id,
@@ -50,7 +45,7 @@ class FunctionCallingFallbackMixin:
             session_run_id=session_run_id,
             session_run_revision=session_run_revision,
             turn_id=turn_id,
-            intent=intent,
+            execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
             llm_timeout_seconds=llm_timeout_seconds,
@@ -58,7 +53,6 @@ class FunctionCallingFallbackMixin:
             final_response_reason=final_response_reason,
             thinking_depth=thinking_depth,
             control=control,
-            route_decision=route_decision,
         )
         return await execute_fallback_response_flow(
             host,

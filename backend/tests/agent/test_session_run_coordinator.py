@@ -483,7 +483,7 @@ async def test_async_route_uses_model_interrupt_for_chinese_cancel_text() -> Non
     assert routed.active_run.root_user_message == "搞错了，不用做了"
 
 
-def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
+def test_steer_pending_turn_is_not_merged_as_augment_at_checkpoint() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator()
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
@@ -494,19 +494,19 @@ def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
             batch_facts=[first_fact],
         )
     )
-    # A plain interjection without AUGMENT keywords defaults to DEFER.
-    defer_fact = _user_fact(
+    # Ordinary active-run input becomes a typed STEER for the main loop.
+    steer_fact = _user_fact(
         "帮我看看 github 的仓库吧",
         turn_id="turn-2",
     )
-    defer_routed = coordinator.route(
+    steer_routed = coordinator.route(
         classifier.classify(
             agent_id="u-chat",
-            latest_fact=defer_fact,
-            batch_facts=[defer_fact],
+            latest_fact=steer_fact,
+            batch_facts=[steer_fact],
         )
     )
-    assert defer_routed.interruption_disposition == InterruptionDisposition.DEFER
+    assert steer_routed.interruption_disposition == InterruptionDisposition.STEER
 
     checkpoint_fact = _checkpoint_fact()
     routed = coordinator.route(
@@ -517,20 +517,19 @@ def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
         )
     )
 
-    # DEFER turns must NOT merge at the tool-loop checkpoint; the planner
+    # STEER turns must NOT merge through the legacy AUGMENT checkpoint; the planner
     # keeps processing the original root user message.
     assert routed.run_disposition != InterruptionDisposition.AUGMENT.value
     assert routed.checkpoint_pending_turns == []
 
-    # And the DEFER turn is still queued, ready to be drained after the run
-    # finalizes.
+    # The STEER turn remains in its dedicated queue for safe-boundary injection.
     active_run = coordinator.get_active_run("s-chat")
     assert active_run is not None
     assert [item.content for item in active_run.pending_turns] == [
         "帮我看看 github 的仓库吧",
     ]
     assert all(
-        item.disposition == InterruptionDisposition.DEFER.value for item in active_run.pending_turns
+        item.disposition == InterruptionDisposition.STEER.value for item in active_run.pending_turns
     )
 
 

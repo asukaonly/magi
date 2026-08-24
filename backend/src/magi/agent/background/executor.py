@@ -4,13 +4,13 @@ The executor is deliberately thin: it owns the state-machine transitions
 (``pending → running → succeeded | failed | cancelled``) and the event
 log, but delegates the actual work to a pluggable ``run_fn``. This lets
 phase 2 ship the lifecycle scaffolding in isolation — phase 3 plugs in
-``FunctionCallingOrchestrator.execute_with_tools`` as the concrete run
+``FunctionCallingOrchestrator.run`` as the concrete run
 function.
 
 Contract: ``run_fn(task, cancel_token)`` must
 
 * poll ``cancel_token`` cooperatively (the standard pattern is to pass
-  it to :meth:`FunctionCallingOrchestrator.execute_with_tools`),
+  it to :meth:`FunctionCallingOrchestrator.run`),
 * return a :class:`BackgroundTaskRunResult` on success,
 * raise :class:`asyncio.CancelledError` if it observed a cancel request,
 * raise any other exception to signal failure.

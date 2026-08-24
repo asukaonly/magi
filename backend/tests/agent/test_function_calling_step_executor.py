@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from agent.agent_run_helpers import run_agent
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
@@ -17,6 +18,17 @@ class _FakeToolRegistry:
 
     def get_tool_info(self, _tool_name: str):  # type: ignore[no-untyped-def]
         return None
+
+    def get_tool(self, tool_name: str):  # type: ignore[no-untyped-def]
+        schema = SimpleNamespace(
+            name=tool_name,
+            effect_class="read_only",
+            effect_replay_policy="read_only",
+            dangerous=False,
+            requires_auth=False,
+            metadata={},
+        )
+        return SimpleNamespace(get_schema=lambda: schema)
 
 
 class _MemoryToolRegistry(_FakeToolRegistry):
@@ -164,7 +176,7 @@ async def test_execute_with_tools_drops_ephemeral_context_after_first_tool_loop(
     monkeypatch.setattr(orchestrator, "_persist_llm_trace", _noop_async)
     monkeypatch.setattr(orchestrator, "_persist_tool_trace", _noop_async)
 
-    outcome = await orchestrator.execute_with_tools(
+    outcome = await run_agent(orchestrator,
         turn=UserTurnInput(text="Inspect the repository.", attachments=[], user_id=None, session_id=None),
         system_prompt="system prompt",
         selected_tools=["memory_query"],
@@ -244,7 +256,7 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",
-        intent="repo_analysis",
+        execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
     )
 
@@ -253,7 +265,13 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
     assert len(llm_calls) == 1
     assert tool_calls == ["memory_query"]
     assert step_state.iteration == 1
-    assert [message["role"] for message in step_state.messages] == ["user", "assistant", "tool"]
+    assert [message["role"] for message in step_state.messages] == [
+        "user",
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert "Runtime expression policy" in step_state.messages[-1]["content"]
 
 
 @pytest.mark.asyncio
@@ -323,12 +341,14 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-zh",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
     assert outcome.status == "continue"
-    tool_message = step_state.messages[-1]
+    tool_message = next(
+        message for message in reversed(step_state.messages) if message["role"] == "tool"
+    )
     assert tool_message["role"] == "tool"
     assert "用户喜欢下雨天" in tool_message["content"]
     assert "\\u7528\\u6237" not in tool_message["content"]
@@ -414,7 +434,7 @@ async def test_step_executor_appends_tools_recommended_by_find_relevant_tools(mo
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-expand",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
@@ -490,7 +510,7 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-attach",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
@@ -498,8 +518,13 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
     assert step_state.chat_attachments == [
         {"attachment_id": "att-1", "kind": "image", "original_name": "one.jpg"}
     ]
-    assert step_state.messages[-1]["role"] == "user"
-    assert "These prepared attachments will be sent with your response." in step_state.messages[-1]["content"]
+    grounding_message = next(
+        message
+        for message in step_state.messages
+        if "These prepared attachments will be sent with your response."
+        in str(message.get("content", ""))
+    )
+    assert grounding_message["role"] == "user"
 
 
 @pytest.mark.asyncio
@@ -563,7 +588,7 @@ async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatc
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-attach",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
@@ -640,7 +665,7 @@ async def test_step_executor_collects_assistant_message_payload_from_tool_result
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-payload",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
@@ -725,7 +750,7 @@ async def test_step_executor_collects_historical_recall_asset_refs_into_message_
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-memory-payload",
-        intent="chat",
+        execution_preset="chat",
         execution_agent_id="chat:s-chat",
     )
 
@@ -806,7 +831,7 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",
-        intent="repo_analysis",
+        execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
     )
     second_outcome = await orchestrator.step_executor.execute_step(
@@ -815,7 +840,7 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-1",
-        intent="repo_analysis",
+        execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
     )
 

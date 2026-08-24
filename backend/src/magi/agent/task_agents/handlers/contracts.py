@@ -8,7 +8,6 @@ from typing import Any
 
 from ....agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl, null_run_control
-from ....personality.turn_planner import PersonaRoutingHint
 from ..common import (
     BaseIntentDecision,
     BaseRuntimeContext,
@@ -17,7 +16,8 @@ from ..common import (
     TaskFactPayload,
 )
 from .run_contracts import ActiveRun, PendingTurn
-from ....config.models import ThinkingDepth
+from ...execution.capability_resolver import CapabilityResolution
+from ...execution.reasoning import ReasoningPreference
 
 
 class AssistantSurfaceMode(str, Enum):
@@ -95,6 +95,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     streaming_chat_enabled: bool = False
     allow_media_grounding_for_conversation: bool = False
     core_model_supports_vision: bool = False
+    core_model_supports_tool_calls: bool = True
     control: RunControl = field(default_factory=null_run_control)
 
 
@@ -127,21 +128,14 @@ class RecallFeedbackContext:
 
 @dataclass(slots=True, kw_only=True)
 class IntentDecision(BaseIntentDecision):
-    """Typed result from intent and complexity routing."""
+    """Domain admission plus unified-run policy for one chat fact."""
 
-    difficulty: str
     ux_plan: TurnUXPlan = field(default_factory=TurnUXPlan)
     tools: list[str] = field(default_factory=list)
-    llm_trace: dict[str, Any] = field(default_factory=dict)
-    thinking_depth: ThinkingDepth = ThinkingDepth.NONE
-    memory_route: str = "none"
     task_hint: dict[str, Any] = field(default_factory=dict)
     recommended_tools: list[dict[str, Any]] = field(default_factory=list)
-    # Per-persona routing hint extracted from the unified ContextDecider.
-    # None when the LLM router did not produce persona-routing fields (rule
-    # fallback path, offline tests, etc.); planner then runs its keyword
-    # selection. See personality.turn_planner.PersonaRoutingHint.
-    persona_routing_hint: PersonaRoutingHint | None = None
+    reasoning_preference: ReasoningPreference = ReasoningPreference.AUTO
+    capability_resolution: CapabilityResolution | None = None
 
 
 @dataclass(slots=True)

@@ -44,7 +44,7 @@ class FunctionCallingLlmRequest:
     session_id: str | None
     turn_id: str | None
     execution_agent_id: str
-    intent: str
+    execution_preset: str
     iteration: int | None
 
 
@@ -69,7 +69,7 @@ def build_llm_event_context(request: FunctionCallingLlmRequest) -> dict[str, Any
         "turn_id": request.turn_id,
         "agent_id": request.execution_agent_id,
         "correlation_id": request.turn_id,
-        "intent": request.intent,
+        "execution_preset": request.execution_preset,
     }
     normalized_turn_id = str(request.turn_id or "").strip()
     if normalized_turn_id and request.iteration is not None and request.iteration > 0:
@@ -77,9 +77,9 @@ def build_llm_event_context(request: FunctionCallingLlmRequest) -> dict[str, Any
     return cast(dict[str, Any], enrich_event_context_with_turn_trace(context))
 
 
-def resolve_tools_request_kind(*, execution_agent_id: str, intent: str) -> str:
+def resolve_tools_request_kind(*, execution_agent_id: str, execution_preset: str) -> str:
     agent_id = str(execution_agent_id or "").strip()
-    normalized_intent = str(intent or "").strip()
+    normalized_intent = str(execution_preset or "").strip()
     if agent_id.startswith("worker_") or normalized_intent.startswith("worker_"):
         return "function_calling:worker_tools"
     return "function_calling:chat_tools"

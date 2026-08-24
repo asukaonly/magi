@@ -104,9 +104,9 @@ def _build_context(message: str = "do you remember when we talked about X"):
 
 
 def _build_handler():
-    from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
+    from magi.agent.task_agents.handlers.handlers import AgentRunHandler
 
-    return FunctionCallingHandler(
+    return AgentRunHandler(
         SimpleNamespace(
             context_service=_FakeContextService(),
             prompt_service=_FakePromptService(),
@@ -115,8 +115,8 @@ def _build_handler():
 
 
 @pytest.mark.asyncio
-async def test_guidance_attached_when_memory_route_explicit_query():
-    """explicit_query route + memory_query in tools attaches turn guidance."""
+async def test_guidance_attached_when_memory_query_is_selected():
+    """Selecting memory_query attaches turn guidance."""
     from magi.agent.task_agents.handlers.contracts import IntentDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -130,14 +130,12 @@ async def test_guidance_attached_when_memory_route_explicit_query():
     handler = _build_handler()
     request = await handler.build_request(
         SimpleNamespace(
-            mode=ExecutionMode.FUNCTION_CALLING,
+            mode=None,
             context=_build_context(),
             intent=IntentDecision(
-                intent="chat",
-                difficulty="normal",
-                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                intent="unified_agent_run",
+                execution_mode=None,
                 reasoning="recall",
-                memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(
                 tools=["memory_query"],
@@ -149,8 +147,8 @@ async def test_guidance_attached_when_memory_route_explicit_query():
 
 
 @pytest.mark.asyncio
-async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
-    """memory_query selected through any route still attaches turn guidance."""
+async def test_guidance_attached_with_other_selected_tools():
+    """memory_query guidance remains attached beside other capabilities."""
     from magi.agent.task_agents.handlers.contracts import IntentDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -164,14 +162,12 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
     handler = _build_handler()
     request = await handler.build_request(
         SimpleNamespace(
-            mode=ExecutionMode.FUNCTION_CALLING,
+            mode=None,
             context=_build_context(),
             intent=IntentDecision(
-                intent="chat",
-                difficulty="normal",
-                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                intent="unified_agent_run",
+                execution_mode=None,
                 reasoning="tool use",
-                memory_route="none",
             ),
             tool_selection=ToolSelection(
                 tools=["memory_query", "web-search"],
@@ -181,14 +177,14 @@ async def test_guidance_attached_when_memory_query_selected_but_route_is_none():
     )
     assert MEMORY_QUERY_GUIDANCE_BLOCK in request.system_prompt, (
         "Turn guidance must be attached whenever memory_query is in selected_tools, "
-        "regardless of memory_route classification."
+        "regardless of other selected capabilities."
     )
 
 
 @pytest.mark.asyncio
 async def test_guidance_not_attached_when_memory_query_not_selected():
     """Sanity guard: when memory_query is NOT among selected_tools, the
-    guidance must NOT be attached even if memory_route is explicit_query."""
+    guidance must NOT be attached."""
     from magi.agent.task_agents.handlers.contracts import IntentDecision
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
@@ -202,14 +198,12 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
     handler = _build_handler()
     request = await handler.build_request(
         SimpleNamespace(
-            mode=ExecutionMode.FUNCTION_CALLING,
+            mode=None,
             context=_build_context(),
             intent=IntentDecision(
-                intent="chat",
-                difficulty="normal",
-                execution_mode=ExecutionMode.FUNCTION_CALLING,
+                intent="unified_agent_run",
+                execution_mode=None,
                 reasoning="search",
-                memory_route="explicit_query",
             ),
             tool_selection=ToolSelection(
                 tools=["web-search"],

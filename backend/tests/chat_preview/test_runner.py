@@ -1,10 +1,10 @@
 """Tests for chat_preview.runner — the preview-mode LLM orchestrator.
 
 The runner MUST:
-- Force the 'core' scenario when picking a model (not context_decider, not embedding)
+- Force the 'core' scenario when picking a model (not auxiliary, not embedding)
 - Skip tool invocation entirely
 - Skip the memory pipeline entirely
-- Skip context_decider routing
+- Skip auxiliary model calls
 - Stream output tokens via an async generator
 - Build the system prompt from the caller-supplied persona preview prompt
 """
@@ -114,7 +114,7 @@ async def test_run_preview_never_invokes_tools_or_memory(
 
     sig = inspect.signature(run_preview)
     param_names = set(sig.parameters.keys())
-    forbidden = {"tool_registry", "memory_store", "context_decider", "tools"}
+    forbidden = {"tool_registry", "memory_store", "tools"}
     assert param_names.isdisjoint(forbidden), (
         f"run_preview must not accept tool/memory/decider params; got {param_names}"
     )

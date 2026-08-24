@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,7 @@ class ToolExecutionEvidence:
     result: Any = None
     tool_call_id: str | None = None
     created_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
+    evidence_id: str = field(default_factory=lambda: uuid4().hex)
 
     @property
     def uncertain(self) -> bool:
@@ -36,12 +38,12 @@ class ToolExecutionEvidence:
             "effect_class": self.effect_class,
             "replay_policy": self.replay_policy,
             "error_code": self.error_code,
-            "result": self.result,
+            "result": deepcopy(self.result),
             "tool_call_id": self.tool_call_id,
         }
         encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
         return EvidenceRef(
-            evidence_id=uuid4().hex,
+            evidence_id=self.evidence_id,
             kind="tool_execution",
             source=self.tool_name,
             status="succeeded" if self.success else "failed",
@@ -53,6 +55,41 @@ class ToolExecutionEvidence:
                 "error_code": self.error_code,
                 "tool_call_id": self.tool_call_id,
             },
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "evidence_id": self.evidence_id,
+            "tool_name": self.tool_name,
+            "success": self.success,
+            "effect_class": self.effect_class,
+            "replay_policy": self.replay_policy,
+            "error_code": self.error_code,
+            "result": self.result,
+            "tool_call_id": self.tool_call_id,
+            "created_at_ms": self.created_at_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "ToolExecutionEvidence":
+        return cls(
+            evidence_id=str(value["evidence_id"]),
+            tool_name=str(value["tool_name"]),
+            success=bool(value["success"]),
+            effect_class=str(value["effect_class"]),
+            replay_policy=str(value["replay_policy"]),
+            error_code=(
+                str(value["error_code"])
+                if value.get("error_code") is not None
+                else None
+            ),
+            result=deepcopy(value.get("result")),
+            tool_call_id=(
+                str(value["tool_call_id"])
+                if value.get("tool_call_id") is not None
+                else None
+            ),
+            created_at_ms=int(value["created_at_ms"]),
         )
 
 

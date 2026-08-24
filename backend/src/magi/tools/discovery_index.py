@@ -164,8 +164,15 @@ class ToolDiscoveryIndex:
                 )
             )
 
-        for skill_name in registry.get_skill_names():
-            metadata = registry.get_skill_metadata(skill_name)
+        get_skill_names = getattr(registry, "get_skill_names", None)
+        get_skill_metadata = getattr(registry, "get_skill_metadata", None)
+        skill_names = get_skill_names() if callable(get_skill_names) else []
+        for skill_name in skill_names:
+            metadata = (
+                get_skill_metadata(skill_name)
+                if callable(get_skill_metadata)
+                else None
+            )
             if metadata is None:
                 continue
             candidates.append(
