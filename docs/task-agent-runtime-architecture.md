@@ -91,6 +91,85 @@ phases:
    services;
 4. exported bindings, maintenance dependencies, and readiness publication.
 
+The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
+
+### Phase 1: infrastructure bring-up
+
+1. `subprocess_orphan_cleanup`
+2. `runtime_core_dependencies`
+3. `runtime_initialization_state`
+4. `runtime_memory_restore_recovery`
+5. `runtime_database_migrations`
+6. `runtime_identity`
+7. `runtime_configuration`
+8. `runtime_command_queue`
+9. `runtime_message_bus`
+10. `runtime_chat_store`
+11. `runtime_plugin_system`
+12. `runtime_llm`
+
+### Phase 2: stateful services and read/write stores
+
+13. `runtime_memory`
+14. `runtime_chat_forgetting_recovery`
+15. `runtime_media_registry`
+16. `runtime_location`
+17. `runtime_manual_entries`
+18. `runtime_history_imports`
+19. `runtime_memory_ingestion_subscriber`
+20. `runtime_llm_usage_subscriber`
+21. `runtime_chat_projector`
+22. `runtime_chat_assistant_memory_projection`
+23. `runtime_control_transcript_subscriber`
+24. `runtime_trace`
+25. `runtime_trace_subscriber`
+26. `runtime_hooks`
+27. `runtime_first_party_tools`
+28. `runtime_tools`
+29. `runtime_skills`
+30. `runtime_mcp`
+31. `runtime_personality`
+32. `runtime_sensor_hub`
+33. `runtime_context`
+34. `runtime_agent_core`
+
+### Phase 3: long-running processors and business services
+
+35. `runtime_chat_delivery_recovery`
+36. `runtime_command_processor`
+37. `runtime_plugin_ingress_processor`
+38. `runtime_timeline`
+39. `runtime_timeline_subscriber`
+40. `runtime_kg_subscriber`
+41. `runtime_sensor_state_subscriber`
+42. `runtime_scheduler`
+43. `runtime_agent_schedule_registration`
+44. `runtime_sensor_scheduler`
+
+### Phase 4: exports and maintenance registration
+
+45. `runtime_exports`
+46. `runtime_control_plane`
+47. `runtime_l1_maintenance_scheduler`
+48. `runtime_l2_maintenance_scheduler`
+49. `runtime_l2_consolidation_scheduler`
+50. `runtime_l2_derive_scheduler`
+51. `runtime_l3_summary_scheduler`
+52. `runtime_l3_maintenance_scheduler`
+53. `runtime_l4_maintenance_scheduler`
+54. `runtime_timeline_schedulers`
+55. `runtime_operational_gc_scheduler`
+56. `runtime_other_dependencies`
+57. `runtime_channels`
+58. `runtime_outreach`
+59. `runtime_scheduler_activation`
+60. `runtime_sensor_sync_executor`
+
+Important rule: bootstrap order is dependency order, not ownership order. The
+scheduler engine is infrastructure even though it starts after services that
+register schedules into it. It remains paused until
+`runtime_scheduler_activation`; unchanged registrations are read-only.
+
 The product readiness states remain:
 
 - `ready` — normal agent execution is available;

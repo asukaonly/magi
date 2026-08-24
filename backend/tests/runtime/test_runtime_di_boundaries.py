@@ -325,14 +325,11 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     bootstrap_context = (BACKEND_SRC / "bootstrap/context.py").read_text(encoding="utf-8")
     config_lifecycle = (BACKEND_SRC / "config/lifecycle.py").read_text(encoding="utf-8")
     chat_task_agent = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
-    explore_task_agent = (BACKEND_SRC / "agent/task_agents/explore_task_agent.py").read_text(encoding="utf-8")
     timeline_task_agent = (BACKEND_SRC / "agent/task_agents/timeline_task_agent.py").read_text(encoding="utf-8")
     postprocess_service = (BACKEND_SRC / "chat/task_agent/postprocess_service.py").read_text(encoding="utf-8")
-    explore_postprocess_service = (BACKEND_SRC / "agent/task_agents/explore/postprocess_service.py").read_text(encoding="utf-8")
     chat_handlers = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
     worker_manager = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     function_calling = (BACKEND_SRC / "agent/execution/function_calling/__init__.py").read_text(encoding="utf-8")
-    task_orchestrator = (BACKEND_SRC / "agent/task_orchestrator.py").read_text(encoding="utf-8")
     task_factory = (BACKEND_SRC / "agent/task_agents/factory.py").read_text(encoding="utf-8")
     event_emitter = (BACKEND_SRC / "awareness/event_emitter.py").read_text(encoding="utf-8")
     awareness_contracts = (BACKEND_SRC / "awareness/contracts.py").read_text(encoding="utf-8")
@@ -343,23 +340,18 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "from ..core.runtime import SensorHub" not in awareness_lifecycle
     assert "from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
     assert "core.runtime.contracts" not in chat_task_agent
-    assert "core.runtime.contracts" not in explore_task_agent
     assert "core.runtime.contracts" not in timeline_task_agent
     assert "core.runtime.types" not in chat_task_agent
-    assert "core.runtime.types" not in explore_task_agent
     assert "core.runtime.types" not in timeline_task_agent
     assert "core.runtime.task_agent" not in chat_task_agent
-    assert "core.runtime.task_agent" not in explore_task_agent
     assert "core.runtime.task_agent" not in timeline_task_agent
     assert "core.runtime.contracts" not in postprocess_service
     assert "core.runtime.types" not in postprocess_service
     assert "from ....core.runtime import SensorEvent" not in postprocess_service
     assert "core.runtime_bindings" not in postprocess_service
-    assert "core.runtime_bindings" not in explore_postprocess_service
     assert "core.runtime_bindings" not in chat_handlers
     assert "core.runtime_bindings" not in worker_manager
     assert "core.runtime_bindings" not in function_calling
-    assert "core.runtime_bindings" not in task_orchestrator
     assert "core.container" not in worker_manager
     assert "core.runtime.types" not in task_factory
     assert "core.runtime.contracts" not in event_emitter

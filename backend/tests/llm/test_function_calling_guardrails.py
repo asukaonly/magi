@@ -1,6 +1,4 @@
-"""
-Tests for explore-worker guardrails in function-calling execution.
-"""
+"""Tests for unified parent and child run guardrails."""
 from __future__ import annotations
 
 import os
@@ -145,10 +143,10 @@ async def test_function_calling_orchestrator_uses_injected_active_model() -> Non
     assert executor._context_compactor.effective_window == 200_000
 
 
-def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
+def test_child_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_explore",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_read_only",
         tool_name="glob",
         arguments={"pattern": "*", "path": "~/code/magi"},
     )
@@ -160,10 +158,10 @@ def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:
     assert "node_modules" in guarded_args["exclude"]
 
 
-def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
+def test_child_guardrail_injects_safe_defaults_for_glob() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_explore",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_read_only",
         tool_name="glob",
         arguments={"pattern": "frontend/*.tsx"},
     )
@@ -174,10 +172,10 @@ def test_explore_guardrail_injects_safe_defaults_for_glob() -> None:
     assert "node_modules" in guarded_args["exclude"]
 
 
-def test_explore_guardrail_rewrites_recursive_wildcard_glob() -> None:
+def test_child_guardrail_rewrites_recursive_wildcard_glob() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_explore",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_read_only",
         tool_name="glob",
         arguments={"pattern": "**/*", "recursive": True},
     )
@@ -188,10 +186,10 @@ def test_explore_guardrail_rewrites_recursive_wildcard_glob() -> None:
     assert guarded_args["max_results"] == 200
 
 
-def test_explore_guardrail_clamps_max_results_for_grep() -> None:
+def test_child_guardrail_clamps_max_results_for_grep() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_explore",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_read_only",
         tool_name="grep",
         arguments={"pattern": "TODO", "glob": "backend/**/*.py", "max_results": 5000},
     )
@@ -202,10 +200,10 @@ def test_explore_guardrail_clamps_max_results_for_grep() -> None:
     assert "dist" in guarded_args["exclude"]
 
 
-def test_plan_guardrail_rewrites_root_recursive_glob_to_bounded_scan() -> None:
+def test_workspace_write_child_guardrail_rewrites_root_recursive_glob() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_plan",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_workspace_write",
         tool_name="glob",
         arguments={"pattern": "**/*", "path": "/tmp/repo", "recursive": True, "max_results": 5000},
         execution_workspace="/tmp/repo",
@@ -214,14 +212,14 @@ def test_plan_guardrail_rewrites_root_recursive_glob_to_bounded_scan() -> None:
     assert error is None
     assert guarded_args["pattern"] == "*"
     assert guarded_args["recursive"] is False
-    assert guarded_args["max_results"] == 120
+    assert guarded_args["max_results"] == 200
     assert "node_modules" in guarded_args["exclude"]
 
 
-def test_plan_guardrail_blocks_root_wide_grep_in_workspace() -> None:
+def test_workspace_write_child_guardrail_blocks_root_wide_grep() -> None:
     executor = _executor()
-    guarded_args, error = executor._apply_worker_explore_guardrails(
-        execution_preset="worker_plan",
+    guarded_args, error = executor._apply_execution_guardrails(
+        execution_preset="child_workspace_write",
         tool_name="grep",
         arguments={"pattern": "TODO", "glob": "**/*", "path": "~/repo"},
         execution_workspace=os.path.expanduser("~/repo"),
@@ -229,7 +227,7 @@ def test_plan_guardrail_blocks_root_wide_grep_in_workspace() -> None:
 
     assert guarded_args == {}
     assert error == (
-        "Plan worker guardrail: root-wide grep is blocked. "
+        "Workspace Write child guardrail: root-wide grep is blocked. "
         "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
     )
 
@@ -266,7 +264,7 @@ def test_chat_guardrail_blocks_scan_outside_active_workspace(tmp_path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
 
-    guarded_args, error = executor._apply_worker_explore_guardrails(
+    guarded_args, error = executor._apply_execution_guardrails(
         execution_preset="chat",
         tool_name="glob",
         arguments={"pattern": "**/*.py", "path": str(outside)},
@@ -289,7 +287,7 @@ def test_chat_guardrail_allows_scan_within_active_workspace(tmp_path) -> None:
     nested = workspace / "backend"
     nested.mkdir(parents=True)
 
-    guarded_args, error = executor._apply_worker_explore_guardrails(
+    guarded_args, error = executor._apply_execution_guardrails(
         execution_preset="chat",
         tool_name="grep",
         arguments={"pattern": "todo", "path": str(nested), "glob": "*.py"},
@@ -311,7 +309,7 @@ def test_chat_guardrail_outside_workspace_allowed_flag_unblocks_and_strips(tmp_p
     outside = tmp_path / "outside"
     outside.mkdir()
 
-    guarded_args, error = executor._apply_worker_explore_guardrails(
+    guarded_args, error = executor._apply_execution_guardrails(
         execution_preset="chat",
         tool_name="glob",
         arguments={

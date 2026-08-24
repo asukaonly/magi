@@ -27,7 +27,7 @@ def test_v4_upgrades_existing_v3_database(tmp_path: Path) -> None:
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v4",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("v5",)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(tool_effect_attempts)")}
         assert {
             "attempt_id",

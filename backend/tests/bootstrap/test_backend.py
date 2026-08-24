@@ -36,7 +36,7 @@ async def test_initialize_agent_runtime_binds_skills_when_runtime_deferred(
     monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", lambda modules: _DeferredOrchestrator())
     monkeypatch.setattr(
         "magi.skills.service_access.build_skills_runtime",
-        lambda llm_adapter=None, *, tool_registry, orchestrator_factory=None, engine_run_input_factory=None: bindings,
+        lambda llm_adapter=None, *, tool_registry, orchestrator_factory=None, agent_run_request_factory=None: bindings,
     )
 
     await backend_module.initialize_agent_runtime()

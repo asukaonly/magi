@@ -26,6 +26,5 @@ def test_build_background_task_wiring_composes_components(tmp_path: Path) -> Non
     assert isinstance(wiring.store, BackgroundTaskStore)
     assert wiring.store.db_path == str(tmp_path / "bg.db")
     assert wiring.manager is not None
-    assert wiring.dispatcher is not None
     assert wiring.launch_service is not None
     assert isinstance(wiring.retention_schedule, BackgroundTaskRetentionScheduleContrib)
