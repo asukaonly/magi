@@ -32,7 +32,10 @@ import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
 import { SkillArgsDialog } from '@/components/chat/SkillArgsDialog';
 import { ToolArgsDialog } from '@/components/chat/ToolArgsDialog';
 import { useChatComposerMentions } from '@/hooks/useChatComposerMentions';
-import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
+import {
+  useChatComposerCommands,
+  type SlashInternalAction,
+} from '@/hooks/useChatComposerCommands';
 import { commandsApi, messagesApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { dispatchAppEvent } from '@/constants/events';
@@ -801,12 +804,17 @@ export const ChatPage: React.FC = () => {
   ]);
 
   const handleInternalCommand = React.useCallback(
-    async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
+    async (action: SlashInternalAction) => {
       const contentGeneration = captureBrowserContentGeneration();
       const operationIsCurrent = () => (
         isBrowserContentGenerationCurrent(contentGeneration)
       );
       try {
+        if (action === 'auto' || action === 'fast' || action === 'deep') {
+          setReasoningPreference(action);
+          toast.success(t(`chat.reasoning.${action}.label`));
+          return;
+        }
         if (action === 'clear') {
           if (!currentSessionId) {
             toast.warning(t('chat.sessionRequired'));
@@ -867,6 +875,7 @@ export const ChatPage: React.FC = () => {
       currentSessionId,
       pendingResponseTurnId,
       requestRunCancel,
+      setReasoningPreference,
       setCurrentSessionId,
       t,
     ],

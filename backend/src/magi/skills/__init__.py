@@ -5,7 +5,7 @@ Implements the skill system with on-demand loading:
 1. Indexer - Scan SKILL.md files for metadata only
 2. Loader - Load skill content on demand
 3. Runner - Execute skills with proper context injection
-4. Subagent - Isolated execution context for skills
+4. Fork execution through the shared agent runtime
 """
 from .schema import (
     SkillMetadata,
@@ -16,7 +16,6 @@ from .schema import (
 from .indexer import SkillIndexer
 from .loader import SkillLoader
 from .runner import SkillRunner
-from .subagent import SkillSubagent, create_skill_subagent
 
 __all__ = [
     # Schema
@@ -28,7 +27,4 @@ __all__ = [
     "SkillIndexer",
     "SkillLoader",
     "SkillRunner",
-    # Subagent
-    "SkillSubagent",
-    "create_skill_subagent",
 ]

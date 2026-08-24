@@ -10,7 +10,6 @@ import pytest
 from magi.skills import runner as runner_module
 from magi.skills.runner import SkillRunner
 from magi.skills.schema import SkillContent, SkillFrontmatter
-from magi.skills.subagent import SkillSubagent
 
 
 def test_skill_runner_substitutes_pwd_from_workspace_context(tmp_path: Path) -> None:
@@ -92,7 +91,7 @@ async def test_skill_runner_omits_exception_content_when_logging_is_disabled(
 
 
 @pytest.mark.asyncio
-async def test_skill_subagent_passes_workspace_to_function_calling(
+async def test_fork_skill_passes_workspace_to_shared_agent_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -123,17 +122,20 @@ async def test_skill_subagent_passes_workspace_to_function_calling(
         ),
         prompt_template="Prompt",
     )
-    subagent = SkillSubagent(
-        skill=skill,
+    class _SkillLoader:
+        def load_skill(self, _name: str) -> SkillContent:
+            return skill
+
+    runner = SkillRunner(
+        loader=_SkillLoader(),  # type: ignore[arg-type]
         llm_adapter=object(),
         tool_registry=_FakeRegistry(),
         orchestrator_factory=lambda **kwargs: _FakeAgentOrchestrator(),
         agent_run_request_factory=build_headless_agent_run_request,
     )
 
-    result = await subagent.execute(
-        user_message="read the file",
-        system_prompt="Prompt",
+    result = await runner.execute(
+        skill_name="demo-skill",
         context={"user_id": "user-1", "workspace": str(workspace)},
     )
 

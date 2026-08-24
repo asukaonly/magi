@@ -49,6 +49,33 @@ class FirstContextStoryRequestModel(BaseModel):
         return normalized
 
 
+class SkillInvocationRequestModel(BaseModel):
+    """Typed inline skill invocation supplied by the composer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    arguments: list[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = str(value or "").strip().lstrip("/")
+        if not normalized:
+            raise ValueError("skill name must not be blank")
+        return normalized
+
+    @field_validator("arguments")
+    @classmethod
+    def normalize_arguments(cls, value: list[str]) -> list[str]:
+        return [str(item)[:4096] for item in value]
+
+
 class UserMessageRequest(BaseModel):
     """User message request."""
 
@@ -85,6 +112,10 @@ class UserMessageRequest(BaseModel):
         None,
         description="Optional structured reasoning preference for this turn",
     )
+    skill_invocation: Optional[SkillInvocationRequestModel] = Field(
+        None,
+        description="Optional typed inline skill invocation",
+    )
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
 
     @model_validator(mode="after")
@@ -100,6 +131,10 @@ class UserMessageRequest(BaseModel):
             raise ValueError("first_context must reference a supported onboarding question")
         if self.first_context is not None and self.recall_feedback is not None:
             raise ValueError("first_context cannot be combined with recall_feedback")
+        if self.skill_invocation is not None and (
+            self.first_context is not None or self.recall_feedback is not None
+        ):
+            raise ValueError("skill_invocation cannot be combined with a controlled interaction")
         return self
 
 
@@ -204,6 +239,7 @@ __all__ = [
     "MessageResponse",
     "RenameSessionRequest",
     "RecallFeedbackRequestModel",
+    "SkillInvocationRequestModel",
     "UpdateSessionWorkspaceRequest",
     "UserMessageRequest",
 ]

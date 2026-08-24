@@ -1,5 +1,4 @@
-"""Tests for /api/commands/skills, /api/commands/expand-skill,
-and /api/commands/run-skill-as-background."""
+"""Tests for typed skill commands and background skill runs."""
 
 import json
 from pathlib import Path
@@ -65,6 +64,15 @@ def client(monkeypatch):
     indexer.get_metadata.side_effect = get_metadata
 
     monkeypatch.setattr(commands_module, "resolve_skill_indexer", lambda: indexer)
+    monkeypatch.setattr(
+        commands_module,
+        "get_enabled_skill_names",
+        lambda: {"pr-review", "internal-only", "deep-scan"},
+    )
+    monkeypatch.setattr(
+        "magi.commands.registry.get_enabled_skill_names",
+        lambda: {"pr-review", "internal-only", "deep-scan"},
+    )
 
     fake_loader = MagicMock()
     monkeypatch.setattr(
@@ -123,48 +131,14 @@ def client(monkeypatch):
 
 def test_list_skills_excludes_non_user_invocable(client):
     c, _ = client
-    r = c.get("/api/commands/skills")
+    r = c.get("/api/commands/")
     assert r.status_code == 200
     body = r.json()
-    names = {item["name"] for item in body["data"]}
+    skills = [item for item in body["data"] if item["kind"] == "skill"]
+    names = {item["name"] for item in skills}
     assert names == {"pr-review", "deep-scan"}
-    deep = next(item for item in body["data"] if item["name"] == "deep-scan")
+    deep = next(item for item in skills if item["name"] == "deep-scan")
     assert deep["context_mode"] == "fork"
-
-
-def test_expand_skill_returns_rendered_prompt(client):
-    c, _ = client
-    r = c.post(
-        "/api/commands/expand-skill",
-        json={
-            "session_id": "s1",
-            "skill_name": "pr-review",
-            "arguments": ["123"],
-        },
-    )
-    assert r.status_code == 200
-    body = r.json()
-    assert body["rendered_prompt"] == "Please review PR #123 carefully."
-    assert body["invocation_text"] == "/pr-review 123"
-    assert body["argument_hint"] == "<pr_number>"
-
-
-def test_expand_skill_404_for_missing(client):
-    c, _ = client
-    r = c.post(
-        "/api/commands/expand-skill",
-        json={"session_id": "s1", "skill_name": "ghost"},
-    )
-    assert r.status_code == 404
-
-
-def test_expand_skill_403_for_non_user_invocable(client):
-    c, _ = client
-    r = c.post(
-        "/api/commands/expand-skill",
-        json={"session_id": "s1", "skill_name": "internal-only"},
-    )
-    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------

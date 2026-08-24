@@ -77,7 +77,7 @@ export const SkillArgsDialog = ({
             {descriptor.description ||
               t('chat.skills.dialogDescription', {
                 defaultValue:
-                  'Provide arguments for this skill. The expanded prompt will be sent as your next message.',
+                  'Provide arguments for this skill. The skill will be attached to your next agent run.',
               })}
           </DialogDescription>
         </DialogHeader>

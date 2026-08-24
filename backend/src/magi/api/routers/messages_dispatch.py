@@ -11,6 +11,8 @@ from ... import i18n as core_i18n
 from ...mcp.attachment_resolver import resolve_attachment_resources
 from ...personality.active_persona import get_current_personality
 from ...personality.bootstrap_service import build_bootstrap_l2_priority_metadata
+from ...skills.expander import expand_skill
+from ...skills.service_access import get_enabled_skill_names
 from ...core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from ...utils.agent_logger import get_agent_logger
 from ...utils.diagnostic_logging import full_content_logging_enabled
@@ -86,6 +88,8 @@ async def send_user_message(request: UserMessageRequest):
 
         _log_queued_message(request, outcome)
         return _queued_message_response(request, outcome)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to queue message: {e}")
         agent_logger.error(f"Queue failed | User: {request.user_id} | error: {str(e)}")
@@ -106,10 +110,16 @@ def _log_runtime_not_ready(
 
 async def _dispatch_api_user_message(request: UserMessageRequest):
     metadata, reply_to_message_id = await _prepare_api_dispatch_metadata(request)
+    skill_context = metadata.get("skill_invocation")
+    message = (
+        str(skill_context.get("invocation_text") or "")
+        if isinstance(skill_context, dict)
+        else request.message
+    )
     return await dispatch_user_message(
         source="api",
         user_id=request.user_id,
-        message=request.message,
+        message=message,
         session_id=request.session_id,
         attachments=await resolve_attachment_resources(list(request.attachments or [])),
         reply_to_message_id=reply_to_message_id,
@@ -134,10 +144,13 @@ async def _prepare_api_dispatch_metadata(
     metadata.pop("interaction_kind", None)
     metadata.pop("first_context", None)
     metadata.pop("reasoning_preference", None)
+    metadata.pop("skill_invocation", None)
     if request.recall_feedback is not None:
         metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
     if request.reasoning_preference is not None:
         metadata["reasoning_preference"] = request.reasoning_preference
+    if request.skill_invocation is not None:
+        metadata["skill_invocation"] = _build_inline_skill_context(request)
     metadata.update(
         await build_bootstrap_l2_priority_metadata(
             user_id=request.user_id,
@@ -150,6 +163,51 @@ async def _prepare_api_dispatch_metadata(
     if reply_to_message_id is not None:
         metadata["reply_to_message_id"] = reply_to_message_id
     return metadata, reply_to_message_id
+
+
+def _build_inline_skill_context(request: UserMessageRequest) -> dict[str, object]:
+    invocation = request.skill_invocation
+    if invocation is None:
+        raise ValueError("skill invocation is required")
+    try:
+        expansion = expand_skill(
+            skill_name=invocation.name,
+            arguments=invocation.arguments,
+            user_id=request.user_id,
+            session_id=str(request.session_id or ""),
+            workspace=request.workspace_path,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if expansion is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill {invocation.name!r} not found",
+        )
+    if invocation.name not in set(get_enabled_skill_names()):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Skill {invocation.name!r} is disabled",
+        )
+    if not expansion.user_invocable:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Skill {invocation.name!r} is not user-invocable",
+        )
+    if expansion.context_mode == "fork":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Skill {invocation.name!r} requires a child run",
+        )
+    return {
+        "name": expansion.name,
+        "arguments": list(invocation.arguments),
+        "invocation_text": expansion.invocation_text,
+        "rendered_prompt": expansion.rendered_prompt,
+        "content_hash": expansion.content_hash,
+        "context_mode": "inline",
+        "allowed_tools": list(expansion.allowed_tools or []),
+    }
 
 
 def _dispatch_rejected_response(

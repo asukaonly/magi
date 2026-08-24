@@ -352,8 +352,9 @@
   "commands": {
     "skills": {
       "not_found": "未找到技能：{skill_name!r}",
+      "disabled": "技能 {skill_name!r} 已被禁用",
       "not_user_invocable": "技能 {skill_name!r} 不能由用户直接调用",
-      "not_fork_context": "技能 {skill_name!r} 未声明 context: fork。请使用 /expand-skill 执行内联技能。"
+      "not_fork_context": "技能 {skill_name!r} 未声明 context: fork。请通过消息输入框提交内联技能。"
     }
   },
   "skills": {

@@ -481,20 +481,9 @@ export function useChatInlineSkillSend({
           }
         }
 
-        const expansion = await commandsApi.expandSkill({
-          user_id: DEFAULT_USER_ID,
-          session_id: originSessionId,
-          skill_name: descriptor.name,
-          arguments: args,
-          workspace_path: resolvedWorkspacePath,
-        });
-        if (!areChatRetryGuardsCurrent(sessionStartGuard)) {
-          return notSent(translate('chat.skills.notSent'));
-        }
-        if (hasPendingAskRef.current) {
-          return notSent(translate('chat.skills.pendingAskBlocked'));
-        }
-        const body = `${expansion.invocation_text}\n\n${expansion.rendered_prompt}`.trim();
+        const invocationText = `/${descriptor.name}${
+          args.length > 0 ? ` ${args.join(' ')}` : ''
+        }`;
         const turnId = createClientTurnId();
         const operation: RetryableInlineSkillOperation = {
           retryKey,
@@ -502,9 +491,13 @@ export function useChatInlineSkillSend({
           request: {
             user_id: DEFAULT_USER_ID,
             session_id: originSessionId,
-            message: body,
+            message: invocationText,
             workspace_path: resolvedWorkspacePath,
             client_turn_id: turnId,
+            skill_invocation: {
+              name: descriptor.name,
+              arguments: args,
+            },
           },
           confirmation: {
             kind: 'turn',

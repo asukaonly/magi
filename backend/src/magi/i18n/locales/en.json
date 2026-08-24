@@ -352,8 +352,9 @@
   "commands": {
     "skills": {
       "not_found": "Skill {skill_name!r} not found",
+      "disabled": "Skill {skill_name!r} is disabled",
       "not_user_invocable": "Skill {skill_name!r} is not user-invocable",
-      "not_fork_context": "Skill {skill_name!r} is not declared context: fork. Use /expand-skill for inline skills."
+      "not_fork_context": "Skill {skill_name!r} is not declared context: fork. Submit inline skills through the message composer."
     }
   },
   "skills": {

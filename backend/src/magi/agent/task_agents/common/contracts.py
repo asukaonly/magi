@@ -76,6 +76,7 @@ class UserMessagePayload:
     interaction_kind: str | None = None
     first_context: dict[str, str] | None = None
     reasoning_preference: str | None = None
+    skill_invocation: dict[str, Any] | None = None
     source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +100,8 @@ class UserMessagePayload:
             payload["first_context"] = dict(self.first_context)
         if self.reasoning_preference is not None:
             payload["reasoning_preference"] = self.reasoning_preference
+        if self.skill_invocation is not None:
+            payload["skill_invocation"] = dict(self.skill_invocation)
         return payload
 
     @classmethod
@@ -142,6 +145,10 @@ class UserMessagePayload:
             reasoning_preference=_optional_string(
                 payload.get("reasoning_preference")
                 or metadata.get("reasoning_preference")
+            ),
+            skill_invocation=_optional_dict(
+                payload.get("skill_invocation")
+                or metadata.get("skill_invocation")
             ),
             source=str(raw_source) if raw_source else "api",
         )
@@ -490,6 +497,10 @@ def _optional_string(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_dict(value: Any) -> dict[str, Any] | None:
+    return dict(value) if isinstance(value, dict) else None
 
 
 def _optional_float(value: Any) -> Optional[float]:

@@ -197,8 +197,6 @@ export type {
   CommandDescriptor,
   CommandParameter,
   CommandParameterType,
-  ExpandSkillRequest,
-  ExpandSkillResponse,
   RunCommandRequest,
   RunCommandResponse,
   RunSkillAsBackgroundRequest,

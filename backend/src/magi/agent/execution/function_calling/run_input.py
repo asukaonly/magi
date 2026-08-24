@@ -81,6 +81,7 @@ class AgentRunRequest:
         llm_timeout_seconds: float | None = None,
         final_response_json_mode: bool = False,
         ephemeral_context: str | None = None,
+        context_sources: tuple[dict[str, Any], ...] = (),
         checkpoint: AgentRunCheckpoint | None = None,
     ) -> "AgentRunRequest":
         return cls(
@@ -102,6 +103,7 @@ class AgentRunRequest:
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
             ephemeral_context=ephemeral_context,
+            context_sources=context_sources,
         )
 
 

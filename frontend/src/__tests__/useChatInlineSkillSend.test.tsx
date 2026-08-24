@@ -14,13 +14,11 @@ import {
 import { useConversationStore } from '@/stores/conversation-store';
 
 const {
-  expandSkillMock,
   getHistoryMock,
   runSkillAsBackgroundMock,
   sendMessageMock,
   toastWarningMock,
 } = vi.hoisted(() => ({
-  expandSkillMock: vi.fn(),
   getHistoryMock: vi.fn(),
   runSkillAsBackgroundMock: vi.fn(),
   sendMessageMock: vi.fn(),
@@ -29,7 +27,6 @@ const {
 
 vi.mock('@/api', () => ({
   commandsApi: {
-    expandSkill: expandSkillMock,
     runSkillAsBackground: runSkillAsBackgroundMock,
   },
   messagesApi: {
@@ -97,13 +94,6 @@ describe('useChatInlineSkillSend', () => {
     window.sessionStorage.clear();
     useConversationStore.getState().reset();
     useConversationStore.getState().setCurrentSessionId(SESSION_ID);
-    expandSkillMock.mockReset().mockResolvedValue({
-      name: DESCRIPTOR.name,
-      description: DESCRIPTOR.description,
-      invocation_text: '/summarize',
-      rendered_prompt: 'Expanded prompt',
-      context_mode: 'inline',
-    });
     getHistoryMock.mockReset().mockResolvedValue({
       user_id: 'local_user',
       session_id: SESSION_ID,
@@ -136,6 +126,28 @@ describe('useChatInlineSkillSend', () => {
     )).not.toBeNull();
   });
 
+  it('submits only a typed skill invocation and keeps expanded instructions server-side', async () => {
+    sendMessageMock.mockResolvedValue({
+      success: true,
+      message: 'queued',
+      data: { session_id: SESSION_ID },
+    });
+    const hook = renderInlineSkillHook();
+
+    await expect(
+      hook.result.current.runSkillExpansion(DESCRIPTOR, ''),
+    ).resolves.toEqual({ kind: 'accepted' });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '/summarize',
+      skill_invocation: {
+        name: 'summarize',
+        arguments: [],
+      },
+    }));
+    expect(sendMessageMock.mock.calls[0][0].message).not.toContain('Expanded prompt');
+  });
+
   it('blocks inline skills during a pending ask but still allows background skills', async () => {
     const hook = renderInlineSkillHook({ hasPendingAsk: true });
 
@@ -145,7 +157,6 @@ describe('useChatInlineSkillSend', () => {
       kind: 'not_sent',
       message: 'chat.skills.pendingAskBlocked',
     });
-    expect(expandSkillMock).not.toHaveBeenCalled();
     expect(sendMessageMock).not.toHaveBeenCalled();
 
     await expect(hook.result.current.runSkillExpansion({

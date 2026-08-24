@@ -82,8 +82,8 @@ def build_skills_runtime(
     """Build shared skills runtime services without storing module-level globals.
 
     ``orchestrator_factory`` / ``agent_run_request_factory`` are injected by the
-    composition root and threaded to the skill sub-agent so the skills layer
-    does not import the agent execution engine.
+    composition root so fork skills use the shared run engine without importing
+    the agent execution package.
     """
 
     from .runner import SkillRunner

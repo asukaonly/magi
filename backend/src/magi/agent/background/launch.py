@@ -283,6 +283,7 @@ def build_background_run_fn(
                     execution_agent_id=execution_agent_id,
                     execution_workspace=spec.workspace_path,
                     control=_background_run_control(cancel_token),
+                    context_sources=spec.context_sources,
                     checkpoint=checkpoint,
                 )
             )

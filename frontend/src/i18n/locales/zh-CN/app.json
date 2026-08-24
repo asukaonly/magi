@@ -1084,7 +1084,7 @@
       }
     },
     "skills": {
-      "dialogDescription": "为该技能填写参数。展开后的提示会作为下一条消息发送。",
+      "dialogDescription": "为该技能填写参数。该技能会作为结构化上下文附加到下一次 Agent 运行。",
       "argsLabel": "参数",
       "send": "发送",
       "cancel": "取消",

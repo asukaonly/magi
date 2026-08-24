@@ -442,7 +442,7 @@ async def test_explore_planning_and_workers_share_one_root_budget() -> None:
 @pytest.mark.asyncio
 async def test_fork_skill_agent_run_reuses_outer_reservation() -> None:
     from magi.skills.schema import SkillContent, SkillFrontmatter
-    from magi.skills.subagent import SkillSubagent
+    from magi.skills.runner import SkillRunner
 
     class _Orchestrator:
         async def run(self, request):  # type: ignore[no-untyped-def]
@@ -462,8 +462,9 @@ async def test_fork_skill_agent_run_reuses_outer_reservation() -> None:
         ),
         prompt_template="Translate the input.",
     )
-    subagent = SkillSubagent(
-        skill=skill,
+    loader = type("Loader", (), {"load_skill": lambda _self, _name: skill})()
+    runner = SkillRunner(
+        loader=loader,  # type: ignore[arg-type]
         llm_adapter=object(),  # type: ignore[arg-type]
         orchestrator_factory=lambda **kwargs: _Orchestrator(),
         agent_run_request_factory=lambda **kwargs: SimpleNamespace(**kwargs),
@@ -471,10 +472,7 @@ async def test_fork_skill_agent_run_reuses_outer_reservation() -> None:
 
     async with task_execution_budget_scope(max_llm_calls=2) as budget:
         await prepay_task_llm_calls()
-        result = await subagent.execute(
-            user_message="hello",
-            system_prompt="Translate the input.",
-        )
+        result = await runner.execute("translate")
         assert budget.llm_calls == 1
         await consume_task_llm_calls()
 

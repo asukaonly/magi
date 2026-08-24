@@ -111,6 +111,7 @@ class BackgroundTaskSpec:
     title: str
     goal: str
     selected_tools: list[str] = field(default_factory=list)
+    context_sources: tuple[dict[str, Any], ...] = ()
     workspace_path: str | None = None
     trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
     # ADR-0004 P3: unified RunTrigger provenance carried alongside the legacy
@@ -172,6 +173,7 @@ class BackgroundTaskSpec:
             "title": self.title,
             "goal": self.goal,
             "selected_tools": list(self.selected_tools),
+            "context_sources": [deepcopy(item) for item in self.context_sources],
             "workspace_path": self.workspace_path,
             "trigger_source": self.trigger_source.value,
             "trigger": self.trigger.to_dict() if self.trigger else None,
@@ -198,6 +200,11 @@ class BackgroundTaskSpec:
             title=str(data["title"]),
             goal=str(data["goal"]),
             selected_tools=list(data.get("selected_tools") or []),
+            context_sources=tuple(
+                deepcopy(item)
+                for item in data.get("context_sources", [])
+                if isinstance(item, dict)
+            ),
             workspace_path=(
                 str(data["workspace_path"]) if data.get("workspace_path") is not None else None
             ),

@@ -98,7 +98,7 @@ def test_commands_missing_skill_uses_chinese(monkeypatch: pytest.MonkeyPatch) ->
     client = _localized_client(commands_router, prefix="/api/commands")
 
     response = client.post(
-        "/api/commands/expand-skill",
+        "/api/commands/run-skill-as-background",
         headers={"Accept-Language": "zh-CN"},
         json={"session_id": "s1", "skill_name": "ghost"},
     )

@@ -49,6 +49,27 @@ from ...task_orchestrator import TaskOrchestrator
 logger = get_logger(__name__)
 
 
+def _build_inline_skill_prompt(request: ExecutionRequest) -> str:
+    payload = getattr(request.context, "latest_payload", None)
+    invocation = getattr(payload, "skill_invocation", None)
+    if not isinstance(invocation, dict):
+        return ""
+    name = str(invocation.get("name") or "").strip()
+    rendered_prompt = str(invocation.get("rendered_prompt") or "").strip()
+    content_hash = str(invocation.get("content_hash") or "").strip()
+    if not name or not rendered_prompt or not content_hash:
+        raise ValueError("Inline skill context is incomplete")
+    return (
+        "# Explicit Skill Context\n"
+        f"The user explicitly invoked the enabled skill `{name}`. Apply the "
+        "following trusted skill instructions to this run while preserving all "
+        "runtime permission and completion policies.\n\n"
+        f"<skill name=\"{name}\" sha256=\"{content_hash}\">\n"
+        f"{rendered_prompt}\n"
+        "</skill>"
+    )
+
+
 def _build_context_sources(
     request: ExecutionRequest,
     prompt_context: Any,
@@ -88,6 +109,29 @@ def _build_context_sources(
             ),
         }
     )
+    latest_payload = getattr(request.context, "latest_payload", None)
+    skill_invocation = getattr(latest_payload, "skill_invocation", None)
+    if isinstance(skill_invocation, dict):
+        sources.append(
+            {
+                "provider": "skill",
+                "name": str(skill_invocation.get("name") or ""),
+                "arguments": list(skill_invocation.get("arguments") or []),
+                "invocation_text": str(
+                    skill_invocation.get("invocation_text") or ""
+                ),
+                "rendered_prompt": str(
+                    skill_invocation.get("rendered_prompt") or ""
+                ),
+                "content_hash": str(
+                    skill_invocation.get("content_hash") or ""
+                ),
+                "context_mode": "inline",
+                "allowed_tools": list(
+                    skill_invocation.get("allowed_tools") or []
+                ),
+            }
+        )
     return tuple(sources)
 
 
@@ -246,6 +290,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         )
         if recall_feedback_prompt:
             system_prompt = f"{system_prompt}\n\n{recall_feedback_prompt}"
+        skill_prompt = _build_inline_skill_prompt(request)
+        if skill_prompt:
+            system_prompt = f"{system_prompt}\n\n{skill_prompt}"
         return system_prompt, selected_tools
 
     async def execute(self, request: PreparedAgentRunRequest) -> ExecutionResult:

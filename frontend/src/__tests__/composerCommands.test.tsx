@@ -24,20 +24,26 @@ vi.mock('react-i18next', async () => {
 import { api } from '@/api/client';
 
 const TOOL_LIST = [
-  { name: 'echo', description: 'Echo input', category: 'test', dangerous: false, parameters: [{ name: 'text', type: 'string', required: true }] },
-  { name: 'rm', description: 'Remove a file', category: 'test', dangerous: true, parameters: [{ name: 'path', type: 'string', required: true }] },
+  { name: 'echo', kind: 'tool', execution_owner: 'command_runner', visibility: 'composer', description: 'Echo input', category: 'test', dangerous: false, parameters: [{ name: 'text', type: 'string', required: true }] },
+  { name: 'rm', kind: 'tool', execution_owner: 'command_runner', visibility: 'composer', description: 'Remove a file', category: 'test', dangerous: true, parameters: [{ name: 'path', type: 'string', required: true }] },
 ];
 
 const SKILL_LIST = [
-  { name: 'pr-review', description: 'Review a pull request', argument_hint: '<pr_number>', tags: [] },
-  { name: 'standup', description: 'Daily standup template', tags: [] },
+  { name: 'pr-review', kind: 'skill', execution_owner: 'agent_run', visibility: 'composer', description: 'Review a pull request', argument_hint: '<pr_number>', tags: [], category: '', dangerous: false, parameters: [], context_mode: 'inline' },
+  { name: 'standup', kind: 'skill', execution_owner: 'agent_run', visibility: 'composer', description: 'Daily standup template', tags: [], category: '', dangerous: false, parameters: [], context_mode: 'inline' },
+];
+
+const CLIENT_LIST = [
+  { name: 'clear', kind: 'client', execution_owner: 'client', visibility: 'composer', description: 'Clear this chat and its related memories', category: '', dangerous: true, parameters: [] },
+  { name: 'new-session', kind: 'client', execution_owner: 'client', visibility: 'composer', description: 'Start a new chat session', category: '', dangerous: false, parameters: [] },
+  { name: 'cancel', kind: 'control', execution_owner: 'client', visibility: 'composer', description: 'Cancel the current run', category: '', dangerous: false, parameters: [] },
+  { name: 'help', kind: 'client', execution_owner: 'client', visibility: 'composer', description: 'List available commands', category: '', dangerous: false, parameters: [] },
 ];
 
 beforeEach(() => {
   vi.mocked(api.get).mockReset();
   vi.mocked(api.get).mockImplementation(async (url: string) => {
-    if (url === '/commands/') return { data: TOOL_LIST } as any;
-    if (url === '/commands/skills') return { data: SKILL_LIST } as any;
+    if (url === '/commands/') return { data: [...CLIENT_LIST, ...TOOL_LIST, ...SKILL_LIST] } as any;
     return { data: [] } as any;
   });
   vi.mocked(api.post).mockReset();
@@ -296,7 +302,7 @@ describe('useChatComposerCommands', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('open'));
     });
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/commands/skills'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/commands/'));
     await act(async () => {
       fireEvent.click(screen.getByTestId('select-skill'));
     });
@@ -307,18 +313,21 @@ describe('useChatComposerCommands', () => {
 
   it('hides inline skills during a pending ask and keeps background skills', async () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
-      if (url === '/commands/') return { data: [] } as any;
-      if (url === '/commands/skills') {
+      if (url === '/commands/') {
         return {
           data: [
             {
               name: 'inline-only',
+              kind: 'skill',
+              execution_owner: 'agent_run',
               description: 'Inline',
               tags: [],
               context_mode: 'inline',
             },
             {
               name: 'background-only',
+              kind: 'skill',
+              execution_owner: 'background_driver',
               description: 'Background',
               tags: [],
               context_mode: 'fork',

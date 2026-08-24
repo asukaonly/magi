@@ -213,6 +213,10 @@ const firstContextSchema = z.object({
 const askMetadataSchema = z.object({
   ask_request_id: requiredId,
 }).strict();
+const skillInvocationSchema = z.object({
+  name: requiredId,
+  arguments: z.array(z.string()).max(64),
+}).strict();
 const requestSchema = z.object({
   message: z.string(),
   user_id: z.string().optional(),
@@ -222,6 +226,7 @@ const requestSchema = z.object({
   workspace_path: z.string().nullable().optional(),
   client_turn_id: requiredId,
   reasoning_preference: z.enum(['auto', 'fast', 'deep']).optional(),
+  skill_invocation: skillInvocationSchema.optional(),
   recall_feedback: recallFeedbackSchema.optional(),
   interaction_kind: z.literal('first_context_story').optional(),
   first_context: firstContextSchema.optional(),

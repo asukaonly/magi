@@ -1,20 +1,18 @@
-"""Verify the fork-mode recursion guard rejects skills past MAX_FORK_DEPTH."""
+"""Verify fork skills share one bounded child-run recursion guard."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
-from magi.skills import subagent as subagent_module
+from magi.skills import runner as runner_module
+from magi.skills.runner import SkillRunner
 from magi.skills.schema import SkillContent, SkillFrontmatter
-from magi.skills.subagent import SkillSubagent
 
 
 def _make_skill() -> SkillContent:
     return SkillContent(
         name="deep",
-        frontmatter=SkillFrontmatter(name="deep", description="d"),
+        frontmatter=SkillFrontmatter(name="deep", description="d", context="fork"),
         prompt_template="body",
         supporting_data={},
         source_file=None,
@@ -23,36 +21,46 @@ def _make_skill() -> SkillContent:
 
 @pytest.mark.asyncio
 async def test_fork_depth_rejects_past_limit(monkeypatch):
-    """Saturate the contextvar and confirm the next execute is denied."""
-    monkeypatch.setattr(subagent_module, "MAX_FORK_DEPTH", 2)
-    # Pre-set the contextvar to the limit so the next call trips it.
-    token = subagent_module._fork_depth.set(2)
+    monkeypatch.setattr(runner_module, "MAX_FORK_DEPTH", 2)
+    token = runner_module._fork_depth.set(2)
     try:
         skill = _make_skill()
-        sub = SkillSubagent(skill=skill, llm_adapter=MagicMock())
-        result = await sub.execute(user_message="hi", system_prompt="sys")
+        loader = type("Loader", (), {"load_skill": lambda _self, _name: skill})()
+        runner = SkillRunner(
+            loader=loader,  # type: ignore[arg-type]
+            llm_adapter=object(),  # type: ignore[arg-type]
+            orchestrator_factory=lambda **_kwargs: object(),
+            agent_run_request_factory=lambda **kwargs: kwargs,
+        )
+        result = await runner.execute("deep")
         assert result.success is False
         assert "MAX_FORK_DEPTH" in (result.error or "")
     finally:
-        subagent_module._fork_depth.reset(token)
+        runner_module._fork_depth.reset(token)
 
 
 @pytest.mark.asyncio
 async def test_fork_depth_resets_on_exit(monkeypatch):
-    """After a successful execute, the depth contextvar must be back to its pre-call value."""
-    monkeypatch.setattr(subagent_module, "MAX_FORK_DEPTH", 5)
-
+    monkeypatch.setattr(runner_module, "MAX_FORK_DEPTH", 5)
     skill = _make_skill()
-    sub = SkillSubagent(skill=skill, llm_adapter=MagicMock())
+    loader = type("Loader", (), {"load_skill": lambda _self, _name: skill})()
 
-    # Stub out the actual heavy paths so execute returns quickly.
-    async def fake_agent_run(**kwargs):
-        return "ok"
+    class _Orchestrator:
+        async def run(self, _request):  # type: ignore[no-untyped-def]
+            return type(
+                "Outcome",
+                (),
+                {"succeeded": True, "content": "ok", "failure_reason": None},
+            )()
 
-    sub._execute_agent_run = fake_agent_run  # type: ignore[method-assign]
-
-    before = subagent_module._fork_depth.get()
-    result = await sub.execute(user_message="hi", system_prompt="sys")
-    after = subagent_module._fork_depth.get()
+    runner = SkillRunner(
+        loader=loader,  # type: ignore[arg-type]
+        llm_adapter=object(),  # type: ignore[arg-type]
+        orchestrator_factory=lambda **_kwargs: _Orchestrator(),
+        agent_run_request_factory=lambda **kwargs: kwargs,
+    )
+    before = runner_module._fork_depth.get()
+    result = await runner.execute("deep")
+    after = runner_module._fork_depth.get()
     assert result.success is True
     assert before == after

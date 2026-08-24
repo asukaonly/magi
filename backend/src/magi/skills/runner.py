@@ -1,28 +1,40 @@
-"""
-Skill Runner - Execute skills with proper context
+"""Load skills as inline context or execute them through the shared agent run."""
 
-Implements the "Execute" phase of the skill system:
-- Variable substitution ($argumentS, $0, $1, etc.)
-- Context-based execution (direct or sub-agent via SkillSubagent)
-- Tool access control via allowed-tools
-- Script execution support
-- Returns formatted SkillResult
-"""
-
+import contextvars
+import hashlib
 import logging
 import os
 import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional, Set
+
+from magi_plugin_sdk.turn import UserTurnInput
 
 from ..utils.diagnostic_logging import full_content_logging_enabled
 from ..utils.runtime import get_default_chat_workspace_path
 from .schema import SkillContent, SkillResult
 from .loader import SkillLoader
-from .subagent import create_skill_subagent
 from .tool_registry_port import ToolRegistryPort
 from ..llm.base import LLMAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_max_fork_depth() -> int:
+    raw = os.environ.get("MAGI_SKILLS_MAX_FORK_DEPTH", "").strip()
+    if not raw:
+        return 3
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
+MAX_FORK_DEPTH = _resolve_max_fork_depth()
+_fork_depth: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "magi_skill_fork_depth",
+    default=0,
+)
 
 
 class SkillRunner:
@@ -32,7 +44,7 @@ class SkillRunner:
     Handles the full execution lifecycle of a skill:
     1. Load the skill content
     2. Substitute variables
-    3. Execute (direct or via sub-agent)
+    3. Return inline instructions or create a shared child AgentRun
     4. Return formatted result
     """
 
@@ -56,11 +68,9 @@ class SkillRunner:
             tool_registry: The shared tool registry injected by the
                 composition root; threaded to sub-agents so they can
                 expose the registered tools.
-            orchestrator_factory: Builds the function-calling orchestrator;
-                injected by the composition root and threaded to sub-agents
-                so the skills layer does not import the agent engine.
+            orchestrator_factory: Builds the shared agent run orchestrator.
             agent_run_request_factory: Builds the headless engine run input;
-                injected and threaded for the same reason.
+                injected so the skills layer does not import the agent engine.
         """
         self.loader = loader
         self.llm = llm_adapter
@@ -117,7 +127,7 @@ class SkillRunner:
 
         try:
             if skill.frontmatter.context == "fork":
-                result = await self._execute_with_subagent(skill, prompt, context)
+                result = await self._execute_fork(skill, prompt, context)
             else:
                 result = await self._execute_direct(skill, prompt, context)
 
@@ -259,73 +269,91 @@ class SkillRunner:
             },
         )
 
-    async def _execute_with_subagent(
+    async def _execute_fork(
         self,
         skill: SkillContent,
         prompt: str,
         context: Dict[str, Any],
     ) -> SkillResult:
-        """
-        Execute skill using a dedicated SkillSubagent.
+        """Execute a fork skill as a bounded child through ``AgentRunRequest``."""
+        if (
+            self.llm is None
+            or self._orchestrator_factory is None
+            or self._agent_run_request_factory is None
+        ):
+            raise RuntimeError("Fork skill execution requires the shared agent runtime")
 
-        Like the direct path, this pushes the skill's ``allowed-tools``
-        rules onto the active pre-approval stack so subagent-originated
-        tool calls matching the rules can skip the permission gateway
-        prompt. Calls that don't match still pass through the gateway
-        normally — pre-approval grants permission, it does not
-        restrict.
-        """
-        if not self.llm:
-            logger.warning("LLM adapter not available, falling back to direct mode")
-            return await self._execute_direct(skill, prompt, context)
+        depth = _fork_depth.get()
+        if depth >= MAX_FORK_DEPTH:
+            raise RuntimeError(
+                f"Fork skill {skill.name!r} exceeds MAX_FORK_DEPTH={MAX_FORK_DEPTH}"
+            )
 
         allowed = skill.frontmatter.allowed_tools
         if allowed:
             from .active_restrictions import push_skill_rules
 
             push_skill_rules(allowed)
-
-        subagent = create_skill_subagent(
-            skill=skill,
-            llm_adapter=self.llm,
-            permission_gateway_provider=self.permission_gateway_provider,
-            tool_registry=self._tool_registry,
-            orchestrator_factory=self._orchestrator_factory,
-            agent_run_request_factory=self._agent_run_request_factory,
-            active_model_provider=self._active_model_provider,
-            scenario_llm_pool=self._scenario_llm_pool,
+        child_session_id = f"skill-{skill.name}-{uuid.uuid4().hex[:12]}"
+        selected_tools = (
+            self._tool_registry.list_tools() if self._tool_registry is not None else []
         )
-        user_message = context.get("user_message", "")
-
-        logger.info(
-            f"Executing skill via SkillSubagent | skill={skill.name} | "
-            f"allowed_tools={skill.frontmatter.allowed_tools}"
-        )
-
+        token = _fork_depth.set(depth + 1)
         try:
-            result = await subagent.execute(
-                user_message=user_message,
-                system_prompt=prompt,
-                context=context,
+            orchestrator = self._orchestrator_factory(
+                llm_adapter=self.llm,
+                tool_registry=self._tool_registry,
+                skill_runner=None,
+                tool_result_callback=None,
+                permission_gateway_provider=self.permission_gateway_provider,
+                active_model_provider=self._active_model_provider,
+                scenario_llm_pool=self._scenario_llm_pool,
             )
-
-            if result.metadata:
-                result.metadata["scripts_available"] = subagent.get_script_names()
-
-            return result
-
-        except Exception as e:
-            if full_content_logging_enabled():
-                logger.error("Subagent execution failed: %s", e)
-            else:
-                logger.error(
-                    "Subagent execution failed | error_type=%s",
-                    type(e).__name__,
+            outcome = await orchestrator.run(
+                self._agent_run_request_factory(
+                    turn=UserTurnInput(
+                        text=f"Execute the explicitly selected skill /{skill.name}.",
+                        attachments=[],
+                        user_id=str(context.get("user_id") or "skill"),
+                        session_id=child_session_id,
+                    ),
+                    system_prompt=prompt,
+                    selected_tools=selected_tools,
+                    user_id=str(context.get("user_id") or "skill"),
+                    session_id=child_session_id,
+                    conversation_history=[],
+                    execution_preset="skill",
+                    execution_agent_id="skill_child",
+                    execution_workspace=self._resolve_workspace(context),
+                    context_sources=(
+                        {
+                            "provider": "skill",
+                            "name": skill.name,
+                            "rendered_prompt": prompt,
+                            "content_hash": hashlib.sha256(
+                                skill.prompt_template.encode("utf-8")
+                            ).hexdigest(),
+                            "context_mode": "fork",
+                            "allowed_tools": list(allowed or []),
+                        },
+                    ),
                 )
-            return SkillResult(
-                success=False,
-                error=f"Subagent execution failed: {e}",
             )
+            if not outcome.succeeded:
+                raise RuntimeError(outcome.failure_reason or "Fork skill run failed")
+            return SkillResult(
+                success=True,
+                content=outcome.content,
+                metadata={
+                    "mode": "child_run",
+                    "fork_mode": True,
+                    "skill_name": skill.name,
+                    "child_session_id": child_session_id,
+                    "available_tools": selected_tools,
+                },
+            )
+        finally:
+            _fork_depth.reset(token)
 
     def validate_skill_invocation(
         self,

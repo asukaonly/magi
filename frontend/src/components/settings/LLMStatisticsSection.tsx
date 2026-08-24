@@ -27,7 +27,6 @@ const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: strin
   'function_calling:chat_tools': { scenario: 'toolConversation', stage: 'chatToolDecision' },
   'function_calling:worker_tools': { scenario: 'toolConversation', stage: 'workerToolDecision' },
   'function_calling:final_response': { scenario: 'toolConversation', stage: 'finalResponse' },
-  'skill_subagent:direct': { scenario: 'skillSubagent', stage: 'direct' },
   'task_agent:chat': { scenario: 'generalChat', stage: 'legacyChat' },
   'task_agent:chat_direct': { scenario: 'generalChat', stage: 'directReply' },
   'task_agent:planner': { scenario: 'taskPlanning', stage: 'taskDecomposition' },

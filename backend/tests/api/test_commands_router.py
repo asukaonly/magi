@@ -16,6 +16,7 @@ from magi_plugin_sdk.tools import (
 )
 
 from magi.api.routers.commands import commands_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.commands.resolver import UserInvocableResolver
 from magi.commands import resolver as resolver_mod
 
@@ -106,8 +107,26 @@ def test_list_user_invocable_commands(client):
     r = c.get("/api/commands/")
     assert r.status_code == 200
     payload = r.json()
-    assert payload["data"][0]["name"] == "echo"
-    assert payload["data"][0]["description"] == "Echo input"
+    echo = next(item for item in payload["data"] if item["name"] == "echo")
+    assert echo["kind"] == "tool"
+    assert echo["execution_owner"] == "command_runner"
+    assert echo["description"] == "Echo input"
+    assert {item["name"] for item in payload["data"]} >= {
+        "auto",
+        "fast",
+        "deep",
+        "clear",
+    }
+
+
+def test_public_router_exposes_only_current_command_contract() -> None:
+    public = _build_public_router(
+        commands_router,
+        _PUBLIC_ROUTE_METHODS["commands"],
+    )
+    routes = {route.path for route in public.routes}
+
+    assert routes == {"/", "/run", "/run-skill-as-background"}
 
 
 def test_run_command_returns_result_and_persists(client):

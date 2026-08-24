@@ -3,13 +3,9 @@
  *
  * Activates only when `/` is at the very start of the textarea (no
  * preceding non-whitespace) — this is the same UX as Claude Code, Discord
- * slash, etc. The picker merges three sources:
- *
- * - **internal** commands (clear / new-session / cancel / help) — these are
- *   handed to the page when selected; destructive actions may request
- *   confirmation before they run.
- * - **tool** commands fetched from `GET /api/commands` — these open a
- *   parameter dialog before running.
+ * slash, etc. The picker consumes the canonical backend catalog: client and
+ * control commands stay local, tool commands use the command runner, and
+ * skills create typed invocations.
  *
  * Selecting a command clears the textarea (no `/cmd` left behind — the
  * invocation will surface as a chat message instead).
@@ -29,7 +25,10 @@ export type SlashInternalAction =
   | 'clear'
   | 'new-session'
   | 'cancel'
-  | 'help';
+  | 'help'
+  | 'auto'
+  | 'fast'
+  | 'deep';
 
 export type SlashCommandItem =
   | {
@@ -39,6 +38,7 @@ export type SlashCommandItem =
     action: SlashInternalAction;
     icon?: string;
     dangerous?: boolean;
+    descriptor?: CommandDescriptor;
   }
   | {
     source: 'tool';
@@ -65,42 +65,15 @@ type SlashState =
     activeIndex: number;
   };
 
-const INTERNAL_COMMANDS: Array<
-  Omit<Extract<SlashCommandItem, { source: 'internal' }>, 'description'> & {
-    descriptionKey: string;
-    descriptionFallback: string;
-  }
-> = [
-  {
-    source: 'internal',
-    name: 'clear',
-    descriptionKey: 'chat.commands.internal.clear',
-    descriptionFallback: 'Clear this chat and its related memories',
-    action: 'clear',
-    dangerous: true,
-  },
-  {
-    source: 'internal',
-    name: 'new-session',
-    descriptionKey: 'chat.commands.internal.newSession',
-    descriptionFallback: 'Start a new chat session',
-    action: 'new-session',
-  },
-  {
-    source: 'internal',
-    name: 'cancel',
-    descriptionKey: 'chat.commands.internal.cancel',
-    descriptionFallback: 'Cancel the current run',
-    action: 'cancel',
-  },
-  {
-    source: 'internal',
-    name: 'help',
-    descriptionKey: 'chat.commands.internal.help',
-    descriptionFallback: 'List available commands',
-    action: 'help',
-  },
-];
+const CLIENT_ACTIONS = new Set<SlashInternalAction>([
+  'clear',
+  'new-session',
+  'cancel',
+  'help',
+  'auto',
+  'fast',
+  'deep',
+]);
 
 const mruKey = (item: SlashCommandItem): string => `${item.source}|${item.name}`;
 
@@ -144,8 +117,7 @@ export function useChatComposerCommands({
 }: UseChatComposerCommandsOptions) {
   const { t } = useTranslation('app');
   const [state, setState] = useState<SlashState>({ open: false });
-  const [tools, setTools] = useState<CommandDescriptor[]>([]);
-  const [skills, setSkills] = useState<SkillCommandDescriptor[]>([]);
+  const [catalog, setCatalog] = useState<CommandDescriptor[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchedAtRef = useRef<number>(0);
@@ -158,12 +130,7 @@ export function useChatComposerCommands({
     setLoading(true);
     setError(null);
     try {
-      const [toolList, skillList] = await Promise.all([
-        commandsApi.list().catch(() => [] as CommandDescriptor[]),
-        commandsApi.listSkills().catch(() => [] as SkillCommandDescriptor[]),
-      ]);
-      setTools(toolList);
-      setSkills(skillList);
+      setCatalog(await commandsApi.list());
       fetchedAtRef.current = now;
     } catch (exc: any) {
       setError(exc?.message ?? String(exc));
@@ -174,31 +141,49 @@ export function useChatComposerCommands({
 
   const items = useMemo<SlashCommandItem[]>(() => {
     if (!state.open) return [];
-    const merged: SlashCommandItem[] = [
-      ...INTERNAL_COMMANDS.map(({ descriptionKey, descriptionFallback, ...command }) => ({
-        ...command,
-        description: t(descriptionKey, { defaultValue: descriptionFallback }),
-      })),
-      ...tools.map<SlashCommandItem>((t) => ({
-        source: 'tool',
-        name: t.name,
-        description: t.description,
-        dangerous: t.dangerous,
-        descriptor: t,
-      })),
-      ...skills
-        .filter((skill) => (
-          allowInlineSkills || skill.context_mode === 'fork'
-        ))
-        .map<SlashCommandItem>((skill) => ({
+    const description = (
+      descriptor: CommandDescriptor | SkillCommandDescriptor,
+    ) => (
+      descriptor.description_key
+        ? t(descriptor.description_key, { defaultValue: descriptor.description })
+        : descriptor.description
+    );
+    const merged = catalog.flatMap<SlashCommandItem>((descriptor) => {
+      if (descriptor.kind === 'tool') {
+        return [{
+          source: 'tool',
+          name: descriptor.name,
+          description: description(descriptor),
+          dangerous: descriptor.dangerous,
+          descriptor,
+        }];
+      }
+      if (descriptor.kind === 'skill') {
+        if (!allowInlineSkills && descriptor.context_mode !== 'fork') {
+          return [];
+        }
+        const skill = descriptor as SkillCommandDescriptor;
+        return [{
           source: 'skill',
           name: skill.name,
-          description: skill.description,
+          description: description(skill),
           argumentHint: skill.argument_hint ?? undefined,
           contextMode: skill.context_mode ?? undefined,
           descriptor: skill,
-        })),
-    ];
+        }];
+      }
+      if (!CLIENT_ACTIONS.has(descriptor.name as SlashInternalAction)) {
+        return [];
+      }
+      return [{
+        source: 'internal',
+        name: descriptor.name,
+        description: description(descriptor),
+        action: descriptor.name as SlashInternalAction,
+        dangerous: descriptor.dangerous,
+        descriptor,
+      }];
+    });
     const scored = merged
       .map((item) => ({
         item,
@@ -218,7 +203,7 @@ export function useChatComposerCommands({
       return a.item.name.localeCompare(b.item.name);
     });
     return scored.map(({ item }) => item);
-  }, [allowInlineSkills, skills, state, t, tools]);
+  }, [allowInlineSkills, catalog, state, t]);
 
   const onValueChange = useCallback(
     (nextValue: string) => {

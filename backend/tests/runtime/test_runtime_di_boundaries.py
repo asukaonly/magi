@@ -140,7 +140,7 @@ def test_agent_execution_package_uses_function_calling_orchestrator_name() -> No
     chat_agent_source = (BACKEND_SRC / "chat/task_agent/chat_task_agent.py").read_text(encoding="utf-8")
     worker_manager_source = (BACKEND_SRC / "agent/workers/worker_manager.py").read_text(encoding="utf-8")
     chat_handlers_source = (BACKEND_SRC / "agent/task_agents/handlers/handlers.py").read_text(encoding="utf-8")
-    skills_subagent_source = (BACKEND_SRC / "skills/subagent.py").read_text(encoding="utf-8")
+    skills_runner_source = (BACKEND_SRC / "skills/runner.py").read_text(encoding="utf-8")
 
     assert "FunctionCallingExecutor" not in execution_init
     assert "class FunctionCallingExecutor" not in function_calling_source
@@ -148,11 +148,11 @@ def test_agent_execution_package_uses_function_calling_orchestrator_name() -> No
     assert "FunctionCallingExecutor" not in worker_manager_source
     assert "function_calling_executor" not in chat_agent_source
     assert "function_calling_executor" not in chat_handlers_source
-    assert "_function_calling_executor" not in skills_subagent_source
+    assert "_function_calling_executor" not in skills_runner_source
     assert "FunctionCallingOrchestrator" in execution_init
     assert "function_calling_orchestrator" in chat_agent_source
     assert "function_calling_orchestrator" in chat_handlers_source
-    assert "_function_calling_orchestrator" in skills_subagent_source
+    assert "orchestrator_factory" in skills_runner_source
 
 
 def test_skills_package_uses_skill_runner_name() -> None:

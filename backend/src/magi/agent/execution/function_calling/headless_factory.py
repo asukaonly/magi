@@ -1,6 +1,6 @@
 """Composition-root factories for headless function-calling runs.
 
-These thin factories let lower layers (e.g. ``magi.skills.subagent``) drive a
+These thin factories let lower layers (e.g. ``magi.skills.runner``) drive a
 headless function-calling run without importing the agent execution engine
 directly. The composition root injects them downward; the agent layer owns the
 concrete ``FunctionCallingOrchestrator`` / ``AgentRunRequest`` construction here.

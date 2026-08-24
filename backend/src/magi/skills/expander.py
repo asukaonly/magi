@@ -20,6 +20,7 @@ without dragging in the LLM-runner dependency tree:
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass
 
@@ -37,6 +38,7 @@ class SkillExpansion:
     allowed_tools: list[str] | None
     context_mode: str | None  # "fork" | None
     user_invocable: bool
+    content_hash: str
 
 
 def expand_skill(
@@ -71,6 +73,9 @@ def expand_skill(
         allowed_tools=list(skill.frontmatter.allowed_tools or []) or None,
         context_mode=skill.frontmatter.context,
         user_invocable=skill.frontmatter.user_invocable,
+        content_hash=hashlib.sha256(
+            skill.prompt_template.encode("utf-8")
+        ).hexdigest(),
     )
 
 

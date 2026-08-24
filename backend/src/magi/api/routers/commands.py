@@ -5,11 +5,9 @@ records the call as a (command_invocation, command_result) pair in the
 chat timeline. Permission gating reuses the existing PermissionGateway so
 dangerous tools still go through brokered_prompter.
 
-`GET /api/commands/skills` lists user-invocable skills and
-`POST /api/commands/expand-skill` renders one — the rendered text is then
-sent as a normal chat message via the existing dispatch path. Skills are
-distinct from tools: a skill expansion *becomes the user's next turn*
-rather than producing a tool_result row.
+`GET /api/commands/` returns one catalog covering client controls, direct
+tool commands, and skills. Inline skills are submitted as typed message
+input; their rendered instructions never masquerade as user-authored text.
 
 `POST /api/commands/run-skill-as-background` renders a skill and enqueues
 it as a BackgroundTask so the sub-agent runs out of band and the user's
@@ -33,12 +31,13 @@ from ...agent.background.contracts import (
 )
 from ...agent.background.provider import resolve_background_task_manager
 from ...control.permission.provider import get_permission_gateway
-from ...commands import CommandRunner
+from ...commands import CommandRegistry, CommandRunner
 from ...core.logger import get_logger
 from ...core.runtime_bindings import require_chat_surface_write_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...skills.expander import SkillExpansion, expand_skill
 from ...skills.provider import resolve_skill_indexer
+from ...skills.service_access import get_enabled_skill_names
 from ...tools import tool_registry
 
 logger = get_logger(__name__)
@@ -62,22 +61,13 @@ class ListCommandsResponse(BaseModel):
 
 @commands_router.get("/", response_model=ListCommandsResponse)
 async def list_user_invocable_commands() -> ListCommandsResponse:
-    from ...commands import get_default_resolver
-
-    resolver = get_default_resolver()
-    out: list[dict[str, Any]] = []
-    for name in resolver.list_user_invocable(tool_registry):
-        info = tool_registry.get_tool_info(name) or {}
-        out.append(
-            {
-                "name": name,
-                "description": info.get("description", ""),
-                "category": info.get("category", ""),
-                "dangerous": bool(info.get("dangerous", False)),
-                "parameters": info.get("parameters", []),
-            }
-        )
-    return ListCommandsResponse(data=out)
+    registry = CommandRegistry(
+        tool_registry=tool_registry,
+        skill_indexer_provider=resolve_skill_indexer,
+    )
+    return ListCommandsResponse(
+        data=[item.to_dict() for item in registry.list_descriptors()]
+    )
 
 
 @commands_router.post("/run")
@@ -120,109 +110,6 @@ def _safe_gateway_provider() -> Any | None:
         return get_permission_gateway()
     except RuntimeError:
         return None
-
-
-# ---------------------------------------------------------------------------
-# Skills (user-invocable, prompt-style)
-# ---------------------------------------------------------------------------
-
-
-class SkillDescriptor(BaseModel):
-    name: str
-    description: str
-    argument_hint: str | None = None
-    category: str | None = None
-    tags: list[str] = []
-    context_mode: str | None = None  # "fork" | None
-
-
-class ListSkillsResponse(BaseModel):
-    data: list[SkillDescriptor]
-
-
-@commands_router.get("/skills", response_model=ListSkillsResponse)
-async def list_user_invocable_skills() -> ListSkillsResponse:
-    try:
-        indexer = resolve_skill_indexer()
-    except RuntimeError:
-        return ListSkillsResponse(data=[])
-    out: list[SkillDescriptor] = []
-    for name in indexer.get_skill_names():
-        meta = indexer.get_metadata(name)
-        if meta is None or not meta.user_invocable:
-            continue
-        out.append(
-            SkillDescriptor(
-                name=meta.name,
-                description=meta.description or "",
-                argument_hint=meta.argument_hint,
-                category=meta.category,
-                tags=list(meta.tags or []),
-                context_mode=meta.context,
-            )
-        )
-    out.sort(key=lambda s: s.name)
-    return ListSkillsResponse(data=out)
-
-
-class ExpandSkillRequest(BaseModel):
-    user_id: str = Field(default=DEFAULT_USER_ID)
-    session_id: str = Field(default="")
-    skill_name: str = Field(..., min_length=1)
-    arguments: list[str] = Field(default_factory=list)
-    workspace_path: str | None = None
-
-
-class ExpandSkillResponse(BaseModel):
-    name: str
-    rendered_prompt: str
-    invocation_text: str
-    description: str
-    argument_hint: str | None = None
-    allowed_tools: list[str] | None = None
-    context_mode: str | None = None
-
-
-@commands_router.post("/expand-skill", response_model=ExpandSkillResponse)
-async def expand_skill_endpoint(request: ExpandSkillRequest) -> ExpandSkillResponse:
-    try:
-        expansion = expand_skill(
-            skill_name=request.skill_name,
-            arguments=request.arguments,
-            user_id=request.user_id,
-            session_id=request.session_id,
-            workspace=request.workspace_path,
-        )
-    except RuntimeError as exc:
-        # Skill loader binding not initialized yet.
-        raise HTTPException(status_code=503, detail=str(exc))
-    if expansion is None:
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t(
-                "commands.skills.not_found",
-                fallback="Skill {skill_name!r} not found",
-                skill_name=request.skill_name,
-            ),
-        )
-    if not expansion.user_invocable:
-        raise HTTPException(
-            status_code=403,
-            detail=core_i18n.t(
-                "commands.skills.not_user_invocable",
-                fallback="Skill {skill_name!r} is not user-invocable",
-                skill_name=request.skill_name,
-            ),
-        )
-    return ExpandSkillResponse(
-        name=expansion.name,
-        rendered_prompt=expansion.rendered_prompt,
-        invocation_text=expansion.invocation_text,
-        description=expansion.description,
-        argument_hint=expansion.argument_hint,
-        allowed_tools=expansion.allowed_tools,
-        context_mode=expansion.context_mode,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +161,15 @@ def _expand_background_skill(request: RunSkillAsBackgroundRequest) -> SkillExpan
 
 
 def _ensure_background_skill(expansion: SkillExpansion, skill_name: str) -> None:
+    if skill_name not in set(get_enabled_skill_names()):
+        raise HTTPException(
+            status_code=403,
+            detail=core_i18n.t(
+                "commands.skills.disabled",
+                fallback="Skill {skill_name!r} is disabled",
+                skill_name=skill_name,
+            ),
+        )
     if not expansion.user_invocable:
         raise HTTPException(
             status_code=403,
@@ -290,7 +186,7 @@ def _ensure_background_skill(expansion: SkillExpansion, skill_name: str) -> None
                 "commands.skills.not_fork_context",
                 fallback=(
                     "Skill {skill_name!r} is not declared context: fork."
-                    " Use /expand-skill for inline skills."
+                    " Submit inline skills through the typed message input."
                 ),
                 skill_name=skill_name,
             ),
@@ -340,6 +236,18 @@ def _background_skill_spec(
         title=title,
         goal=expansion.rendered_prompt,
         selected_tools=selected_tools,
+        context_sources=(
+            {
+                "provider": "skill",
+                "name": expansion.name,
+                "arguments": list(request.arguments),
+                "invocation_text": expansion.invocation_text,
+                "rendered_prompt": expansion.rendered_prompt,
+                "content_hash": expansion.content_hash,
+                "context_mode": "fork",
+                "allowed_tools": selected_tools,
+            },
+        ),
         workspace_path=request.workspace_path,
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
         max_iterations=int(request.max_iterations),
@@ -392,10 +300,8 @@ async def run_skill_as_background(
 ) -> RunSkillAsBackgroundResponse:
     """Render a fork-context skill and enqueue it as a background task.
 
-    Validation matches ``expand-skill``: 404 if the skill is missing,
-    403 if it's not user-invocable, 400 if the skill is not declared
-    ``context: fork`` (the caller should use ``expand-skill`` for inline
-    skills instead).
+    Missing, disabled, non-user-invocable, and non-fork skills are rejected
+    before any background state is created.
     """
     expansion = _expand_background_skill(request)
     manager = _resolve_background_manager()

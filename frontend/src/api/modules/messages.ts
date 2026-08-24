@@ -34,6 +34,10 @@ export interface UserMessageRequest {
     question_text: string;
   };
   reasoning_preference?: 'auto' | 'fast' | 'deep';
+  skill_invocation?: {
+    name: string;
+    arguments: string[];
+  };
   metadata?: Record<string, any>;
 }
 

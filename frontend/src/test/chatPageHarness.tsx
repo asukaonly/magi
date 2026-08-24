@@ -243,10 +243,8 @@ vi.mock('@/api', () => ({
   },
   commandsApi: {
     list: vi.fn().mockResolvedValue([]),
-    listSkills: vi.fn().mockResolvedValue([]),
     run: vi.fn(),
     runSkillAsBackground: vi.fn(),
-    expandSkill: vi.fn(),
   },
   sensorsApi: {
     getStatus: vi.fn().mockResolvedValue({ sources: [] }),
@@ -519,10 +517,8 @@ export function defineChatPageSuite(
         session_id: null,
       });
       vi.mocked(commandsApi.list).mockReset().mockResolvedValue([]);
-      vi.mocked(commandsApi.listSkills).mockReset().mockResolvedValue([]);
       vi.mocked(commandsApi.run).mockReset();
       vi.mocked(commandsApi.runSkillAsBackground).mockReset();
-      vi.mocked(commandsApi.expandSkill).mockReset();
       vi.mocked(configApi.get).mockResolvedValue(
         buildConfigWithVision(true) as any,
       );
