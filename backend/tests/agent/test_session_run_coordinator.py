@@ -8,7 +8,12 @@ from magi.control.run_control import DetachSignal
 from magi.events.events import EventTypes
 
 
-def _user_fact(content: str, *, turn_id: str) -> FactRecord:
+def _user_fact(
+    content: str,
+    *,
+    turn_id: str,
+    run_disposition: str = "message",
+) -> FactRecord:
     return FactRecord(
         agent_id="chat:u-chat",
         event_type=EventTypes.USER_MESSAGE,
@@ -17,6 +22,7 @@ def _user_fact(content: str, *, turn_id: str) -> FactRecord:
             "session_id": "s-chat",
             "content": content,
             "turn_id": turn_id,
+            "run_disposition": run_disposition,
         },
         agent_type="chat",
         agent_instance_id="u-chat",
@@ -29,8 +35,13 @@ def _route_user(
     content: str,
     *,
     turn_id: str,
+    run_disposition: str = "message",
 ):
-    fact = _user_fact(content, turn_id=turn_id)
+    fact = _user_fact(
+        content,
+        turn_id=turn_id,
+        run_disposition=run_disposition,
+    )
     classified = ChatFactClassifier().classify(
         agent_id="u-chat",
         latest_fact=fact,
@@ -91,6 +102,40 @@ def test_second_turn_starts_new_root_after_completion() -> None:
     assert second.active_run.root_turn_id == "turn-2"
     assert second.active_run.pending_turns == []
     assert second.run_disposition == "root"
+
+
+def test_replace_turn_cancels_active_run_without_joining_its_input_queue() -> None:
+    coordinator = SessionRunCoordinator()
+    first = _route_user(coordinator, "Inspect login.", turn_id="turn-1")
+    assert first.active_run is not None
+
+    replacement = _route_user(
+        coordinator,
+        "Work on checkout instead.",
+        turn_id="turn-2",
+        run_disposition="replace",
+    )
+
+    assert replacement.run_disposition == "replace"
+    assert replacement.active_run is not None
+    assert replacement.active_run.status == "cancelling"
+    assert replacement.active_run.cancel_reason == "user_replace"
+    assert replacement.active_run.cancel_anchor_turn_id == "turn-1"
+    assert [
+        (item.turn_id, item.disposition)
+        for item in replacement.active_run.pending_turns
+    ] == [("turn-2", "replace")]
+
+    completed, pending = coordinator.complete_run_with_pending_inputs(
+        session_id="s-chat",
+        run_id=replacement.active_run.run_id,
+        revision=replacement.active_run.revision,
+    )
+
+    assert completed is True
+    assert [(item.turn_id, item.disposition) for item in pending] == [
+        ("turn-2", "replace")
+    ]
 
 
 def test_cancel_completion_returns_each_unconsumed_input_once() -> None:

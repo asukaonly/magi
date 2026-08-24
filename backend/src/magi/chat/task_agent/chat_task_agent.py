@@ -350,6 +350,8 @@ class ChatTaskAgent(
         """Admit controls and active-run inputs without starting a second loop."""
 
         async with self._chat_execution_admission_boundary():
+            if await self._request_ingress_replace_at_admission_boundary(fact):
+                return True
             if await self._request_ingress_cancel_at_admission_boundary(fact):
                 return True
             if self._queue_active_run_input_at_admission_boundary(fact):
@@ -368,6 +370,8 @@ class ChatTaskAgent(
             if self._fact_targets_active_run(fact):
                 if not await admit():
                     return FactAdmissionResult(queued=False, superseded=True)
+                if await self._request_ingress_replace_at_admission_boundary(fact):
+                    return FactAdmissionResult(queued=True)
                 if await self._request_ingress_cancel_at_admission_boundary(fact):
                     return FactAdmissionResult(queued=True)
                 if self._queue_active_run_input_at_admission_boundary(fact):

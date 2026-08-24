@@ -144,11 +144,14 @@ async def _prepare_api_dispatch_metadata(
     metadata.pop("interaction_kind", None)
     metadata.pop("first_context", None)
     metadata.pop("reasoning_preference", None)
+    metadata.pop("run_disposition", None)
     metadata.pop("skill_invocation", None)
     if request.recall_feedback is not None:
         metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
     if request.reasoning_preference is not None:
         metadata["reasoning_preference"] = request.reasoning_preference
+    if request.run_disposition != "message":
+        metadata["run_disposition"] = request.run_disposition
     if request.skill_invocation is not None:
         metadata["skill_invocation"] = _build_inline_skill_context(request)
     metadata.update(

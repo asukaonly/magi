@@ -798,6 +798,50 @@ async def test_add_fact_ordinary_message_queues_active_run_input() -> None:
 
 
 @pytest.mark.asyncio
+async def test_add_fact_replace_cancels_owned_children_and_plan_without_injection(
+    monkeypatch,
+) -> None:
+    agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
+    root = agent._session_run_coordinator.handle_user_turn(
+        SimpleNamespace(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+            source="api",
+        )  # type: ignore[arg-type]
+    )
+    assert root.active_run is not None
+    cleanup_calls: list[tuple[str, bool]] = []
+
+    async def _cancel_children(**kwargs):  # type: ignore[no-untyped-def]
+        cleanup_calls.append(("children", bool(kwargs["strict"])))
+        return ["child-1"]
+
+    async def _cancel_plan(**kwargs):  # type: ignore[no-untyped-def]
+        cleanup_calls.append(("plan", bool(kwargs["strict"])))
+
+    monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_children)
+    monkeypatch.setattr(session_control_module, "_cancel_owned_run_plan", _cancel_plan)
+    replacement_fact = _user_fact("Work on checkout instead.", turn_id="turn-2")
+    replacement_fact.payload["run_disposition"] = "replace"
+
+    enqueued = await agent.add_fact(replacement_fact)
+
+    assert enqueued is True
+    active_run = agent._session_run_coordinator.get_active_run("s-chat")
+    assert active_run is not None
+    assert active_run.status == "cancelling"
+    assert active_run.cancel_reason == "user_replace"
+    assert active_run.cancel_anchor_turn_id == "turn-1"
+    assert [(item.turn_id, item.disposition) for item in active_run.pending_turns] == [
+        ("turn-2", "replace")
+    ]
+    assert cleanup_calls == [("children", True), ("plan", True)]
+    assert agent._fact_queue.empty()
+
+
+@pytest.mark.asyncio
 async def test_strict_cancel_text_is_an_ordinary_root_without_active_run() -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 

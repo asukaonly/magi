@@ -9,6 +9,10 @@ from time import time
 from magi_plugin_sdk.run_trigger import RunTrigger  # noqa: F401 — re-export for callers
 
 RUN_INPUT_DISPOSITION = "message"
+RUN_REPLACE_DISPOSITION = "replace"
+RUN_PENDING_DISPOSITIONS = frozenset(
+    {RUN_INPUT_DISPOSITION, RUN_REPLACE_DISPOSITION}
+)
 
 
 class RunResultDisposition(str, Enum):

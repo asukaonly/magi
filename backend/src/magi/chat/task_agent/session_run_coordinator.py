@@ -20,6 +20,7 @@ from .session_turn_queue import SessionRunTurnQueueMixin
 from .run_store import SessionRunStore
 from .run_input_queue import RunInputQueue
 from .session_run_decisions import TurnSupersession
+from magi.agent.task_agents.handlers.run_contracts import RUN_REPLACE_DISPOSITION
 
 logger = get_logger(__name__)
 
@@ -348,6 +349,17 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 source_fact=source_fact,
             )
 
+        if (
+            str(getattr(payload, "run_disposition", "message") or "message")
+            .strip()
+            .lower()
+            == RUN_REPLACE_DISPOSITION
+        ):
+            return self._replace_active_run_message(
+                payload=payload,
+                turn_id=turn_id,
+                source_fact=source_fact,
+            )
         return self._queue_active_run_message(
             payload=payload, turn_id=turn_id, source_fact=source_fact
         )
@@ -414,4 +426,39 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             user_id=payload.user_id,
             session_id=payload.session_id,
             run_disposition="message",
+        )
+
+    def _replace_active_run_message(
+        self,
+        *,
+        payload: UserMessagePayload,
+        turn_id: str,
+        source_fact: FactRecord | None,
+    ) -> SessionFactDecision:
+        """Queue a new root turn and request cancellation of the current run."""
+
+        current_run = self._run_store.get_active_run(payload.session_id)
+        if current_run is None:
+            raise RuntimeError("Active run disappeared before replacement")
+        self._run_store.append_pending_turn(
+            payload.session_id,
+            turn_id,
+            payload.content,
+            disposition=RUN_REPLACE_DISPOSITION,
+        )
+        active_run = self.request_cancel(
+            session_id=payload.session_id,
+            requested_by="user",
+            reason="user_replace",
+            anchor_turn_id=current_run.root_turn_id,
+        )
+        return SessionFactDecision(
+            active_run=active_run,
+            planner_fact=source_fact,
+            planner_fact_kind=IncomingFactKind.OTHER_FACT,
+            planner_user_message=payload.content,
+            latest_payload=payload,
+            user_id=payload.user_id,
+            session_id=payload.session_id,
+            run_disposition=RUN_REPLACE_DISPOSITION,
         )

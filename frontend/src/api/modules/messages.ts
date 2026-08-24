@@ -34,6 +34,7 @@ export interface UserMessageRequest {
     question_text: string;
   };
   reasoning_preference?: 'auto' | 'fast' | 'deep';
+  run_disposition?: 'message' | 'replace';
   skill_invocation?: {
     name: string;
     arguments: string[];

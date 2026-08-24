@@ -112,6 +112,10 @@ class UserMessageRequest(BaseModel):
         None,
         description="Optional structured reasoning preference for this turn",
     )
+    run_disposition: Literal["message", "replace"] = Field(
+        default="message",
+        description="How this turn should interact with an already active run",
+    )
     skill_invocation: Optional[SkillInvocationRequestModel] = Field(
         None,
         description="Optional typed inline skill invocation",

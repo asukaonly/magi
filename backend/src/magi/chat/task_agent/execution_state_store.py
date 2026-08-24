@@ -8,7 +8,7 @@ from typing import Any
 MAX_RESULTS_PER_SESSION = 64
 RUN_STATUSES = frozenset({"running", "cancelling", "cancelled"})
 RESULT_DISPOSITIONS = frozenset({"accepted", "stale"})
-PENDING_DISPOSITIONS = frozenset({"message"})
+PENDING_DISPOSITIONS = frozenset({"message", "replace"})
 
 
 class SessionExecutionStateStore:

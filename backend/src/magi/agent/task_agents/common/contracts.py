@@ -67,6 +67,7 @@ class UserMessagePayload:
     first_context: dict[str, str] | None = None
     reasoning_preference: str | None = None
     skill_invocation: dict[str, Any] | None = None
+    run_disposition: str = "message"
     source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
@@ -92,6 +93,8 @@ class UserMessagePayload:
             payload["reasoning_preference"] = self.reasoning_preference
         if self.skill_invocation is not None:
             payload["skill_invocation"] = dict(self.skill_invocation)
+        if self.run_disposition != "message":
+            payload["run_disposition"] = self.run_disposition
         return payload
 
     @classmethod
@@ -138,6 +141,11 @@ class UserMessagePayload:
             skill_invocation=_optional_dict(
                 payload.get("skill_invocation") or metadata.get("skill_invocation")
             ),
+            run_disposition=str(
+                payload.get("run_disposition")
+                or metadata.get("run_disposition")
+                or "message"
+            ).strip().lower(),
             source=str(raw_source) if raw_source else "api",
         )
 

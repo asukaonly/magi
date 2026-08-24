@@ -95,3 +95,33 @@ async def test_projection_failure_restores_unconsumed_input() -> None:
     active = store.get_active_run("session-1")
     assert active is not None
     assert [item.turn_id for item in active.pending_turns] == ["turn-2"]
+
+
+@pytest.mark.asyncio
+async def test_drain_never_injects_replacement_turn_into_old_run() -> None:
+    store = SessionRunStore()
+    run = store.create_active_run(
+        "session-1",
+        run_id="run-1",
+        root_turn_id="turn-root",
+    )
+    store.append_pending_turn(
+        "session-1",
+        "turn-replace",
+        "Do the other task instead",
+        disposition="replace",
+    )
+    queue = RunInputQueue(
+        run_store=store,
+        session_id="session-1",
+        run_id=run.run_id,
+        revision=run.revision,
+        root_turn_id=run.root_turn_id,
+    )
+
+    assert await queue.drain() == []
+    active = store.get_active_run("session-1")
+    assert active is not None
+    assert [(item.turn_id, item.disposition) for item in active.pending_turns] == [
+        ("turn-replace", "replace")
+    ]

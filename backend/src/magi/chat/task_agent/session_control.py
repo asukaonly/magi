@@ -19,7 +19,10 @@ from magi.chat.contracts import (
 from magi.core.logger import get_logger
 from magi.events.events import EventTypes
 from magi.agent.task_agents.common import UserMessagePayload
-from magi.agent.task_agents.handlers.run_contracts import PendingTurn
+from magi.agent.task_agents.handlers.run_contracts import (
+    PendingTurn,
+    RUN_REPLACE_DISPOSITION,
+)
 
 from .cancel_protocol import is_strict_cancel_text
 from .session_run_decisions import TurnSupersession
@@ -459,6 +462,56 @@ class ChatSessionControlMixin:
             )
             return cancellation_requested
 
+    async def _request_ingress_replace_at_admission_boundary(
+        self,
+        fact: FactRecord,
+    ) -> bool:
+        """Replace an active run with one durably queued user turn."""
+
+        if fact.event_type != EventTypes.USER_MESSAGE:
+            return False
+        payload = UserMessagePayload.from_dict(
+            fact.payload if isinstance(fact.payload, dict) else {},
+            fallback_user_id=self.agent_id,
+        )
+        if payload.run_disposition != RUN_REPLACE_DISPOSITION:
+            return False
+        active_run = self._session_run_coordinator.get_active_run(payload.session_id)
+        if active_run is None or active_run.status not in {"running", "cancelling"}:
+            return False
+        decision = self._session_run_coordinator.handle_user_turn(
+            payload,
+            source_fact=fact,
+        )
+        if decision.run_disposition != RUN_REPLACE_DISPOSITION:
+            return False
+        if not await self._mark_session_turn_cancelled(
+            active_run,
+            turn_id=active_run.root_turn_id,
+            reason="user_replace",
+            expected_session_id=payload.session_id,
+            expected_user_id=payload.user_id,
+        ):
+            raise RuntimeError("Active run could not be cancelled for replacement")
+        await _cancel_child_runs(
+            session_id=payload.session_id,
+            run_id=active_run.run_id,
+            run_revision=active_run.revision,
+            strict=True,
+        )
+        await _cancel_owned_run_plan(
+            session_id=payload.session_id,
+            run_id=active_run.run_id,
+            strict=True,
+        )
+        logger.info(
+            "Active run replacement requested",
+            session_id=payload.session_id,
+            run_id=active_run.run_id,
+            replacement_turn_id=payload.turn_id,
+        )
+        return True
+
     def _fact_targets_active_run(self, fact: FactRecord) -> bool:
         """Return whether one user fact belongs to an existing live run."""
 
@@ -490,6 +543,8 @@ class ChatSessionControlMixin:
             fallback_user_id=self.agent_id,
         )
         if not payload.session_id or not payload.content:
+            return False
+        if payload.run_disposition == RUN_REPLACE_DISPOSITION:
             return False
         if any(
             (
@@ -899,6 +954,7 @@ async def _cancel_owned_run_plan(
     *,
     session_id: str,
     run_id: str,
+    strict: bool = False,
 ) -> None:
     """Cancel the current run's plan."""
     try:
@@ -915,5 +971,7 @@ async def _cancel_owned_run_plan(
             expected_version=current.version,
             status="cancelled",
         )
-    except Exception:
+    except Exception as exc:
         logger.debug("run_plan.cancel_failed", exc_info=True)
+        if strict:
+            raise RuntimeError("Failed to cancel run plan") from exc

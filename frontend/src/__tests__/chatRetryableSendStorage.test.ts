@@ -112,6 +112,7 @@ describe('chat retryable send storage', () => {
 
   it('round-trips complete JSON attachment metadata', () => {
     const operation = buildOperation();
+    operation.request.run_disposition = 'replace';
     saveRetryableChatSends(
       new Map([[operation.sessionId, operation]]),
       window.sessionStorage,
@@ -126,6 +127,7 @@ describe('chat retryable send storage', () => {
     expect(
       loaded.get(operation.sessionId)?.pendingTurn?.attachments,
     ).toEqual(operation.pendingTurn?.attachments);
+    expect(loaded.get(operation.sessionId)?.request.run_disposition).toBe('replace');
     expect(JSON.parse(
       window.sessionStorage.getItem(CHAT_RETRYABLE_SEND_STORAGE_KEY) || '{}',
     )).toMatchObject({

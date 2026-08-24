@@ -226,6 +226,7 @@ const requestSchema = z.object({
   workspace_path: z.string().nullable().optional(),
   client_turn_id: requiredId,
   reasoning_preference: z.enum(['auto', 'fast', 'deep']).optional(),
+  run_disposition: z.enum(['message', 'replace']).optional(),
   skill_invocation: skillInvocationSchema.optional(),
   recall_feedback: recallFeedbackSchema.optional(),
   interaction_kind: z.literal('first_context_story').optional(),

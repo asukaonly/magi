@@ -96,3 +96,25 @@ def test_inline_skill_rejects_disabled_or_fork_only_skill(monkeypatch) -> None:
     with pytest.raises(HTTPException) as fork_only:
         messages_dispatch._build_inline_skill_context(request)
     assert fork_only.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_replace_disposition_is_canonical_typed_metadata(monkeypatch) -> None:
+    async def _empty_metadata(**_kwargs):  # type: ignore[no-untyped-def]
+        return {}
+
+    monkeypatch.setattr(
+        messages_dispatch,
+        "build_bootstrap_l2_priority_metadata",
+        _empty_metadata,
+    )
+    request = UserMessageRequest(
+        session_id="session-1",
+        message="Work on this instead",
+        run_disposition="replace",
+        metadata={"run_disposition": "message"},
+    )
+
+    metadata, _ = await messages_dispatch._prepare_api_dispatch_metadata(request)
+
+    assert metadata["run_disposition"] == "replace"

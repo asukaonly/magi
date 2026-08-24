@@ -11,6 +11,7 @@ from magi.agent.task_agents.handlers.run_contracts import (
     AgentRun,
     PendingTurn,
     RUN_INPUT_DISPOSITION,
+    RUN_PENDING_DISPOSITIONS,
     RunResult,
     RunResultDisposition,
 )
@@ -75,7 +76,7 @@ class SessionRunConversionMixin:
         disposition = str(
             payload.get("disposition") or RUN_INPUT_DISPOSITION
         ).strip().lower()
-        if disposition != RUN_INPUT_DISPOSITION:
+        if disposition not in RUN_PENDING_DISPOSITIONS:
             raise ValueError(f"Unsupported pending input disposition: {disposition!r}")
         return PendingTurn(
             turn_id=str(payload["turn_id"]),

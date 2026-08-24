@@ -16,6 +16,7 @@ from magi.agent.task_agents.handlers.run_contracts import (
     AgentRun,
     PendingTurn,
     RUN_INPUT_DISPOSITION,
+    RUN_PENDING_DISPOSITIONS,
 )
 
 logger = get_logger(__name__)
@@ -177,7 +178,7 @@ class SessionRunLifecycleMixin:
                 ).get("pending_turns", [])
                 if int(item.get("revision") or 0) == active_run.revision
                 and str(item.get("disposition") or "").strip().lower()
-                == RUN_INPUT_DISPOSITION
+                in RUN_PENDING_DISPOSITIONS
             ]
             if active_run.status == "cancelling":
                 self.mark_cancelled(
@@ -188,7 +189,6 @@ class SessionRunLifecycleMixin:
                 self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
-                    disposition=RUN_INPUT_DISPOSITION,
                 )
                 self._discard_exact_run_control(
                     session_id=session_id,
@@ -199,7 +199,6 @@ class SessionRunLifecycleMixin:
                 self._execution_store.consume_execution_pending_turns_sync(
                     session_id,
                     revision=active_run.revision,
-                    disposition=RUN_INPUT_DISPOSITION,
                 )
                 self._discard_exact_run_control(
                     session_id=session_id,
