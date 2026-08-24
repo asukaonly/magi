@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from magi.agent.workspace_cache.contracts import (
+from magi_plugin_sdk.workspace_cache.contracts import (
     EditRecord,
     ReadRecord,
     SnapshotRef,

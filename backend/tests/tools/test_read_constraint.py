@@ -4,9 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-from magi.agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 from magi.tools.builtin._read_constraint import (
     record_read_in_session,
     require_prior_read,

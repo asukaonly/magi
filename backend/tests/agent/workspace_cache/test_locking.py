@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 
-from magi.agent.workspace_cache.locking import file_lock
+from magi_plugin_sdk.fs import file_lock
 
 
 def test_file_lock_serializes_writes(tmp_path: Path) -> None:

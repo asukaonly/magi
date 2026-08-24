@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.schema import ToolExecutionContext
 

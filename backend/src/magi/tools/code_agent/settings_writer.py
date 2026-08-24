@@ -1,7 +1,7 @@
 """Write user-level and project-level code_agent settings TOML files.
 
 All writes are atomic (tempfile + os.replace via
-``magi.agent.workspace_cache.atomic_io.atomic_write_text``). Patches are
+``magi_plugin_sdk.fs.atomic_write_text``). Patches are
 deep-merged into the existing TOML so partial PATCH calls from the API
 don't clobber unrelated keys.
 """

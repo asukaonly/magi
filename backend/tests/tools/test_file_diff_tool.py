@@ -106,7 +106,7 @@ async def test_diff_handles_deleted_after_edit(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_diff_binary_content_marked(tmp_path: Path) -> None:
-    from magi.agent.workspace_cache import resolve_session_cache
+    from magi_plugin_sdk.workspace_cache import resolve_session_cache
 
     target = tmp_path / "blob.bin"
     target.write_bytes(b"\x00\x01before\xff")

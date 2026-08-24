@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 from magi.tools.builtin.file_edit_tool import FileEditTool
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.builtin.file_rollback_tool import FileRollbackTool

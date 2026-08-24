@@ -2,7 +2,7 @@
 
 Canonical home for pure file-IO helpers shared by the host and plugins.
 Plugins import from here; the host re-exports from
-magi.agent.workspace_cache.{atomic_io,locking} for back-compat.
+The workspace cache and host tools share these primitives directly.
 """
 
 from __future__ import annotations

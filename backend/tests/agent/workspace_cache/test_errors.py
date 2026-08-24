@@ -1,6 +1,6 @@
 """Tests for workspace cache error hierarchy."""
 
-from magi.agent.workspace_cache.errors import (
+from magi_plugin_sdk.workspace_cache.errors import (
     WorkspaceCacheError,
     SnapshotIntegrityError,
     SessionCacheCorruptError,

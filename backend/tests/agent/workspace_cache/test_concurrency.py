@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from magi.agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 
 
 def test_parallel_record_read_no_truncation(tmp_path: Path) -> None:

@@ -74,13 +74,6 @@ def test_append_jsonl_many_restores_file_when_sync_fails(
     assert target.read_bytes() == original
 
 
-def test_host_atomic_io_reexports_sdk():
-    from magi.agent.workspace_cache.atomic_io import atomic_write_text as host_fn
-    from magi_plugin_sdk.fs import atomic_write_text as sdk_fn
-
-    assert host_fn is sdk_fn
-
-
 def test_managed_write_replaces_target_link_without_touching_source(
     tmp_path: Path,
 ) -> None:

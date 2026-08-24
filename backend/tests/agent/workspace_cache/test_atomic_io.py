@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache.atomic_io import (
+from magi_plugin_sdk.fs import (
     append_jsonl,
     atomic_write_bytes,
     atomic_write_text,

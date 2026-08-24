@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache.contracts import SCHEMA_VERSION
-from magi.agent.workspace_cache.root import WorkspaceCacheRoot
+from magi_plugin_sdk.workspace_cache.contracts import SCHEMA_VERSION
+from magi_plugin_sdk.workspace_cache.root import WorkspaceCacheRoot
 
 
 def test_root_creates_directory_structure(tmp_path: Path) -> None:

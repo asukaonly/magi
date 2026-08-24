@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache.contracts import SnapshotRef
-from magi.agent.workspace_cache.errors import SnapshotIntegrityError
-from magi.agent.workspace_cache.root import WorkspaceCacheRoot
-from magi.agent.workspace_cache.session import SessionCache
+from magi_plugin_sdk.workspace_cache.contracts import SnapshotRef
+from magi_plugin_sdk.workspace_cache.errors import SnapshotIntegrityError
+from magi_plugin_sdk.workspace_cache.root import WorkspaceCacheRoot
+from magi_plugin_sdk.workspace_cache.session import SessionCache
 
 
 def _sc(tmp_path: Path) -> SessionCache:

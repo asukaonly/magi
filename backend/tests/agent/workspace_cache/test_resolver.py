@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.agent.workspace_cache import (
+from magi_plugin_sdk.workspace_cache import (
     SessionCache,
     WorkspaceCacheError,
     WorkspaceCacheRoot,

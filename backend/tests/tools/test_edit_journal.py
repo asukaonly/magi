@@ -5,9 +5,7 @@ import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
-from magi.agent.workspace_cache import resolve_session_cache
+from magi_plugin_sdk.workspace_cache import resolve_session_cache
 from magi.tools.builtin._edit_journal import (
     SnapshotContext,
     record_edit_after,
