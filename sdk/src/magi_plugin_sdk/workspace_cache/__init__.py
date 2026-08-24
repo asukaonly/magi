@@ -5,8 +5,6 @@ from .contracts import (
     ReadRecord,
     SCHEMA_VERSION,
     SnapshotRef,
-    TodoItem,
-    TodoState,
     WorkspaceMetadata,
 )
 from .errors import (
@@ -27,8 +25,6 @@ __all__ = [
     "SessionCacheCorruptError",
     "SnapshotIntegrityError",
     "SnapshotRef",
-    "TodoItem",
-    "TodoState",
     "WorkspaceCacheError",
     "WorkspaceCacheRoot",
     "WorkspaceMetadata",

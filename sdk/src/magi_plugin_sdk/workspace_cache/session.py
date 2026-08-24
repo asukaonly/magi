@@ -12,9 +12,8 @@ from magi_plugin_sdk.fs import (
     append_jsonl,
     append_jsonl_many,
     atomic_write_bytes,
-    atomic_write_text,
 )
-from .contracts import EditOp, EditRecord, ReadRecord, SnapshotRef, TodoState
+from .contracts import EditOp, EditRecord, ReadRecord, SnapshotRef
 from .errors import SessionCacheCorruptError, SnapshotIntegrityError
 from .root import WorkspaceCacheRoot
 
@@ -179,19 +178,6 @@ class SessionCache:
                         f"edits.jsonl line {line_no} is not valid JSON"
                     ) from exc
                 yield EditRecord.model_validate(payload)
-
-    @property
-    def todo_path(self) -> Path:
-        return self.session_dir / "todo.json"
-
-    def read_todo(self) -> TodoState:
-        if not self.todo_path.exists():
-            return TodoState()
-        payload = json.loads(self.todo_path.read_text(encoding="utf-8"))
-        return TodoState.model_validate(payload)
-
-    def write_todo(self, state: TodoState) -> None:
-        atomic_write_text(self.todo_path, state.model_dump_json())
 
     @property
     def snapshots_dir(self) -> Path:

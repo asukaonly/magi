@@ -61,17 +61,6 @@ class SnapshotRef(_Frozen):
         return _validate_sha256(v)
 
 
-class TodoItem(_Frozen):
-    id: str
-    text: str
-    done: bool = False
-
-
-class TodoState(_Frozen):
-    items: list[TodoItem] = Field(default_factory=list)
-    updated_at_ms: int = 0
-
-
 class WorkspaceMetadata(_Frozen):
     workspace_root: str
     schema_version: int = SCHEMA_VERSION

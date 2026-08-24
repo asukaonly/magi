@@ -6,8 +6,6 @@ from magi_plugin_sdk.workspace_cache.contracts import (
     ReadRecord,
     SCHEMA_VERSION,
     SnapshotRef,
-    TodoItem,
-    TodoState,
     WorkspaceMetadata,
 )
 
@@ -17,7 +15,5 @@ __all__ = [
     "ReadRecord",
     "SCHEMA_VERSION",
     "SnapshotRef",
-    "TodoItem",
-    "TodoState",
     "WorkspaceMetadata",
 ]

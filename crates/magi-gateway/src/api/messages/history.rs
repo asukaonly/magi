@@ -328,8 +328,7 @@ fn display_kind_for_message(message_kind: &str) -> Option<&'static str> {
         | "assistant_interim"
         | "assistant_reaction"
         | "assistant_rhythm_segment" => Some("assistant"),
-        "todo_state"
-        | "plan_state"
+        "plan_state"
         | "permission_request"
         | "ask_request"
         | "background_task_completion"

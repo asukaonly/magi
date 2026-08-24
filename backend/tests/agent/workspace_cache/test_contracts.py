@@ -8,7 +8,6 @@ from magi.agent.workspace_cache.contracts import (
     EditRecord,
     ReadRecord,
     SnapshotRef,
-    TodoState,
     WorkspaceMetadata,
 )
 
@@ -80,12 +79,6 @@ def test_snapshot_ref_validates_hex_length():
     SnapshotRef(sha256="d" * 64)
     with pytest.raises(ValidationError):
         SnapshotRef(sha256="d" * 32)
-
-
-def test_todo_state_default_empty():
-    state = TodoState()
-    assert state.items == []
-    assert state.updated_at_ms == 0
 
 
 def test_workspace_metadata_round_trip():
