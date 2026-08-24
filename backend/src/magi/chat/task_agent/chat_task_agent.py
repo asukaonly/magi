@@ -40,11 +40,11 @@ from magi.runtime_trace import RuntimeTraceStore
 from magi.utils.runtime import get_runtime_paths
 from magi.llm.streaming_events import stream_scope
 from magi.agent.task_agents.handlers import (
-    IntentDecision,
+    TurnAdmissionDecision,
     ChatRuntimeContext,
+    CapabilitySelection,
     ExecutionRequest,
     ExecutionResult,
-    ToolSelection,
 )
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
@@ -118,8 +118,8 @@ class ChatTaskAgent(
     ChatRecallFeedbackContextMixin,
     TaskAgent[
         ChatRuntimeContext,
-        IntentDecision,
-        ToolSelection,
+        TurnAdmissionDecision,
+        CapabilitySelection,
         ExecutionRequest,
         ExecutionResult,
     ],
@@ -738,9 +738,9 @@ class ChatTaskAgent(
             return None
         return str(active_id or "").strip() or None
 
-    async def match_intent(self, context: ChatRuntimeContext):
+    async def admit_context(self, context: ChatRuntimeContext):
         await self._raise_if_execution_cancelled(context)
-        result = await self._coordinator.match_intent(context)
+        result = await self._coordinator.admit_context(context)
         await self._raise_if_execution_cancelled(context)
         return result
 
@@ -808,29 +808,29 @@ class ChatTaskAgent(
             return None
         return cast(TaskExecutionBudgetStore, store)
 
-    async def match_tools(self, context: ChatRuntimeContext, intent_result):
+    async def resolve_capabilities(self, context: ChatRuntimeContext, admission):
         await self._raise_if_execution_cancelled(context)
-        result = await self._coordinator.match_tools(context, intent_result)
+        result = await self._coordinator.resolve_capabilities(context, admission)
         await self._raise_if_execution_cancelled(context)
         return result
 
-    async def assemble_llm_params(
+    async def build_execution_request(
         self,
         context: ChatRuntimeContext,
-        intent_result,
-        tool_result,
+        admission,
+        capabilities,
     ) -> ExecutionRequest:
         await self._raise_if_execution_cancelled(context)
-        result = await self._coordinator.assemble_request(
+        result = await self._coordinator.build_execution_request(
             context,
-            intent_result,
-            tool_result,
+            admission,
+            capabilities,
         )
         await self._raise_if_execution_cancelled(context)
         return result
 
-    async def call_llm(
-        self, context: ChatRuntimeContext, llm_params: ExecutionRequest
+    async def execute_request(
+        self, context: ChatRuntimeContext, request: ExecutionRequest
     ) -> ExecutionResult:
         await self._raise_if_execution_cancelled(context)
         sink = None
@@ -849,7 +849,7 @@ class ChatTaskAgent(
             )
         try:
             async with stream_scope(sink, source="chat"):
-                return await self._coordinator.execute(llm_params)
+                return await self._coordinator.execute_request(request)
         except Exception as exc:
             logger.error(
                 "ChatTaskAgent LLM execution failed",
@@ -866,11 +866,11 @@ class ChatTaskAgent(
                 else None
             )
             return ExecutionResult(
-                mode=llm_params.mode,
+                mode=request.mode,
                 response_text=_format_llm_error(exc),
                 root_user_message=context.latest_user_message,
                 correlation_id=correlation_id,
-                message_started_at=getattr(llm_params, "message_started_at", None),
+                message_started_at=getattr(request, "message_started_at", None),
                 turn_id=turn_id,
                 streamed=sink is not None,
             )
@@ -884,9 +884,9 @@ class ChatTaskAgent(
         except Exception:
             return False
 
-    async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
+    async def finalize_result(self, context: ChatRuntimeContext, result: ExecutionResult) -> None:
         try:
-            await self._postprocess_service.handle(context, raw_result)
+            await self._postprocess_service.handle(context, result)
         finally:
             # Unregister the turn's RunControl now that the turn is done.
             # The bundle's signals (asyncio.Event etc.) are not persistable

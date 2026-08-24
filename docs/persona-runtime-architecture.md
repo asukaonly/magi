@@ -44,7 +44,9 @@ The Personality Layer owns:
 
 The Context Layer owns prompt-context assembly and rendering. It consumes the plan from L9; it does not classify register, activate triggers, or reinterpret relationship state.
 
-The Agent Runtime owns execution coordination. It provides task/runtime signals such as intent, selected tools, execution mode, conversation history, and current user message; it does not know persona-specific trigger semantics.
+The Agent Runtime owns execution coordination. It provides typed admission,
+resolved capabilities, execution preset, conversation history, and the current
+user message; it does not know persona-specific trigger semantics.
 
 Post-processing owns future-state updates after a response is emitted. It updates relationship, milestones, satisfaction, and dynamic state; it does not decide what persona state the already emitted response should have used.
 The post-turn observer should stay on this post-processing path: it may submit
@@ -56,13 +58,15 @@ the owning stores before they affect future turns.
 
 ```mermaid
 flowchart TD
-    U["User message"] --> R["Turn router / context decider"]
-    R --> D["Intent, tools, thinking depth, turn profile"]
-    D --> P["PersonaTurnPlanner (L9)"]
+    U["User message"] --> D["Deterministic turn admission"]
+    D --> K["Capability resolution"]
+    K --> A["ContextAssemblyService"]
     C["Active persona config"] --> P
     S["Relationship + dynamic state"] --> P
+    U --> P["PersonaTurnPlanner (L9)"]
+    K --> P
     P --> T["PersonaTurnPlan"]
-    T --> A["ContextAssemblyService (L11)"]
+    T --> A
     M["Memory, profile, runtime, attachments, tools"] --> A
     A --> X["PromptContextRenderer"]
     X --> L["LLM call"]
@@ -71,7 +75,9 @@ flowchart TD
     Q --> S
 ```
 
-The important boundary is that `PersonaTurnPlanner` is the only component that interprets persona behavior configuration for a turn.
+The important boundary is that `PersonaTurnPlanner` is the only component that
+interprets persona behavior configuration for a turn. It is a local planning
+step inside context assembly, not an execution router and not an extra LLM call.
 
 ## Four Axes And Two Modulators
 

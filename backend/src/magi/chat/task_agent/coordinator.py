@@ -13,13 +13,13 @@ from magi.llm.streaming_events import LLMStreamEvent
 from magi.skills.allowed_tools_rules import parse_allowed_tools
 from magi.agent.execution.capability_resolver import CapabilityResolver
 from magi.agent.task_agents.common import (
+    CapabilitySelection,
     ExecutionHandlerRegistry,
     ExecutionRequest,
-    ToolSelection,
 )
 from magi.agent.task_agents.handlers.contracts import (
     ChatRuntimeContext,
-    IntentDecision,
+    TurnAdmissionDecision,
 )
 from magi_plugin_sdk.delivery import DeliveryContent
 from magi.agent.execution.attachment_resolver import (
@@ -39,8 +39,8 @@ ToolAdvisoryProvider = Callable[
 logger = get_logger(__name__)
 
 
-ToolSelectionTraceCallback = Callable[
-    [ChatRuntimeContext, IntentDecision, ToolSelection], Awaitable[None] | None
+CapabilityTraceCallback = Callable[
+    [ChatRuntimeContext, TurnAdmissionDecision, CapabilitySelection], Awaitable[None] | None
 ]
 
 
@@ -55,38 +55,37 @@ class ChatExecutionCoordinator:
         handler_registry: ExecutionHandlerRegistry,
         agent_run_handler: Any,
         tool_advisory_provider: ToolAdvisoryProvider | None = None,
-        tool_selection_trace_callback: ToolSelectionTraceCallback | None = None,
+        capability_trace_callback: CapabilityTraceCallback | None = None,
         delivery_dispatcher: ChatDeliveryDispatchPort | None = None,
         conversation_log: Any | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
     ) -> None:
         self._fact_classifier = fact_classifier
         # Resolves managed attachment payloads when classifying a turn's
-        # effective attachments. Chat wires a chat-backed resolver; defaults
-        # to a null resolver for legacy / test callers.
+        # effective attachments. Chat wires a chat-backed resolver; the null
+        # implementation keeps attachment-free runtimes independent of chat storage.
         self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._handler_registry = handler_registry
         self._agent_run_handler = agent_run_handler
-        self._tool_selection_trace_callback = tool_selection_trace_callback
+        self._capability_trace_callback = capability_trace_callback
         self._delivery_dispatcher = delivery_dispatcher
-        # Phase F Task 10: optional ConversationLog. When supplied,
-        # ``execute()`` records this run as a consumer of the currently
-        # visible message_ids so a later cross-run retract (Task 11) can
-        # propagate via ``ConversationLog.find_dependents``. None for
-        # legacy callers / tests — recording is silently skipped.
+        # When supplied, the conversation log records this run as a consumer
+        # of visible messages so later retracts can propagate to dependents.
         self._conversation_log = conversation_log
         self._tool_advisory_provider = tool_advisory_provider
         self._turn_admission_service = ChatTurnAdmissionService()
         self._capability_resolver = CapabilityResolver(tool_registry)
 
-    async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
+    async def admit_context(self, context: ChatRuntimeContext) -> TurnAdmissionDecision:
         return self._turn_admission_service.resolve(context)
 
-    async def match_tools(
-        self, context: ChatRuntimeContext, intent: IntentDecision
-    ) -> ToolSelection:
-        if intent.execution_mode is not None:
-            return ToolSelection(reasoning=intent.reasoning)
+    async def resolve_capabilities(
+        self,
+        context: ChatRuntimeContext,
+        admission: TurnAdmissionDecision,
+    ) -> CapabilitySelection:
+        if admission.execution_mode is not None:
+            return CapabilitySelection(reasoning=admission.reasoning)
         resolution = self._capability_resolver.resolve(
             user_message=context.latest_user_message,
             pinned_tools=_inline_skill_tools(context),
@@ -99,18 +98,18 @@ class ChatExecutionCoordinator:
             list(resolution.initial_exposed_tools),
         )
         resolution = _rerank_capability_resolution(resolution, advisories)
-        intent.capability_resolution = resolution
-        intent.tools = list(resolution.initial_exposed_tools)
-        intent.recommended_tools = list(advisories)
-        tool_selection = ToolSelection(
+        admission.capability_resolution = resolution
+        admission.tools = list(resolution.initial_exposed_tools)
+        admission.recommended_tools = list(advisories)
+        capabilities = CapabilitySelection(
             tools=list(resolution.initial_exposed_tools),
             reasoning="Deterministic resident, continuity, and metadata discovery.",
         )
-        if self._tool_selection_trace_callback is not None:
-            callback_result = self._tool_selection_trace_callback(context, intent, tool_selection)
+        if self._capability_trace_callback is not None:
+            callback_result = self._capability_trace_callback(context, admission, capabilities)
             if inspect.isawaitable(callback_result):
                 await callback_result
-        return tool_selection
+        return capabilities
 
     async def _load_capability_advisories(
         self,
@@ -131,22 +130,22 @@ class ChatExecutionCoordinator:
             logger.debug("Capability advisory lookup failed: %s", exc)
             return []
 
-    async def assemble_request(
+    async def build_execution_request(
         self,
         context: ChatRuntimeContext,
-        intent: IntentDecision,
-        tool_selection: ToolSelection,
+        admission: TurnAdmissionDecision,
+        capabilities: CapabilitySelection,
     ) -> ExecutionRequest:
         request = ExecutionRequest(
-            mode=intent.execution_mode,
+            mode=admission.execution_mode,
             context=context,
-            intent=intent,
-            tool_selection=tool_selection,
+            admission=admission,
+            capabilities=capabilities,
         )
-        handler = self._resolve_handler(intent.execution_mode)
+        handler = self._resolve_handler(admission.execution_mode)
         return await handler.build_request(request)
 
-    async def execute(self, request: ExecutionRequest):
+    async def execute_request(self, request: ExecutionRequest):
         session_id = getattr(getattr(request, "context", None), "session_id", "") or ""
         session_run_id = getattr(getattr(request, "context", None), "session_run_id", "") or ""
 
@@ -166,9 +165,7 @@ class ChatExecutionCoordinator:
                     await self._conversation_log.record_consumed(
                         session_id=session_id,
                         run_id=session_run_id,
-                        revision=int(
-                            getattr(request.context, "session_run_revision", 0) or 0
-                        ),
+                        revision=int(getattr(request.context, "session_run_revision", 0) or 0),
                         message_ids=message_ids,
                     )
                 except Exception:
@@ -260,6 +257,7 @@ class ChatExecutionCoordinator:
             exclude_chat_sse=exclude_chat_sse,
             exclude_channel_types=exclude_channel_types,
         )
+
     async def dispatch_stream_chunk(
         self,
         *,
@@ -324,9 +322,7 @@ def _inline_skill_tools(context: ChatRuntimeContext) -> list[str]:
     if not isinstance(invocation, dict):
         return []
     return list(
-        dict.fromkeys(
-            rule.tool for rule in parse_allowed_tools(invocation.get("allowed_tools"))
-        )
+        dict.fromkeys(rule.tool for rule in parse_allowed_tools(invocation.get("allowed_tools")))
     )
 
 
@@ -346,9 +342,7 @@ def _rerank_capability_resolution(resolution, advisories: list[dict[str, Any]]):
             + list(resolution.pinned_tools)
         )
     )
-    optional = [
-        name for name in resolution.initial_exposed_tools if name not in required
-    ]
+    optional = [name for name in resolution.initial_exposed_tools if name not in required]
 
     def rank(name: str) -> tuple[int, float, str]:
         advisory = advisory_by_name.get(name) or {}

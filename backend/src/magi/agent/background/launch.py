@@ -138,7 +138,7 @@ def build_spec_from_request(
             else ""
         )
         or uuid4().hex,
-        selected_tools=list(request.tool_selection.tools or []),
+        selected_tools=list(request.capabilities.tools or []),
         skill_preapproval_rules=tuple(
             rules_to_strings(getattr(request, "skill_preapproval_rules", ()))
         ),
@@ -222,12 +222,12 @@ class BackgroundLaunchService:
             },
             root_user_message=request.context.latest_user_message,
             turn_id=turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
+            ux_plan=_serialize_ux_plan(request.admission),
         )
 
 
-def _serialize_ux_plan(intent: Any) -> dict | None:
-    plan = getattr(intent, "ux_plan", None)
+def _serialize_ux_plan(admission: Any) -> dict | None:
+    plan = getattr(admission, "ux_plan", None)
     if plan is None:
         return None
     to_dict = getattr(plan, "to_dict", None)

@@ -1,4 +1,4 @@
-"""Phase F Task 10: ChatExecutionCoordinator records which messages each
+"""ChatExecutionCoordinator records which messages each
 run consumed into ConversationLog.
 
 When the coordinator drives a unified agent run, it must
@@ -10,6 +10,7 @@ The list of message_ids comes from the wired log itself
 (``log.list_visible_message_ids``), so the coordinator is decoupled from
 the in-memory history representation (which only carries role/content).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,7 +22,7 @@ from magi.agent.task_agents.handlers import (
     UserMessagePayload,
 )
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
-from magi.agent.task_agents.handlers.contracts import IntentDecision
+from magi.agent.task_agents.handlers.contracts import TurnAdmissionDecision
 from magi.chat.task_agent.fact_classifier import (
     ChatFactClassifier,
     IncomingFactKind,
@@ -29,7 +30,7 @@ from magi.chat.task_agent.fact_classifier import (
 from magi.agent.task_agents.common.contracts import (
     ExecutionRequest,
     ExecutionResult,
-    ToolSelection,
+    CapabilitySelection,
 )
 from magi.events.events import EventTypes
 
@@ -89,6 +90,7 @@ class _FakeToolRegistry:
     def get_skill_names(self) -> list[str]:
         return []
 
+
 class _FakeAgentRunHandler:
     def __init__(self, response_text: str = "ok") -> None:
         self._result = ExecutionResult(
@@ -129,7 +131,8 @@ def _build_context(
         latest_user_message="hi",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload.from_dict(
-            dict(fact.payload), fallback_user_id=user_id,
+            dict(fact.payload),
+            fallback_user_id=user_id,
         ),
         session_run_id=run_id,
         session_run_revision=revision,
@@ -138,16 +141,16 @@ def _build_context(
 
 
 def _build_request(ctx: ChatRuntimeContext) -> ExecutionRequest:
-    intent = IntentDecision(
-        intent="chat",
+    admission = TurnAdmissionDecision(
+        run_kind="chat",
         execution_mode=None,
         reasoning="",
     )
     return ExecutionRequest(
         mode=None,
         context=ctx,
-        intent=intent,
-        tool_selection=ToolSelection(tools=[], reasoning="", task_hint={}),
+        admission=admission,
+        capabilities=CapabilitySelection(tools=[], reasoning="", task_hint={}),
     )
 
 
@@ -174,7 +177,7 @@ async def test_execute_records_consumed_message_ids() -> None:
     coord = _build_coordinator(conversation_log=log)
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=0)
-    await coord.execute(_build_request(ctx))
+    await coord.execute_request(_build_request(ctx))
 
     assert len(log.records) == 1
     sid, rid, rev, ids = log.records[0]
@@ -193,7 +196,7 @@ async def test_execute_uses_context_revision_for_record_consumed() -> None:
     coord = _build_coordinator(conversation_log=log)
 
     ctx = _build_context(session_id="s1", run_id="run-1", revision=2)
-    await coord.execute(_build_request(ctx))
+    await coord.execute_request(_build_request(ctx))
 
     _, _, rev, _ = log.records[0]
     assert rev == 2
@@ -206,7 +209,7 @@ async def test_execute_skips_record_consumed_with_no_log() -> None:
     coord = _build_coordinator(conversation_log=None)
 
     ctx = _build_context(session_id="s1", run_id="run-1")
-    result = await coord.execute(_build_request(ctx))
+    result = await coord.execute_request(_build_request(ctx))
     assert result is not None
 
 
@@ -218,7 +221,7 @@ async def test_execute_swallows_log_failure() -> None:
 
     ctx = _build_context(session_id="s1", run_id="run-1")
     # Should NOT raise. No record either (since lookup failed).
-    result = await coord.execute(_build_request(ctx))
+    result = await coord.execute_request(_build_request(ctx))
     assert result is not None
     assert log.records == []
 
@@ -230,7 +233,7 @@ async def test_execute_skips_record_consumed_when_no_session_or_run_id() -> None
     coord = _build_coordinator(conversation_log=log)
 
     ctx = _build_context(session_id="", run_id="")
-    await coord.execute(_build_request(ctx))
+    await coord.execute_request(_build_request(ctx))
     assert log.records == []
 
 
@@ -241,5 +244,5 @@ async def test_execute_skips_record_consumed_when_history_empty() -> None:
     coord = _build_coordinator(conversation_log=log)
 
     ctx = _build_context(session_id="s1", run_id="run-1")
-    await coord.execute(_build_request(ctx))
+    await coord.execute_request(_build_request(ctx))
     assert log.records == []

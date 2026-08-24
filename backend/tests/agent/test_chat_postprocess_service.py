@@ -31,9 +31,9 @@ from magi.chat.task_agent.session_run_decisions import TurnSupersession
 from magi.agent.task_agents.common import (
     AssistantResponsePlan,
     AssistantResponseSegment,
+    CapabilitySelection,
     ExecutionResult,
     IncomingFactKind,
-    ToolSelection,
     UserMessagePayload,
 )
 from magi.agent.runtime.contracts import FactRecord
@@ -159,7 +159,9 @@ class _FakeContextAssembler:
         self.history.append({"history_key": history_key, "role": "user", "content": user_message})
 
     def append_assistant_message(self, history_key: str, response_text: str) -> None:
-        self.history.append({"history_key": history_key, "role": "assistant", "content": response_text})
+        self.history.append(
+            {"history_key": history_key, "role": "assistant", "content": response_text}
+        )
 
 
 class _FakeEventEmitter:
@@ -278,9 +280,9 @@ class _RecordingTaskAgentManager:
         return True
 
 
-class _FakeIntentDecision:
+class _FakeAdmissionDecision:
     def __init__(self) -> None:
-        self.intent = "chat"
+        self.run_kind = "chat"
         self.execution_mode = None
         self.tools: list[str] = []
         self.task_hint: dict[str, object] = {}
@@ -659,8 +661,12 @@ async def test_memory_updates_route_observer_candidates(monkeypatch) -> None:
             "source_domain": "conversation",
             "inference_depth": "explicit",
             "validation_state": "tentative",
-            "first_inferred_at": pytest.approx(unified_memory.l2.candidates[0]["first_inferred_at"]),
-            "last_validated_at": pytest.approx(unified_memory.l2.candidates[0]["last_validated_at"]),
+            "first_inferred_at": pytest.approx(
+                unified_memory.l2.candidates[0]["first_inferred_at"]
+            ),
+            "last_validated_at": pytest.approx(
+                unified_memory.l2.candidates[0]["last_validated_at"]
+            ),
             "target_entity_id": "",
             "target_entity_type": "",
             "target_scope": "global",
@@ -796,10 +802,7 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
         analyzed_batches.append(tuple(batch))
         current_attention_inputs.append(list(current_attention))
         return BatchInteractionAnalysis(
-            turn_analyses={
-                turn.turn_id: DEFAULT_ANALYSIS
-                for turn in batch
-            },
+            turn_analyses={turn.turn_id: DEFAULT_ANALYSIS for turn in batch},
             attention_actions=(
                 AttentionUpdateAction(
                     action=AttentionActionType.ADD,
@@ -862,17 +865,14 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
             "chat-turn:turn-batch-3:accepted",
         ]
         assert [turn.epoch for turn in analyzed_batches[0]] == [7, 7, 7]
-        persisted_messages = await chat_store.list_messages(
-            session_id="session-1"
-        )
+        persisted_messages = await chat_store.list_messages(session_id="session-1")
         assistant_commit_times = {
             str(message.turn_id): int(message.created_at_ms) / 1000.0
             for message in persisted_messages
             if str(message.role) == "assistant"
         }
         assert [turn.accepted_at for turn in analyzed_batches[0]] == [
-            assistant_commit_times[f"turn-batch-{index}"]
-            for index in range(1, 4)
+            assistant_commit_times[f"turn-batch-{index}"] for index in range(1, 4)
         ]
         assert [turn.incoming_fact_kind for turn in analyzed_batches[0]] == [
             "user_message",
@@ -880,9 +880,9 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
             "user_message",
         ]
         assert [turn.execution_mode for turn in analyzed_batches[0]] == [
-                "agent_run",
-                "agent_run",
-                "agent_run",
+            "agent_run",
+            "agent_run",
+            "agent_run",
         ]
         assert [turn.persona_id for turn in analyzed_batches[0]] == [
             "seven",
@@ -907,10 +907,7 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
             "user message 2",
             "user message 3",
         )
-        assert [
-            call["user_message"]
-            for call in personality_memory.process_calls
-        ] == [
+        assert [call["user_message"] for call in personality_memory.process_calls] == [
             "user message 1",
             "user message 2",
             "user message 3",
@@ -1034,9 +1031,7 @@ async def test_attention_revision_conflict_reanalyzes_fixed_scheduler_batch(
         assert len(personality_memory.process_calls) == 1
         assert analysis_calls == 2
         assert len(l0_store.apply_calls) == 2
-        assert tuple(l0_store.apply_calls[-1]["actions"])[0].entity_id == (
-            "person:forgotten"
-        )
+        assert tuple(l0_store.apply_calls[-1]["actions"])[0].entity_id == ("person:forgotten")
         assert tuple(l0_store.apply_calls[-1]["actions"])[0].source_event_ids == ()
         assert await service.admit(outcome) is False
     finally:
@@ -1173,15 +1168,19 @@ async def test_agent_lifecycle_preserves_shared_pending_attention_until_runtime_
             unified_memory=unified,
             post_turn_understanding_service=understanding,
         )
-        return service, understanding, AcceptedConversationOutcome(
-            outcome_id=f"chat-turn:{turn_id}:accepted",
-            source_turn_id=turn_id,
-            user_id="local_user",
-            session_id="session-1",
-            user_message="ordinary message",
-            assistant_response="ordinary response",
-            epoch=2,
-            accepted_at=time.time(),
+        return (
+            service,
+            understanding,
+            AcceptedConversationOutcome(
+                outcome_id=f"chat-turn:{turn_id}:accepted",
+                source_turn_id=turn_id,
+                user_id="local_user",
+                session_id="session-1",
+                user_message="ordinary message",
+                assistant_response="ordinary response",
+                epoch=2,
+                accepted_at=time.time(),
+            ),
         )
 
     normal_service, normal_understanding, normal_turn = _service_with_pending_turn(
@@ -1253,15 +1252,15 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
         "assistant_final",
     ]
     assert messages[-1].replaces_message_id == messages[-2].message_id
-    projection = await chat_store.get_assistant_memory_projection(
-        messages[-1].message_id
-    )
+    projection = await chat_store.get_assistant_memory_projection(messages[-1].message_id)
     assert projection is not None
     assert projection.content == "final answer"
 
 
 @pytest.mark.asyncio
-async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_store: ChatStore) -> None:
+async def test_outcome_writer_bumps_history_version_for_assistant_final(
+    chat_store: ChatStore,
+) -> None:
     writer = ChatOutcomeWriter(
         chat_store=chat_store,
         trace_id_factory=lambda turn_id: f"trace:{turn_id}",
@@ -1510,7 +1509,9 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
         "assistant_rhythm_segment",
         "assistant_rhythm_segment",
     ]
-    assert [record.message_id for record in records] == [message.message_id for message in messages[1:]]
+    assert [record.message_id for record in records] == [
+        message.message_id for message in messages[1:]
+    ]
 
     first_payload = json.loads(messages[1].payload_json)
     second_payload = json.loads(messages[2].payload_json)
@@ -1692,10 +1693,7 @@ async def test_outcome_writer_rejects_invalid_rhythm_plan(
         )
 
     messages = await chat_store.list_messages(session_id="session-1")
-    assert all(
-        message.message_kind != "assistant_rhythm_segment"
-        for message in messages
-    )
+    assert all(message.message_kind != "assistant_rhythm_segment" for message in messages)
 
 
 @pytest.mark.asyncio
@@ -1720,9 +1718,15 @@ async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: Cha
             mode="multi_message",
             aggregate_text="完整回答",
             segments=[
-                AssistantResponseSegment(content="第一段", delay_ms=0, segment_index=0, source_unit_ids=["u1"]),
-                AssistantResponseSegment(content="第二段", delay_ms=1000, segment_index=1, source_unit_ids=["u2"]),
-                AssistantResponseSegment(content="第三段", delay_ms=1500, segment_index=2, source_unit_ids=["u3"]),
+                AssistantResponseSegment(
+                    content="第一段", delay_ms=0, segment_index=0, source_unit_ids=["u1"]
+                ),
+                AssistantResponseSegment(
+                    content="第二段", delay_ms=1000, segment_index=1, source_unit_ids=["u2"]
+                ),
+                AssistantResponseSegment(
+                    content="第三段", delay_ms=1500, segment_index=2, source_unit_ids=["u3"]
+                ),
             ],
         ),
         started_at_ms=1710000000000,
@@ -1739,8 +1743,6 @@ async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: Cha
         1710000001200,
         1710000002700,
     ]
-
-
 
 
 @pytest.mark.asyncio
@@ -1779,9 +1781,7 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
 
 @pytest.fixture
 async def runtime_trace_store(runtime_paths_with_schema):
-    store = RuntimeTraceStore(
-        db_path=str(runtime_paths_with_schema.runtime_trace_db_path)
-    )
+    store = RuntimeTraceStore(db_path=str(runtime_paths_with_schema.runtime_trace_db_path))
     await store.initialize()
     try:
         yield store
@@ -1833,9 +1833,7 @@ async def trace_event_bus(runtime_trace_store):
 
 @pytest.fixture
 async def chat_store(runtime_paths_with_schema):
-    store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     try:
         yield store
@@ -1923,7 +1921,9 @@ async def test_record_tool_interaction_does_not_write_runtime_tactics_into_l0(
 
 
 @pytest.mark.asyncio
-async def test_record_tool_interaction_uses_historical_recall_summary_for_recent_tool_state() -> None:
+async def test_record_tool_interaction_uses_historical_recall_summary_for_recent_tool_state() -> (
+    None
+):
     context_assembler = _FakeContextAssembler()
     service = ChatPostProcessService(
         agent_id="chat:local_user",
@@ -1952,8 +1952,10 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
         }
     )
 
-    assert context_assembler.tool_records[0]["result_summary"] == "2022年9月2号傍晚在杭州拍了一张照片。"
-
+    assert (
+        context_assembler.tool_records[0]["result_summary"]
+        == "2022年9月2号傍晚在杭州拍了一张照片。"
+    )
 
 
 @pytest.mark.asyncio
@@ -2177,17 +2179,25 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
             turn_id="turn-2",
         ),
     )
-    decision = _FakeIntentDecision()
+    decision = _FakeAdmissionDecision()
     decision.execution_mode = None
 
-    await service.record_tool_selection(first_context, decision, ToolSelection())
+    await service.record_capability_resolution(
+        first_context,
+        decision,
+        CapabilitySelection(),
+    )
     await service.persist_turn_supersessions(
         superseded_turns=[
             TurnSupersession(turn_id="turn-1", anchor_turn_id="turn-2", reason="replace"),
         ],
         updated_at_ms=1710000001000,
     )
-    await service.record_tool_selection(second_context, decision, ToolSelection())
+    await service.record_capability_resolution(
+        second_context,
+        decision,
+        CapabilitySelection(),
+    )
     await trace_event_bus.drain()
 
     first_trace = await runtime_trace_store.get_turn("turn-1")
@@ -2545,9 +2555,7 @@ async def test_handle_commits_final_chat_message_before_notification(
     assert "assistant_final" in seen_kinds_at_notify
     assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
     assert messages[-1].content_text == "final answer"
-    projection = await chat_store.get_assistant_memory_projection(
-        messages[-1].message_id
-    )
+    projection = await chat_store.get_assistant_memory_projection(messages[-1].message_id)
     assert projection is not None
     assert projection.content == "final answer"
     payload = json.loads(notifications[0].payload_json)
@@ -2573,19 +2581,13 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
             return getattr(self._delegate, name)
 
         async def commit_unmanaged_assistant_outcome(self, **kwargs):  # type: ignore[no-untyped-def]
-            message_kinds = tuple(
-                message.message_kind for message in kwargs["messages"]
-            )
+            message_kinds = tuple(message.message_kind for message in kwargs["messages"])
             self.commit_attempts.append(message_kinds)
-            if message_kinds and all(
-                kind == "assistant_rhythm_segment" for kind in message_kinds
-            ):
+            if message_kinds and all(kind == "assistant_rhythm_segment" for kind in message_kinds):
                 raise RuntimeError("atomic segment commit failed")
             if self.fail_fallback:
                 raise RuntimeError("final fallback commit failed")
-            return await self._delegate.commit_unmanaged_assistant_outcome(
-                **kwargs
-            )
+            return await self._delegate.commit_unmanaged_assistant_outcome(**kwargs)
 
     class _StaticRhythmPlanner:
         async def plan(self, **_kwargs):  # type: ignore[no-untyped-def]
@@ -2593,8 +2595,15 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
                 mode="multi_message",
                 aggregate_text="first part second part",
                 segments=[
-                    AssistantResponseSegment(content="first part", delay_ms=0, segment_index=0, source_unit_ids=["u1"]),
-                    AssistantResponseSegment(content="second part", delay_ms=1000, segment_index=1, source_unit_ids=["u2"]),
+                    AssistantResponseSegment(
+                        content="first part", delay_ms=0, segment_index=0, source_unit_ids=["u1"]
+                    ),
+                    AssistantResponseSegment(
+                        content="second part",
+                        delay_ms=1000,
+                        segment_index=1,
+                        source_unit_ids=["u2"],
+                    ),
                 ],
             )
 
@@ -2681,10 +2690,7 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
         ("assistant_rhythm_segment", "assistant_rhythm_segment"),
         ("assistant_final",),
     ]
-    assert all(
-        message.message_kind != "assistant_rhythm_segment"
-        for message in messages
-    )
+    assert all(message.message_kind != "assistant_rhythm_segment" for message in messages)
     if fallback_commit_fails:
         assert [message.message_kind for message in visible_messages] == ["user_text"]
         turn = await chat_store.get_turn("turn-fallback")
@@ -2697,9 +2703,7 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
         "assistant_final",
     ]
     assert visible_messages[-1].content_text == "first part second part"
-    projection = await chat_store.get_assistant_memory_projection(
-        visible_messages[-1].message_id
-    )
+    projection = await chat_store.get_assistant_memory_projection(visible_messages[-1].message_id)
     assert projection is not None
     assert projection.content == "first part second part"
 
@@ -2762,7 +2766,9 @@ async def test_handle_strips_sentinel_from_history_and_events() -> None:
     outcome = await service.handle(context, result)
 
     assert outcome.emitted is True
-    assistant_entries = [entry for entry in context_assembler.history if entry["role"] == "assistant"]
+    assistant_entries = [
+        entry for entry in context_assembler.history if entry["role"] == "assistant"
+    ]
     assert len(assistant_entries) == 1
     assert assistant_entries[0]["content"] == "alpha beta"
     assert "‖" not in event_emitter.chat_response_events[0]["response"]
@@ -2871,9 +2877,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
     assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
     assert [message.message_kind for message in messages] == ["user_text"]
     assert event_emitter.chat_response_events == []
-    assert [notification.channel for notification in notifications] == [
-        "execution_control"
-    ]
+    assert [notification.channel for notification in notifications] == ["execution_control"]
     assert json.loads(notifications[0].payload_json)["state"] == "cancelled"
     assert completed_runs == [("session-1", "run-cancelled", 0)]
 
@@ -2938,7 +2942,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         message_text="嗯",
         created_at_ms=1710000000000,
     )
-    reaction_decision = _FakeIntentDecision()
+    reaction_decision = _FakeAdmissionDecision()
     reaction_decision.execution_mode = None
     reaction_decision.ux_plan = type(
         "_UxPlan",
@@ -3151,7 +3155,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         message_text="嗯",
         created_at_ms=1710000000000,
     )
-    reaction_decision = _FakeIntentDecision()
+    reaction_decision = _FakeAdmissionDecision()
     reaction_decision.execution_mode = None
     reaction_decision.ux_plan = type(
         "_UxPlan",
@@ -3204,7 +3208,6 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     assert len(controls) == 1
     assert json.loads(controls[0].payload_json)["state"] == "completed"
     assert json.loads(controls[0].payload_json)["turn_id"] == "turn-react-empty"
-
 
 
 @pytest.mark.asyncio
@@ -3274,6 +3277,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     chat_store: ChatStore,
 ) -> None:
     """Streamed turns must emit turn_execution_control(completed) so the frontend unlocks the input."""
+
     class _FakeDisplayMessage:
         def to_dict(self) -> dict[str, object]:
             return {
@@ -3387,6 +3391,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
     control_notifs = [n for n in notifications if n.channel == "execution_control"]
     assert len(control_notifs) == 1
     import json as _json
+
     payload = _json.loads(control_notifs[0].payload_json)
     assert payload["state"] == "completed"
     assert payload["turn_id"] == "turn-streamed"
@@ -3691,9 +3696,7 @@ async def test_final_surface_marks_exact_delivery_attempt_terminal(
         chat_store=chat_store,
         max_fact_memory=10,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-terminal-exact"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-terminal-exact")
     assert isinstance(context.latest_fact, FactRecord)
     context.latest_fact.delivery_attempt_no = 0
     context.latest_fact.runtime_command_id = 101
@@ -3704,9 +3707,7 @@ async def test_final_surface_marks_exact_delivery_attempt_terminal(
 
     await service.handle(context, result)
 
-    delivery = await chat_store.get_user_turn_delivery(
-        turn_id="turn-terminal-exact"
-    )
+    delivery = await chat_store.get_user_turn_delivery(turn_id="turn-terminal-exact")
     assert delivery is not None
     assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
     assert await service.mark_user_turn_delivery_terminal_if_persisted(
@@ -3730,9 +3731,7 @@ async def test_final_surface_without_command_identity_recovers_current_attempt(
         chat_store=chat_store,
         max_fact_memory=10,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-terminal-recovered"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-terminal-recovered")
     await _create_admitted_user_turn(
         chat_store,
         turn_id="turn-terminal-recovered",
@@ -3740,9 +3739,7 @@ async def test_final_surface_without_command_identity_recovers_current_attempt(
 
     await service.handle(context, result)
 
-    delivery = await chat_store.get_user_turn_delivery(
-        turn_id="turn-terminal-recovered"
-    )
+    delivery = await chat_store.get_user_turn_delivery(turn_id="turn-terminal-recovered")
     assert delivery is not None
     assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
 
@@ -4129,12 +4126,8 @@ async def test_cancelled_outcome_does_not_leak_response_trace(
 
     trace_turn = await runtime_trace_store.get_turn(turn_id)
     root_span = await runtime_trace_store.get_span(f"{turn_id}:turn")
-    response_span = await runtime_trace_store.get_span(
-        f"{turn_id}:response_emit"
-    )
-    rhythm_span = await runtime_trace_store.get_span(
-        f"{turn_id}:rhythm_processing"
-    )
+    response_span = await runtime_trace_store.get_span(f"{turn_id}:response_emit")
+    rhythm_span = await runtime_trace_store.get_span(f"{turn_id}:rhythm_processing")
     assert outcome.emitted is False
     assert trace_turn is not None
     assert trace_turn.status == "cancelled"
@@ -4274,7 +4267,9 @@ async def test_pending_input_retries_failed_release_and_releases_once(
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
         get_sensor_hub=lambda: None,
-        complete_session_run=lambda session_id, run_id, revision: coordinator.complete_run_with_pending_inputs(
+        complete_session_run=lambda session_id,
+        run_id,
+        revision: coordinator.complete_run_with_pending_inputs(
             session_id=session_id,
             run_id=run_id,
             revision=revision,
@@ -4404,9 +4399,7 @@ def test_complete_visible_rhythm_requires_exact_bounded_index_set(
             replaces_message_id=None,
             replaced_by_message_id=None,
         )
-        for position, (segment_index, segment_count) in enumerate(
-            segment_metadata
-        )
+        for position, (segment_index, segment_count) in enumerate(segment_metadata)
     ]
 
     complete = complete_visible_rhythm_segments(
@@ -4418,9 +4411,7 @@ def test_complete_visible_rhythm_requires_exact_bounded_index_set(
     assert (complete is not None) is is_complete
     if complete is not None:
         assert [
-            json.loads(message.payload_json or "{}")["rhythm"][
-                "segment_index"
-            ]
+            json.loads(message.payload_json or "{}")["rhythm"]["segment_index"]
             for message in complete
         ] == list(range(len(complete)))
 
@@ -4436,9 +4427,7 @@ async def test_first_context_story_stores_chat_but_skips_relationship_memory_upd
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-first-context"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-first-context")
     context.latest_user_message = "还行"
     context.latest_payload = UserMessagePayload(
         user_id="local_user",
@@ -4483,9 +4472,7 @@ async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
         get_sensor_hub=lambda: None,
         max_fact_memory=10,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-delayed-memory-enqueue"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-delayed-memory-enqueue")
     scheduled: list[dict[str, object]] = []
     service._schedule_background_memory_updates = (  # type: ignore[method-assign]
         lambda **kwargs: scheduled.append(dict(kwargs)) or True
@@ -4580,9 +4567,7 @@ async def test_handle_does_not_deliver_when_final_persistence_fails(
         max_fact_memory=10,
         deliver_final_response=_fake_seam,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-persistence-failure"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-persistence-failure")
 
     async def _fail_persistence(*_args, **_kwargs):
         raise RuntimeError("simulated persistence failure")
@@ -4751,13 +4736,17 @@ async def test_segmented_agent_response_routes_each_segment_through_seam(
     )
     messages = [
         SimpleNamespace(
-            content_text="part one", message_id="m0",
-            message_kind="assistant_rhythm_segment", persona_id="p1",
+            content_text="part one",
+            message_id="m0",
+            message_kind="assistant_rhythm_segment",
+            persona_id="p1",
             payload_json=None,
         ),
         SimpleNamespace(
-            content_text="part two", message_id="m1",
-            message_kind="assistant_rhythm_segment", persona_id="p1",
+            content_text="part two",
+            message_id="m1",
+            message_kind="assistant_rhythm_segment",
+            persona_id="p1",
             payload_json=None,
         ),
     ]
@@ -4850,12 +4839,12 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
             return DeliveryFanoutResult(
                 receipts=(receipt,),
                 failures=(
-                        DeliveryFailure(
-                            target=telegram_target,
-                            error=RuntimeError("telegram unavailable"),
-                            delivery_attempted=True,
-                        ),
+                    DeliveryFailure(
+                        target=telegram_target,
+                        error=RuntimeError("telegram unavailable"),
+                        delivery_attempted=True,
                     ),
+                ),
             )
         if failure_mode == "raised" and len(seam_calls) == 2:
             raise RuntimeError("delivery failed after the first segment")
@@ -4880,9 +4869,7 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
         message_text="explain rhythm",
         created_at_ms=1710000000000,
     )
-    context, result = _plain_non_streamed_context_and_result(
-        turn_id="turn-partial-channel"
-    )
+    context, result = _plain_non_streamed_context_and_result(turn_id="turn-partial-channel")
     result.response_text = "first part second part"
 
     await service.handle(context, result)
@@ -4897,16 +4884,12 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
         "assistant_rhythm_segment",
         "assistant_rhythm_segment",
     ]
-    assert [
-        call["content"].message_kind for call in seam_calls
-    ] == [
+    assert [call["content"].message_kind for call in seam_calls] == [
         "assistant_rhythm_segment",
         "assistant_rhythm_segment",
     ]
     assert seam_calls[0]["excluded"] == ()
-    assert seam_calls[1]["excluded"] == (
-        ("telegram",) if failure_mode == "reported" else ()
-    )
+    assert seam_calls[1]["excluded"] == (("telegram",) if failure_mode == "reported" else ())
     notifications = await runtime_trace_store.list_notifications(after_id=0)
     controls = [item for item in notifications if item.channel == "execution_control"]
     assert len(controls) == 1

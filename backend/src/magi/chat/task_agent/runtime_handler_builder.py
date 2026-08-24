@@ -105,7 +105,7 @@ def _build_coordinator(
         handler_registry=handler_registry,
         agent_run_handler=agent_run_handler,
         tool_advisory_provider=callbacks.tool_advisory_provider,
-        tool_selection_trace_callback=execution_parts.postprocess_service.record_tool_selection,
+        capability_trace_callback=execution_parts.postprocess_service.record_capability_resolution,
         delivery_dispatcher=execution_parts.delivery_dispatcher,
         conversation_log=execution_parts.conversation_log,
         attachment_resolver=context_parts.attachment_resolver,

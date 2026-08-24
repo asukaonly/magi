@@ -29,7 +29,7 @@ def format_llm_error(exc: Exception) -> str:
 class ChatStreamingMixin:
     """Canonical chunk write path for streaming chat responses.
 
-    Phase G+1 Step 2: every LLM stream event is routed onto
+    Every model stream event is routed onto
     ``coordinator.dispatch_stream_chunk`` -> ``ChatSseChannel.deliver_chunk``,
     carrying the full event so all kinds (text_delta / reasoning / status /
     text_flush / tool_call) are delivered. The channel is the sole writer of

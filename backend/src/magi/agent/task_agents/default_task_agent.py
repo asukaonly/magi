@@ -1,16 +1,17 @@
 """
 Default runtime task agent for non-specialized task types.
 """
+
 from __future__ import annotations
 
 from ...core.logger import get_logger
 from ...agent.runtime.contracts import FactRecord
 from ...agent.runtime.task_agent import (
     TaskAgent,
+    TaskAgentAdmissionDecision,
+    TaskAgentCapabilitySelection,
     TaskAgentExecutionRequest,
-    TaskAgentIntentResult,
     TaskAgentRuntimeContext,
-    TaskAgentToolSelection,
 )
 
 logger = get_logger(__name__)
@@ -19,8 +20,8 @@ logger = get_logger(__name__)
 class DefaultTaskAgent(
     TaskAgent[
         TaskAgentRuntimeContext,
-        TaskAgentIntentResult,
-        TaskAgentToolSelection,
+        TaskAgentAdmissionDecision,
+        TaskAgentCapabilitySelection,
         TaskAgentExecutionRequest,
         TaskAgentExecutionRequest,
     ]

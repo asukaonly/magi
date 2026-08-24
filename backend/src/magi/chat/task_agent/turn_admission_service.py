@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
-from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, TurnAdmissionDecision
 from magi.agent.execution.reasoning import ReasoningPreference
 
 
 class ChatTurnAdmissionService:
     """Separate domain events from ordinary user turns without semantic routing."""
 
-    def resolve(self, context: ChatRuntimeContext) -> IntentDecision:
+    def resolve(self, context: ChatRuntimeContext) -> TurnAdmissionDecision:
         kind = _resolve_fact_kind(context)
         if kind is IncomingFactKind.OTHER_FACT:
             return _decision(
@@ -27,13 +27,13 @@ class ChatTurnAdmissionService:
 
 
 def _decision(
-    intent: str,
+    run_kind: str,
     mode: ExecutionMode | None,
     reasoning: str,
     reasoning_preference: ReasoningPreference = ReasoningPreference.AUTO,
-) -> IntentDecision:
-    return IntentDecision(
-        intent=intent,
+) -> TurnAdmissionDecision:
+    return TurnAdmissionDecision(
+        run_kind=run_kind,
         execution_mode=mode,
         reasoning=reasoning,
         reasoning_preference=reasoning_preference,
@@ -41,9 +41,7 @@ def _decision(
 
 
 def _reasoning_preference(context: ChatRuntimeContext) -> ReasoningPreference:
-    value = str(
-        getattr(context.latest_payload, "reasoning_preference", "") or ""
-    ).strip()
+    value = str(getattr(context.latest_payload, "reasoning_preference", "") or "").strip()
     if not value:
         return ReasoningPreference.AUTO
     try:
@@ -53,7 +51,10 @@ def _reasoning_preference(context: ChatRuntimeContext) -> ReasoningPreference:
 
 
 def _resolve_fact_kind(context: ChatRuntimeContext) -> IncomingFactKind:
-    if context.planner_fact is not None or context.planner_fact_kind is not IncomingFactKind.OTHER_FACT:
+    if (
+        context.planner_fact is not None
+        or context.planner_fact_kind is not IncomingFactKind.OTHER_FACT
+    ):
         return context.planner_fact_kind
     return context.incoming_fact_kind
 

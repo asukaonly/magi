@@ -3,8 +3,9 @@
 from .contracts import (
     AssistantResponsePlan,
     AssistantResponseSegment,
-    BaseIntentDecision,
+    BaseAdmissionDecision,
     BaseRuntimeContext,
+    CapabilitySelection,
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
@@ -14,7 +15,6 @@ from .contracts import (
     IncomingFactKind,
     RhythmPersonaSignal,
     TaskFactPayload,
-    ToolSelection,
     UserMessagePayload,
 )
 from .handlers import (
@@ -30,8 +30,9 @@ __all__ = [
     "AssistantResponsePlan",
     "AssistantResponseSegment",
     "BaseExecutionHandler",
-    "BaseIntentDecision",
+    "BaseAdmissionDecision",
     "BaseRuntimeContext",
+    "CapabilitySelection",
     "CommonHandlerDependencies",
     "ExecutionHandler",
     "ExecutionHandlerRegistry",
@@ -46,6 +47,5 @@ __all__ = [
     "RhythmPersonaSignal",
     "TaskFactPayload",
     "TaskAgentLLMService",
-    "ToolSelection",
     "UserMessagePayload",
 ]

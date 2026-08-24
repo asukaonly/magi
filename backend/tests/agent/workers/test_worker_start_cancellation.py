@@ -93,8 +93,8 @@ class _RegistryCallingTaskAgent(TaskAgent):
         self.results: list[ToolResult | str] = []
         self.result_available = asyncio.Event()
 
-    async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
-        _ = llm_params
+    async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
+        _ = request
         latest_fact = context.latest_fact
         if latest_fact.payload["kind"] == "cancelled_launch":
             return await self._registry.execute(
@@ -104,9 +104,9 @@ class _RegistryCallingTaskAgent(TaskAgent):
             )
         return "second-fact-processed"
 
-    async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
+    async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
         _ = context
-        self.results.append(raw_result)
+        self.results.append(result)
         self.result_available.set()
 
 

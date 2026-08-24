@@ -100,17 +100,16 @@ class TaskAgentRuntimeContext:
 
 
 @dataclass(slots=True)
-class TaskAgentIntentResult:
-    """Minimal typed intent result for non-specialized task agents."""
+class TaskAgentAdmissionDecision:
+    """Minimal deterministic admission result for non-specialized task agents."""
 
-    intent: str
-    difficulty: str = "normal"
+    run_kind: str
     execution_mode: str = "llm"
 
 
 @dataclass(slots=True)
-class TaskAgentToolSelection:
-    """Minimal typed tool-selection result for non-specialized task agents."""
+class TaskAgentCapabilitySelection:
+    """Minimal capability-selection result for non-specialized task agents."""
 
     tools: list[str] = field(default_factory=list)
     reasoning: str = "default_no_tool"
@@ -121,8 +120,8 @@ class TaskAgentExecutionRequest:
     """Minimal typed execution payload for the default task-agent pipeline."""
 
     context: TaskAgentRuntimeContext
-    intent_result: TaskAgentIntentResult
-    tool_result: TaskAgentToolSelection
+    admission: TaskAgentAdmissionDecision
+    capabilities: TaskAgentCapabilitySelection
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,13 +133,13 @@ class FactAdmissionResult:
 
 
 ContextT = TypeVar("ContextT")
-IntentT = TypeVar("IntentT")
-ToolSelectionT = TypeVar("ToolSelectionT")
+AdmissionT = TypeVar("AdmissionT")
+CapabilitiesT = TypeVar("CapabilitiesT")
 RequestT = TypeVar("RequestT")
 ResultT = TypeVar("ResultT")
 
 
-class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
+class TaskAgent(Generic[ContextT, AdmissionT, CapabilitiesT, RequestT, ResultT]):
     """Self-looping task agent instance with its own fact queue."""
 
     def __init__(
@@ -286,20 +285,20 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
                     stage = "build_context"
                     context = await self.build_context(facts)
                     async with self.execution_scope(context):
-                        stage = "match_intent"
-                        intent_result = await self.match_intent(context)
-                        stage = "match_tools"
-                        tool_result = await self.match_tools(context, intent_result)
-                        stage = "assemble_llm_params"
-                        llm_params = await self.assemble_llm_params(
+                        stage = "admit_context"
+                        admission = await self.admit_context(context)
+                        stage = "resolve_capabilities"
+                        capabilities = await self.resolve_capabilities(context, admission)
+                        stage = "build_execution_request"
+                        request = await self.build_execution_request(
                             context,
-                            intent_result,
-                            tool_result,
+                            admission,
+                            capabilities,
                         )
-                        stage = "call_llm"
-                        raw_result = await self.call_llm(context, llm_params)
-                    stage = "parse_result"
-                    await self.parse_result(context, raw_result)
+                        stage = "execute_request"
+                        result = await self.execute_request(context, request)
+                    stage = "finalize_result"
+                    await self.finalize_result(context, result)
             except asyncio.CancelledError:
                 raise
             except TaskAgentBatchDiscarded:
@@ -418,57 +417,51 @@ class TaskAgent(Generic[ContextT, IntentT, ToolSelectionT, RequestT, ResultT]):
         _ = context
         yield
 
-    async def match_intent(self, context: ContextT) -> IntentT:
-        """Intent and complexity matching for model/tool path selection."""
+    async def admit_context(self, context: ContextT) -> AdmissionT:
+        """Apply deterministic admission policy to the prepared context."""
         latest_fact = getattr(context, "latest_fact", None)
         event_type = latest_fact.event_type if isinstance(latest_fact, FactRecord) else "unknown"
         return cast(
-            IntentT,
-            TaskAgentIntentResult(intent=event_type),
+            AdmissionT,
+            TaskAgentAdmissionDecision(run_kind=event_type),
         )
 
-    async def match_tools(self, context: ContextT, intent_result: IntentT) -> ToolSelectionT:
-        """Tool matching step."""
-        _ = (context, intent_result)
-        return cast(
-            ToolSelectionT,
-            TaskAgentToolSelection(),
-        )
-
-    async def assemble_llm_params(
+    async def resolve_capabilities(
         self,
         context: ContextT,
-        intent_result: IntentT,
-        tool_result: ToolSelectionT,
+        admission: AdmissionT,
+    ) -> CapabilitiesT:
+        """Resolve the capabilities available to the admitted execution."""
+        _ = (context, admission)
+        return cast(
+            CapabilitiesT,
+            TaskAgentCapabilitySelection(),
+        )
+
+    async def build_execution_request(
+        self,
+        context: ContextT,
+        admission: AdmissionT,
+        capabilities: CapabilitiesT,
     ) -> RequestT:
-        """Assemble model invocation parameters."""
+        """Build the typed request consumed by the domain executor."""
         return cast(
             RequestT,
             TaskAgentExecutionRequest(
                 context=cast(TaskAgentRuntimeContext, context),
-                intent_result=cast(TaskAgentIntentResult, intent_result),
-                tool_result=cast(TaskAgentToolSelection, tool_result),
+                admission=cast(TaskAgentAdmissionDecision, admission),
+                capabilities=cast(TaskAgentCapabilitySelection, capabilities),
             ),
         )
 
-    async def build_prompt_context(
-        self,
-        context: ContextT,
-        intent_result: IntentT,
-        tool_result: ToolSelectionT,
-    ) -> Optional[object]:
-        """Build modular prompt context for reusable prompt assembly."""
-        _ = (context, intent_result, tool_result)
-        return None
-
-    async def call_llm(self, context: ContextT, llm_params: RequestT) -> ResultT:
-        """Model/tool execution step."""
+    async def execute_request(self, context: ContextT, request: RequestT) -> ResultT:
+        """Execute one admitted domain request."""
         _ = context
-        return cast(ResultT, llm_params)
+        return cast(ResultT, request)
 
-    async def parse_result(self, context: ContextT, raw_result: ResultT) -> None:
-        """Parse and emit final result."""
-        _ = (context, raw_result)
+    async def finalize_result(self, context: ContextT, result: ResultT) -> None:
+        """Project and emit the terminal domain result."""
+        _ = (context, result)
 
     def get_stats(self) -> dict:
         return {

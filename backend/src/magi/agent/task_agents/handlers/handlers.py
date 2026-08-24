@@ -159,7 +159,7 @@ class ChatHandlerDependencies:
     attachment_resolver: AttachmentResolverPort = field(default_factory=NullAttachmentResolver)
     session_run_coordinator: Any | None = None
     background_launch_service: BackgroundLaunchService | None = None
-    # Phase G+1: Optional reference to the ChatExecutionCoordinator so the
+    # Optional reference to the ChatExecutionCoordinator so the
     # streaming-path handler can route ``text_delta`` chunks through
     # ``coordinator.dispatch_stream_chunk`` (multi-channel fanout). Optional
     # so legacy tests can build dependencies without wiring a coordinator.
@@ -207,7 +207,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
 
     async def build_request(self, request: ExecutionRequest) -> PreparedAgentRunRequest:
         prompt_package = await self._build_prompt_package(request)
-        selected_tools = list(request.tool_selection.tools)
+        selected_tools = list(request.capabilities.tools)
         system_prompt, selected_tools = self._apply_prompt_guidance(
             request=request,
             system_prompt=prompt_package.system_prompt,
@@ -231,12 +231,14 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         return PreparedAgentRunRequest(
             mode=request.mode,
             context=request.context,
-            intent=request.intent,
-            tool_selection=request.tool_selection,
+            admission=request.admission,
+            capabilities=request.capabilities,
             prompt_context=prompt_package.prompt_context,
             system_prompt=system_prompt,
             selected_tools=selected_tools,
-            reasoning_policy=ReasoningPolicy.from_preference(request.intent.reasoning_preference),
+            reasoning_policy=ReasoningPolicy.from_preference(
+                request.admission.reasoning_preference
+            ),
             context_sources=context_sources,
             skill_preapproval_rules=_inline_skill_preapproval_rules(request),
         )
@@ -250,7 +252,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 request.context, resolver=self._attachment_resolver
             ),
             task_category="general",
-            tools=request.tool_selection.tools,
+            tools=request.capabilities.tools,
             persona_action_tools=[],
             scenario=Scenario.CHAT,
             recent_tool_errors=request.context.recent_tool_errors,
@@ -272,8 +274,8 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
 
         scope_guidance_block = _build_scope_guidance_block(
-            getattr(request.tool_selection, "task_hint", None)
-            or getattr(request.intent, "task_hint", None)
+            getattr(request.capabilities, "task_hint", None)
+            or getattr(request.admission, "task_hint", None)
         )
         if scope_guidance_block:
             system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
@@ -395,8 +397,8 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             control=control,
             context_sources=request.context_sources,
             capability_resolution=(
-                request.intent.capability_resolution.to_event_payload()
-                if request.intent.capability_resolution is not None
+                request.admission.capability_resolution.to_event_payload()
+                if request.admission.capability_resolution is not None
                 else {}
             ),
             run_plan_reader=BoundRunPlanReader(
@@ -433,6 +435,6 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             root_user_message=request.context.latest_user_message,
             execution_outcome=execution_outcome.to_dict(),
             turn_id=turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
+            ux_plan=_serialize_ux_plan(request.admission),
             streamed=streamed,
         )

@@ -217,15 +217,17 @@ writer. Commands do not assemble transcript rows directly.
 
 ## Deterministic Turn Admission
 
-The generic `TaskAgent` pipeline still exposes hooks named `match_intent` and
-`match_tools`, but their current chat implementations are not semantic LLM
-routers:
+The generic `TaskAgent` pipeline names its stages after their actual runtime
+responsibilities: `admit_context`, `resolve_capabilities`,
+`build_execution_request`, `execute_request`, and `finalize_result`:
 
 - `ChatFactClassifier` normalizes fact envelopes into `USER_MESSAGE` or
   `OTHER_FACT` and extracts typed payloads;
 - `ChatTurnAdmissionService` routes non-user facts to `ExecutionMode.FACT_ONLY`;
 - every ordinary user message returns the `unified_agent_run` admission with no
   route-derived execution mode;
+- `CapabilityResolver` exposes resident, pinned, attachment-required, and
+  discoverable capabilities without predicting a chat/code/explore class;
 - `ExecutionMode` therefore describes only deterministic domain-event handling,
   not chat/code/explore/orchestration model paths.
 

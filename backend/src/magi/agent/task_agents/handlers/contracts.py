@@ -9,7 +9,7 @@ from typing import Any
 from ....agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl, null_run_control
 from ..common import (
-    BaseIntentDecision,
+    BaseAdmissionDecision,
     BaseRuntimeContext,
     GenericFactPayload,
     IncomingFactKind,
@@ -47,7 +47,7 @@ class TraceDisplayMode(str, Enum):
 
 @dataclass(slots=True)
 class TurnUXPlan:
-    """Presentation-facing decision emitted after intent routing."""
+    """Presentation-facing policy for one admitted turn."""
 
     assistant_surface_mode: AssistantSurfaceMode = AssistantSurfaceMode.FINAL_ONLY
     thinking_indicator: ThinkingIndicatorMode = ThinkingIndicatorMode.HIDDEN
@@ -125,7 +125,7 @@ class RecallFeedbackContext:
 
 
 @dataclass(slots=True, kw_only=True)
-class IntentDecision(BaseIntentDecision):
+class TurnAdmissionDecision(BaseAdmissionDecision):
     """Domain admission plus unified-run policy for one chat fact."""
 
     ux_plan: TurnUXPlan = field(default_factory=TurnUXPlan)

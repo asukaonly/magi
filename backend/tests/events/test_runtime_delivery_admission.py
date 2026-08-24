@@ -27,8 +27,8 @@ class _RecordingChatAgent(TaskAgent):
         super().__init__(TaskAgentType.CHAT, agent_id)
         self._processed_commands = processed
 
-    async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-        _ = raw_result
+    async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+        _ = result
         fact = context.latest_fact
         if fact is not None and fact.runtime_command_id is not None:
             self._processed_commands.append(fact.runtime_command_id)
@@ -273,10 +273,7 @@ async def test_ack_failure_replays_same_command_without_double_admission(
         await processor.wait_until_idle(timeout_seconds=1.0)
         for _ in range(100):
             bus_stats = await message_bus.get_stats()
-            if (
-                bus_stats["queue_length"] == 0
-                and bus_stats["active_dispatches"] == 0
-            ):
+            if bus_stats["queue_length"] == 0 and bus_stats["active_dispatches"] == 0:
                 break
             await asyncio.sleep(0.01)
 

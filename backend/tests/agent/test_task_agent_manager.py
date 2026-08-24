@@ -208,12 +208,12 @@ async def test_does_not_evict_instance_while_response_is_in_progress():
     completed: list[str] = []
 
     class _ActiveResponseAgent(TaskAgent):
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+        async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
             response_started.set()
             await release_response.wait()
             return context
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
             completed.append(str(context.latest_fact.payload.get("content") or ""))
 
     manager = TaskAgentManager(
@@ -362,22 +362,17 @@ class _BlockedResponseAgent(TaskAgent):
         if session_id != self.agent_id:
             return False
         if run_id is not None and run_revision is not None:
-            return bool(
-                run_id == self.active_run_id
-                and run_revision == self.active_run_revision
-            )
+            return bool(run_id == self.active_run_id and run_revision == self.active_run_revision)
         return match_turn_scope and turn_id == self.active_turn_id
 
-    async def call_llm(self, context, llm_params):
+    async def execute_request(self, context, request):
         if self._started_rows is not None:
-            self._started_rows.append(
-                str(context.latest_fact.payload.get("content") or "")
-            )
+            self._started_rows.append(str(context.latest_fact.payload.get("content") or ""))
         self._response_started.set()
         await self._response_gate.wait()
         return context
 
-    async def parse_result(self, context, raw_result) -> None:
+    async def finalize_result(self, context, result) -> None:
         content = str(context.latest_fact.payload.get("content") or "")
         self._chat_rows.append(content)
         self._memory_rows.append(content)
@@ -536,10 +531,14 @@ async def test_deleted_chat_scope_stops_active_work_and_rejects_replayed_turn():
     delete_started = False
 
     async def is_blocked(**scope) -> bool:  # type: ignore[no-untyped-def]
-        return delete_started and (
-            str(scope["session_id"]),
-            str(scope.get("turn_id") or ""),
-        ) in blocked_turns
+        return (
+            delete_started
+            and (
+                str(scope["session_id"]),
+                str(scope.get("turn_id") or ""),
+            )
+            in blocked_turns
+        )
 
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _BlockedResponseAgent(
@@ -677,13 +676,13 @@ async def test_failed_stop_restores_agent_and_queued_follow_up_once() -> None:
                 raise RuntimeError("stop failed before cancellation")
             await super().stop()
 
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+        async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
             if str(context.latest_fact.payload.get("content") or "") == "active":
                 active_started.set()
                 await active_gate.wait()
-            return llm_params
+            return request
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
             parsed_rows.append(str(context.latest_fact.payload.get("content") or ""))
 
     def fact(turn_id: str, content: str) -> FactRecord:
@@ -763,15 +762,13 @@ async def test_privacy_delete_does_not_restart_batch_completed_before_stop() -> 
             assert self._saved_start is not None
             await TaskAgent.start(self, *self._saved_start)
 
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+        async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
             processing_started.set()
             await release_processing.wait()
-            return llm_params
+            return request
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-            parsed_rows.append(
-                str(context.latest_fact.payload.get("content") or "")
-            )
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+            parsed_rows.append(str(context.latest_fact.payload.get("content") or ""))
             completed.set()
 
         async def request_session_cancel(self, **_kwargs):  # type: ignore[no-untyped-def]
@@ -780,10 +777,8 @@ async def test_privacy_delete_does_not_restart_batch_completed_before_stop() -> 
             return None
 
     class _UnexpectedReplacementAgent(TaskAgent):
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-            parsed_rows.append(
-                f"restarted:{context.latest_fact.payload.get('content') or ''}"
-            )
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+            parsed_rows.append(f"restarted:{context.latest_fact.payload.get('content') or ''}")
 
     def create_agent(agent_id: str) -> TaskAgent:
         generation = session_generations.get(agent_id, 0) + 1
@@ -853,10 +848,10 @@ async def test_cancelled_batch_is_not_counted_as_processed() -> None:
     gate = asyncio.Event()
 
     class _CancelledBatchAgent(TaskAgent):
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+        async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
             started.set()
             await gate.wait()
-            return llm_params
+            return request
 
     agent = _CancelledBatchAgent(TaskAgentType.CHAT, "processed-counter")
     await agent.start(event_emitter=None)
@@ -1082,9 +1077,7 @@ def _managed_user_fact(
 async def test_managed_strict_cancel_cancels_before_queue_drain(
     runtime_paths_with_schema,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="managed-interrupt",
@@ -1140,9 +1133,7 @@ async def test_managed_strict_cancel_cancels_before_queue_drain(
             fact: FactRecord,
         ) -> bool:
             self.ingress_cancel_checks += 1
-            return await super()._request_ingress_cancel_at_admission_boundary(
-                fact
-            )
+            return await super()._request_ingress_cancel_at_admission_boundary(fact)
 
     async def admit(**identity) -> bool:  # type: ignore[no-untyped-def]
         return await chat_store.mark_user_turn_delivery_admitted(
@@ -1194,16 +1185,10 @@ async def test_managed_strict_cancel_cancels_before_queue_drain(
             ),
         )
 
-        active_run = agent._session_run_coordinator.get_active_run(
-            "managed-interrupt"
-        )
+        active_run = agent._session_run_coordinator.get_active_run("managed-interrupt")
         root_turn = await chat_store.get_turn("turn-root")
-        root_delivery = await chat_store.get_user_turn_delivery(
-            turn_id="turn-root"
-        )
-        stop_delivery = await chat_store.get_user_turn_delivery(
-            turn_id="turn-stop"
-        )
+        root_delivery = await chat_store.get_user_turn_delivery(turn_id="turn-root")
+        stop_delivery = await chat_store.get_user_turn_delivery(turn_id="turn-stop")
         assert active_run is not None
         assert active_run.status == "cancelling"
         assert active_run.cancel_anchor_turn_id == "turn-root"
@@ -1236,10 +1221,7 @@ async def test_managed_user_message_is_admitted_once_and_duplicate_is_acked() ->
             identity["turn_id"] == state["turn_id"]
             and identity["delivery_attempt_no"] == state["attempt"]
             and state["state"] in {"ready", "queued"}
-            and (
-                state["command"] is None
-                or identity["command_id"] == state["command"]
-            )
+            and (state["command"] is None or identity["command_id"] == state["command"])
         ):
             state["state"] = "admitted"
             state["command"] = identity["command_id"]
@@ -1424,9 +1406,7 @@ async def test_cancel_during_durable_admission_still_queues_fact_once() -> None:
         await release_admission.wait()
         return True
 
-    admission = asyncio.create_task(
-        agent.add_fact_with_admission(fact, admit=admit)
-    )
+    admission = asyncio.create_task(agent.add_fact_with_admission(fact, admit=admit))
     await asyncio.wait_for(admission_started.wait(), timeout=1)
     assert agent.has_inflight_work() is True
     admission.cancel()
@@ -1530,9 +1510,7 @@ async def test_message_delete_stops_newer_run_that_may_hold_deleted_context() ->
             return False
 
         async def request_session_cancel(self, **scope):  # type: ignore[no-untyped-def]
-            cancellations.append(
-                (str(scope["reason"]), scope.get("anchor_turn_id"))
-            )
+            cancellations.append((str(scope["reason"]), scope.get("anchor_turn_id")))
             return None
 
     manager = TaskAgentManager(
@@ -1555,20 +1533,24 @@ async def test_message_delete_stops_newer_run_that_may_hold_deleted_context() ->
         match_turn_scope=True,
     ) as hold:
         assert hold.terminal_turn_ids == ("turn-old", "turn-newer")
-        assert manager.get_agent(
-            TaskAgentType.CHAT,
-            "session-context",
-        ) is original
+        assert (
+            manager.get_agent(
+                TaskAgentType.CHAT,
+                "session-context",
+            )
+            is original
+        )
         await hold.prepare_after_barrier()
         assert hold.cancelled_agent is True
 
-    assert cancellations == [
-        ("privacy_context_changed", "turn-newer")
-    ]
-    assert manager.get_agent(
-        TaskAgentType.CHAT,
-        "session-context",
-    ) is None
+    assert cancellations == [("privacy_context_changed", "turn-newer")]
+    assert (
+        manager.get_agent(
+            TaskAgentType.CHAT,
+            "session-context",
+        )
+        is None
+    )
     await manager.stop_all()
 
 
@@ -1660,8 +1642,11 @@ async def test_message_delete_replays_batch_that_creates_root_after_plan() -> No
     assert replay_cleanup == [
         ("session-race", ("turn-new",)),
     ]
-    assert manager.get_agent(
-        TaskAgentType.CHAT,
-        "session-race",
-    ) is None
+    assert (
+        manager.get_agent(
+            TaskAgentType.CHAT,
+            "session-race",
+        )
+        is None
+    )
     await manager.stop_all()

@@ -3,6 +3,7 @@ import asyncio
 try:
     import pytest
 except ModuleNotFoundError:  # pragma: no cover
+
     class _Mark:
         @staticmethod
         def asyncio(func):
@@ -19,10 +20,10 @@ from magi.agent.runtime import (
     AgentRuntime,
     RouterAgent,
     TaskAgent,
+    TaskAgentAdmissionDecision,
+    TaskAgentCapabilitySelection,
     TaskAgentExecutionRequest,
-    TaskAgentIntentResult,
     TaskAgentRuntimeContext,
-    TaskAgentToolSelection,
     TaskAgentManager,
     TaskAgentType,
 )
@@ -34,8 +35,8 @@ from magi.events.in_memory_backend import InMemoryMessageBusBackend
 class _FakeChatTaskAgent(
     TaskAgent[
         TaskAgentRuntimeContext,
-        TaskAgentIntentResult,
-        TaskAgentToolSelection,
+        TaskAgentAdmissionDecision,
+        TaskAgentCapabilitySelection,
         TaskAgentExecutionRequest,
         dict,
     ]
@@ -56,12 +57,17 @@ class _FakeChatTaskAgent(
         self.last_turn_id = payload.get("turn_id")
         return context
 
-    async def call_llm(self, context: TaskAgentRuntimeContext, llm_params: TaskAgentExecutionRequest) -> dict:
-        _ = (context, llm_params)
+    async def execute_request(
+        self,
+        context: TaskAgentRuntimeContext,
+        request: TaskAgentExecutionRequest,
+    ) -> dict:
+        _ = (context, request)
         self.called += 1
         return {"response": "ok"}
 
-    async def parse_result(self, context: TaskAgentRuntimeContext, raw_result):
+    async def finalize_result(self, context: TaskAgentRuntimeContext, result):
+        _ = result
         if self._event_emitter is None:
             return
         latest = context.latest_fact
@@ -83,7 +89,9 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
     sensor_hub = SensorHub(message_bus=message_bus)
     event_emitter = RuntimeEventEmitter(message_bus=message_bus)
     manager = TaskAgentManager(
-        create_chat_agent=lambda agent_id: fake_chat if agent_id == "s-chat" else _FakeChatTaskAgent(),
+        create_chat_agent=lambda agent_id: fake_chat
+        if agent_id == "s-chat"
+        else _FakeChatTaskAgent(),
     )
     router_agent = RouterAgent(sensor_hub=sensor_hub, task_agent_manager=manager)
     orchestrator = AgentRuntime(
@@ -97,7 +105,12 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
     await message_bus.publish(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"content": "你好", "user_id": "u-chat", "session_id": "s-chat", "turn_id": "turn_1"},
+            data={
+                "content": "你好",
+                "user_id": "u-chat",
+                "session_id": "s-chat",
+                "turn_id": "turn_1",
+            },
             source="test",
             level=EventLevel.INFO,
         )

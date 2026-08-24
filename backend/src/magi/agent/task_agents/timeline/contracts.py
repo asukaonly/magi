@@ -1,4 +1,5 @@
 """Typed contracts for timeline task-agent execution."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,10 +7,10 @@ from typing import Any, Dict, Optional
 
 from ....agent.runtime.contracts import FactRecord
 from ....agent.runtime.task_agent import (
+    TaskAgentAdmissionDecision,
+    TaskAgentCapabilitySelection,
     TaskAgentExecutionRequest,
-    TaskAgentIntentResult,
     TaskAgentRuntimeContext,
-    TaskAgentToolSelection,
 )
 
 
@@ -31,16 +32,16 @@ class TimelineRuntimeContext(TaskAgentRuntimeContext):
 
 
 @dataclass(slots=True)
-class TimelineIntentDecision(TaskAgentIntentResult):
-    """Timeline intent routing outcome."""
+class TimelineAdmissionDecision(TaskAgentAdmissionDecision):
+    """Timeline fact-admission outcome."""
 
-    intent: str = "timeline_ingest"
+    run_kind: str = "timeline_ingest"
     execution_mode: str = "timeline_fact_only"
 
 
 @dataclass(slots=True)
-class TimelineToolSelection(TaskAgentToolSelection):
-    """Timeline tool selection result."""
+class TimelineCapabilitySelection(TaskAgentCapabilitySelection):
+    """Timeline capability-selection result."""
 
 
 @dataclass(slots=True)

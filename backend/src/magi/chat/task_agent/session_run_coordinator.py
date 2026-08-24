@@ -37,7 +37,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         self._run_store = run_store or SessionRunStore()
         self._detach_signals: dict[str, DetachSignal] = {}
         self._delivery_dispatcher = delivery_dispatcher
-        # Phase F Task 11: optional ConversationLog — when wired,
+        # When wired, the optional ConversationLog
         # ``request_message_retract`` appends a message_redacted event
         # and propagates the redaction to every active dependent run via
         # the log's find_dependents → RetractSignal pipeline.
@@ -91,7 +91,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             return False
         control.retract_signal.request(payload)
 
-        # Phase G+3: also retract messages that were already delivered
+        # Also retract messages that were already delivered
         # through external channels.
         if self._delivery_dispatcher is not None and session_id and active_run.run_id:
             import asyncio
@@ -122,7 +122,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         actor: str = "system",
         payload: RetractRequested | None = None,
     ) -> bool:
-        """Phase F Task 11: cross-run retract of a single message.
+        """Retract one message across dependent runs.
 
         Thin wrapper around the internal :meth:`_do_message_retract` so the
         same logic is reachable for callers (``ChatTaskAgent`` and tests).

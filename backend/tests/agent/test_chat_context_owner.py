@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
+    CapabilitySelection,
     GenericFactPayload,
     IncomingFactKind,
-    IntentDecision,
-    ToolSelection,
+    TurnAdmissionDecision,
 )
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.context.contracts import PromptPackage
@@ -52,14 +52,14 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
         )
-        intent_result = IntentDecision(
-            intent="unified_agent_run",
+        admission = TurnAdmissionDecision(
+            run_kind="unified_agent_run",
             execution_mode=None,
             tools=["weather"],
         )
-        tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
+        capabilities = CapabilitySelection(tools=["weather"], reasoning="weather lookup")
 
-        llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
+        request = await agent.build_execution_request(context, admission, capabilities)
 
         agent._context_service.build_prompt_package.assert_awaited_once_with(  # type: ignore[attr-defined]
             user_id="u-chat",
@@ -75,7 +75,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             persona_id=None,
             allow_implicit_memory=True,
         )
-        self.assertEqual(llm_params.system_prompt, "owned-by-context-layer")
+        self.assertEqual(request.system_prompt, "owned-by-context-layer")
 
     async def test_chat_handlers_add_memory_query_guidance_when_capability_is_selected(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
@@ -104,14 +104,17 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
         )
-        intent_result = IntentDecision(
-            intent="unified_agent_run",
+        admission = TurnAdmissionDecision(
+            run_kind="unified_agent_run",
             execution_mode=None,
             tools=["weather", "memory_query"],
         )
-        tool_result = ToolSelection(tools=["weather", "memory_query"], reasoning="history lookup")
+        capabilities = CapabilitySelection(
+            tools=["weather", "memory_query"],
+            reasoning="history lookup",
+        )
 
-        llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
+        request = await agent.build_execution_request(context, admission, capabilities)
 
-        self.assertIn("memory_query", llm_params.selected_tools)
-        self.assertIn("source of truth", llm_params.system_prompt.lower())
+        self.assertIn("memory_query", request.selected_tools)
+        self.assertIn("source of truth", request.system_prompt.lower())

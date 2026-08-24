@@ -35,11 +35,11 @@ class _PausedPipelineChatAgent(ChatTaskAgent):
         self.release_batch = asyncio.Event()
         self.stage_turn_ids: dict[str, list[str]] = {
             "context": [],
-            "intent": [],
-            "tools": [],
-            "assemble": [],
-            "llm": [],
-            "parse": [],
+            "admission": [],
+            "capabilities": [],
+            "request": [],
+            "execution": [],
+            "finalization": [],
         }
 
     @staticmethod
@@ -64,43 +64,33 @@ class _PausedPipelineChatAgent(ChatTaskAgent):
         self.stage_turn_ids["context"].append(turn_id)
         return SimpleNamespace(latest_fact=merged_facts[-1])
 
-    async def match_intent(self, context):  # type: ignore[no-untyped-def]
-        self.stage_turn_ids["intent"].append(
-            self._turn_id_from_fact(context.latest_fact)
-        )
+    async def admit_context(self, context):  # type: ignore[no-untyped-def]
+        self.stage_turn_ids["admission"].append(self._turn_id_from_fact(context.latest_fact))
         return object()
 
-    async def match_tools(self, context, intent_result):  # type: ignore[no-untyped-def]
-        _ = intent_result
-        self.stage_turn_ids["tools"].append(
-            self._turn_id_from_fact(context.latest_fact)
-        )
+    async def resolve_capabilities(self, context, admission):  # type: ignore[no-untyped-def]
+        _ = admission
+        self.stage_turn_ids["capabilities"].append(self._turn_id_from_fact(context.latest_fact))
         return object()
 
-    async def assemble_llm_params(  # type: ignore[no-untyped-def]
+    async def build_execution_request(  # type: ignore[no-untyped-def]
         self,
         context,
-        intent_result,
-        tool_result,
+        admission,
+        capabilities,
     ):
-        _ = (intent_result, tool_result)
-        self.stage_turn_ids["assemble"].append(
-            self._turn_id_from_fact(context.latest_fact)
-        )
+        _ = (admission, capabilities)
+        self.stage_turn_ids["request"].append(self._turn_id_from_fact(context.latest_fact))
         return object()
 
-    async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
-        _ = llm_params
-        self.stage_turn_ids["llm"].append(
-            self._turn_id_from_fact(context.latest_fact)
-        )
+    async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
+        _ = request
+        self.stage_turn_ids["execution"].append(self._turn_id_from_fact(context.latest_fact))
         return object()
 
-    async def parse_result(self, context, raw_result):  # type: ignore[no-untyped-def]
-        _ = raw_result
-        self.stage_turn_ids["parse"].append(
-            self._turn_id_from_fact(context.latest_fact)
-        )
+    async def finalize_result(self, context, result):  # type: ignore[no-untyped-def]
+        _ = result
+        self.stage_turn_ids["finalization"].append(self._turn_id_from_fact(context.latest_fact))
 
 
 class _PostCheckPausedChatAgent(ChatTaskAgent):
@@ -277,7 +267,7 @@ def test_chat_task_agent_reports_postprocess_retry_as_inflight(
 @pytest.mark.asyncio
 async def test_chat_task_agent_routes_each_queued_user_message_independently() -> None:
     routed_turns: list[str] = []
-    intent_turns: list[str] = []
+    admitted_turns: list[str] = []
     response_turns: list[str] = []
     routed_batches: list[list[str]] = []
 
@@ -285,9 +275,7 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
         async def build_context(self, merged_facts):  # type: ignore[no-untyped-def]
             _ = merged_facts
             batch_facts = list(self._last_batch_facts)
-            assert sum(
-                fact.event_type == EventTypes.USER_MESSAGE for fact in batch_facts
-            ) == 1
+            assert sum(fact.event_type == EventTypes.USER_MESSAGE for fact in batch_facts) == 1
             routed_batches.append([fact.event_type for fact in batch_facts])
             latest_fact = batch_facts[-1]
             classified = self._fact_classifier.classify(
@@ -301,29 +289,29 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
             routed_turns.append(turn_id)
             return SimpleNamespace(turn_id=turn_id, decision=decision)
 
-        async def match_intent(self, context):  # type: ignore[no-untyped-def]
-            intent_turns.append(context.turn_id)
+        async def admit_context(self, context):  # type: ignore[no-untyped-def]
+            admitted_turns.append(context.turn_id)
             return object()
 
-        async def match_tools(self, context, intent_result):  # type: ignore[no-untyped-def]
-            _ = (context, intent_result)
+        async def resolve_capabilities(self, context, admission):  # type: ignore[no-untyped-def]
+            _ = (context, admission)
             return object()
 
-        async def assemble_llm_params(  # type: ignore[no-untyped-def]
+        async def build_execution_request(  # type: ignore[no-untyped-def]
             self,
             context,
-            intent_result,
-            tool_result,
+            admission,
+            capabilities,
         ):
-            _ = (intent_result, tool_result)
+            _ = (admission, capabilities)
             return context
 
-        async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+        async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
             _ = context
-            return llm_params
+            return request
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-            _ = raw_result
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+            _ = result
             response_turns.append(context.turn_id)
 
     agent = _TrackingChatTaskAgent(
@@ -331,9 +319,7 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
         llm_adapter=_FakeLLMAdapter(),
     )
     for index in range(1, 4):
-        assert await agent.add_fact(
-            _user_fact(f"message {index}", turn_id=f"turn-{index}")
-        )
+        assert await agent.add_fact(_user_fact(f"message {index}", turn_id=f"turn-{index}"))
         if index < 3:
             assert await agent.add_fact(
                 FactRecord(
@@ -354,7 +340,7 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
             await asyncio.sleep(0.01)
         expected = ["turn-1", "turn-2", "turn-3"]
         assert routed_turns == expected
-        assert intent_turns == expected
+        assert admitted_turns == expected
         assert response_turns == expected
         assert routed_batches == [
             [EventTypes.USER_MESSAGE, "SENSOR_CONTEXT_UPDATED"],
@@ -421,7 +407,9 @@ async def test_chat_task_agent_uses_injected_chat_read_service_for_workspace() -
         chat_read_service_factory=lambda: read_service,
     )
 
-    workspace_path = await agent._resolve_session_workspace_path(user_id="u-chat", session_id="s-chat")
+    workspace_path = await agent._resolve_session_workspace_path(
+        user_id="u-chat", session_id="s-chat"
+    )
 
     assert workspace_path == "/tmp/magi-workspace"
     assert read_service.calls == [("u-chat", "s-chat")]
@@ -435,7 +423,7 @@ async def test_chat_task_agent_prefers_user_fact_over_tool_loop_trace_in_mixed_b
 
     merged = await agent.merge_facts([user_fact, tool_loop_fact])
     context = await agent.build_context(merged)
-    decision = await agent.match_intent(context)
+    decision = await agent.admit_context(context)
 
     assert context.latest_fact == tool_loop_fact
     assert context.planner_fact == user_fact
@@ -499,13 +487,13 @@ def test_format_llm_error_task_budget() -> None:
 
 
 # ---------------------------------------------------------------------------
-# call_llm emits error stream chunk on failure
+# request execution emits an error stream chunk on failure
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
-    """When _coordinator.execute raises, call_llm must still return a terminal result.
+async def test_execute_request_emits_error_chunk_on_failure(monkeypatch) -> None:
+    """When request execution raises, the agent still returns a terminal result.
 
     The result goes through the normal postprocess path so the session run can
     be finalized instead of leaving the turn stuck in `running`.
@@ -526,7 +514,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
 
     class _FakeCoordinator:
-        async def execute(self, _params):
+        async def execute_request(self, _request):
             raise _FakeRateLimitError()
 
     agent._coordinator = _FakeCoordinator()
@@ -551,7 +539,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         conversation_history=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
+    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
 
     assert len(emitted) == 2
     assert emitted[0]["kind"] == "text_delta"
@@ -562,7 +550,9 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkeypatch) -> None:
+async def test_execute_request_does_not_emit_error_chunk_when_streaming_disabled(
+    monkeypatch,
+) -> None:
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
     monkeypatch.setattr(
         chat_task_agent_module,
@@ -578,7 +568,7 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
     monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
 
     class _FakeCoordinator:
-        async def execute(self, _params):
+        async def execute_request(self, _request):
             raise _FakeRateLimitError()
 
     agent._coordinator = _FakeCoordinator()
@@ -603,7 +593,7 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
         conversation_history=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
+    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
 
     assert emitted == []
     assert "rate" in result.response_text.lower()
@@ -611,7 +601,7 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
 
 
 @pytest.mark.asyncio
-async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
+async def test_execute_request_skips_emit_when_no_turn_id(monkeypatch) -> None:
     """If turn_id is missing, no stream chunk is emitted (avoids noisy errors)."""
     agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
 
@@ -623,7 +613,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
     monkeypatch.setattr(agent, "_emit_stream_event", _fake_emit)
 
     class _FakeCoordinator:
-        async def execute(self, _params):
+        async def execute_request(self, _request):
             raise RuntimeError("boom")
 
     agent._coordinator = _FakeCoordinator()
@@ -648,7 +638,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
         conversation_history=[],
     )
 
-    result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
+    result = await agent.execute_request(ctx, SimpleNamespace(mode=None))
 
     assert emitted == []
     assert "RuntimeError" in result.response_text
@@ -659,8 +649,8 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
 async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch) -> None:
     """A failed first turn must not leave the active run open for turn two.
 
-    Regression: when `call_llm` re-raised, `TaskAgent._run_loop` swallowed the
-    exception before `parse_result` ran, so `ChatPostProcessService` never
+    Regression: when request execution re-raised, `TaskAgent._run_loop`
+    swallowed the exception before finalization, so `ChatPostProcessService` never
     called `complete_session_run(...)`. The next user message then revised the
     old run instead of starting a fresh one.
     """
@@ -671,7 +661,7 @@ async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch
             return None
 
     class _FakeCoordinator:
-        async def execute(self, _params):
+        async def execute_request(self, _request):
             raise RuntimeError("boom")
 
     agent._event_emitter = _FakeEmitter()  # type: ignore[assignment]
@@ -681,11 +671,11 @@ async def test_failed_llm_turn_is_finalized_before_next_user_message(monkeypatch
     first_context = await agent.build_context(await agent.merge_facts([first_fact]))
     assert first_context.session_run_id is not None
 
-    result = await agent.call_llm(
+    result = await agent.execute_request(
         first_context,
         SimpleNamespace(mode=None),
     )
-    await agent.parse_result(first_context, result)
+    await agent.finalize_result(first_context, result)
 
     # The failed turn is fully finalized, so there is no active run left.
     assert agent._session_run_coordinator.get_active_run("s-chat") is None
@@ -801,9 +791,9 @@ async def test_add_fact_ordinary_message_queues_active_run_input() -> None:
     assert active_run is not None
     assert active_run.status == "running"
     assert active_run.cancel_requested_by is None
-    assert [
-        (item.turn_id, item.disposition) for item in active_run.pending_turns
-    ] == [("turn-input", "message")]
+    assert [(item.turn_id, item.disposition) for item in active_run.pending_turns] == [
+        ("turn-input", "message")
+    ]
     assert agent._fact_queue.empty()
 
 
@@ -860,9 +850,7 @@ async def test_strict_cancel_waits_for_run_admission_boundary() -> None:
     try:
         await asyncio.wait_for(agent.final_check_passed.wait(), timeout=1.0)
         cancel_task = asyncio.create_task(
-            agent.add_fact(
-                _user_fact("Stop!", turn_id="turn-cancel")
-            )
+            agent.add_fact(_user_fact("Stop!", turn_id="turn-cancel"))
         )
         await asyncio.sleep(0)
         assert not cancel_task.done()
@@ -1024,9 +1012,7 @@ async def test_session_cancel_uses_shared_pending_input_release_barrier(
         requested_by="user",
     )
 
-    assert barrier_calls == [
-        ("s-chat", "run-root", 0, ["turn-input"])
-    ]
+    assert barrier_calls == [("s-chat", "run-root", 0, ["turn-input"])]
     assert cancellation_order == ["durable_cancel", "worker_cancel"]
 
 
@@ -1035,9 +1021,7 @@ async def test_session_cancel_is_durable_before_worker_shutdown(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -1113,9 +1097,7 @@ async def test_session_cancel_is_durable_before_worker_shutdown(
 async def test_pre_admission_cancel_rejects_wrong_owner(
     runtime_paths_with_schema,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-owner",
@@ -1158,9 +1140,7 @@ async def test_cancelled_admitted_turn_is_removed_from_agent_queue(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-chat",
@@ -1212,8 +1192,7 @@ async def test_cancelled_admitted_turn_is_removed_from_agent_queue(
     )
 
     queued_turn_ids = [
-        str(fact.payload.get("turn_id") or "")
-        for fact in agent.snapshot_inflight_facts()
+        str(fact.payload.get("turn_id") or "") for fact in agent.snapshot_inflight_facts()
     ]
     assert result is not None
     assert result["status"] == "cancelled"
@@ -1225,9 +1204,7 @@ async def test_cancelled_active_batch_stops_before_any_execution_stage(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     created = await chat_store.create_user_turn_once(
         session_id="s-active-batch",
@@ -1312,8 +1289,7 @@ async def test_cancelled_active_batch_stops_before_any_execution_stage(
         assert await agent.add_fact(fact)
         await asyncio.wait_for(agent.batch_taken.wait(), timeout=1.0)
         assert [
-            str(item.payload.get("turn_id") or "")
-            for item in agent.snapshot_inflight_facts()
+            str(item.payload.get("turn_id") or "") for item in agent.snapshot_inflight_facts()
         ] == ["turn-active-batch"]
 
         first_cancel = await agent.request_session_cancel(
@@ -1360,9 +1336,7 @@ async def test_cancelled_active_batch_keeps_sibling_fact_executable(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await _create_admitted_turn(
         chat_store,
@@ -1443,10 +1417,7 @@ async def test_cancelled_active_batch_keeps_sibling_fact_executable(
 
         assert agent.get_stats()["processed"] == 2
         assert agent._fact_memory == [kept_fact]
-        assert all(
-            turn_ids == ["turn-kept-sibling"]
-            for turn_ids in agent.stage_turn_ids.values()
-        )
+        assert all(turn_ids == ["turn-kept-sibling"] for turn_ids in agent.stage_turn_ids.values())
     finally:
         agent.release_batch.set()
         await agent.stop()
@@ -1457,9 +1428,7 @@ async def test_stop_after_preliminary_delivery_check_wins_before_run_creation(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await _create_admitted_turn(
         chat_store,
@@ -1483,16 +1452,16 @@ async def test_stop_after_preliminary_delivery_check_wins_before_run_creation(
         forbidden_calls.append("context")
         raise AssertionError("context must not load")
 
-    async def _forbid_intent(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        forbidden_calls.append("intent")
-        raise AssertionError("intent must not match")
+    async def _forbid_admission(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        forbidden_calls.append("admission")
+        raise AssertionError("context must not be admitted")
 
     async def _forbid_control_notification(**_kwargs) -> None:  # type: ignore[no-untyped-def]
         return None
 
     monkeypatch.setattr(agent._fact_classifier, "classify", _forbid_classification)
     monkeypatch.setattr(agent, "_load_context_inputs", _forbid_context)
-    monkeypatch.setattr(agent._coordinator, "match_intent", _forbid_intent)
+    monkeypatch.setattr(agent._coordinator, "admit_context", _forbid_admission)
     monkeypatch.setattr(
         agent._postprocess_service,
         "emit_execution_control_notification",
@@ -1540,9 +1509,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
     runtime_paths_with_schema,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await _create_admitted_turn(
         chat_store,
@@ -1574,20 +1541,20 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
     async def _ignore_control_notification(**_kwargs):  # type: ignore[no-untyped-def]
         return None
 
-    async def _record_intent(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        forbidden_calls.append("intent")
+    async def _record_admission(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        forbidden_calls.append("admission")
         return object()
 
-    async def _record_tools(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        forbidden_calls.append("tools")
+    async def _record_capabilities(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        forbidden_calls.append("capabilities")
         return object()
 
-    async def _record_assemble(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        forbidden_calls.append("assemble")
+    async def _record_request(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        forbidden_calls.append("request")
         return object()
 
-    async def _record_llm(*_args, **_kwargs):  # type: ignore[no-untyped-def]
-        forbidden_calls.append("llm")
+    async def _record_execution(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        forbidden_calls.append("execution")
         return object()
 
     monkeypatch.setattr(agent, "_mark_session_turn_cancelled", _mark_and_signal)
@@ -1602,10 +1569,10 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
         "emit_execution_control_notification",
         _ignore_control_notification,
     )
-    monkeypatch.setattr(agent._coordinator, "match_intent", _record_intent)
-    monkeypatch.setattr(agent, "match_tools", _record_tools)
-    monkeypatch.setattr(agent, "assemble_llm_params", _record_assemble)
-    monkeypatch.setattr(agent, "call_llm", _record_llm)
+    monkeypatch.setattr(agent._coordinator, "admit_context", _record_admission)
+    monkeypatch.setattr(agent, "resolve_capabilities", _record_capabilities)
+    monkeypatch.setattr(agent, "build_execution_request", _record_request)
+    monkeypatch.setattr(agent, "execute_request", _record_execution)
     fact = _user_fact("Let aroute win first", turn_id="turn-aroute-wins")
     fact.payload["user_id"] = "u-aroute-wins"
     fact.payload["session_id"] = "s-aroute-wins"
@@ -1649,9 +1616,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
         assert agent.context_load_calls == 1
         assert forbidden_calls == []
         assert agent.get_stats()["processed"] == 1
-        cancelled_run = agent._session_run_coordinator.get_active_run(
-            "s-aroute-wins"
-        )
+        cancelled_run = agent._session_run_coordinator.get_active_run("s-aroute-wins")
         assert cancelled_run is not None
         assert cancelled_run.status == "cancelled"
         assert (
@@ -1673,9 +1638,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
 async def test_completed_turn_wins_before_pre_admission_cancel(
     runtime_paths_with_schema,
 ) -> None:
-    chat_store = ChatStore(
-        db_path=str(runtime_paths_with_schema.chat_db_path)
-    )
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
         session_id="s-completed",
@@ -1782,11 +1745,9 @@ async def test_message_delete_plan_replays_pre_run_active_batch(
     await agent.add_fact(queued_fact)
 
     try:
-        terminal_turn_ids, replay_turn_ids = (
-            await agent.plan_message_delete_runtime_turn_ids(
-                session_id="s-chat",
-                turn_id="turn-delete",
-            )
+        terminal_turn_ids, replay_turn_ids = await agent.plan_message_delete_runtime_turn_ids(
+            session_id="s-chat",
+            turn_id="turn-delete",
         )
     finally:
         agent._active_batch_facts = []
@@ -2076,12 +2037,10 @@ async def test_release_pending_inputs_requeues_original_durable_turn(
     try:
         active_run = agent._session_run_coordinator.get_active_run("s-chat")
         assert active_run is not None
-        completed, pending_inputs = (
-            agent._session_run_coordinator.complete_run_with_pending_inputs(
-                session_id="s-chat",
-                run_id=active_run.run_id,
-                revision=active_run.revision,
-            )
+        completed, pending_inputs = agent._session_run_coordinator.complete_run_with_pending_inputs(
+            session_id="s-chat",
+            run_id=active_run.run_id,
+            revision=active_run.revision,
         )
         assert completed
         await agent._release_pending_inputs("s-chat", pending_inputs)

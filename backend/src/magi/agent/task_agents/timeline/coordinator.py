@@ -1,4 +1,5 @@
 """Execution coordinator for timeline task agents."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -7,9 +8,9 @@ from typing import Any
 from .contracts import (
     TimelineExecutionRequest,
     TimelineExecutionResult,
-    TimelineIntentDecision,
+    TimelineAdmissionDecision,
+    TimelineCapabilitySelection,
     TimelineRuntimeContext,
-    TimelineToolSelection,
 )
 
 
@@ -22,32 +23,38 @@ class TimelineExecutionCoordinator:
     def __init__(self, timeline_handler: TimelineHandler | None = None) -> None:
         self._timeline_handler = timeline_handler
 
-    async def match_intent(self, context: TimelineRuntimeContext) -> TimelineIntentDecision:
+    async def admit_context(
+        self,
+        context: TimelineRuntimeContext,
+    ) -> TimelineAdmissionDecision:
         _ = context
-        return TimelineIntentDecision()
+        return TimelineAdmissionDecision()
 
-    async def match_tools(
+    async def resolve_capabilities(
         self,
         context: TimelineRuntimeContext,
-        intent_result: TimelineIntentDecision,
-    ) -> TimelineToolSelection:
-        _ = (context, intent_result)
-        return TimelineToolSelection()
+        admission: TimelineAdmissionDecision,
+    ) -> TimelineCapabilitySelection:
+        _ = (context, admission)
+        return TimelineCapabilitySelection()
 
-    async def assemble_request(
+    async def build_execution_request(
         self,
         context: TimelineRuntimeContext,
-        intent_result: TimelineIntentDecision,
-        tool_result: TimelineToolSelection,
+        admission: TimelineAdmissionDecision,
+        capabilities: TimelineCapabilitySelection,
     ) -> TimelineExecutionRequest:
         return TimelineExecutionRequest(
             context=context,
-            intent_result=intent_result,
-            tool_result=tool_result,
+            admission=admission,
+            capabilities=capabilities,
             payload=context.latest_payload,
         )
 
-    async def execute(self, request: TimelineExecutionRequest) -> TimelineExecutionResult:
+    async def execute_request(
+        self,
+        request: TimelineExecutionRequest,
+    ) -> TimelineExecutionResult:
         if self._timeline_handler is not None and request.payload is not None:
             await self._timeline_handler(request.payload.content)
         return TimelineExecutionResult(handled=True, payload=request.payload)

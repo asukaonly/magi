@@ -30,8 +30,8 @@ class ExecutionMode(str, Enum):
 
 
 @dataclass(slots=True)
-class ToolSelection:
-    """Typed tool selection result."""
+class CapabilitySelection:
+    """Capabilities exposed to one admitted execution."""
 
     tools: list[str] = field(default_factory=list)
     reasoning: str = ""
@@ -50,11 +50,9 @@ class GenericFactPayload:
 class UserMessagePayload:
     """Typed payload for direct user-message facts.
 
-    Phase H+1: ``source`` carries the dispatcher channel name
-    (``"api"`` for HTTP /chat, ``"telegram"`` / ``"weixin"`` for plugins,
-    etc.) so :class:`SessionRunCoordinator` can tag the resulting
-    :class:`RunTrigger` accordingly. Defaults to ``"api"`` for backward
-    compatibility with legacy payloads that pre-date this field.
+    ``source`` carries the ingress channel name so the session coordinator can
+    bind the resulting run trigger to its originating transport. Direct API
+    ingress uses ``"api"``.
     """
 
     user_id: str
@@ -135,12 +133,10 @@ class UserMessagePayload:
             ),
             first_context=normalized_first_context,
             reasoning_preference=_optional_string(
-                payload.get("reasoning_preference")
-                or metadata.get("reasoning_preference")
+                payload.get("reasoning_preference") or metadata.get("reasoning_preference")
             ),
             skill_invocation=_optional_dict(
-                payload.get("skill_invocation")
-                or metadata.get("skill_invocation")
+                payload.get("skill_invocation") or metadata.get("skill_invocation")
             ),
             source=str(raw_source) if raw_source else "api",
         )
@@ -170,10 +166,10 @@ class BaseRuntimeContext:
 
 
 @dataclass(slots=True)
-class BaseIntentDecision:
+class BaseAdmissionDecision:
     """Deterministic fact-admission result shared across task agents."""
 
-    intent: str
+    run_kind: str
     execution_mode: ExecutionMode | None
     reasoning: str = ""
 
@@ -184,8 +180,8 @@ class ExecutionRequest:
 
     mode: ExecutionMode | None
     context: BaseRuntimeContext
-    intent: BaseIntentDecision
-    tool_selection: ToolSelection
+    admission: BaseAdmissionDecision
+    capabilities: CapabilitySelection
 
 
 @dataclass(slots=True)

@@ -39,11 +39,11 @@ class _CapabilityProjectionHost(Protocol):
 class ChatPostprocessCapabilityMixin:
     """Project admitted capabilities without recreating semantic route traces."""
 
-    async def record_tool_selection(
+    async def record_capability_resolution(
         self,
         context: ChatRuntimeContext,
-        decision: Any,
-        tool_selection: Any,
+        admission: Any,
+        capabilities: Any,
     ) -> None:
         host = cast(_CapabilityProjectionHost, self)
         scope = _resolve_scope(host, context)
@@ -61,13 +61,13 @@ class ChatPostprocessCapabilityMixin:
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
         )
-        resolution = getattr(decision, "capability_resolution", None)
+        resolution = getattr(admission, "capability_resolution", None)
         payload = (
             resolution.to_event_payload()
             if resolution is not None
-            else {"initial_exposed_tools": list(getattr(tool_selection, "tools", []) or [])}
+            else {"initial_exposed_tools": list(getattr(capabilities, "tools", []) or [])}
         )
-        payload["advisories"] = list(getattr(decision, "recommended_tools", []) or [])
+        payload["advisories"] = list(getattr(admission, "recommended_tools", []) or [])
         bus = getattr(host, "_event_bus", None) or resolve_event_bus()
         await publish_trace_span(
             event_bus=bus,

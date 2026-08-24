@@ -4,7 +4,7 @@ from .contracts import (
     ChatParseOutcome,
     ChatReplyContext,
     ChatRuntimeContext,
-    IntentDecision,
+    TurnAdmissionDecision,
 )
 from ..common import (
     AssistantResponsePlan,
@@ -15,7 +15,7 @@ from ..common import (
     ExecutionResult,
     GenericFactPayload,
     IncomingFactKind,
-    ToolSelection,
+    CapabilitySelection,
     UserMessagePayload,
 )
 
@@ -31,7 +31,7 @@ __all__ = [
     "ExecutionResult",
     "GenericFactPayload",
     "IncomingFactKind",
-    "IntentDecision",
-    "ToolSelection",
+    "TurnAdmissionDecision",
+    "CapabilitySelection",
     "UserMessagePayload",
 ]

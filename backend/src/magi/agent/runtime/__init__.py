@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from .router_agent import RouterAgent
     from .task_agent import (
         TaskAgent,
+        TaskAgentAdmissionDecision,
+        TaskAgentCapabilitySelection,
         TaskAgentExecutionRequest,
-        TaskAgentIntentResult,
         TaskAgentRuntimeContext,
-        TaskAgentToolSelection,
     )
     from .task_agent_manager import TaskAgentManager
 
@@ -28,8 +28,8 @@ __all__ = [
     "RouterAgent",
     "TaskAgent",
     "TaskAgentRuntimeContext",
-    "TaskAgentIntentResult",
-    "TaskAgentToolSelection",
+    "TaskAgentAdmissionDecision",
+    "TaskAgentCapabilitySelection",
     "TaskAgentExecutionRequest",
     "TaskAgentManager",
 ]
@@ -50,25 +50,25 @@ def __getattr__(name: str) -> Any:
         return TaskAgentManager
     if name in {
         "TaskAgent",
+        "TaskAgentAdmissionDecision",
+        "TaskAgentCapabilitySelection",
         "TaskAgentExecutionRequest",
-        "TaskAgentIntentResult",
         "TaskAgentRuntimeContext",
-        "TaskAgentToolSelection",
     }:
         from .task_agent import (
             TaskAgent,
+            TaskAgentAdmissionDecision,
+            TaskAgentCapabilitySelection,
             TaskAgentExecutionRequest,
-            TaskAgentIntentResult,
             TaskAgentRuntimeContext,
-            TaskAgentToolSelection,
         )
 
         mapping = {
             "TaskAgent": TaskAgent,
+            "TaskAgentAdmissionDecision": TaskAgentAdmissionDecision,
+            "TaskAgentCapabilitySelection": TaskAgentCapabilitySelection,
             "TaskAgentExecutionRequest": TaskAgentExecutionRequest,
-            "TaskAgentIntentResult": TaskAgentIntentResult,
             "TaskAgentRuntimeContext": TaskAgentRuntimeContext,
-            "TaskAgentToolSelection": TaskAgentToolSelection,
         }
         return mapping[name]
     raise AttributeError(name)

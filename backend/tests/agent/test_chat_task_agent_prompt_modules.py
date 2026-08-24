@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock
 
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
+    CapabilitySelection,
     GenericFactPayload,
     IncomingFactKind,
-    IntentDecision,
-    ToolSelection,
+    TurnAdmissionDecision,
 )
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.config.models import LLMScenario
@@ -101,7 +101,7 @@ class _FakeHybridRetrievalService:
 
 
 class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
-    async def test_assemble_llm_params_contains_modular_prompt(self):
+    async def test_build_execution_request_contains_modular_prompt(self):
         agent = ChatTaskAgent(
             agent_id="u-chat",
             llm_adapter=_FakeLLMAdapter(),
@@ -126,21 +126,21 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
         )
-        intent_result = IntentDecision(
-            intent="unified_agent_run",
+        admission = TurnAdmissionDecision(
+            run_kind="unified_agent_run",
             execution_mode=None,
             tools=["weather"],
         )
-        tool_result = ToolSelection(tools=["weather"], reasoning="weather lookup")
+        capabilities = CapabilitySelection(tools=["weather"], reasoning="weather lookup")
 
-        llm_params = await agent.assemble_llm_params(context, intent_result, tool_result)
+        request = await agent.build_execution_request(context, admission, capabilities)
 
-        self.assertIsNotNone(llm_params.prompt_context)
-        system_prompt = llm_params.system_prompt
+        self.assertIsNotNone(request.prompt_context)
+        system_prompt = request.system_prompt
         self.assertIn("# System Definition", system_prompt)
         self.assertIn("# Tool Use Guidance", system_prompt)
         self.assertNotIn("weather", system_prompt)
-        self.assertIsNone(llm_params.mode)
+        self.assertIsNone(request.mode)
 
     async def test_chat_task_agent_uses_core_scenario_from_pool(self):
         pool = _RecordingLLMPool(_FakeLLMAdapter())
@@ -168,14 +168,14 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
         )
-        intent_result = IntentDecision(
-            intent="unified_agent_run",
+        admission = TurnAdmissionDecision(
+            run_kind="unified_agent_run",
             execution_mode=None,
             tools=[],
         )
-        tool_result = ToolSelection(tools=[], reasoning="direct reply")
+        capabilities = CapabilitySelection(tools=[], reasoning="direct reply")
 
-        await agent.assemble_llm_params(context, intent_result, tool_result)
+        await agent.build_execution_request(context, admission, capabilities)
         await agent._prompt_service.call_llm(
             system_prompt="You are helpful.",
             messages=[{"role": "user", "content": "你好"}],

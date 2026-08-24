@@ -1,4 +1,5 @@
 """Task agent dedicated to timeline fact ingestion."""
+
 from __future__ import annotations
 
 from ...agent.runtime.contracts import FactRecord
@@ -10,17 +11,17 @@ from .timeline import (
     TimelineExecutionResult,
     TimelineFactClassifier,
     TimelineHandler,
-    TimelineIntentDecision,
+    TimelineAdmissionDecision,
+    TimelineCapabilitySelection,
     TimelineRuntimeContext,
-    TimelineToolSelection,
 )
 
 
 class TimelineTaskAgent(
     TaskAgent[
         TimelineRuntimeContext,
-        TimelineIntentDecision,
-        TimelineToolSelection,
+        TimelineAdmissionDecision,
+        TimelineCapabilitySelection,
         TimelineExecutionRequest,
         TimelineExecutionResult,
     ]
@@ -50,7 +51,9 @@ class TimelineTaskAgent(
 
     async def build_context(self, merged_facts: list[FactRecord]) -> TimelineRuntimeContext:
         base_context = await super().build_context(merged_facts)
-        latest_fact = base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
+        latest_fact = (
+            base_context.latest_fact if isinstance(base_context, TaskAgentRuntimeContext) else None
+        )
         payload = self._fact_classifier.classify(latest_fact, self._last_batch_facts)
         return TimelineRuntimeContext(
             latest_fact=latest_fact,
@@ -62,28 +65,35 @@ class TimelineTaskAgent(
             latest_payload=payload,
         )
 
-    async def match_intent(self, context: TimelineRuntimeContext) -> TimelineIntentDecision:
-        return await self._coordinator.match_intent(context)
-
-    async def match_tools(
+    async def admit_context(
         self,
         context: TimelineRuntimeContext,
-        intent_result: TimelineIntentDecision,
-    ) -> TimelineToolSelection:
-        return await self._coordinator.match_tools(context, intent_result)
+    ) -> TimelineAdmissionDecision:
+        return await self._coordinator.admit_context(context)
 
-    async def assemble_llm_params(
+    async def resolve_capabilities(
         self,
         context: TimelineRuntimeContext,
-        intent_result: TimelineIntentDecision,
-        tool_result: TimelineToolSelection,
+        admission: TimelineAdmissionDecision,
+    ) -> TimelineCapabilitySelection:
+        return await self._coordinator.resolve_capabilities(context, admission)
+
+    async def build_execution_request(
+        self,
+        context: TimelineRuntimeContext,
+        admission: TimelineAdmissionDecision,
+        capabilities: TimelineCapabilitySelection,
     ) -> TimelineExecutionRequest:
-        return await self._coordinator.assemble_request(context, intent_result, tool_result)
+        return await self._coordinator.build_execution_request(
+            context,
+            admission,
+            capabilities,
+        )
 
-    async def call_llm(
+    async def execute_request(
         self,
         context: TimelineRuntimeContext,
-        llm_params: TimelineExecutionRequest,
+        request: TimelineExecutionRequest,
     ) -> TimelineExecutionResult:
         _ = context
-        return await self._coordinator.execute(llm_params)
+        return await self._coordinator.execute_request(request)

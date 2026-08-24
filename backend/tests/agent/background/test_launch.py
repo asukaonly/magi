@@ -30,11 +30,11 @@ from magi.agent.execution.task_budget import (
     current_task_budget,
 )
 from magi.agent.task_agents.common.contracts import (
-    BaseIntentDecision,
+    BaseAdmissionDecision,
     BaseRuntimeContext,
+    CapabilitySelection,
     ExecutionRequest,
     IncomingFactKind,
-    ToolSelection,
     UserMessagePayload,
 )
 from magi.chat import ChatStore
@@ -74,15 +74,15 @@ def _make_request(
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=payload,
     )
-    intent = BaseIntentDecision(
-        intent="chat",
+    admission = BaseAdmissionDecision(
+        run_kind="chat",
         execution_mode=None,
     )
     return ExecutionRequest(
         mode=None,
         context=context,
-        intent=intent,
-        tool_selection=ToolSelection(tools=list(tools or [])),
+        admission=admission,
+        capabilities=CapabilitySelection(tools=list(tools or [])),
     )
 
 
@@ -373,9 +373,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert call.max_iterations == 7
     assert call.execution_preset == "background"
     assert call.execution_agent_id == f"background:{task.task_id}"
-    assert [rule.display for rule in call.skill_preapproval_rules] == [
-        "bash(git diff *)"
-    ]
+    assert [rule.display for rule in call.skill_preapproval_rules] == ["bash(git diff *)"]
     # Cancellation is plumbed through.
     assert call.control is not None
     assert call.control.cancel_token is not None

@@ -110,10 +110,7 @@ async def _create_admitted_turn(
 async def _wait_for_terminal(store: ChatStore, *, turn_id: str) -> None:
     for _ in range(100):
         delivery = await store.get_user_turn_delivery(turn_id=turn_id)
-        if (
-            delivery is not None
-            and delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
-        ):
+        if delivery is not None and delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL:
             return
         await asyncio.sleep(0.01)
     raise AssertionError(f"Turn {turn_id!r} did not become terminal")
@@ -140,6 +137,7 @@ class _FailingPipelineChatAgent(ChatTaskAgent):
         )
         self._fail_stage = fail_stage
         if fail_stage == "postprocess":
+
             async def _fail_postprocess(*_args, **_kwargs):  # type: ignore[no-untyped-def]
                 raise RuntimeError("postprocess service failed")
 
@@ -154,30 +152,30 @@ class _FailingPipelineChatAgent(ChatTaskAgent):
             session_run_id=None,
         )
 
-    async def match_intent(self, context):  # type: ignore[no-untyped-def]
-        if self._fail_stage == "match_intent":
-            raise RuntimeError("intent matching failed")
+    async def admit_context(self, context):  # type: ignore[no-untyped-def]
+        if self._fail_stage == "admit_context":
+            raise RuntimeError("context admission failed")
         return object()
 
-    async def match_tools(self, context, intent_result):  # type: ignore[no-untyped-def]
+    async def resolve_capabilities(self, context, admission):  # type: ignore[no-untyped-def]
         return object()
 
-    async def assemble_llm_params(  # type: ignore[no-untyped-def]
+    async def build_execution_request(  # type: ignore[no-untyped-def]
         self,
         context,
-        intent_result,
-        tool_result,
+        admission,
+        capabilities,
     ):
         return object()
 
-    async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+    async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
         return object()
 
-    async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-        if self._fail_stage == "parse_result":
+    async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+        if self._fail_stage == "finalize_result":
             raise RuntimeError("postprocess failed")
         if self._fail_stage == "postprocess":
-            await super().parse_result(context, raw_result)
+            await super().finalize_result(context, result)
 
 
 class _EmptyVisibleResponseChatAgent(ChatTaskAgent):
@@ -218,21 +216,21 @@ class _EmptyVisibleResponseChatAgent(ChatTaskAgent):
             session_run_disposition="start",
         )
 
-    async def match_intent(self, context):  # type: ignore[no-untyped-def]
+    async def admit_context(self, context):  # type: ignore[no-untyped-def]
         return object()
 
-    async def match_tools(self, context, intent_result):  # type: ignore[no-untyped-def]
+    async def resolve_capabilities(self, context, admission):  # type: ignore[no-untyped-def]
         return object()
 
-    async def assemble_llm_params(  # type: ignore[no-untyped-def]
+    async def build_execution_request(  # type: ignore[no-untyped-def]
         self,
         context,
-        intent_result,
-        tool_result,
+        admission,
+        capabilities,
     ):
         return object()
 
-    async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+    async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
         turn_id = str(context.latest_payload.turn_id)
         return ExecutionResult(
             mode=None,
@@ -243,21 +241,21 @@ class _EmptyVisibleResponseChatAgent(ChatTaskAgent):
 
 
 class _SuccessfulVisibleResponseChatAgent(ChatTaskAgent):
-    async def match_intent(self, context):  # type: ignore[no-untyped-def]
+    async def admit_context(self, context):  # type: ignore[no-untyped-def]
         return object()
 
-    async def match_tools(self, context, intent_result):  # type: ignore[no-untyped-def]
+    async def resolve_capabilities(self, context, admission):  # type: ignore[no-untyped-def]
         return object()
 
-    async def assemble_llm_params(  # type: ignore[no-untyped-def]
+    async def build_execution_request(  # type: ignore[no-untyped-def]
         self,
         context,
-        intent_result,
-        tool_result,
+        admission,
+        capabilities,
     ):
         return object()
 
-    async def call_llm(self, context, llm_params):  # type: ignore[no-untyped-def]
+    async def execute_request(self, context, request):  # type: ignore[no-untyped-def]
         turn_id = str(context.latest_payload.turn_id)
         return ExecutionResult(
             mode=None,
@@ -381,7 +379,7 @@ async def test_empty_visible_response_uses_retryable_failure_finalizer_once(
     await restarted_agent.handle_batch_failure(
         [fact],
         error=RuntimeError("duplicate restart finalization"),
-        stage="parse_result",
+        stage="finalize_result",
         context=None,
     )
 
@@ -403,9 +401,9 @@ async def test_empty_visible_response_uses_retryable_failure_finalizer_once(
     ("fail_stage", "recorded_stage"),
     [
         ("build_context", "build_context"),
-        ("match_intent", "match_intent"),
-        ("parse_result", "parse_result"),
-        ("postprocess", "parse_result"),
+        ("admit_context", "admit_context"),
+        ("finalize_result", "finalize_result"),
+        ("postprocess", "finalize_result"),
     ],
 )
 @pytest.mark.asyncio
@@ -505,7 +503,7 @@ async def test_budget_failure_writes_execution_limit_terminal_surface(
                 used=30,
                 requested=1,
             ),
-            stage="match_intent",
+            stage="admit_context",
         )
 
     final = await store.get_latest_message_for_turn(
@@ -577,13 +575,11 @@ async def test_pipeline_failure_uses_shared_pending_input_release_barrier(
     await agent.handle_batch_failure(
         [_fact(session_id=session_id, turn_id=turn_id)],
         error=RuntimeError("pipeline failed"),
-        stage="parse_result",
+        stage="finalize_result",
         context=None,
     )
 
-    assert barrier_calls == [
-        (session_id, "run-failure-barrier", 0, ["turn-input"])
-    ]
+    assert barrier_calls == [(session_id, "run-failure-barrier", 0, ["turn-input"])]
 
 
 @pytest.mark.asyncio
@@ -645,7 +641,7 @@ async def test_pipeline_failure_finalization_retries_without_rerunning_pipeline(
             agent.handle_batch_failure(
                 [fact],
                 error=RuntimeError("pipeline failed"),
-                stage="parse_result",
+                stage="finalize_result",
                 context=None,
             )
         )
@@ -665,7 +661,6 @@ async def test_pipeline_failure_finalization_retries_without_rerunning_pipeline(
     assert finalization_attempts >= 2
     assert agent._session_run_coordinator.get_active_run(session_id) is None
     assert agent.has_inflight_work() is False
-
 
 
 @pytest.mark.asyncio
@@ -716,7 +711,7 @@ async def test_old_failed_attempt_cannot_write_surface_or_close_new_attempt(
     await agent.handle_batch_failure(
         [_fact(session_id="session-failure", turn_id=turn_id)],
         error=RuntimeError("old attempt failed"),
-        stage="parse_result",
+        stage="finalize_result",
         context=None,
     )
 
@@ -787,7 +782,7 @@ async def test_pipeline_failure_preserves_already_persisted_final_response(
     await agent.handle_batch_failure(
         [_fact(session_id="session-failure", turn_id=turn_id)],
         error=RuntimeError("notification failed"),
-        stage="parse_result",
+        stage="finalize_result",
         context=None,
     )
 
@@ -832,9 +827,7 @@ async def test_pipeline_failure_hides_incomplete_rhythm_before_retry_surface(
             role="assistant",
             message_kind="assistant_rhythm_segment",
             content_text="Only the first part",
-            payload_json=json.dumps(
-                {"rhythm": {"segment_count": 2, "segment_index": 0}}
-            ),
+            payload_json=json.dumps({"rhythm": {"segment_count": 2, "segment_index": 0}}),
             is_final=True,
             is_visible=True,
             created_at_ms=200,
@@ -852,14 +845,12 @@ async def test_pipeline_failure_hides_incomplete_rhythm_before_retry_surface(
     await agent.handle_batch_failure(
         [_fact(session_id="session-failure", turn_id=turn_id)],
         error=RuntimeError("postprocess failed"),
-        stage="parse_result",
+        stage="finalize_result",
         context=None,
     )
 
     messages = await store.list_messages(session_id="session-failure")
-    partial = next(
-        message for message in messages if message.message_id == "msg-partial-rhythm"
-    )
+    partial = next(message for message in messages if message.message_id == "msg-partial-rhythm")
     visible_final = next(
         message
         for message in messages
@@ -889,7 +880,7 @@ async def test_generic_task_agent_does_not_replay_failed_batch() -> None:
                 raise RuntimeError("generic failure")
             return content
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
             processed.append(str(context))
 
         async def handle_batch_failure(  # type: ignore[no-untyped-def]
@@ -942,8 +933,8 @@ async def test_filtered_batch_is_counted_exactly_once() -> None:
         async def merge_facts(self, new_facts):  # type: ignore[no-untyped-def]
             return []
 
-        async def parse_result(self, context, raw_result) -> None:  # type: ignore[no-untyped-def]
-            parsed.append(raw_result)
+        async def finalize_result(self, context, result) -> None:  # type: ignore[no-untyped-def]
+            parsed.append(result)
 
     agent = _FilteringAgent(TaskAgentType.TIMELINE, "filtered-batch")
     agent._batch_size = 2
