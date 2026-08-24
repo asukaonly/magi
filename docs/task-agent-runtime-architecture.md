@@ -36,8 +36,9 @@ Last reviewed against the implementation: 2026-08-24.
 5. **Child agents are child runs.** The `agent` tool launches bounded runs via
    `ChildRunCoordinator`. There is no separate parent DAG orchestrator.
 6. **Reasoning depth is a policy, not an inferred intent field.** The user picks
-   `auto`, `fast`, or `deep`; the runtime may escalate monotonically from
-   evidence such as failed validation, within a fixed budget.
+   `auto`, `fast`, or `deep`; completion evidence and the model's typed
+   `request_reasoning_depth` control may request monotonic escalation, while the
+   runtime owns the ceiling and budget.
 7. **Durable stores have one truth each.** Context manifests and ordered run
    events own execution history; `run_plans` owns current plan state. Chat trace
    summaries join those sources for metrics, validation, repair, children, and
@@ -191,6 +192,7 @@ The client sends structured fields for controls that must not be guessed from
 natural language:
 
 - reasoning preference (`auto`, `fast`, `deep`);
+- active-run disposition (`message` or explicit `replace`);
 - inline skill identity and expanded content hash;
 - reply target and managed attachments;
 - controlled interaction responses;
@@ -258,6 +260,12 @@ Attachment resolver tools are hard requirements because the current message
 cannot be grounded without resolving its managed assets. Patterned rules such as
 `bash(git diff *)` pin only `bash`; the full pattern travels separately on the
 run and is matched against actual arguments at the permission boundary.
+
+The initial surface is bounded by `CapabilityResolver` before the first call.
+`ModelCapabilityProfile` then fail-closes model-shape constraints such as native
+image support, tool calling, image-plus-tool support, tool-schema count, and
+schema-token limits when the active profile declares them. It never silently
+drops a required attachment or pinned capability to make a call fit.
 
 If the first surface is insufficient, the model may use the bounded discovery
 tool during the loop. The runtime appends only admitted capabilities and records
@@ -359,6 +367,12 @@ It enforces these current invariants:
 - local-write and unknown-effect work must have current validation evidence;
 - repair cannot exceed the configured budget.
 
+Every rejected proposal produces a stable completion reason. A repairable
+rejection emits a repair observation for the next model step. If the repair or
+task budget is exhausted, the journal emits `REPAIR_EXHAUSTED` and the run ends
+with the real blocked/unverified state; it does not disappear as a generic
+finalization failure.
+
 Gate rejection is not a hidden fixed workflow such as “always plan, then act,
 then validate.” Simple conversation skips plans, tools, and validation. The
 runtime adds those constraints only when observed effects, an explicit plan, or
@@ -376,6 +390,14 @@ Reasoning depth has four layers of ownership:
    what the active provider/model can actually support.
 4. **Evidence-driven escalation.** Validation failure or another completion
    rejection marked `reasoning_helpful` may raise the next step monotonically.
+
+The resident `request_reasoning_depth` control lets the model request one step
+of additional reasoning for a small stable set of reasons such as conflicting
+evidence or stalled reasoning. The request is advisory: `ReasoningPolicy` may
+deny it because of `fast` mode, the maximum depth, or the escalation budget.
+Permission, dependency, network, uncertain-effect, user-input, and exhausted-
+budget blockers are not reasoning problems and must not be converted into an
+escalation.
 
 `ReasoningState` is checkpointed. Escalation cannot lower depth, exceed the run
 maximum, or reset its counter on retry. A validation-required rejection caused
@@ -442,7 +464,7 @@ cannot recursively launch `agent`, update the parent plan, ask the user, or
 detach themselves. Their allowed tools are derived from effect metadata, and
 their reasoning ceiling cannot exceed the parent's policy or remaining budget.
 
-## Active-Run Input, Cancellation, And Detach
+## Active-Run Input, Replacement, Cancellation, And Detach
 
 `SessionRunCoordinator` owns one active foreground run per chat session.
 
@@ -451,6 +473,14 @@ turn and attached to the run with the single disposition `message`.
 `RunInputQueue` drains it exactly once at the next safe model-step boundary and
 adds a typed `RunInputMessage` to context. The old AUGMENT/STEER/DEFER semantic
 classifier and its extra LLM call are retired.
+
+An explicit `run_disposition=replace` follows a different deterministic path.
+It is durably queued as the replacement root, never injected into the old
+model context, and cancels the exact active run plus its owned children and
+plan. Once that run reaches its terminal boundary, the delivery ledger admits
+the replacement as the next root run. This is replacement within one session;
+starting a separate task remains the client-owned `/new-session` action and is
+not encoded as an in-flight run signal.
 
 Structured interactions that must start a new root turn remain separate from
 in-flight text injection. They are not flattened into arbitrary user prose.
@@ -497,8 +527,8 @@ assembly.
 
 Important run events include model output, tool request/result/effect admission,
 capability expansion, plan version notification, child lifecycle, validation,
-completion decision, repair, reasoning-depth change, suspension, blocked,
-completion, failure, and cancellation.
+completion decision, repair start/exhaustion, reasoning-depth change,
+suspension, blocked, completion, failure, and cancellation.
 
 `ChatTraceReadService` prefers canonical run events when they exist and falls
 back to normalized trace rows only for non-unified producers. It joins the
@@ -509,7 +539,7 @@ current canonical plan by `run_id`; the combined projection is the source for:
 - run status and duration;
 - model/tool/validation/repair/child counts;
 - first-action and total runtime latency;
-- token totals and reasoning escalation count.
+- token totals, reasoning escalation count, and repair exhaustion count.
 
 The journal is an observability source, not a second prompt archive. Manifests
 and `CONTEXT_PREPARED` events never copy system prompts, conversation messages,
@@ -552,6 +582,13 @@ Chat prompt assembly combines:
 - explicit inline skill context;
 - the current tool schemas only on calls that send tools.
 
+Prompt assembly also records memory capability facts separately from retrieval
+results: whether bounded memory retrieval is available, whether it was
+retrieved, empty, bypassed, unavailable, or failed, and whether `memory_query`
+is exposed. An empty bounded result is never represented as proof that the user
+has no relevant history, and a retrieval outage does not fail an otherwise
+valid chat turn.
+
 Display-history pagination never defines model context. Under pressure,
 compaction keeps complete protocol groups and preserves tool-call identifiers.
 The active model's input/output limits determine the capacity decision.
@@ -563,10 +600,13 @@ known conversation into an empty prompt.
 
 ## Background And Scheduled Execution
 
-Background tasks, scheduled agent tasks, and child runs all call the unified
-loop with explicit presets and durable budgets. Background completion is stored
-before delivery fan-out so startup can resume pending completion intents without
-rerunning the model task.
+Background tasks, scheduled agent tasks, fork-context skills, and child runs all
+call the unified loop with explicit presets and durable budgets. A fork-context
+skill is a background root task so the foreground chat remains available; it is
+not represented as a child owned by an unrelated active foreground run. Child
+lineage is reserved for work launched by a parent through the `agent` tool.
+Background completion is stored before delivery fan-out so startup can resume
+pending completion intents without rerunning the model task.
 
 Scheduler targets own timing and enqueueing. The background runtime owns model
 and tool execution. Successful user-facing results are projected back to the
@@ -622,6 +662,8 @@ a domain-neutral execution result.
 | Inline skill | skill expansion plus main loop | no additional intent call |
 | Child decomposition | parent calls plus child calls | fan-out occurs only when the parent requests it |
 | Validation repair | additional main repair calls | paid only after observed evidence requires repair |
+| Model reasoning request | no routing call | may raise effort on a later step only if policy approves |
+| Active-run replacement | no classifier call | old run cancels before the durable replacement becomes root |
 | `fast` / `deep` | same call count | changes reasoning effort/budget, not route shape |
 
 The architecture removes one serial auxiliary LLM call from every ordinary
@@ -642,6 +684,7 @@ metrics.
 - `backend/src/magi/agent/execution/capability_resolver.py`
 - `backend/src/magi/agent/execution/completion_gate.py`
 - `backend/src/magi/agent/execution/reasoning.py`
+- `backend/src/magi/control/tools/reasoning_depth_tool.py`
 - `backend/src/magi/agent/execution/journal.py`
 - `backend/src/magi/agent/workers/worker_manager.py`
 - `backend/src/magi/chat/task_agent/run_input_queue.py`
