@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
-use super::read::{query_single_task, query_tasks, query_tasks_by_orchestration};
+use super::read::{query_single_task, query_tasks};
 use super::types::{CreateTaskQuery, ListTasksQuery, TaskCreateBody, TaskUpdateBody};
 use super::write::{insert_task, patch_task, remove_task};
 
@@ -34,15 +34,6 @@ pub async fn get_task(Path(task_id): Path<String>) -> (StatusCode, Json<Value>) 
             Json(json!({"detail": "Task not found"})),
         ),
     }
-}
-
-/// Native GET /api/tasks/orchestration/:orchestration_id handler.
-pub async fn list_tasks_by_orchestration(Path(orchestration_id): Path<String>) -> Json<Value> {
-    let result =
-        tokio::task::spawn_blocking(move || query_tasks_by_orchestration(&orchestration_id))
-            .await
-            .unwrap_or_else(|_| json!({"tasks": []}));
-    Json(result)
 }
 
 pub async fn create_task(

@@ -16,9 +16,8 @@ pub(super) fn insert_task(user_id: &str, body: TaskCreateBody) -> Option<Value> 
 
     conn.execute(
         "INSERT INTO tasks (task_id, title, description, status, priority, tags_json, \
-         due_date, created_by, user_id, session_id, linked_orchestration_id, \
-         linked_turn_id, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, 'open', ?4, ?5, ?6, 'user', ?7, NULL, ?8, ?9, ?10, ?11)",
+         due_date, created_by, user_id, session_id, linked_turn_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'open', ?4, ?5, ?6, 'user', ?7, NULL, ?8, ?9, ?10)",
         rusqlite::params![
             task_id,
             body.title,
@@ -27,7 +26,6 @@ pub(super) fn insert_task(user_id: &str, body: TaskCreateBody) -> Option<Value> 
             tags_json,
             body.due_date,
             user_id,
-            body.linked_orchestration_id,
             body.linked_turn_id,
             now,
             now,
@@ -66,7 +64,6 @@ pub(super) fn patch_task(task_id: &str, body: TaskUpdateBody) -> Option<Value> {
         idx += 1;
     }
     add_field!(body.due_date, "due_date");
-    add_field!(body.linked_orchestration_id, "linked_orchestration_id");
     add_field!(body.linked_turn_id, "linked_turn_id");
 
     if sets.is_empty() {

@@ -20,7 +20,6 @@ pub(in crate::api) struct TaskCreateBody {
     pub(in crate::api) priority: Option<String>,
     pub(in crate::api) tags: Option<Vec<String>>,
     pub(in crate::api) due_date: Option<f64>,
-    pub(in crate::api) linked_orchestration_id: Option<String>,
     pub(in crate::api) linked_turn_id: Option<String>,
 }
 
@@ -32,6 +31,5 @@ pub(in crate::api) struct TaskUpdateBody {
     pub(in crate::api) priority: Option<String>,
     pub(in crate::api) tags: Option<Vec<String>>,
     pub(in crate::api) due_date: Option<f64>,
-    pub(in crate::api) linked_orchestration_id: Option<String>,
     pub(in crate::api) linked_turn_id: Option<String>,
 }

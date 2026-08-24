@@ -85,10 +85,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/messages/trace", axum::routing::get(trace::get_trace))
         // Tasks
         .route(
-            "/api/tasks/orchestration/{orchestration_id}",
-            axum::routing::get(tasks::list_tasks_by_orchestration),
-        )
-        .route(
             "/api/tasks/{task_id}",
             axum::routing::get(tasks::get_task)
                 .patch(tasks::update_task)

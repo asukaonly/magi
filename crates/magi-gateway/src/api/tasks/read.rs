@@ -56,23 +56,3 @@ pub(super) fn query_single_task(task_id: &str) -> Option<Value> {
         .ok()?;
     stmt.query_row(rusqlite::params![task_id], row_to_task).ok()
 }
-
-pub(super) fn query_tasks_by_orchestration(orchestration_id: &str) -> Value {
-    let conn = match open_tasks_db() {
-        Some(c) => c,
-        None => return json!({"tasks": []}),
-    };
-    let mut stmt = match conn.prepare(&format!(
-        "SELECT {} FROM tasks WHERE linked_orchestration_id = ?1 ORDER BY created_at ASC",
-        TASK_COLUMNS
-    )) {
-        Ok(s) => s,
-        Err(_) => return json!({"tasks": []}),
-    };
-    let tasks: Vec<Value> = stmt
-        .query_map(rusqlite::params![orchestration_id], row_to_task)
-        .ok()
-        .map(|iter| iter.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default();
-    json!({"tasks": tasks})
-}

@@ -157,13 +157,6 @@
       }
     },
     {
-      "path": "/api/tasks/orchestration/{orchestration_id}",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/tasks.rs",
-      "response_envelope": "native-json"
-    },
-    {
       "path": "/api/tasks/{task_id}",
       "methods": ["DELETE", "GET", "PATCH"],
       "owner": "rust-native",

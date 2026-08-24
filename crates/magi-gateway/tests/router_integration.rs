@@ -2131,7 +2131,6 @@ async fn native_task_create_persists_owned_product_fields() {
             created_by TEXT NOT NULL,
             user_id TEXT NOT NULL,
             session_id TEXT,
-            linked_orchestration_id TEXT,
             linked_turn_id TEXT,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
@@ -2152,7 +2151,6 @@ async fn native_task_create_persists_owned_product_fields() {
                 "description":"Check the Alpha trace path",
                 "priority":"high",
                 "tags":["alpha","memory"],
-                "linked_orchestration_id":"orch-1",
                 "linked_turn_id":"turn-1"
             }"#,
         ),

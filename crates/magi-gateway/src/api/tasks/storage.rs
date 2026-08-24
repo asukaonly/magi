@@ -4,8 +4,7 @@ use serde_json::{json, Value};
 use crate::db;
 
 pub(super) const TASK_COLUMNS: &str = "task_id, title, description, status, priority, tags_json, \
-    due_date, created_by, user_id, session_id, linked_orchestration_id, \
-    linked_turn_id, created_at, updated_at";
+    due_date, created_by, user_id, session_id, linked_turn_id, created_at, updated_at";
 
 pub(super) fn open_tasks_db() -> Option<Connection> {
     let path = db::tasks_db_path();
@@ -31,9 +30,8 @@ pub(super) fn row_to_task(row: &rusqlite::Row) -> rusqlite::Result<Value> {
         "created_by": row.get::<_, String>(7)?,
         "user_id": row.get::<_, String>(8)?,
         "session_id": row.get::<_, Option<String>>(9)?,
-        "linked_orchestration_id": row.get::<_, Option<String>>(10)?,
-        "linked_turn_id": row.get::<_, Option<String>>(11)?,
-        "created_at": row.get::<_, f64>(12)?,
-        "updated_at": row.get::<_, f64>(13)?,
+        "linked_turn_id": row.get::<_, Option<String>>(10)?,
+        "created_at": row.get::<_, f64>(11)?,
+        "updated_at": row.get::<_, f64>(12)?,
     }))
 }
