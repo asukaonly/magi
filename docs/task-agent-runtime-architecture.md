@@ -371,7 +371,10 @@ Important invariants:
 
 A successful `todo_write` produces `PLAN_UPDATED` in the run journal. The trace
 projection exposes the latest plan to the frontend. The retired `todo_state`
-chat message and `/control/.../todos` duplicate read API no longer exist.
+chat message and `/control/.../todos` duplicate read API no longer exist. The
+workspace cache stores file-read, edit-journal, and rollback-snapshot evidence
+only; it has no plan or todo model, so a restart cannot create a second plan
+truth outside the run journal.
 
 ## Child Runs
 
