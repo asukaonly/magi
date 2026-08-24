@@ -1222,6 +1222,7 @@
       "modeFunctionCalling": "函数调用",
       "modeDirectLlm": "直接回答",
       "modeOrchestration": "任务编排",
+      "modeAgentLoop": "Agent 循环",
       "kindRoot": "调用链路",
       "kindPlanning": "任务编排",
       "kindParallelGroup": "并行分组",
@@ -1236,6 +1237,9 @@
       "kindDispatch": "子任务启动",
       "kindAttempt": "执行尝试",
       "kindStep": "步骤",
+      "kindValidation": "验证",
+      "kindRepair": "修复",
+      "kindReasoning": "推理策略",
       "node": {
         "callTrace": "调用链路",
         "intentResolution": "意图识别",
@@ -1244,7 +1248,12 @@
         "responseEmission": "结果输出",
         "responseRhythmProcessing": "自然节奏处理",
         "taskOrchestration": "任务编排",
-        "roundLabel": "第 {{count}} 轮处理"
+        "roundLabel": "第 {{count}} 轮处理",
+        "modelDecision": "模型决策",
+        "validation": "验证结果",
+        "completionCheck": "完成条件检查",
+        "repair": "正在修复完成条件",
+        "reasoningAdjusted": "已调整推理深度"
       },
       "tableNode": "节点",
       "tableDuration": "耗时",

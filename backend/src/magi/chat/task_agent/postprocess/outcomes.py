@@ -51,7 +51,6 @@ class ChatPostprocessOutcomeMixin:
         started_at_ms: int,
         completed_at_ms: int,
         context_usage: dict[str, Any] | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         run_id: str | None = None,
@@ -63,7 +62,6 @@ class ChatPostprocessOutcomeMixin:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_final_chat_outcome(
             turn_id=turn_id,
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_text=response_text,
@@ -91,7 +89,6 @@ class ChatPostprocessOutcomeMixin:
         started_at_ms: int,
         completed_at_ms: int,
         context_usage: dict[str, Any] | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         run_id: str | None = None,
@@ -107,7 +104,6 @@ class ChatPostprocessOutcomeMixin:
             turn_id=turn_id,
             delivery_attempt_no=delivery_attempt_no,
             command_id=command_id,
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_text=response_text,
@@ -133,7 +129,6 @@ class ChatPostprocessOutcomeMixin:
         started_at_ms: int,
         completed_at_ms: int,
         context_usage: dict[str, Any] | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         run_id: str | None = None,
@@ -145,7 +140,6 @@ class ChatPostprocessOutcomeMixin:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_segmented_chat_outcome(
             turn_id=turn_id,
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_plan=response_plan,
@@ -173,7 +167,6 @@ class ChatPostprocessOutcomeMixin:
         started_at_ms: int,
         completed_at_ms: int,
         context_usage: dict[str, Any] | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         run_id: str | None = None,
@@ -189,7 +182,6 @@ class ChatPostprocessOutcomeMixin:
             turn_id=turn_id,
             delivery_attempt_no=delivery_attempt_no,
             command_id=command_id,
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=ux_plan,
             response_plan=response_plan,

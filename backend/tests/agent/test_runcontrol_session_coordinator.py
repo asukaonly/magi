@@ -5,11 +5,9 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
 
 from magi.control.run_control import (
     RetractRequested,
-    RunControl,
     null_run_control,
 )
 

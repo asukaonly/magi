@@ -81,7 +81,6 @@ async def test_background_task_end_to_end_pipeline(
         return BackgroundTaskRunResult(
             summary="Proposal draft ready.",
             result_payload={"word_count": 512},
-            orchestration_id="orch-e2e",
         )
 
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=2)
@@ -117,7 +116,6 @@ async def test_background_task_end_to_end_pipeline(
     assert persisted is not None
     assert persisted.status is BackgroundTaskStatus.SUCCEEDED
     assert persisted.summary == "Proposal draft ready."
-    assert persisted.orchestration_id == "orch-e2e"
     assert persisted.result_payload == {"word_count": 512}
 
     events = await store.list_events(task.task_id)
@@ -140,7 +138,6 @@ async def test_background_task_end_to_end_pipeline(
     assert payload["task_id"] == task.task_id
     assert payload["status"] == "succeeded"
     assert payload["summary"] == "Proposal draft ready."
-    assert payload["orchestration_id"] == "orch-e2e"
 
 
 @pytest.mark.asyncio

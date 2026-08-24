@@ -12,11 +12,9 @@ old implementation during the migration, including a deliberate-divergence
 check proving the comparison is not a tautology). This test feeds the NEW
 subscriber the corresponding control events and asserts the produced
 ``ChatMessageRecord`` rows + broadcast call sequences are byte-identical to the
-golden for all five representative cases:
+golden for the user-facing control interactions:
 
   * plan_state (enter then exit, replace-in-place)
-  * todo_state (non-empty)
-  * todo_state (empty -> hide latest)
   * ask_request
   * ask_response (which internally re-emits the request row)
 """
@@ -38,7 +36,6 @@ from magi.events.domain_payloads import (
     ControlAskAnswered,
     ControlAskRequested,
     ControlPlanStateChanged,
-    ControlTodoStateChanged,
 )
 from magi.events.events import (
     Event,
@@ -132,7 +129,6 @@ async def _new_store(tmp_path) -> ChatStore:
             session_id="session-1",
             user_id="user-1",
             trace_id=None,
-            orchestration_id=None,
             status="running",
             response_mode="final_only",
             execution_mode="orchestration",
@@ -149,7 +145,7 @@ async def _new_store(tmp_path) -> ChatStore:
 def _make_id_normaliser():
     """Stable positional remapper for random ``msg_<uuid>`` ids.
 
-    ``plan_state``/``todo_state`` rows use a random ``msg_<uuid>`` id (which
+    ``plan_state`` rows use a random ``msg_<uuid>`` id (which
     also appears in neighbouring ``replaced_by_message_id`` fields and in the
     broadcast call lists), so we stabilise those ids positionally while leaving
     the deterministic ``ask:``/``ask-response:`` ids untouched. The same
@@ -227,7 +223,6 @@ class _FakeBus:
 async def _run(sub, event_type, payload):
     handler = {
         EventTypes.CONTROL_PLAN_STATE_CHANGED: sub._on_plan_state_changed,
-        EventTypes.CONTROL_TODO_STATE_CHANGED: sub._on_todo_state_changed,
         EventTypes.CONTROL_ASK_REQUESTED: sub._on_ask_requested,
         EventTypes.CONTROL_ASK_ANSWERED: sub._on_ask_answered,
     }[event_type]
@@ -292,115 +287,6 @@ async def test_plan_state_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> N
     ]
     assert rows == golden
     assert [nmap(x) for x in up] == ["__msg_0__", "__msg_1__"]
-    assert [nmap(x) for x in hi] == ["__msg_0__"]
-
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_todo_state_nonempty_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
-
-    store = await _new_store(tmp_path)
-    up: list[str] = []
-    hi: list[str] = []
-    _patch_broadcasts(monkeypatch, up, hi)
-
-    items = [
-        {"id": "todo-1", "content": "Inspect runtime drift", "status": "in_progress",
-         "created_at_ms": 1, "updated_at_ms": 2},
-        {"id": "todo-2", "content": "Ship fix", "status": "pending",
-         "created_at_ms": 1, "updated_at_ms": 3},
-    ]
-
-    sub = ControlTranscriptSubscriber(event_bus=_FakeBus())
-    with _override(chat_store=store):
-        await _run(
-            sub,
-            EventTypes.CONTROL_TODO_STATE_CHANGED,
-            ControlTodoStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
-                plan={"plan_id": "plan-1", "items": items},
-            ),
-        )
-
-    nmap = _make_id_normaliser()
-    rows = _normalise_rows(await store.list_messages(session_id="session-1"), nmap)
-    golden = [
-        _row(
-            message_id="__msg_0__",
-            message_kind="todo_state",
-            content_text="Inspect runtime drift\nShip fix",
-            payload_json=(
-                '{"items": [{"id": "todo-1", "content": "Inspect runtime drift", '
-                '"status": "in_progress", "created_at_ms": 1, "updated_at_ms": 2}, '
-                '{"id": "todo-2", "content": "Ship fix", "status": "pending", '
-                '"created_at_ms": 1, "updated_at_ms": 3}], "orchestration_id": null}'
-            ),
-            created_at_ms=3000,
-            sequence_no=1,
-        ),
-    ]
-    assert rows == golden
-    assert [nmap(x) for x in up] == ["__msg_0__"]
-    assert hi == []
-
-    await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_todo_state_empty_hides_parity(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from magi.chat.control_transcript_subscriber import ControlTranscriptSubscriber
-
-    store = await _new_store(tmp_path)
-    up: list[str] = []
-    hi: list[str] = []
-    _patch_broadcasts(monkeypatch, up, hi)
-
-    items = [
-        {"id": "todo-1", "content": "Inspect runtime drift", "status": "in_progress",
-         "created_at_ms": 1, "updated_at_ms": 2},
-    ]
-
-    sub = ControlTranscriptSubscriber(event_bus=_FakeBus())
-    with _override(chat_store=store):
-        await _run(
-            sub,
-            EventTypes.CONTROL_TODO_STATE_CHANGED,
-            ControlTodoStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
-                plan={"plan_id": "plan-1", "items": items},
-            ),
-        )
-        await _run(
-            sub,
-            EventTypes.CONTROL_TODO_STATE_CHANGED,
-            ControlTodoStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1",
-                plan={"plan_id": "plan-1", "items": []},
-            ),
-        )
-
-    nmap = _make_id_normaliser()
-    rows = _normalise_rows(await store.list_messages(session_id="session-1"), nmap)
-    # Empty list hides the single existing row in place (no new row appended).
-    golden = [
-        _row(
-            message_id="__msg_0__",
-            message_kind="todo_state",
-            content_text="Inspect runtime drift",
-            payload_json=(
-                '{"items": [{"id": "todo-1", "content": "Inspect runtime drift", '
-                '"status": "in_progress", "created_at_ms": 1, "updated_at_ms": 2}], '
-                '"orchestration_id": null}'
-            ),
-            created_at_ms=2000,
-            sequence_no=1,
-            is_visible=False,
-        ),
-    ]
-    assert rows == golden
-    assert [nmap(x) for x in up] == ["__msg_0__"]
     assert [nmap(x) for x in hi] == ["__msg_0__"]
 
     await store.shutdown()

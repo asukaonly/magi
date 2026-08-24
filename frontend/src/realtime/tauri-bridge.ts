@@ -44,7 +44,6 @@ const BRIDGE_EVENTS = [
   'control:permission:requested',
   'control:permission:resolved',
   'control:ask:requested',
-  'control:todo:updated',
   'control:plan:updated',
   'control:background:suspended',
   'control:background:resumed',

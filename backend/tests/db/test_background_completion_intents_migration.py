@@ -28,13 +28,11 @@ def _create_legacy_terminal_row(connection: sqlite3.Connection) -> None:
         INSERT INTO background_tasks (
             task_id, user_id, session_id, origin_turn_id,
             title, goal, status, attempt_index, spec_json,
-            orchestration_id, user_task_id, summary, result_payload_json,
             error, cancel_reason, created_at, started_at, finished_at,
             updated_at
         ) VALUES (
             'legacy-task', 'user-1', 'session-1', 'turn-1',
             'Already finished', 'legacy work', 'succeeded', 0, ?,
-            NULL, NULL, 'done before upgrade', '{}',
             NULL, NULL, 1, 2, 3, 3
         )
         """,

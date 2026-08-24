@@ -28,7 +28,6 @@ class _ResponseTraceContext:
     response_text: str
     started_at_ms: int
     ended_at_ms: int
-    orchestration_id: str | None
     mode: str
     user_message: str
 
@@ -53,7 +52,6 @@ def _root_turn_attributes(
     started_at_ms: int,
     ended_at_ms: int | None = None,
     duration_ms: int | None = None,
-    orchestration_id: str | None = None,
     user_message_preview: str | None = None,
     response_preview: str | None = None,
     error_summary: str | None = None,
@@ -80,8 +78,6 @@ def _root_turn_attributes(
         attrs["ended_at_ms"] = int(ended_at_ms)
     if duration_ms is not None:
         attrs["duration_ms"] = int(duration_ms)
-    if orchestration_id is not None:
-        attrs["orchestration_id"] = orchestration_id
     if user_message_preview is not None:
         attrs["user_message_preview"] = user_message_preview
     if response_preview is not None:
@@ -135,7 +131,6 @@ class ChatPostprocessRuntimeTraceMixin:
         response_text: str,
         started_at_ms: int,
         ended_at_ms: int,
-        orchestration_id: str | None,
         mode: str,
         user_message: str,
     ) -> None:
@@ -162,7 +157,6 @@ class ChatPostprocessRuntimeTraceMixin:
             response_text=response_text,
             started_at_ms=started_at_ms,
             ended_at_ms=ended_at_ms,
-            orchestration_id=orchestration_id,
             mode=mode,
             user_message=user_message,
         )
@@ -226,7 +220,6 @@ class ChatPostprocessRuntimeTraceMixin:
                 started_at_ms=trace_context.started_at_ms,
                 ended_at_ms=trace_context.ended_at_ms,
                 duration_ms=max(0, trace_context.ended_at_ms - trace_context.started_at_ms),
-                orchestration_id=trace_context.orchestration_id,
                 user_message_preview=trace_context.user_message[:240] or None,
                 response_preview=trace_context.response_text[:240] or None,
                 created_at_ms=trace_context.started_at_ms,
@@ -502,7 +495,6 @@ class ChatPostprocessRuntimeTraceMixin:
                 started_at_ms=context.started_at_ms,
                 ended_at_ms=context.ended_at_ms,
                 duration_ms=max(0, context.ended_at_ms - context.started_at_ms),
-                orchestration_id=existing_turn.orchestration_id,
                 user_message_preview=existing_turn.user_message_preview,
                 response_preview=existing_turn.response_preview,
                 error_summary=existing_turn.error_summary,

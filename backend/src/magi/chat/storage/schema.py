@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     session_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
     trace_id TEXT,
-    orchestration_id TEXT,
     status TEXT NOT NULL,
     response_mode TEXT NOT NULL,
     execution_mode TEXT,

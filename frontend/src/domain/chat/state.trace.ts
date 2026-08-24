@@ -14,7 +14,6 @@ export interface NormalizedExecutionTraceSummary {
   failedSteps: number;
   durationSeconds: number;
   traceAvailable: boolean;
-  orchestrationId?: string | null;
   planSummary?: NormalizedExecutionPlanSummary | null;
   continuedFromTurnId?: string | null;
   continuedFromTraceId?: string | null;
@@ -23,6 +22,7 @@ export interface NormalizedExecutionTraceSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalReasoningTokens: number;
+  runtimeMetrics: Record<string, number | null>;
 }
 
 export interface NormalizedExecutionPlanSummary {
@@ -58,7 +58,6 @@ export interface NormalizedExecutionTraceSnapshot {
   sessionId: string;
   status: string;
   mode: string;
-  orchestrationId?: string | null;
   startedAt?: number | null;
   endedAt?: number | null;
   continuedFromTurnId?: string | null;
@@ -110,7 +109,6 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     failedSteps: Number(summary.failed_steps || 0),
     durationSeconds: Number(summary.duration_seconds || 0),
     traceAvailable: Boolean(summary.trace_available),
-    orchestrationId: summary.orchestration_id || null,
     planSummary: normalizedPlanSummary,
     continuedFromTurnId: summary.continued_from_turn_id || null,
     continuedFromTraceId: summary.continued_from_trace_id || null,
@@ -119,6 +117,10 @@ export const normalizeTraceSummary = (raw: unknown): NormalizedExecutionTraceSum
     totalInputTokens: Number(summary.total_input_tokens || 0),
     totalOutputTokens: Number(summary.total_output_tokens || 0),
     totalReasoningTokens: Number(summary.total_reasoning_tokens || 0),
+    runtimeMetrics: Object.fromEntries(
+      Object.entries(summary.runtime_metrics || {})
+        .filter(([, value]) => value === null || typeof value === 'number'),
+    ),
   };
 };
 
@@ -284,7 +286,6 @@ export const normalizeTraceSnapshot = (raw: ExecutionTraceSnapshot | null | unde
     sessionId: raw.session_id,
     status: raw.status,
     mode: raw.mode,
-    orchestrationId: raw.orchestration_id || null,
     startedAt: raw.started_at ?? null,
     endedAt: raw.ended_at ?? null,
     continuedFromTurnId: raw.continued_from_turn_id || null,

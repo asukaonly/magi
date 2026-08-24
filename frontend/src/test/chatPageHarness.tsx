@@ -14,7 +14,6 @@ import { commandsApi, messagesApi } from '@/api';
 import {
   getAskState,
   getPlanState,
-  getRunPlan,
   respondAsk,
   respondPermission,
   updateSessionSettings,
@@ -145,7 +144,6 @@ vi.mock('@/api/modules/control', () => ({
     entered_at_ms: null,
     exited_at_ms: null,
   }),
-  getRunPlan: vi.fn().mockResolvedValue(null),
   getAskState: vi.fn().mockResolvedValue(null),
   respondAsk: vi.fn().mockResolvedValue(undefined),
   respondPermission: vi.fn().mockResolvedValue(undefined),
@@ -456,7 +454,6 @@ export function defineChatPageSuite(
         entered_at_ms: null,
         exited_at_ms: null,
       } as any);
-      vi.mocked(getRunPlan).mockReset().mockResolvedValue(null);
       vi.mocked(getAskState).mockReset().mockResolvedValue(null);
       vi.mocked(messagesApi.sendMessage).mockReset().mockResolvedValue({
         success: true,

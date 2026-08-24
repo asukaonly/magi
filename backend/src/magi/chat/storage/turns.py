@@ -9,7 +9,7 @@ from ..contracts import ChatTurnRecord
 
 
 TURN_SELECT_COLUMNS = """
-    turn_id, session_id, user_id, trace_id, orchestration_id, status,
+    turn_id, session_id, user_id, trace_id, status,
     response_mode, execution_mode, ux_plan_json, created_at_ms,
     updated_at_ms, completed_at_ms, error_text, run_id,
     run_revision, run_disposition, response_anchor_turn_id,
@@ -39,7 +39,6 @@ class ChatTurnPersistenceMixin:
                     session_id,
                     user_id,
                     trace_id,
-                    orchestration_id,
                     status,
                     response_mode,
                     execution_mode,
@@ -55,12 +54,11 @@ class ChatTurnPersistenceMixin:
                     superseded_by_turn_id,
                     supersession_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(turn_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     user_id = excluded.user_id,
                     trace_id = excluded.trace_id,
-                    orchestration_id = excluded.orchestration_id,
                     status = excluded.status,
                     response_mode = excluded.response_mode,
                     execution_mode = excluded.execution_mode,
@@ -80,7 +78,6 @@ class ChatTurnPersistenceMixin:
                     record.session_id,
                     record.user_id,
                     record.trace_id,
-                    record.orchestration_id,
                     record.status,
                     record.response_mode,
                     record.execution_mode,
@@ -136,7 +133,6 @@ class ChatTurnPersistenceMixin:
             session_id=str(row["session_id"]),
             user_id=str(row["user_id"]),
             trace_id=row["trace_id"],
-            orchestration_id=row["orchestration_id"],
             status=str(row["status"]),
             response_mode=str(row["response_mode"]),
             execution_mode=row["execution_mode"],

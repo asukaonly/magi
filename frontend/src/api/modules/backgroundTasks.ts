@@ -37,7 +37,6 @@ export interface BackgroundTaskDTO {
   status: BackgroundTaskStatus;
   attempt_index: number;
   spec: BackgroundTaskSpecDTO;
-  orchestration_id: string | null;
   user_task_id: string | null;
   summary: string | null;
   result_payload: Record<string, unknown>;

@@ -61,7 +61,7 @@ export const canMergeTimelineMessage = (
 
   // A streaming assistant transcript is mergeable with later persisted
   // assistant transcript rows for the same turn, but not with control/status
-  // rows such as todo_state.
+  // rows such as plan_state.
   if (existing.streaming && incomingIsAssistantTranscript) {
     return true;
   }

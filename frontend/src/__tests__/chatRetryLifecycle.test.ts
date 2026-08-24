@@ -292,7 +292,6 @@ describe('chat retry lifecycle', () => {
         max_iterations: 1,
         timeout_seconds: null,
       },
-      orchestration_id: null,
       user_task_id: null,
       summary: null,
       result_payload: {},

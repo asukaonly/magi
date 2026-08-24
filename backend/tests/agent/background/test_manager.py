@@ -115,7 +115,6 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
         return BackgroundTaskRunResult(
             summary="done",
             result_payload={"answer": 42},
-            orchestration_id="orch-1",
         )
 
     manager = BackgroundTaskManager(store=store, run_fn=run_fn, max_concurrent=1)
@@ -127,7 +126,6 @@ async def test_enqueued_task_runs_to_succeeded(runtime_paths_with_schema) -> Non
         assert fetched is not None
         assert fetched.summary == "done"
         assert fetched.result_payload == {"answer": 42}
-        assert fetched.orchestration_id == "orch-1"
         assert fetched.started_at is not None
         assert fetched.finished_at is not None
 

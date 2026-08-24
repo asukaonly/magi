@@ -652,7 +652,6 @@ class BackgroundTaskCompletionStoreMixin:
             UPDATE background_tasks SET
                 status = ?,
                 attempt_index = ?,
-                orchestration_id = ?,
                 user_task_id = ?,
                 summary = ?,
                 result_payload_json = ?,
@@ -666,7 +665,6 @@ class BackgroundTaskCompletionStoreMixin:
             (
                 task.status.value,
                 int(task.attempt_index),
-                task.orchestration_id,
                 task.user_task_id,
                 task.summary,
                 json.dumps(task.result_payload, ensure_ascii=False),

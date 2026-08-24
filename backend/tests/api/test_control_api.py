@@ -282,17 +282,9 @@ async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring
 
 
 @pytest.mark.asyncio
-async def test_session_plan_and_todos_and_ask(wiring):
+async def test_session_plan_and_ask(wiring):
     store: ControlSessionStore = wiring["store"]
     await store.enter_plan_mode("sid-2")
-    await store.mutate_run_plan(
-        "sid-2",
-        run_id="run-2",
-        plan_id=None,
-        expected_version=0,
-        required=True,
-        item_mutations=[{"title": "a"}, {"title": "b", "status": "in_progress"}],
-    )
     await store.open_ask(
         "sid-2", question="Proceed?", options=["yes", "no"]
     )
@@ -302,12 +294,6 @@ async def test_session_plan_and_todos_and_ask(wiring):
     client = TestClient(app)
     plan = client.get("/api/control/sessions/sid-2/plan").json()
     assert plan["active"] is True
-
-    todos = client.get("/api/control/sessions/sid-2/todos").json()
-    assert todos["plan"]["run_id"] == "run-2"
-    assert [t["content"] for t in todos["plan"]["items"]] == ["a", "b"]
-    assert all("created_at_ms" in t for t in todos["plan"]["items"])
-    assert all("updated_at_ms" in t for t in todos["plan"]["items"])
 
     ask = client.get("/api/control/sessions/sid-2/ask").json()
     assert ask["ask"]["question"] == "Proceed?"
@@ -350,21 +336,6 @@ def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
     plan = client.get("/api/control/sessions/sid-fallback/plan")
     assert plan.status_code == 200
     assert plan.json()["plan_text"] == "Inspect runtime heartbeat path"
-
-
-def test_session_todos_do_not_restore_from_notification_projection(wiring, monkeypatch):
-    monkeypatch.setattr(
-        control_module,
-        "resolve_runtime_trace_store",
-        lambda: _FakeRuntimeTraceStore([]),
-    )
-    app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
-    client = TestClient(app)
-
-    todos = client.get("/api/control/sessions/sid-empty/todos")
-    assert todos.status_code == 200
-    assert todos.json() == {"plan": None}
 
 
 @pytest.mark.asyncio

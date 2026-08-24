@@ -72,7 +72,6 @@ _UPSERT_TURN_SQL = """
         user_id,
         status,
         mode,
-        orchestration_id,
         started_at_ms,
         ended_at_ms,
         duration_ms,
@@ -88,11 +87,10 @@ _UPSERT_TURN_SQL = """
         created_at_ms,
         updated_at_ms
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(trace_id) DO UPDATE SET
         status = excluded.status,
         mode = excluded.mode,
-        orchestration_id = COALESCE(excluded.orchestration_id, trace_turns.orchestration_id),
         started_at_ms = MIN(trace_turns.started_at_ms, excluded.started_at_ms),
         ended_at_ms = COALESCE(excluded.ended_at_ms, trace_turns.ended_at_ms),
         duration_ms = COALESCE(excluded.duration_ms, trace_turns.duration_ms),
@@ -122,7 +120,6 @@ def _turn_params(
         record.user_id,
         record.status,
         record.mode,
-        record.orchestration_id,
         record.started_at_ms,
         record.ended_at_ms,
         record.duration_ms,

@@ -2,45 +2,27 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
+import sqlite3
 from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
-from .constants import (
-    TRACE_NODE_EVENT_TYPES,
-)
 from .models import (
     ExecutionTraceNode,
 )
 from .runtime_rows import TraceRuntimeRowsMixin
+from .run_event_projection import project_run_events
 from .snapshot_builder import TraceSnapshotBuilderMixin
-from .builders.normalized import (
-    build_trace_span_node,
-    collapse_trace_spans,
-    merge_trace_payload,
-)
-from .builders.rows import (
-    build_trace_row_node,
-    resolve_result_preview,
-)
-from .tree import build_runtime_trace_root, deduplicate_response_emit, with_dispatch_label
+from .tree import build_runtime_trace_root
 from .utils import (
     compact_value,
-    default_trace_label,
     is_terminal_status,
-    map_trace_kind,
     ms_to_seconds,
     normalize_status,
     optional_text,
-    parse_json_object,
-    parse_json_value,
     safe_int,
-    tool_event_arguments,
-    tool_event_result_preview,
-    tool_event_status,
-    trace_span_error,
-    trace_span_result_preview,
 )
 
 logger = get_logger(__name__)
@@ -64,6 +46,20 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         normalized_turn_id = str(turn_id or "").strip()
         if not normalized_turn_id:
             return None
+        run_events = self._load_latest_run_events(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=normalized_turn_id,
+        )
+        if run_events:
+            projection = project_run_events(
+                run_events,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=normalized_turn_id,
+            )
+            if projection is not None:
+                return projection.to_dict()
         turn = self._load_trace_turn(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
         if turn is None:
             return None
@@ -79,7 +75,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             llm_calls=llm_calls,
             tool_calls=tool_calls,
             intent_resolutions=intent_resolutions,
-            orchestration_state=None,
         )
         return snapshot.to_dict() if snapshot is not None else None
 
@@ -146,12 +141,98 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         session_id: str,
     ) -> dict[str, dict[str, Any]]:
         activity: dict[str, dict[str, Any]] = {}
+        for turn_id in self._load_session_run_turn_ids(
+            user_id=user_id,
+            session_id=session_id,
+        ):
+            summary = self.get_trace_summary(
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+            )
+            if summary is not None:
+                activity[turn_id] = summary
         for turn in self._load_session_turns(user_id=user_id, session_id=session_id):
             turn_id = str(turn.get("turn_id") or "").strip()
+            if turn_id in activity:
+                continue
             summary = self.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
             if summary is not None:
                 activity[turn_id] = summary
         return activity
+
+    def _load_latest_run_events(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+    ) -> list[dict[str, Any]]:
+        try:
+            with sqlite3.connect(self._runtime_trace_db_path) as connection:
+                connection.row_factory = sqlite3.Row
+                manifest = connection.execute(
+                    """
+                    SELECT run_id
+                    FROM agent_run_manifests
+                    WHERE turn_id = ? AND session_id = ? AND user_id = ?
+                    ORDER BY created_at_ms DESC
+                    LIMIT 1
+                    """,
+                    (turn_id, session_id, user_id),
+                ).fetchone()
+                if manifest is None:
+                    return []
+                rows = connection.execute(
+                    """
+                    SELECT event_id, run_id, sequence, turn_id, session_id,
+                           user_id, event_type, step_index, payload_json,
+                           created_at_ms
+                    FROM agent_run_events
+                    WHERE run_id = ?
+                    ORDER BY sequence ASC
+                    """,
+                    (str(manifest["run_id"]),),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        return [
+            {
+                "event_id": str(row["event_id"]),
+                "run_id": str(row["run_id"]),
+                "sequence": int(row["sequence"]),
+                "turn_id": row["turn_id"],
+                "session_id": row["session_id"],
+                "user_id": row["user_id"],
+                "event_type": str(row["event_type"]),
+                "step_index": row["step_index"],
+                "payload": json.loads(str(row["payload_json"] or "{}")),
+                "created_at_ms": int(row["created_at_ms"]),
+            }
+            for row in rows
+        ]
+
+    def _load_session_run_turn_ids(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+    ) -> list[str]:
+        try:
+            with sqlite3.connect(self._runtime_trace_db_path) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT turn_id
+                    FROM agent_run_manifests
+                    WHERE session_id = ? AND user_id = ? AND turn_id IS NOT NULL
+                    GROUP BY turn_id
+                    ORDER BY MAX(created_at_ms) ASC
+                    """,
+                    (session_id, user_id),
+                ).fetchall()
+        except sqlite3.Error:
+            return []
+        return [str(row[0]) for row in rows if str(row[0] or "").strip()]
 
     def _build_runtime_trace_root(
         self,
@@ -170,78 +251,8 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             intent_resolutions=intent_resolutions,
         )
 
-    def _with_dispatch_label(self, node: ExecutionTraceNode) -> ExecutionTraceNode:
-        return with_dispatch_label(node)
-
-    @staticmethod
-    def _deduplicate_response_emit(root: ExecutionTraceNode) -> None:
-        """Remove the response_emit node when its content duplicates the last iteration."""
-        deduplicate_response_emit(root)
-
-    def _build_trace_row_node(
-        self,
-        *,
-        span: dict[str, Any],
-        llm_call: dict[str, Any] | None,
-        tool_call: dict[str, Any] | None,
-        intent_resolution: dict[str, Any] | None = None,
-    ) -> ExecutionTraceNode:
-        return build_trace_row_node(
-            span=span,
-            llm_call=llm_call,
-            tool_call=tool_call,
-            intent_resolution=intent_resolution,
-        )
-
-    @staticmethod
-    def _resolve_result_preview(
-        *,
-        span: dict[str, Any],
-        llm_call: dict[str, Any] | None,
-        tool_call: dict[str, Any] | None,
-    ) -> str:
-        return resolve_result_preview(span=span, llm_call=llm_call, tool_call=tool_call)
-
-    @staticmethod
-    def _parse_json_object(raw_value: Any) -> dict[str, Any]:
-        return parse_json_object(raw_value)
-
-    @staticmethod
-    def _parse_json_value(raw_value: Any) -> Any:
-        return parse_json_value(raw_value)
-
-    def _collapse_trace_spans(self, events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        return collapse_trace_spans(events, trace_node_event_types=TRACE_NODE_EVENT_TYPES)
-
-    def _merge_trace_payload(self, current: dict[str, Any], incoming: dict[str, Any]) -> None:
-        merge_trace_payload(current, incoming)
-
-    def _build_trace_span_node(self, payload: dict[str, Any]) -> ExecutionTraceNode:
-        return build_trace_span_node(payload)
-
-    def _map_trace_kind(self, node_type: str) -> str:
-        return map_trace_kind(node_type)
-
-    def _default_trace_label(self, node_type: str) -> str:
-        return default_trace_label(node_type)
-
-    def _trace_span_result_preview(self, payload: dict[str, Any]) -> str:
-        return trace_span_result_preview(payload)
-
-    def _trace_span_error(self, payload: dict[str, Any]) -> Optional[str]:
-        return trace_span_error(payload)
-
     def _ms_to_seconds(self, value: Any) -> Optional[float]:
         return ms_to_seconds(value)
-
-    def _tool_event_status(self, payload: dict[str, Any]) -> str:
-        return tool_event_status(payload)
-
-    def _tool_event_result_preview(self, payload: dict[str, Any]) -> str:
-        return tool_event_result_preview(payload)
-
-    def _tool_event_arguments(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return tool_event_arguments(payload)
 
     def _normalize_status(self, status: str) -> str:
         return normalize_status(status)

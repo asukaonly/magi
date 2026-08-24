@@ -1228,7 +1228,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     });
   });
 
-  it('keeps interim execution actions visible after a todo state card appears', async () => {
+  it('keeps interim execution actions visible after a plan state card appears', async () => {
     render(<ChatPage />);
 
     act(() => {
@@ -1276,17 +1276,16 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           message: {
-            message_id: 'todo:turn-interim-todo',
-            message_kind: 'todo_state',
+            message_id: 'plan:turn-interim-todo',
+            message_kind: 'plan_state',
             role: 'assistant',
             kind: 'status',
-            content: 'Search official sources',
+            content: '1. Search official sources',
             timestamp: Date.now() / 1000,
             turn_id: 'turn-interim-todo',
             payload: {
-              items: [
-                { id: 'todo-1', content: 'Search official sources', status: 'in_progress' },
-              ],
+              active: true,
+              plan_text: '1. Search official sources',
             },
           },
         },
@@ -1294,7 +1293,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Search official sources')).toBeInTheDocument();
+      expect(screen.getAllByText((content) => content.includes('Search official sources')).length).toBeGreaterThan(0);
     });
 
     const runningPanel = screen.getByTestId('chat-execution-panel-turn-interim-todo');

@@ -4,7 +4,7 @@ from dependency_injector import providers
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.core.container import Container, init_container
-from magi.events.events import Event, EventTypes
+from magi.events.events import EventTypes
 from magi.events.domain_payloads import SpanCompleted
 from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
 

@@ -175,7 +175,6 @@ class _FakeEventEmitter:
         response: str,
         correlation_id: str | None = None,
         turn_id: str | None = None,
-        orchestration_id: str | None = None,
         trace_summary: dict | None = None,
         trace_available: bool = False,
     ) -> None:
@@ -186,7 +185,6 @@ class _FakeEventEmitter:
                 "response": response,
                 "correlation_id": correlation_id,
                 "turn_id": turn_id,
-                "orchestration_id": orchestration_id,
                 "trace_summary": trace_summary,
                 "trace_available": trace_available,
             }
@@ -1238,7 +1236,6 @@ async def test_outcome_writer_persists_interim_then_final_messages(chat_store: C
     )
     await writer.persist_final_chat_outcome(
         turn_id="turn-1",
-        orchestration_id=None,
         execution_mode="direct_llm",
         ux_plan={
             "assistant_surface_mode": "interim_then_final",
@@ -1281,7 +1278,6 @@ async def test_outcome_writer_bumps_history_version_for_assistant_final(chat_sto
 
     await writer.persist_final_chat_outcome(
         turn_id="turn-1",
-        orchestration_id=None,
         execution_mode="direct_llm",
         ux_plan={
             "assistant_surface_mode": "final_only",
@@ -1325,7 +1321,6 @@ async def test_outcome_writer_does_not_complete_turn_before_final_is_saved(
     with pytest.raises(RuntimeError, match="simulated message write failure"):
         await writer.persist_final_chat_outcome(
             turn_id="turn-write-order",
-            orchestration_id=None,
             execution_mode="direct_llm",
             ux_plan={"assistant_surface_mode": "final_only"},
             response_text="final answer",
@@ -1369,7 +1364,6 @@ async def test_outcome_writer_persists_assistant_attachments(chat_store: ChatSto
 
     await writer.persist_final_chat_outcome(
         turn_id="turn-attachments",
-        orchestration_id=None,
         execution_mode="function_calling",
         ux_plan={"assistant_surface_mode": "final_only"},
         response_text="Here are the photos.",
@@ -1411,7 +1405,6 @@ async def test_outcome_writer_persists_assistant_message_payload(chat_store: Cha
 
     await writer.persist_final_chat_outcome(
         turn_id="turn-asset-refs",
-        orchestration_id=None,
         execution_mode="function_calling",
         ux_plan={"assistant_surface_mode": "final_only"},
         response_text="Here are the candidate assets.",
@@ -1461,7 +1454,6 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
 
     records = await writer.persist_segmented_chat_outcome(
         turn_id="turn-rhythm",
-        orchestration_id=None,
         execution_mode="direct_llm",
         ux_plan={"assistant_surface_mode": "final_only"},
         response_plan=AssistantResponsePlan(
@@ -1616,7 +1608,6 @@ async def test_outcome_writer_replaces_partial_rhythm_before_completion(
 
     records = await writer.persist_segmented_chat_outcome(
         turn_id="turn-partial-rhythm",
-        orchestration_id=None,
         execution_mode="direct_llm",
         ux_plan={"assistant_surface_mode": "final_only"},
         response_plan=plan,
@@ -1693,7 +1684,6 @@ async def test_outcome_writer_rejects_invalid_rhythm_plan(
     with pytest.raises(ValueError, match=error_text):
         await writer.persist_segmented_chat_outcome(
             turn_id=turn_id,
-            orchestration_id=None,
             execution_mode="direct_llm",
             ux_plan={"assistant_surface_mode": "final_only"},
             response_plan=plan,
@@ -1724,7 +1714,6 @@ async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: Cha
 
     await writer.persist_segmented_chat_outcome(
         turn_id="turn-rhythm-time",
-        orchestration_id=None,
         execution_mode="direct_llm",
         ux_plan={"assistant_surface_mode": "final_only"},
         response_plan=AssistantResponsePlan(
@@ -1776,7 +1765,6 @@ async def test_runtime_notifier_appends_response_and_trace_notifications(
         session_id="session-1",
         turn_id="turn-1",
         run_id="run-1",
-        orchestration_id="orch-1",
         state="cancelling",
         can_cancel=False,
         label="Cancelling run",
@@ -1872,7 +1860,6 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
             "user_id": "local_user",
             "session_id": "session-1",
             "turn_id": "turn-1",
-            "orchestration_id": "orch-1",
             "tool_call_id": "call-1",
             "iteration": 3,
             "tool_name": "web-search",
@@ -4561,7 +4548,6 @@ async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_
     assert content.text == "final answer"
     assert content.turn_id == "turn-1"
     assert content.ux_plan == result.ux_plan
-    # orchestration_id rides along (None here, but the field is populated path).
     assert hasattr(content, "message_id")
     assert hasattr(content, "trace_summary")
 

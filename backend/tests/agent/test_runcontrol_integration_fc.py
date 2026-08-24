@@ -1,7 +1,6 @@
 """Integration coverage for unified agent-run control signals."""
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -14,7 +13,6 @@ from magi.agent.execution.function_calling import (
 from magi.control.run_control import (
     RetractRequested,
     RetractSignal,
-    RunControl,
     SuspendRequested,
     SuspendSignal,
     null_run_control,

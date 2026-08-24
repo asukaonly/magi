@@ -34,7 +34,6 @@ async def test_run_input_persists_as_merge_in_chat_and_trace() -> None:
         session_id="session-1",
         user_id="user-1",
         trace_id=None,
-        orchestration_id=None,
         status="running",
         response_mode="final_only",
         execution_mode=None,

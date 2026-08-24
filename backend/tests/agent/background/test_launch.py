@@ -238,11 +238,9 @@ async def test_launch_service_enqueues_task_and_returns_ack(
 
     assert result.mode is None
     assert result.turn_id == "turn-7"
-    assert result.orchestration_id  # task id surfaced back to caller
-    assert result.orchestration_id.startswith("bg_")
     assert "deep research job" in result.response_text
     # Task is visible in the store.
-    stored = await manager._store.get_task(result.orchestration_id)  # type: ignore[attr-defined]
+    stored = await manager.get_task(str(result.message_payload["background_task_id"]))
     assert stored is not None
     assert stored.status in {BackgroundTaskStatus.PENDING, BackgroundTaskStatus.RUNNING}
     assert stored.spec.goal == "deep research job"
@@ -267,7 +265,7 @@ async def test_launch_service_persists_run_trigger_on_spec(
         trigger=trigger,
     )
 
-    stored = await manager._store.get_task(result.orchestration_id)  # type: ignore[attr-defined]
+    stored = await manager.get_task(str(result.message_payload["background_task_id"]))
     assert stored is not None
     # The origin channel survives onto the persisted background spec, so the
     # completed task can be delivered back to weixin.
@@ -358,7 +356,6 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
 
     assert isinstance(result, BackgroundTaskRunResult)
     assert result.summary == "final answer"
-    assert result.orchestration_id == task.task_id
     assert result.result_payload["status"] == "completed"
     assert len(orchestrator.calls) == 1
     call = orchestrator.calls[0]

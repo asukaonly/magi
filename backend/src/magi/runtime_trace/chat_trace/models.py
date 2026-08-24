@@ -48,7 +48,6 @@ class ExecutionTraceSummary:
     failed_steps: int = 0
     duration_seconds: float = 0.0
     trace_available: bool = False
-    orchestration_id: Optional[str] = None
     plan_summary: Optional["ExecutionPlanSummary"] = None
     continued_from_turn_id: Optional[str] = None
     continued_from_trace_id: Optional[str] = None
@@ -57,6 +56,7 @@ class ExecutionTraceSummary:
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_reasoning_tokens: int = 0
+    runtime_metrics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,7 +69,6 @@ class ExecutionTraceSummary:
             "failed_steps": self.failed_steps,
             "duration_seconds": self.duration_seconds,
             "trace_available": self.trace_available,
-            "orchestration_id": self.orchestration_id,
             "plan_summary": self.plan_summary.to_dict() if self.plan_summary is not None else None,
             "continued_from_turn_id": self.continued_from_turn_id,
             "continued_from_trace_id": self.continued_from_trace_id,
@@ -78,6 +77,7 @@ class ExecutionTraceSummary:
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_reasoning_tokens": self.total_reasoning_tokens,
+            "runtime_metrics": dict(self.runtime_metrics),
         }
 
 
@@ -126,7 +126,6 @@ class ExecutionTraceSnapshot:
     session_id: str
     status: str
     mode: str
-    orchestration_id: Optional[str]
     started_at: Optional[float]
     ended_at: Optional[float]
     continued_from_turn_id: Optional[str]
@@ -143,7 +142,6 @@ class ExecutionTraceSnapshot:
             "session_id": self.session_id,
             "status": self.status,
             "mode": self.mode,
-            "orchestration_id": self.orchestration_id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "continued_from_turn_id": self.continued_from_turn_id,

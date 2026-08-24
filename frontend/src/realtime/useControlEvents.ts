@@ -15,7 +15,6 @@ export type ControlEventName =
   | 'control.permission.requested'
   | 'control.permission.resolved'
   | 'control.ask.requested'
-  | 'control.todo.updated'
   | 'control.plan.updated'
   | 'control.background.suspended'
   | 'control.background.resumed';
@@ -34,7 +33,6 @@ export interface UseControlEventsOptions {
   onPermissionRequested?: (payload: ControlEventPayload) => void;
   onPermissionResolved?: (payload: ControlEventPayload) => void;
   onAskRequested?: (payload: ControlEventPayload) => void;
-  onTodoUpdated?: (payload: ControlEventPayload) => void;
   onPlanUpdated?: (payload: ControlEventPayload) => void;
   onBackgroundSuspended?: (payload: ControlEventPayload) => void;
   onBackgroundResumed?: (payload: ControlEventPayload) => void;
@@ -67,9 +65,6 @@ export function useControlEvents(options: UseControlEventsOptions): void {
           break;
         case 'control.ask.requested':
           options.onAskRequested?.(payload);
-          break;
-        case 'control.todo.updated':
-          options.onTodoUpdated?.(payload);
           break;
         case 'control.plan.updated':
           options.onPlanUpdated?.(payload);

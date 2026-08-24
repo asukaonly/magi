@@ -84,7 +84,7 @@ async def test_publish_control_event_tolerates_missing_trace_store(
 
     # Must not raise even when trace store cannot be resolved.
     await events_module.publish_control_event(
-        "control.todo.updated",
-        {"session_id": "sid-3", "items": []},
+        "control.ask.requested",
+        {"session_id": "sid-3", "request_id": "ask-3"},
         session_id="sid-3",
     )

@@ -22,7 +22,6 @@ _STATUS_MESSAGE_KINDS = {
     "status_note",
     "system_notice",
     "plan_state",
-    "todo_state",
     "permission_request",
     "background_task_completion",
     "background_task_pending",

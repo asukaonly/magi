@@ -148,7 +148,6 @@ export interface CancelRunData {
   cancel_reason?: string | null;
   cancel_requested_by?: string | null;
   cancel_anchor_turn_id?: string | null;
-  cancelled_orchestration_ids?: string[];
 }
 
 export interface DetachRunData {
@@ -186,7 +185,6 @@ export interface ExecutionTraceSummary {
   failed_steps: number;
   duration_seconds: number;
   trace_available: boolean;
-  orchestration_id?: string | null;
   plan_summary?: ExecutionPlanSummary | null;
   continued_from_turn_id?: string | null;
   continued_from_trace_id?: string | null;
@@ -195,6 +193,24 @@ export interface ExecutionTraceSummary {
   total_input_tokens?: number;
   total_output_tokens?: number;
   total_reasoning_tokens?: number;
+  runtime_metrics?: RuntimeMetricsSummary;
+}
+
+export interface RuntimeMetricsSummary {
+  runtime_latency_ms?: number;
+  first_action_latency_ms?: number | null;
+  model_calls?: number;
+  tool_calls?: number;
+  tool_failures?: number;
+  tool_recovery_expansions?: number;
+  validation_attempts?: number;
+  validation_failures?: number;
+  repair_iterations?: number;
+  reasoning_escalations?: number;
+  child_fanout?: number;
+  child_cancellations?: number;
+  completion_gate_checks?: number;
+  completion_gate_rejections?: number;
 }
 
 export interface ExecutionTraceNode {
@@ -216,7 +232,6 @@ export interface ExecutionTraceSnapshot {
   session_id: string;
   status: string;
   mode: string;
-  orchestration_id?: string | null;
   started_at?: number | null;
   ended_at?: number | null;
   continued_from_turn_id?: string | null;

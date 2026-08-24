@@ -3,14 +3,12 @@ import type {
   ChatPresentationSurface,
   ControlStatusTone,
   ProjectedControlStatusCardPresentation,
-  ProjectedControlTodoItem,
 } from './presentation.types';
 
 const CONTROL_STATUS_MESSAGE_KINDS = new Set([
   'background_task_completion',
   'background_task_pending',
   'plan_state',
-  'todo_state',
   'ask_request',
   'permission_request',
 ]);
@@ -70,28 +68,6 @@ const numberOrNull = (value: unknown): number | null => {
   }
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-};
-
-const normalizeTodoStatus = (value: unknown): ProjectedControlTodoItem['status'] => {
-  switch (String(value || '').trim().toLowerCase()) {
-    case 'completed':
-    case 'done':
-      return 'completed';
-    case 'blocked':
-      return 'blocked';
-    case 'skipped':
-      return 'skipped';
-    case 'cancelled':
-    case 'canceled':
-      return 'cancelled';
-    case 'in_progress':
-    case 'in-progress':
-    case 'running':
-    case 'active':
-      return 'in_progress';
-    default:
-      return 'pending';
-  }
 };
 
 export const isControlStatusMessageKind = (messageKind: string | null | undefined): boolean => (
@@ -188,26 +164,6 @@ export const projectControlStatusCardPresentation = (
         kind: 'plan_state',
         active: Boolean(payload.active),
         planText: String(payload.plan_text || message.content || '').trim() || null,
-      };
-    }
-    case 'todo_state': {
-      const items = Array.isArray(payload.items)
-        ? payload.items
-          .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
-          .map((item, index) => {
-            const rawId = String(item.id || item.content || '').trim();
-
-            return {
-              id: rawId || `todo-${index}`,
-              content: String(item.content || '').trim(),
-              status: normalizeTodoStatus(item.status),
-            };
-          })
-        : [];
-
-      return {
-        kind: 'todo_state',
-        items,
       };
     }
     default:

@@ -242,7 +242,6 @@ class ExecutionResult:
     skip_emit: bool = False
     root_user_message: str = ""
     correlation_id: Optional[str] = None
-    orchestration_id: Optional[str] = None
     message_started_at: Optional[float] = None
     turn_id: Optional[str] = None
     llm_trace: dict[str, Any] = field(default_factory=dict)

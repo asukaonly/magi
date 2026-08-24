@@ -105,7 +105,6 @@ def _insert_chat_turn(db_path: Path, **values) -> None:
         "session_id": values.get("session_id"),
         "user_id": values.get("user_id"),
         "trace_id": values.get("trace_id"),
-        "orchestration_id": values.get("orchestration_id"),
         "status": values.get("status", "queued"),
         "response_mode": values.get("response_mode", "final_only"),
         "execution_mode": values.get("execution_mode"),
@@ -123,10 +122,10 @@ def _insert_chat_turn(db_path: Path, **values) -> None:
     cur.execute(
         f"""
         INSERT INTO {CHAT_TURNS_TABLE} (
-            turn_id, session_id, user_id, trace_id, orchestration_id, status,
+            turn_id, session_id, user_id, trace_id, status,
             response_mode, execution_mode, ux_plan_json, created_at_ms, updated_at_ms,
             completed_at_ms, error_text, run_id, run_revision, run_disposition
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -199,7 +198,6 @@ def _init_runtime_trace_store(db_path: Path) -> None:
             user_id TEXT NOT NULL,
             status TEXT NOT NULL,
             mode TEXT NOT NULL,
-            orchestration_id TEXT,
             started_at_ms INTEGER NOT NULL,
             ended_at_ms INTEGER,
             duration_ms INTEGER,
@@ -284,7 +282,6 @@ def _insert_trace_turn(db_path: Path, **values) -> None:
         "user_id": values.get("user_id"),
         "status": values.get("status", "running"),
         "mode": values.get("mode", "function_calling"),
-        "orchestration_id": values.get("orchestration_id"),
         "started_at_ms": values.get("started_at_ms", 0),
         "ended_at_ms": values.get("ended_at_ms"),
         "duration_ms": values.get("duration_ms"),
@@ -305,11 +302,11 @@ def _insert_trace_turn(db_path: Path, **values) -> None:
     cur.execute(
         """
         INSERT INTO trace_turns (
-            trace_id, turn_id, session_id, user_id, status, mode, orchestration_id,
+            trace_id, turn_id, session_id, user_id, status, mode,
             started_at_ms, ended_at_ms, duration_ms, user_message_preview, response_preview,
             error_summary, continued_from_turn_id, continued_from_trace_id,
             superseded_by_turn_id, supersession_reason, created_at_ms, updated_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
     )
@@ -1849,7 +1846,6 @@ def test_get_display_history_prefers_chat_store_transcript(tmp_path, monkeypatch
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
@@ -1917,7 +1913,6 @@ def test_get_display_history_includes_turn_ux_trace_preferences(tmp_path, monkey
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
@@ -2306,7 +2301,6 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
@@ -2401,7 +2395,6 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
@@ -2459,21 +2452,6 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
     )
     _insert_chat_message(
         service._chat_db_path,
-        message_id="msg-todo",
-        session_id="s-control",
-        turn_id="turn-control",
-        user_id="u1",
-        role="assistant",
-        message_kind="todo_state",
-        content_text="first\nsecond",
-        payload_json=json.dumps(
-            {"items": [{"id": "1", "content": "first", "status": "in_progress"}]}
-        ),
-        created_at_ms=1020,
-        sequence_no=3,
-    )
-    _insert_chat_message(
-        service._chat_db_path,
         message_id="msg-permission",
         session_id="s-control",
         turn_id="turn-control",
@@ -2519,21 +2497,16 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
         "user",
         "status",
         "status",
-        "status",
         "assistant",
         "user",
     ]
     assert [item.message_kind for item in messages[1:]] == [
         "plan_state",
-        "todo_state",
         "permission_request",
         "ask_request",
         "ask_response",
     ]
     assert messages[1].payload == {"active": True, "plan_text": "step 1\nstep 2"}
-    assert messages[2].payload == {
-        "items": [{"id": "1", "content": "first", "status": "in_progress"}]
-    }
     assert messages[-1].reply_to == {
         "message_id": "msg-ask",
         "role": "assistant",
@@ -2546,7 +2519,6 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
     service = _build_service(tmp_path)
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    trace_service._orchestrations_path = tmp_path / "task_orchestrations.json"
     monkeypatch.setattr(
         "magi.chat.read_service.get_chat_trace_read_service",
         lambda: trace_service,
@@ -2678,7 +2650,6 @@ def test_trace_summary_reads_runtime_trace_tool_rows(tmp_path, monkeypatch):
 def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,
@@ -2688,7 +2659,6 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
         user_id="u1",
         status="completed",
         mode="orchestration",
-        orchestration_id="orch_trace",
         started_at_ms=3000000,
         ended_at_ms=3001200,
         duration_ms=1200,
@@ -2804,13 +2774,11 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     assert snapshot["summary"]["duration_seconds"] == 1.2
 
     child_kinds = {child["kind"] for child in snapshot["root"]["children"]}
-    assert {"intent", "planning", "response"} <= child_kinds
+    assert {"intent", "dispatch", "response"} <= child_kinds
 
-    planning_node = next(
-        child for child in snapshot["root"]["children"] if child["kind"] == "planning"
+    dispatch_node = next(
+        child for child in snapshot["root"]["children"] if child["kind"] == "dispatch"
     )
-    dispatch_node = planning_node["children"][0]
-    assert dispatch_node["kind"] == "dispatch"
     worker_node = dispatch_node["children"][0]
     assert worker_node["kind"] == "worker"
     worker_child_kinds = {child["kind"] for child in worker_node["children"]}
@@ -2820,7 +2788,6 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
 def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,
@@ -2830,7 +2797,6 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
         user_id="u1",
         status="completed",
         mode="orchestration",
-        orchestration_id="orch_retry",
         started_at_ms=4000000,
         ended_at_ms=4001000,
         duration_ms=1000,
@@ -2883,10 +2849,9 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
     snapshot = service.get_trace_snapshot(user_id="u1", session_id="s1", turn_id="turn_retry")
 
     assert snapshot is not None
-    planning_node = next(
-        child for child in snapshot["root"]["children"] if child["kind"] == "planning"
+    dispatch_node = next(
+        child for child in snapshot["root"]["children"] if child["kind"] == "dispatch"
     )
-    dispatch_node = planning_node["children"][0]
     attempt_nodes = dispatch_node["children"]
     assert len(attempt_nodes) == 2
     assert [item["kind"] for item in attempt_nodes] == ["attempt", "attempt"]
@@ -2899,7 +2864,6 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
 def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,
@@ -2909,7 +2873,6 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
         user_id="u1",
         status="completed",
         mode="orchestration",
-        orchestration_id="orch_1",
         started_at_ms=1000000,
         ended_at_ms=1030000,
         duration_ms=30000,
@@ -2972,9 +2935,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     assert snapshot["summary"]["trace_available"] is True
     assert snapshot["summary"]["mode"] == "orchestration"
     assert snapshot["summary"]["status"] == "completed"
-    planning = snapshot["root"]["children"][0]
-    assert planning["kind"] == "planning"
-    dispatch = planning["children"][0]
+    dispatch = snapshot["root"]["children"][0]
     assert dispatch["kind"] == "dispatch"
     assert dispatch["status"] == "completed"
     worker = dispatch["children"][0]
@@ -2985,7 +2946,6 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
 def test_trace_summary_does_not_count_intent_as_semantic_step(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,
@@ -3022,93 +2982,9 @@ def test_trace_summary_does_not_count_intent_as_semantic_step(tmp_path):
     assert summary["completed_steps"] == 0
 
 
-def test_trace_summary_exposes_orchestration_plan_preview(tmp_path):
-    service = ChatTraceReadService()
-    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
-    _init_runtime_trace_store(service._runtime_trace_db_path)
-    _insert_trace_turn(
-        service._runtime_trace_db_path,
-        trace_id="trace:turn_plan_preview",
-        turn_id="turn_plan_preview",
-        session_id="s1",
-        user_id="u1",
-        status="running",
-        mode="orchestration",
-        orchestration_id="orch_plan_preview",
-        started_at_ms=1000000,
-        updated_at_ms=1005000,
-        user_message_preview="plan this",
-    )
-    service._orchestrations_path.write_text(
-        json.dumps(
-            {
-                "orchestrations": {
-                    "orch_plan_preview": {
-                        "planner": "task_agent",
-                        "allow_parallel": True,
-                        "subtasks": [
-                            {
-                                "subtask_id": "subtask_1",
-                                "description": "梳理现有文档和范围",
-                                "status": "completed",
-                            },
-                            {
-                                "subtask_id": "subtask_2",
-                                "description": "盘点代码结构与运行方式",
-                                "status": "running",
-                            },
-                            {
-                                "subtask_id": "subtask_3",
-                                "description": "整理 MVP 验收清单",
-                                "status": "pending",
-                            },
-                            {
-                                "subtask_id": "subtask_4",
-                                "description": "输出优先级建议",
-                                "status": "pending",
-                            },
-                        ],
-                    }
-                }
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    summary = service.get_trace_summary(user_id="u1", session_id="s1", turn_id="turn_plan_preview")
-
-    assert summary is not None
-    assert summary["plan_summary"] == {
-        "planner": "task_agent",
-        "parallel_mode": "parallel",
-        "total_steps": 4,
-        "remaining_steps": 1,
-        "steps": [
-            {
-                "subtask_id": "subtask_1",
-                "label": "梳理现有文档和范围",
-                "status": "completed",
-            },
-            {
-                "subtask_id": "subtask_2",
-                "label": "盘点代码结构与运行方式",
-                "status": "running",
-            },
-            {
-                "subtask_id": "subtask_3",
-                "label": "整理 MVP 验收清单",
-                "status": "pending",
-            },
-        ],
-    }
-
-
 def test_trace_snapshot_exposes_continuation_metadata(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
-    service._orchestrations_path = tmp_path / "task_orchestrations.json"
     _init_runtime_trace_store(service._runtime_trace_db_path)
     _insert_trace_turn(
         service._runtime_trace_db_path,

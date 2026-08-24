@@ -22,7 +22,6 @@ Endpoints:
 * ``POST   /permission/{request_id}/respond`` — resolve a pending prompt
 * ``POST   /ask/{request_id}/respond``    — answer an ``ask_user_question``
 * ``GET    /sessions/{sid}/plan``         — plan-mode state
-* ``GET    /sessions/{sid}/todos``        — canonical run-plan snapshot
 * ``GET    /sessions/{sid}/ask``          — current ask state (if any)
 * ``GET    /sessions/{sid}/permissions``  — pending permission prompts
 """
@@ -368,7 +367,7 @@ async def respond_ask(request_id: str, payload: _AskRespondRequest) -> dict[str,
 
 
 # ---------------------------------------------------------------------------
-# Session snapshots (plan / todos / ask)
+# Session snapshots (plan / ask)
 # ---------------------------------------------------------------------------
 
 
@@ -384,12 +383,6 @@ async def get_plan_state(session_id: str) -> dict[str, Any]:
     )
     plan = payload.get("plan") if isinstance(payload, dict) else None
     return plan if isinstance(plan, dict) else state
-
-
-@control_router.get("/sessions/{session_id}/todos")
-async def get_todos(session_id: str) -> dict[str, Any]:
-    plan = _session_store().current_run_plan(session_id)
-    return {"plan": plan.to_dict() if plan is not None else None}
 
 
 @control_router.get("/sessions/{session_id}/ask")

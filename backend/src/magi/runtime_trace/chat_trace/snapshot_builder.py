@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .constants import MAX_PLAN_PREVIEW_STEPS
 from .models import (
-    ExecutionPlanStepSummary,
-    ExecutionPlanSummary,
     ExecutionTraceNode,
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
@@ -61,7 +58,6 @@ class TraceSnapshotBuilderMixin:
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
         intent_resolutions: list[dict[str, Any]],
-        orchestration_state: Optional[dict[str, Any]],
     ) -> Optional[ExecutionTraceSnapshot]:
         turn_id = str(turn.get("turn_id") or "").strip()
         if not turn_id:
@@ -73,12 +69,9 @@ class TraceSnapshotBuilderMixin:
             tool_calls=tool_calls,
             intent_resolutions=intent_resolutions,
         )
-        orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
         mode = self._snapshot_mode(
             turn=turn,
             root=root,
-            orchestration_id=orchestration_id,
-            orchestration_state=orchestration_state,
         )
         started_at, ended_at, status = self._apply_turn_status(root=root, turn=turn)
         summary = self._build_trace_summary(
@@ -88,8 +81,6 @@ class TraceSnapshotBuilderMixin:
             root=root,
             started_at=started_at,
             ended_at=ended_at,
-            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
-            orchestration_state=orchestration_state,
             llm_calls=llm_calls,
             turn=turn,
         )
@@ -99,7 +90,6 @@ class TraceSnapshotBuilderMixin:
             session_id=session_id,
             status=status,
             mode=mode,
-            orchestration_id=orchestration_id,
             started_at=started_at,
             ended_at=root.ended_at,
             continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
@@ -115,15 +105,11 @@ class TraceSnapshotBuilderMixin:
         *,
         turn: dict[str, Any],
         root: ExecutionTraceNode,
-        orchestration_id: Optional[str],
-        orchestration_state: Optional[dict[str, Any]],
     ) -> str:
         return str(
             turn.get("mode")
             or self._resolve_normalized_mode(
                 root=root,
-                orchestration_id=orchestration_id,
-                orchestration_state=orchestration_state,
             )
         )
 
@@ -165,8 +151,6 @@ class TraceSnapshotBuilderMixin:
         root: ExecutionTraceNode,
         started_at: Optional[float],
         ended_at: Optional[float],
-        orchestration_id: Optional[str],
-        orchestration_state: Optional[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         turn: dict[str, Any],
     ) -> ExecutionTraceSummary:
@@ -177,11 +161,9 @@ class TraceSnapshotBuilderMixin:
             mode=mode,
             status=status,
             headline=self._build_headline(
-                mode=mode,
                 status=status,
                 active_steps=active_steps,
                 completed_steps=completed_steps,
-                orchestration_state=orchestration_state,
             ),
             active_steps=active_steps,
             completed_steps=completed_steps,
@@ -191,8 +173,7 @@ class TraceSnapshotBuilderMixin:
                 3,
             ),
             trace_available=bool(root.children),
-            orchestration_id=orchestration_id,
-            plan_summary=self._build_plan_summary(orchestration_state),
+            plan_summary=None,
             continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
             continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
             superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
@@ -206,8 +187,6 @@ class TraceSnapshotBuilderMixin:
         self,
         *,
         root: ExecutionTraceNode,
-        orchestration_id: Optional[str],
-        orchestration_state: Optional[dict[str, Any]],
     ) -> str:
         for node in self._walk_nodes(root):
             if node.kind in {"worker", "dispatch"}:
@@ -240,58 +219,12 @@ class TraceSnapshotBuilderMixin:
                 return f"tool:{tool_call_id}"
         return f"{node.kind}:{node.id}"
 
-    def _build_plan_summary(
-        self, orchestration_state: Optional[dict[str, Any]]
-    ) -> Optional[ExecutionPlanSummary]:
-        if not isinstance(orchestration_state, dict):
-            return None
-        raw_subtasks = orchestration_state.get("subtasks")
-        if not isinstance(raw_subtasks, list):
-            return None
-
-        steps: list[ExecutionPlanStepSummary] = []
-        for raw_subtask in raw_subtasks:
-            if not isinstance(raw_subtask, dict):
-                continue
-            label = (
-                self._optional_text(raw_subtask.get("description"))
-                or self._optional_text(raw_subtask.get("title"))
-                or self._optional_text(raw_subtask.get("subtask_id"))
-            )
-            if label is None:
-                continue
-            steps.append(
-                ExecutionPlanStepSummary(
-                    subtask_id=self._optional_text(raw_subtask.get("subtask_id")),
-                    label=label,
-                    status=self._normalize_status(str(raw_subtask.get("status") or "pending")),
-                )
-            )
-
-        if not steps:
-            return None
-
-        preview_steps = steps[:MAX_PLAN_PREVIEW_STEPS]
-        return ExecutionPlanSummary(
-            planner=self._optional_text(orchestration_state.get("planner")),
-            parallel_mode=(
-                "parallel"
-                if bool(orchestration_state.get("allow_parallel", True))
-                else "sequential"
-            ),
-            total_steps=len(steps),
-            remaining_steps=max(0, len(steps) - len(preview_steps)),
-            steps=preview_steps,
-        )
-
     def _build_headline(
         self,
         *,
-        mode: str,
         status: str,
         active_steps: int,
         completed_steps: int,
-        orchestration_state: Optional[dict[str, Any]],
     ) -> str:
         if status == "completed":
             return "Tool chain completed"

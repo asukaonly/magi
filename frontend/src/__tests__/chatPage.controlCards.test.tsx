@@ -467,7 +467,7 @@ defineChatPageSuite('ChatPage control cards', () => {
     expect(Boolean(askText.compareDocumentPosition(executionCard) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
-  it('renders plan and todo state as chat status cards', async () => {
+  it('renders plan state as a chat status card', async () => {
     useConversationStore.getState().hydrateSessions([
       {
         session_id: 'session-1',
@@ -495,29 +495,10 @@ defineChatPageSuite('ChatPage control cards', () => {
         exited_at_ms: null,
       },
     });
-    useConversationStore.getState().upsertMessage('session-1', {
-      id: 'todo:turn-1',
-      messageId: 'todo:turn-1',
-      role: 'assistant',
-      kind: 'status',
-      messageKind: 'todo_state',
-      content: 'Inspect runtime drift\nPatch UI',
-      timestamp: Date.now(),
-      payload: {
-        items: [
-          { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress', created_at_ms: 1, updated_at_ms: 2 },
-          { id: 'todo-2', content: 'Patch UI', status: 'completed', created_at_ms: 1, updated_at_ms: 3 },
-        ],
-      },
-    });
-
     render(<ChatPage />);
 
     expect(await screen.findByText('control:plan.badge_active')).toBeInTheDocument();
     expect(screen.getAllByText((content) => content.includes('1. Inspect')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Inspect runtime drift').length).toBeGreaterThan(0);
-    expect(screen.getByText('control:todo.status.in_progress')).toBeInTheDocument();
-    expect(screen.getByText('control:todo.status.completed')).toBeInTheDocument();
   });
 
   it('shows a bootstrap loading status card while the first assistant opening is being initialized', async () => {

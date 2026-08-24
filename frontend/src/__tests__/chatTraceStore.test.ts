@@ -15,7 +15,6 @@ describe('chat trace store', () => {
       session_id: 'session_1',
       status: 'completed',
       mode: 'orchestration',
-      orchestration_id: 'orch_1',
       started_at: 1,
       ended_at: 2,
       summary: {
@@ -28,7 +27,6 @@ describe('chat trace store', () => {
         failed_steps: 0,
         duration_seconds: 1.0,
         trace_available: true,
-        orchestration_id: 'orch_1',
       },
       root: {
         id: 'turn_1:root',
@@ -55,7 +53,6 @@ describe('chat trace store', () => {
         failedSteps: 0,
         durationSeconds: 1.0,
         traceAvailable: true,
-        orchestrationId: 'orch_1',
         planSummary: null,
         continuedFromTurnId: null,
         continuedFromTraceId: null,
@@ -64,6 +61,7 @@ describe('chat trace store', () => {
         totalInputTokens: 0,
         totalOutputTokens: 0,
         totalReasoningTokens: 0,
+        runtimeMetrics: {},
       },
     ]);
 

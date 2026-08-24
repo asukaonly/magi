@@ -84,18 +84,6 @@
     "empty": "No plan yet.",
     "view_plan": "View plan"
   },
-  "todo": {
-    "title": "Todo list",
-    "empty": "No todos yet.",
-    "status": {
-      "pending": "Pending",
-      "in_progress": "In progress",
-      "completed": "Completed",
-      "blocked": "Blocked",
-      "skipped": "Skipped",
-      "cancelled": "Cancelled"
-    }
-  },
   "settings": {
     "title": "Safety and execution",
     "session_trigger": "Session safety",

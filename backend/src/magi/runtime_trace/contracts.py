@@ -20,7 +20,6 @@ class TraceTurnRecord:
     user_id: str
     status: str
     mode: str
-    orchestration_id: str | None = None
     started_at_ms: int = 0
     ended_at_ms: int | None = None
     duration_ms: int | None = None

@@ -56,7 +56,6 @@ class ChatTurnRecord:
     session_id: str
     user_id: str
     trace_id: str | None
-    orchestration_id: str | None
     status: str
     response_mode: str
     execution_mode: str | None

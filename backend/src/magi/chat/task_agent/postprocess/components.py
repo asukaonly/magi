@@ -37,7 +37,6 @@ class ChatOutcomeWriter:
         turn_id: str | None,
         delivery_attempt_no: int,
         command_id: int,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_text: str,
@@ -57,7 +56,6 @@ class ChatOutcomeWriter:
         if self._chat_store is None:
             await self.persist_final_chat_outcome(
                 turn_id=turn_id,
-                orchestration_id=orchestration_id,
                 execution_mode=execution_mode,
                 ux_plan=ux_plan,
                 response_text=response_text,
@@ -103,7 +101,6 @@ class ChatOutcomeWriter:
                 for message in messages
             },
             trace_id=self._trace_id_factory(turn_write.turn_id),
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=turn_write.ux_plan,
             response_mode=turn_write.response_mode,
@@ -127,7 +124,6 @@ class ChatOutcomeWriter:
         turn_id: str | None,
         delivery_attempt_no: int,
         command_id: int,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_plan: AssistantResponsePlan,
@@ -147,7 +143,6 @@ class ChatOutcomeWriter:
         if self._chat_store is None:
             persisted_messages = await self.persist_segmented_chat_outcome(
                 turn_id=turn_id,
-                orchestration_id=orchestration_id,
                 execution_mode=execution_mode,
                 ux_plan=ux_plan,
                 response_plan=response_plan,
@@ -196,7 +191,6 @@ class ChatOutcomeWriter:
             messages=messages,
             attachment_payloads_by_message_id=attachment_payloads,
             trace_id=self._trace_id_factory(turn_write.turn_id),
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=turn_write.ux_plan,
             response_mode=turn_write.response_mode,
@@ -260,7 +254,6 @@ class ChatOutcomeWriter:
         self,
         *,
         turn_id: str | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_text: str,
@@ -305,7 +298,6 @@ class ChatOutcomeWriter:
                 for message in messages
             },
             trace_id=self._trace_id_factory(turn_write.turn_id),
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=turn_write.ux_plan,
             response_mode=turn_write.response_mode,
@@ -327,7 +319,6 @@ class ChatOutcomeWriter:
         self,
         *,
         turn_id: str | None,
-        orchestration_id: str | None,
         execution_mode: str | None,
         ux_plan: dict[str, Any] | None,
         response_plan: AssistantResponsePlan,
@@ -375,7 +366,6 @@ class ChatOutcomeWriter:
             messages=messages,
             attachment_payloads_by_message_id=attachment_payloads,
             trace_id=self._trace_id_factory(turn_write.turn_id),
-            orchestration_id=orchestration_id,
             execution_mode=execution_mode,
             ux_plan=turn_write.ux_plan,
             response_mode=turn_write.response_mode,

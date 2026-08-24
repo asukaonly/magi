@@ -1,7 +1,7 @@
 """Best-effort control-plane event publisher.
 
 Writes control-plane interaction events (``control.permission.requested``,
-``control.ask.requested``, ``control.todo.updated``, ``control.plan.updated``)
+``control.ask.requested``, ``control.plan.updated``)
 into the runtime trace store as :class:`RuntimeNotificationRecord`s so the
 Rust gateway / websocket bridge can push them to the desktop UI.
 
@@ -23,7 +23,6 @@ logger = get_logger(__name__)
 __all__ = [
     "publish_control_event",
     "publish_control_plan_state_changed",
-    "publish_control_todo_state_changed",
     "publish_control_ask_requested",
     "publish_control_ask_answered",
 ]
@@ -96,28 +95,6 @@ async def publish_control_plan_state_changed(
             user_id=user_id,
             turn_id=turn_id,
             state=dict(state),
-        ),
-    )
-
-
-async def publish_control_todo_state_changed(
-    *,
-    session_id: str,
-    user_id: str | None,
-    turn_id: str | None,
-    plan: dict[str, Any],
-) -> None:
-    """Emit ``CONTROL_TODO_STATE_CHANGED`` for the chat transcript subscriber."""
-    from ...events.domain_payloads import ControlTodoStateChanged
-    from ...events.events import EventTypes
-
-    await _publish_control_state_event(
-        EventTypes.CONTROL_TODO_STATE_CHANGED,
-        ControlTodoStateChanged(
-            session_id=session_id,
-            user_id=user_id,
-            turn_id=turn_id,
-            plan=dict(plan),
         ),
     )
 

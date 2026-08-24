@@ -6,7 +6,7 @@ from typing import Any
 
 from .models import ExecutionTraceNode
 from .builders.rows import build_trace_row_node
-from .utils import derive_children_status, is_terminal_status, ms_to_seconds
+from .utils import ms_to_seconds
 
 
 def build_runtime_trace_root(
@@ -81,80 +81,6 @@ def build_runtime_trace_root(
     deduplicate_response_emit(root)
     redact_cancelled_response_drafts(root)
     return root
-
-
-def reshape_orchestration_trace_root(root: ExecutionTraceNode) -> ExecutionTraceNode:
-    if root.kind != "root" or not root.children:
-        return root
-
-    planning_children: list[ExecutionTraceNode] = []
-    preserved_children: list[ExecutionTraceNode] = []
-    planning_insert_index: int | None = None
-    hidden_iteration_count = 0
-
-    for child in root.children:
-        if child.kind == "dispatch":
-            if planning_insert_index is None:
-                planning_insert_index = len(preserved_children)
-            planning_children.append(with_dispatch_label(child))
-            continue
-        if child.kind == "iteration":
-            if planning_insert_index is None:
-                planning_insert_index = len(preserved_children)
-            hidden_iteration_count += 1
-            continue
-        preserved_children.append(child)
-
-    if not planning_children:
-        return root
-
-    started_at = min(
-        (node.started_at for node in planning_children if node.started_at is not None),
-        default=root.started_at,
-    )
-    ended_candidates = [node.ended_at for node in planning_children if node.ended_at is not None]
-    planning_status = derive_children_status(planning_children)
-    planning_node = ExecutionTraceNode(
-        id=f"{root.id}:planning",
-        kind="planning",
-        label="Task orchestration",
-        status=planning_status,
-        started_at=started_at,
-        ended_at=(
-            max(ended_candidates)
-            if ended_candidates and is_terminal_status(planning_status)
-            else None
-        ),
-        metadata={
-            "synthetic": True,
-            "hidden_iteration_count": hidden_iteration_count,
-        },
-        children=planning_children,
-    )
-
-    insert_at = (
-        planning_insert_index if planning_insert_index is not None else len(preserved_children)
-    )
-    preserved_children.insert(insert_at, planning_node)
-    root.children = preserved_children
-    return root
-
-
-def with_dispatch_label(node: ExecutionTraceNode) -> ExecutionTraceNode:
-    description = (node.result_preview or "").strip()
-    label = description or node.label
-    return ExecutionTraceNode(
-        id=node.id,
-        kind=node.kind,
-        label=label,
-        status=node.status,
-        started_at=node.started_at,
-        ended_at=node.ended_at,
-        result_preview="" if description and label == description else node.result_preview,
-        error=node.error,
-        metadata={**node.metadata, "dispatch_label": label},
-        children=node.children,
-    )
 
 
 def deduplicate_response_emit(root: ExecutionTraceNode) -> None:

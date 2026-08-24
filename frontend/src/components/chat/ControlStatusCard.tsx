@@ -381,41 +381,6 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
         </motion.div>
       );
     }
-    case 'todo_state': {
-      return (
-        <motion.div {...cardMotionProps(shouldReduceMotion)} key={message.id} className="mb-5 flex justify-center">
-          <div className="flex w-full max-w-[75%] flex-col gap-3 rounded-xl border border-border/40 bg-background/60 px-4 py-3 shadow-sm">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('control:todo.title')}</div>
-            {presentation.items.length ? (
-              <ul className="space-y-2">
-                {presentation.items.map((item) => {
-                  const glyph = item.status === 'completed'
-                    ? '●'
-                    : item.status === 'in_progress'
-                      ? '◐'
-                      : item.status === 'blocked'
-                        ? '!'
-                        : item.status === 'cancelled' || item.status === 'skipped'
-                          ? '–'
-                          : '○';
-                  const terminalMuted = ['completed', 'skipped', 'cancelled'].includes(item.status);
-
-                  return (
-                    <li key={item.id} className={`flex items-start gap-2 text-sm ${terminalMuted ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
-                      <span className="shrink-0 font-mono">{glyph}</span>
-                      <span className="flex-1">{item.content}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{t(`control:todo.status.${item.status}`)}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="m-0 text-sm text-muted-foreground">{t('control:todo.empty')}</p>
-            )}
-          </div>
-        </motion.div>
-      );
-    }
     default:
       return null;
   }

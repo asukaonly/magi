@@ -27,6 +27,7 @@ class AgentRunEventType(str, Enum):
     CAPABILITIES_EXPANDED = "capabilities_expanded"
     ATTACHMENT_OBSERVED = "attachment_observed"
     CONTROL_RECEIVED = "control_received"
+    PLAN_UPDATED = "plan_updated"
     VALIDATION_COMPLETED = "validation_completed"
     COMPLETION_REQUESTED = "completion_requested"
     COMPLETION_REJECTED = "completion_rejected"

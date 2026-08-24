@@ -249,7 +249,6 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/permission/{request_id}/respond": {"POST"},
         "/ask/{request_id}/respond": {"POST"},
         "/sessions/{session_id}/plan": {"GET"},
-        "/sessions/{session_id}/todos": {"GET"},
         "/sessions/{session_id}/permissions": {"GET"},
         "/sessions/{session_id}/ask": {"GET"},
     },

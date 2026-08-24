@@ -108,7 +108,6 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
         "/api/messages/trace",
         "/api/tasks",
         "/api/tasks/{task_id}",
-        "/api/tasks/orchestration/{orchestration_id}",
         "/api/schedules",
         "/api/schedules/executions/recent",
         "/api/schedules/{schedule_id}",

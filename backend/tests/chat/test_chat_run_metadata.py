@@ -41,7 +41,6 @@ async def test_chat_turn_run_metadata_round_trips(runtime_paths_with_schema) -> 
                 session_id=turn.session_id,
                 user_id=turn.user_id,
                 trace_id=turn.trace_id,
-                orchestration_id=turn.orchestration_id,
                 status=turn.status,
                 response_mode=turn.response_mode,
                 execution_mode=turn.execution_mode,

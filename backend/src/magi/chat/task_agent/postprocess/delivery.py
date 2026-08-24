@@ -44,7 +44,6 @@ class _DeliveryPostprocessHostProtocol(Protocol):
         session_id: str,
         turn_id: str | None,
         run_id: str | None,
-        orchestration_id: str | None,
         state: str,
         can_cancel: bool,
         label: str | None = None,
@@ -162,7 +161,6 @@ class ChatPostprocessDeliveryMixin:
             response_text=delivery_plan.response_text,
             attachments=list(getattr(result, "attachments", []) or []),
             message_payload=dict(getattr(result, "message_payload", {}) or {}),
-            orchestration_id=result.orchestration_id,
             trace_summary=prepared.trace_summary,
             trace_available=prepared.trace_available,
             ux_plan=result.ux_plan,
@@ -183,7 +181,6 @@ class ChatPostprocessDeliveryMixin:
             session_id=context.session_id,
             turn_id=prepared.turn_id,
             run_id=context.session_run_id,
-            orchestration_id=result.orchestration_id,
             state="completed",
             can_cancel=False,
         )
@@ -209,7 +206,6 @@ class ChatPostprocessDeliveryMixin:
             response_text=delivery_plan.response_text,
             attachments=list(getattr(result, "attachments", []) or []),
             message_payload=dict(getattr(result, "message_payload", {}) or {}),
-            orchestration_id=result.orchestration_id,
             trace_summary=prepared.trace_summary,
             trace_available=prepared.trace_available,
             ux_plan=result.ux_plan,
@@ -231,7 +227,6 @@ class ChatPostprocessDeliveryMixin:
             response=prepared.response_text,
             correlation_id=prepared.correlation_id,
             turn_id=prepared.turn_id,
-            orchestration_id=result.orchestration_id,
             trace_summary=prepared.trace_summary,
             trace_available=prepared.trace_available,
         )
@@ -273,7 +268,6 @@ class ChatPostprocessDeliveryMixin:
         response_text: str,
         attachments: list[dict[str, Any]] | None,
         message_payload: dict[str, Any] | None,
-        orchestration_id: str | None,
         trace_summary: dict[str, Any] | None,
         trace_available: bool,
         ux_plan: dict[str, Any] | None,
@@ -297,7 +291,6 @@ class ChatPostprocessDeliveryMixin:
             trace_available=trace_available,
             ux_plan=ux_plan,
             message_payload=dict(message_payload or {}),
-            orchestration_id=orchestration_id,
         )
         delivery_kwargs: dict[str, Any] = {"content": content}
         if exclude_chat_sse:
@@ -337,7 +330,6 @@ class ChatPostprocessDeliveryMixin:
                     response_text=str(message.content_text or ""),
                     attachments=attachments if index == total - 1 else [],
                     message_payload=segment_payload,
-                    orchestration_id=result.orchestration_id,
                     trace_summary=trace_summary,
                     trace_available=trace_available,
                     ux_plan=result.ux_plan,

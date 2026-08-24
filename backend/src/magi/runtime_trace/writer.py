@@ -199,7 +199,6 @@ class RuntimeTraceWriter:
                 user_id=str(attrs.get("user_id") or ""),
                 status=str(attrs.get("status") or payload.status),
                 mode=str(attrs.get("mode") or ""),
-                orchestration_id=attrs.get("orchestration_id"),
                 started_at_ms=self._int_attr(attrs, "started_at_ms", default=payload.started_at_ms),
                 ended_at_ms=attrs.get("ended_at_ms", payload.ended_at_ms),
                 duration_ms=attrs.get("duration_ms", payload.duration_ms),

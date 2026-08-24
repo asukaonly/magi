@@ -471,6 +471,16 @@ class FunctionCallingToolBatchExecutor:
                     "model_observation": dict(state.messages[-1]),
                 },
             )
+            if (
+                record.tool_call.name == "todo_write"
+                and result.success
+                and isinstance(result.data, dict)
+            ):
+                await state.journal.append(
+                    AgentRunEventType.PLAN_UPDATED,
+                    step_index=iteration,
+                    payload={"plan": dict(result.data)},
+                )
             await self._append_child_run_events(
                 state=state,
                 record=record,

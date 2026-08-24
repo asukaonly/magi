@@ -156,7 +156,6 @@ class ChatSseChannel(Channel):
                     "trace_summary",
                     "ux_plan",
                     "message_payload",
-                    "orchestration_id",
                 )
             }
             if content.trace_available:

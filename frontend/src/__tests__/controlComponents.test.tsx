@@ -45,32 +45,6 @@ vi.mock('@/api/modules/control', async () => {
     respondAsk: vi.fn().mockResolvedValue(undefined),
     respondPermission: vi.fn().mockResolvedValue(undefined),
     listPendingPermissions: vi.fn().mockResolvedValue([]),
-    getRunPlan: vi.fn().mockResolvedValue({
-      plan_id: 'plan-1',
-      run_id: 'run-1',
-      session_id: 'session-1',
-      version: 1,
-      required: true,
-      status: 'active',
-      created_at_ms: 1,
-      updated_at_ms: 1,
-      items: [
-      {
-        id: 't1',
-        content: 'First todo',
-        status: 'in_progress',
-        created_at_ms: 0,
-        updated_at_ms: 0,
-      },
-      {
-        id: 't2',
-        content: 'Second todo',
-        status: 'completed',
-        created_at_ms: 0,
-        updated_at_ms: 0,
-      },
-      ],
-    }),
     getPlanState: vi.fn().mockResolvedValue({
       active: true,
       plan_text: '1. Do thing\n2. Ship it',

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from magi.control.common.events import publish_control_todo_state_changed
 from magi.control.provider import resolve_control_session_store
 from magi.core.logger import get_logger
-from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi.control.session_store import ControlSessionClearedError
 from magi.control.run_plan import RunPlanError
 from magi_plugin_sdk.tools import (
@@ -93,15 +91,12 @@ class TodoWriteTool(Tool):
                 success=False,
                 error="todo_write requires an active session",
             )
-        raw_turn = context.env_vars.get("turn_id")
-        turn_id = str(raw_turn or "").strip() or None
         run_id = str(context.env_vars.get("run_id") or "").strip()
         if not run_id:
             return ToolResult(
                 success=False,
                 error="todo_write requires an active run",
             )
-        user_id = str(context.env_vars.get("user_id") or "").strip() or DEFAULT_USER_ID
         raw_items = parameters.get("items")
         if not isinstance(raw_items, list):
             return ToolResult(
@@ -152,26 +147,6 @@ class TodoWriteTool(Tool):
                         1 for item in plan.items if item.status.value == "in_progress"
                     ),
                 )
-                await publish_control_todo_state_changed(
-                    session_id=sid,
-                    user_id=user_id,
-                    turn_id=turn_id,
-                    plan=plan.to_dict(),
-                )
-                try:
-                    from magi.control.common.events import publish_control_event
-
-                    await publish_control_event(
-                        "control.todo.updated",
-                        {
-                            "session_id": sid,
-                            "plan": plan.to_dict(),
-                        },
-                        session_id=sid,
-                        turn_id=turn_id,
-                    )
-                except Exception:  # pragma: no cover - defensive
-                    logger.debug("todo_write.event_failed", exc_info=True)
         except (ControlSessionClearedError, RunPlanError) as exc:
             return ToolResult(success=False, error=str(exc))
         return ToolResult(

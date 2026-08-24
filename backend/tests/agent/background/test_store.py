@@ -228,7 +228,6 @@ async def test_update_task_persists_mutable_fields(store: BackgroundTaskStore) -
     await store.create_task(task)
 
     task.status = BackgroundTaskStatus.RUNNING
-    task.orchestration_id = "orch-1"
     task.started_at = 1_700_000_000.0
     await store.update_task(task)
 
@@ -242,7 +241,6 @@ async def test_update_task_persists_mutable_fields(store: BackgroundTaskStore) -
 
     assert fetched is not None
     assert fetched.status is BackgroundTaskStatus.SUCCEEDED
-    assert fetched.orchestration_id == "orch-1"
     assert fetched.summary == "done"
     assert fetched.result_payload == {"answer": "42"}
     assert fetched.started_at == 1_700_000_000.0

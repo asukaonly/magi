@@ -190,7 +190,6 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
 @pytest.mark.asyncio
 async def test_postprocess_forwards_persona_and_raw_response_to_rhythm_planner() -> None:
     from magi.agent.task_agents.common import (
-        ExecutionMode,
         ExecutionResult,
         RhythmPersonaSignal,
     )

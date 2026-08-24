@@ -1223,6 +1223,7 @@
       "modeFunctionCalling": "Function calling",
       "modeDirectLlm": "Direct answer",
       "modeOrchestration": "Task orchestration",
+      "modeAgentLoop": "Agent loop",
       "kindRoot": "Call trace",
       "kindPlanning": "Task orchestration",
       "kindParallelGroup": "Parallel group",
@@ -1237,6 +1238,9 @@
       "kindDispatch": "Subtask launch",
       "kindAttempt": "Execution attempt",
       "kindStep": "Step",
+      "kindValidation": "Validation",
+      "kindRepair": "Repair",
+      "kindReasoning": "Reasoning policy",
       "node": {
         "callTrace": "Call trace",
         "intentResolution": "Intent resolution",
@@ -1245,7 +1249,12 @@
         "responseEmission": "Response emission",
         "responseRhythmProcessing": "Response rhythm processing",
         "taskOrchestration": "Task orchestration",
-        "roundLabel": "Processing round {{count}}"
+        "roundLabel": "Processing round {{count}}",
+        "modelDecision": "Model decision",
+        "validation": "Validation",
+        "completionCheck": "Completion check",
+        "repair": "Repairing completion requirements",
+        "reasoningAdjusted": "Reasoning depth adjusted"
       },
       "tableNode": "Node",
       "tableDuration": "Duration",

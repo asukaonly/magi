@@ -652,7 +652,7 @@ describe('conversation store', () => {
     ]);
   });
 
-  it('keeps persisted interim, todo, and final messages together after history rehydration', () => {
+  it('keeps persisted interim, plan, and final messages together after history rehydration', () => {
     const store = useConversationStore.getState();
 
     store.receiveHistory('session-a', [
@@ -677,19 +677,17 @@ describe('conversation store', () => {
         turnId: 'turn-history',
       },
       {
-        id: 'msg-todo',
-        messageId: 'msg-todo',
+        id: 'msg-plan',
+        messageId: 'msg-plan',
         role: 'assistant',
         kind: 'status',
-        messageKind: 'todo_state',
-        content: 'Inspect runtime drift\nPatch UI',
+        messageKind: 'plan_state',
+        content: '1. Inspect runtime drift\n2. Patch UI',
         timestamp: 1020,
         turnId: 'turn-history',
         payload: {
-          items: [
-            { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
-            { id: 'todo-2', content: 'Patch UI', status: 'completed' },
-          ],
+          active: true,
+          plan_text: '1. Inspect runtime drift\n2. Patch UI',
         },
       },
       {
@@ -719,9 +717,9 @@ describe('conversation store', () => {
         turnId: 'turn-history',
       }),
       expect.objectContaining({
-        id: 'msg-todo',
+        id: 'msg-plan',
         kind: 'status',
-        messageKind: 'todo_state',
+        messageKind: 'plan_state',
         turnId: 'turn-history',
       }),
       expect.objectContaining({
@@ -951,7 +949,7 @@ describe('conversation store', () => {
     }));
   });
 
-  it('does not merge streaming runtime placeholders into todo state messages', () => {
+  it('does not merge streaming runtime placeholders into plan state messages', () => {
     const store = useConversationStore.getState();
 
     store.appendStreamToolCall({
@@ -964,18 +962,17 @@ describe('conversation store', () => {
 
     store.receiveHistory('session-a', [
       {
-        id: 'msg-todo',
-        messageId: 'msg-todo',
+        id: 'msg-plan',
+        messageId: 'msg-plan',
         role: 'assistant',
         kind: 'status',
-        messageKind: 'todo_state',
-        content: 'Search official sources',
+        messageKind: 'plan_state',
+        content: '1. Search official sources',
         timestamp: 2000,
         turnId: 'turn-tools',
         payload: {
-          items: [
-            { id: 'task-1', content: 'Search official sources', status: 'in_progress' },
-          ],
+          active: true,
+          plan_text: '1. Search official sources',
         },
       },
     ]);
@@ -984,16 +981,16 @@ describe('conversation store', () => {
     const runtimeMessage = messages.find(
       (message) => message.turnId === 'turn-tools' && message.kind === 'assistant' && !message.messageId,
     );
-    const todoMessage = messages.find((message) => message.messageKind === 'todo_state');
+    const planMessage = messages.find((message) => message.messageKind === 'plan_state');
 
     expect(runtimeMessage).toEqual(expect.objectContaining({
       streaming: true,
       toolCalls: [expect.objectContaining({ toolName: 'web-search' })],
     }));
-    expect(todoMessage).toEqual(expect.objectContaining({
-      messageId: 'msg-todo',
+    expect(planMessage).toEqual(expect.objectContaining({
+      messageId: 'msg-plan',
       kind: 'status',
-      messageKind: 'todo_state',
+      messageKind: 'plan_state',
     }));
   });
 });

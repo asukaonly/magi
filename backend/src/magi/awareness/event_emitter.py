@@ -34,7 +34,6 @@ class RuntimeEventEmitter:
         response: str,
         correlation_id: str | None = None,
         turn_id: str | None = None,
-        orchestration_id: str | None = None,
         trace_summary: dict[str, Any] | None = None,
         trace_available: bool = False,
     ) -> None:
@@ -48,8 +47,6 @@ class RuntimeEventEmitter:
         }
         if turn_id:
             response_data["turn_id"] = turn_id
-        if orchestration_id:
-            response_data["orchestration_id"] = orchestration_id
         if trace_summary is not None:
             response_data["trace_summary"] = trace_summary
             response_data["trace_available"] = trace_available
@@ -68,7 +65,6 @@ class RuntimeEventEmitter:
             user_id=user_id,
             session_id=session_id,
             turn_id=turn_id or None,
-            orchestration_id=orchestration_id or None,
             correlation_id=correlation_id or None,
             response_chars=len(response),
             trace_available=trace_available,

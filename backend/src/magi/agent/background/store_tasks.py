@@ -28,10 +28,10 @@ class BackgroundTaskRowStoreMixin:
                 INSERT INTO background_tasks (
                     task_id, user_id, session_id, origin_turn_id,
                     title, goal, status, attempt_index, spec_json,
-                    orchestration_id, user_task_id, summary, result_payload_json,
+                    user_task_id, summary, result_payload_json,
                     error, cancel_reason, created_at, started_at, finished_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task.task_id,
@@ -43,7 +43,6 @@ class BackgroundTaskRowStoreMixin:
                     task.status.value,
                     int(task.attempt_index),
                     json.dumps(task.spec.to_dict(), ensure_ascii=False),
-                    task.orchestration_id,
                     task.user_task_id,
                     task.summary,
                     json.dumps(task.result_payload, ensure_ascii=False),
@@ -68,7 +67,6 @@ class BackgroundTaskRowStoreMixin:
                 UPDATE background_tasks SET
                     status = ?,
                     attempt_index = ?,
-                    orchestration_id = ?,
                     user_task_id = ?,
                     summary = ?,
                     result_payload_json = ?,
@@ -82,7 +80,6 @@ class BackgroundTaskRowStoreMixin:
                 (
                     task.status.value,
                     int(task.attempt_index),
-                    task.orchestration_id,
                     task.user_task_id,
                     task.summary,
                     json.dumps(task.result_payload, ensure_ascii=False),

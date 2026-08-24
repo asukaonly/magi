@@ -138,7 +138,7 @@ class SkillInvocationCompleted:
 # ---------------------------------------------------------------------------
 # Control-plane state-change payloads (Control-Plane Extraction Phase 1).
 #
-# Emitted by the control-actuator tools (enter/exit plan mode, todo_write,
+# Emitted by the user-facing control-actuator tools (enter/exit plan mode and
 # ask_user_question). A chat-side subscriber consumes them and performs the
 # durable transcript persistence that previously lived in
 # ``magi.control.chat_state_persister``. Each payload carries EXACTLY
@@ -179,16 +179,6 @@ class ControlPlanStateChanged:
     user_id: Optional[str]
     turn_id: Optional[str]
     state: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class ControlTodoStateChanged:
-    """Canonical run plan changed; transcript may project its todo items."""
-
-    session_id: str
-    user_id: Optional[str]
-    turn_id: Optional[str]
-    plan: Mapping[str, Any]
 
 
 @dataclass(frozen=True)

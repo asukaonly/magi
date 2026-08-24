@@ -50,7 +50,7 @@ async def test_lifecycle_binds_and_unbinds_control_clear_coordinator() -> None:
     subscriber = coordinator.transcript_subscriber
     assert subscriber is not None
     assert subscriber._memory_epoch_getter() == 7
-    assert len(bus.subscriptions) == 4
+    assert len(bus.subscriptions) == 3
 
     await module.shutdown()
     assert coordinator.transcript_subscriber is None

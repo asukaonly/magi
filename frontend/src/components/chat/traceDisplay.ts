@@ -15,6 +15,7 @@ export const formatTraceMode = (mode: string, t: TFunction<'app'>): string => {
   if (mode === 'orchestration') return t('chat.trace.modeOrchestration');
   if (mode === 'direct_llm') return t('chat.trace.modeDirectLlm');
   if (mode === 'function_calling') return t('chat.trace.modeFunctionCalling');
+  if (mode === 'agent_loop') return t('chat.trace.modeAgentLoop');
   return mode || '--';
 };
 
@@ -38,6 +39,9 @@ export const formatTraceKind = (kind: string, t: TFunction<'app'>): string => {
     dispatch: 'chat.trace.kindDispatch',
     attempt: 'chat.trace.kindAttempt',
     step: 'chat.trace.kindStep',
+    validation: 'chat.trace.kindValidation',
+    repair: 'chat.trace.kindRepair',
+    reasoning: 'chat.trace.kindReasoning',
   };
   const key = mapping[kind];
   return key ? t(key) : kind;
@@ -55,6 +59,11 @@ export const formatTraceLabel = (
   if (label === 'Response rhythm processing') return t('chat.trace.node.responseRhythmProcessing');
   if (label === 'Task orchestration') return t('chat.trace.node.taskOrchestration');
   if (label === 'Tool chain') return t('chat.trace.node.callTrace');
+  if (label === 'Model decision') return t('chat.trace.node.modelDecision');
+  if (label === 'Validation') return t('chat.trace.node.validation');
+  if (label === 'Completion check') return t('chat.trace.node.completionCheck');
+  if (label === 'Repairing completion requirements') return t('chat.trace.node.repair');
+  if (label === 'Reasoning depth adjusted') return t('chat.trace.node.reasoningAdjusted');
 
   const roundMatch = ROUND_LABEL_PATTERN.exec(label);
   if (roundMatch) {

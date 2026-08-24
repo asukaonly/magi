@@ -360,26 +360,6 @@ async def test_exit_plan_mode_publishes_plan_state_event() -> None:
 
 
 @pytest.mark.asyncio
-async def test_todo_write_publishes_todo_state_event() -> None:
-    store = ControlSessionStore()
-    bus = _RecordingBus()
-    with _override(control_session_store=store, message_bus=bus):
-        result = await TodoWriteTool().execute(
-            {
-                "expected_version": 0,
-                "items": [{"title": "a"}, {"title": "b", "status": "in_progress"}],
-            },
-            _ctx("sid-B"),
-        )
-        assert result.success
-    todo_events = [e for e in bus.events if e.type == EventTypes.CONTROL_TODO_STATE_CHANGED]
-    assert len(todo_events) == 1
-    payload = todo_events[0].data
-    assert payload.session_id == "sid-B"
-    assert [item["content"] for item in payload.plan["items"]] == ["a", "b"]
-
-
-@pytest.mark.asyncio
 async def test_ask_user_question_publishes_ask_events() -> None:
     store = ControlSessionStore()
     broker = InteractionBroker()

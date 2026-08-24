@@ -155,8 +155,6 @@ async def test_run_cancel_marks_owned_plan_and_items_cancelled() -> None:
         await _cancel_owned_run_plan(
             session_id="session-1",
             run_id="run-1",
-            user_id="user-1",
-            turn_id="turn-1",
         )
     finally:
         provider.reset_override()

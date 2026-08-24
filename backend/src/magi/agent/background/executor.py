@@ -51,7 +51,6 @@ class BackgroundTaskRunResult:
 
     summary: str | None = None
     result_payload: dict[str, Any] = field(default_factory=dict)
-    orchestration_id: str | None = None
 
 
 BackgroundTaskRunFn = Callable[
@@ -172,8 +171,6 @@ class BackgroundTaskExecutor:
         task.status = BackgroundTaskStatus.SUCCEEDED
         task.summary = result.summary
         task.result_payload = dict(result.result_payload or {})
-        if result.orchestration_id is not None:
-            task.orchestration_id = result.orchestration_id
         task.finished_at = now
         task.updated_at = now
         await self._store.persist_terminal_transition(

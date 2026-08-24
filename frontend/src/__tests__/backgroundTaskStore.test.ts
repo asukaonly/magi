@@ -26,7 +26,6 @@ const buildTask = (overrides: Partial<BackgroundTaskDTO> = {}): BackgroundTaskDT
   status: overrides.status ?? 'running',
   attempt_index: overrides.attempt_index ?? 0,
   spec: overrides.spec ?? DEFAULT_SPEC,
-  orchestration_id: overrides.orchestration_id ?? null,
   user_task_id: overrides.user_task_id ?? null,
   summary: overrides.summary ?? null,
   result_payload: overrides.result_payload ?? {},

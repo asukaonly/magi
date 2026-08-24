@@ -1,7 +1,7 @@
 """Trigger seam tests (ADR-0004 P3): RunTrigger factory + RunRequest carrier."""
 from __future__ import annotations
 
-from magi_plugin_sdk.run_trigger import RunRequest, RunTrigger
+from magi_plugin_sdk.run_trigger import RunRequest
 
 from magi.agent.run_triggers import build_user_message_trigger, is_external_source
 

@@ -31,7 +31,6 @@ class BackgroundTaskRowMappingMixin:
             "spec": spec_data,
             "status": str(row["status"]),
             "attempt_index": int(row["attempt_index"] or 0),
-            "orchestration_id": row["orchestration_id"],
             "user_task_id": row["user_task_id"],
             "summary": row["summary"],
             "result_payload": json.loads(
@@ -62,11 +61,6 @@ class BackgroundTaskRowMappingMixin:
             spec=spec,
             status=BackgroundTaskStatus(str(data["status"])),
             attempt_index=int(data.get("attempt_index") or 0),
-            orchestration_id=(
-                str(data["orchestration_id"])
-                if data.get("orchestration_id") is not None
-                else None
-            ),
             user_task_id=(
                 str(data["user_task_id"])
                 if data.get("user_task_id") is not None

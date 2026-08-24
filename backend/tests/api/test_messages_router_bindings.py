@@ -1137,7 +1137,6 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
                 "run_id": "run-1",
                 "revision": 0,
                 "status": "cancelling",
-                "cancelled_orchestration_ids": ["orch-1"],
             }
 
     class _FakeTaskAgentManager:
@@ -1164,7 +1163,6 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(
 
     assert response["success"] is True
     assert response["data"]["run_id"] == "run-1"
-    assert response["data"]["cancelled_orchestration_ids"] == ["orch-1"]
     assert captured["user_id"] == "u1"
 
 

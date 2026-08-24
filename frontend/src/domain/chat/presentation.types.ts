@@ -96,12 +96,6 @@ export interface ProjectedExecutionProgressPresentation {
 
 export type ControlStatusTone = 'neutral' | 'warning' | 'danger' | 'success';
 
-export interface ProjectedControlTodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped' | 'cancelled';
-}
-
 export type ProjectedControlStatusCardPresentation =
   | {
     kind: 'background_task_completion';
@@ -143,10 +137,6 @@ export type ProjectedControlStatusCardPresentation =
     kind: 'plan_state';
     active: boolean;
     planText: string | null;
-  }
-  | {
-    kind: 'todo_state';
-    items: ProjectedControlTodoItem[];
   };
 
 export type ProjectedChatTimelineMessage = {

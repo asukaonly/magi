@@ -262,7 +262,7 @@ class BackgroundTask:
 
     ``task_id`` is stable across retries; each retry bumps ``attempt_index``
     and clears ``started_at`` / ``finished_at`` / ``error`` / ``summary`` /
-    ``result_payload`` / ``orchestration_id`` before transitioning back to
+    ``result_payload`` before transitioning back to
     ``pending``.
     """
 
@@ -270,7 +270,6 @@ class BackgroundTask:
     spec: BackgroundTaskSpec
     status: BackgroundTaskStatus = BackgroundTaskStatus.PENDING
     attempt_index: int = 0
-    orchestration_id: str | None = None
     user_task_id: str | None = None
     summary: str | None = None
     result_payload: dict[str, Any] = field(default_factory=dict)
@@ -300,7 +299,6 @@ class BackgroundTask:
             "spec": self.spec.to_dict(),
             "status": self.status.value,
             "attempt_index": int(self.attempt_index),
-            "orchestration_id": self.orchestration_id,
             "user_task_id": self.user_task_id,
             "summary": self.summary,
             "result_payload": dict(self.result_payload),

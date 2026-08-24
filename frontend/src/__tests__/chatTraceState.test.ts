@@ -792,29 +792,6 @@ describe('chat trace state helpers', () => {
     });
 
     expect(projectControlStatusCardPresentation({
-      id: 'todo:turn-1',
-      role: 'assistant',
-      kind: 'status',
-      messageKind: 'todo_state',
-      content: 'Inspect runtime drift\nPatch UI',
-      timestamp: 1003,
-      payload: {
-        items: [
-          { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
-          { content: 'Patch UI', status: 'done' },
-          { status: 'mystery' },
-        ],
-      },
-    })).toMatchObject({
-      kind: 'todo_state',
-      items: [
-        { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
-        { id: 'Patch UI', content: 'Patch UI', status: 'completed' },
-        { id: 'todo-2', content: '', status: 'pending' },
-      ],
-    });
-
-    expect(projectControlStatusCardPresentation({
       id: 'bg:task-1',
       role: 'assistant',
       kind: 'status',
@@ -870,7 +847,6 @@ describe('chat trace state helpers', () => {
       failed_steps: 0,
       duration_seconds: 1.8,
       trace_available: true,
-      orchestration_id: 'orch_1',
     });
 
     const next = upsertTraceSummary(initial, 'turn_1', summary);
@@ -1214,7 +1190,6 @@ describe('chat trace state helpers', () => {
         failed_steps: 0,
         duration_seconds: 3.2,
         trace_available: true,
-        orchestration_id: 'orch_1',
       }),
       traceAvailable: true,
     });
@@ -1227,22 +1202,20 @@ describe('chat trace state helpers', () => {
     expect(next[2].traceAvailable).toBe(true);
   });
 
-  it('preserves durable todo state cards when the final assistant answer arrives', () => {
+  it('preserves durable plan state cards when the final assistant answer arrives', () => {
     const initial = [
       ...createPendingTurn('Analyze this repo', 'turn_todo', 1000, 'Thinking'),
       {
-        id: 'todo:turn_todo',
+        id: 'plan:turn_todo',
         role: 'assistant' as const,
         kind: 'status' as const,
-        messageKind: 'todo_state',
-        content: 'Inspect runtime drift\nPatch UI',
+        messageKind: 'plan_state',
+        content: '1. Inspect runtime drift\n2. Patch UI',
         timestamp: 1500,
         turnId: 'turn_todo',
         payload: {
-          items: [
-            { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
-            { id: 'todo-2', content: 'Patch UI', status: 'completed' },
-          ],
+          active: true,
+          plan_text: '1. Inspect runtime drift\n2. Patch UI',
         },
       },
     ];
@@ -1256,7 +1229,7 @@ describe('chat trace state helpers', () => {
     expect(next).toHaveLength(3);
     expect(next[1]).toMatchObject({
       kind: 'status',
-      messageKind: 'todo_state',
+      messageKind: 'plan_state',
       turnId: 'turn_todo',
     });
     expect(next[2]).toMatchObject({

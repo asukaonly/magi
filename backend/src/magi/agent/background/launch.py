@@ -210,7 +210,6 @@ class BackgroundLaunchService:
                 "background_task_attempt": int(task.attempt_index),
             },
             root_user_message=request.context.latest_user_message,
-            orchestration_id=task.task_id,
             turn_id=turn_id,
             ux_plan=_serialize_ux_plan(request.intent),
         )
@@ -302,7 +301,6 @@ def build_background_run_fn(
         return BackgroundTaskRunResult(
             summary=summary,
             result_payload=outcome.to_dict(),
-            orchestration_id=task.task_id,
         )
 
     return _run

@@ -65,8 +65,4 @@ class AgentRun:
     stale_results: list[RunResult] = field(default_factory=list)
     created_at: float = field(default_factory=time)
     updated_at: float = field(default_factory=time)
-    graph: tuple[str, ...] = ()
-    node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
-    consumed_events: tuple[str, ...] = ()
     trigger: RunTrigger | None = None
-    deliveries: tuple[str, ...] = ()

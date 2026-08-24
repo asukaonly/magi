@@ -171,13 +171,9 @@ export type {
   PermissionRuleDTO,
   PermissionScope,
   PlanStateDTO,
-  RunPlanDTO,
-  RunPlanStatus,
   SessionControlOverrideDTO,
   SessionSettingsBundleDTO,
   SessionSettingsUpdateInput,
-  TodoItemDTO,
-  TodoStatus,
 } from './modules/control';
 
 export { mcpApi } from './modules/mcp';

@@ -199,7 +199,6 @@ async def insert_user_turn_row(
             session_id,
             user_id,
             trace_id,
-            orchestration_id,
             status,
             response_mode,
             execution_mode,
@@ -215,14 +214,13 @@ async def insert_user_turn_row(
             superseded_by_turn_id,
             supersession_reason
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(turn_id) DO NOTHING
         """,
         (
             turn_id,
             session_id,
             user_id,
-            None,
             None,
             "queued",
             "final_only",

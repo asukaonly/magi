@@ -1,16 +1,14 @@
 """Project control-plane state-change events into durable chat transcript rows.
 
 Control-Plane Extraction Phase 1. The control-actuator tools (enter/exit plan
-mode, ``todo_write``, ``ask_user_question``) used to call ``persist_*`` helpers
+mode and ``ask_user_question``) used to call ``persist_*`` helpers
 in ``magi.control.chat_state_persister`` directly, which forced the
 control package to import chat/transport. That dependency is now inverted: the
 tools publish control state-change events on the L3 event bus (a legal downward
 edge), and this chat-side subscriber owns the transcript projection.
 
-The persistence logic below is MOVED VERBATIM from the former
-``chat_state_persister`` module — its dedup / replace / hide / threading
-semantics are behaviour-bearing and a golden parity test guards byte-identical
-output. Do not rewrite it.
+The remaining projections are user-facing interactions. Runtime plans are
+projected from canonical agent-run events and never stored as transcript rows.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any, Iterable
+from typing import Any
 
 from ..core.operation_barrier import AsyncOperationBarrier
 from ..events.domain_payloads import (
@@ -30,7 +28,6 @@ from ..events.domain_payloads import (
     ControlAskAnswered,
     ControlAskRequested,
     ControlPlanStateChanged,
-    ControlTodoStateChanged,
 )
 from ..events.events import Event, EventTypes, published_memory_epoch
 from ..events.payload_helpers import expect_payload, PayloadTypeError
@@ -359,52 +356,6 @@ async def persist_plan_state_message(
         payload=payload,
         content_text=normalized_plan_text,
         created_at_ms=created_at_ms,
-    )
-
-
-async def persist_todo_state_message(
-    *,
-    session_id: str,
-    user_id: str | None,
-    turn_id: str | None,
-    items: Iterable[dict[str, Any]],
-    orchestration_id: str | None = None,
-) -> str | None:
-    normalized_items = [dict(item) for item in items if isinstance(item, dict)]
-    if not normalized_items:
-        await _hide_latest_status_message(
-            session_id=session_id,
-            user_id=user_id,
-            turn_id=turn_id,
-            message_kind="todo_state",
-        )
-        return None
-
-    latest_updated_ms = max(
-        (
-            _coerce_created_at_ms(item.get("updated_at_ms"))
-            or _coerce_created_at_ms(item.get("created_at_ms"))
-            or 0
-        )
-        for item in normalized_items
-    )
-    payload = {
-        "items": normalized_items,
-        "orchestration_id": str(orchestration_id or "").strip() or None,
-    }
-    content_text = "\n".join(
-        str(item.get("content") or item.get("title") or "").strip()
-        for item in normalized_items
-        if str(item.get("content") or item.get("title") or "").strip()
-    ) or None
-    return await _persist_status_message(
-        session_id=session_id,
-        user_id=user_id,
-        turn_id=turn_id,
-        message_kind="todo_state",
-        payload=payload,
-        content_text=content_text,
-        created_at_ms=latest_updated_ms or None,
     )
 
 
@@ -772,11 +723,6 @@ class ControlTranscriptSubscriber:
         )
         self._sub_ids.append(
             await self._bus.subscribe(
-                EventTypes.CONTROL_TODO_STATE_CHANGED, self._on_todo_state_changed
-            )
-        )
-        self._sub_ids.append(
-            await self._bus.subscribe(
                 EventTypes.CONTROL_ASK_REQUESTED, self._on_ask_requested
             )
         )
@@ -826,16 +772,6 @@ class ControlTranscriptSubscriber:
             logger.exception("malformed ControlPlanStateChanged payload")
             return
         self._spawn(lambda: self._project_plan_state(payload))
-
-    async def _on_todo_state_changed(self, event: Event) -> None:
-        if not self._admits_event(event):
-            return
-        try:
-            payload = expect_payload(event, ControlTodoStateChanged)
-        except PayloadTypeError:
-            logger.exception("malformed ControlTodoStateChanged payload")
-            return
-        self._spawn(lambda: self._project_todo_state(payload))
 
     async def _on_ask_requested(self, event: Event) -> None:
         if not self._admits_event(event):
@@ -903,20 +839,6 @@ class ControlTranscriptSubscriber:
             state=dict(p.state),
         )
 
-    async def _project_todo_state(self, p: ControlTodoStateChanged) -> None:
-        raw_items = p.plan.get("items")
-        await persist_todo_state_message(
-            session_id=p.session_id,
-            user_id=p.user_id,
-            turn_id=p.turn_id,
-            items=[
-                dict(item)
-                for item in raw_items
-                if isinstance(item, dict)
-            ] if isinstance(raw_items, (list, tuple)) else [],
-            orchestration_id=None,
-        )
-
     async def _project_ask_requested(self, p: ControlAskRequested) -> None:
         await persist_ask_request_message(
             session_id=p.session_id,
@@ -942,5 +864,4 @@ __all__ = [
     "persist_ask_request_message",
     "persist_ask_response_message",
     "persist_plan_state_message",
-    "persist_todo_state_message",
 ]

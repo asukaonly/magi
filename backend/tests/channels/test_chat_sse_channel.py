@@ -334,7 +334,6 @@ async def test_deliver_carries_convergence_fields_when_supplied(
         trace_summary={"nodes": 3},
         trace_available=True,
         ux_plan={"shape": "reply"},
-        orchestration_id="orc1",
     )
 
     await ch.deliver(target, content)
@@ -347,7 +346,6 @@ async def test_deliver_carries_convergence_fields_when_supplied(
     assert payload["trace_summary"] == {"nodes": 3}
     assert payload["trace_available"] is True
     assert payload["ux_plan"] == {"shape": "reply"}
-    assert payload["orchestration_id"] == "orc1"
     # base fields unchanged
     assert payload["content"] == "full reply"
     assert payload["is_final"] is True

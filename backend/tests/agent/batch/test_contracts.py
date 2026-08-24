@@ -1,5 +1,4 @@
 from magi.agent.batch.contracts import (
-    BatchItem,
     BatchItemStatus,
     BatchJob,
     BatchJobStatus,
