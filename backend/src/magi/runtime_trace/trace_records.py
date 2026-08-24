@@ -8,7 +8,6 @@ import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
-    TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
     TraceToolRecord,
@@ -207,39 +206,6 @@ class TraceRecordPersistenceMixin:
             )
             await db.commit()
 
-    async def upsert_intent_resolution(self, record: TraceIntentResolutionRecord) -> None:
-        await self._upsert_detail(
-            """
-            INSERT INTO trace_intent_resolutions (
-                span_id,
-                trace_id,
-                turn_id,
-                intent,
-                execution_mode,
-                route_reason,
-                selected_tools_json,
-                selected_worker_type
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(span_id) DO UPDATE SET
-                intent = excluded.intent,
-                execution_mode = excluded.execution_mode,
-                route_reason = excluded.route_reason,
-                selected_tools_json = excluded.selected_tools_json,
-                selected_worker_type = excluded.selected_worker_type
-            """,
-            (
-                record.span_id,
-                record.trace_id,
-                record.turn_id,
-                record.intent,
-                record.execution_mode,
-                record.route_reason,
-                record.selected_tools_json,
-                record.selected_worker_type,
-            ),
-        )
-
     async def upsert_llm_call(self, record: TraceLlmCallRecord) -> None:
         await self._upsert_detail(
             """
@@ -352,13 +318,6 @@ class TraceRecordPersistenceMixin:
             (span_id,),
         )
         return self._row_to_record(TraceSpanRecord, row)
-
-    async def get_intent_resolution(self, span_id: str) -> TraceIntentResolutionRecord | None:
-        row = await self._fetchone(
-            "SELECT * FROM trace_intent_resolutions WHERE span_id = ?",
-            (span_id,),
-        )
-        return self._row_to_record(TraceIntentResolutionRecord, row)
 
     async def get_llm_call(self, span_id: str) -> TraceLlmCallRecord | None:
         row = await self._fetchone(

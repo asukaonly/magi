@@ -29,7 +29,6 @@ def parse_json_value(raw_value: Any) -> Any:
 
 def map_trace_kind(node_type: str) -> str:
     mapping = {
-        "intent_resolution": "intent",
         "llm_call": "llm",
         "tool_call": "tool",
         "worker_dispatch": "dispatch",

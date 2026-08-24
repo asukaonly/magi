@@ -7,7 +7,6 @@ from typing import Any, Awaitable, Callable
 from magi.events.domain_payloads import SpanCompleted
 
 from .contracts import (
-    TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
     TraceToolRecord,
@@ -28,7 +27,6 @@ class RuntimeTraceWriter:
         self._dispatch: dict[str, Callable[[SpanCompleted], Awaitable[None]]] = {
             "tool_invocation": self._record_tool_call_from_span,
             "llm_call": self._record_llm_call_from_span,
-            "intent_resolution": self._record_intent_resolution_from_span,
             "turn_record": self._record_turn_from_span,
         }
 
@@ -45,9 +43,6 @@ class RuntimeTraceWriter:
 
     async def record_span(self, record: TraceSpanRecord) -> None:
         await self._store.upsert_span(record)
-
-    async def record_intent_resolution(self, record: TraceIntentResolutionRecord) -> None:
-        await self._store.upsert_intent_resolution(record)
 
     async def record_llm_call(self, record: TraceLlmCallRecord) -> None:
         await self._store.upsert_llm_call(record)
@@ -169,23 +164,6 @@ class RuntimeTraceWriter:
                 request_preview=attrs.get("request_preview"),
                 response_preview=attrs.get("response_preview"),
                 thinking_content=attrs.get("thinking_content"),
-            )
-        )
-
-    async def _record_intent_resolution_from_span(self, payload: SpanCompleted) -> None:
-        attrs = payload.attributes or {}
-        if not attrs.get("intent") and not attrs.get("execution_mode"):
-            return
-        await self.record_intent_resolution(
-            TraceIntentResolutionRecord(
-                span_id=payload.span_id,
-                trace_id=payload.trace_id,
-                turn_id=payload.turn_id or "",
-                intent=str(attrs.get("intent") or payload.name),
-                execution_mode=str(attrs.get("execution_mode") or ""),
-                route_reason=attrs.get("route_reason"),
-                selected_tools_json=str(attrs.get("selected_tools_json") or "[]"),
-                selected_worker_type=attrs.get("selected_worker_type"),
             )
         )
 

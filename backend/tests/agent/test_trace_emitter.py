@@ -78,14 +78,14 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
         turn_id="turn_1",
         span_id="span_2",
         parent_span_id="span_1",
-        node_type="intent_resolution",
-        name="Intent resolution",
+        node_type="capability_resolution",
+        name="Capability resolution",
         user_id="local_user",
         session_id="session_1",
         started_at_ms=1710751000123,
         ended_at_ms=1710751000205,
         duration_ms=82,
-        output={"intent": "chat"},
+        output={"selected_tools": []},
     )
 
     assert runtime_event.await_count == 2
@@ -98,5 +98,5 @@ async def test_trace_event_emitter_emits_started_and_completed_runtime_events() 
 
     assert second_call["event_type"] == TRACE_NODE_COMPLETED_EVENT_TYPE
     assert second_call["payload"]["status"] == "completed"
-    assert second_call["payload"]["output"]["intent"] == "chat"
+    assert second_call["payload"]["output"]["selected_tools"] == []
     assert second_call["payload"]["duration_ms"] == 82

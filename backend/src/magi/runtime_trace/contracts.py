@@ -63,18 +63,6 @@ class TraceSpanRecord:
 
 
 @dataclass(slots=True)
-class TraceIntentResolutionRecord:
-    span_id: str
-    trace_id: str
-    turn_id: str
-    intent: str
-    execution_mode: str
-    route_reason: str | None = None
-    selected_tools_json: str = "[]"
-    selected_worker_type: str | None = None
-
-
-@dataclass(slots=True)
 class TraceLlmCallRecord:
     span_id: str
     trace_id: str

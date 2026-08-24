@@ -8,7 +8,6 @@ The persisted ingress row dataclass is exported as
 from .contracts import (
     PluginIngressEventRecord as StoredPluginIngressEventRecord,
     RuntimeNotificationRecord,
-    TraceIntentResolutionRecord,
     TraceLlmCallRecord,
     TraceSpanRecord,
     TraceToolRecord,
@@ -34,7 +33,6 @@ __all__ = [
     "RuntimeNotificationRecord",
     "TraceTurnRecord",
     "TraceSpanRecord",
-    "TraceIntentResolutionRecord",
     "TraceLlmCallRecord",
     "TraceToolRecord",
 ]

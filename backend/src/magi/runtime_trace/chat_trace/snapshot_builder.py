@@ -29,7 +29,6 @@ class TraceSnapshotBuilderMixin:
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
-        intent_resolutions: list[dict[str, Any]],
     ) -> ExecutionTraceNode:
         raise NotImplementedError
 
@@ -57,7 +56,6 @@ class TraceSnapshotBuilderMixin:
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
-        intent_resolutions: list[dict[str, Any]],
     ) -> Optional[ExecutionTraceSnapshot]:
         turn_id = str(turn.get("turn_id") or "").strip()
         if not turn_id:
@@ -67,7 +65,6 @@ class TraceSnapshotBuilderMixin:
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
-            intent_resolutions=intent_resolutions,
         )
         mode = self._snapshot_mode(
             turn=turn,

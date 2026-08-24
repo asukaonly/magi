@@ -51,8 +51,8 @@ def test_trace_runtime_event_defaults_to_runtime_only_and_reads_tags():
         type="TRACE_NODE_COMPLETED",
         data={
             "turn_id": "turn-1",
-            "span_id": "turn-1:intent",
-            "node_type": "intent_resolution",
+            "span_id": "turn-1:capabilities",
+            "node_type": "capability_resolution",
             "status": "completed",
             "tags": {
                 "user_id": "u1",

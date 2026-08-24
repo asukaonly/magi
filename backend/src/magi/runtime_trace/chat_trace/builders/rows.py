@@ -95,100 +95,12 @@ def _apply_tool_metadata(metadata: dict[str, Any], tool_call: dict[str, Any]) ->
     )
 
 
-def _intent_selection_metadata(
-    intent_resolution: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    selected_tools = parse_json_value(intent_resolution.get("selected_tools_json"))
-    selected_tool_list = selected_tools if isinstance(selected_tools, list) else None
-    router_tools = None
-    task_hint = None
-    recommended_tools = None
-    llm_trace = None
-    if isinstance(selected_tools, dict):
-        selected_tool_list = (
-            selected_tools.get("selected_tools")
-            if isinstance(selected_tools.get("selected_tools"), list)
-            else None
-        )
-        router_tools = (
-            selected_tools.get("router_tools")
-            if isinstance(selected_tools.get("router_tools"), list)
-            else None
-        )
-        task_hint = (
-            selected_tools.get("task_hint")
-            if isinstance(selected_tools.get("task_hint"), dict)
-            else None
-        )
-        recommended_tools = (
-            selected_tools.get("recommended_tools")
-            if isinstance(selected_tools.get("recommended_tools"), list)
-            else None
-        )
-        llm_trace = (
-            selected_tools.get("llm_trace")
-            if isinstance(selected_tools.get("llm_trace"), dict)
-            else None
-        )
-    return (
-        {
-            "intent_label": intent_resolution.get("intent") or None,
-            "execution_mode": intent_resolution.get("execution_mode") or None,
-            "route_reason": intent_resolution.get("route_reason") or None,
-            "selected_tools": selected_tool_list,
-            "router_tools": router_tools,
-            "task_hint": task_hint,
-            "recommended_tools": recommended_tools,
-            "selected_worker_type": intent_resolution.get("selected_worker_type") or None,
-        },
-        llm_trace,
-    )
-
-
-def _apply_intent_llm_trace(
-    metadata: dict[str, Any],
-    llm_trace: dict[str, Any],
-) -> None:
-    request_preview = str(llm_trace.get("request_preview") or "").strip()
-    response_preview = str(llm_trace.get("response_preview") or "").strip()
-    metadata.update(
-        {
-            "provider": llm_trace.get("provider"),
-            "model": llm_trace.get("model"),
-            "input_tokens": safe_int(llm_trace.get("input_tokens"), default=0),
-            "output_tokens": safe_int(llm_trace.get("output_tokens"), default=0),
-            "total_tokens": safe_int(llm_trace.get("total_tokens"), default=0),
-            "duration_ms": safe_int(
-                llm_trace.get("duration_ms"), default=metadata.get("duration_ms") or 0
-            ),
-            "thinking_enabled": bool(llm_trace.get("thinking_enabled")),
-        }
-    )
-    if request_preview:
-        metadata["input"] = {"preview": request_preview}
-        metadata["request_preview"] = request_preview
-    if response_preview:
-        metadata["output"] = {"preview": response_preview}
-        metadata["response_preview"] = response_preview
-
-
-def _apply_intent_metadata(
-    metadata: dict[str, Any],
-    intent_resolution: dict[str, Any],
-) -> None:
-    selection_metadata, llm_trace = _intent_selection_metadata(intent_resolution)
-    metadata.update(selection_metadata)
-    if isinstance(llm_trace, dict):
-        _apply_intent_llm_trace(metadata, llm_trace)
-
-
 def _row_metadata(
     *,
     span: dict[str, Any],
     node_type: str,
     llm_call: dict[str, Any] | None,
     tool_call: dict[str, Any] | None,
-    intent_resolution: dict[str, Any] | None,
 ) -> dict[str, Any]:
     metadata = _base_metadata(span, node_type)
     _apply_span_previews(metadata, span)
@@ -196,8 +108,6 @@ def _row_metadata(
         _apply_llm_metadata(metadata, llm_call)
     if tool_call is not None:
         _apply_tool_metadata(metadata, tool_call)
-    if intent_resolution is not None:
-        _apply_intent_metadata(metadata, intent_resolution)
     return metadata
 
 
@@ -211,7 +121,6 @@ def build_trace_row_node(
     span: dict[str, Any],
     llm_call: dict[str, Any] | None,
     tool_call: dict[str, Any] | None,
-    intent_resolution: dict[str, Any] | None = None,
 ) -> ExecutionTraceNode:
     node_type = str(span.get("node_type") or "step")
     metadata = _row_metadata(
@@ -219,7 +128,6 @@ def build_trace_row_node(
         node_type=node_type,
         llm_call=llm_call,
         tool_call=tool_call,
-        intent_resolution=intent_resolution,
     )
 
     return ExecutionTraceNode(

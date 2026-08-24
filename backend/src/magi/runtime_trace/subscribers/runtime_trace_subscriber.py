@@ -27,7 +27,7 @@ class RuntimeTraceSubscriber:
     """Subscribe to SpanCompleted events; project into runtime_trace tables.
 
     trace_spans is written for executable events. Sub-tables (trace_tools,
-    trace_llm_calls, trace_intent_resolutions, trace_turns) are written only
+    trace_llm_calls, trace_turns) are written only
     when node_type matches the dispatch table. Handler errors are caught and
     logged so a single bad event cannot kill the subscription.
     """

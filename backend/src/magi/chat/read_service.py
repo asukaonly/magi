@@ -452,7 +452,6 @@ class ChatReadService(
             }
             if "trace_turns" in existing_tables:
                 for table in (
-                    "trace_intent_resolutions",
                     "trace_llm_calls",
                     "trace_tools",
                     "trace_spans",
@@ -473,6 +472,11 @@ class ChatReadService(
                     (user_id, session_id),
                 )
             if "agent_run_manifests" in existing_tables:
+                if "run_plans" in existing_tables:
+                    conn.execute(
+                        "DELETE FROM run_plans WHERE session_id = ?",
+                        (session_id,),
+                    )
                 if "agent_run_events" in existing_tables:
                     conn.execute(
                         """
@@ -538,7 +542,6 @@ class ChatReadService(
                 )
             if owns_turn:
                 for table in (
-                    "trace_intent_resolutions",
                     "trace_llm_calls",
                     "trace_tools",
                     "trace_spans",
@@ -553,6 +556,17 @@ class ChatReadService(
                     (user_id, session_id, turn_id),
                 )
             if "agent_run_manifests" in existing_tables:
+                if "run_plans" in existing_tables:
+                    conn.execute(
+                        """
+                        DELETE FROM run_plans
+                        WHERE run_id IN (
+                            SELECT run_id FROM agent_run_manifests
+                            WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                        )
+                        """,
+                        (user_id, session_id, turn_id),
+                    )
                 if "agent_run_events" in existing_tables:
                     conn.execute(
                         """
@@ -600,9 +614,9 @@ class ChatReadService(
                 ).fetchall()
             }
             for table in (
+                "run_plans",
                 "agent_run_events",
                 "agent_run_manifests",
-                "trace_intent_resolutions",
                 "trace_llm_calls",
                 "trace_tools",
                 "trace_spans",

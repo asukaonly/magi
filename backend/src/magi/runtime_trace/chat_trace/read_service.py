@@ -66,7 +66,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
         llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
         tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
-        intent_resolutions = self._load_detail_rows(table="trace_intent_resolutions", trace_id=str(turn.get("trace_id") or ""))
         snapshot = self._build_snapshot_from_trace_rows(
             user_id=user_id,
             session_id=session_id,
@@ -74,7 +73,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
-            intent_resolutions=intent_resolutions,
         )
         return snapshot.to_dict() if snapshot is not None else None
 
@@ -241,14 +239,12 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         spans: list[dict[str, Any]],
         llm_calls: list[dict[str, Any]],
         tool_calls: list[dict[str, Any]],
-        intent_resolutions: list[dict[str, Any]],
     ) -> ExecutionTraceNode:
         return build_runtime_trace_root(
             turn=turn,
             spans=spans,
             llm_calls=llm_calls,
             tool_calls=tool_calls,
-            intent_resolutions=intent_resolutions,
         )
 
     def _ms_to_seconds(self, value: Any) -> Optional[float]:

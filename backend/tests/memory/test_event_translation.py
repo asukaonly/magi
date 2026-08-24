@@ -230,7 +230,7 @@ def test_span_completed_tool_invocation_translates_like_legacy():
 def test_span_completed_other_node_types_skip():
     from magi.events.domain_payloads import SpanCompleted
 
-    for node_type in ("span", "llm_call", "intent_resolution", "turn"):
+    for node_type in ("span", "llm_call", "capability_resolution", "turn"):
         sp = SpanCompleted(
             span_id="s",
             trace_id="t",

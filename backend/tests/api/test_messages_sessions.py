@@ -231,16 +231,6 @@ def _init_runtime_trace_store(db_path: Path) -> None:
             created_at_ms INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS trace_intent_resolutions (
-            span_id TEXT PRIMARY KEY,
-            trace_id TEXT NOT NULL,
-            turn_id TEXT NOT NULL,
-            intent TEXT NOT NULL,
-            execution_mode TEXT NOT NULL,
-            route_reason TEXT,
-            selected_tools_json TEXT NOT NULL,
-            selected_worker_type TEXT
-        );
         CREATE TABLE IF NOT EXISTS trace_llm_calls (
             span_id TEXT PRIMARY KEY,
             trace_id TEXT NOT NULL,
@@ -544,11 +534,6 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'llm', 'model', 'completed', 1, 1, 1)
         """)
     conn.execute("""
-        INSERT INTO trace_intent_resolutions (
-            span_id, trace_id, turn_id, intent, execution_mode, selected_tools_json
-        ) VALUES ('span-1', 'trace-1', 'turn-1', 'chat', 'direct', '[]')
-        """)
-    conn.execute("""
         INSERT INTO trace_llm_calls (
             span_id, trace_id, turn_id, provider, model
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'test', 'test-model')
@@ -557,6 +542,25 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         INSERT INTO trace_tools (
             span_id, trace_id, turn_id, tool_name, arguments_json, success
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'test-tool', '{}', 1)
+        """)
+    conn.execute("""
+        INSERT INTO agent_run_manifests (
+            run_id, turn_id, session_id, user_id, manifest_json,
+            created_at_ms, updated_at_ms
+        ) VALUES ('run-1', 'turn-1', 's1', 'u1', '{}', 1, 1)
+        """)
+    conn.execute("""
+        INSERT INTO agent_run_events (
+            event_id, run_id, sequence, turn_id, session_id, user_id,
+            event_type, payload_json, created_at_ms
+        ) VALUES ('event-1', 'run-1', 1, 'turn-1', 's1', 'u1',
+                  'run_completed', '{}', 1)
+        """)
+    conn.execute("""
+        INSERT INTO run_plans (
+            plan_id, run_id, session_id, version, required, status,
+            plan_json, created_at_ms, updated_at_ms
+        ) VALUES ('plan-1', 'run-1', 's1', 1, 1, 'completed', '{}', 1, 1)
         """)
     conn.execute("""
         INSERT INTO runtime_notifications (
@@ -603,9 +607,11 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     ):
         assert _count_table_rows(service._chat_db_path, table) == 0
     for table in (
+        "run_plans",
+        "agent_run_events",
+        "agent_run_manifests",
         "trace_turns",
         "trace_spans",
-        "trace_intent_resolutions",
         "trace_llm_calls",
         "trace_tools",
     ):
@@ -613,6 +619,55 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
     assert _count_table_rows(service._runtime_trace_db_path, "runtime_notifications") == 0
     assert _count_table_rows(service._runtime_trace_db_path, "plugin_ingress_events") == 1
     assert _count_table_rows(service._runtime_trace_db_path, "user_notifications") == 0
+
+
+def test_runtime_trace_scope_deletion_removes_matching_run_plans(tmp_path) -> None:
+    service = _build_service(tmp_path)
+    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn.executemany(
+        """
+        INSERT INTO agent_run_manifests (
+            run_id, turn_id, session_id, user_id, manifest_json,
+            created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, 'u1', '{}', 1, 1)
+        """,
+        (
+            ("run-1", "turn-1", "s1"),
+            ("run-2", "turn-2", "s1"),
+            ("run-3", "turn-3", "s2"),
+        ),
+    )
+    conn.executemany(
+        """
+        INSERT INTO run_plans (
+            plan_id, run_id, session_id, version, required, status,
+            plan_json, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, ?, 1, 1, 'active', '{}', 1, 1)
+        """,
+        (
+            ("plan-1", "run-1", "s1"),
+            ("plan-2", "run-2", "s1"),
+            ("plan-3", "run-3", "s2"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    service._delete_runtime_trace_turn_rows(
+        user_id="u1",
+        session_id="s1",
+        turn_id="turn-1",
+    )
+    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    assert {
+        row[0] for row in conn.execute("SELECT plan_id FROM run_plans")
+    } == {"plan-2", "plan-3"}
+    conn.close()
+
+    service._delete_runtime_trace_rows(user_id="u1", session_id="s1")
+    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    assert conn.execute("SELECT plan_id FROM run_plans").fetchall() == [("plan-3",)]
+    conn.close()
 
 
 def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
@@ -2328,7 +2383,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
         user_id="u1",
         status="running",
         response_mode="final_only",
-        execution_mode="orchestration",
+        execution_mode="agent_loop",
         created_at_ms=1000,
         updated_at_ms=1010,
     )
@@ -2351,7 +2406,7 @@ def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(
         session_id="s1",
         user_id="u1",
         status="running",
-        mode="orchestration",
+        mode="agent_loop",
         started_at_ms=1000000,
         updated_at_ms=1010000,
         user_message_preview="start task",
@@ -2658,7 +2713,7 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
         session_id="s1",
         user_id="u1",
         status="completed",
-        mode="orchestration",
+        mode="agent_loop",
         started_at_ms=3000000,
         ended_at_ms=3001200,
         duration_ms=1200,
@@ -2666,12 +2721,12 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
     )
     _insert_trace_span(
         service._runtime_trace_db_path,
-        span_id="turn_trace:intent",
+        span_id="turn_trace:capabilities",
         trace_id="trace:turn_trace",
         turn_id="turn_trace",
         parent_span_id="turn_trace:turn",
-        node_type="intent_resolution",
-        name="Intent resolution",
+        node_type="capability_resolution",
+        name="Capability resolution",
         status="completed",
         started_at_ms=3000000,
         ended_at_ms=3000100,
@@ -2769,12 +2824,12 @@ def test_trace_snapshot_reads_runtime_trace_store_without_ai_response(tmp_path):
 
     assert snapshot is not None
     assert snapshot["summary"]["trace_available"] is True
-    assert snapshot["summary"]["mode"] == "orchestration"
+    assert snapshot["summary"]["mode"] == "agent_loop"
     assert snapshot["summary"]["status"] == "completed"
     assert snapshot["summary"]["duration_seconds"] == 1.2
 
     child_kinds = {child["kind"] for child in snapshot["root"]["children"]}
-    assert {"intent", "dispatch", "response"} <= child_kinds
+    assert {"capability_resolution", "dispatch", "response"} <= child_kinds
 
     dispatch_node = next(
         child for child in snapshot["root"]["children"] if child["kind"] == "dispatch"
@@ -2796,7 +2851,7 @@ def test_trace_snapshot_groups_worker_retry_attempts_from_normalized_spans(tmp_p
         session_id="s1",
         user_id="u1",
         status="completed",
-        mode="orchestration",
+        mode="agent_loop",
         started_at_ms=4000000,
         ended_at_ms=4001000,
         duration_ms=1000,
@@ -2872,7 +2927,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
         session_id="s1",
         user_id="u1",
         status="completed",
-        mode="orchestration",
+        mode="agent_loop",
         started_at_ms=1000000,
         ended_at_ms=1030000,
         duration_ms=30000,
@@ -2933,7 +2988,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
 
     assert snapshot is not None
     assert snapshot["summary"]["trace_available"] is True
-    assert snapshot["summary"]["mode"] == "orchestration"
+    assert snapshot["summary"]["mode"] == "agent_loop"
     assert snapshot["summary"]["status"] == "completed"
     dispatch = snapshot["root"]["children"][0]
     assert dispatch["kind"] == "dispatch"
@@ -2943,7 +2998,7 @@ def test_trace_snapshot_groups_parallel_workers_and_tools(tmp_path):
     assert worker["children"][0]["label"] == "grep tool call"
 
 
-def test_trace_summary_does_not_count_intent_as_semantic_step(tmp_path):
+def test_trace_summary_does_not_count_capability_resolution_as_semantic_step(tmp_path):
     service = ChatTraceReadService()
     service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
     _init_runtime_trace_store(service._runtime_trace_db_path)
@@ -2961,12 +3016,12 @@ def test_trace_summary_does_not_count_intent_as_semantic_step(tmp_path):
     )
     _insert_trace_span(
         service._runtime_trace_db_path,
-        span_id="turn_plan:intent",
+        span_id="turn_plan:capabilities",
         trace_id="trace:turn_plan",
         turn_id="turn_plan",
         parent_span_id="turn_plan:turn",
-        node_type="intent_resolution",
-        name="Intent resolution",
+        node_type="capability_resolution",
+        name="Capability resolution",
         status="completed",
         started_at_ms=1000000,
         ended_at_ms=1000100,

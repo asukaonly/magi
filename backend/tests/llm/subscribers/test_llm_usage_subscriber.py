@@ -305,7 +305,7 @@ async def test_error_status_records_failure(fake_bus, fake_store):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("node_type", ["span", "tool_invocation", "intent_resolution", "turn", "task_lifecycle"])
+@pytest.mark.parametrize("node_type", ["span", "tool_invocation", "capability_resolution", "turn", "task_lifecycle"])
 async def test_skips_non_llm_call_node_types(fake_bus, fake_store, node_type):
     sub = LLMUsageSubscriber(event_bus=fake_bus, llm_usage_store=fake_store)
     await sub.start()

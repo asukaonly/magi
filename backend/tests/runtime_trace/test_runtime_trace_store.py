@@ -96,7 +96,7 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "trace_spans" in tables
         assert "trace_llm_calls" in tables
         assert "trace_tools" in tables
-        assert "trace_intent_resolutions" in tables
+        assert "trace_intent_resolutions" not in tables
         assert "runtime_notifications" in tables
         assert "agent_run_manifests" in tables
         assert "agent_run_events" in tables

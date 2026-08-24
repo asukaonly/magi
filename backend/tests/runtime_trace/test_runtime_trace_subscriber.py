@@ -52,7 +52,6 @@ def fake_store():
     s.upsert_span = AsyncMock()
     s.upsert_tool_call = AsyncMock()
     s.upsert_llm_call = AsyncMock()
-    s.upsert_intent_resolution = AsyncMock()
     s.upsert_turn = AsyncMock()
     return s
 
@@ -76,7 +75,6 @@ async def test_default_node_type_writes_only_trace_spans(fake_bus, fake_store):
     fake_store.upsert_span.assert_awaited_once()
     fake_store.upsert_tool_call.assert_not_awaited()
     fake_store.upsert_llm_call.assert_not_awaited()
-    fake_store.upsert_intent_resolution.assert_not_awaited()
     fake_store.upsert_turn.assert_not_awaited()
 
 
@@ -162,20 +160,6 @@ async def test_llm_call_accepts_prompt_completion_token_aliases(fake_bus, fake_s
     rec = fake_store.upsert_llm_call.await_args.args[0]
     assert rec.input_tokens == 120
     assert rec.output_tokens == 45
-
-
-@pytest.mark.asyncio
-async def test_intent_resolution_dispatches(fake_bus, fake_store):
-    sub = RuntimeTraceSubscriber(event_bus=fake_bus, trace_store=fake_store)
-    await sub.start()
-    p = _make_payload(
-        node_type="intent_resolution",
-        attributes={"intent": "tools", "execution_mode": "function_calling"},
-    )
-    await sub._on_span_completed(Event(type=EventTypes.SPAN_COMPLETED, data=p))
-    await sub.drain()
-    fake_store.upsert_span.assert_awaited_once()
-    fake_store.upsert_intent_resolution.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,10 @@ from magi.llm.usage_store import LLMUsageStore
 
 message_queue_initial = import_module("magi.db.migrations.message_queue.versions.v1_initial")
 runtime_trace_initial = import_module("magi.db.migrations.runtime_trace.versions.v1_initial")
+runtime_trace_journal = import_module(
+	"magi.db.migrations.runtime_trace.versions.v2_agent_run_journal"
+)
+runtime_trace_plans = import_module("magi.db.migrations.runtime_trace.versions.v3_run_plans")
 scheduler_initial = import_module("magi.db.migrations.scheduler.versions.v1_initial")
 sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.v1_initial")
 
@@ -53,6 +57,44 @@ async def test_runtime_trace_gc_deletes_expired_trace_and_terminal_events(tmp_pa
 
 	async with sqlite_connection_async(db_path) as db:
 		await db.executescript(runtime_trace_initial.SCHEMA_SQL)
+		await db.executescript(runtime_trace_journal.SCHEMA_SQL)
+		await db.executescript(runtime_trace_plans.SCHEMA_SQL)
+		await db.executemany(
+			"""
+			INSERT INTO agent_run_manifests (
+				run_id, turn_id, session_id, user_id, manifest_json,
+				created_at_ms, updated_at_ms
+			) VALUES (?, ?, 's1', 'u1', '{}', ?, ?)
+			""",
+			(
+				("run-old", "turn-old", old_ms, old_ms),
+				("run-new", "turn-new", recent_ms, recent_ms),
+			),
+		)
+		await db.executemany(
+			"""
+			INSERT INTO agent_run_events (
+				event_id, run_id, sequence, turn_id, session_id, user_id,
+				event_type, payload_json, created_at_ms
+			) VALUES (?, ?, 1, ?, 's1', 'u1', 'run_completed', '{}', ?)
+			""",
+			(
+				("event-old", "run-old", "turn-old", old_ms),
+				("event-new", "run-new", "turn-new", recent_ms),
+			),
+		)
+		await db.executemany(
+			"""
+			INSERT INTO run_plans (
+				plan_id, run_id, session_id, version, required, status,
+				plan_json, created_at_ms, updated_at_ms
+			) VALUES (?, ?, 's1', 1, 1, 'active', '{}', ?, ?)
+			""",
+			(
+				("plan-old", "run-old", old_ms, old_ms),
+				("plan-new", "run-new", recent_ms, recent_ms),
+			),
+		)
 		await db.executemany(
 			"""
 			INSERT INTO trace_turns (
@@ -104,10 +146,16 @@ async def test_runtime_trace_gc_deletes_expired_trace_and_terminal_events(tmp_pa
 
 	assert result["runtime_trace_trace_spans_deleted"] == 1
 	assert result["runtime_trace_trace_turns_deleted"] == 1
+	assert result["runtime_trace_run_plans_deleted"] == 1
+	assert result["runtime_trace_agent_run_events_deleted"] == 1
+	assert result["runtime_trace_agent_run_manifests_deleted"] == 1
 	assert result["runtime_trace_notifications_deleted"] == 1
 	assert result["runtime_trace_plugin_ingress_deleted"] == 1
 	assert await _count_rows(db_path, "trace_turns") == 1
 	assert await _count_rows(db_path, "trace_spans") == 1
+	assert await _count_rows(db_path, "run_plans") == 1
+	assert await _count_rows(db_path, "agent_run_events") == 1
+	assert await _count_rows(db_path, "agent_run_manifests") == 1
 	assert await _count_rows(db_path, "runtime_notifications") == 1
 	assert await _count_rows(db_path, "plugin_ingress_events") == 2
 

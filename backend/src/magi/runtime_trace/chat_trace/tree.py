@@ -15,12 +15,10 @@ def build_runtime_trace_root(
     spans: list[dict[str, Any]],
     llm_calls: list[dict[str, Any]],
     tool_calls: list[dict[str, Any]],
-    intent_resolutions: list[dict[str, Any]],
 ) -> ExecutionTraceNode:
     turn_id = str(turn.get("turn_id") or "")
     llm_by_span = {str(item.get("span_id") or ""): item for item in llm_calls}
     tool_by_span = {str(item.get("span_id") or ""): item for item in tool_calls}
-    intent_by_span = {str(item.get("span_id") or ""): item for item in intent_resolutions}
     node_by_span_id: dict[str, ExecutionTraceNode] = {}
     children_by_parent: dict[str | None, list[str]] = {}
     turn_span_id = f"{turn_id}:turn"
@@ -32,7 +30,6 @@ def build_runtime_trace_root(
             span=span,
             llm_call=llm_by_span.get(span_id),
             tool_call=tool_by_span.get(span_id),
-            intent_resolution=intent_by_span.get(span_id),
         )
         parent_span_id = str(span.get("parent_span_id") or "").strip() or None
         children_by_parent.setdefault(parent_span_id, []).append(span_id)
