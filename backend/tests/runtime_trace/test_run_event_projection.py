@@ -63,19 +63,7 @@ def test_projection_builds_plan_worker_validation_repair_and_metrics() -> None:
                 "metadata": {"tool_call_id": "call-1"},
             },
         ),
-        _event(
-            6,
-            AgentRunEventType.PLAN_UPDATED,
-            step_index=1,
-            payload={
-                "plan": {
-                    "items": [
-                        {"id": "todo-1", "content": "Inspect", "status": "completed"},
-                        {"id": "todo-2", "content": "Fix", "status": "in_progress"},
-                    ]
-                }
-            },
-        ),
+        _event(6, AgentRunEventType.PLAN_UPDATED, step_index=1),
         _event(
             7,
             AgentRunEventType.CHILD_STARTED,
@@ -120,6 +108,12 @@ def test_projection_builds_plan_worker_validation_repair_and_metrics() -> None:
         user_id="user-1",
         session_id="session-1",
         turn_id="turn-1",
+        run_plan={
+            "items": [
+                {"id": "todo-1", "content": "Inspect", "status": "completed"},
+                {"id": "todo-2", "content": "Fix", "status": "in_progress"},
+            ]
+        },
     )
 
     assert snapshot is not None
@@ -187,6 +181,39 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
                     event.created_at_ms,
                 ),
             )
+        connection.execute(
+            """
+            INSERT INTO run_plans (
+                plan_id, run_id, session_id, version, required, status,
+                plan_json, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "plan-1",
+                "run-1",
+                "session-1",
+                1,
+                1,
+                "active",
+                json.dumps(
+                    {
+                        "plan_id": "plan-1",
+                        "run_id": "run-1",
+                        "session_id": "session-1",
+                        "version": 1,
+                        "required": True,
+                        "status": "active",
+                        "items": [
+                            {"id": "todo-1", "content": "Inspect", "status": "in_progress"}
+                        ],
+                        "created_at_ms": 1000,
+                        "updated_at_ms": 1000,
+                    }
+                ),
+                1000,
+                1000,
+            ),
+        )
         connection.commit()
 
     service = ChatTraceReadService()
@@ -205,4 +232,26 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
     assert snapshot is not None
     assert snapshot["mode"] == "agent_loop"
     assert snapshot["root"]["metadata"]["canonical_run_events"] is True
+    assert snapshot["summary"]["plan_summary"]["steps"][0]["label"] == "Inspect"
     assert activity["turn-1"]["status"] == "completed"
+
+
+def test_projection_preserves_blocked_terminal_status() -> None:
+    snapshot = project_run_events(
+        [
+            _event(1, AgentRunEventType.RUN_STARTED),
+            _event(
+                2,
+                AgentRunEventType.RUN_BLOCKED,
+                payload={"failure_reason": "uncertain_effect"},
+            ),
+        ],
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+
+    assert snapshot is not None
+    assert snapshot.status == "blocked"
+    assert snapshot.root.error == "uncertain_effect"
+    assert snapshot.summary.headline == "Run blocked"

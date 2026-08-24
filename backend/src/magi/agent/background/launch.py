@@ -24,6 +24,7 @@ coordinator after the dispatcher's verdict.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 from uuid import uuid4
@@ -316,6 +317,11 @@ def build_background_run_fn(
                 )
             )
         summary = (outcome.content or "").strip()
+        if outcome.status == "cancelled":
+            raise asyncio.CancelledError
+        if outcome.status != "completed":
+            detail = str(outcome.error_text or outcome.failure_reason or outcome.status).strip()
+            raise RuntimeError(f"agent run ended with {outcome.status}: {detail}")
         return BackgroundTaskRunResult(
             summary=summary,
             result_payload=outcome.to_dict(),

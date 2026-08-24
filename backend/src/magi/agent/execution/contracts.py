@@ -35,6 +35,7 @@ class AgentRunEventType(str, Enum):
     REPAIR_STEP_STARTED = "repair_step_started"
     REPAIR_EXHAUSTED = "repair_exhausted"
     RUN_SUSPENDED = "run_suspended"
+    RUN_BLOCKED = "run_blocked"
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
@@ -45,7 +46,6 @@ class CompletionOutcome(str, Enum):
 
     COMPLETE = "complete"
     CONTINUE = "continue"
-    SUSPEND = "suspend"
     BLOCKED = "blocked"
 
 
@@ -199,7 +199,6 @@ class CompletionDecision:
     evidence_refs: tuple[EvidenceRef, ...] = ()
     repairable: bool = False
     reasoning_helpful: bool = False
-    suggested_reasoning_floor: str | None = None
 
     @property
     def complete(self) -> bool:
@@ -213,7 +212,6 @@ class CompletionDecision:
             "evidence_refs": [item.to_dict() for item in self.evidence_refs],
             "repairable": self.repairable,
             "reasoning_helpful": self.reasoning_helpful,
-            "suggested_reasoning_floor": self.suggested_reasoning_floor,
         }
 
 

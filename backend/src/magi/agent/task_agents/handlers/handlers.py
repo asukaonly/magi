@@ -114,7 +114,7 @@ def _build_context_sources(
             "recent_tool_state": list(getattr(request.context, "recent_tool_state", None) or [])[
                 :3
             ],
-            "pending_interaction": bool(getattr(request.context, "recall_feedback", None)),
+            "recall_feedback_active": bool(getattr(request.context, "recall_feedback", None)),
         }
     )
     latest_payload = getattr(request.context, "latest_payload", None)

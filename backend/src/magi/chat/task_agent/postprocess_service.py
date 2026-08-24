@@ -539,6 +539,11 @@ class ChatPostProcessService:
             failure_reason = str(execution_outcome.get("failure_reason") or "EXECUTION_ERROR")
             response_text = f"Execution failed: {failure_reason}"
             return response_text, response_text
+        if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "blocked":
+            detail = str(execution_outcome.get("error_text") or "").strip()
+            reason = str(execution_outcome.get("failure_reason") or "completion blocked")
+            response_text = detail or f"The task could not complete safely: {reason}"
+            return response_text, response_text
         if isinstance(execution_outcome, dict) and execution_outcome.get("status") == "detached":
             response_text = "Failed to move this task to the background."
             return response_text, response_text

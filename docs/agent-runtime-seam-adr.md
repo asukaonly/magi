@@ -93,10 +93,10 @@ worker-specific completion protocol.
 
 ### 6. Durable event seam
 
-Each run appends canonical lifecycle events to the run journal. Current plan,
-child, validation, repair, reasoning, effect, and terminal state are projections
-of those events. UI trace state and runtime metrics use the same source rather
-than parallel transcript-only state.
+Each run appends canonical lifecycle events to the run journal. The versioned
+`run_plans` row is the canonical current plan; child, validation, repair,
+reasoning, effect, and terminal state come from events. The UI trace joins those
+sources by canonical `run_id` rather than maintaining transcript-only copies.
 
 The durable seam records context fingerprints and provenance, not a replay copy
 of raw prompts, history, attachment bytes, or rendered memory/persona context.

@@ -31,15 +31,17 @@ Last reviewed against the implementation: 2026-08-24.
    a plan, or launch child runs within those bounds.
 4. **Plans are runtime state.** `RunPlan` is versioned and evidence-linked. The
    main model updates it through `todo_write`; the frontend reads a projection
-   from canonical run events rather than a duplicate chat transcript message.
+   from the canonical `run_plans` row joined with run events, rather than a
+   duplicate chat transcript message.
 5. **Child agents are child runs.** The `agent` tool launches bounded runs via
    `ChildRunCoordinator`. There is no separate parent DAG orchestrator.
 6. **Reasoning depth is a policy, not an inferred intent field.** The user picks
    `auto`, `fast`, or `deep`; the runtime may escalate monotonically from
    evidence such as failed validation, within a fixed budget.
-7. **The run journal is the execution fact source.** Context manifests and
-   ordered run events are durable. Chat trace summaries, plan state, metrics,
-   validation, repair, and child-run status are read-side projections.
+7. **Durable stores have one truth each.** Context manifests and ordered run
+   events own execution history; `run_plans` owns current plan state. Chat trace
+   summaries join those sources for metrics, validation, repair, children, and
+   the latest plan without copying either into chat.
 
 ## System Topology
 
@@ -74,8 +76,9 @@ flowchart TD
     W --> L
     L -->|proposed final| K[CompletionGate]
     K -->|continue/repair| L
-    K -->|suspend| H[Wait for explicit user input]
+    K -->|blocked| O
     K -->|complete| O[Durable chat outcome]
+    L -->|explicit suspend control| H[Checkpoint and wait]
     O --> V[Run-event trace projection]
 ```
 
@@ -292,7 +295,6 @@ safe-boundary control/input drain
   -> if proposed final: evaluate CompletionGate
        complete  -> finish
        continue  -> append repair observations and iterate
-       suspend   -> checkpoint and wait for explicit interaction
        blocked   -> finish with a governed blocked outcome
 ```
 
@@ -336,15 +338,14 @@ normalized evidence instead of trusting a model claim that work succeeded.
 ## Completion Gate And Repair
 
 `CompletionGate` is deterministic. It evaluates a proposed final response using
-the run's policy, tool evidence, current plan, pending interaction state, and
-repair count.
+the run's policy, tool evidence, current canonical plan, and repair count.
 
 It enforces these current invariants:
 
-- a pending required interaction suspends the run;
 - an uncertain effect blocks completion until reconciled;
 - every required plan item must be terminal and completed items must cite
-  evidence from the current run;
+  successful, task-substantive evidence from the current run; permission,
+  discovery, ask, and plan-maintenance calls cannot prove task completion;
 - failed validation must be followed by a successful validation after repair;
 - local-write and unknown-effect work must have current validation evidence;
 - repair cannot exceed the configured budget.
@@ -397,12 +398,16 @@ Detach preserves the foreground `run_id`; the checkpoint records its current
 plan ID and version, and resume fails if that plan cannot be resolved. The plan
 store may retain independent plans for multiple runs in the same session.
 
-A successful `todo_write` produces `PLAN_UPDATED` in the run journal. The trace
-projection exposes the latest plan to the frontend. The retired `todo_state`
+A successful `todo_write` atomically replaces the versioned `run_plans` row.
+`PLAN_UPDATED` carries only the plan ID and version as an observability signal;
+it is not a duplicate snapshot. `ChatTraceReadService` reads the plan row and
+run events from one SQLite snapshot, so a crash between plan persistence and
+later journal notification cannot make an old journal payload override current
+plan truth. The retired `todo_state`
 chat message and `/control/.../todos` duplicate read API no longer exist. The
 workspace cache stores file-read, edit-journal, and rollback-snapshot evidence
 only; it has no plan or todo model, so a restart cannot create a second plan
-truth outside the run journal.
+truth outside `run_plans`.
 
 ## Child Runs
 
@@ -482,13 +487,13 @@ assembly.
 - runtime notifications and plugin ingress records.
 
 Important run events include model output, tool request/result/effect admission,
-capability expansion, plan update, child lifecycle, validation, completion
-decision, repair, reasoning-depth change, suspension, completion, failure, and
-cancellation.
+capability expansion, plan version notification, child lifecycle, validation,
+completion decision, repair, reasoning-depth change, suspension, blocked,
+completion, failure, and cancellation.
 
 `ChatTraceReadService` prefers canonical run events when they exist and falls
-back to normalized trace rows only for non-unified producers. The run-event
-projection is the source for:
+back to normalized trace rows only for non-unified producers. It joins the
+current canonical plan by `run_id`; the combined projection is the source for:
 
 - current plan summary;
 - child, validation, repair, and reasoning nodes;
@@ -637,8 +642,8 @@ metrics.
 - Do not create a second direct/chat/code/explore loop.
 - Add capabilities through registry metadata and runtime resolution, not phrase
   dictionaries in the chat driver.
-- Keep plans and intermediate execution state in the run journal/read
-  projection, not the chat transcript.
+- Keep current plans in `run_plans` and intermediate lifecycle in the run
+  journal/read projection, not the chat transcript.
 - A child execution feature must use `ChildRunCoordinator` and the unified loop.
 - Every new effectful tool must declare effect/replay metadata and have a
   validation story.

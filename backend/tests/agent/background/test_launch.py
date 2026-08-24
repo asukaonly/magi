@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -381,6 +382,36 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_fn_rejects_blocked_agent_outcome() -> None:
+    orchestrator = _RecordingOrchestrator(
+        ExecutionOutcome(
+            status="blocked",
+            content="Completion was blocked.",
+            failure_reason="uncertain_effect",
+            error_text="External effect outcome is uncertain.",
+        )
+    )
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        run_plan_store=ControlSessionStore(),
+    )
+    from magi.agent.background.contracts import BackgroundTask
+
+    task = BackgroundTask.new(
+        BackgroundTaskSpec(
+            user_id="u",
+            session_id="s",
+            origin_turn_id="t",
+            title="T",
+            goal="g",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="blocked.*uncertain"):
+        await run_fn(task, null_cancel_token())
+
+
+@pytest.mark.asyncio
 async def test_run_fn_passes_cancel_token_through() -> None:
     outcome = ExecutionOutcome(status="cancelled", content="", tool_failures=[], iterations=1)
     orchestrator = _RecordingOrchestrator(outcome)
@@ -402,9 +433,9 @@ async def test_run_fn_passes_cancel_token_through() -> None:
 
     task = BackgroundTask.new(spec)
 
-    result = await run_fn(task, token)
+    with pytest.raises(asyncio.CancelledError):
+        await run_fn(task, token)
 
-    assert result.summary == ""
     assert orchestrator.calls[0].control.cancel_token is token
 
 

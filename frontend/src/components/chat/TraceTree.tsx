@@ -17,11 +17,14 @@ const statusTone: Record<string, string> = {
   running: 'text-[hsl(var(--trace-status-running-fg))] bg-[hsl(var(--trace-status-running-bg))] border-[hsl(var(--trace-status-running-border))]',
   pending: 'text-[hsl(var(--trace-status-pending-fg))] bg-[hsl(var(--trace-status-pending-bg))] border-[hsl(var(--trace-status-pending-border))]',
   failed: 'text-[hsl(var(--trace-status-failed-fg))] bg-[hsl(var(--trace-status-failed-bg))] border-[hsl(var(--trace-status-failed-border))]',
+  blocked: 'text-[hsl(var(--trace-status-failed-fg))] bg-[hsl(var(--trace-status-failed-bg))] border-[hsl(var(--trace-status-failed-border))]',
+  suspended: 'text-[hsl(var(--trace-status-pending-fg))] bg-[hsl(var(--trace-status-pending-bg))] border-[hsl(var(--trace-status-pending-border))]',
+  cancelled: 'text-[hsl(var(--trace-status-pending-fg))] bg-[hsl(var(--trace-status-pending-bg))] border-[hsl(var(--trace-status-pending-border))]',
 };
 
 const statusIcon = (status: string) => {
   if (status === 'completed') return <CheckCircle2 className="h-4 w-4" />;
-  if (status === 'failed') return <XCircle className="h-4 w-4" />;
+  if (status === 'failed' || status === 'blocked') return <XCircle className="h-4 w-4" />;
   if (status === 'running') return <CircleDashed className="h-4 w-4 animate-spin" />;
   return <CircleDashed className="h-4 w-4" />;
 };

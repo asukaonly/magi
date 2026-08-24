@@ -147,3 +147,52 @@ async def test_context_failure_stops_before_model_request() -> None:
     assert outcome.status == "failed"
     assert outcome.failure_reason == "Context window exceeded"
     assert events == ["prepare"]
+
+
+@pytest.mark.asyncio
+async def test_plan_reader_failure_blocks_completion() -> None:
+    class _FailingPlanReader:
+        def current(self):  # type: ignore[no-untyped-def]
+            raise RuntimeError("plan store unavailable")
+
+    class _StepExecutor:
+        async def execute_step(self, **kwargs: object) -> FunctionCallingStepOutcome:
+            return FunctionCallingStepOutcome(status="completed", iteration=1, content="done")
+
+    class _Host:
+        step_executor = _StepExecutor()
+        _current_messages: list[dict[str, object]] = []
+
+        def build_step_state(self, **kwargs: object) -> FunctionCallingStepState:
+            return FunctionCallingStepState(
+                messages=[{"role": "user", "content": "finish the task"}],
+                effective_system_prompt="system",
+                tools=[],
+            )
+
+        async def apply_run_inputs(self, state: object, inbox: object) -> None:
+            return None
+
+        async def _prepare_context_for_model(
+            self,
+            state: FunctionCallingStepState,
+            *,
+            include_tools: bool = True,
+        ) -> ExecutionOutcome | None:
+            _ = (state, include_tools)
+            return None
+
+    outcome = await FunctionCallingLoopRunner(_Host()).run(
+        AgentRunRequest(
+            turn=UserTurnInput(text="finish the task"),
+            system_prompt="system",
+            selected_tools=[],
+            user_id="user-1",
+            run_plan_reader=_FailingPlanReader(),
+        ),
+        control=null_run_control(),
+    )
+
+    assert outcome.status == "blocked"
+    assert outcome.failure_reason == "plan_governance_unavailable"
+    assert "canonical run plan" in outcome.content

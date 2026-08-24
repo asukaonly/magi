@@ -138,12 +138,27 @@ export const normalizeTraceNode = (raw: ExecutionTraceNode): NormalizedExecution
 });
 
 const isTerminalTraceStatus = (status: string | null | undefined): boolean => (
-  status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'merged'
+  status === 'completed'
+  || status === 'failed'
+  || status === 'blocked'
+  || status === 'suspended'
+  || status === 'cancelled'
+  || status === 'interrupted'
+  || status === 'merged'
 );
 
 const deriveTraceRollupStatus = (children: NormalizedExecutionTraceNode[]): string => {
   if (children.some((child) => child.status === 'failed')) {
     return 'failed';
+  }
+  if (children.some((child) => child.status === 'blocked')) {
+    return 'blocked';
+  }
+  if (children.some((child) => child.status === 'suspended')) {
+    return 'suspended';
+  }
+  if (children.some((child) => child.status === 'cancelled')) {
+    return 'cancelled';
   }
   if (children.some((child) => child.status === 'running')) {
     return 'running';

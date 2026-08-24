@@ -20,6 +20,7 @@ _TERMINAL_EVENT_STATUS = {
     AgentRunEventType.RUN_FAILED: "failed",
     AgentRunEventType.RUN_CANCELLED: "cancelled",
     AgentRunEventType.RUN_SUSPENDED: "suspended",
+    AgentRunEventType.RUN_BLOCKED: "blocked",
 }
 
 
@@ -29,6 +30,7 @@ def project_run_events(
     user_id: str,
     session_id: str,
     turn_id: str,
+    run_plan: dict[str, Any] | None = None,
 ) -> ExecutionTraceSnapshot | None:
     """Build all user-facing run state from one ordered event stream."""
 
@@ -47,7 +49,7 @@ def project_run_events(
     )
     ended_at_ms = terminal_event.created_at_ms if terminal_event is not None else None
     step_nodes = _project_step_nodes(ordered)
-    plan_summary = _project_plan_summary(ordered)
+    plan_summary = _project_plan_summary(run_plan)
     metrics = _project_metrics(ordered, started_at_ms=started_at_ms, ended_at_ms=ended_at_ms)
     root = ExecutionTraceNode(
         id=f"run:{run_id}",
@@ -58,7 +60,7 @@ def project_run_events(
         ended_at=(ended_at_ms / 1000 if ended_at_ms is not None else None),
         error=(
             str(terminal_event.payload.get("failure_reason") or "").strip() or None
-            if status == "failed" and terminal_event is not None
+            if status in {"failed", "blocked"} and terminal_event is not None
             else None
         ),
         metadata={
@@ -283,14 +285,9 @@ def _project_event_nodes(events: list[AgentRunEvent]) -> list[ExecutionTraceNode
     return nodes
 
 
-def _project_plan_summary(events: list[AgentRunEvent]) -> ExecutionPlanSummary | None:
-    latest = next(
-        (event for event in reversed(events) if event.event_type is AgentRunEventType.PLAN_UPDATED),
-        None,
-    )
-    if latest is None or not isinstance(latest.payload.get("plan"), dict):
+def _project_plan_summary(plan: dict[str, Any] | None) -> ExecutionPlanSummary | None:
+    if not isinstance(plan, dict):
         return None
-    plan = latest.payload["plan"]
     raw_items = plan.get("items") if isinstance(plan.get("items"), list) else []
     steps = [
         ExecutionPlanStepSummary(
@@ -389,6 +386,8 @@ def _headline(*, status: str, events: list[AgentRunEvent]) -> str:
         return "Run cancelled"
     if status == "suspended":
         return "Run suspended"
+    if status == "blocked":
+        return "Run blocked"
     if any(event.event_type is AgentRunEventType.REPAIR_STARTED for event in events):
         return "Repairing and validating"
     if any(event.event_type is AgentRunEventType.CHILD_STARTED for event in events):

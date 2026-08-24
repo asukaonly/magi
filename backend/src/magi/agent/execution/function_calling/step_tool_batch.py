@@ -478,7 +478,10 @@ class FunctionCallingToolBatchExecutor:
                 await state.journal.append(
                     AgentRunEventType.PLAN_UPDATED,
                     step_index=iteration,
-                    payload={"plan": dict(result.data)},
+                    payload={
+                        "plan_id": result.data.get("plan_id"),
+                        "version": result.data.get("version"),
+                    },
                 )
             await self._append_child_run_events(
                 state=state,

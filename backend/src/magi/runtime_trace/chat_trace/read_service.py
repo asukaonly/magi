@@ -46,7 +46,7 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         normalized_turn_id = str(turn_id or "").strip()
         if not normalized_turn_id:
             return None
-        run_events = self._load_latest_run_events(
+        run_events, run_plan = self._load_latest_run_state(
             user_id=user_id,
             session_id=session_id,
             turn_id=normalized_turn_id,
@@ -57,6 +57,7 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                 user_id=user_id,
                 session_id=session_id,
                 turn_id=normalized_turn_id,
+                run_plan=run_plan,
             )
             if projection is not None:
                 return projection.to_dict()
@@ -159,16 +160,17 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                 activity[turn_id] = summary
         return activity
 
-    def _load_latest_run_events(
+    def _load_latest_run_state(
         self,
         *,
         user_id: str,
         session_id: str,
         turn_id: str,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         try:
             with sqlite3.connect(self._runtime_trace_db_path) as connection:
                 connection.row_factory = sqlite3.Row
+                connection.execute("BEGIN")
                 manifest = connection.execute(
                     """
                     SELECT run_id
@@ -180,7 +182,8 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                     (turn_id, session_id, user_id),
                 ).fetchone()
                 if manifest is None:
-                    return []
+                    return [], None
+                run_id = str(manifest["run_id"])
                 rows = connection.execute(
                     """
                     SELECT event_id, run_id, sequence, turn_id, session_id,
@@ -190,11 +193,15 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                     WHERE run_id = ?
                     ORDER BY sequence ASC
                     """,
-                    (str(manifest["run_id"]),),
+                    (run_id,),
                 ).fetchall()
+                plan_row = connection.execute(
+                    "SELECT plan_json FROM run_plans WHERE run_id = ?",
+                    (run_id,),
+                ).fetchone()
         except sqlite3.Error:
-            return []
-        return [
+            return [], None
+        events = [
             {
                 "event_id": str(row["event_id"]),
                 "run_id": str(row["run_id"]),
@@ -209,6 +216,12 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             }
             for row in rows
         ]
+        plan = (
+            json.loads(str(plan_row["plan_json"]))
+            if plan_row is not None
+            else None
+        )
+        return events, dict(plan) if isinstance(plan, dict) else None
 
     def _load_session_run_turn_ids(
         self,

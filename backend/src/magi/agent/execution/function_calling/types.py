@@ -69,6 +69,7 @@ class ExecutionOutcome:
             "status": self.status,
             "content": self.content,
             "failure_reason": self.failure_reason,
+            "error_text": self.error_text,
             "tool_failures": list(self.tool_failures),
             "attachments": list(self.attachments),
             "message_payload": dict(self.message_payload),

@@ -32,6 +32,7 @@ const GENERIC_EXECUTION_LABELS = new Set([
   'run cancelled',
   'run completed',
   'run failed',
+  'run blocked',
   '思考中',
   '正在执行工具链',
   '工具链已完成',
@@ -52,7 +53,11 @@ const normalizeExecutionPlanStepStatus = (
       return 'completed';
     case 'failed':
     case 'error':
+    case 'blocked':
       return 'failed';
+    case 'skipped':
+    case 'cancelled':
+      return 'completed';
     default:
       return 'pending';
   }
@@ -89,7 +94,7 @@ export const getExecutionActionState = (
   const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
   const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
   const backendRunState = String(message.runState?.state || '').trim();
-  const terminalBackendRunState = ['cancelled', 'completed', 'failed'].includes(backendRunState)
+  const terminalBackendRunState = ['blocked', 'cancelled', 'completed', 'failed'].includes(backendRunState)
     ? backendRunState
     : '';
   const optimisticState = turnId && detachingTurnIds.includes(turnId)

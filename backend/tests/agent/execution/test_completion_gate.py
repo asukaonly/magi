@@ -80,7 +80,6 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
     assert decision.outcome is CompletionOutcome.CONTINUE
     assert decision.reason_code == "validation_failed"
     assert decision.reasoning_helpful is True
-    assert decision.suggested_reasoning_floor == "medium"
 
 
 def test_uncertain_effect_blocks_without_retry() -> None:
@@ -200,3 +199,46 @@ def test_completed_required_todo_must_reference_current_run_evidence() -> None:
         run_plan=grounded,
     )
     assert accepted.outcome is CompletionOutcome.COMPLETE
+
+
+def test_plan_completion_rejects_failed_and_governance_only_evidence() -> None:
+    plan = apply_plan_mutation(
+        None,
+        session_id="session-1",
+        run_id="run-1",
+        plan_id=None,
+        expected_version=0,
+        required=True,
+        status=None,
+        item_mutations=[
+            {
+                "content": "Make the requested change",
+                "status": "completed",
+                "evidence_refs": ["todo-evidence", "failed-evidence"],
+            }
+        ],
+    )
+    decision = CompletionGate().evaluate(
+        policy=CompletionPolicy(),
+        evidence=[
+            ToolExecutionEvidence(
+                evidence_id="todo-evidence",
+                tool_name="todo_write",
+                success=True,
+                effect_class="external_write",
+                replay_policy="reconcilable",
+            ),
+            ToolExecutionEvidence(
+                evidence_id="failed-evidence",
+                tool_name="file_edit",
+                success=False,
+                effect_class="local_write",
+                replay_policy="reconcilable",
+            ),
+        ],
+        repair_iterations=0,
+        run_plan=plan,
+    )
+
+    assert decision.outcome is CompletionOutcome.CONTINUE
+    assert decision.reason_code == "todo_evidence_missing"

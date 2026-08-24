@@ -7,6 +7,7 @@ import time
 from typing import Any, cast
 
 from ....config.models import ThinkingDepth
+from ....core.logger import get_logger
 from ....llm.streaming_events import (
     LLMStreamEvent,
     emit_stream_event,
@@ -22,7 +23,12 @@ from ..context_fingerprint import (
     message_fingerprints,
     stable_hash,
 )
-from ..contracts import AgentRunEventType, CompletionOutcome, RunContextManifest
+from ..contracts import (
+    AgentRunEventType,
+    CompletionDecision,
+    CompletionOutcome,
+    RunContextManifest,
+)
 from ..journal import AgentRunJournal
 from ..model_capabilities import ModelCapabilityProfile
 from ..reasoning import ReasoningState
@@ -30,6 +36,8 @@ from ..task_budget import TaskBudgetExceeded, prepay_task_llm_calls
 from .run_input import AgentRunRequest
 from .step_models import FunctionCallingStepOutcome, FunctionCallingStepState
 from .types import ExecutionOutcome
+
+logger = get_logger(__name__)
 
 
 class FunctionCallingLoopRunner:
@@ -501,12 +509,24 @@ class FunctionCallingLoopRunner:
                 step_index=step_outcome.iteration,
                 payload={"response_hash": stable_hash(step_outcome.content)},
             )
-        decision = CompletionGate().evaluate(
-            policy=run_input.completion_policy,
-            evidence=state.tool_evidence,
-            repair_iterations=state.repair_iterations,
-            run_plan=run_input.run_plan_reader.current(),
-        )
+        try:
+            run_plan = run_input.run_plan_reader.current()
+        except Exception:
+            logger.exception("agent_run.plan_governance_unavailable", run_id=run_input.run_id)
+            decision = CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED,
+                reason_code="plan_governance_unavailable",
+                observations=(
+                    "The runtime could not verify the canonical run plan, so completion was blocked.",
+                ),
+            )
+        else:
+            decision = CompletionGate().evaluate(
+                policy=run_input.completion_policy,
+                evidence=state.tool_evidence,
+                repair_iterations=state.repair_iterations,
+                run_plan=run_plan,
+            )
         if decision.outcome is CompletionOutcome.COMPLETE:
             return _build_completed_outcome(state, step_outcome)
         await emit_stream_event(
@@ -573,8 +593,8 @@ class FunctionCallingLoopRunner:
             )
             return None
         return ExecutionOutcome(
-            status=("suspended" if decision.outcome is CompletionOutcome.SUSPEND else "failed"),
-            content="",
+            status="blocked",
+            content=_blocked_outcome_message(decision),
             failure_reason=decision.reason_code,
             error_text=" ".join(decision.observations),
             tool_failures=list(state.tool_failures),
@@ -624,6 +644,7 @@ class FunctionCallingLoopRunner:
             "cancelled": AgentRunEventType.RUN_CANCELLED,
             "suspended": AgentRunEventType.RUN_SUSPENDED,
             "detached": AgentRunEventType.RUN_SUSPENDED,
+            "blocked": AgentRunEventType.RUN_BLOCKED,
         }.get(outcome.status, AgentRunEventType.RUN_FAILED)
         await state.journal.append(
             event_type,
@@ -764,6 +785,11 @@ def _build_completed_outcome(
         ),
         iterations=step_outcome.iteration,
     )
+
+
+def _blocked_outcome_message(decision: CompletionDecision) -> str:
+    detail = " ".join(item.strip() for item in decision.observations if item.strip())
+    return detail or f"The runtime blocked completion: {decision.reason_code}."
 
 
 def _build_cancelled_outcome(

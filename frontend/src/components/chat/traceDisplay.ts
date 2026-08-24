@@ -6,6 +6,9 @@ const ITERATION_LABEL_PATTERN = /^Iteration\s+(\d+)$/i;
 export const formatTraceStatus = (status: string, t: TFunction<'app'>): string => {
   if (status === 'completed') return t('chat.trace.statusCompleted');
   if (status === 'failed') return t('chat.trace.statusError');
+  if (status === 'blocked') return t('chat.trace.statusBlocked');
+  if (status === 'suspended') return t('chat.trace.statusSuspended');
+  if (status === 'cancelled') return t('chat.trace.statusCancelled');
   if (status === 'interrupted') return t('chat.trace.statusInterrupted');
   if (status === 'merged') return t('chat.trace.statusMerged');
   return t('chat.trace.statusRunning');

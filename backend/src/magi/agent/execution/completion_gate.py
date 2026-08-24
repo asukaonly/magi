@@ -21,18 +21,9 @@ class CompletionGate:
         policy: CompletionPolicy,
         evidence: list[ToolExecutionEvidence],
         repair_iterations: int,
-        pending_interaction: bool = False,
         run_plan: RunPlan | None = None,
     ) -> CompletionDecision:
         refs = tuple(item.to_ref() for item in evidence)
-        if pending_interaction:
-            return CompletionDecision(
-                outcome=CompletionOutcome.SUSPEND,
-                reason_code="user_input_required",
-                observations=("A required user interaction is still pending.",),
-                evidence_refs=refs,
-            )
-
         if policy.require_effect_terminal_state and any(item.uncertain for item in evidence):
             return CompletionDecision(
                 outcome=CompletionOutcome.BLOCKED,
@@ -86,7 +77,6 @@ class CompletionGate:
                 evidence_refs=refs,
                 repairable=True,
                 reasoning_helpful=True,
-                suggested_reasoning_floor="medium",
             )
 
         local_writes = [
@@ -180,6 +170,7 @@ def _evaluate_required_plan(
     available_refs = {
         reference
         for item in evidence
+        if item.success and item.tool_name not in _PLAN_GOVERNANCE_TOOLS
         for reference in (item.evidence_id, item.tool_call_id)
         if reference
     }
@@ -208,3 +199,16 @@ def _evaluate_required_plan(
             repairable=True,
         )
     return None
+
+
+_PLAN_GOVERNANCE_TOOLS = frozenset(
+    {
+        "todo_write",
+        "enter_plan_mode",
+        "exit_plan_mode",
+        "ask_user_question",
+        "capabilities",
+        "get-capabilities",
+        "find-relevant-tools",
+    }
+)
