@@ -113,6 +113,23 @@ class RuntimeOperationalGC:
                 return {}
 
             counts: dict[str, int] = {}
+            if await self._table_exists(db, "agent_run_manifests"):
+                if await self._table_exists(db, "agent_run_events"):
+                    counts["runtime_trace_agent_run_events_deleted"] = await self._delete_rows(
+                        db,
+                        """
+                        DELETE FROM agent_run_events
+                        WHERE run_id IN (
+                            SELECT run_id FROM agent_run_manifests WHERE created_at_ms < ?
+                        )
+                        """,
+                        (trace_cutoff_ms,),
+                    )
+                counts["runtime_trace_agent_run_manifests_deleted"] = await self._delete_rows(
+                    db,
+                    "DELETE FROM agent_run_manifests WHERE created_at_ms < ?",
+                    (trace_cutoff_ms,),
+                )
             for table_name in (
                 "trace_intent_resolutions",
                 "trace_llm_calls",

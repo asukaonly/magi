@@ -483,6 +483,11 @@ class ChatReadService(
                     "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",
                     (user_id, session_id),
                 )
+            if "agent_run_manifests" in existing_tables:
+                conn.execute(
+                    "DELETE FROM agent_run_manifests WHERE user_id = ? AND session_id = ?",
+                    (user_id, session_id),
+                )
             if "runtime_notifications" in existing_tables:
                 conn.execute(
                     """
@@ -546,6 +551,14 @@ class ChatReadService(
                     """,
                     (user_id, session_id, turn_id),
                 )
+            if "agent_run_manifests" in existing_tables:
+                conn.execute(
+                    """
+                    DELETE FROM agent_run_manifests
+                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                    """,
+                    (user_id, session_id, turn_id),
+                )
             if "runtime_notifications" in existing_tables:
                 conn.execute(
                     """
@@ -575,6 +588,8 @@ class ChatReadService(
                 ).fetchall()
             }
             for table in (
+                "agent_run_events",
+                "agent_run_manifests",
                 "trace_intent_resolutions",
                 "trace_llm_calls",
                 "trace_tools",

@@ -17,6 +17,7 @@ from ..core.sqlite import sqlite_connection_async
 from .contracts import PluginIngressClearStateReader
 from .plugin_ingress import PluginIngressPersistenceMixin
 from .runtime_notifications import RuntimeNotificationPersistenceMixin
+from .run_journal import RunJournalPersistenceMixin
 from .trace_records import TraceRecordPersistenceMixin
 
 T = TypeVar("T")
@@ -36,6 +37,7 @@ def _is_retryable_sqlite_lock(exc: Exception) -> bool:
 class RuntimeTraceStore(
     RuntimeNotificationPersistenceMixin,
     PluginIngressPersistenceMixin,
+    RunJournalPersistenceMixin,
     TraceRecordPersistenceMixin,
 ):
     """Persist runtime trace data in a dedicated SQLite database."""
