@@ -86,6 +86,7 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
     runtime_paths_with_schema,
 ) -> None:
     config = AppConfig()
+    config.plugins.scan_paths = []
     _install_test_runtime(
         monkeypatch,
         runtime_paths=runtime_paths_with_schema,
