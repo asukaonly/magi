@@ -19,6 +19,7 @@ from magi.api.routers.commands import commands_router
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.commands.resolver import UserInvocableResolver
 from magi.commands import resolver as resolver_mod
+from magi.control.permission.contracts import PermissionDecision, PermissionOutcome
 
 
 class _EchoTool(Tool):
@@ -95,7 +96,21 @@ def client(monkeypatch, tmp_path):
         "require_chat_surface_write_service",
         lambda: _FakeTranscriptWriter(),
     )
-    monkeypatch.setattr(commands_module, "_safe_gateway_provider", lambda: None)
+    class _AllowingGateway:
+        async def gate(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return PermissionDecision(
+                request_id="req_allow",
+                outcome=PermissionOutcome.ALLOWED,
+                source="test",
+                reason="ok",
+            )
+
+    monkeypatch.setattr(
+        commands_module,
+        "_safe_gateway_provider",
+        lambda: _AllowingGateway(),
+    )
 
     app = FastAPI()
     app.include_router(commands_router, prefix="/api/commands")

@@ -13,9 +13,20 @@ from magi_plugin_sdk.tools import (
     ToolSchema,
 )
 
-from magi.commands import resolver as resolver_mod
 from magi.commands.runner import CommandRunner
 from magi.commands.resolver import UserInvocableResolver
+from magi.control.permission.contracts import PermissionDecision, PermissionOutcome
+
+
+class _AllowingGateway:
+    async def gate(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return PermissionDecision(
+            request_id="req_allow",
+            outcome=PermissionOutcome.ALLOWED,
+            source="test",
+            reason="ok",
+        )
 
 
 class _EchoTool(Tool):
@@ -108,7 +119,11 @@ def resolver(tmp_path):
 @pytest.mark.asyncio
 async def test_writes_invocation_then_result(_stub_chat_store, resolver):
     registry = _build_registry([_EchoTool()])
-    runner = CommandRunner(registry=registry, resolver=resolver)
+    runner = CommandRunner(
+        registry=registry,
+        resolver=resolver,
+        permission_gateway_provider=lambda: _AllowingGateway(),
+    )
     result = await runner.run_tool_command(
         user_id="u1",
         session_id="s1",
@@ -200,11 +215,10 @@ async def test_dangerous_tool_refused_when_gateway_missing(_stub_chat_store, res
 
 
 @pytest.mark.asyncio
-async def test_non_dangerous_tool_runs_without_dangerous_permission_when_gateway_missing(
+async def test_non_dangerous_tool_is_refused_when_gateway_missing(
     _stub_chat_store, resolver
 ):
-    """Non-dangerous tools still run when the gateway is absent, but the
-    execution context must not include `dangerous_tools`."""
+    """All command tools fail closed when the gateway is absent."""
     captured_ctx: list = []
     echo = _EchoTool()
     original_execute = echo.execute
@@ -228,10 +242,9 @@ async def test_non_dangerous_tool_runs_without_dangerous_permission_when_gateway
         arguments={"text": "hi"},
         invocation_text="/echo text=hi",
     )
-    assert result.success is True
-    assert captured_ctx, "execute was not called"
-    assert "dangerous_tools" not in captured_ctx[0].permissions
-    assert "authenticated" in captured_ctx[0].permissions
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert captured_ctx == []
 
 
 @pytest.mark.asyncio
@@ -277,20 +290,6 @@ async def test_dangerous_tool_blocked_by_gateway(_stub_chat_store, resolver):
 @pytest.mark.asyncio
 async def test_dangerous_tool_allowed_by_gateway_runs(_stub_chat_store, resolver):
     registry = _build_registry([_DangerousTool()])
-
-    class _AllowingGateway:
-        async def gate(self, **kwargs):
-            from magi.control.permission.contracts import (
-                PermissionDecision,
-                PermissionOutcome,
-            )
-
-            return PermissionDecision(
-                request_id="req_2",
-                outcome=PermissionOutcome.ALLOWED,
-                source="rule",
-                reason="ok",
-            )
 
     runner = CommandRunner(
         registry=registry,

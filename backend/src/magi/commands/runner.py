@@ -28,7 +28,12 @@ from magi_plugin_sdk.tools import (
     ToolResult,
 )
 
-from ..control.permission.contracts import ToolOrigin
+from ..control.permission.contracts import (
+    PermissionDecision,
+    PermissionOutcome,
+    PermissionRequest,
+    ToolOrigin,
+)
 from ..core.runtime_bindings import require_chat_surface_write_service
 from ..tools.capabilities import build_tool_capabilities
 from ..tools.registry import ToolRegistry
@@ -159,15 +164,7 @@ class CommandRunner:
         if blocked_result is not None:
             return blocked_result
 
-        gateway_adjudicated = gateway_decision is not None
-        refused_result = await self._dangerous_gateway_refusal(
-            call,
-            gateway_adjudicated=gateway_adjudicated,
-        )
-        if refused_result is not None:
-            return refused_result
-
-        ctx = self._execution_context(call, gateway_adjudicated=gateway_adjudicated)
+        ctx = self._execution_context(call)
         return await self._execute_and_record(call, ctx)
 
     async def _preflight_tool_command(
@@ -217,39 +214,16 @@ class CommandRunner:
             execution_time_ms=0,
         )
 
-    async def _dangerous_gateway_refusal(
-        self,
-        call: _CommandCall,
-        *,
-        gateway_adjudicated: bool,
-    ) -> CommandRunResult | None:
-        if gateway_adjudicated or not self._tool_is_dangerous(call.tool_name):
-            return None
-        refusal = "permission gateway not available; dangerous tool execution refused"
-        return await self._append_call_result(
-            call,
-            output_text=refusal,
-            success=False,
-            error=refusal,
-            error_code=ToolErrorCode.PERMISSION_DENIED.value,
-            execution_time_ms=0,
-        )
-
     def _execution_context(
         self,
         call: _CommandCall,
-        *,
-        gateway_adjudicated: bool,
     ) -> ToolExecutionContext:
-        permissions = ["authenticated"]
-        if gateway_adjudicated:
-            permissions.append("dangerous_tools")
         return ToolExecutionContext(
             agent_id=call.agent_id,
             task_id=call.turn_id,
             workspace=call.workspace or "",
             env_vars={"role": "user"},
-            permissions=permissions,
+            permissions=["authenticated", "dangerous_tools"],
             enabled_features=[],
             capabilities=build_tool_capabilities(),
         )
@@ -286,10 +260,6 @@ class CommandRunner:
             execution_time_ms=execution_time_ms,
         )
 
-    def _tool_is_dangerous(self, tool_name: str) -> bool:
-        tool_info = self._registry.get_tool_info(tool_name) or {}
-        return bool(tool_info.get("dangerous", False))
-
     async def _append_call_result(
         self,
         call: _CommandCall,
@@ -325,29 +295,34 @@ class CommandRunner:
         workspace: str | None,
     ):
         if self._permission_gateway_provider is None:
-            return None
+            return _gateway_unavailable_decision("permission gateway is not configured")
         try:
             gateway = self._permission_gateway_provider()
-        except RuntimeError:
-            return None
+        except Exception as exc:
+            logger.exception("Command permission gateway provider failed")
+            return _gateway_unavailable_decision(f"permission gateway provider failed: {exc}")
         if gateway is None:
-            return None
+            return _gateway_unavailable_decision("permission gateway provider returned no gateway")
         info = self._registry.get_tool_info(tool_name) or {}
         metadata = info.get("metadata") or {}
-        return await gateway.gate(
-            tool_name=tool_name,
-            arguments=arguments,
-            agent_id=agent_id,
-            origin=ToolOrigin.CHAT,
-            session_id=session_id,
-            turn_id=turn_id,
-            workspace=workspace,
-            tool_is_dangerous=bool(info.get("dangerous", False)),
-            tool_risk_level=metadata.get("permission_risk"),
-            tool_risk_authoritative=bool(
-                metadata.get("permission_risk_authoritative", False)
-            ),
-        )
+        try:
+            return await gateway.gate(
+                tool_name=tool_name,
+                arguments=arguments,
+                agent_id=agent_id,
+                origin=ToolOrigin.CHAT,
+                session_id=session_id,
+                turn_id=turn_id,
+                workspace=workspace,
+                tool_is_dangerous=bool(info.get("dangerous", False)),
+                tool_risk_level=metadata.get("permission_risk"),
+                tool_risk_authoritative=bool(
+                    metadata.get("permission_risk_authoritative", False)
+                ),
+            )
+        except Exception as exc:
+            logger.exception("Command permission gateway failed")
+            return _gateway_unavailable_decision(f"permission gateway failed: {exc}")
 
     async def _append_invocation_message(
         self,
@@ -471,3 +446,12 @@ def _extract_text(result: ToolResult) -> str:
     if isinstance(metadata_output, str) and metadata_output:
         return metadata_output
     return ""
+
+
+def _gateway_unavailable_decision(reason: str) -> PermissionDecision:
+    return PermissionDecision(
+        request_id=PermissionRequest.new_id(),
+        outcome=PermissionOutcome.DENIED,
+        source="gateway_unavailable",
+        reason=reason,
+    )
