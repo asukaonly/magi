@@ -45,7 +45,7 @@ class AgentRunJournal:
             raise ValueError("RunContextManifest may only be recorded once per run")
         self._manifest = manifest
         if self._store is not None:
-            await self._store.upsert_run_manifest(manifest.to_dict())
+            await self._store.insert_run_manifest(manifest.to_dict())
 
     async def resume(self) -> None:
         """Continue event numbering for an already persisted run."""

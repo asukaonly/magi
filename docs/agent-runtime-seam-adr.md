@@ -93,6 +93,11 @@ child, validation, repair, reasoning, effect, and terminal state are projections
 of those events. UI trace state and runtime metrics use the same source rather
 than parallel transcript-only state.
 
+The durable seam records context fingerprints and provenance, not a replay copy
+of raw prompts, history, attachment bytes, or rendered memory/persona context.
+Run manifests are insert-once; a second writer for the same run identity is an
+integrity failure rather than an overwrite.
+
 ## Consequences
 
 ### Benefits

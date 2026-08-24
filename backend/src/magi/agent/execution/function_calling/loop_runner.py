@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from typing import Any, cast
@@ -17,6 +16,12 @@ from ....llm.streaming_events import (
 from ...turn_input import UserTurnInput
 from magi.control.run_control import RunControl
 from ..completion_gate import CompletionGate
+from ..context_fingerprint import (
+    context_source_refs,
+    effective_context_fingerprint,
+    message_fingerprints,
+    stable_hash,
+)
 from ..contracts import AgentRunEventType, CompletionOutcome, RunContextManifest
 from ..journal import AgentRunJournal
 from ..model_capabilities import ModelCapabilityProfile
@@ -132,7 +137,7 @@ class FunctionCallingLoopRunner:
             )
             return
         tool_schema_hashes = {
-            str(tool.get("function", {}).get("name") or ""): _stable_hash(tool)
+            str(tool.get("function", {}).get("name") or ""): stable_hash(tool)
             for tool in state.tools
             if str(tool.get("function", {}).get("name") or "")
         }
@@ -144,12 +149,12 @@ class FunctionCallingLoopRunner:
                 session_id=run_input.session_id,
                 user_id=run_input.user_id,
                 prompt_assembly_version="unified-agent-v1",
-                system_prompt_hash=_stable_hash(state.effective_system_prompt),
-                messages=tuple(dict(item) for item in state.messages),
+                system_prompt_hash=stable_hash(state.effective_system_prompt),
+                system_prompt_size_bytes=len(state.effective_system_prompt.encode("utf-8")),
+                message_fingerprints=message_fingerprints(state.messages),
                 tool_catalog=tuple(state.selected_tool_names),
-                tool_schemas=tuple(dict(item) for item in state.tools),
                 tool_schema_hashes=tool_schema_hashes,
-                context_sources=tuple(run_input.context_sources),
+                context_source_refs=context_source_refs(run_input.context_sources),
                 provider=str(getattr(model_context, "provider_id", "unknown")),
                 model=str(getattr(model_context, "model_id", "unknown")),
                 reasoning_policy=run_input.reasoning_policy.to_dict(),
@@ -287,8 +292,10 @@ class FunctionCallingLoopRunner:
                 AgentRunEventType.ATTACHMENT_OBSERVED,
                 step_index=0,
                 payload={
-                    "observation": observation,
-                    "model_message": observation_message,
+                    "observation_hash": stable_hash(observation),
+                    "observation_size_bytes": len(
+                        json.dumps(observation, ensure_ascii=False, default=str).encode("utf-8")
+                    ),
                 },
             )
         return None
@@ -308,17 +315,15 @@ class FunctionCallingLoopRunner:
         await state.journal.append(
             AgentRunEventType.CONTEXT_PREPARED,
             step_index=step_index,
-            payload={
-                "mode": mode,
-                "system_prompt": system_prompt,
-                "messages": [dict(message) for message in messages],
-                "tools": [dict(tool) for tool in tools],
-                "reasoning_state": (
-                    state.reasoning_state.to_dict()
-                    if state.reasoning_state is not None
-                    else {}
+            payload=effective_context_fingerprint(
+                mode=mode,
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                reasoning_state=(
+                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
                 ),
-            },
+            ),
         )
 
     def _build_initial_state(self, run_input: AgentRunRequest) -> FunctionCallingStepState:
@@ -365,17 +370,11 @@ class FunctionCallingLoopRunner:
             state.chat_attachments = [dict(item) for item in checkpoint.chat_attachments]
             state.message_payload = dict(checkpoint.message_payload)
             state.tool_expansion_count = checkpoint.tool_expansion_count
-            state.consecutive_failed_tool_iterations = (
-                checkpoint.consecutive_failed_tool_iterations
-            )
+            state.consecutive_failed_tool_iterations = checkpoint.consecutive_failed_tool_iterations
             state.all_tools_failed = checkpoint.all_tools_failed
-            state.failed_tool_call_fingerprints = set(
-                checkpoint.failed_tool_call_fingerprints
-            )
+            state.failed_tool_call_fingerprints = set(checkpoint.failed_tool_call_fingerprints)
             state.failure_signature_counts = dict(checkpoint.failure_signature_counts)
-            state.repeated_blocker_tool_names = set(
-                checkpoint.repeated_blocker_tool_names
-            )
+            state.repeated_blocker_tool_names = set(checkpoint.repeated_blocker_tool_names)
             state.suppressed_tool_names = set(checkpoint.suppressed_tool_names)
             state.persona_task_clamp_applied = checkpoint.persona_task_clamp_applied
         self._host._current_messages = state.messages
@@ -498,16 +497,14 @@ class FunctionCallingLoopRunner:
             await state.journal.append(
                 AgentRunEventType.COMPLETION_REQUESTED,
                 step_index=step_outcome.iteration,
-                payload={"response_hash": _stable_hash(step_outcome.content)},
+                payload={"response_hash": stable_hash(step_outcome.content)},
             )
         decision = CompletionGate().evaluate(
             policy=run_input.completion_policy,
             evidence=state.tool_evidence,
             repair_iterations=state.repair_iterations,
             run_plan=(
-                run_input.run_plan_provider()
-                if run_input.run_plan_provider is not None
-                else None
+                run_input.run_plan_provider() if run_input.run_plan_provider is not None else None
             ),
         )
         if decision.outcome is CompletionOutcome.COMPLETE:
@@ -636,9 +633,7 @@ class FunctionCallingLoopRunner:
                 "failure_reason": outcome.failure_reason,
                 "evidence": [item.to_ref().to_dict() for item in state.tool_evidence],
                 "reasoning_state": (
-                    state.reasoning_state.to_dict()
-                    if state.reasoning_state is not None
-                    else {}
+                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
                 ),
             },
         )
@@ -681,11 +676,6 @@ class FunctionCallingLoopRunner:
         )
 
 
-def _stable_hash(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, default=str).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
 def _messages_contain_images(messages: list[dict[str, Any]]) -> bool:
     for message in messages:
         content = message.get("content")
@@ -711,8 +701,7 @@ def _strip_image_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 for block in content
                 if not (
                     isinstance(block, dict)
-                    and str(block.get("type") or "")
-                    in {"image", "image_url", "input_image"}
+                    and str(block.get("type") or "") in {"image", "image_url", "input_image"}
                 )
             ]
             cloned["content"] = blocks

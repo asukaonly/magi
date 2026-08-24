@@ -17,22 +17,16 @@ class RunJournalPersistenceMixin:
     async def _fetchone(self, sql: str, params: tuple[Any, ...]) -> aiosqlite.Row | None:
         raise NotImplementedError
 
-    async def upsert_run_manifest(self, manifest: dict[str, Any]) -> None:
+    async def insert_run_manifest(self, manifest: dict[str, Any]) -> None:
         payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True, default=str)
         await self._execute_hot_write(
-            operation="upsert_run_manifest",
+            operation="insert_run_manifest",
             write=lambda db: db.execute(
                 """
                 INSERT INTO agent_run_manifests (
                     run_id, turn_id, session_id, user_id, manifest_json,
                     created_at_ms, updated_at_ms
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(run_id) DO UPDATE SET
-                    turn_id = excluded.turn_id,
-                    session_id = excluded.session_id,
-                    user_id = excluded.user_id,
-                    manifest_json = excluded.manifest_json,
-                    updated_at_ms = excluded.updated_at_ms
                 """,
                 (
                     str(manifest["run_id"]),

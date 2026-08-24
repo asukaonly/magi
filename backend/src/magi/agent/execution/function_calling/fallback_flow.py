@@ -11,11 +11,13 @@ from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
 from magi.control.run_control import RunControl
 from ..contracts import AgentRunEventType
+from ..context_fingerprint import effective_context_fingerprint
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome
 
 logger = logging.getLogger(__name__)
 _FallbackStepResult = TypeVar("_FallbackStepResult")
+
 
 class FallbackHostProtocol(Protocol):
     async def _emit_loop_event(self, payload: dict[str, Any]) -> None: ...
@@ -170,18 +172,20 @@ async def _call_fallback_llm(
         await state.journal.append(
             AgentRunEventType.CONTEXT_PREPARED,
             step_index=state.iteration,
-            payload={
-                "mode": "fallback_finalization",
-                "system_prompt": system_prompt,
-                "messages": [dict(message) for message in messages],
-                "tools": [],
-                "requested_reasoning_depth": (
-                    state.reasoning_state.requested_depth.value
-                    if state.reasoning_state is not None
-                    else thinking_depth.value
-                ),
-                "effective_reasoning_depth": thinking_depth.value,
-            },
+            payload=effective_context_fingerprint(
+                mode="fallback_finalization",
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=[],
+                reasoning_state={
+                    "requested_depth": (
+                        state.reasoning_state.requested_depth.value
+                        if state.reasoning_state is not None
+                        else thinking_depth.value
+                    ),
+                    "effective_depth": thinking_depth.value,
+                },
+            ),
         )
     response = await host._call_llm_without_tools(
         system_prompt=system_prompt,
@@ -204,9 +208,7 @@ async def _call_fallback_llm(
             payload={
                 "mode": "fallback_finalization",
                 "assistant_message": (
-                    dict(assistant_message)
-                    if isinstance(assistant_message, dict)
-                    else None
+                    dict(assistant_message) if isinstance(assistant_message, dict) else None
                 ),
                 "content": response.get("content"),
                 "tool_calls": [

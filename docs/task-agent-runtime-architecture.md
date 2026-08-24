@@ -446,7 +446,8 @@ assembly.
 
 `runtime_trace.db` contains:
 
-- `agent_run_manifests` — the effective prompt/context/tool/policy manifest;
+- `agent_run_manifests` — insert-once prompt, message, tool-schema, and
+  context-source fingerprints plus non-content provenance;
 - `agent_run_events` — ordered lifecycle facts;
 - `run_plans` — versioned plan snapshots;
 - normalized spans/tool/model rows for lower-level tracing;
@@ -467,6 +468,14 @@ projection is the source for:
 - model/tool/validation/repair/child counts;
 - first-action and total runtime latency;
 - token totals and reasoning escalation count.
+
+The journal is an observability source, not a second prompt archive. Manifests
+and `CONTEXT_PREPARED` events never copy system prompts, conversation messages,
+rendered memory/persona/skill context, tool schemas, or attachment bytes. They
+store deterministic digests, encoded sizes, counts, and stable source IDs. The
+live loop and an explicitly persisted background handoff checkpoint may retain
+the model-facing context required to continue execution; chat forgetting removes
+the checkpoint through its origin-turn ownership boundary.
 
 Chat transcript truth remains in `chat.db`. Execution plans and intermediate
 runtime state are not duplicated as chat messages. Runtime notifications are

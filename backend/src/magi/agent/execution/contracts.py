@@ -75,7 +75,7 @@ class EvidenceRef:
 
 @dataclass(frozen=True, slots=True)
 class RunContextManifest:
-    """The exact effective context used to start a new model-facing run."""
+    """Privacy-minimized provenance for a new model-facing run."""
 
     run_id: str
     turn_id: str | None
@@ -83,11 +83,11 @@ class RunContextManifest:
     user_id: str | None
     prompt_assembly_version: str
     system_prompt_hash: str
-    messages: tuple[dict[str, Any], ...]
+    system_prompt_size_bytes: int
+    message_fingerprints: tuple[dict[str, Any], ...]
     tool_catalog: tuple[str, ...]
-    tool_schemas: tuple[dict[str, Any], ...]
     tool_schema_hashes: dict[str, str]
-    context_sources: tuple[dict[str, Any], ...] = ()
+    context_source_refs: tuple[dict[str, Any], ...] = ()
     provider: str | None = None
     model: str | None = None
     reasoning_policy: dict[str, Any] = field(default_factory=dict)
@@ -101,11 +101,11 @@ class RunContextManifest:
             "user_id": self.user_id,
             "prompt_assembly_version": self.prompt_assembly_version,
             "system_prompt_hash": self.system_prompt_hash,
-            "messages": [dict(item) for item in self.messages],
+            "system_prompt_size_bytes": self.system_prompt_size_bytes,
+            "message_fingerprints": [dict(item) for item in self.message_fingerprints],
             "tool_catalog": list(self.tool_catalog),
-            "tool_schemas": [dict(item) for item in self.tool_schemas],
             "tool_schema_hashes": dict(self.tool_schema_hashes),
-            "context_sources": [dict(item) for item in self.context_sources],
+            "context_source_refs": [dict(item) for item in self.context_source_refs],
             "provider": self.provider,
             "model": self.model,
             "reasoning_policy": dict(self.reasoning_policy),
@@ -121,24 +121,20 @@ class RunContextManifest:
             user_id=_optional_text(value.get("user_id")),
             prompt_assembly_version=str(value.get("prompt_assembly_version") or "unknown"),
             system_prompt_hash=str(value.get("system_prompt_hash") or ""),
-            messages=tuple(
+            system_prompt_size_bytes=int(value.get("system_prompt_size_bytes") or 0),
+            message_fingerprints=tuple(
                 dict(item)
-                for item in value.get("messages", [])
+                for item in value.get("message_fingerprints", [])
                 if isinstance(item, dict)
             ),
             tool_catalog=tuple(str(item) for item in value.get("tool_catalog", []) if item),
-            tool_schemas=tuple(
-                dict(item)
-                for item in value.get("tool_schemas", [])
-                if isinstance(item, dict)
-            ),
             tool_schema_hashes={
                 str(key): str(item)
                 for key, item in dict(value.get("tool_schema_hashes") or {}).items()
             },
-            context_sources=tuple(
+            context_source_refs=tuple(
                 dict(item)
-                for item in value.get("context_sources", [])
+                for item in value.get("context_source_refs", [])
                 if isinstance(item, dict)
             ),
             provider=_optional_text(value.get("provider")),
@@ -188,11 +184,7 @@ class AgentRunEvent:
             turn_id=_optional_text(value.get("turn_id")),
             session_id=_optional_text(value.get("session_id")),
             user_id=_optional_text(value.get("user_id")),
-            step_index=(
-                int(value["step_index"])
-                if value.get("step_index") is not None
-                else None
-            ),
+            step_index=(int(value["step_index"]) if value.get("step_index") is not None else None),
             payload=dict(value.get("payload") or {}),
         )
 
