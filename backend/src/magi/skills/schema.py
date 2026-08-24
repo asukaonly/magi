@@ -22,7 +22,7 @@ class SkillFrontmatter:
     disable_model_invocation: bool = False
     user_invocable: bool = True
     context: Optional[str] = None  # "fork" for sub-agent execution
-    agent: Optional[str] = None  # Sub-agent type (e.g., "general-purpose")
+    agent: Optional[str] = None  # Optional child-run preset
     category: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     examples: List[Dict[str, Any]] = field(default_factory=list)

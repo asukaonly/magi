@@ -203,8 +203,7 @@ async def test_execute_with_tools_runs_legacy_tool_call_blocks() -> None:
         "agent",
         {
             "timeout_seconds": 5,
-            "run_in_background": True,
-            "subagent_type": "general-purpose",
+            "preset": "default",
         },
     )
 
@@ -287,7 +286,7 @@ def test_build_tool_message_payload_compacts_file_list_entries() -> None:
     assert "path" not in payload["data"]["entries"][0]
 
 
-def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
+def test_build_tool_message_payload_keeps_structured_child_result() -> None:
     postprocessor = FunctionCallingPostprocessor()
     payload = postprocessor.build_tool_message_payload(
         tool_name="agent",
@@ -297,8 +296,9 @@ def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
             success=True,
             data={
                 "worker_id": "worker_1",
+                "child_run_id": "child_1",
                 "status": "completed",
-                "subagent_type": "CodeExplore",
+                "preset": "read_only",
                 "description": "scan backend",
                 "result": {
                     "summary": "backend analyzed",
@@ -313,7 +313,7 @@ def test_build_tool_message_payload_keeps_structured_worker_result() -> None:
     )
 
     assert payload["success"] is True
-    assert payload["data"]["worker_result"]["summary"] == "backend analyzed"
+    assert payload["data"]["child_result"]["summary"] == "backend analyzed"
     assert payload["data"]["worker_id"] == "worker_1"
 
 
@@ -451,8 +451,9 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
             success=True,
             data={
                 "worker_id": "worker_123",
+                "child_run_id": "child_123",
                 "status": "completed",
-                "subagent_type": "CodeExplore",
+                "preset": "read_only",
                 "description": "scan auth flow",
                 "created_at": 1.0,
                 "updated_at": 2.0,
@@ -464,7 +465,8 @@ def test_build_tool_message_payload_compacts_agent_run_state() -> None:
     )
 
     assert payload["data"]["worker_id"] == "worker_123"
-    assert payload["data"]["worker_result"] is None
+    assert payload["data"]["child_run_id"] == "child_123"
+    assert payload["data"]["child_result"] is None
     assert "created_at" not in payload["data"]
     assert "target_task_agent_id" not in payload["data"]
 

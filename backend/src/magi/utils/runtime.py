@@ -285,11 +285,6 @@ class RuntimePaths:
         """Batch orchestrator manifest database path."""
         return self.data_dir / "batch" / "batch.db"
 
-    @property
-    def task_orchestrations_path(self) -> Path:
-        """Task-orchestration recovery store path."""
-        return self.runtime_dir / "task_orchestrations.json"
-
     def plugin_cache_dir(self, plugin_id: str) -> Path:
         """Return the cache directory for one plugin."""
         normalized = str(plugin_id or "").strip().replace("/", "_").replace("\\", "_")

@@ -7,7 +7,6 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..agent.orchestration import get_orchestration_store
 from ..core.logger import get_logger
 from ..core.code_agent_artifacts import (
     CodeAgentArtifactGC,
@@ -108,10 +107,6 @@ class ChatReadService(
             workspace_path,
             idempotency_key,
         )
-
-    async def aget_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
-        """Load a worker result without blocking the event loop."""
-        return await self._run_threaded("get_worker_result", worker_id)
 
     async def aget_session_summary(
         self,
@@ -389,12 +384,6 @@ class ChatReadService(
             updated_at_ms,
             bump_survivors,
         )
-
-    def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
-        if not worker_id.strip():
-            return None
-        store = get_orchestration_store()
-        return store.get_worker_result_sync(worker_id)
 
     def _query_fact_rows(
         self,

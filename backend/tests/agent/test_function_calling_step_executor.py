@@ -183,7 +183,7 @@ async def test_execute_with_tools_drops_ephemeral_context_after_first_tool_loop(
         user_id="u-chat",
         session_id="s-chat",
         turn_id="turn-ephemeral",
-        intent="worker_general-purpose",
+        intent="child_read_only",
         execution_agent_id="worker_1",
         ephemeral_context="large parent conversation snapshot",
         max_iterations=3,

@@ -322,14 +322,11 @@ class FunctionCallingResponseMixin:
         action = str(normalized.get("action", "launch"))
         if action != "launch":
             return normalized
-        if "run_in_background" not in normalized:
-            normalized["run_in_background"] = True
-
         if normalized.pop("inherit_context", False) and self._current_messages:
             normalized["parent_context_summary"] = self._build_parent_context_summary()
 
-        if not str(normalized.get("subagent_type", "")).strip():
-            normalized["subagent_type"] = "general-purpose"
+        if not str(normalized.get("preset", "")).strip():
+            normalized["preset"] = "default"
         return normalized
 
     def _build_parent_context_summary(self) -> str:

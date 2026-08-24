@@ -12,21 +12,6 @@ class ChatTurnAdmissionService:
 
     def resolve(self, context: ChatRuntimeContext) -> IntentDecision:
         kind = _resolve_fact_kind(context)
-        if kind is IncomingFactKind.WORKER_UPDATE:
-            return _decision(
-                "worker_orchestration_update",
-                ExecutionMode.ORCHESTRATION_UPDATE,
-                "Worker event requires deterministic orchestration state handling.",
-            )
-        if kind in {
-            IncomingFactKind.EXPLORE_TASK_COMPLETED,
-            IncomingFactKind.EXPLORE_TASK_FAILED,
-        }:
-            return _decision(
-                "explore_task_result",
-                ExecutionMode.EXPLORE_TASK_RENDER,
-                "Explore result is already a domain artifact and must be rendered directly.",
-            )
         if kind is IncomingFactKind.OTHER_FACT:
             return _decision(
                 "non_user_fact",

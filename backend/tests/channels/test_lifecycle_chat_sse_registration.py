@@ -355,10 +355,6 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
         async def clear_conversation_state(self):
             events.append("channel-state-cleared")
 
-    class _OrchestrationStore:
-        async def clear_all(self):
-            events.append("orchestration-cleared")
-
     class _Registry:
         def all_channels(self):
             return []
@@ -383,11 +379,6 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: _ChatReadService(),
     )
-    monkeypatch.setattr(
-        "magi.agent.orchestration.get_orchestration_store",
-        lambda: _OrchestrationStore(),
-    )
-
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
     ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
     module = ChannelsModule(ctx)
@@ -423,7 +414,6 @@ async def test_channels_startup_recovers_pending_conversation_clear_before_start
         "background-sealed",
         "channel-state-cleared",
         "background-history-cleared",
-        "orchestration-cleared",
         "clear-finalized",
         "background-released",
         "registry-started",
@@ -450,10 +440,6 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         async def clear_conversation_state(self):
             events.append("channel-state-cleared")
 
-    class _OrchestrationStore:
-        async def clear_all(self):
-            events.append("orchestration-cleared")
-
     class _Registry:
         def all_channels(self):
             return []
@@ -477,11 +463,6 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: _ChatReadService(),
     )
-    monkeypatch.setattr(
-        "magi.agent.orchestration.get_orchestration_store",
-        lambda: _OrchestrationStore(),
-    )
-
     ctx = _build_ctx(plugins=[], tmp_path=tmp_path)
     ctx.agent_runtime.background_task_manager = _BackgroundTaskManager()
     module = ChannelsModule(ctx)
@@ -509,7 +490,6 @@ async def test_channels_startup_stays_closed_when_pending_clear_cannot_finalize(
         "background-sealed",
         "channel-state-cleared",
         "background-history-cleared",
-        "orchestration-cleared",
         "clear-finalization-declined",
         "background-released",
     ]
@@ -575,7 +555,6 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         ingress_boundary=_AllowingBoundary(),  # type: ignore[arg-type]
     )
     await mapper.initialize()
-    orchestration_store = SimpleNamespace(clear_all=AsyncMock(return_value={}))
     background_store = BackgroundTaskStore(
         db_path=str(runtime_paths.background_tasks_db_path)
     )
@@ -618,10 +597,6 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         "magi.channels.lifecycle.require_chat_read_service",
         lambda: chat_read_service,
     )
-    monkeypatch.setattr(
-        "magi.agent.orchestration.get_orchestration_store",
-        lambda: orchestration_store,
-    )
 
     runtime_command_queue = SQLiteRuntimeCommandQueue(
         db_path=str(runtime_paths.message_queue_db_path)
@@ -658,7 +633,6 @@ async def test_pending_global_clear_recovery_closes_real_chat_and_channel_stores
         assert channel_connection.execute(
             "SELECT COUNT(*) FROM outreach_outbox"
         ).fetchone() == (0,)
-    orchestration_store.clear_all.assert_awaited_once()
     assert await background_store.get_task(background_task.task_id) is None
     assert await background_store.list_events(background_task.task_id) == []
     assert await background_store.count_pending_completion_intents() == 0

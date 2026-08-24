@@ -311,8 +311,6 @@ class ChannelsModule(LifecycleModule):
     ) -> tuple[bool, set[str]]:
         """Finish cross-store conversation cleanup before channels receive work."""
 
-        from ..agent.orchestration import get_orchestration_store
-
         chat_read_service = require_chat_read_service()
         pending_count = await chat_read_service.aget_interrupted_global_clear_count()
         if pending_count is None:
@@ -336,7 +334,6 @@ class ChannelsModule(LifecycleModule):
             ):
                 await session_mapper.clear_conversation_state()
                 await background_task_manager.clear_all_history()
-                await get_orchestration_store().clear_all()
                 await runtime_command_queue.seal_external_user_message_clear_cutoff()
                 completed = await chat_read_service.acomplete_global_clear()
                 if not completed:

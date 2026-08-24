@@ -143,7 +143,7 @@ async def test_unconfigured_launch_does_not_consume_worker_budget() -> None:
         result = await tool.execute(
             parameters={
                 "action": "launch",
-                "subagent_type": "CodeExplore",
+                "preset": "read_only",
                 "description": "inspect startup",
                 "prompt": "This worker cannot start before configuration.",
                 "run_in_background": True,
@@ -400,46 +400,6 @@ async def test_task_agent_stream_reserves_before_opening_provider(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_explore_planning_and_workers_share_one_root_budget() -> None:
-    from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent
-
-    observed_budgets: list[object | None] = []
-
-    async def _charge_branch() -> None:
-        observed_budgets.append(current_task_budget())
-        await consume_task_llm_calls()
-
-    class _Handler:
-        @staticmethod
-        async def build_request(request):  # type: ignore[no-untyped-def]
-            return request
-
-        @staticmethod
-        async def execute(request):  # type: ignore[no-untyped-def]
-            _ = request
-            await asyncio.create_task(_charge_branch(), name="explore-plan-probe")
-            await asyncio.create_task(_charge_branch(), name="explore-worker-probe")
-            return "done"
-
-    class _Registry:
-        @staticmethod
-        def get(mode):  # type: ignore[no-untyped-def]
-            _ = mode
-            return _Handler()
-
-    agent = ExploreTaskAgent.__new__(ExploreTaskAgent)
-    agent._handler_registry = _Registry()  # type: ignore[assignment]
-
-    result = await agent.call_llm(object(), SimpleNamespace(mode="probe"))
-
-    assert result == "done"
-    assert observed_budgets[0] is observed_budgets[1]
-    assert observed_budgets[0] is not None
-    assert observed_budgets[0].llm_calls == 2  # type: ignore[union-attr]
-    assert current_task_budget() is None
-
-
-@pytest.mark.asyncio
 async def test_fork_skill_agent_run_reuses_outer_reservation() -> None:
     from magi.skills.schema import SkillContent, SkillFrontmatter
     from magi.skills.runner import SkillRunner
@@ -594,97 +554,6 @@ async def test_context_compactor_preserves_main_call_headroom(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_background_agent_worker_inherits_parent_budget(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    from magi.agent.runtime_tools import AgentTool
-    from magi.agent.workers import worker_execution as worker_execution_module
-    from magi.tools.schema import ToolExecutionContext
-
-    release_worker = asyncio.Event()
-    observed_budgets: list[object | None] = []
-
-    class _FakeWorkerOrchestrator:
-        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
-            _ = kwargs
-
-        async def run(self, run_input):  # type: ignore[no-untyped-def]
-            _ = run_input
-            await release_worker.wait()
-            observed_budgets.append(current_task_budget())
-            await reserve_task_llm_calls()
-            return ExecutionOutcome(
-                status="completed",
-                content=json.dumps(
-                    {
-                        "result_status": "success",
-                        "summary": "worker completed",
-                        "findings": [],
-                        "evidence": [],
-                        "records": [],
-                        "gaps": [],
-                        "next_steps": [],
-                        "failure_reason": None,
-                    }
-                ),
-                iterations=1,
-            )
-
-    class _FakeRegistry:
-        @staticmethod
-        def list_tools() -> list[str]:
-            return []
-
-    monkeypatch.setattr(
-        worker_execution_module,
-        "FunctionCallingOrchestrator",
-        _FakeWorkerOrchestrator,
-    )
-    tool = AgentTool()
-    tool.configure(
-        llm_adapter=SimpleNamespace(model_name="fake-worker"),
-        tool_registry_instance=_FakeRegistry(),  # type: ignore[arg-type]
-    )
-    context = ToolExecutionContext(
-        agent_id="chat:u-budget",
-        workspace=str(tmp_path),
-        env_vars={"user_id": "u-budget", "session_id": "s-budget"},
-        permissions=["authenticated"],
-    )
-
-    async with task_execution_budget_scope(
-        max_llm_calls=2,
-        max_worker_launches=1,
-    ) as parent_budget:
-        launched = await tool.execute(
-            parameters={
-                "action": "launch",
-                "subagent_type": "general-purpose",
-                "description": "verify budget context",
-                "prompt": "Return a structured result.",
-                "run_in_background": True,
-            },
-            context=context,
-        )
-
-    release_worker.set()
-    awaited = await tool.execute(
-        parameters={
-            "action": "await",
-            "worker_id": launched.data["worker_id"],
-            "timeout_seconds": 2,
-        },
-        context=context,
-    )
-
-    assert launched.success is True
-    assert awaited.success is True
-    assert observed_budgets == [parent_budget]
-    assert parent_budget.llm_calls == 1
-
-
-@pytest.mark.asyncio
 async def test_registry_worker_launch_reuses_parent_continuation_reservation(
     monkeypatch,
     tmp_path,
@@ -754,7 +623,7 @@ async def test_registry_worker_launch_reuses_parent_continuation_reservation(
                 "agent",
                 {
                     "action": "launch",
-                    "subagent_type": "general-purpose",
+                    "preset": "read_only",
                     "description": "consume worker budget",
                     "prompt": "Return a structured result.",
                     "run_in_background": False,

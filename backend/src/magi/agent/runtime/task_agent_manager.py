@@ -25,7 +25,6 @@ logger = get_logger(__name__)
 _USER_CONTENT_AGENT_TYPES = frozenset(
     {
         TaskAgentType.CHAT.value,
-        TaskAgentType.EXPLORE.value,
     }
 )
 
@@ -420,10 +419,7 @@ class TaskAgentManager:
                             return False
                         if self._is_stale_user_content_fact(
                             fact,
-                            require_generation=(
-                                normalized_type == TaskAgentType.EXPLORE.value
-                                or fact.event_type == EventTypes.USER_MESSAGE
-                            ),
+                            require_generation=fact.event_type == EventTypes.USER_MESSAGE,
                         ):
                             self._stale_user_message_rejected_count += 1
                             logger.info(

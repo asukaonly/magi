@@ -27,6 +27,7 @@ class AgentRunRequest:
     user_id: str
 
     run_id: str = field(default_factory=lambda: uuid4().hex)
+    parent_run_id: str | None = None
     checkpoint: AgentRunCheckpoint | None = None
     session_id: str | None = None
     session_run_id: str | None = None
@@ -84,14 +85,22 @@ class AgentRunRequest:
         ephemeral_context: str | None = None,
         context_sources: tuple[dict[str, Any], ...] = (),
         checkpoint: AgentRunCheckpoint | None = None,
+        run_id: str | None = None,
+        parent_run_id: str | None = None,
+        session_run_id: str | None = None,
+        session_run_revision: int = 0,
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
             system_prompt=system_prompt,
             selected_tools=selected_tools,
             user_id=user_id,
+            run_id=run_id or uuid4().hex,
+            parent_run_id=parent_run_id,
             checkpoint=checkpoint,
             session_id=session_id,
+            session_run_id=session_run_id,
+            session_run_revision=session_run_revision,
             turn_id=turn_id,
             conversation_history=conversation_history,
             max_iterations=max_iterations,

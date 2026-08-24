@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import fields
 import inspect
-from types import SimpleNamespace
 
 import pytest
 
@@ -26,7 +25,6 @@ def test_chat_task_agent_delegates_runtime_assembly_to_chat_builder() -> None:
     for constructor_name in (
         "ChatContextAssembler",
         "ChatExecutionCoordinator",
-        "ChatPlanningService",
         "ChatPostProcessService",
         "ChatPromptService",
         "SessionRunCoordinator",
@@ -56,7 +54,6 @@ def test_chat_runtime_facade_delegates_core_chat_wiring() -> None:
     for constructor_name in (
         "ChatContextAssembler",
         "ChatExecutionCoordinator",
-        "ChatPlanningService",
         "ChatPostProcessService",
         "ChatPromptService",
         "SessionRunCoordinator",
@@ -79,7 +76,6 @@ def test_chat_runtime_domain_builders_own_core_chat_wiring() -> None:
     for constructor_name in (
         "ChatContextAssembler",
         "ChatExecutionCoordinator",
-        "ChatPlanningService",
         "ChatPostProcessService",
         "ChatPromptService",
         "SessionRunCoordinator",

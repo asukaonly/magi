@@ -6,10 +6,8 @@ from dataclasses import dataclass
 
 from magi.agent.task_agents.common import (
     FactOnlyHandler,
-    OrchestrationUpdateHandler,
 )
 from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
-from magi.agent.task_agents.handlers.explore_render import ExploreRenderHandler
 from magi.agent.task_agents.handlers.handlers import (
     ChatHandlerDependencies,
     AgentRunHandler,
@@ -71,9 +69,7 @@ def _build_handler_dependencies(
     return ChatHandlerDependencies(
         context_service=context_parts.context_service,
         prompt_service=context_parts.prompt_service,
-        planning_service=execution_parts.planning_service,
         function_calling_orchestrator=execution_parts.function_calling_orchestrator,
-        task_orchestrator=execution_parts.task_orchestrator,
         context_assembler=context_parts.context_assembler,
         agent_id=config.agent_id,
         model_context_provider=context_parts.model_context_provider,
@@ -89,11 +85,7 @@ def _build_handler_registry(
 ) -> ExecutionHandlerRegistry:
     handler_registry = ExecutionHandlerRegistry()
     common_handler_deps = build_common_handler_dependencies(handler_deps)
-    for handler in (
-        FactOnlyHandler(common_handler_deps),
-        OrchestrationUpdateHandler(common_handler_deps),
-        ExploreRenderHandler(handler_deps),
-    ):
+    for handler in (FactOnlyHandler(common_handler_deps),):
         handler_registry.register(handler)
     return handler_registry
 

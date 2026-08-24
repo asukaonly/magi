@@ -10,18 +10,15 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .default_task_agent import DefaultTaskAgent
-    from .explore_task_agent import ExploreTaskAgent
     from .timeline_task_agent import TimelineTaskAgent
 
 _LAZY_EXPORTS = {
     "DefaultTaskAgent": ".default_task_agent",
-    "ExploreTaskAgent": ".explore_task_agent",
     "TimelineTaskAgent": ".timeline_task_agent",
 }
 
 __all__ = [
     "DefaultTaskAgent",
-    "ExploreTaskAgent",
     "TimelineTaskAgent",
 ]
 

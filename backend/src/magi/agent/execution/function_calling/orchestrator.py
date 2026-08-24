@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, cast
 
-from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
 from ....runtime_trace import RuntimeTraceStore
@@ -18,7 +17,6 @@ from ...turn_input import UserTurnInput
 from magi.control.run_control import (
     DetachSignal,
     RetractSignal,
-    RunControl,
     SteerInbox,
     SuspendSignal,
     bind_detach_signal,

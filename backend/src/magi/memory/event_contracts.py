@@ -460,8 +460,8 @@ def _classify_event(event: Event) -> Dict[str, Any]:
             importance=0.8,
         )
 
-    if _is_worker_or_loop_control_event(event_type):
-        return _worker_or_loop_control_classification(event_type)
+    if _is_loop_control_event(event_type):
+        return _loop_control_classification(event_type)
 
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
         return _runtime_disposable_classification()
@@ -515,24 +515,17 @@ def _classification(
     }
 
 
-def _is_worker_or_loop_control_event(event_type: str) -> bool:
+def _is_loop_control_event(event_type: str) -> bool:
     return event_type in {
-        "WORKER_AGENT_PROGRESS",
-        "WORKER_AGENT_COMPLETED",
-        "WORKER_AGENT_FAILED",
         EventTypes.LOOP_STARTED,
         EventTypes.LOOP_PHASE_STARTED,
         "Heartbeat",
     }
 
 
-def _worker_or_loop_control_classification(event_type: str) -> Dict[str, Any]:
+def _loop_control_classification(event_type: str) -> Dict[str, Any]:
     return _classification(
-        memory_domain=(
-            MemoryDomain.RUNTIME_TELEMETRY
-            if event_type == "WORKER_AGENT_PROGRESS"
-            else MemoryDomain.SYSTEM_CONTROL
-        ),
+        memory_domain=MemoryDomain.SYSTEM_CONTROL,
         ingest_target=IngestTarget.RUNTIME_ONLY,
         cognition_eligible=False,
         tom_depth=TomDepth.NONE,

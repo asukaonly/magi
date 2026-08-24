@@ -13,12 +13,6 @@ from .event_contracts import IngestTarget
 
 logger = get_logger(__name__)
 
-WORKER_AGENT_EVENT_TYPES: Set[str] = {
-    "WORKER_AGENT_PROGRESS",
-    "WORKER_AGENT_COMPLETED",
-    "WORKER_AGENT_FAILED",
-}
-
 MEMORY_DIAGNOSTIC_EVENT_TYPES: Set[str] = {
     EventTypes.ACTION_EXECUTED,
 }
@@ -43,7 +37,6 @@ class MemoryIntegrationConfig:
             EventTypes.ERROR_OCCURRED,
             EventTypes.LOOP_STARTED,
             EventTypes.LOOP_PHASE_STARTED,
-            *WORKER_AGENT_EVENT_TYPES,
         }
     )
 

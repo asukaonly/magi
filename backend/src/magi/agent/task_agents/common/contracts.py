@@ -12,19 +12,13 @@ from ....events.first_context import (
     first_context_from_metadata,
 )
 from ....events.recall_feedback import RecallFeedbackRequest
-from ...orchestration_plan import OrchestrationPlan
 from ...execution.reasoning import ReasoningPolicy
-from ...orchestration import WorkerResult
 
 
 class IncomingFactKind(str, Enum):
     """Normalized fact categories consumed by task-agent coordinators."""
 
     USER_MESSAGE = "user_message"
-    WORKER_UPDATE = "worker_update"
-    EXPLORE_TASK_COMPLETED = "explore_task_completed"
-    EXPLORE_TASK_FAILED = "explore_task_failed"
-    EXPLORE_TASK_REQUEST = "explore_task_request"
     OTHER_FACT = "other_fact"
 
 
@@ -32,9 +26,6 @@ class ExecutionMode(str, Enum):
     """Deterministic domain-event handlers outside the ordinary agent run."""
 
     FACT_ONLY = "fact_only"
-    ORCHESTRATION_LAUNCH = "orchestration_launch"
-    ORCHESTRATION_UPDATE = "orchestration_update"
-    EXPLORE_TASK_RENDER = "explore_task_render"
 
 
 @dataclass(slots=True)
@@ -154,208 +145,7 @@ class UserMessagePayload:
         )
 
 
-@dataclass(slots=True)
-class WorkerUpdatePayload:
-    """Typed payload for worker progress/completion/failure facts."""
-
-    user_id: str
-    session_id: str
-    run_id: Optional[str] = None
-    run_revision: int = 0
-    turn_id: Optional[str] = None
-    worker_id: str = ""
-    stage: str = ""
-    orchestration_id: Optional[str] = None
-    subtask_id: Optional[str] = None
-    worker_subagent_type: Optional[str] = None
-    worker_description: Optional[str] = None
-    result_preview: str = ""
-    worker_result: Optional[WorkerResult] = None
-    error: Optional[str] = None
-    failure_reason: Optional[str] = None
-    error_text: Optional[str] = None
-    tool_failures: list[dict[str, Any]] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "run_revision": self.run_revision,
-            "worker_id": self.worker_id,
-            "stage": self.stage,
-            "result_preview": self.result_preview,
-        }
-        if self.run_id is not None:
-            payload["run_id"] = self.run_id
-        if self.turn_id is not None:
-            payload["turn_id"] = self.turn_id
-        if self.orchestration_id is not None:
-            payload["orchestration_id"] = self.orchestration_id
-        if self.subtask_id is not None:
-            payload["subtask_id"] = self.subtask_id
-        if self.worker_subagent_type is not None:
-            payload["worker_subagent_type"] = self.worker_subagent_type
-        if self.worker_description is not None:
-            payload["worker_description"] = self.worker_description
-        if self.worker_result is not None:
-            payload["worker_result"] = self.worker_result.to_dict()
-        if self.error is not None:
-            payload["error"] = self.error
-        if self.failure_reason is not None:
-            payload["failure_reason"] = self.failure_reason
-        if self.error_text is not None:
-            payload["error_text"] = self.error_text
-        if self.tool_failures:
-            payload["tool_failures"] = list(self.tool_failures)
-        return payload
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "WorkerUpdatePayload":
-        worker_result = payload.get("worker_result")
-        raw_tool_failures = payload.get("tool_failures")
-        return cls(
-            user_id=str(payload.get("user_id") or fallback_user_id),
-            session_id=str(payload.get("session_id") or ""),
-            run_id=_optional_string(payload.get("run_id")),
-            run_revision=_optional_int(payload.get("run_revision")) or 0,
-            turn_id=_optional_string(payload.get("turn_id")),
-            worker_id=str(payload.get("worker_id") or ""),
-            stage=str(payload.get("stage") or ""),
-            orchestration_id=_optional_string(payload.get("orchestration_id")),
-            subtask_id=_optional_string(payload.get("subtask_id")),
-            worker_subagent_type=_optional_string(
-                payload.get("worker_subagent_type") or payload.get("subagent_type")
-            ),
-            worker_description=_optional_string(
-                payload.get("worker_description") or payload.get("description")
-            ),
-            result_preview=str(payload.get("result_preview") or "").strip(),
-            worker_result=WorkerResult.from_dict(worker_result)
-            if isinstance(worker_result, dict)
-            else None,
-            error=_optional_string(payload.get("error")),
-            failure_reason=_optional_string(payload.get("failure_reason")),
-            error_text=_optional_string(payload.get("error_text")),
-            tool_failures=[
-                dict(item)
-                for item in (raw_tool_failures if isinstance(raw_tool_failures, list) else [])
-                if isinstance(item, dict)
-            ],
-        )
-
-
-@dataclass(slots=True)
-class ExploreTaskRequestPayload:
-    """Typed payload for chat -> ExploreTaskAgent handoff."""
-
-    user_id: str
-    session_id: str
-    content: str
-    run_id: Optional[str] = None
-    run_revision: int = 0
-    history_snapshot: list[dict[str, Any]] = field(default_factory=list)
-    upstream_task_agent_type: str = "chat"
-    upstream_task_agent_id: str = ""
-    turn_id: Optional[str] = None
-    root_turn_id: Optional[str] = None
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "content": self.content,
-            "run_revision": self.run_revision,
-            "history_snapshot": list(self.history_snapshot),
-            "upstream_task_agent_type": self.upstream_task_agent_type,
-            "upstream_task_agent_id": self.upstream_task_agent_id,
-        }
-        if self.run_id is not None:
-            payload["run_id"] = self.run_id
-        if self.turn_id is not None:
-            payload["turn_id"] = self.turn_id
-        if self.root_turn_id is not None:
-            payload["root_turn_id"] = self.root_turn_id
-        return payload
-
-    @classmethod
-    def from_dict(
-        cls, payload: dict[str, Any], *, fallback_user_id: str
-    ) -> "ExploreTaskRequestPayload":
-        history_snapshot = payload.get("history_snapshot")
-        return cls(
-            user_id=str(payload.get("user_id") or fallback_user_id),
-            session_id=str(payload.get("session_id") or ""),
-            content=str(payload.get("content") or "").strip(),
-            run_id=_optional_string(payload.get("run_id")),
-            run_revision=_optional_int(payload.get("run_revision")) or 0,
-            history_snapshot=history_snapshot if isinstance(history_snapshot, list) else [],
-            upstream_task_agent_type=str(payload.get("upstream_task_agent_type") or "chat"),
-            upstream_task_agent_id=str(payload.get("upstream_task_agent_id") or fallback_user_id),
-            turn_id=_optional_string(payload.get("turn_id")),
-            root_turn_id=_optional_string(payload.get("root_turn_id")),
-        )
-
-
-@dataclass(slots=True)
-class ExploreTaskCompletedPayload:
-    """Typed payload for ExploreTaskAgent -> chat dossier delivery."""
-
-    user_id: str
-    session_id: str
-    root_user_message: str
-    markdown_dossier: str
-    run_id: Optional[str] = None
-    run_revision: int = 0
-    orchestration_id: Optional[str] = None
-    message_started_at: Optional[float] = None
-    turn_id: Optional[str] = None
-    root_turn_id: Optional[str] = None
-
-    def to_dict(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "root_user_message": self.root_user_message,
-            "markdown_dossier": self.markdown_dossier,
-            "run_revision": self.run_revision,
-        }
-        if self.run_id is not None:
-            payload["run_id"] = self.run_id
-        if self.orchestration_id is not None:
-            payload["orchestration_id"] = self.orchestration_id
-        if self.message_started_at is not None:
-            payload["message_started_at"] = self.message_started_at
-        if self.turn_id is not None:
-            payload["turn_id"] = self.turn_id
-        if self.root_turn_id is not None:
-            payload["root_turn_id"] = self.root_turn_id
-        return payload
-
-    @classmethod
-    def from_dict(
-        cls, payload: dict[str, Any], *, fallback_user_id: str
-    ) -> "ExploreTaskCompletedPayload":
-        return cls(
-            user_id=str(payload.get("user_id") or fallback_user_id),
-            session_id=str(payload.get("session_id") or ""),
-            root_user_message=str(payload.get("root_user_message") or "").strip(),
-            markdown_dossier=str(payload.get("markdown_dossier") or "").strip(),
-            run_id=_optional_string(payload.get("run_id")),
-            run_revision=_optional_int(payload.get("run_revision")) or 0,
-            orchestration_id=_optional_string(payload.get("orchestration_id")),
-            message_started_at=_optional_float(payload.get("message_started_at")),
-            turn_id=_optional_string(payload.get("turn_id")),
-            root_turn_id=_optional_string(payload.get("root_turn_id")),
-        )
-
-
-TaskFactPayload: TypeAlias = (
-    GenericFactPayload
-    | UserMessagePayload
-    | WorkerUpdatePayload
-    | ExploreTaskRequestPayload
-    | ExploreTaskCompletedPayload
-)
+TaskFactPayload: TypeAlias = GenericFactPayload | UserMessagePayload
 
 
 @dataclass(slots=True)
@@ -385,7 +175,6 @@ class BaseIntentDecision:
     intent: str
     execution_mode: ExecutionMode | None
     reasoning: str = ""
-    orchestration_plan: OrchestrationPlan | None = None
 
 
 @dataclass(slots=True)
@@ -407,28 +196,6 @@ class PreparedAgentRunRequest(ExecutionRequest):
     selected_tools: list[str] = field(default_factory=list)
     reasoning_policy: ReasoningPolicy = field(default_factory=ReasoningPolicy)
     context_sources: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(slots=True)
-class OrchestrationLaunchRequest(ExecutionRequest):
-    """Execution request for orchestration launch handlers."""
-
-    correlation_id: Optional[str] = None
-
-
-@dataclass(slots=True)
-class OrchestrationUpdateRequest(ExecutionRequest):
-    """Execution request for orchestration update handlers."""
-
-
-@dataclass(slots=True)
-class ExploreRenderRequest(ExecutionRequest):
-    """Typed request for chat-side Explore dossier rendering."""
-
-    markdown_dossier: str = ""
-    root_user_message: str = ""
-    message_started_at: Optional[float] = None
-    orchestration_id: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -501,21 +268,3 @@ def _optional_string(value: Any) -> Optional[str]:
 
 def _optional_dict(value: Any) -> dict[str, Any] | None:
     return dict(value) if isinstance(value, dict) else None
-
-
-def _optional_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _optional_int(value: Any) -> Optional[int]:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None

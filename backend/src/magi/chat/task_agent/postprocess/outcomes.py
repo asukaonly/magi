@@ -6,8 +6,7 @@ import json
 from typing import Any, Protocol, cast
 
 from magi.chat import ChatMessageRecord
-from magi.agent.task_agents.common import AssistantResponsePlan, IncomingFactKind
-from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
+from magi.agent.task_agents.common import AssistantResponsePlan
 from .components import ChatOutcomeWriter
 from .message_payloads import resolve_reaction_text
 
@@ -205,37 +204,6 @@ class ChatPostprocessOutcomeMixin:
             reply_to_message_id=reply_to_message_id,
             persona_id=persona_id,
         )
-
-    async def _resolve_result_reply_anchor_message_id(
-        self,
-        *,
-        context: ChatRuntimeContext,
-        turn_id: str | None,
-    ) -> str | None:
-        host = cast(_OutcomePostprocessHostProtocol, self)
-        normalized_turn_id = str(turn_id or "").strip()
-        if host._chat_store is None or not normalized_turn_id:
-            return None
-        if context.incoming_fact_kind not in {
-            IncomingFactKind.WORKER_UPDATE,
-            IncomingFactKind.EXPLORE_TASK_COMPLETED,
-            IncomingFactKind.EXPLORE_TASK_FAILED,
-        }:
-            return None
-        turn = await host._chat_store.get_turn(normalized_turn_id)
-        anchor_turn_id = str(
-            (turn.response_anchor_turn_id if turn is not None else normalized_turn_id) or normalized_turn_id
-        ).strip()
-        if not anchor_turn_id:
-            return None
-        anchor_message = await host._chat_store.get_latest_message_for_turn(
-            anchor_turn_id,
-            message_kind="user_text",
-        )
-        if anchor_message is None:
-            return None
-        message_id = str(getattr(anchor_message, "message_id", "") or "").strip()
-        return message_id or None
 
     async def _get_chat_message(
         self,

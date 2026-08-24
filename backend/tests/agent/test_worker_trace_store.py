@@ -14,6 +14,7 @@ from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
     RuntimeTraceSubscriber,
 )
 from magi.agent.runtime_tools import AgentTool, WorkerRunState
+from magi.agent.workers.child_preset import ChildRunPreset
 
 
 @pytest.fixture
@@ -56,11 +57,11 @@ def _run_state() -> WorkerRunState:
     now = time.time()
     return WorkerRunState(
         worker_id="worker-1",
-        subagent_type="CodeExplore",
+        child_run_id="child-1",
+        preset=ChildRunPreset.READ_ONLY,
         description="scan auth flow",
         prompt="Locate token generation points",
-        orchestration_id="orch-1",
-        subtask_id="subtask-1",
+        parent_run_id="run-1",
         parent_task_agent_type="chat",
         parent_task_agent_id="chat:u-chat",
         target_task_agent_type="chat",
@@ -94,9 +95,9 @@ async def test_worker_trace_store_persists_dispatch_and_worker_spans(
     await manager._emit_worker_started_trace(run_state)
     await flush()
 
-    dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:subtask-1")
-    attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:subtask-1:1")
-    worker_span = await runtime_trace_store.get_span("turn-1:worker:subtask-1:1")
+    dispatch_span = await runtime_trace_store.get_span("turn-1:worker_dispatch:child-1")
+    attempt_span = await runtime_trace_store.get_span("turn-1:worker_attempt:child-1:1")
+    worker_span = await runtime_trace_store.get_span("turn-1:worker:child-1:1")
 
     assert dispatch_span is not None
     assert dispatch_span.node_type == "worker_dispatch"
@@ -158,12 +159,12 @@ async def test_worker_trace_store_persists_llm_and_tool_rows(
     )
     await flush()
 
-    llm_span = await runtime_trace_store.get_span("turn-1:worker_llm:subtask-1:1:final_response:1")
+    llm_span = await runtime_trace_store.get_span("turn-1:worker_llm:child-1:1:final_response:1")
     llm_call = await runtime_trace_store.get_llm_call(
-        "turn-1:worker_llm:subtask-1:1:final_response:1"
+        "turn-1:worker_llm:child-1:1:final_response:1"
     )
-    tool_span = await runtime_trace_store.get_span("turn-1:worker_tool:subtask-1:1:call-1")
-    tool_call = await runtime_trace_store.get_tool_call("turn-1:worker_tool:subtask-1:1:call-1")
+    tool_span = await runtime_trace_store.get_span("turn-1:worker_tool:child-1:1:call-1")
+    tool_call = await runtime_trace_store.get_tool_call("turn-1:worker_tool:child-1:1:call-1")
 
     assert llm_span is None
     assert llm_call is None
@@ -226,10 +227,8 @@ async def test_worker_run_marks_stream_events_as_worker_source(
 
     manager = AgentTool()._manager
     manager.configure(llm_adapter=object())
-    manager._publish_worker_fact = AsyncMock()
     manager._emit_worker_completed_trace = AsyncMock()
     manager._emit_worker_failed_trace = AsyncMock()
-    manager._orchestration_store.save_worker_result = AsyncMock()
     from magi.agent.workers import worker_execution as worker_execution_module
 
     monkeypatch.setattr(
@@ -239,7 +238,6 @@ async def test_worker_run_marks_stream_events_as_worker_source(
     )
 
     run_state = _run_state()
-    run_state.subagent_type = "general-purpose"
 
     async with stream_scope(sink, source="chat"):
         await manager._run_worker(

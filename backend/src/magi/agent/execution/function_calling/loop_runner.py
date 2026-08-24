@@ -158,7 +158,10 @@ class FunctionCallingLoopRunner:
         )
         await journal.append(
             AgentRunEventType.RUN_STARTED,
-            payload={"execution_preset": run_input.execution_preset},
+            payload={
+                "execution_preset": run_input.execution_preset,
+                "parent_run_id": run_input.parent_run_id,
+            },
         )
         await journal.append(
             AgentRunEventType.CONTEXT_PREPARED,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import time
 from typing import Any
 
@@ -55,7 +56,7 @@ class _RegisteredToolExecutor:
     def _apply_worker_guardrails(
         self, request: _RegisteredToolExecutionRequest
     ) -> dict[str, Any] | ToolCallResult:
-        arguments, guardrail_error = self._host._apply_worker_explore_guardrails(
+        arguments, guardrail_error = self._host._apply_execution_guardrails(
             execution_preset=request.execution_preset,
             tool_name=request.tool_name,
             arguments=request.arguments,
@@ -126,6 +127,16 @@ class _RegisteredToolExecutor:
                 "execution_preset": request.execution_preset,
                 "run_id": request.session_run_id or "",
                 "run_revision": str(request.session_run_revision),
+                "parent_reasoning_policy": json.dumps(
+                    request.reasoning_policy.to_dict()
+                    if request.reasoning_policy is not None
+                    else {}
+                ),
+                "parent_reasoning_state": json.dumps(
+                    request.reasoning_state.to_dict()
+                    if request.reasoning_state is not None
+                    else {}
+                ),
                 "target_task_agent_type": "chat",
                 "target_task_agent_id": target_task_agent_id,
                 "trace_id": f"trace:{normalized_turn_id}" if normalized_turn_id else "",

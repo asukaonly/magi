@@ -2,21 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Optional, Protocol
+from typing import Callable, Optional, Protocol
 
-from ....agent.cancel import CancelToken, null_cancel_token
-from magi.control.run_control import null_run_control
-from ....agent.runtime.contracts import FactRecord
-from ...task_orchestrator import TaskOrchestrator
+from ....agent.cancel import CancelToken
 from .contracts import (
     ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
-    OrchestrationLaunchRequest,
-    OrchestrationUpdateRequest,
 )
-
-SpecializedLaunchCallback = Callable[[OrchestrationLaunchRequest], Awaitable[Optional[ExecutionResult]]]
 
 
 def _serialize_ux_plan(intent: ExecutionRequest | object) -> dict | None:
@@ -62,8 +55,6 @@ class ExecutionHandlerRegistry:
 class CommonHandlerDependencies:
     """Shared dependencies passed to common execution handlers."""
 
-    task_orchestrator: TaskOrchestrator
-    start_specialized_orchestration: Optional[SpecializedLaunchCallback] = None
     build_cancel_token: Optional[Callable[[ExecutionRequest], CancelToken]] = None
 
 
@@ -89,120 +80,3 @@ class FactOnlyHandler(BaseExecutionHandler):
 
     async def execute(self, request: ExecutionRequest) -> ExecutionResult:
         return ExecutionResult(mode=request.mode, skip_emit=True, ux_plan=_serialize_ux_plan(request))
-
-
-class OrchestrationLaunchHandler(BaseExecutionHandler):
-    """Common handler for parent-task orchestration launch."""
-
-    mode = ExecutionMode.ORCHESTRATION_LAUNCH
-
-    async def build_request(self, request: ExecutionRequest) -> OrchestrationLaunchRequest:
-        return OrchestrationLaunchRequest(
-            mode=request.mode,
-            context=request.context,
-            intent=request.intent,
-            tool_selection=request.tool_selection,
-            correlation_id=(
-                request.context.latest_fact.correlation_id
-                if isinstance(request.context.latest_fact, FactRecord)
-                else None
-            ),
-        )
-
-    async def execute(self, request: OrchestrationLaunchRequest) -> ExecutionResult:
-        orchestration_plan = getattr(request.intent, "orchestration_plan", None)
-        if orchestration_plan is None:
-            return ExecutionResult(
-                mode=request.mode,
-                response_text="Failed to generate orchestration plan for this request.",
-                ux_plan=_serialize_ux_plan(request),
-            )
-        if self._deps.start_specialized_orchestration is not None:
-            specialized = await self._deps.start_specialized_orchestration(request)
-            if specialized is not None:
-                return specialized
-        cancel_token = (
-            self._deps.build_cancel_token(request)
-            if self._deps.build_cancel_token is not None
-            else null_cancel_token()
-        )
-        # Reuse the domain context control bundle when present and overlay the
-        # cancellation token selected for this orchestration.
-        _ctx_control = request.context.control if hasattr(request.context, "control") else None
-        control = _ctx_control if _ctx_control is not None else null_run_control()
-        control.cancel_token = cancel_token
-        raw_result = await self._deps.task_orchestrator.start_orchestration(
-            user_id=request.context.user_id,
-            session_id=request.context.session_id,
-            user_message=request.context.latest_user_message,
-            run_id=getattr(request.context, "session_run_id", None),
-            run_revision=int(getattr(request.context, "session_run_revision", 0) or 0),
-            turn_id=getattr(request.context.latest_payload, "turn_id", None),
-            root_turn_id=(
-                getattr(request.context, "root_turn_id", None)
-                or getattr(
-                    getattr(request.context, "active_run", None),
-                    "root_turn_id",
-                    None,
-                )
-            ),
-            upstream_task_agent_type=getattr(
-                request.context, "upstream_task_agent_type", None
-            ),
-            upstream_task_agent_id=getattr(
-                request.context, "upstream_task_agent_id", None
-            ),
-            user_message_generation=request.context.user_message_generation,
-            history=request.context.history,
-            history_key=request.context.history_key,
-            correlation_id=request.correlation_id,
-            orchestration_plan=orchestration_plan,
-            persona_id=getattr(request.context, "active_persona_id", None),
-            # cancel_token= kept for call-site backward compat; ignored by
-            # start_orchestration when control= is supplied (the handler has
-            # already overlaid the cancel token onto control.cancel_token above).
-            cancel_token=cancel_token,
-            control=control,
-        )
-        return ExecutionResult(
-            mode=request.mode,
-            response_text=raw_result.response,
-            skip_emit=raw_result.skip_emit,
-            root_user_message=raw_result.root_user_message or request.context.latest_user_message,
-            correlation_id=raw_result.correlation_id,
-            orchestration_id=raw_result.orchestration_id,
-            message_started_at=raw_result.message_started_at,
-            turn_id=raw_result.turn_id,
-            streamed=raw_result.streamed,
-            llm_trace={"retracted": True} if raw_result.retracted else {},
-            ux_plan=_serialize_ux_plan(request),
-        )
-
-
-class OrchestrationUpdateHandler(BaseExecutionHandler):
-    """Common handler for processing worker updates."""
-
-    mode = ExecutionMode.ORCHESTRATION_UPDATE
-
-    async def build_request(self, request: ExecutionRequest) -> OrchestrationUpdateRequest:
-        return OrchestrationUpdateRequest(
-            mode=request.mode,
-            context=request.context,
-            intent=request.intent,
-            tool_selection=request.tool_selection,
-        )
-
-    async def execute(self, request: OrchestrationUpdateRequest) -> ExecutionResult:
-        raw_result = await self._deps.task_orchestrator.process_worker_updates(request.context.batch_facts)
-        return ExecutionResult(
-            mode=request.mode,
-            response_text=raw_result.response,
-            skip_emit=raw_result.skip_emit,
-            root_user_message=raw_result.root_user_message or request.context.latest_user_message,
-            correlation_id=raw_result.correlation_id,
-            orchestration_id=raw_result.orchestration_id,
-            message_started_at=raw_result.message_started_at,
-            turn_id=raw_result.turn_id,
-            streamed=raw_result.streamed,
-            ux_plan=_serialize_ux_plan(request),
-        )

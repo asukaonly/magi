@@ -51,6 +51,16 @@ def _tool_execution_was_admitted(result: ToolCallResult) -> bool:
     return str(result.error_code or "").strip().upper() not in _ADMISSION_REJECTION_CODES
 
 
+def _child_payloads(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, dict):
+        return []
+    for key in ("children", "workers"):
+        children = value.get(key)
+        if isinstance(children, list):
+            return [item for item in children if isinstance(item, dict)]
+    return [value]
+
+
 @dataclass(slots=True)
 class _ToolExecutionRecord:
     """One requested tool call and its normalized execution result."""
@@ -330,6 +340,8 @@ class FunctionCallingToolBatchExecutor:
                 session_id=ctx.session_id,
                 session_run_id=ctx.session_run_id,
                 session_run_revision=ctx.session_run_revision,
+                reasoning_policy=state.reasoning_policy,
+                reasoning_state=state.reasoning_state,
                 turn_id=ctx.turn_id,
                 execution_preset=ctx.execution_preset,
                 execution_agent_id=ctx.execution_agent_id,
@@ -459,6 +471,11 @@ class FunctionCallingToolBatchExecutor:
                     "model_observation": dict(state.messages[-1]),
                 },
             )
+            await self._append_child_run_events(
+                state=state,
+                record=record,
+                iteration=iteration,
+            )
             if record.tool_call.name == "verify":
                 await state.journal.append(
                     AgentRunEventType.VALIDATION_COMPLETED,
@@ -501,6 +518,51 @@ class FunctionCallingToolBatchExecutor:
             tool_call=record.tool_call,
             result=result,
         )
+
+    @staticmethod
+    async def _append_child_run_events(
+        *,
+        state: FunctionCallingStepState,
+        record: _ToolExecutionRecord,
+        iteration: int,
+    ) -> None:
+        if state.journal is None or record.tool_call.name != "agent":
+            return
+        result = record.result
+        if not result.success:
+            return
+        action = str((record.tool_call.arguments or {}).get("action") or "launch")
+        for payload in _child_payloads(result.data):
+            child_run_id = str(payload.get("child_run_id") or "").strip()
+            if not child_run_id:
+                continue
+            status = str(payload.get("status") or "").strip()
+            event_payload = {
+                "child_run_id": child_run_id,
+                "worker_id": payload.get("worker_id"),
+                "preset": payload.get("preset"),
+                "status": status,
+                "ownership": payload.get("ownership"),
+                "evidence": payload.get("evidence"),
+            }
+            if action == "launch":
+                await state.journal.append(
+                    AgentRunEventType.CHILD_STARTED,
+                    step_index=iteration,
+                    payload=event_payload,
+                )
+            if status in {"completed", "failed"}:
+                await state.journal.append(
+                    AgentRunEventType.CHILD_COMPLETED,
+                    step_index=iteration,
+                    payload=event_payload,
+                )
+            elif status == "cancelled":
+                await state.journal.append(
+                    AgentRunEventType.CHILD_CANCELLED,
+                    step_index=iteration,
+                    payload=event_payload,
+                )
 
     async def _apply_tool_batch_side_effects(
         self,

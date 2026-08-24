@@ -111,17 +111,6 @@ def tool_event_arguments(payload: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def status_from_worker_event(event_type: str, payload: dict[str, Any]) -> str:
-    if event_type == "WORKER_AGENT_COMPLETED":
-        return "completed"
-    if event_type == "WORKER_AGENT_FAILED":
-        return "failed"
-    stage = str(payload.get("stage") or "")
-    if stage == "tool_result":
-        return "completed" if bool(payload.get("success")) else "failed"
-    return "running"
-
-
 def normalize_status(status: str) -> str:
     lowered = str(status or "running").strip().lower()
     if lowered in {"completed", "ok", "success", "succeeded", "done"}:

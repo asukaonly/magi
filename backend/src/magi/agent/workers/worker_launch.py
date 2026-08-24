@@ -12,11 +12,19 @@ from ..cancel import EventCancelToken
 from ..execution.task_budget import reserve_task_worker_launches
 from ...core.logger import get_logger
 from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
+from ..background.contracts import BackgroundTaskSpec, BackgroundTaskTriggerSource
 from .worker_state import (
     DEFAULT_WORKER_MAX_ITERATIONS,
     MAX_WORKER_MAX_ITERATIONS,
     WorkerRunState,
     optional_string,
+)
+from .child_preset import (
+    ChildRunPreset,
+    parent_reasoning_policy_from_env,
+    parent_reasoning_state_from_env,
+    parse_child_preset,
+    resolve_child_reasoning_policy,
 )
 
 logger = get_logger(__name__)
@@ -32,12 +40,10 @@ class _WorkerStartRejected(Exception):
 
 @dataclass(frozen=True, slots=True)
 class _WorkerStartSpec:
-    subagent_type: str
+    preset: ChildRunPreset
     description: str
     prompt: str
     max_iterations: int
-    orchestration_id: str | None
-    subtask_id: str | None
     retry_count: int
     parent_context_summary: str
     turn_id: str | None
@@ -47,8 +53,11 @@ class _WorkerStartSpec:
     parent_task_agent_id: str
     target_task_agent_type: str
     target_task_agent_id: str
-    run_id: str | None
+    parent_run_id: str | None
     run_revision: int
+    ownership: str
+    owner_run_id: str | None
+    reasoning_policy: Any
     user_message_generation: int | None
     execution_workspace: str
 
@@ -66,6 +75,7 @@ class _WorkerLaunchHostProtocol(Protocol):
     _runs: Dict[str, WorkerRunState]
     _pending_runs: Dict[str, WorkerRunState]
     _cancelled_run_keys: Dict[tuple[str, str, int], float]
+    _background_task_manager: Any
 
     async def _start_worker(
         self,
@@ -76,15 +86,15 @@ class _WorkerLaunchHostProtocol(Protocol):
         defer_commit: bool = False,
     ) -> WorkerRunState | ToolResult: ...
 
-    def _normalize_subagent_type(self, subagent_type: str) -> str: ...
+    def _normalize_preset(self, preset: str) -> str: ...
 
-    def _resolve_tools_for_type(self, subagent_type: str) -> List[str]: ...
+    def _resolve_tools_for_preset(self, preset: str) -> List[str]: ...
 
     def _build_worker_system_prompt(
         self,
         *,
         worker_id: str,
-        subagent_type: str,
+        preset: str,
         description: str,
         selected_tools: List[str],
         execution_workspace: str,
@@ -138,30 +148,87 @@ class WorkerLaunchMixin:
     ) -> ToolResult:
         host = cast(_WorkerLaunchHostProtocol, self)
         run_in_background = bool(parameters.get("run_in_background", False))
+        if run_in_background:
+            return await self._launch_background_child(parameters, context)
         run_state = await host._start_worker(parameters, context)
         if isinstance(run_state, ToolResult):
             return run_state
 
-        if run_in_background:
-            return ToolResult(
-                success=True,
-                data={
-                    "worker_id": run_state.worker_id,
-                    "status": run_state.status,
-                    "subagent_type": run_state.subagent_type,
-                    "description": run_state.description,
-                    "run_in_background": True,
-                    "orchestration_id": run_state.orchestration_id,
-                    "subtask_id": run_state.subtask_id,
-                    "target_task_agent_type": run_state.target_task_agent_type,
-                    "target_task_agent_id": run_state.target_task_agent_id,
-                    "needs_await": True,
-                },
-            )
-
         if run_state.task is not None:
             await _await_foreground_worker(host, run_state)
         return host._build_run_result(run_state)
+
+    async def _launch_background_child(
+        self,
+        parameters: Dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        host = cast(_WorkerLaunchHostProtocol, self)
+        manager = host._background_task_manager
+        if manager is None:
+            return ToolResult(
+                success=False,
+                error="Background child runtime is unavailable",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+        spec = _resolve_worker_start_spec(host, parameters, context)
+        if isinstance(spec, ToolResult):
+            return spec
+        selected_tools = host._resolve_tools_for_preset(spec.preset.value)
+        system_prompt = host._build_worker_system_prompt(
+            worker_id="background",
+            preset=spec.preset.value,
+            description=spec.description,
+            selected_tools=selected_tools,
+            execution_workspace=spec.execution_workspace,
+        )
+        if spec.parent_context_summary:
+            system_prompt = (
+                f"{system_prompt}\n\nParent context snapshot:\n"
+                f"{spec.parent_context_summary}"
+            )
+        await reserve_task_worker_launches(1)
+        task = await manager.enqueue(
+            BackgroundTaskSpec(
+                user_id=spec.user_id,
+                session_id=spec.session_id,
+                origin_turn_id=spec.turn_id or "",
+                title=spec.description,
+                goal=spec.prompt,
+                selected_tools=selected_tools,
+                system_prompt=system_prompt,
+                execution_preset=f"child_{spec.preset.value}",
+                reasoning_policy=spec.reasoning_policy.to_dict(),
+                parent_run_id=spec.parent_run_id,
+                final_response_json_mode=True,
+                workspace_path=spec.execution_workspace,
+                trigger_source=BackgroundTaskTriggerSource.RULE,
+                max_iterations=spec.max_iterations,
+                task_budget_root_turn_id=spec.turn_id,
+                context_sources=(
+                    {
+                        "provider": "child_run",
+                        "preset": spec.preset.value,
+                        "parent_run_id": spec.parent_run_id,
+                        "ownership": "background",
+                    },
+                ),
+            )
+        )
+        return ToolResult(
+            success=True,
+            data={
+                "worker_id": task.task_id,
+                "child_run_id": task.task_id,
+                "status": task.status.value,
+                "preset": spec.preset.value,
+                "description": spec.description,
+                "run_in_background": True,
+                "needs_await": True,
+                "ownership": "background",
+                "parent_run_id": spec.parent_run_id,
+            },
+        )
 
     async def _start_worker(
         self,
@@ -185,11 +252,11 @@ class WorkerLaunchMixin:
 
         run_state = _build_worker_run_state(spec)
 
-        selected_tools = host._resolve_tools_for_type(spec.subagent_type)
+        selected_tools = host._resolve_tools_for_preset(spec.preset.value)
         run_state.selected_tools = list(selected_tools)
         worker_system_prompt = host._build_worker_system_prompt(
             worker_id=run_state.worker_id,
-            subagent_type=spec.subagent_type,
+            preset=spec.preset.value,
             description=spec.description,
             selected_tools=selected_tools,
             execution_workspace=spec.execution_workspace,
@@ -251,6 +318,8 @@ class WorkerLaunchMixin:
         )
         if isinstance(worker_params, ToolResult):
             return worker_params
+        if options.run_in_background:
+            return await self._launch_background_batch(worker_params, context)
         run_states = await self._start_batch_workers(
             worker_params,
             context=context,
@@ -260,6 +329,37 @@ class WorkerLaunchMixin:
             return run_states
         await _await_parallel_batch_if_needed(host, run_states, options)
         return _build_batch_result(host, run_states, options)
+
+    async def _launch_background_batch(
+        self,
+        worker_params: List[Dict[str, Any]],
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        launched: list[dict[str, Any]] = []
+        for parameters in worker_params:
+            result = await self._launch_background_child(parameters, context)
+            if not result.success:
+                host = cast(_WorkerLaunchHostProtocol, self)
+                manager = host._background_task_manager
+                for child in launched:
+                    await manager.cancel(
+                        str(child["child_run_id"]),
+                        reason="background_child_batch_rollback",
+                    )
+                return result
+            if isinstance(result.data, dict):
+                launched.append(dict(result.data))
+        return ToolResult(
+            success=True,
+            data={
+                "status": "pending",
+                "children": launched,
+                "worker_ids": [item["worker_id"] for item in launched],
+                "worker_count": len(launched),
+                "run_in_background": True,
+                "parallel": True,
+            },
+        )
 
     async def _start_batch_workers(
         self,
@@ -329,20 +429,17 @@ def _resolve_worker_start_spec(
     parameters: Dict[str, Any],
     context: ToolExecutionContext,
 ) -> _WorkerStartSpec | ToolResult:
-    subagent_type = host._normalize_subagent_type(str(parameters.get("subagent_type", "")))
-    if not subagent_type:
+    preset = parse_child_preset(parameters.get("preset", ChildRunPreset.DEFAULT.value))
+    if preset is None:
         return ToolResult(
             success=False,
-            error=(
-                "Unsupported subagent_type. Expected one of: "
-                "general-purpose, CodeExplore, Plan, Coding"
-            ),
+            error="Unsupported preset. Expected default, read_only, workspace_write, or review",
             error_code=ToolErrorCode.INVALID_PARAMETERS.value,
         )
 
     user_id = str(context.env_vars.get("user_id", "unknown"))
-    parent_type, parent_id = _resolve_parent_task_agent(parameters, context, user_id)
-    run_id, run_revision = _resolve_run_identity(parameters, context)
+    parent_type, parent_id = _resolve_parent_task_agent(context, user_id)
+    parent_run_id, run_revision = _resolve_run_identity(context)
     max_iterations = _resolve_max_iterations(parameters.get("max_iterations"))
     if isinstance(max_iterations, ToolResult):
         return max_iterations
@@ -357,44 +454,48 @@ def _resolve_worker_start_spec(
         return _invalid_start_spec("prompt must be a non-empty string")
 
     return _WorkerStartSpec(
-        subagent_type=subagent_type,
+        preset=preset,
         description=description.strip(),
         prompt=prompt.strip(),
         max_iterations=max_iterations,
-        orchestration_id=optional_string(parameters.get("orchestration_id")),
-        subtask_id=optional_string(parameters.get("subtask_id")),
         retry_count=retry_count,
         parent_context_summary=str(parameters.get("parent_context_summary", "")).strip(),
-        turn_id=optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id")),
+        turn_id=optional_string(context.env_vars.get("turn_id")),
         user_id=user_id,
         session_id=str(context.env_vars.get("session_id", "")),
         parent_task_agent_type=parent_type,
         parent_task_agent_id=parent_id,
-        target_task_agent_type=str(parameters.get("target_task_agent_type") or parent_type),
-        target_task_agent_id=str(parameters.get("target_task_agent_id") or parent_id),
-        run_id=run_id,
+        target_task_agent_type=parent_type,
+        target_task_agent_id=parent_id,
+        parent_run_id=parent_run_id,
         run_revision=run_revision,
+        ownership=("background" if bool(parameters.get("run_in_background", False)) else "parent"),
+        owner_run_id=(
+            None
+            if bool(parameters.get("run_in_background", False))
+            else parent_run_id
+        ),
+        reasoning_policy=resolve_child_reasoning_policy(
+            preset=preset,
+            parent_policy=parent_reasoning_policy_from_env(context.env_vars),
+            parent_state=parent_reasoning_state_from_env(context.env_vars),
+        ),
         user_message_generation=_resolve_user_message_generation(context),
         execution_workspace=context.workspace,
     )
 
 
 def _resolve_parent_task_agent(
-    parameters: Dict[str, Any],
     context: ToolExecutionContext,
     user_id: str,
 ) -> tuple[str, str]:
     parent_type = str(
-        parameters.get("parent_task_agent_type")
-        or context.env_vars.get("parent_task_agent_type")
-        or parameters.get("target_task_agent_type")
+        context.env_vars.get("parent_task_agent_type")
         or context.env_vars.get("target_task_agent_type")
         or "chat"
     )
     parent_id = str(
-        parameters.get("parent_task_agent_id")
-        or context.env_vars.get("parent_task_agent_id")
-        or parameters.get("target_task_agent_id")
+        context.env_vars.get("parent_task_agent_id")
         or context.env_vars.get("target_task_agent_id")
         or user_id
         or "default"
@@ -403,13 +504,12 @@ def _resolve_parent_task_agent(
 
 
 def _resolve_run_identity(
-    parameters: Dict[str, Any],
     context: ToolExecutionContext,
 ) -> tuple[str | None, int]:
-    run_id = str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip()
+    run_id = str(context.env_vars.get("run_id") or "").strip()
     try:
         run_revision = int(
-            parameters.get("run_revision") or context.env_vars.get("run_revision") or 0
+            context.env_vars.get("run_revision") or 0
         )
     except (TypeError, ValueError):
         run_revision = 0
@@ -436,11 +536,10 @@ def _build_worker_run_state(spec: _WorkerStartSpec) -> WorkerRunState:
     created_at = time.time()
     return WorkerRunState(
         worker_id=worker_id,
-        subagent_type=spec.subagent_type,
+        child_run_id=f"child_{uuid.uuid4().hex}",
+        preset=spec.preset,
         description=spec.description,
         prompt=spec.prompt,
-        orchestration_id=spec.orchestration_id,
-        subtask_id=spec.subtask_id,
         parent_task_agent_type=spec.parent_task_agent_type,
         parent_task_agent_id=spec.parent_task_agent_id,
         target_task_agent_type=spec.target_task_agent_type,
@@ -448,8 +547,11 @@ def _build_worker_run_state(spec: _WorkerStartSpec) -> WorkerRunState:
         user_id=spec.user_id,
         session_id=spec.session_id,
         turn_id=spec.turn_id,
-        run_id=spec.run_id,
+        parent_run_id=spec.parent_run_id,
         run_revision=spec.run_revision,
+        ownership=spec.ownership,
+        owner_run_id=spec.owner_run_id,
+        reasoning_policy=spec.reasoning_policy,
         user_message_generation=spec.user_message_generation,
         created_at=created_at,
         updated_at=created_at,
@@ -624,7 +726,7 @@ def _worker_start_rejected_result(reason: str) -> ToolResult:
 def _worker_run_key(run_state: WorkerRunState) -> tuple[str, str, int]:
     return (
         run_state.session_id,
-        run_state.run_id or "",
+        run_state.parent_run_id or "",
         int(run_state.run_revision),
     )
 
@@ -916,7 +1018,4 @@ def _build_batch_result_data(
         "run_in_background": options.run_in_background,
         "parallel": options.parallel,
     }
-    orchestration_ids = {state.orchestration_id for state in run_states if state.orchestration_id}
-    if len(orchestration_ids) == 1:
-        data["orchestration_id"] = next(iter(orchestration_ids))
     return data

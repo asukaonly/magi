@@ -8,19 +8,12 @@ from typing import Any, Dict, List, Protocol, cast
 
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
 from ...agent.execution.function_calling.run_input import AgentRunRequest
-from ...agent.execution.reasoning import ReasoningPolicy
-from ...agent.orchestration import WorkerResult
 from ...agent.turn_input import UserTurnInput
-from ...config.models import ThinkingDepth
 from ...control.run_control import null_run_control
 from ...core.logger import get_logger
 from ...llm.streaming_events import stream_source
-from .worker_state import (
-    WORKER_AGENT_COMPLETED,
-    WORKER_AGENT_FAILED,
-    WORKER_AGENT_PROGRESS,
-    WorkerRunState,
-)
+from .worker_state import WorkerRunState
+from .child_result import ChildRunResult
 
 logger = get_logger(__name__)
 
@@ -32,15 +25,6 @@ class _WorkerExecutionHostProtocol(Protocol):
     _scenario_llm_pool: Any
     _active_model_provider: Any
     _permission_gateway_provider: Any
-    _orchestration_store: Any
-
-    async def _publish_worker_fact(
-        self,
-        run_state: WorkerRunState,
-        event_type: str,
-        internal_payload: Dict[str, Any],
-        public_payload: Dict[str, Any] | None = None,
-    ) -> None: ...
 
     async def _handle_tool_result(
         self,
@@ -54,9 +38,9 @@ class _WorkerExecutionHostProtocol(Protocol):
         payload: Dict[str, Any],
     ) -> None: ...
 
-    def _validate_worker_result(self, subagent_type: str, content: str) -> WorkerResult: ...
+    def _validate_worker_result(self, preset: Any, content: str) -> ChildRunResult: ...
 
-    def _preview_worker_result(self, worker_result: WorkerResult, limit: int = 400) -> str: ...
+    def _preview_worker_result(self, worker_result: ChildRunResult, limit: int = 400) -> str: ...
 
     async def _emit_worker_failed_trace(self, run_state: WorkerRunState) -> None: ...
 
@@ -66,7 +50,7 @@ class _WorkerExecutionHostProtocol(Protocol):
 
 
 class WorkerExecutionMixin:
-    """Run worker agents and publish their terminal state."""
+    """Run bounded child agents and persist their terminal trace state."""
 
     async def _run_worker(
         self,
@@ -76,7 +60,6 @@ class WorkerExecutionMixin:
         max_iterations: int,
         execution_workspace: str,
     ) -> None:
-        await self._publish_worker_started(run_state)
         try:
             outcome = await self._execute_worker(
                 run_state,
@@ -90,23 +73,6 @@ class WorkerExecutionMixin:
             await self._handle_cancelled_error(run_state)
         except Exception as exc:
             await self._handle_unexpected_error(run_state, exc)
-
-    async def _publish_worker_started(self, run_state: WorkerRunState) -> None:
-        host = cast(_WorkerExecutionHostProtocol, self)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_PROGRESS,
-            internal_payload={
-                "stage": "started",
-                "description": run_state.description,
-                "subagent_type": run_state.subagent_type,
-            },
-            public_payload={
-                "stage": "started",
-                "description": run_state.description,
-                "subagent_type": run_state.subagent_type,
-            },
-        )
 
     async def _execute_worker(
         self,
@@ -165,13 +131,13 @@ class WorkerExecutionMixin:
         self,
         run_state: WorkerRunState,
         outcome: Any,
-    ) -> WorkerResult | None:
+    ) -> ChildRunResult | None:
         if not outcome.succeeded:
             return None
         host = cast(_WorkerExecutionHostProtocol, self)
         try:
             return host._validate_worker_result(
-                subagent_type=run_state.subagent_type,
+                preset=run_state.preset,
                 content=outcome.content,
             )
         except ValueError as exc:
@@ -184,12 +150,11 @@ class WorkerExecutionMixin:
         run_state: WorkerRunState,
         *,
         outcome: Any,
-        validated_result: WorkerResult,
+        validated_result: ChildRunResult,
     ) -> None:
         host = cast(_WorkerExecutionHostProtocol, self)
         run_state.result = validated_result.to_dict()
         run_state.result_preview = host._preview_worker_result(validated_result)
-        await self._save_worker_result(run_state, validated_result)
         if validated_result.result_status == "failed":
             await self._handle_reported_worker_failure(
                 run_state,
@@ -199,25 +164,12 @@ class WorkerExecutionMixin:
             return
         await self._handle_worker_completed(run_state, validated_result)
 
-    async def _save_worker_result(
-        self,
-        run_state: WorkerRunState,
-        validated_result: WorkerResult,
-    ) -> None:
-        host = cast(_WorkerExecutionHostProtocol, self)
-        await host._orchestration_store.save_worker_result(
-            worker_id=run_state.worker_id,
-            orchestration_id=run_state.orchestration_id,
-            subtask_id=run_state.subtask_id,
-            worker_result=validated_result,
-        )
-
     async def _handle_reported_worker_failure(
         self,
         run_state: WorkerRunState,
         *,
         outcome: Any,
-        validated_result: WorkerResult,
+        validated_result: ChildRunResult,
     ) -> None:
         run_state.status = "failed"
         run_state.failure_reason = str(
@@ -226,43 +178,15 @@ class WorkerExecutionMixin:
         run_state.error = run_state.failure_reason
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_failed_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_FAILED,
-            internal_payload={
-                "stage": "failed",
-                "error": run_state.error,
-                "error_text": getattr(outcome, "error_text", None),
-                "tool_failures": list(getattr(outcome, "tool_failures", []) or []),
-                "worker_result": validated_result.to_dict(),
-            },
-            public_payload={
-                "stage": "failed",
-                "error": run_state.error,
-                "result_preview": run_state.result_preview,
-            },
-        )
 
     async def _handle_worker_completed(
         self,
         run_state: WorkerRunState,
-        validated_result: WorkerResult,
+        validated_result: ChildRunResult,
     ) -> None:
         run_state.status = "completed"
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_completed_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_COMPLETED,
-            internal_payload={
-                "stage": "completed",
-                "worker_result": validated_result.to_dict(),
-            },
-            public_payload={
-                "stage": "completed",
-                "result_preview": run_state.result_preview,
-            },
-        )
 
     async def _handle_failed_outcome(self, run_state: WorkerRunState, outcome: Any) -> None:
         run_state.status = "failed"
@@ -274,21 +198,6 @@ class WorkerExecutionMixin:
         )
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_failed_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_FAILED,
-            internal_payload={
-                "stage": "failed",
-                "error": run_state.error,
-                "error_text": getattr(outcome, "error_text", None),
-                "tool_failures": list(getattr(outcome, "tool_failures", []) or []),
-            },
-            public_payload={
-                "stage": "failed",
-                "error": run_state.error,
-                "result_preview": run_state.result_preview,
-            },
-        )
 
     async def _handle_cancelled_outcome(self, run_state: WorkerRunState) -> None:
         run_state.status = "cancelled"
@@ -296,12 +205,6 @@ class WorkerExecutionMixin:
         run_state.error = "Worker cancelled"
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_cancelled_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_FAILED,
-            internal_payload={"stage": "cancelled", "error": run_state.error},
-            public_payload={"stage": "cancelled", "error": run_state.error},
-        )
 
     async def _handle_cancelled_error(self, run_state: WorkerRunState) -> None:
         run_state.status = "cancelled"
@@ -310,12 +213,6 @@ class WorkerExecutionMixin:
         _mark_worker_finished(run_state)
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_cancelled_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_FAILED,
-            internal_payload={"stage": "cancelled", "error": run_state.error},
-            public_payload={"stage": "cancelled", "error": run_state.error},
-        )
 
     async def _handle_unexpected_error(
         self,
@@ -333,18 +230,6 @@ class WorkerExecutionMixin:
         )
         host = cast(_WorkerExecutionHostProtocol, self)
         await host._emit_worker_failed_trace(run_state)
-        await host._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_FAILED,
-            internal_payload={
-                "stage": "failed",
-                "error": run_state.error,
-            },
-            public_payload={
-                "stage": "failed",
-                "error": run_state.error,
-            },
-        )
 
 
 def _build_agent_run_request(
@@ -366,46 +251,27 @@ def _build_agent_run_request(
         selected_tools=selected_tools,
         user_id=run_state.user_id,
         session_id=run_state.session_id or run_state.worker_id,
+        session_run_id=run_state.child_run_id,
+        session_run_revision=run_state.run_revision,
+        run_id=run_state.child_run_id,
+        parent_run_id=run_state.parent_run_id,
         turn_id=run_state.turn_id,
         conversation_history=[],
         max_iterations=max_iterations,
-        reasoning_policy=_worker_reasoning_policy(run_state),
-        execution_preset=_worker_intent(run_state),
+        reasoning_policy=run_state.reasoning_policy,
+        execution_preset=f"child_{run_state.preset.value}",
         execution_agent_id=run_state.worker_id,
         execution_workspace=execution_workspace,
-        llm_timeout_seconds=_worker_llm_timeout_seconds(run_state),
         final_response_json_mode=True,
         control=_worker_run_control(run_state),
         ephemeral_context=run_state.parent_context_summary,
     )
 
 
-def _worker_reasoning_policy(run_state: WorkerRunState) -> ReasoningPolicy:
-    if run_state.subagent_type == "Plan":
-        return ReasoningPolicy(
-            initial_depth=ThinkingDepth.MEDIUM,
-            maximum_depth=ThinkingDepth.HIGH,
-            max_escalations=1,
-        )
-    return ReasoningPolicy()
-
-
 def _worker_run_control(run_state: WorkerRunState):
     control = null_run_control()
     control.cancel_token = run_state.cancel_token
     return control
-
-
-def _worker_intent(run_state: WorkerRunState) -> str:
-    if run_state.subagent_type == "CodeExplore":
-        return "worker_explore"
-    return f"worker_{run_state.subagent_type.lower()}"
-
-
-def _worker_llm_timeout_seconds(run_state: WorkerRunState) -> float | None:
-    if run_state.subagent_type == "Plan":
-        return 180.0
-    return None
 
 
 def _mark_worker_finished(run_state: WorkerRunState) -> None:

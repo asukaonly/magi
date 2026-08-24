@@ -22,7 +22,6 @@ from ..common import (
     ExecutionResult,
     GenericFactPayload,
     IncomingFactKind,
-    OrchestrationPlan,
     ToolSelection,
     UserMessagePayload,
 )
@@ -40,7 +39,6 @@ __all__ = [
     "GenericFactPayload",
     "IncomingFactKind",
     "IntentDecision",
-    "OrchestrationPlan",
     "ToolSelection",
     "UserMessagePayload",
 ]

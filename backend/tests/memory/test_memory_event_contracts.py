@@ -23,43 +23,6 @@ def test_normalized_memory_event_requires_domain_and_ingest_target():
     assert normalized.retention_class == RetentionClass.PERMANENT
 
 
-def test_runtime_progress_event_defaults_to_runtime_only():
-    from magi.memory.event_contracts import normalize_runtime_event
-
-    event = Event(
-        type="WORKER_AGENT_PROGRESS",
-        data={"worker_id": "worker-1", "message": "halfway"},
-        source="worker",
-        level=EventLevel.INFO,
-        correlation_id="corr-2",
-    )
-
-    normalized = normalize_runtime_event(event)
-
-    assert normalized.ingest_target == IngestTarget.RUNTIME_ONLY
-    assert normalized.memory_domain == MemoryDomain.RUNTIME_TELEMETRY
-    assert normalized.cognition_eligible is False
-    assert normalized.retention_class == RetentionClass.DISPOSABLE
-
-
-def test_worker_completion_events_default_to_runtime_only():
-    from magi.memory.event_contracts import normalize_runtime_event
-
-    for event_type in ("WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED"):
-        event = Event(
-            type=event_type,
-            data={"worker_id": "worker-1", "status": "done"},
-            source="worker",
-            level=EventLevel.INFO,
-            correlation_id=f"corr-{event_type.lower()}",
-        )
-
-        normalized = normalize_runtime_event(event)
-
-        assert normalized.ingest_target == IngestTarget.RUNTIME_ONLY
-        assert normalized.memory_domain == MemoryDomain.SYSTEM_CONTROL
-        assert normalized.cognition_eligible is False
-        assert normalized.retention_class == RetentionClass.DISPOSABLE
 
 
 def test_task_completed_event_defaults_to_l1_only():

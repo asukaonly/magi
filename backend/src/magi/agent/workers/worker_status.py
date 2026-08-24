@@ -6,13 +6,14 @@ import asyncio
 import time
 from typing import Any, Dict, List, Protocol, cast
 
-from ...tools.schema import ToolErrorCode, ToolResult
+from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
 from .worker_state import WorkerRunState
 
 
 class _WorkerStatusHostProtocol(Protocol):
     _lock: asyncio.Lock
     _runs: Dict[str, WorkerRunState]
+    _background_task_manager: Any
 
 
 class WorkerStatusMixin:
@@ -23,26 +24,19 @@ class WorkerStatusMixin:
         async with host._lock:
             run_state = host._runs.get(worker_id)
         if run_state is None:
-            return ToolResult(
-                success=False,
-                error=f"Worker not found: {worker_id}",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-            )
+            return await _background_status(host, worker_id)
         await self._refresh_run_state(run_state)
         return ToolResult(success=True, data=self._serialize_run_state(run_state))
 
     async def _get_workers_status(self, worker_ids: List[str]) -> ToolResult:
-        host = cast(_WorkerStatusHostProtocol, self)
         workers = []
         missing_ids = []
         for worker_id in worker_ids:
-            async with host._lock:
-                run_state = host._runs.get(worker_id)
-            if run_state is None:
+            result = await self._get_worker_status(worker_id)
+            if not result.success or not isinstance(result.data, dict):
                 missing_ids.append(worker_id)
                 continue
-            await self._refresh_run_state(run_state)
-            workers.append(self._serialize_run_state(run_state))
+            workers.append(result.data)
 
         success = len(missing_ids) == 0
         return ToolResult(
@@ -61,11 +55,7 @@ class WorkerStatusMixin:
         async with host._lock:
             run_state = host._runs.get(worker_id)
         if run_state is None:
-            return ToolResult(
-                success=False,
-                error=f"Worker not found: {worker_id}",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-            )
+            return await _await_background(host, worker_id, timeout_seconds)
 
         if run_state.task is not None and not run_state.task.done():
             try:
@@ -84,8 +74,14 @@ class WorkerStatusMixin:
         return self._build_run_result(run_state)
 
     async def _await_workers(self, worker_ids: List[str], timeout_seconds: int) -> ToolResult:
-        host = cast(_WorkerStatusHostProtocol, self)
-        run_states, missing_ids = await _resolve_run_states(host, worker_ids)
+        results = await asyncio.gather(
+            *(self._await_worker(worker_id, timeout_seconds) for worker_id in worker_ids)
+        )
+        missing_ids = [
+            worker_id
+            for worker_id, result in zip(worker_ids, results)
+            if result.error_code == ToolErrorCode.TOOL_NOT_FOUND.value
+        ]
         if missing_ids:
             return ToolResult(
                 success=False,
@@ -94,17 +90,85 @@ class WorkerStatusMixin:
                 data={"missing_worker_ids": missing_ids},
             )
 
-        timeout_result = await self._await_pending_worker_tasks(
-            run_states,
-            timeout_seconds,
+        return ToolResult(
+            success=all(result.success for result in results),
+            data={
+                "children": [result.data for result in results if result.data is not None],
+            },
+            error=(None if all(result.success for result in results) else "Some child runs failed"),
+            error_code=(
+                None
+                if all(result.success for result in results)
+                else ToolErrorCode.EXECUTION_ERROR.value
+            ),
         )
-        if timeout_result is not None:
-            return timeout_result
 
-        for state in run_states:
-            await self._refresh_run_state(state)
+    async def _cancel_worker(
+        self,
+        worker_id: str,
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        host = cast(_WorkerStatusHostProtocol, self)
+        async with host._lock:
+            run_state = host._runs.get(worker_id)
+        if run_state is None:
+            background = await _background_task(host, worker_id)
+            if background is not None:
+                return ToolResult(
+                    success=False,
+                    data=_serialize_background_child(background),
+                    error="Child run ownership has transferred to the background runtime",
+                    error_code=ToolErrorCode.POLICY_BLOCKED.value,
+                )
+            return ToolResult(
+                success=False,
+                error=f"Child run not found: {worker_id}",
+                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
+            )
+        ownership_error = _child_cancel_ownership_error(run_state, context)
+        if ownership_error is not None:
+            return ToolResult(
+                success=False,
+                data=self._serialize_run_state(run_state),
+                error=ownership_error,
+                error_code=ToolErrorCode.POLICY_BLOCKED.value,
+            )
+        if run_state.status != "running":
+            return ToolResult(success=True, data=self._serialize_run_state(run_state))
+        if run_state.cancel_token is not None:
+            run_state.cancel_token.cancel("targeted_child_cancel")
+        task = run_state.task
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+            except asyncio.TimeoutError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        await self._refresh_run_state(run_state)
+        return ToolResult(success=True, data=self._serialize_run_state(run_state))
 
-        return self._build_workers_result(run_states)
+    async def _cancel_workers(
+        self,
+        worker_ids: List[str],
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        results = [await self._cancel_worker(worker_id, context) for worker_id in worker_ids]
+        return ToolResult(
+            success=all(result.success for result in results),
+            data={
+                "children": [result.data for result in results if result.data is not None],
+            },
+            error=(
+                None
+                if all(result.success for result in results)
+                else "One or more child runs could not be cancelled"
+            ),
+            error_code=(
+                None
+                if all(result.success for result in results)
+                else ToolErrorCode.POLICY_BLOCKED.value
+            ),
+        )
 
     async def _await_pending_worker_tasks(
         self,
@@ -176,11 +240,12 @@ class WorkerStatusMixin:
     def _serialize_run_state(self, run_state: WorkerRunState) -> Dict[str, Any]:
         return {
             "worker_id": run_state.worker_id,
+            "child_run_id": run_state.child_run_id,
             "status": run_state.status,
-            "subagent_type": run_state.subagent_type,
+            "preset": run_state.preset.value,
+            "parent_run_id": run_state.parent_run_id,
+            "ownership": run_state.ownership,
             "description": run_state.description,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
             "turn_id": run_state.turn_id,
             "parent_task_agent_type": run_state.parent_task_agent_type,
             "parent_task_agent_id": run_state.parent_task_agent_id,
@@ -194,6 +259,7 @@ class WorkerStatusMixin:
             "error": run_state.error,
             "failure_reason": run_state.failure_reason,
             "retry_count": run_state.retry_count,
+            "evidence": _child_evidence(run_state),
         }
 
     def _trim_history(self, max_runs: int) -> None:
@@ -240,3 +306,134 @@ def _mark_cancelled_run_state(run_state: WorkerRunState) -> None:
     run_state.failure_reason = "CANCELLED"
     run_state.updated_at = time.time()
     run_state.completed_at = run_state.updated_at
+
+
+def _child_cancel_ownership_error(
+    run_state: WorkerRunState,
+    context: ToolExecutionContext,
+) -> str | None:
+    caller_session_id = str(context.env_vars.get("session_id") or "").strip()
+    caller_run_id = str(context.env_vars.get("run_id") or "").strip()
+    if not caller_session_id or caller_session_id != run_state.session_id:
+        return "Child run belongs to another session"
+    if run_state.ownership != "parent":
+        return "Child run ownership has transferred to the background runtime"
+    if not caller_run_id or caller_run_id != str(run_state.owner_run_id or ""):
+        return "Child run belongs to another parent run"
+    return None
+
+
+def _child_evidence(run_state: WorkerRunState) -> dict[str, Any] | None:
+    if run_state.status not in {"completed", "failed", "cancelled"}:
+        return None
+    return {
+        "kind": "child_run",
+        "evidence_id": f"child:{run_state.child_run_id}",
+        "child_run_id": run_state.child_run_id,
+        "status": run_state.status,
+        "preset": run_state.preset.value,
+        "result": run_state.result,
+        "failure_reason": run_state.failure_reason,
+    }
+
+
+async def _background_task(
+    host: _WorkerStatusHostProtocol,
+    child_run_id: str,
+) -> Any | None:
+    manager = host._background_task_manager
+    if manager is None:
+        return None
+    return await manager.get_task(child_run_id)
+
+
+async def _background_status(
+    host: _WorkerStatusHostProtocol,
+    child_run_id: str,
+) -> ToolResult:
+    task = await _background_task(host, child_run_id)
+    if task is None:
+        return ToolResult(
+            success=False,
+            error=f"Child run not found: {child_run_id}",
+            error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
+        )
+    return ToolResult(success=True, data=_serialize_background_child(task))
+
+
+async def _await_background(
+    host: _WorkerStatusHostProtocol,
+    child_run_id: str,
+    timeout_seconds: int,
+) -> ToolResult:
+    manager = host._background_task_manager
+    if manager is None:
+        return await _background_status(host, child_run_id)
+    task = await manager.await_terminal(
+        child_run_id,
+        timeout_seconds=float(timeout_seconds),
+    )
+    if task is None:
+        return ToolResult(
+            success=False,
+            error=f"Child run not found: {child_run_id}",
+            error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
+        )
+    data = _serialize_background_child(task)
+    if not task.status.is_terminal:
+        return ToolResult(
+            success=False,
+            data=data,
+            error=f"Waiting for child run timed out after {timeout_seconds}s",
+            error_code=ToolErrorCode.TIMEOUT.value,
+        )
+    success = task.status.value == "succeeded"
+    return ToolResult(
+        success=success,
+        data=data,
+        error=None if success else task.error or task.cancel_reason or "Child run failed",
+        error_code=None if success else ToolErrorCode.EXECUTION_ERROR.value,
+    )
+
+
+def _serialize_background_child(task: Any) -> dict[str, Any]:
+    status_map = {
+        "pending": "running",
+        "running": "running",
+        "cancelling": "running",
+        "suspended_waiting_user": "running",
+        "succeeded": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+    }
+    status = status_map.get(task.status.value, task.status.value)
+    preset = str(task.spec.execution_preset or "child_default").removeprefix("child_")
+    evidence = None
+    if task.status.is_terminal:
+        evidence = {
+            "kind": "child_run",
+            "evidence_id": f"child:{task.task_id}",
+            "child_run_id": task.task_id,
+            "status": status,
+            "preset": preset,
+            "result": task.result_payload,
+            "failure_reason": task.error or task.cancel_reason,
+        }
+    return {
+        "worker_id": task.task_id,
+        "child_run_id": task.task_id,
+        "status": status,
+        "preset": preset,
+        "parent_run_id": task.spec.parent_run_id,
+        "ownership": "background",
+        "description": task.spec.title,
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+        "completed_at": task.finished_at,
+        "result": task.result_payload,
+        "result_preview": task.summary,
+        "error": task.error,
+        "failure_reason": task.cancel_reason,
+        "retry_count": task.attempt_index,
+        "evidence": evidence,
+    }

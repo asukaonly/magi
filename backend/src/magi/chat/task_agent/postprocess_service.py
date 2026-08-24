@@ -465,12 +465,7 @@ class ChatPostProcessService:
         latest_fact = context.latest_fact
         if not isinstance(latest_fact, FactRecord):
             return ChatParseOutcome(False, False, False, False)
-        if context.incoming_fact_kind not in {
-            IncomingFactKind.USER_MESSAGE,
-            IncomingFactKind.WORKER_UPDATE,
-            IncomingFactKind.EXPLORE_TASK_COMPLETED,
-            IncomingFactKind.EXPLORE_TASK_FAILED,
-        }:
+        if context.incoming_fact_kind is not IncomingFactKind.USER_MESSAGE:
             return ChatParseOutcome(False, False, False, False)
         ux_plan = result.ux_plan if isinstance(result.ux_plan, dict) else {}
         if await self._session_run_status(context) in {
@@ -666,10 +661,7 @@ class ChatPostProcessService:
             context=context,
             turn_id=prepared.turn_id,
         )
-        prepared.reply_anchor_message_id = await self._resolve_result_reply_anchor_message_id(
-            context=context,
-            turn_id=prepared.turn_id,
-        )
+        prepared.reply_anchor_message_id = None
 
     def _resolve_trace_summary(
         self,
@@ -969,12 +961,7 @@ class ChatPostProcessService:
             "run_id": context.session_run_id,
             "run_revision": context.session_run_revision,
             "run_disposition": context.session_run_disposition,
-            "reply_to_message_id": (
-                await self._resolve_result_reply_anchor_message_id(
-                    context=context,
-                    turn_id=turn_id,
-                )
-            ),
+            "reply_to_message_id": None,
             "persona_id": context.active_persona_id,
         }
         (

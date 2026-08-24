@@ -6,10 +6,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
-from magi.agent.orchestration import get_orchestration_store
-from magi.agent.runtime.types import TaskAgentType
-from magi.agent.task_orchestrator import TaskOrchestrator
-from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.agent.response_rhythm import ResponseRhythmPlanner
 from magi.chat.task_agent.run_store import SessionRunStore
@@ -30,9 +26,6 @@ class ChatExecutionRuntimeParts:
     delivery_dispatcher: Any
     conversation_log: Any
     session_run_coordinator: SessionRunCoordinator
-    planning_service: ChatPlanningService
-    orchestration_store: Any
-    task_orchestrator: TaskOrchestrator
     transcript_summarizer: ChatTranscriptSummarizer
     postprocess_service: ChatPostProcessService
     function_calling_orchestrator: FunctionCallingOrchestrator
@@ -55,13 +48,6 @@ def build_chat_execution_runtime_parts(
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
     )
-    planning_service = _build_planning_service(config, context_parts)
-    task_orchestrator = _build_task_orchestrator(
-        config,
-        callbacks,
-        context_parts=context_parts,
-        planning_service=planning_service,
-    )
     transcript_summarizer = _build_transcript_summarizer(config, context_parts=context_parts)
     postprocess_service = _build_postprocess_service(
         config,
@@ -76,9 +62,6 @@ def build_chat_execution_runtime_parts(
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
         session_run_coordinator=session_run_coordinator,
-        planning_service=planning_service,
-        orchestration_store=get_orchestration_store(),
-        task_orchestrator=task_orchestrator,
         transcript_summarizer=transcript_summarizer,
         postprocess_service=postprocess_service,
         function_calling_orchestrator=_build_function_calling_orchestrator(
@@ -111,39 +94,6 @@ def _build_session_run_coordinator(
         interruption_classifier=context_parts.interruption_classifier,
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
-    )
-
-
-def _build_planning_service(
-    config: ChatTaskAgentRuntimeConfig,
-    context_parts: ChatContextRuntimeParts,
-) -> ChatPlanningService:
-    return ChatPlanningService(
-        agent_id=config.agent_id,
-        runtime_key=config.runtime_key,
-        context_service=context_parts.context_service,
-        prompt_service=context_parts.prompt_service,
-        context_assembler=context_parts.context_assembler,
-        tool_registry=tool_registry,
-        parent_task_agent_type=TaskAgentType.CHAT.value,
-    )
-
-
-def _build_task_orchestrator(
-    config: ChatTaskAgentRuntimeConfig,
-    callbacks: ChatTaskAgentRuntimeCallbacks,
-    *,
-    context_parts: ChatContextRuntimeParts,
-    planning_service: ChatPlanningService,
-) -> TaskOrchestrator:
-    return TaskOrchestrator(
-        runtime_key=config.runtime_key,
-        tool_registry=tool_registry,
-        plan_subtasks=planning_service.generate_subtask_plan,
-        aggregate_orchestration=planning_service.aggregate_orchestration,
-        register_user_message=context_parts.context_assembler.append_user_message,
-        parent_task_agent_type=TaskAgentType.CHAT.value,
-        session_workspace_provider=callbacks.session_workspace_provider,
     )
 
 

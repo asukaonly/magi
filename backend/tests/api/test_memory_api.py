@@ -51,18 +51,6 @@ async def test_post_clear_diagnostics_report_remaining_non_content_counts() -> N
 
 
 @pytest.fixture(autouse=True)
-def _isolate_orchestration_store(monkeypatch):
-    store = SimpleNamespace(
-        clear_all=AsyncMock(return_value={"orchestrations": 0, "worker_results": 0})
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_orchestration_store",
-        lambda: store,
-    )
-    return store
-
-
-@pytest.fixture(autouse=True)
 def _isolate_batch_store(monkeypatch):
     store = SimpleNamespace(clear_all=AsyncMock(return_value={"batch_jobs": 0, "batch_items": 0}))
     monkeypatch.setattr(
@@ -2569,7 +2557,6 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
 
 def test_memory_clear_api_clears_all_layers(
     monkeypatch,
-    _isolate_orchestration_store,
     _isolate_batch_store,
     _isolate_diagnostic_log_cleanup,
     _isolate_memory_portability_clear,
@@ -2786,7 +2773,6 @@ def test_memory_clear_api_clears_all_layers(
     assert queue.full_clear_transaction_id == FULL_CLEAR_TRANSACTION_ID
     assert queue.full_clear_completed_transaction_id == FULL_CLEAR_TRANSACTION_ID
     assert portability_service.active is False
-    _isolate_orchestration_store.clear_all.assert_awaited_once()
     _isolate_batch_store.clear_all.assert_awaited_once()
     _isolate_diagnostic_log_cleanup.assert_awaited_once_with()
     _, clear_portability_private_data = _isolate_memory_portability_clear
@@ -3544,10 +3530,6 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_orchestration_store",
-        lambda: SimpleNamespace(clear_all=AsyncMock(return_value={})),
-    )
-    monkeypatch.setattr(
         "magi.api.routers.memory.overview_routes.get_chat_read_service",
         lambda: read_service,
     )
@@ -4027,96 +4009,6 @@ def test_memory_clear_remains_pending_when_rebuild_resume_fails(monkeypatch):
     rebuild_resume.assert_awaited_once()
 
 
-def test_memory_clear_remains_pending_when_orchestration_cleanup_fails(monkeypatch):
-    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
-
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    finalize = AsyncMock(return_value=True)
-
-    class _FakeChatReadService:
-        async def aclear_all_sessions(self) -> int:
-            return 1
-
-        acomplete_global_clear = finalize
-
-    orchestration_store = SimpleNamespace(
-        clear_all=AsyncMock(side_effect=OSError("orchestration disk full"))
-    )
-    task_agent_manager = SimpleNamespace(
-        pause_chat_work_and_cancel_all=AsyncMock(),
-        resume_chat_work=AsyncMock(),
-    )
-    rebuild_pause = AsyncMock()
-    rebuild_resume = AsyncMock()
-    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
-    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
-        lambda: task_agent_manager,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_orchestration_store",
-        lambda: orchestration_store,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
-        lambda: _FakeChatReadService(),
-    )
-
-    response = TestClient(app, raise_server_exceptions=False).delete(
-        "/api/memory/clear", headers=FULL_CLEAR_HEADERS
-    )
-
-    assert response.status_code == 500
-    orchestration_store.clear_all.assert_awaited_once()
-    finalize.assert_not_awaited()
-    task_agent_manager.resume_chat_work.assert_awaited_once()
-    rebuild_resume.assert_awaited_once()
-
-
-def test_memory_clear_attempts_orchestration_cleanup_when_chat_cleanup_fails(monkeypatch):
-    app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
-
-    class _FailingChatReadService:
-        async def aclear_all_sessions(self) -> int:
-            raise OSError("chat database unavailable")
-
-    orchestration_store = SimpleNamespace(
-        clear_all=AsyncMock(return_value={"orchestrations": 2, "worker_results": 3})
-    )
-    task_agent_manager = SimpleNamespace(
-        pause_chat_work_and_cancel_all=AsyncMock(),
-        resume_chat_work=AsyncMock(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_unified_memory",
-        lambda: _FakeUnifiedMemory(),
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_task_agent_manager",
-        lambda: task_agent_manager,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_orchestration_store",
-        lambda: orchestration_store,
-    )
-    monkeypatch.setattr(
-        "magi.api.routers.memory.get_chat_read_service",
-        lambda: _FailingChatReadService(),
-    )
-
-    with pytest.raises(OSError, match="chat database unavailable"):
-        TestClient(app).delete("/api/memory/clear", headers=FULL_CLEAR_HEADERS)
-
-    orchestration_store.clear_all.assert_awaited_once()
-    task_agent_manager.resume_chat_work.assert_awaited_once()
 
 
 def test_memory_clear_keeps_global_intent_when_batch_cleanup_fails(monkeypatch):
@@ -4536,7 +4428,7 @@ def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
     l2.list_experiences.assert_not_awaited()
 
 
-def test_memory_l1_events_api_excludes_worker_agent_events_by_default(monkeypatch):
+def test_memory_l1_events_api_has_no_retired_runtime_filters(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
@@ -4549,11 +4441,7 @@ def test_memory_l1_events_api_excludes_worker_agent_events_by_default(monkeypatc
 
     assert response.status_code == 200
     assert memory.l1.last_query_kwargs is not None
-    assert memory.l1.last_query_kwargs["exclude_event_types"] == [
-        "WORKER_AGENT_PROGRESS",
-        "WORKER_AGENT_COMPLETED",
-        "WORKER_AGENT_FAILED",
-    ]
+    assert memory.l1.last_query_kwargs["exclude_event_types"] is None
 
 
 def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
@@ -4579,11 +4467,7 @@ def test_memory_l1_events_api_forwards_search_filters(monkeypatch):
     assert memory.l1.last_query_kwargs is not None
     assert memory.l1.last_query_kwargs["query"] == "lake"
     assert memory.l1.last_query_kwargs["source_filters"] == ["chat_projector"]
-    assert memory.l1.last_query_kwargs["exclude_event_types"] == [
-        "WORKER_AGENT_PROGRESS",
-        "WORKER_AGENT_COMPLETED",
-        "WORKER_AGENT_FAILED",
-    ]
+    assert memory.l1.last_query_kwargs["exclude_event_types"] is None
     assert memory.l1.last_query_kwargs["limit"] == 50
     assert memory.l1.last_query_kwargs["include_metadata_json"] is True
     assert memory.l1.last_query_kwargs["include_embedding_fields"] is True

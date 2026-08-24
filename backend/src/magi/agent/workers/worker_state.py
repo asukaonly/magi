@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..cancel import EventCancelToken
+from ..execution.reasoning import ReasoningPolicy
+from .child_preset import ChildRunPreset
 
-WORKER_AGENT_PROGRESS = "WORKER_AGENT_PROGRESS"
-WORKER_AGENT_COMPLETED = "WORKER_AGENT_COMPLETED"
-WORKER_AGENT_FAILED = "WORKER_AGENT_FAILED"
 DEFAULT_WORKER_MAX_ITERATIONS = 20
 MAX_WORKER_MAX_ITERATIONS = 50
 DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS = 300
@@ -23,11 +22,10 @@ class WorkerRunState:
     """Runtime state for one worker execution."""
 
     worker_id: str
-    subagent_type: str
+    child_run_id: str
+    preset: ChildRunPreset
     description: str
     prompt: str
-    orchestration_id: str | None
-    subtask_id: str | None
     parent_task_agent_type: str
     parent_task_agent_id: str
     target_task_agent_type: str
@@ -36,8 +34,11 @@ class WorkerRunState:
     session_id: str
     turn_id: str | None
     created_at: float
-    run_id: str | None = None
+    parent_run_id: str | None = None
     run_revision: int = 0
+    ownership: str = "parent"
+    owner_run_id: str | None = None
+    reasoning_policy: ReasoningPolicy = field(default_factory=ReasoningPolicy)
     user_message_generation: int | None = None
     status: str = "running"
     updated_at: float = 0.0

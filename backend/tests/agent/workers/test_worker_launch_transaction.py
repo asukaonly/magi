@@ -10,7 +10,7 @@ import pytest
 
 from magi.agent.execution.task_budget import task_execution_budget_scope
 from magi.agent.workers.worker_launch import WorkerLaunchMixin
-from magi.agent.workers.worker_manager import WorkerAgentManager
+from magi.agent.workers.worker_manager import ChildRunCoordinator
 from magi.agent.workers.worker_state import WorkerRunState
 from magi.agent.workers.worker_status import WorkerStatusMixin
 from magi.tools.schema import ToolExecutionContext, ToolResult
@@ -34,7 +34,6 @@ class _WorkerLaunchHost(WorkerLaunchMixin, WorkerStatusMixin):
         self.cancelled_trace_ids: list[str] = []
         self.cancelled_worker_span_ids: list[str] = []
         self.cancelled_attempt_span_ids: list[str] = []
-        self.cancelled_fact_ids: list[str] = []
         self.fail_trace_name: str | None = None
         self.fail_started_trace_number: int | None = None
         self.pause_started_trace_number: int | None = None
@@ -45,19 +44,19 @@ class _WorkerLaunchHost(WorkerLaunchMixin, WorkerStatusMixin):
         self.fail_terminalization = False
 
     async def cancel_run_workers(self, **kwargs: Any) -> list[str]:
-        return await WorkerAgentManager.cancel_run_workers(self, **kwargs)  # type: ignore[arg-type]
+        return await ChildRunCoordinator.cancel_run_workers(self, **kwargs)  # type: ignore[arg-type]
 
-    def _normalize_subagent_type(self, subagent_type: str) -> str:
-        return "CodeExplore" if subagent_type == "CodeExplore" else ""
+    def _normalize_preset(self, preset: str) -> str:
+        return "read_only" if preset == "read_only" else ""
 
-    def _resolve_tools_for_type(self, subagent_type: str) -> list[str]:
+    def _resolve_tools_for_preset(self, preset: str) -> list[str]:
         return []
 
     def _build_worker_system_prompt(
         self,
         *,
         worker_id: str,
-        subagent_type: str,
+        preset: str,
         description: str,
         selected_tools: list[str],
         execution_workspace: str,
@@ -91,7 +90,6 @@ class _WorkerLaunchHost(WorkerLaunchMixin, WorkerStatusMixin):
         if self._runs.get(run_state.worker_id) is run_state:
             self.terminalized_while_registered.append(run_state.worker_id)
         await self._emit_worker_cancelled_trace(run_state)
-        self.cancelled_fact_ids.append(run_state.worker_id)
         self.terminalized.set()
 
     async def _emit_worker_cancelled_trace(self, run_state: WorkerRunState) -> None:
@@ -168,17 +166,22 @@ class _WorkerLaunchHost(WorkerLaunchMixin, WorkerStatusMixin):
             raise RuntimeError(f"{name} trace failed")
 
 
-def _context() -> ToolExecutionContext:
+def _context(*, run_id: str = "run-1", run_revision: int = 0) -> ToolExecutionContext:
     return ToolExecutionContext(
         agent_id="chat:test-user",
         workspace=".",
-        env_vars={"user_id": "test-user", "session_id": "test-session"},
+        env_vars={
+            "user_id": "test-user",
+            "session_id": "test-session",
+            "run_id": run_id,
+            "run_revision": str(run_revision),
+        },
     )
 
 
 def _parameters(*, description: str = "inspect code") -> dict[str, Any]:
     return {
-        "subagent_type": "CodeExplore",
+        "preset": "read_only",
         "description": description,
         "prompt": f"Prompt for {description}",
     }
@@ -225,7 +228,6 @@ async def test_worker_start_failure_unregisters_without_running_body(failure: st
     assert run_state.status == "cancelled"
     assert run_state.completed_at is not None
     assert run_state.startup_committed is False
-    assert host.cancelled_fact_ids == []
     assert run_state.worker_id in host.terminalized_ids
     assert run_state.worker_id in host.cancelled_trace_ids
     assert host.terminalized_while_registered == []
@@ -243,8 +245,6 @@ async def test_batch_trace_failure_rolls_back_all_workers_before_body_runs() -> 
                     _parameters(description="first worker"),
                     _parameters(description="second worker"),
                 ],
-                "orchestration_id": "orchestration-staging-failure",
-                "run_in_background": True,
             },
             _context(),
         )
@@ -263,7 +263,6 @@ async def test_batch_trace_failure_rolls_back_all_workers_before_body_runs() -> 
         assert run_state.worker_id in host.cancelled_worker_span_ids
         assert run_state.worker_id in host.cancelled_attempt_span_ids
     assert host.terminalized_while_registered == []
-    assert host.cancelled_fact_ids == []
 
 
 @pytest.mark.asyncio
@@ -279,7 +278,6 @@ async def test_batch_trace_rollback_does_not_consume_worker_budget() -> None:
                         _parameters(description="first worker"),
                         _parameters(description="second worker"),
                     ],
-                    "run_in_background": True,
                 },
                 _context(),
             )
@@ -301,7 +299,6 @@ async def test_batch_staging_is_private_and_cannot_publish_cancellation_fact() -
                     _parameters(description="first worker"),
                     _parameters(description="second worker"),
                 ],
-                "run_in_background": True,
             },
             _context(),
         )
@@ -319,7 +316,6 @@ async def test_batch_staging_is_private_and_cannot_publish_cancellation_fact() -
 
     assert first_state.status == "cancelled"
     assert first_state.startup_committed is False
-    assert host.cancelled_fact_ids == []
 
     host.release_started_trace.set()
     with pytest.raises(RuntimeError, match="started trace failed"):
@@ -327,7 +323,6 @@ async def test_batch_staging_is_private_and_cannot_publish_cancellation_fact() -
 
     assert host._runs == {}
     assert host._pending_runs == {}
-    assert host.cancelled_fact_ids == []
 
 
 @pytest.mark.asyncio
@@ -336,8 +331,8 @@ async def test_run_cancellation_includes_private_single_worker_start() -> None:
     host.pause_started_trace_number = 1
     launch_task = asyncio.create_task(
         host._start_worker(
-            {**_parameters(), "run_id": "run-1", "run_revision": 3},
-            _context(),
+            _parameters(),
+            _context(run_revision=3),
         )
     )
 
@@ -363,7 +358,6 @@ async def test_run_cancellation_includes_private_single_worker_start() -> None:
     assert host._runs == {}
     assert host._pending_runs == {}
     assert host.run_started_ids == []
-    assert host.cancelled_fact_ids == []
 
 
 @pytest.mark.asyncio
@@ -379,8 +373,8 @@ async def test_run_cancellation_tombstone_rejects_late_worker_start() -> None:
     assert cancelled_ids == []
 
     result = await host._start_worker(
-        {**_parameters(), "run_id": "run-late", "run_revision": 4},
-        _context(),
+        _parameters(),
+        _context(run_id="run-late", run_revision=4),
     )
 
     assert isinstance(result, ToolResult)
@@ -391,7 +385,6 @@ async def test_run_cancellation_tombstone_rejects_late_worker_start() -> None:
     assert host._pending_runs == {}
     assert host.trace_events == []
     assert host.run_started_ids == []
-    assert host.cancelled_fact_ids == []
 
 
 @pytest.mark.asyncio
@@ -427,7 +420,6 @@ async def test_cancel_before_gated_task_first_runs_still_terminalizes() -> None:
     assert run_state.status == "cancelled"
     assert run_state.completed_at is not None
     assert run_state.worker_id in host.cancelled_trace_ids
-    assert run_state.worker_id in host.cancelled_fact_ids
 
 
 @pytest.mark.asyncio
@@ -507,24 +499,6 @@ async def test_foreground_cancellation_stops_worker_before_propagating() -> None
     assert run_state.status == "cancelled"
     assert run_state.cancel_token is not None
     assert run_state.cancel_token.reason == "foreground_worker_wait_cancelled"
-
-
-@pytest.mark.asyncio
-async def test_background_launch_keeps_worker_running_after_return() -> None:
-    host = _WorkerLaunchHost()
-    result = await host._launch_worker(
-        {**_parameters(), "run_in_background": True},
-        _context(),
-    )
-    await asyncio.wait_for(host.run_started.wait(), timeout=1)
-    run_state = next(iter(host._runs.values()))
-
-    assert result.success is True
-    assert run_state.task is not None
-    assert not run_state.task.done()
-
-    host.release_run.set()
-    await run_state.task
 
 
 @pytest.mark.asyncio

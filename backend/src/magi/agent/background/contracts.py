@@ -111,6 +111,11 @@ class BackgroundTaskSpec:
     title: str
     goal: str
     selected_tools: list[str] = field(default_factory=list)
+    system_prompt: str = ""
+    execution_preset: str = "background"
+    reasoning_policy: dict[str, Any] = field(default_factory=dict)
+    parent_run_id: str | None = None
+    final_response_json_mode: bool = False
     context_sources: tuple[dict[str, Any], ...] = ()
     workspace_path: str | None = None
     trigger_source: BackgroundTaskTriggerSource = BackgroundTaskTriggerSource.RULE
@@ -173,6 +178,11 @@ class BackgroundTaskSpec:
             "title": self.title,
             "goal": self.goal,
             "selected_tools": list(self.selected_tools),
+            "system_prompt": self.system_prompt,
+            "execution_preset": self.execution_preset,
+            "reasoning_policy": deepcopy(self.reasoning_policy),
+            "parent_run_id": self.parent_run_id,
+            "final_response_json_mode": self.final_response_json_mode,
             "context_sources": [deepcopy(item) for item in self.context_sources],
             "workspace_path": self.workspace_path,
             "trigger_source": self.trigger_source.value,
@@ -200,6 +210,15 @@ class BackgroundTaskSpec:
             title=str(data["title"]),
             goal=str(data["goal"]),
             selected_tools=list(data.get("selected_tools") or []),
+            system_prompt=str(data.get("system_prompt") or ""),
+            execution_preset=str(data.get("execution_preset") or "background"),
+            reasoning_policy=dict(data.get("reasoning_policy") or {}),
+            parent_run_id=(
+                str(data["parent_run_id"])
+                if data.get("parent_run_id") is not None
+                else None
+            ),
+            final_response_json_mode=bool(data.get("final_response_json_mode", False)),
             context_sources=tuple(
                 deepcopy(item)
                 for item in data.get("context_sources", [])

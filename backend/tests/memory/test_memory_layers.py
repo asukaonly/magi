@@ -1303,7 +1303,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
                 subscribed_events={
                     EventTypes.USER_MESSAGE,
                     EventTypes.TASK_COMPLETED,
-                    "WORKER_AGENT_PROGRESS",
+                    EventTypes.LOOP_STARTED,
                 },
             ),
         )
@@ -1318,9 +1318,9 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
     async def test_event_pipeline_from_bus_does_not_implicitly_write_l0(self):
         await self.bus.publish(
             Event(
-                type="WORKER_AGENT_PROGRESS",
-                data={"user_id": "u1", "session_id": "s1", "worker_id": "worker-1"},
-                source="worker",
+                type=EventTypes.LOOP_STARTED,
+                data={"user_id": "u1", "session_id": "s1"},
+                source="runtime",
                 level=EventLevel.INFO,
                 correlation_id="corr-1",
             )

@@ -119,14 +119,7 @@ class ChatPostprocessSessionMixin:
                 session_id=context.session_id,
                 turn_id=cancellation_turn_id,
                 run_id=run_id,
-                orchestration_id=(
-                    str(
-                        context.active_orchestrations[0].get("orchestration_id") or ""
-                    ).strip()
-                    if context.active_orchestrations
-                    and isinstance(context.active_orchestrations[0], dict)
-                    else None
-                ),
+                orchestration_id=None,
                 state="cancelled",
                 can_cancel=False,
                 label="Run cancelled",

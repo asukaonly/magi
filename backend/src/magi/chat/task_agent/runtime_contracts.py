@@ -8,14 +8,12 @@ from typing import TYPE_CHECKING, Any, Callable
 if TYPE_CHECKING:
     from magi.agent.execution.attachment_resolver import LazyAttachmentResolver
     from magi.agent.task_agents.handlers import ExecutionHandlerRegistry
-    from magi.agent.task_orchestrator import TaskOrchestrator
     from magi.agent.execution.function_calling import FunctionCallingOrchestrator
     from magi.chat import ChatReadService, ChatStore
     from magi.chat.task_agent.context_assembler import ChatContextAssembler
     from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
     from magi.chat.task_agent.fact_classifier import ChatFactClassifier
     from magi.chat.task_agent.interruption_classifier import InterruptionClassifier
-    from magi.chat.task_agent.planning_service import ChatPlanningService
     from magi.chat.task_agent.postprocess_service import ChatPostProcessService
     from magi.chat.task_agent.prompt_service import ChatPromptService
     from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
@@ -84,9 +82,6 @@ class ChatTaskAgentRuntimeParts:
     prompt_service: ChatPromptService
     interruption_classifier: InterruptionClassifier
     session_run_coordinator: SessionRunCoordinator
-    planning_service: ChatPlanningService
-    orchestration_store: Any
-    task_orchestrator: TaskOrchestrator
     transcript_summarizer: ChatTranscriptSummarizer
     postprocess_service: ChatPostProcessService
     function_calling_orchestrator: FunctionCallingOrchestrator

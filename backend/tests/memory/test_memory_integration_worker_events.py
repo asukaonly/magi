@@ -44,15 +44,15 @@ class _FakeBus:
         return True
 
 
-class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
-    async def test_defaults_include_worker_events(self):
+class TestMemoryIntegrationEvents(unittest.IsolatedAsyncioTestCase):
+    async def test_defaults_only_include_owned_runtime_events(self):
         cfg = MemoryIntegrationConfig()
         for event_type in (
             "WORKER_AGENT_PROGRESS",
             "WORKER_AGENT_COMPLETED",
             "WORKER_AGENT_FAILED",
         ):
-            self.assertIn(event_type, cfg.subscribed_events)
+            self.assertNotIn(event_type, cfg.subscribed_events)
         for event_type in (
             "CHAT_TOOL_LOOP_STEP",
             "TOOL_INTERACTION",
@@ -92,44 +92,7 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(memory.ingested, [])
         self.assertEqual(integration.get_statistics()["events_failed"], 1)
 
-    async def test_worker_progress_event_is_not_stored_in_l1(self):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
 
-        event = Event(
-            type="WORKER_AGENT_PROGRESS",
-            data={"user_id": "u1", "session_id": "s1", "worker_id": "worker_abc"},
-            source="test",
-            level=EventLevel.INFO,
-            correlation_id="worker_abc",
-        )
-
-        stored = await integration._maybe_store_l1(event)
-
-        self.assertFalse(stored)
-
-    async def test_worker_completion_events_are_not_stored_in_l1(self):
-        integration = MemoryIntegrationModule(
-            unified_memory=_FakeUnifiedMemory(),
-            message_bus=_FakeBus(),
-            config=MemoryIntegrationConfig(),
-        )
-
-        for event_type in ("WORKER_AGENT_COMPLETED", "WORKER_AGENT_FAILED"):
-            event = Event(
-                type=event_type,
-                data={"user_id": "u1", "session_id": "s1", "worker_id": "worker_abc"},
-                source="test",
-                level=EventLevel.INFO,
-                correlation_id=f"{event_type.lower()}-worker_abc",
-            )
-
-            stored = await integration._maybe_store_l1(event)
-
-            self.assertFalse(stored)
 
     async def test_task_completed_event_can_be_routed_to_l1(self):
         integration = MemoryIntegrationModule(

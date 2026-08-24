@@ -158,8 +158,6 @@ class AgentRuntimeModule(LifecycleModule):
         bg_settings = deps.config.agent.background_tasks
         background_wiring = build_background_task_wiring(
             store_db_path=str(runtime_paths.background_tasks_db_path),
-            llm_adapter=deps.llm_adapter,
-            llm_pool=deps.llm_pool,
             skill_runner=deps.skill_runner,
             runtime_trace_store=deps.runtime_trace_store,
             chat_task_budget_store=deps.chat_store,
@@ -285,7 +283,6 @@ class AgentRuntimeModule(LifecycleModule):
                 "sensor ingestion gateway",
             ),
             build_timeline_handler=self._build_timeline_handler,
-            chat_store=deps.chat_store,
         )
 
     def _build_router_agent(
@@ -325,6 +322,7 @@ class AgentRuntimeModule(LifecycleModule):
                 scenario_llm_pool=deps.llm_pool,
                 active_model_provider=lambda: deps.llm_pool.resolve(LLMScenario.CORE),
                 permission_gateway_provider=get_permission_gateway,
+                background_task_manager=self._background_wiring.manager,
             )
 
     async def _start_runtime_services(

@@ -14,8 +14,9 @@ from magi.agent.runtime.types import TaskAgentType
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.chat.task_agent import chat_task_agent as chat_task_agent_module
+from magi.chat.task_agent import session_control as session_control_module
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _format_llm_error
-from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
+from magi.agent.task_agents.common import IncomingFactKind
 from magi.chat import ChatStore
 from magi.chat.contracts import CHAT_DELIVERY_STATE_QUEUED
 from magi.control.run_control import DetachSignal, null_run_control
@@ -163,7 +164,6 @@ class _AroutePausedChatAgent(ChatTaskAgent):
             history_key=f"{classified.user_id}:{classified.session_id}",
             recent_tool_errors=[],
             recent_tool_state=[],
-            active_orchestrations=[],
             reply_context=None,
             recall_feedback=None,
             preferences=SimpleNamespace(
@@ -711,7 +711,6 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=SimpleNamespace(turn_id="turn-x"),
         conversation_history=[],
-        active_orchestrations=[],
     )
 
     result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
@@ -764,7 +763,6 @@ async def test_call_llm_does_not_emit_error_chunk_when_streaming_disabled(monkey
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=SimpleNamespace(turn_id="turn-x"),
         conversation_history=[],
-        active_orchestrations=[],
     )
 
     result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
@@ -810,7 +808,6 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=SimpleNamespace(turn_id=""),
         conversation_history=[],
-        active_orchestrations=[],
     )
 
     result = await agent.call_llm(ctx, SimpleNamespace(mode=None))
@@ -1173,7 +1170,7 @@ async def test_session_cancel_uses_shared_deferred_release_barrier(
         "_mark_session_turn_cancelled",
         _persist_cancel,
     )
-    monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_run)
+    monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
         "release_deferred_after_run_completion",
@@ -1254,7 +1251,7 @@ async def test_session_cancel_is_durable_before_worker_shutdown(
     async def _emit_control(**_kwargs):  # type: ignore[no-untyped-def]
         return None
 
-    monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_run)
+    monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_run)
     monkeypatch.setattr(
         agent._postprocess_service,
         "release_deferred_after_run_completion",
@@ -1757,7 +1754,7 @@ async def test_aroute_winner_is_cancelled_before_tools_or_model(
         return object()
 
     monkeypatch.setattr(agent, "_mark_session_turn_cancelled", _mark_and_signal)
-    monkeypatch.setattr(agent._task_orchestrator, "cancel_run", _cancel_workers)
+    monkeypatch.setattr(session_control_module, "_cancel_child_runs", _cancel_workers)
     monkeypatch.setattr(
         agent._postprocess_service,
         "release_deferred_after_run_completion",
@@ -1986,7 +1983,7 @@ async def test_context_replay_abandons_run_without_cancelling_turn(
         cancellations.append(scope)
         return []
 
-    monkeypatch.setattr(agent._task_orchestrator, "cancel_run", cancel_run)
+    monkeypatch.setattr(session_control_module, "_cancel_child_runs", cancel_run)
 
     assert await agent.abandon_session_run_for_context_replay(
         session_id="s-chat",
@@ -1999,7 +1996,7 @@ async def test_context_replay_abandons_run_without_cancelling_turn(
             "session_id": "s-chat",
             "run_id": "run-replay",
             "run_revision": 0,
-            "strict_worker_cancellation": True,
+            "strict": True,
         }
     ]
 

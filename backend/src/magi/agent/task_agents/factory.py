@@ -11,31 +11,21 @@ from typing import Any, Callable
 from ...config import AppConfig
 from ...agent.runtime.types import TaskAgentType
 from ...memory import UnifiedMemoryStore
-from . import DefaultTaskAgent, ExploreTaskAgent, TimelineTaskAgent
+from . import DefaultTaskAgent, TimelineTaskAgent
 
 
 def create_default_agent_factory(
     *,
-    llm_adapter: Any,
-    llm_pool: Any,
     config: AppConfig,
     unified_memory: UnifiedMemoryStore,
     plugin_manager: Any,
     sensor_registry: Any,
     sensor_ingestion_gateway: Any,
     build_timeline_handler: Callable[..., Any],
-    chat_store: Any | None = None,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""
 
     def _create(agent_type: str, agent_id: str) -> Any:
-        if agent_type == TaskAgentType.EXPLORE.value:
-            return ExploreTaskAgent(
-                agent_id=agent_id,
-                llm_adapter=llm_adapter,
-                llm_pool=llm_pool,
-                chat_store=chat_store,
-            )
         if agent_type == TaskAgentType.TIMELINE.value:
             return TimelineTaskAgent(
                 agent_id=agent_id,

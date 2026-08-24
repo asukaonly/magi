@@ -1753,195 +1753,6 @@ async def test_outcome_writer_uses_cumulative_segment_timestamps(chat_store: Cha
     ]
 
 
-@pytest.mark.asyncio
-async def test_handle_worker_result_persists_reply_anchor_to_original_message(
-    chat_store: ChatStore,
-) -> None:
-    original_user_message = await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-a",
-        message_text="Please audit the release checklist.",
-        created_at_ms=1710000000000,
-    )
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-b",
-        message_text="Unrelated question while that runs.",
-        created_at_ms=1710000001000,
-    )
-
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        chat_store=chat_store,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type="WORKER_AGENT_COMPLETED",
-        payload={
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-a",
-            "worker_id": "worker-1",
-            "stage": "completed",
-            "orchestration_id": "orch-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000002.0,
-        correlation_id="worker-corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="Please audit the release checklist.",
-        incoming_fact_kind=IncomingFactKind.WORKER_UPDATE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="Please audit the release checklist.",
-            turn_id="turn-a",
-        ),
-    )
-    result = ExecutionResult(
-        mode=ExecutionMode.ORCHESTRATION_UPDATE,
-        response_text="Here is the completed audit.",
-        correlation_id="worker-corr-1",
-        orchestration_id="orch-1",
-        turn_id="turn-a",
-    )
-
-    await service.handle(context, result)
-
-    messages = await chat_store.list_messages(session_id="session-1")
-
-    assert [message.turn_id for message in messages] == ["turn-a", "turn-b", "turn-a"]
-    assert messages[-1].message_kind == "assistant_final"
-    assert messages[-1].reply_to_message_id == original_user_message.message_id
-
-
-@pytest.mark.asyncio
-async def test_duplicate_worker_result_for_one_turn_is_not_delivered_or_reanalyzed(
-    chat_store: ChatStore,
-) -> None:
-    await chat_store.create_user_turn(
-        session_id="session-1",
-        user_id="local_user",
-        turn_id="turn-worker-once",
-        message_text="Please audit the release checklist.",
-        created_at_ms=1710000000000,
-    )
-    delivered: list[str] = []
-
-    async def _deliver(_context, *, content):  # type: ignore[no-untyped-def]
-        delivered.append(content.text)
-        return DeliveryFanoutResult()
-
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: _FakeEventEmitter(),
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        chat_store=chat_store,
-        deliver_final_response=_deliver,
-        max_fact_memory=10,
-    )
-    scheduled: list[dict[str, object]] = []
-    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
-        lambda **kwargs: scheduled.append(dict(kwargs)) or True
-    )
-    worker_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type="WORKER_AGENT_COMPLETED",
-        payload={
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "turn_id": "turn-worker-once",
-            "worker_id": "worker-1",
-            "orchestration_id": "orch-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000002.0,
-        correlation_id="worker-corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=worker_fact,
-        recent_facts=[worker_fact],
-        batch_facts=[worker_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="Please audit the release checklist.",
-        incoming_fact_kind=IncomingFactKind.WORKER_UPDATE,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="Please audit the release checklist.",
-            turn_id="turn-worker-once",
-        ),
-    )
-    first_result = ExecutionResult(
-        mode=ExecutionMode.ORCHESTRATION_UPDATE,
-        response_text="First accepted audit.",
-        root_user_message="Please audit the release checklist.",
-        correlation_id="worker-corr-1",
-        orchestration_id="orch-1",
-        turn_id="turn-worker-once",
-    )
-    duplicate_result = ExecutionResult(
-        mode=ExecutionMode.ORCHESTRATION_UPDATE,
-        response_text="Duplicate audit that must be rejected.",
-        root_user_message="Please audit the release checklist.",
-        correlation_id="worker-corr-duplicate",
-        orchestration_id="orch-1",
-        turn_id="turn-worker-once",
-    )
-
-    first = await service.handle(context, first_result)
-    duplicate = await service.handle(context, duplicate_result)
-
-    visible_assistant = [
-        message
-        for message in await chat_store.list_messages(session_id="session-1")
-        if message.role == "assistant" and message.is_visible
-    ]
-    assert first.emitted is True
-    assert first.memory_updated is True
-    assert duplicate.emitted is False
-    assert duplicate.memory_updated is False
-    assert delivered == ["First accepted audit."]
-    assert [message.content_text for message in visible_assistant] == [
-        "First accepted audit."
-    ]
-    assert len({message.message_id for message in visible_assistant}) == 1
-    assert len(scheduled) == 1
-    assert scheduled[0]["turn_id"] == "turn-worker-once"
 
 
 @pytest.mark.asyncio
@@ -2348,7 +2159,6 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="Inspect login flow",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2371,7 +2181,6 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="Switch to checkout flow",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2445,7 +2254,6 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="I still like Asuka best.",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2511,7 +2319,6 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2596,7 +2403,6 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         session_run_id="run-1",
         session_run_revision=0,
@@ -2701,7 +2507,6 @@ async def test_handle_commits_final_chat_message_before_notification(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2850,7 +2655,6 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="hello",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -2952,7 +2756,6 @@ async def test_handle_strips_sentinel_from_history_and_events() -> None:
         history_key="local_user::session-sentinel",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="tell me something",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3036,7 +2839,6 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         session_run_id="run-cancelled",
         session_run_revision=0,
@@ -3133,7 +2935,6 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3254,7 +3055,6 @@ async def test_handle_completes_none_surface_turn_without_final_message(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3348,7 +3148,6 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="嗯",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3421,88 +3220,6 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
     assert json.loads(controls[0].payload_json)["turn_id"] == "turn-react-empty"
 
 
-@pytest.mark.asyncio
-async def test_handle_records_task_reflection_for_explore_completion() -> None:
-    event_emitter = _FakeEventEmitter()
-    unified_memory = _FakeUnifiedMemory(
-        events=[
-            {"event_id": "evt-1"},
-            {"event_id": "evt-2"},
-        ]
-    )
-    service = ChatPostProcessService(
-        agent_id="chat:local_user",
-        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
-        get_event_emitter=lambda: event_emitter,
-        get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
-        unified_memory=unified_memory,
-        max_fact_memory=10,
-    )
-    latest_fact = FactRecord(
-        agent_id="chat:local_user",
-        event_type="EXPLORE_TASK_COMPLETED",
-        payload={
-            "user_id": "local_user",
-            "session_id": "session-1",
-            "root_user_message": "Analyze the repository architecture",
-            "markdown_dossier": "# Request\nAnalyze the repository architecture",
-            "orchestration_id": "orch-1",
-            "turn_id": "turn-1",
-        },
-        agent_type="chat",
-        agent_instance_id="local_user",
-        timestamp=1710000000.0,
-        correlation_id="corr-1",
-    )
-    context = ChatRuntimeContext(
-        latest_fact=latest_fact,
-        recent_facts=[latest_fact],
-        batch_facts=[latest_fact],
-        agent_id="local_user",
-        agent_type="chat",
-        runtime_key="chat:local_user",
-        user_id="local_user",
-        session_id="session-1",
-        history_key="local_user::session-1",
-        history=[],
-        conversation_history=[],
-        active_orchestrations=[],
-        recent_tool_errors=[],
-        latest_user_message="Analyze the repository architecture",
-        incoming_fact_kind=IncomingFactKind.EXPLORE_TASK_COMPLETED,
-        latest_payload=UserMessagePayload(
-            user_id="local_user",
-            session_id="session-1",
-            content="Analyze the repository architecture",
-            turn_id="turn-1",
-        ),
-    )
-    result = ExecutionResult(
-        mode=ExecutionMode.EXPLORE_TASK_RENDER,
-        response_text="Here is the final architecture analysis.",
-        root_user_message="Analyze the repository architecture",
-        correlation_id="corr-1",
-        orchestration_id="orch-1",
-        turn_id="turn-1",
-    )
-
-    outcome = await service.handle(context, result)
-
-    # Memory/reflection updates run as a background task; drain before asserting.
-    if service._background_tasks:
-        await asyncio.gather(*service._background_tasks)
-
-    assert outcome.emitted is True
-    assert outcome.memory_updated is True
-    assert len(unified_memory.task_packets) == 1
-    packet = unified_memory.task_packets[0]
-    assert packet.task_id == "orch-1"
-    assert packet.task_kind == "user_goal_task"
-    assert packet.user_goal == "Analyze the repository architecture"
-    assert packet.result_summary == "Here is the final architecture analysis."
-    assert packet.evidence_event_ids == ["evt-1", "evt-2"]
-
 
 @pytest.mark.asyncio
 async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> None:
@@ -3543,7 +3260,6 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="Hello there",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3655,7 +3371,6 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message="Tell me a joke.",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3726,7 +3441,6 @@ async def test_release_deferred_turns_callback_invoked_after_completion() -> Non
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message=None,
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3770,7 +3484,6 @@ async def test_release_deferred_turns_callback_absent_is_noop() -> None:
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message=None,
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3818,7 +3531,6 @@ async def test_release_deferred_turns_swallows_callback_exception() -> None:
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message=None,
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -3872,7 +3584,6 @@ def _plain_non_streamed_context_and_result(*, turn_id: str = "turn-1"):
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         session_run_id="run-1",
         session_run_revision=0,
@@ -4519,7 +4230,6 @@ async def test_pending_fact_only_turn_stays_open_on_active_run(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         session_run_id=active_run.run_id,
         session_run_revision=active_run.revision,
@@ -4631,7 +4341,6 @@ async def test_deferred_turn_is_released_after_old_run_completion() -> None:
         user_id="local_user",
         latest_payload=None,
         latest_fact=None,
-        active_orchestrations=[],
     )
 
     await service._finalize_session_run(context)
@@ -4714,7 +4423,6 @@ async def test_deferred_turn_retries_failed_release_and_releases_once(
         user_id="local_user",
         latest_payload=None,
         latest_fact=None,
-        active_orchestrations=[],
     )
 
     try:
@@ -5160,7 +4868,6 @@ async def test_segmented_agent_response_routes_each_segment_through_seam(
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         latest_user_message="explain rhythm",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
     )

@@ -8,7 +8,6 @@ from typing import Any, Callable, TypeVar
 from fastapi import HTTPException, status
 
 from magi.chat import get_chat_read_service as _get_chat_read_service
-from magi.agent.orchestration import get_orchestration_store
 from magi.core.logger import get_logger
 from magi.core.runtime_bindings import (
     get_optional_background_task_manager,
@@ -468,16 +467,6 @@ def _resolve_legacy_user_content_clearer():
         return clear_legacy_user_content(runtime_paths)
 
     return clear
-
-
-def _resolve_orchestration_store():
-    override = _package_override(
-        "_resolve_orchestration_store",
-        _resolve_orchestration_store,
-    )
-    if override is not None:
-        return override()
-    return get_orchestration_store()
 
 
 def _resolve_batch_store():

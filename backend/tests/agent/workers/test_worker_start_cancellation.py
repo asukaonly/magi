@@ -39,7 +39,7 @@ def _tool_context() -> ToolExecutionContext:
 def _launch_parameters() -> dict[str, object]:
     return {
         "action": "launch",
-        "subagent_type": "CodeExplore",
+        "preset": "read_only",
         "description": "inspect cancellation",
         "prompt": "Do not start after the parent run was cancelled.",
     }

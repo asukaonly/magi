@@ -96,7 +96,7 @@ class TestNormalizeAgentLaunchArguments:
             {"role": "assistant", "content": "got it"},
         ]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "CodeExplore", "inherit_context": False},
+            arguments={"preset": "read_only", "inherit_context": False},
         )
         assert "parent_context_summary" not in result
         assert "inherit_context" not in result
@@ -108,7 +108,7 @@ class TestNormalizeAgentLaunchArguments:
             {"role": "assistant", "content": "I found it in src/auth/"},
         ]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "CodeExplore", "inherit_context": True},
+            arguments={"preset": "read_only", "inherit_context": True},
         )
         assert "parent_context_summary" in result
         assert "auth module" in result["parent_context_summary"]
@@ -119,7 +119,7 @@ class TestNormalizeAgentLaunchArguments:
         orch = self._make_orchestrator()
         orch._current_messages = [{"role": "user", "content": "hi"}]
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "CodeExplore"},
+            arguments={"preset": "read_only"},
         )
         assert "parent_context_summary" not in result
 
@@ -127,7 +127,7 @@ class TestNormalizeAgentLaunchArguments:
         orch = self._make_orchestrator()
         orch._current_messages = []
         result = orch._normalize_agent_launch_arguments(
-            arguments={"subagent_type": "CodeExplore", "inherit_context": True},
+            arguments={"preset": "read_only", "inherit_context": True},
         )
         # Empty messages → no summary injected
         assert "parent_context_summary" not in result

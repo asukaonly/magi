@@ -46,10 +46,6 @@ from magi.agent.task_agents.handlers import (
     ExecutionResult,
     ToolSelection,
 )
-from magi.agent.task_agents.explore.constants import (
-    EXPLORE_TASK_COMPLETED,
-    EXPLORE_TASK_FAILED,
-)
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
 from magi.chat.task_agent.recall_feedback_context import ChatRecallFeedbackContextMixin
@@ -109,7 +105,6 @@ class _ChatContextInputs:
     history_key: str
     recent_tool_errors: list[dict[str, Any]]
     recent_tool_state: list[dict[str, Any]]
-    active_orchestrations: list[Any]
     reply_context: Any
     recall_feedback: Any
     preferences: _ChatRuntimePreferences
@@ -214,9 +209,6 @@ class ChatTaskAgent(
         self._prompt_service = runtime_parts.prompt_service
         self._interruption_classifier = runtime_parts.interruption_classifier
         self._session_run_coordinator = runtime_parts.session_run_coordinator
-        self._planning_service = runtime_parts.planning_service
-        self._orchestration_store = runtime_parts.orchestration_store
-        self._task_orchestrator = runtime_parts.task_orchestrator
         self._transcript_summarizer = runtime_parts.transcript_summarizer
         self._postprocess_service = runtime_parts.postprocess_service
         self.function_calling_orchestrator = runtime_parts.function_calling_orchestrator
@@ -419,37 +411,7 @@ class ChatTaskAgent(
             and any(fact.event_type == EventTypes.USER_MESSAGE for fact in batch)
         ):
             return True
-        explore_terminal_types = {
-            EXPLORE_TASK_COMPLETED,
-            EXPLORE_TASK_FAILED,
-        }
-        if next_fact.event_type in explore_terminal_types or any(
-            fact.event_type in explore_terminal_types for fact in batch
-        ):
-            return True
-        next_key = self._fact_execution_key(next_fact)
-        if next_key is None:
-            return False
-        existing_keys = {
-            key
-            for fact in batch
-            if (key := self._fact_execution_key(fact)) is not None
-        }
-        return bool(existing_keys and next_key not in existing_keys)
-
-    @staticmethod
-    def _fact_execution_key(fact: FactRecord) -> tuple[str, str] | None:
-        payload = fact.payload if isinstance(fact.payload, dict) else {}
-        session_id = str(payload.get("session_id") or "").strip()
-        execution_id = str(
-            payload.get("orchestration_id")
-            or payload.get("root_turn_id")
-            or payload.get("turn_id")
-            or ""
-        ).strip()
-        if not session_id or not execution_id:
-            return None
-        return session_id, execution_id
+        return False
 
     async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
         executable_facts = [
@@ -690,11 +652,6 @@ class ChatTaskAgent(
             active_persona_id=active_persona_id,
         )
         history_key = self._context_assembler.history_key(classified.user_id, session_id)
-        active_orchestrations = await self._orchestration_store.list_orchestrations(
-            user_id=classified.user_id,
-            session_id=session_id,
-            statuses=["running", "aggregating"],
-        )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
         recall_feedback = await self._resolve_recall_feedback_context(run_decision.latest_payload)
         return _ChatContextInputs(
@@ -705,7 +662,6 @@ class ChatTaskAgent(
             history_key=history_key,
             recent_tool_errors=self._tool_state_view.recent_errors(history_key),
             recent_tool_state=self._tool_state_view.recent_state(history_key),
-            active_orchestrations=active_orchestrations,
             reply_context=reply_context,
             recall_feedback=recall_feedback,
             preferences=_resolve_chat_runtime_preferences(),
@@ -734,7 +690,6 @@ class ChatTaskAgent(
             history_key=context_inputs.history_key,
             history=context_inputs.history,
             conversation_history=context_inputs.history,
-            active_orchestrations=[item.to_dict() for item in context_inputs.active_orchestrations],
             recent_tool_errors=context_inputs.recent_tool_errors,
             recent_tool_state=context_inputs.recent_tool_state,
             latest_user_message=run_decision.planner_user_message,
@@ -849,20 +804,6 @@ class ChatTaskAgent(
         ).strip()
         if payload_root:
             return payload_root
-
-        orchestration_id = str(
-            getattr(latest_payload, "orchestration_id", "") or ""
-        ).strip()
-        orchestration_store = getattr(self, "_orchestration_store", None)
-        get_orchestration = getattr(orchestration_store, "get_orchestration", None)
-        if orchestration_id and callable(get_orchestration):
-            state = await get_orchestration(orchestration_id)
-            if state is not None:
-                persisted_root = str(
-                    state.metadata.get("root_turn_id") or ""
-                ).strip()
-                if persisted_root:
-                    return persisted_root
 
         active_run = getattr(context, "active_run", None)
         active_root = str(getattr(active_run, "root_turn_id", "") or "").strip()

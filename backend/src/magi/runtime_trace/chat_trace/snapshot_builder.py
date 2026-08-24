@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Optional
 
-from ...core.logger import get_logger
 from .constants import MAX_PLAN_PREVIEW_STEPS
 from .models import (
     ExecutionPlanStepSummary,
@@ -15,8 +12,6 @@ from .models import (
     ExecutionTraceSnapshot,
     ExecutionTraceSummary,
 )
-
-logger = get_logger(__name__)
 
 _SEMANTIC_STEP_KINDS = frozenset({"attempt", "skill", "tool", "worker"})
 _STEP_STATUS_PRIORITY = {
@@ -30,8 +25,6 @@ _STEP_STATUS_PRIORITY = {
 class TraceSnapshotBuilderMixin:
     """Builds trace snapshots from normalized runtime trace rows."""
 
-    _orchestrations_path: Path
-
     def _build_runtime_trace_root(
         self,
         *,
@@ -41,9 +34,6 @@ class TraceSnapshotBuilderMixin:
         tool_calls: list[dict[str, Any]],
         intent_resolutions: list[dict[str, Any]],
     ) -> ExecutionTraceNode:
-        raise NotImplementedError
-
-    def _reshape_orchestration_trace_root(self, root: ExecutionTraceNode) -> ExecutionTraceNode:
         raise NotImplementedError
 
     def _ms_to_seconds(self, value: Any) -> Optional[float]:
@@ -90,9 +80,6 @@ class TraceSnapshotBuilderMixin:
             orchestration_id=orchestration_id,
             orchestration_state=orchestration_state,
         )
-        if mode == "orchestration":
-            root = self._reshape_orchestration_trace_root(root)
-
         started_at, ended_at, status = self._apply_turn_status(root=root, turn=turn)
         summary = self._build_trace_summary(
             turn_id=turn_id,
@@ -222,14 +209,9 @@ class TraceSnapshotBuilderMixin:
         orchestration_id: Optional[str],
         orchestration_state: Optional[dict[str, Any]],
     ) -> str:
-        if orchestration_id or orchestration_state:
-            return "orchestration"
         for node in self._walk_nodes(root):
             if node.kind in {"worker", "dispatch"}:
-                return "orchestration"
-            tags = node.metadata.get("tags") if isinstance(node.metadata, dict) else {}
-            if isinstance(tags, dict) and str(tags.get("orchestration_id") or "").strip():
-                return "orchestration"
+                return "agent_loop"
         return "function_calling"
 
     def _count_steps(self, root: ExecutionTraceNode) -> tuple[int, int, int]:
@@ -315,32 +297,9 @@ class TraceSnapshotBuilderMixin:
             return "Tool chain completed"
         if status == "failed":
             return "Tool chain failed"
-        if mode == "orchestration" and completed_steps == 0:
-            subtasks = (
-                orchestration_state.get("subtasks")
-                if isinstance(orchestration_state, dict)
-                else None
-            )
-            if active_steps == 0 and not subtasks:
-                return "Orchestrating tasks"
         if active_steps > 0 or completed_steps > 0:
             return "Running tool chain"
         return "Thinking"
-
-    def _load_orchestration_state(
-        self, orchestration_id: Optional[str]
-    ) -> Optional[dict[str, Any]]:
-        normalized = str(orchestration_id or "").strip()
-        if not normalized or not self._orchestrations_path.exists():
-            return None
-        try:
-            payload = json.loads(self._orchestrations_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.warning("Failed to load orchestration store for trace read: %s", exc)
-            return None
-        orchestrations = payload.get("orchestrations", {}) if isinstance(payload, dict) else {}
-        raw_state = orchestrations.get(normalized)
-        return raw_state if isinstance(raw_state, dict) else None
 
     def _walk_nodes(self, node: ExecutionTraceNode) -> list[ExecutionTraceNode]:
         nodes = [node]

@@ -8,17 +8,19 @@ import uuid
 from typing import Any, Dict
 
 from ...agent.trace import TraceEventEmitter, build_trace_timing, now_wall_ms
+from ...core.logger import get_logger
 from ...events.domain_payloads import ToolError
+from ...events.events import Event, EventLevel
 from ...runtime_trace import RuntimeNotificationRecord
 from ...runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
-from .worker_publication import WorkerPublicationMixin
 from .worker_state import WorkerRunState
 
 WORKER_CONTEXT_USAGE_CHANNEL = "worker_context_usage"
+logger = get_logger(__name__)
 
 
-class WorkerTraceMixin(WorkerPublicationMixin):
-    """Persist worker runtime traces and publish worker progress facts."""
+class WorkerTraceMixin:
+    """Persist child runtime spans and trace notifications."""
 
     _message_bus: Any
     _runtime_trace_store: Any
@@ -99,6 +101,58 @@ class WorkerTraceMixin(WorkerPublicationMixin):
             correlation_id=str(correlation_id or payload.get("span_id") or uuid.uuid4()),
         )
 
+    async def _publish_worker_bus_event(
+        self,
+        *,
+        event_type: str,
+        payload: Dict[str, Any],
+        correlation_id: str,
+    ) -> None:
+        try:
+            if self._message_bus is not None:
+                await self._message_bus.publish(
+                    Event(
+                        type=event_type,
+                        data=payload,
+                        source="agent_tool",
+                        level=EventLevel.INFO,
+                        correlation_id=correlation_id,
+                    )
+                )
+        except Exception as exc:
+            logger.debug(
+                "Failed to publish child trace event | event_type=%s error=%s",
+                event_type,
+                exc,
+            )
+        await self._publish_trace_update_notification(payload)
+
+    async def _publish_trace_update_notification(self, payload: Dict[str, Any]) -> None:
+        if self._runtime_trace_store is None:
+            return
+        user_id = str(payload.get("user_id") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        turn_id = str(payload.get("turn_id") or "").strip() or None
+        if not user_id or not session_id or not turn_id:
+            return
+        notification_payload = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "refresh_trace": True,
+        }
+        await self._runtime_trace_store.append_notification(
+            RuntimeNotificationRecord(
+                notification_id=0,
+                channel="trace_update",
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                payload_json=json.dumps(notification_payload, ensure_ascii=False),
+                created_at_ms=now_wall_ms(),
+            )
+        )
+
     async def _emit_worker_dispatch_trace(self, run_state: WorkerRunState) -> None:
         trace_turn_id = self._resolve_trace_turn_id(run_state)
         if self._runtime_trace_store is None or trace_turn_id is None:
@@ -161,7 +215,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         await publish_trace_span(
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="worker",
-            name=f"{run_state.subagent_type} worker",
+            name=f"{run_state.preset.value} child",
             span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
             trace_id=self._build_trace_id(trace_turn_id),
             parent_span_id=self._build_worker_attempt_span_id(
@@ -243,7 +297,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         await publish_trace_span(
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="worker",
-            name=f"{run_state.subagent_type} worker",
+            name=f"{run_state.preset.value} child",
             span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
             trace_id=self._build_trace_id(trace_turn_id),
             parent_span_id=self._build_worker_attempt_span_id(
@@ -358,16 +412,16 @@ class WorkerTraceMixin(WorkerPublicationMixin):
 
     @staticmethod
     def _worker_trace_key(run_state: WorkerRunState) -> str:
-        return str(run_state.subtask_id or run_state.worker_id)
+        return run_state.child_run_id
 
     @staticmethod
     def _build_worker_trace_tags(run_state: WorkerRunState) -> Dict[str, Any]:
         return {
             "role": "worker",
             "worker_id": run_state.worker_id,
-            "worker_type": run_state.subagent_type,
-            "orchestration_id": run_state.orchestration_id,
-            "subtask_id": run_state.subtask_id,
+            "child_preset": run_state.preset.value,
+            "child_run_id": run_state.child_run_id,
+            "parent_run_id": run_state.parent_run_id,
             "parent_task_agent_type": run_state.parent_task_agent_type,
             "parent_task_agent_id": run_state.parent_task_agent_id,
             "target_task_agent_type": run_state.target_task_agent_type,

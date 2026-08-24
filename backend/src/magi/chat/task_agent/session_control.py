@@ -29,7 +29,6 @@ class ChatSessionControlMixin:
     _interruption_classifier: Any
     _session_run_coordinator: Any
     _task_agent_manager: Any
-    _task_orchestrator: Any
     _postprocess_service: Any
     _chat_store: Any
     _execution_admission_lock: asyncio.Lock
@@ -377,11 +376,11 @@ class ChatSessionControlMixin:
             raise RuntimeError(
                 "Unsafe chat run is outside the prepared replay scope"
             )
-        await self._task_orchestrator.cancel_run(
+        await _cancel_child_runs(
             session_id=normalized_session_id,
             run_id=active_run.run_id,
             run_revision=active_run.revision,
-            strict_worker_cancellation=True,
+            strict=True,
         )
         await _cancel_owned_run_plan(
             session_id=normalized_session_id,
@@ -607,17 +606,16 @@ class ChatSessionControlMixin:
                 "cancel_reason": reason,
                 "cancel_requested_by": requested_by,
                 "cancel_anchor_turn_id": cancellation_turn_id,
-                "cancelled_orchestration_ids": [],
+                "cancelled_child_ids": [],
             }
 
         if active_run is None:
             raise RuntimeError("Active chat run disappeared during cancellation")
-        cancelled_orchestration_ids = await self._task_orchestrator.cancel_run(
+        cancelled_child_ids = await _cancel_child_runs(
             session_id=normalized_session_id,
             run_id=active_run.run_id,
             run_revision=active_run.revision,
-            strict_worker_cancellation=reason
-            in {"memory_clear", "privacy_delete", "privacy_context_changed"},
+            strict=reason in {"memory_clear", "privacy_delete", "privacy_context_changed"},
         )
         await _cancel_owned_run_plan(
             session_id=normalized_session_id,
@@ -649,7 +647,7 @@ class ChatSessionControlMixin:
             turn_id=cancellation_turn_id,
             run_id=active_run.run_id,
             orchestration_id=(
-                cancelled_orchestration_ids[0] if cancelled_orchestration_ids else None
+                None
             ),
             state="cancelled",
             can_cancel=False,
@@ -668,7 +666,7 @@ class ChatSessionControlMixin:
             "cancel_reason": current_run.cancel_reason,
             "cancel_requested_by": current_run.cancel_requested_by,
             "cancel_anchor_turn_id": current_run.cancel_anchor_turn_id,
-            "cancelled_orchestration_ids": cancelled_orchestration_ids,
+            "cancelled_child_ids": cancelled_child_ids,
         }
 
     async def _mark_session_turn_cancelled(
@@ -797,6 +795,45 @@ class ChatSessionControlMixin:
             "detach_requested_by": requested_by,
             "detach_anchor_turn_id": anchor_turn_id,
         }
+
+
+async def _cancel_child_runs(
+    *,
+    session_id: str,
+    run_id: str,
+    run_revision: int,
+    strict: bool,
+) -> list[str]:
+    """Cancel child runs still owned by a foreground parent run."""
+
+    try:
+        from magi.tools.registry import tool_registry
+
+        agent_tool = tool_registry.get_tool("agent")
+        coordinator = getattr(agent_tool, "_manager", None)
+        cancel_children = getattr(coordinator, "cancel_run_workers", None)
+        if not callable(cancel_children):
+            return []
+        return await cancel_children(
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            reason="session_run_cancelled",
+            include_transferred=strict,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to cancel child runs",
+            session_id=session_id,
+            run_id=run_id,
+            run_revision=run_revision,
+            error=str(exc),
+        )
+        if strict:
+            raise RuntimeError(
+                "Failed to cancel child runs before destructive clear"
+            ) from exc
+        return []
 
 
 async def _cancel_owned_run_plan(

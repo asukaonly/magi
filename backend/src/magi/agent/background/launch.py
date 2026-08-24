@@ -34,6 +34,7 @@ from ...control.run_control import null_run_control
 from ..turn_input import UserTurnInput
 from ..execution.checkpoint import AgentRunCheckpoint
 from ..execution.function_calling.run_input import AgentRunRequest
+from ..execution.reasoning import ReasoningPolicy
 from ..execution.task_budget import TaskExecutionBudgetStore, task_execution_budget_scope
 from .contracts import (
     BackgroundTask,
@@ -275,16 +276,26 @@ def build_background_run_fn(
                         session_id=spec.session_id or None,
                     ),
                     selected_tools=list(spec.selected_tools),
+                    system_prompt=spec.system_prompt,
                     user_id=spec.user_id,
                     session_id=spec.session_id or None,
+                    session_run_id=task.task_id,
+                    run_id=task.task_id,
+                    parent_run_id=spec.parent_run_id,
                     turn_id=spec.origin_turn_id or None,
                     max_iterations=spec.max_iterations,
-                    execution_preset=intent_label,
+                    execution_preset=spec.execution_preset or intent_label,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=spec.workspace_path,
                     control=_background_run_control(cancel_token),
                     context_sources=spec.context_sources,
                     checkpoint=checkpoint,
+                    reasoning_policy=(
+                        ReasoningPolicy.from_dict(spec.reasoning_policy)
+                        if spec.reasoning_policy
+                        else ReasoningPolicy()
+                    ),
+                    final_response_json_mode=spec.final_response_json_mode,
                 )
             )
         summary = (outcome.content or "").strip()

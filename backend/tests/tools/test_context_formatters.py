@@ -60,12 +60,13 @@ def test_compact_shell_tool_data_keeps_tail_and_runner_metadata() -> None:
     assert compact["timed_out"] is True
 
 
-def test_compact_agent_tool_data_keeps_worker_summary() -> None:
+def test_compact_agent_tool_data_keeps_child_summary() -> None:
     compact = compact_agent_tool_data(
         {
             "worker_id": "worker_1",
+            "child_run_id": "child_1",
             "status": "completed",
-            "subagent_type": "CodeExplore",
+            "preset": "read_only",
             "description": "scan backend",
             "result": {
                 "summary": "backend analyzed",
@@ -76,7 +77,9 @@ def test_compact_agent_tool_data_keeps_worker_summary() -> None:
     )
 
     assert compact["worker_id"] == "worker_1"
-    assert compact["worker_result"]["summary"] == "backend analyzed"
+    assert compact["child_run_id"] == "child_1"
+    assert compact["preset"] == "read_only"
+    assert compact["child_result"]["summary"] == "backend analyzed"
 
 
 def test_compact_read_chat_attachment_tool_data_trims_text() -> None:

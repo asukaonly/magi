@@ -1,10 +1,8 @@
-"""Ring-2 service protocols for the generic run-loop handlers.
+"""Ring-2 service protocols for the unified run-loop handler.
 
-The generic execution handlers (``AgentRunHandler``
-and the explore render/route helpers) are architecturally generic: they drive a
-run loop without owning any chat-domain behavior. They receive their
-collaborators through ``ChatHandlerDependencies``, but they only ever touch a
-small, stable surface of each collaborator.
+The generic execution handler drives the agent loop without owning chat-domain
+behavior. It receives collaborators through ``ChatHandlerDependencies`` and
+only touches the small surface declared here.
 
 These ``Protocol`` definitions pin exactly that surface so the dependency
 bundle can be typed against ring-2 abstractions instead of the concrete chat
@@ -34,11 +32,8 @@ if TYPE_CHECKING:
 class PromptServiceProtocol(Protocol):
     """The exact prompt-service surface the generic handlers call.
 
-    ``ChatPromptService`` already matches this signature structurally, so the
-    construction sites keep passing the concrete service unchanged. The seven
-    methods below are the only ones the ring-2 handlers invoke (verified across
-    ``direct_handler``, ``handlers``, ``explore_render``, ``runtime_control``
-    and ``handler_helpers``).
+    ``ChatPromptService`` matches this signature structurally. These methods are
+    the complete surface used by the unified handler.
     """
 
     async def call_llm(
@@ -79,33 +74,11 @@ class PromptServiceProtocol(Protocol):
     ) -> str:
         ...
 
-    def filter_history_for_aggregation(
-        self, history: list[dict[str, Any]]
-    ) -> list[dict[str, str]]:
-        ...
-
-    def build_explore_render_message(
-        self, root_user_message: str, dossier: str
-    ) -> str:
-        ...
-
-    def build_explore_render_fallback(
-        self, root_user_message: str, dossier: str = ""
-    ) -> str:
-        ...
-
-    def format_explore_render_response(self, response_text: str) -> str:
-        ...
-
-
 @runtime_checkable
 class HistoryServiceProtocol(Protocol):
     """The exact history-service surface the generic handlers call.
 
-    The explore route helper (``start_explore_task_agent``) appends the user's
-    message after dispatching an explore task. That is the only history-service
-    method the ring-2 handler code touches; ``ChatContextAssembler`` matches this
-    signature structurally.
+    ``ChatContextAssembler`` matches this signature structurally.
     """
 
     def append_user_message(self, history_key: str, user_message: str) -> None:

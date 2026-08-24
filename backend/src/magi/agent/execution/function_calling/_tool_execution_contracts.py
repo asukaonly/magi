@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ...cancel import CancelToken
+from ..reasoning import ReasoningPolicy, ReasoningState
 from .types import ToolCall, ToolCallResult
 
 class _ToolRegistryProtocol(Protocol):
@@ -24,7 +25,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
 
     def _resolve_execution_workspace(self, execution_workspace: str | None) -> str: ...
 
-    def _apply_worker_explore_guardrails(
+    def _apply_execution_guardrails(
         self,
         *,
         execution_preset: str,
@@ -75,6 +76,8 @@ class _RegisteredToolExecutionRequest:
     execution_workspace: str | None
     session_run_id: str | None
     session_run_revision: int
+    reasoning_policy: ReasoningPolicy | None
+    reasoning_state: ReasoningState | None
     user_message: str | None
     iteration: int | None
     start_time: float

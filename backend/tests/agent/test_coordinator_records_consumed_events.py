@@ -126,7 +126,6 @@ def _build_context(
         history_key=f"{user_id}::{session_id}",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         latest_user_message="hi",
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
         latest_payload=UserMessagePayload.from_dict(

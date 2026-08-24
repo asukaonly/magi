@@ -204,8 +204,8 @@ def compact_agent_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str
         }
         if "worker_ids" in data:
             compact["worker_ids"] = data.get("worker_ids")
-        if "orchestration_id" in data:
-            compact["orchestration_id"] = data.get("orchestration_id")
+        if "parent_run_id" in data:
+            compact["parent_run_id"] = data.get("parent_run_id")
         if "status" in data:
             compact["status"] = data.get("status")
         if "missing_worker_ids" in data:
@@ -220,7 +220,6 @@ def compact_agent_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str
         return {
             "worker_count": data.get("worker_count"),
             "worker_ids": data.get("worker_ids"),
-            "orchestration_id": data.get("orchestration_id"),
             "status": data.get("status"),
             "run_in_background": data.get("run_in_background"),
             "parallel": data.get("parallel"),
@@ -228,12 +227,12 @@ def compact_agent_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str
 
     return {
         "worker_id": data.get("worker_id"),
+        "child_run_id": data.get("child_run_id"),
         "status": data.get("status"),
-        "subagent_type": data.get("subagent_type"),
+        "preset": data.get("preset"),
         "description": data.get("description"),
-        "orchestration_id": data.get("orchestration_id"),
-        "subtask_id": data.get("subtask_id"),
-        "worker_result": data.get("result") if isinstance(data.get("result"), dict) else None,
+        "parent_run_id": data.get("parent_run_id"),
+        "child_result": data.get("result") if isinstance(data.get("result"), dict) else None,
         "error": data.get("error"),
         "failure_reason": data.get("failure_reason"),
         "needs_await": data.get("status") == "running",

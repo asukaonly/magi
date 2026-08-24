@@ -90,7 +90,6 @@ def _build_context(message: str = "do you remember when we talked about X"):
         history_key="local_user::session-1",
         history=[],
         conversation_history=[],
-        active_orchestrations=[],
         recent_tool_errors=[],
         latest_user_message=message,
         incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
@@ -121,11 +120,7 @@ async def test_guidance_attached_when_memory_query_is_selected():
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
-    from magi.agent.task_agents.common import (
-        ExecutionMode,
-        OrchestrationPlan,
-        ToolSelection,
-    )
+    from magi.agent.task_agents.common import ToolSelection
 
     handler = _build_handler()
     request = await handler.build_request(
@@ -153,11 +148,7 @@ async def test_guidance_attached_with_other_selected_tools():
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
-    from magi.agent.task_agents.common import (
-        ExecutionMode,
-        OrchestrationPlan,
-        ToolSelection,
-    )
+    from magi.agent.task_agents.common import ToolSelection
 
     handler = _build_handler()
     request = await handler.build_request(
@@ -189,11 +180,7 @@ async def test_guidance_not_attached_when_memory_query_not_selected():
     from magi.agent.task_agents.handlers.handler_helpers import (
         MEMORY_QUERY_GUIDANCE_BLOCK,
     )
-    from magi.agent.task_agents.common import (
-        ExecutionMode,
-        OrchestrationPlan,
-        ToolSelection,
-    )
+    from magi.agent.task_agents.common import ToolSelection
 
     handler = _build_handler()
     request = await handler.build_request(

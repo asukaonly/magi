@@ -18,7 +18,6 @@ from ....context.scenarios import Scenario
 from ..common import (
     BaseExecutionHandler,
     CommonHandlerDependencies,
-    ExecutionMode,
     ExecutionRequest,
     ExecutionResult,
     AgentRunExecutionResult,
@@ -44,7 +43,6 @@ from .recall_feedback import (
 )
 from ...execution.attachment_resolver import AttachmentResolverPort, NullAttachmentResolver
 from ....llm.model_context import ModelContextProfile
-from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
 
@@ -167,9 +165,7 @@ class ChatHandlerDependencies:
     prompt_service: PromptServiceProtocol
     # Not touched by ring-2 handler code (only carried for other consumers);
     # left untyped so the bundle stays free of concrete chat service classes.
-    planning_service: Any
     function_calling_orchestrator: any
-    task_orchestrator: TaskOrchestrator
     context_assembler: HistoryServiceProtocol
     agent_id: str
     model_context_provider: Callable[[], ModelContextProfile]
@@ -191,7 +187,6 @@ def build_common_handler_dependencies(
     deps: ChatHandlerDependencies,
 ):
     return CommonHandlerDependencies(
-        task_orchestrator=deps.task_orchestrator,
         build_cancel_token=lambda request: _build_common_cancel_token(deps, request),
     )
 

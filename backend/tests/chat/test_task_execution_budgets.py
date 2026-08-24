@@ -13,12 +13,6 @@ from magi.agent.execution.task_budget import (
     reserve_task_worker_launches,
     task_execution_budget_scope,
 )
-from magi.agent.task_agents.explore_task_agent import ExploreTaskAgent
-from magi.agent.task_agents.explore.constants import (
-    EXPLORE_TASK_COMPLETED,
-    EXPLORE_TASK_FAILED,
-)
-from magi.agent.runtime.contracts import FactRecord
 from magi.chat import ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.core.sqlite import sqlite_connection_async
@@ -39,57 +33,6 @@ async def _create_root_turn(store: ChatStore, turn_id: str = "turn-root") -> Non
         message_text="Run one bounded task.",
         created_at_ms=100,
     )
-
-
-def test_chat_batch_stops_at_execution_identity_boundary() -> None:
-    chat_agent = ChatTaskAgent.__new__(ChatTaskAgent)
-    first = FactRecord(
-        agent_id="chat:session-budget",
-        event_type="WORKER_AGENT_COMPLETED",
-        payload={
-            "session_id": "session-budget",
-            "orchestration_id": "orch-1",
-        },
-    )
-    same = FactRecord(
-        agent_id="chat:session-budget",
-        event_type="WORKER_AGENT_FAILED",
-        payload={
-            "session_id": "session-budget",
-            "orchestration_id": "orch-1",
-        },
-    )
-    different = FactRecord(
-        agent_id="chat:session-budget",
-        event_type="WORKER_AGENT_COMPLETED",
-        payload={
-            "session_id": "session-budget",
-            "orchestration_id": "orch-2",
-        },
-    )
-
-    assert chat_agent._should_end_batch_before([first], same) is False
-    assert chat_agent._should_end_batch_before([first], different) is True
-
-    completed = FactRecord(
-        agent_id="chat:session-budget",
-        event_type=EXPLORE_TASK_COMPLETED,
-        payload={
-            "session_id": "session-budget",
-            "root_turn_id": "turn-root",
-            "orchestration_id": "orch-1",
-        },
-    )
-    failed = FactRecord(
-        agent_id="chat:session-budget",
-        event_type=EXPLORE_TASK_FAILED,
-        payload={
-            "session_id": "session-budget",
-            "root_turn_id": "turn-root",
-            "orchestration_id": "orch-2",
-        },
-    )
-    assert chat_agent._should_end_batch_before([completed], failed) is True
 
 
 @pytest.mark.asyncio
@@ -238,33 +181,6 @@ async def test_unused_prepaid_capacity_is_released_durably(
         max_worker_launches=8,
     )
     assert reloaded == (2, 0, 8, 0)
-
-
-@pytest.mark.asyncio
-async def test_chat_and_explore_admissions_share_root_turn_budget(
-    chat_db_path: Path,
-) -> None:
-    store = ChatStore(db_path=str(chat_db_path))
-    await _create_root_turn(store)
-    chat_agent = ChatTaskAgent.__new__(ChatTaskAgent)
-    chat_agent._chat_store = store
-    explore_agent = ExploreTaskAgent.__new__(ExploreTaskAgent)
-    explore_agent._chat_store = ChatStore(db_path=store.db_path)
-
-    chat_context = SimpleNamespace(active_run=SimpleNamespace(root_turn_id="turn-root"))
-    async with chat_agent.execution_scope(chat_context):
-        await consume_task_llm_calls()
-
-    explore_context = SimpleNamespace(root_turn_id="turn-root")
-    async with explore_agent.execution_scope(explore_context):
-        await consume_task_llm_calls()
-
-    state = await store.ensure_task_execution_budget(
-        root_turn_id="turn-root",
-        max_llm_calls=30,
-        max_worker_launches=8,
-    )
-    assert state == (30, 2, 8, 0)
 
 
 @pytest.mark.asyncio

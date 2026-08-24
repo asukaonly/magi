@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from magi.agent.workers.worker_manager import WorkerAgentManager
+from magi.agent.workers.child_preset import ChildRunPreset
+from magi.agent.workers.worker_manager import ChildRunCoordinator
 from magi.agent.workers.worker_state import WorkerRunState
 from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
 from magi.tools.builtin.web_fetch_tool import WebFetchTool
@@ -242,7 +243,7 @@ async def test_clear_boundary_erases_builtin_tool_caches() -> None:
 
 @pytest.mark.asyncio
 async def test_worker_manager_clear_cancels_runs_and_erases_retained_content() -> None:
-    manager = WorkerAgentManager()
+    manager = ChildRunCoordinator()
     teardown_started = asyncio.Event()
     release_teardown = asyncio.Event()
 
@@ -257,11 +258,10 @@ async def test_worker_manager_clear_cancels_runs_and_erases_retained_content() -
     worker_task = asyncio.create_task(wait_for_clear())
     state = WorkerRunState(
         worker_id="worker-1",
-        subagent_type="Plan",
+        child_run_id="child-1",
+        preset=ChildRunPreset.READ_ONLY,
         description="private description",
         prompt="private prompt",
-        orchestration_id=None,
-        subtask_id=None,
         parent_task_agent_type="chat",
         parent_task_agent_id="default",
         target_task_agent_type="chat",
@@ -269,6 +269,8 @@ async def test_worker_manager_clear_cancels_runs_and_erases_retained_content() -
         user_id="user-1",
         session_id="session-1",
         turn_id="turn-1",
+        parent_run_id="run-1",
+        owner_run_id="run-1",
         created_at=1.0,
         result={"private": "result"},
         parent_context_summary="private context",

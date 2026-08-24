@@ -34,7 +34,6 @@ from .dependencies import (
     _resolve_chat_portrait_service,
     _resolve_background_task_manager,
     _resolve_batch_store,
-    _resolve_orchestration_store,
     _resolve_outreach_service,
     _resolve_runtime_command_queue,
     _resolve_scheduler_service,
@@ -193,22 +192,6 @@ async def _clear_chat_runtime_state(
     elif chat_failure is None:
         warnings.append("background_task_history_cleanup_pending")
         logger.warning("clear_memory: background task history cleanup will resume at startup")
-    orchestration_cleanup_succeeded = True
-    try:
-        await _resolve_orchestration_store().clear_all()
-    except BaseException as exc:
-        orchestration_cleanup_succeeded = False
-        if chat_failure is not None:
-            logger.error(
-                "clear_memory: orchestration cleanup also failed after chat clear failed",
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
-        else:
-            warnings.append("orchestration_cleanup_failed")
-            logger.error(
-                "clear_memory: orchestration cleanup failed after chat truth was cleared",
-                exc_info=(type(exc), exc, exc.__traceback__),
-            )
     batch_cleanup_succeeded = True
     try:
         await _resolve_batch_store().clear_all()
@@ -229,7 +212,6 @@ async def _clear_chat_runtime_state(
         chat_failure is None
         and channel_cleanup_succeeded
         and background_cleanup_succeeded
-        and orchestration_cleanup_succeeded
         and batch_cleanup_succeeded
     ):
         finalize = getattr(chat_read_service, "acomplete_global_clear", None)

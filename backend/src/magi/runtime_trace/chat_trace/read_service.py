@@ -24,12 +24,7 @@ from .builders.rows import (
     build_trace_row_node,
     resolve_result_preview,
 )
-from .tree import (
-    build_runtime_trace_root,
-    deduplicate_response_emit,
-    reshape_orchestration_trace_root,
-    with_dispatch_label,
-)
+from .tree import build_runtime_trace_root, deduplicate_response_emit, with_dispatch_label
 from .utils import (
     compact_value,
     default_trace_label,
@@ -41,7 +36,6 @@ from .utils import (
     parse_json_object,
     parse_json_value,
     safe_int,
-    status_from_worker_event,
     tool_event_arguments,
     tool_event_result_preview,
     tool_event_status,
@@ -53,13 +47,12 @@ logger = get_logger(__name__)
 
 
 class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
-    """Build per-turn execution snapshots from persisted events and orchestration state."""
+    """Build per-turn execution snapshots from persisted runtime events."""
 
     def __init__(self) -> None:
         runtime_paths = get_runtime_paths()
         self._l1_db_path: Path = runtime_paths.l1_memory_db_path
         self._runtime_trace_db_path: Path = runtime_paths.runtime_trace_db_path
-        self._orchestrations_path: Path = runtime_paths.task_orchestrations_path
 
     def get_trace_snapshot(
         self,
@@ -74,8 +67,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
         turn = self._load_trace_turn(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
         if turn is None:
             return None
-        orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
-        orchestration_state = self._load_orchestration_state(orchestration_id) if orchestration_id else None
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
         llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
         tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
@@ -88,7 +79,7 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             llm_calls=llm_calls,
             tool_calls=tool_calls,
             intent_resolutions=intent_resolutions,
-            orchestration_state=orchestration_state,
+            orchestration_state=None,
         )
         return snapshot.to_dict() if snapshot is not None else None
 
@@ -179,9 +170,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             intent_resolutions=intent_resolutions,
         )
 
-    def _reshape_orchestration_trace_root(self, root: ExecutionTraceNode) -> ExecutionTraceNode:
-        return reshape_orchestration_trace_root(root)
-
     def _with_dispatch_label(self, node: ExecutionTraceNode) -> ExecutionTraceNode:
         return with_dispatch_label(node)
 
@@ -254,9 +242,6 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
 
     def _tool_event_arguments(self, payload: dict[str, Any]) -> dict[str, Any]:
         return tool_event_arguments(payload)
-
-    def _status_from_worker_event(self, event_type: str, payload: dict[str, Any]) -> str:
-        return status_from_worker_event(event_type, payload)
 
     def _normalize_status(self, status: str) -> str:
         return normalize_status(status)

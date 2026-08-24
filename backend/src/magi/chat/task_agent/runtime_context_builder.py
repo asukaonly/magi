@@ -21,7 +21,6 @@ from magi.context import (
 from magi.config.models import LLMScenario
 from magi.llm.model_context import ModelContextProfile, unknown_model_context
 from magi.context.user_profile_service import UserProfileService
-from magi.tools.registry import tool_registry
 from magi.utils.runtime import get_runtime_paths
 
 from .runtime_contracts import (

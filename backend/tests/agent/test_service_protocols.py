@@ -27,15 +27,11 @@ class TestPromptServiceProtocol(unittest.TestCase):
         service = ChatPromptService(llm_adapter=None, llm_pool=None)
         self.assertIsInstance(service, PromptServiceProtocol)
 
-    def test_protocol_surface_is_exactly_the_seven_handler_methods(self) -> None:
+    def test_protocol_surface_is_exactly_the_unified_loop_methods(self) -> None:
         expected = {
             "call_llm",
             "call_llm_stream",
             "augment_system_prompt_with_reply_context",
-            "filter_history_for_aggregation",
-            "build_explore_render_message",
-            "build_explore_render_fallback",
-            "format_explore_render_response",
         }
         members = {
             name

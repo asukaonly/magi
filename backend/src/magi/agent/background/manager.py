@@ -400,6 +400,31 @@ class BackgroundTaskManager:
             self._schedule_terminal_notification(terminal_task)
         return terminal_task is not None
 
+    async def get_task(self, task_id: str) -> BackgroundTask | None:
+        """Read one durable task for child status and await projections."""
+
+        self._require_started()
+        return await self._store.get_task(task_id)
+
+    async def await_terminal(
+        self,
+        task_id: str,
+        *,
+        timeout_seconds: float,
+    ) -> BackgroundTask | None:
+        """Wait for one durable background task without taking ownership."""
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, timeout_seconds)
+        while True:
+            task = await self.get_task(task_id)
+            if task is None or task.status.is_terminal:
+                return task
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                return task
+            await asyncio.sleep(min(0.1, remaining))
+
     async def cancel_scope_and_wait(
         self,
         *,

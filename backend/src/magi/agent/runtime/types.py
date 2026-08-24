@@ -9,7 +9,6 @@ class TaskAgentType(str, Enum):
     """Supported task-agent categories."""
 
     CHAT = "chat"
-    EXPLORE = "explore"
     TIMELINE = "timeline"
 
 

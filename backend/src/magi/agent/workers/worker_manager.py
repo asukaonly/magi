@@ -8,23 +8,17 @@ import asyncio
 import time
 from typing import Any, Callable, Dict, Optional
 
-from ...agent.orchestration import get_orchestration_store
 from ...core.logger import get_logger
 from ...runtime_trace import RuntimeTraceStore
-from ...tools.platform_tools import native_shell_tool_name
 from ...tools.registry import ToolRegistry, tool_registry
+from .child_preset import ChildRunPreset
 from .worker_actions import WorkerActionMixin
 from .worker_execution import WorkerExecutionMixin
 from .worker_launch import WorkerLaunchMixin
 from .worker_prompting import WorkerPromptMixin
 from .worker_result_validation import WorkerResultValidationMixin
 from .worker_schema import WorkerSchemaMixin
-from .worker_state import (
-    WORKER_AGENT_COMPLETED as WORKER_AGENT_COMPLETED,
-    WORKER_AGENT_FAILED as WORKER_AGENT_FAILED,
-    WORKER_AGENT_PROGRESS,
-    WorkerRunState,
-)
+from .worker_state import WorkerRunState
 from .worker_status import WorkerStatusMixin
 from .worker_trace import WorkerTraceMixin
 from ...tools.schema import Tool
@@ -32,7 +26,7 @@ from ...tools.schema import Tool
 logger = get_logger(__name__)
 
 
-class WorkerAgentManager(
+class ChildRunCoordinator(
     WorkerActionMixin,
     WorkerLaunchMixin,
     WorkerExecutionMixin,
@@ -43,53 +37,17 @@ class WorkerAgentManager(
     WorkerSchemaMixin,
     Tool,
 ):
-    """Manage worker-agent launch/status/await lifecycle for orchestration layers."""
+    """Manage bounded child-run lifecycle, ownership, budgets, and cancellation."""
 
     ACTION_LAUNCH = "launch"
     ACTION_STATUS = "status"
     ACTION_AWAIT = "await"
+    ACTION_CANCEL = "cancel"
 
-    TYPE_GENERAL = "general-purpose"
-    TYPE_EXPLORE = "CodeExplore"
-    TYPE_PLAN = "Plan"
-    TYPE_CODING = "Coding"
-
-    _WORKER_TYPE_MAP = {
-        "general-purpose": TYPE_GENERAL,
-        "general_purpose": TYPE_GENERAL,
-        "general": TYPE_GENERAL,
-        "code-explore": TYPE_EXPLORE,
-        "code_explore": TYPE_EXPLORE,
-        "CodeExplore": TYPE_EXPLORE,
-        "plan": TYPE_PLAN,
-        "Plan": TYPE_PLAN,
-        "coding": TYPE_CODING,
-        "Coding": TYPE_CODING,
-        "code": TYPE_CODING,
-    }
-
-    _EXPLORE_TOOL_CANDIDATES = ["glob", "grep", "file_read", "find-relevant-tools"]
-    _PLAN_TOOL_CANDIDATES = [
-        "glob",
-        "grep",
-        "file_read",
-        "web-search",
-        "find-relevant-tools",
-    ]
-    _CODING_TOOL_CANDIDATES = [
-        "file_read",
-        "file_edit",
-        "file_write",
-        "file_rollback",
-        "file_diff",
-        "verify",
-        "glob",
-        "grep",
-        "file_list",
-        "file_info",
-        native_shell_tool_name(),
-        "find-relevant-tools",
-    ]
+    PRESET_DEFAULT = ChildRunPreset.DEFAULT.value
+    PRESET_READ_ONLY = ChildRunPreset.READ_ONLY.value
+    PRESET_WORKSPACE_WRITE = ChildRunPreset.WORKSPACE_WRITE.value
+    PRESET_REVIEW = ChildRunPreset.REVIEW.value
 
     def __init__(self) -> None:
         self._llm_adapter = None
@@ -100,11 +58,11 @@ class WorkerAgentManager(
         self._message_bus = None
         self._runtime_trace_store: RuntimeTraceStore | None = None
         self._permission_gateway_provider: Callable[[], Any] | None = None
+        self._background_task_manager: Any | None = None
         self._runs: Dict[str, WorkerRunState] = {}
         self._pending_runs: Dict[str, WorkerRunState] = {}
         self._cancelled_run_keys: Dict[tuple[str, str, int], float] = {}
         self._lock = asyncio.Lock()
-        self._orchestration_store = get_orchestration_store()
         super().__init__()
 
     def configure(
@@ -117,6 +75,7 @@ class WorkerAgentManager(
         scenario_llm_pool=None,
         active_model_provider=None,
         permission_gateway_provider: Callable[[], Any] | None = None,
+        background_task_manager: Any | None = None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
         self._llm_adapter = llm_adapter
@@ -134,6 +93,8 @@ class WorkerAgentManager(
             self._active_model_provider = active_model_provider
         if permission_gateway_provider is not None:
             self._permission_gateway_provider = permission_gateway_provider
+        if background_task_manager is not None:
+            self._background_task_manager = background_task_manager
 
     async def clear_user_content(self) -> None:
         """Cancel worker runs and discard their retained prompts and results."""
@@ -165,6 +126,7 @@ class WorkerAgentManager(
         run_id: str,
         run_revision: int,
         reason: str = "run_cancelled",
+        include_transferred: bool = False,
     ) -> list[str]:
         """Request cancellation for every live worker attached to one session run."""
         run_key = (session_id, run_id, int(run_revision))
@@ -178,17 +140,19 @@ class WorkerAgentManager(
                 run_state
                 for run_state in self._runs.values()
                 if run_state.session_id == session_id
-                and run_state.run_id == run_id
+                and run_state.parent_run_id == run_id
                 and int(run_state.run_revision) == int(run_revision)
                 and run_state.status == "running"
+                and (include_transferred or run_state.ownership == "parent")
             ]
             pending_states = [
                 run_state
                 for run_state in self._pending_runs.values()
                 if run_state.session_id == session_id
-                and run_state.run_id == run_id
+                and run_state.parent_run_id == run_id
                 and int(run_state.run_revision) == int(run_revision)
                 and run_state.status == "running"
+                and (include_transferred or run_state.ownership == "parent")
             ]
             matching_states = public_states + pending_states
             for run_state in matching_states:
@@ -224,23 +188,4 @@ class WorkerAgentManager(
             run_state=run_state,
             payload=payload,
             result_preview=result_preview,
-        )
-        await self._publish_worker_fact(
-            run_state=run_state,
-            event_type=WORKER_AGENT_PROGRESS,
-            internal_payload={
-                "stage": "tool_result",
-                "tool_name": payload.get("tool_name"),
-                "success": bool(payload.get("success")),
-                "execution_time": float(payload.get("execution_time") or 0.0),
-                "error": payload.get("error"),
-            },
-            public_payload={
-                "stage": "tool_result",
-                "tool_name": payload.get("tool_name"),
-                "success": bool(payload.get("success")),
-                "execution_time": float(payload.get("execution_time") or 0.0),
-                "error": payload.get("error"),
-                "result_preview": result_preview,
-            },
         )

@@ -1,4 +1,4 @@
-"""Worker file-scan guardrails for function-calling execution."""
+"""File-scan guardrails for parent and child agent execution."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def _resolve_default_chat_workspace_path() -> str:
 
 
 class FunctionCallingGuardrailsMixin:
-    """Bound file-scan tools for worker planning and exploration loops."""
+    """Keep file scans scoped and bound child-agent breadth."""
 
     _EXPLORE_EXCLUDE_PATTERNS = [
         "node_modules",
@@ -54,14 +54,14 @@ class FunctionCallingGuardrailsMixin:
             rendered_arguments = repr(arguments)
         return f"{tool_name}:{rendered_arguments}"
 
-    def _apply_worker_explore_guardrails(
+    def _apply_execution_guardrails(
         self,
         execution_preset: str,
         tool_name: str,
         arguments: dict[str, Any],
         execution_workspace: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
-        """Apply strict guardrails for bounded scan-oriented workers."""
+        """Apply workspace scope and bounded child-scan rules."""
         safe_args = dict(arguments)
         # ``outside_workspace_allowed`` is a routing hint consumed by this
         # guardrail only; never forward it to the underlying tool execute().
@@ -70,7 +70,7 @@ class FunctionCallingGuardrailsMixin:
             workspace_root = self._resolve_execution_workspace(execution_workspace)
             scan_root = self._resolve_scan_root_path(safe_args.get("path"), execution_workspace)
             if (
-                execution_preset not in {"worker_explore", "worker_plan"}
+                not execution_preset.startswith("child_")
                 and not self._path_within_root(scan_root, workspace_root)
                 and not outside_workspace_allowed
             ):
@@ -82,14 +82,14 @@ class FunctionCallingGuardrailsMixin:
                     "path or use web-search first."
                 )
 
-        if execution_preset not in {"worker_explore", "worker_plan"}:
+        if not execution_preset.startswith("child_"):
             return safe_args, None
 
-        scan_label = "CodeExplore" if execution_preset == "worker_explore" else "Plan"
+        scan_label = execution_preset.removeprefix("child_").replace("_", " ").title()
         if tool_name == "glob":
             pattern = str(safe_args.get("pattern", "")).strip()
             if not pattern:
-                return {}, f"{scan_label} worker guardrail: glob pattern is required."
+                return {}, f"{scan_label} child guardrail: glob pattern is required."
             if pattern in {"*", "**/*", "**"}:
                 safe_args["pattern"] = "*"
                 safe_args["recursive"] = False
@@ -101,7 +101,7 @@ class FunctionCallingGuardrailsMixin:
                     safe_args["pattern"] = "*"
             safe_args["max_results"] = self._bounded_max_results(
                 safe_args.get("max_results"),
-                cap=200 if execution_preset == "worker_explore" else 120,
+                cap=200,
             )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None
@@ -113,14 +113,14 @@ class FunctionCallingGuardrailsMixin:
                 path_value, execution_workspace
             ):
                 return {}, (
-                    f"{scan_label} worker guardrail: root-wide grep is blocked. "
+                    f"{scan_label} child guardrail: root-wide grep is blocked. "
                     "Use a scoped glob like frontend/**/*.ts or backend/**/*.py."
                 )
             if "recursive" not in safe_args:
                 safe_args["recursive"] = "**" in file_glob
             safe_args["max_results"] = self._bounded_max_results(
                 safe_args.get("max_results"),
-                cap=200 if execution_preset == "worker_explore" else 120,
+                cap=200,
             )
             safe_args["exclude"] = self._merge_exclude_patterns(safe_args.get("exclude"))
             return safe_args, None

@@ -10,7 +10,6 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.agent.runtime.task_agent import TaskAgent
 from magi.agent.runtime.types import TaskAgentType
 from magi.agent.task_agents.common import (
-    ExecutionMode,
     ExecutionResult,
     IncomingFactKind,
     UserMessagePayload,
@@ -205,7 +204,6 @@ class _EmptyVisibleResponseChatAgent(ChatTaskAgent):
             history_key=f"user-1::{session_id}",
             history=[],
             conversation_history=[],
-            active_orchestrations=[],
             latest_user_message=str(payload["content"]),
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=UserMessagePayload(
@@ -668,86 +666,6 @@ async def test_pipeline_failure_finalization_retries_without_rerunning_pipeline(
     assert agent._session_run_coordinator.get_active_run(session_id) is None
     assert agent.has_inflight_work() is False
 
-
-@pytest.mark.asyncio
-async def test_continuation_failure_closes_durable_root_delivery(
-    runtime_paths_with_schema,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
-    await store.initialize()
-    session_id = "session-worker-failure"
-    turn_id = "turn-worker-root"
-    await _create_admitted_turn(
-        store,
-        session_id=session_id,
-        turn_id=turn_id,
-        runtime_command_id=707,
-    )
-    agent = ChatTaskAgent(
-        agent_id=session_id,
-        llm_adapter=_FakeLLMAdapter(),
-        chat_store=store,
-    )
-    agent._session_run_coordinator._run_store.create_active_run(
-        session_id,
-        root_turn_id=turn_id,
-        root_user_message=f"message for {turn_id}",
-        run_id="run-worker-failure",
-    )
-    agent._fact_memory = []
-    worker_fact = FactRecord(
-        agent_id=f"chat:{session_id}",
-        agent_type=TaskAgentType.CHAT.value,
-        agent_instance_id=session_id,
-        event_type="WORKER_AGENT_PROGRESS",
-        payload={
-            "user_id": "user-1",
-            "session_id": session_id,
-            "worker_id": "worker-1",
-        },
-    )
-    original_get_delivery = store.get_user_turn_delivery
-    delivery_reads = 0
-
-    async def _transient_get_delivery(*, turn_id: str):  # type: ignore[no-untyped-def]
-        nonlocal delivery_reads
-        delivery_reads += 1
-        if delivery_reads == 1:
-            raise OSError("chat database temporarily unavailable")
-        return await original_get_delivery(turn_id=turn_id)
-
-    monkeypatch.setattr(store, "get_user_turn_delivery", _transient_get_delivery)
-    monkeypatch.setattr(
-        chat_task_agent_module,
-        "_PIPELINE_FAILURE_RETRY_INITIAL_SECONDS",
-        0.001,
-    )
-    monkeypatch.setattr(
-        chat_task_agent_module,
-        "_PIPELINE_FAILURE_RETRY_MAX_SECONDS",
-        0.005,
-    )
-
-    await agent.handle_batch_failure(
-        [worker_fact],
-        error=RuntimeError("worker continuation failed"),
-        stage="parse_result",
-        context=SimpleNamespace(session_id=session_id),  # type: ignore[arg-type]
-    )
-
-    delivery = await store.get_user_turn_delivery(turn_id=turn_id)
-    final = await store.get_latest_message_for_turn(
-        turn_id,
-        message_kind="assistant_final",
-    )
-    assert delivery is not None
-    assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
-    assert delivery.current_command_id == 707
-    assert final is not None
-    assert json.loads(final.payload_json)["delivery_failure"]["retryable"] is True
-    assert agent._session_run_coordinator.get_active_run(session_id) is None
-    assert delivery_reads >= 2
 
 
 @pytest.mark.asyncio

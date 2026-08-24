@@ -23,8 +23,9 @@ class _WorkerActionHostProtocol(Protocol):
     ACTION_LAUNCH: str
     ACTION_STATUS: str
     ACTION_AWAIT: str
+    ACTION_CANCEL: str
 
-    def _normalize_subagent_type(self, subagent_type: str) -> str: ...
+    def _normalize_preset(self, preset: str) -> str: ...
 
     async def _get_worker_status(self, worker_id: str) -> ToolResult: ...
 
@@ -33,6 +34,18 @@ class _WorkerActionHostProtocol(Protocol):
     async def _await_worker(self, worker_id: str, timeout_seconds: int) -> ToolResult: ...
 
     async def _await_workers(self, worker_ids: List[str], timeout_seconds: int) -> ToolResult: ...
+
+    async def _cancel_worker(
+        self,
+        worker_id: str,
+        context: ToolExecutionContext,
+    ) -> ToolResult: ...
+
+    async def _cancel_workers(
+        self,
+        worker_ids: List[str],
+        context: ToolExecutionContext,
+    ) -> ToolResult: ...
 
     async def _launch_workers_batch(
         self,
@@ -61,7 +74,12 @@ class WorkerActionMixin:
 
         host = cast(_WorkerActionHostProtocol, self)
         action = str(parameters.get("action", host.ACTION_LAUNCH))
-        if action not in {host.ACTION_LAUNCH, host.ACTION_STATUS, host.ACTION_AWAIT}:
+        if action not in {
+            host.ACTION_LAUNCH,
+            host.ACTION_STATUS,
+            host.ACTION_AWAIT,
+            host.ACTION_CANCEL,
+        }:
             return False, f"Unsupported action: {action}"
 
         worker_ids = parameters.get("worker_ids")
@@ -75,11 +93,11 @@ class WorkerActionMixin:
         if isinstance(timeout_seconds, bool):
             return False, "timeout_seconds must be an integer"
         if (
-            action in {host.ACTION_STATUS, host.ACTION_AWAIT}
+            action in {host.ACTION_STATUS, host.ACTION_AWAIT, host.ACTION_CANCEL}
             and not has_worker_id
             and not has_worker_ids
         ):
-            return False, "worker_id or worker_ids is required for status/await actions"
+            return False, "worker_id or worker_ids is required for status/await/cancel actions"
 
         if action == host.ACTION_LAUNCH:
             workers = parameters.get("workers")
@@ -134,6 +152,14 @@ class WorkerActionMixin:
                     parameters.get("timeout_seconds", DEFAULT_WORKER_AWAIT_TIMEOUT_SECONDS)
                 ),
             )
+        if action == host.ACTION_CANCEL:
+            worker_ids = parameters.get("worker_ids")
+            if isinstance(worker_ids, list) and worker_ids:
+                return await host._cancel_workers(worker_ids, context)
+            return await host._cancel_worker(
+                str(parameters.get("worker_id", "")),
+                context,
+            )
         try:
             workers = parameters.get("workers")
             if isinstance(workers, list) and workers:
@@ -164,11 +190,9 @@ def _validate_worker_definition(
     label = f"{prefix}." if prefix else ""
     if not isinstance(worker, dict):
         return False, f"{prefix or 'worker'} must be an object"
-    raw_subagent_type = worker.get("subagent_type")
-    if not isinstance(raw_subagent_type, str) or not raw_subagent_type.strip():
-        return False, f"{label}subagent_type is required"
-    if not host._normalize_subagent_type(raw_subagent_type):
-        return False, f"{label}subagent_type is unsupported"
+    raw_preset = worker.get("preset", "default")
+    if not isinstance(raw_preset, str) or not host._normalize_preset(raw_preset):
+        return False, f"{label}preset is unsupported"
     for field_name in ("description", "prompt"):
         value = worker.get(field_name)
         if not isinstance(value, str) or not value.strip():

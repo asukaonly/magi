@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 
 from magi.agent.task_agents.handlers import (
     ChatRuntimeContext,
-    ExecutionMode,
     GenericFactPayload,
     IncomingFactKind,
     IntentDecision,
@@ -123,7 +122,6 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             history_key="u-chat::s-1",
             history=[{"role": "user", "content": "你好"}],
             conversation_history=[{"role": "user", "content": "你好"}],
-            active_orchestrations=[],
             latest_user_message="今天天气怎么样",
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
@@ -166,7 +164,6 @@ class TestChatTaskAgentPromptModules(unittest.IsolatedAsyncioTestCase):
             history_key="u-chat::s-1",
             history=[{"role": "user", "content": "你好"}],
             conversation_history=[{"role": "user", "content": "你好"}],
-            active_orchestrations=[],
             latest_user_message="帮我查下天气",
             incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
             latest_payload=GenericFactPayload(),
