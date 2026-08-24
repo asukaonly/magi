@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import time
 from typing import Any, cast
 
 from ....config.models import ThinkingDepth
@@ -12,28 +10,21 @@ from ....llm.streaming_events import (
     LLMStreamEvent,
     emit_stream_event,
     get_stream_sink,
-    stream_scope,
 )
 from ...turn_input import UserTurnInput
 from magi.control.run_control import RunControl
 from ..completion_gate import CompletionGate
-from ..context_fingerprint import (
-    context_source_refs,
-    effective_context_fingerprint,
-    message_fingerprints,
-    stable_hash,
-)
+from ..context_fingerprint import stable_hash
 from ..contracts import (
     AgentRunEventType,
     CompletionDecision,
     CompletionOutcome,
-    RunContextManifest,
 )
-from ..journal import AgentRunJournal
-from ..model_capabilities import ModelCapabilityProfile
 from ..reasoning import ReasoningState
 from ..task_budget import TaskBudgetExceeded, prepay_task_llm_calls
+from .model_capability_flow import FunctionCallingModelCapabilityFlow
 from .run_input import AgentRunRequest
+from .run_journal import FunctionCallingRunJournal
 from .step_models import FunctionCallingStepOutcome, FunctionCallingStepState
 from .types import ExecutionOutcome
 
@@ -45,6 +36,11 @@ class FunctionCallingLoopRunner:
 
     def __init__(self, host: Any) -> None:
         self._host = host
+        self._journal = FunctionCallingRunJournal(host)
+        self._model_capability_flow = FunctionCallingModelCapabilityFlow(
+            host,
+            self._journal,
+        )
 
     async def run(
         self,
@@ -57,11 +53,12 @@ class FunctionCallingLoopRunner:
             run_input.reasoning_policy
         )
         self._resolve_effective_reasoning_depth(state)
-        await self._start_journal(state, run_input)
-        capability_outcome = await self._prepare_model_capabilities(
+        await self._journal.start(state, run_input)
+        capability_outcome = await self._model_capability_flow.prepare(
             state=state,
             run_input=run_input,
             control=control,
+            thinking_depth=self._resolve_effective_reasoning_depth(state),
         )
         if capability_outcome is not None:
             return await self._record_terminal_outcome(state, capability_outcome)
@@ -75,7 +72,7 @@ class FunctionCallingLoopRunner:
                     state,
                     cast(ExecutionOutcome, context_failure),
                 )
-            await self._record_effective_context(
+            await self._journal.record_effective_context(
                 state,
                 mode="tool_loop",
                 step_index=state.iteration + 1,
@@ -116,223 +113,6 @@ class FunctionCallingLoopRunner:
             control=control,
         )
         return await self._gate_fallback_outcome(state, run_input, outcome)
-
-    async def _start_journal(
-        self,
-        state: FunctionCallingStepState,
-        run_input: AgentRunRequest,
-    ) -> None:
-        journal = AgentRunJournal(
-            run_id=run_input.run_id,
-            turn_id=run_input.turn_id,
-            session_id=run_input.session_id,
-            user_id=run_input.user_id,
-            store=getattr(self._host, "runtime_trace_store", None),
-        )
-        state.journal = journal
-        if run_input.checkpoint is not None:
-            await journal.resume()
-            await journal.append(
-                AgentRunEventType.RUN_RESUMED,
-                step_index=state.iteration,
-                payload={
-                    "checkpoint_reason": run_input.checkpoint.reason,
-                    "checkpoint_note": run_input.checkpoint.note,
-                    "reasoning_state": state.reasoning_state.to_dict(),
-                    "repair_iterations": state.repair_iterations,
-                    "evidence": [item.to_ref().to_dict() for item in state.tool_evidence],
-                },
-            )
-            return
-        tool_schema_hashes = {
-            str(tool.get("function", {}).get("name") or ""): stable_hash(tool)
-            for tool in state.tools
-            if str(tool.get("function", {}).get("name") or "")
-        }
-        model_context = getattr(self._host, "_active_model_context", None)
-        await journal.record_manifest(
-            RunContextManifest(
-                run_id=run_input.run_id,
-                turn_id=run_input.turn_id,
-                session_id=run_input.session_id,
-                user_id=run_input.user_id,
-                prompt_assembly_version="unified-agent-v1",
-                system_prompt_hash=stable_hash(state.effective_system_prompt),
-                system_prompt_size_bytes=len(state.effective_system_prompt.encode("utf-8")),
-                message_fingerprints=message_fingerprints(state.messages),
-                tool_catalog=tuple(state.selected_tool_names),
-                tool_schema_hashes=tool_schema_hashes,
-                context_source_refs=context_source_refs(run_input.context_sources),
-                provider=str(getattr(model_context, "provider_id", "unknown")),
-                model=str(getattr(model_context, "model_id", "unknown")),
-                reasoning_policy=run_input.reasoning_policy.to_dict(),
-                created_at_ms=int(time.time() * 1000),
-            )
-        )
-        await journal.append(
-            AgentRunEventType.RUN_STARTED,
-            payload={
-                "execution_preset": run_input.execution_preset,
-                "parent_run_id": run_input.parent_run_id,
-            },
-        )
-        await journal.append(
-            AgentRunEventType.CONTEXT_PREPARED,
-            payload={
-                "message_count": len(state.messages),
-                "tool_count": len(state.selected_tool_names),
-            },
-        )
-        await journal.append(
-            AgentRunEventType.CAPABILITIES_RESOLVED,
-            payload=dict(run_input.capability_resolution),
-        )
-        await journal.append(
-            AgentRunEventType.REASONING_POLICY_RESOLVED,
-            payload={
-                **run_input.reasoning_policy.to_dict(),
-                **state.reasoning_state.to_dict(),
-            },
-        )
-
-    async def _prepare_model_capabilities(
-        self,
-        *,
-        state: FunctionCallingStepState,
-        run_input: AgentRunRequest,
-        control: RunControl,
-    ) -> ExecutionOutcome | None:
-        profile = run_input.model_capabilities or ModelCapabilityProfile.from_model_context(
-            getattr(self._host, "_active_model_context", None)
-        )
-        required_tools = tuple(
-            str(name).strip()
-            for name in run_input.capability_resolution.get("required_tools", [])
-            if str(name).strip()
-        )
-        if required_tools and not profile.supports_tool_calls:
-            return ExecutionOutcome(
-                status="failed",
-                content="",
-                failure_reason="tool_calls_unsupported",
-                error_text=_model_capability_error("tool_calls_unsupported"),
-                iterations=state.iteration,
-            )
-        has_images = _messages_contain_images(state.messages)
-        issue = profile.validate_run(
-            has_images=has_images,
-            tool_count=len(state.selected_tool_names),
-        )
-        if issue is None:
-            return None
-        if issue != "attachment_observation_required":
-            return ExecutionOutcome(
-                status="suspended" if issue == "attachments_unsupported" else "failed",
-                content="",
-                failure_reason=issue,
-                error_text=_model_capability_error(issue),
-                iterations=state.iteration,
-            )
-        return await self._ground_attachments_without_tools(
-            state=state,
-            run_input=run_input,
-            control=control,
-        )
-
-    async def _ground_attachments_without_tools(
-        self,
-        *,
-        state: FunctionCallingStepState,
-        run_input: AgentRunRequest,
-        control: RunControl,
-    ) -> ExecutionOutcome | None:
-        grounding_prompt = (
-            f"{state.effective_system_prompt}\n\n"
-            "Attachment grounding step: inspect only the attached images. Return a compact "
-            "JSON object with keys summary, visible_facts, uncertainty, and attachment_refs. "
-            "Do not solve the broader task and do not expose hidden reasoning."
-        )
-        await self._record_effective_context(
-            state,
-            mode="attachment_grounding",
-            step_index=state.iteration,
-            system_prompt=grounding_prompt,
-            messages=state.messages,
-            tools=[],
-        )
-        try:
-            async with stream_scope(None):
-                response = await self._host._call_llm_without_tools(
-                    system_prompt=grounding_prompt,
-                    messages=state.messages,
-                    thinking_depth=self._resolve_effective_reasoning_depth(state),
-                    json_mode=True,
-                    timeout_seconds=run_input.llm_timeout_seconds,
-                    session_id=run_input.session_id,
-                    turn_id=run_input.turn_id,
-                    execution_preset=run_input.execution_preset,
-                    execution_agent_id=run_input.execution_agent_id,
-                    iteration=0,
-                    control=control,
-                )
-        except Exception as exc:
-            return ExecutionOutcome(
-                status="failed",
-                content="",
-                failure_reason="attachment_observation_failed",
-                error_text=self._host._format_exception_trace_text(exc),
-                iterations=state.iteration,
-            )
-        observation = _normalize_attachment_observation(response.get("content"))
-        observation_message = {
-            "role": "user",
-            "content": (
-                "[Runtime attachment observation]\n"
-                f"{json.dumps(observation, ensure_ascii=False, sort_keys=True)}\n"
-                "Use this sourced observation in place of the raw images for subsequent tool steps."
-            ),
-        }
-        state.messages = _strip_image_blocks(state.messages)
-        state.messages.append(observation_message)
-        self._host._current_messages = state.messages
-        if state.journal is not None:
-            await state.journal.append(
-                AgentRunEventType.ATTACHMENT_OBSERVED,
-                step_index=0,
-                payload={
-                    "observation_hash": stable_hash(observation),
-                    "observation_size_bytes": len(
-                        json.dumps(observation, ensure_ascii=False, default=str).encode("utf-8")
-                    ),
-                },
-            )
-        return None
-
-    async def _record_effective_context(
-        self,
-        state: FunctionCallingStepState,
-        *,
-        mode: str,
-        step_index: int,
-        system_prompt: str,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]],
-    ) -> None:
-        if state.journal is None:
-            return
-        await state.journal.append(
-            AgentRunEventType.CONTEXT_PREPARED,
-            step_index=step_index,
-            payload=effective_context_fingerprint(
-                mode=mode,
-                system_prompt=system_prompt,
-                messages=messages,
-                tools=tools,
-                reasoning_state=(
-                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
-                ),
-            ),
-        )
 
     def _build_initial_state(self, run_input: AgentRunRequest) -> FunctionCallingStepState:
         checkpoint = run_input.checkpoint
@@ -637,28 +417,7 @@ class FunctionCallingLoopRunner:
         state: FunctionCallingStepState,
         outcome: ExecutionOutcome,
     ) -> ExecutionOutcome:
-        if state.journal is None:
-            return outcome
-        event_type = {
-            "completed": AgentRunEventType.RUN_COMPLETED,
-            "cancelled": AgentRunEventType.RUN_CANCELLED,
-            "suspended": AgentRunEventType.RUN_SUSPENDED,
-            "detached": AgentRunEventType.RUN_SUSPENDED,
-            "blocked": AgentRunEventType.RUN_BLOCKED,
-        }.get(outcome.status, AgentRunEventType.RUN_FAILED)
-        await state.journal.append(
-            event_type,
-            step_index=state.iteration,
-            payload={
-                "status": outcome.status,
-                "failure_reason": outcome.failure_reason,
-                "evidence": [item.to_ref().to_dict() for item in state.tool_evidence],
-                "reasoning_state": (
-                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
-                ),
-            },
-        )
-        return outcome
+        return await self._journal.record_terminal(state, outcome)
 
     async def _run_fallback_final_response(
         self,
@@ -695,77 +454,6 @@ class FunctionCallingLoopRunner:
                 control=control,
             ),
         )
-
-
-def _messages_contain_images(messages: list[dict[str, Any]]) -> bool:
-    for message in messages:
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        if any(
-            isinstance(block, dict)
-            and str(block.get("type") or "") in {"image", "image_url", "input_image"}
-            for block in content
-        ):
-            return True
-    return False
-
-
-def _strip_image_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    stripped: list[dict[str, Any]] = []
-    for message in messages:
-        cloned = dict(message)
-        content = cloned.get("content")
-        if isinstance(content, list):
-            blocks = [
-                dict(block) if isinstance(block, dict) else block
-                for block in content
-                if not (
-                    isinstance(block, dict)
-                    and str(block.get("type") or "") in {"image", "image_url", "input_image"}
-                )
-            ]
-            cloned["content"] = blocks
-        stripped.append(cloned)
-    return stripped
-
-
-def _normalize_attachment_observation(content: Any) -> dict[str, Any]:
-    text = str(content or "").strip()
-    if not text:
-        return {
-            "summary": "The model returned no attachment observation.",
-            "visible_facts": [],
-            "uncertainty": ["empty_model_observation"],
-            "attachment_refs": [],
-        }
-    try:
-        decoded = json.loads(text)
-    except json.JSONDecodeError:
-        decoded = {"summary": text}
-    if not isinstance(decoded, dict):
-        decoded = {"summary": text}
-    return {
-        "summary": str(decoded.get("summary") or "").strip(),
-        "visible_facts": list(decoded.get("visible_facts") or []),
-        "uncertainty": list(decoded.get("uncertainty") or []),
-        "attachment_refs": list(decoded.get("attachment_refs") or []),
-    }
-
-
-def _model_capability_error(reason_code: str) -> str:
-    return {
-        "attachments_unsupported": (
-            "The selected model cannot inspect the attached images. Choose a vision-capable "
-            "model or remove the attachments."
-        ),
-        "tool_calls_unsupported": (
-            "The selected model cannot execute the capabilities required by this run."
-        ),
-        "tool_schema_limit_exceeded": (
-            "The initial capability set exceeds the selected model's tool-schema limit."
-        ),
-    }.get(reason_code, "The selected model does not support this run shape.")
 
 
 def _build_completed_outcome(

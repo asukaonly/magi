@@ -305,6 +305,13 @@ permission waits, effect identities, repair bounds, context compaction, and
 cancellation checks. The model owns semantic decomposition and the choice of
 next action within the exposed capabilities.
 
+The loop runner owns sequencing only. `FunctionCallingModelCapabilityFlow`
+owns model-shape validation and attachment grounding;
+`FunctionCallingRunJournal` owns privacy-safe manifest/context/terminal event
+projection; and `FunctionCallingToolBatchJournal` owns requested-tool,
+tool-result, evidence, and child-run projection. Tool execution, cancellation,
+suppression, and retry policy stay in `FunctionCallingToolBatchExecutor`.
+
 There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
 graph, or route-derived handler registry for ordinary turns. A simple chat still
 costs one main model call because it naturally takes the shortest path through
@@ -628,6 +635,10 @@ metrics.
 - `backend/src/magi/chat/task_agent/coordinator.py`
 - `backend/src/magi/agent/execution/function_calling/run_input.py`
 - `backend/src/magi/agent/execution/function_calling/loop_runner.py`
+- `backend/src/magi/agent/execution/function_calling/model_capability_flow.py`
+- `backend/src/magi/agent/execution/function_calling/run_journal.py`
+- `backend/src/magi/agent/execution/function_calling/step_tool_batch.py`
+- `backend/src/magi/agent/execution/function_calling/tool_batch_journal.py`
 - `backend/src/magi/agent/execution/capability_resolver.py`
 - `backend/src/magi/agent/execution/completion_gate.py`
 - `backend/src/magi/agent/execution/reasoning.py`
