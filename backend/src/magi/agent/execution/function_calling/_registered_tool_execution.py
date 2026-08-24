@@ -166,9 +166,6 @@ class _RegisteredToolExecutor:
         arguments: dict[str, Any],
         workspace: str | None,
     ) -> ToolCallResult | None:
-        gateway = self._host._resolve_permission_gateway()
-        if gateway is None:
-            return None
         return await self._host._gate_tool_call(
             tool_call=request.tool_call,
             tool_name=request.tool_name,
@@ -179,7 +176,6 @@ class _RegisteredToolExecutor:
             workspace=workspace,
             execution_preset=request.execution_preset,
             start_time=request.start_time,
-            gateway=gateway,
         )
 
     def _log_tool_start(

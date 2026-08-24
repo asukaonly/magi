@@ -5,18 +5,21 @@ Decision flow for every ``(tool_name, arguments)`` the gateway sees:
 1. Kill-list check — if matched, return ``KILL_LISTED`` with no user
    prompt regardless of mode. This is a hardware safety fuse for
    LLM glitches and prompt injection.
-2. Cached-rule check — session / persistent rules are consulted next.
-3. Mode + risk table — :class:`PermissionMode.OFF` short-circuits to
+2. Plan-mode check — effectful tools are denied while plan mode is active.
+3. Skill pre-approval check — an exact skill rule may suppress an interactive
+   prompt, but only after the two hard safety checks above.
+4. Cached-rule check — session / persistent rules are consulted next.
+5. Mode + risk table — :class:`PermissionMode.OFF` short-circuits to
    allow; :class:`PermissionMode.HIGH_ONLY` only asks when risk
    ``>= HIGH``; :class:`PermissionMode.ALL` asks whenever the tool is
    considered dangerous (risk ``>= MEDIUM`` or the tool schema flags
    it dangerous).
-4. Prompt — the request is handed to the :class:`InteractionBroker`.
+6. Prompt — the request is handed to the :class:`InteractionBroker`.
    The caller of :meth:`PermissionGateway.gate` is responsible for
    surfacing the request payload to the UI / IPC. On response, if the
    user picks a non-``ONE_SHOT`` scope the rule is written to the
    store.
-5. Timeout — if the user does not respond within
+7. Timeout — if the user does not respond within
    ``prompt_timeout_seconds`` the request is denied (``TIMED_OUT``).
 
 The gateway does *not* execute the tool. It returns a
@@ -88,6 +91,7 @@ class _GateContext:
     tool_is_dangerous: bool
     tool_risk_level: RiskLevel | str | None
     tool_risk_authoritative: bool
+    skill_preapproved: bool
 
 
 class PermissionPrompter(Protocol):
@@ -144,18 +148,12 @@ class PermissionGateway:
             Callable[[str | None], SessionControlOverride | None] | None
         ) = None,
         prompter: PermissionPrompter | None = None,
-        # Phase H+2: default bumped 120 → 300 to accommodate external
-        # channel response latency. WeChat / Telegram users may be away
-        # from their device for minutes; 5 min keeps the prompt
-        # reachable without hanging the run indefinitely. Desktop users
-        # were never near the 120s ceiling either, so this is strictly
-        # a wider window with no regression.
+        # External-channel users may need several minutes to respond while
+        # the bounded timeout still prevents an indefinitely suspended run.
         prompt_timeout_seconds: float = 300.0,
         plan_mode_guard: Callable[[str | None, str], bool] | None = None,
-        # Phase H+2: per-binding auto-approve bypass. Both must be wired
-        # for the bypass to fire — when either is None (the default,
-        # also the partial-bootstrap state) the bypass is silently
-        # disabled and all prompts go through the normal flow.
+        # Per-binding auto-approval is active only when both dependencies are
+        # configured. Partial bootstrap therefore remains fail-closed.
         # ``binding_settings_store`` is the SQLite-backed
         # ``ChannelBindingSettingsStore`` (CF-7).
         # ``binding_origin_resolver`` is an async callable
@@ -196,6 +194,7 @@ class PermissionGateway:
         tool_is_dangerous: bool = False,
         tool_risk_level: RiskLevel | str | None = None,
         tool_risk_authoritative: bool = False,
+        skill_preapproved: bool = False,
     ) -> PermissionDecision:
         """Evaluate a single tool invocation."""
         started = time.time()
@@ -210,6 +209,7 @@ class PermissionGateway:
             tool_is_dangerous=tool_is_dangerous,
             tool_risk_level=tool_risk_level,
             tool_risk_authoritative=tool_risk_authoritative,
+            skill_preapproved=skill_preapproved,
         )
         logger.info(
             "permission.decision",
@@ -240,6 +240,7 @@ class PermissionGateway:
         tool_is_dangerous: bool,
         tool_risk_level: RiskLevel | str | None,
         tool_risk_authoritative: bool,
+        skill_preapproved: bool,
     ) -> PermissionDecision:
         context = _GateContext(
             tool_name=tool_name,
@@ -252,6 +253,7 @@ class PermissionGateway:
             tool_is_dangerous=tool_is_dangerous,
             tool_risk_level=tool_risk_level,
             tool_risk_authoritative=tool_risk_authoritative,
+            skill_preapproved=skill_preapproved,
         )
         for decision in (
             self._kill_list_decision(context),
@@ -261,6 +263,9 @@ class PermissionGateway:
                 return decision
 
         classification = self._classify_invocation(context)
+        skill_decision = self._skill_preapproval_decision(context)
+        if skill_decision is not None:
+            return skill_decision
         matched_decision = self._matched_rule_decision(context)
         if matched_decision is not None:
             return matched_decision
@@ -329,6 +334,19 @@ class PermissionGateway:
             tool_is_dangerous=context.tool_is_dangerous,
             tool_risk_level=context.tool_risk_level,
             tool_risk_authoritative=context.tool_risk_authoritative,
+        )
+
+    @staticmethod
+    def _skill_preapproval_decision(
+        context: _GateContext,
+    ) -> PermissionDecision | None:
+        if not context.skill_preapproved:
+            return None
+        return PermissionDecision(
+            request_id=PermissionRequest.new_id(),
+            outcome=PermissionOutcome.ALLOWED,
+            source="skill_preapproval",
+            reason="explicit skill rule suppressed the interactive prompt",
         )
 
     def _matched_rule_decision(self, context: _GateContext) -> PermissionDecision | None:

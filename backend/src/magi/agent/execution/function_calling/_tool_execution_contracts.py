@@ -58,7 +58,6 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         workspace: str | None,
         execution_preset: str,
         start_time: float,
-        gateway: Any = None,
     ) -> ToolCallResult | None: ...
 
     def _resolve_scan_root_path(self, path_value: Any, execution_workspace: str | None) -> str: ...

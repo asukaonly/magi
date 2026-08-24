@@ -20,6 +20,7 @@ from magi.agent.execution.function_calling import (
     ToolCall,
 )
 from magi.tools.schema import ToolErrorCode, ToolResult
+from magi.skills.active_restrictions import skill_preapproval
 
 
 class _FakeToolRegistry:
@@ -85,6 +86,7 @@ async def test_gateway_allows_low_risk_and_registry_runs() -> None:
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is True
@@ -105,6 +107,7 @@ async def test_gateway_blocks_kill_listed_and_returns_tool_error() -> None:
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is False
@@ -124,15 +127,14 @@ async def test_gateway_user_denial_surfaces_reason_to_llm() -> None:
     orch = _orchestrator(registry=registry, gateway=gateway)
 
     result = await orch._execute_tool_call(
-        tool_call=ToolCall(
-            id="c1", name="bash", arguments={"command": "npm install react"}
-        ),
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install react"}),
         user_id="u",
         session_id="s",
         turn_id="t",
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is False
@@ -148,15 +150,14 @@ async def test_gateway_off_mode_passes_dangerous_npm_install() -> None:
     orch = _orchestrator(registry=registry, gateway=gateway)
 
     result = await orch._execute_tool_call(
-        tool_call=ToolCall(
-            id="c1", name="bash", arguments={"command": "npm install react"}
-        ),
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install react"}),
         user_id="u",
         session_id=None,
         turn_id=None,
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is True
@@ -173,21 +174,18 @@ async def test_worker_intent_tags_origin_as_subagent() -> None:
             return UserPromptResponse(allow=True)
 
     registry = _FakeToolRegistry()
-    gateway = await _make_gateway(
-        mode=PermissionMode.HIGH_ONLY, prompter=_Capture()
-    )
+    gateway = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=_Capture())
     orch = _orchestrator(registry=registry, gateway=gateway)
 
     await orch._execute_tool_call(
-        tool_call=ToolCall(
-            id="c1", name="bash", arguments={"command": "npm install x"}
-        ),
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install x"}),
         user_id="u",
         session_id="s",
         turn_id="t",
         execution_preset="worker_explore",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     from magi.control.permission import ToolOrigin
@@ -196,7 +194,7 @@ async def test_worker_intent_tags_origin_as_subagent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_without_gateway_behaves_as_before() -> None:
+async def test_orchestrator_without_gateway_denies_tool_execution() -> None:
     registry = _FakeToolRegistry(dangerous=True)
     orch = _orchestrator(registry=registry, gateway=None)
 
@@ -208,11 +206,43 @@ async def test_orchestrator_without_gateway_behaves_as_before() -> None:
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
-    # Gateway off → the registry ran (dev hasn't opted in yet).
-    assert result.success is True
-    assert registry.executed == [("bash", {"command": "rm -rf /"})]
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert "not configured" in (result.error or "")
+    assert registry.executed == []
+
+
+@pytest.mark.asyncio
+async def test_gateway_provider_failure_denies_tool_execution() -> None:
+    registry = _FakeToolRegistry()
+
+    def _raise() -> None:
+        raise RuntimeError("binding failed")
+
+    orch = _orchestrator(
+        registry=registry,
+        gateway=None,
+        gateway_provider=_raise,
+    )
+
+    result = await orch._execute_tool_call(
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "ls"}),
+        user_id="u",
+        session_id="s",
+        turn_id="t",
+        execution_preset="chat",
+        execution_agent_id="a",
+        execution_workspace=None,
+        run_id="run-1",
+    )
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert "binding failed" in (result.error or "")
+    assert registry.executed == []
 
 
 @pytest.mark.asyncio
@@ -233,11 +263,54 @@ async def test_gateway_provider_blocks_when_constructor_gateway_absent() -> None
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is False
     assert result.error_code == ToolErrorCode.PERMISSION_DENIED.value
     assert registry.executed == []
+
+
+@pytest.mark.asyncio
+async def test_skill_preapproval_skips_prompt_but_not_kill_list() -> None:
+    registry = _FakeToolRegistry(dangerous=True)
+    gateway = await _make_gateway(mode=PermissionMode.ALL)
+    orch = _orchestrator(registry=registry, gateway=gateway)
+
+    with skill_preapproval(["bash"]):
+        safe = await orch._execute_tool_call(
+            tool_call=ToolCall(
+                id="safe",
+                name="bash",
+                arguments={"command": "npm install react"},
+            ),
+            user_id="u",
+            session_id="s",
+            turn_id="t",
+            execution_preset="chat",
+            execution_agent_id="a",
+            execution_workspace=None,
+            run_id="run-1",
+        )
+        blocked = await orch._execute_tool_call(
+            tool_call=ToolCall(
+                id="blocked",
+                name="bash",
+                arguments={"command": "rm -rf /"},
+            ),
+            user_id="u",
+            session_id="s",
+            turn_id="t",
+            execution_preset="chat",
+            execution_agent_id="a",
+            execution_workspace=None,
+            run_id="run-1",
+        )
+
+    assert safe.success is True
+    assert blocked.success is False
+    assert blocked.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert registry.executed == [("bash", {"command": "npm install react"})]
 
 
 @pytest.mark.asyncio
@@ -283,15 +356,14 @@ async def test_session_rule_inherited_by_subagent_same_session() -> None:
     orch = _orchestrator(registry=registry, gateway=gateway)
 
     result = await orch._execute_tool_call(
-        tool_call=ToolCall(
-            id="c1", name="bash", arguments={"command": "npm install react"}
-        ),
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "npm install react"}),
         user_id="u",
         session_id="parent-session",
         turn_id="t",
         execution_preset="worker_explore",
         execution_agent_id="a",
         execution_workspace=None,
+        run_id="run-1",
     )
 
     assert result.success is True

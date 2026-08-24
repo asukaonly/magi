@@ -343,6 +343,7 @@ async def test_execute_tool_call_marks_ambiguous_scope_for_workspace_escape(tmp_
         execution_preset="chat",
         execution_agent_id="a",
         execution_workspace=str(workspace),
+        run_id="run-1",
     )
 
     assert result.success is False

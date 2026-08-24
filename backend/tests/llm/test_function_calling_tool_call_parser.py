@@ -1236,6 +1236,7 @@ async def test_worker_origin_cannot_execute_todo_write() -> None:
         execution_preset="worker_coding",
         execution_agent_id="worker_123",
         execution_workspace="/tmp",
+        run_id="run-1",
     )
 
     assert result.success is False

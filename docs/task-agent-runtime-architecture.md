@@ -312,6 +312,16 @@ An ambiguous or uncertain attempt is not automatically replayed. Provider-level
 idempotency is still required for remote systems; a local ledger cannot make a
 remote transaction atomic.
 
+Every tool call crosses the permission gateway, including skill-originated and
+child-agent calls. Missing gateway wiring, provider lookup failures, and gateway
+exceptions deny execution; they never become an implicit allow. Permission
+precedence is deterministic: the system kill list and plan-mode guard run before
+skill pre-approval, cached user rules, mode/risk policy, or channel auto-approval.
+A skill rule can suppress an interactive prompt for the exact matching call, but
+cannot bypass hard safety or plan-mode restrictions. Tests that need permissive
+execution must inject an explicit test gateway rather than relying on a runtime
+fallback.
+
 Tool results become `ToolExecutionEvidence`. The completion gate consumes this
 normalized evidence instead of trusting a model claim that work succeeded.
 

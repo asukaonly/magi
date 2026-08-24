@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from agent.agent_run_helpers import run_agent
+from agent.permission_helpers import AllowAllPermissionGateway
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
@@ -42,6 +43,7 @@ def _build_orchestrator() -> FunctionCallingOrchestrator:
     return FunctionCallingOrchestrator(
         tool_registry=_FakeToolRegistry(),
         llm_adapter=SimpleNamespace(model_name="fake-model", provider_name="fake-provider"),
+        permission_gateway=AllowAllPermissionGateway(),
     )
 
 
@@ -258,6 +260,7 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
         turn_id="turn-1",
         execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
+        run_id="run-1",
     )
 
     assert outcome.status == "continue"
@@ -343,6 +346,7 @@ async def test_step_executor_serializes_tool_messages_without_ascii_escaping(mon
         turn_id="turn-zh",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-zh",
     )
 
     assert outcome.status == "continue"
@@ -436,6 +440,7 @@ async def test_step_executor_appends_tools_recommended_by_find_relevant_tools(mo
         turn_id="turn-expand",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-attach",
     )
 
     assert outcome.status == "continue"
@@ -512,6 +517,7 @@ async def test_step_executor_collects_chat_attachments_from_tool_results(monkeyp
         turn_id="turn-attach",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-payload",
     )
 
     assert outcome.status == "continue"
@@ -590,6 +596,7 @@ async def test_step_executor_skips_attachment_grounding_when_disabled(monkeypatc
         turn_id="turn-attach",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-memory-payload",
     )
 
     assert outcome.status == "continue"
@@ -667,6 +674,7 @@ async def test_step_executor_collects_assistant_message_payload_from_tool_result
         turn_id="turn-payload",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-payload",
     )
 
     assert outcome.status == "continue"
@@ -752,6 +760,7 @@ async def test_step_executor_collects_historical_recall_asset_refs_into_message_
         turn_id="turn-memory-payload",
         execution_preset="chat",
         execution_agent_id="chat:s-chat",
+        run_id="run-memory-payload",
     )
 
     assert outcome.status == "continue"
@@ -833,6 +842,7 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         turn_id="turn-1",
         execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
+        run_id="run-1",
     )
     second_outcome = await orchestrator.step_executor.execute_step(
         state=step_state,
@@ -842,6 +852,7 @@ async def test_step_executor_returns_control_after_one_step_until_called_again(m
         turn_id="turn-1",
         execution_preset="repo_analysis",
         execution_agent_id="chat:s-chat",
+        run_id="run-1",
     )
 
     assert first_outcome.status == "continue"
