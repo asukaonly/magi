@@ -36,6 +36,7 @@ from ..turn_input import UserTurnInput
 from ..execution.checkpoint import AgentRunCheckpoint
 from ..execution.function_calling.run_input import AgentRunRequest
 from ..execution.reasoning import ReasoningPolicy
+from ...skills.allowed_tools_rules import parse_allowed_tools, rules_to_strings
 from ..execution.run_plan_port import BoundRunPlanReader
 from ..execution.task_budget import TaskExecutionBudgetStore, task_execution_budget_scope
 from .contracts import (
@@ -137,6 +138,9 @@ def build_spec_from_request(
         )
         or uuid4().hex,
         selected_tools=list(request.tool_selection.tools or []),
+        skill_preapproval_rules=tuple(
+            rules_to_strings(getattr(request, "skill_preapproval_rules", ()))
+        ),
         workspace_path=workspace_path,
         trigger_source=trigger_source,
         trigger=trigger,
@@ -306,6 +310,9 @@ def build_background_run_fn(
                         else ReasoningPolicy()
                     ),
                     final_response_json_mode=spec.final_response_json_mode,
+                    skill_preapproval_rules=tuple(
+                        parse_allowed_tools(spec.skill_preapproval_rules)
+                    ),
                 )
             )
         summary = (outcome.content or "").strip()

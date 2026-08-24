@@ -67,7 +67,7 @@ def test_natural_language_discovery_can_expose_a_registered_skill() -> None:
 def test_attachment_resolver_is_pinned_ahead_of_optional_discovery() -> None:
     resolution = CapabilityResolver(_Registry(), top_k=3, max_tools=3).resolve(
         user_message="What was the weather?",
-        attachment_tools=["photo_resolver"],
+        required_tools=["photo_resolver"],
     )
 
     assert "photo_resolver" in resolution.pinned_tools
@@ -104,7 +104,7 @@ def test_explicit_reply_asset_tools_are_pinned_but_implicit_context_is_not() -> 
 def test_model_without_tool_calls_fails_closed_on_every_candidate() -> None:
     resolution = CapabilityResolver(_Registry()).resolve(
         user_message="Review my calendar",
-        attachment_tools=["photo_resolver"],
+        required_tools=["photo_resolver"],
         model_supports_tool_calls=False,
     )
 
@@ -114,3 +114,14 @@ def test_model_without_tool_calls_fails_closed_on_every_candidate() -> None:
     assert {item.reason_code for item in resolution.rejected_tools} == {
         "model_tool_calls_unsupported"
     }
+
+
+def test_pinned_skill_tool_is_not_a_hard_requirement() -> None:
+    resolution = CapabilityResolver(_Registry()).resolve(
+        user_message="Review my calendar",
+        pinned_tools=["weather"],
+        model_supports_tool_calls=False,
+    )
+
+    assert resolution.required_tools == ()
+    assert resolution.initial_exposed_tools == ()

@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 from magi.agent.background.contracts import (
     BackgroundTask,
     BackgroundTaskSpec,
-    BackgroundTaskStatus,
     BackgroundTaskTriggerSource,
 )
 from magi.api.routers import commands as commands_module
@@ -114,7 +113,7 @@ def client(monkeypatch):
                     description="Audit the whole repo",
                     user_invocable=True,
                     context="fork",
-                    allowed_tools=["read_file", "list_files"],
+                    allowed_tools=["read_file", "list_files", "bash(git diff *)"],
                 ),
                 prompt_template="Scan workspace ${PWD} for security issues.",
                 supporting_data={},
@@ -232,7 +231,7 @@ def test_run_skill_as_background_enqueues_task(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["title"] == "/deep-scan"
-    assert body["selected_tools"] == ["read_file", "list_files"]
+    assert body["selected_tools"] == ["read_file", "list_files", "bash"]
     assert body["task_id"]
     assert body["pending_message_id"]
 
@@ -245,7 +244,12 @@ def test_run_skill_as_background_enqueues_task(client):
     assert "Scan workspace" in spec.goal
     assert spec.goal.endswith("for security issues.")
     assert "/tmp/work" in spec.goal
-    assert spec.selected_tools == ["read_file", "list_files"]
+    assert spec.selected_tools == ["read_file", "list_files", "bash"]
+    assert spec.skill_preapproval_rules == (
+        "read_file",
+        "list_files",
+        "bash(git diff *)",
+    )
 
     # Pending row was written with the patched task_id payload.
     assert len(appended) == 1

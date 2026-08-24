@@ -347,6 +347,7 @@ class FunctionCallingToolBatchExecutor:
                 execution_workspace=ctx.execution_workspace,
                 cancel_token=cancel_token,
                 recent_messages=state.messages,
+                skill_preapproval_rules=ctx.skill_preapproval_rules,
             ),
         )
         return _ToolExecutionRecord(

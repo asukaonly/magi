@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ...turn_input import UserTurnInput
 from magi.control.run_control import RunControl
+from magi.skills.allowed_tools_rules import ToolRule
 
 from ..completion_policy import CompletionPolicy
 from ..checkpoint import AgentRunCheckpoint
@@ -52,6 +53,7 @@ class AgentRunRequest:
     capability_resolution: dict[str, Any] = field(default_factory=dict)
     run_plan_reader: RunPlanReader = field(default_factory=NullRunPlanReader)
     model_capabilities: ModelCapabilityProfile | None = None
+    skill_preapproval_rules: tuple[ToolRule, ...] = ()
 
     control: RunControl | None = None
 
@@ -96,6 +98,7 @@ class AgentRunRequest:
         parent_run_id: str | None = None,
         run_revision: int = 0,
         run_plan_reader: RunPlanReader | None = None,
+        skill_preapproval_rules: tuple[ToolRule, ...] = (),
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
@@ -121,6 +124,7 @@ class AgentRunRequest:
             ephemeral_context=ephemeral_context,
             context_sources=context_sources,
             run_plan_reader=run_plan_reader or NullRunPlanReader(),
+            skill_preapproval_rules=skill_preapproval_rules,
         )
 
 

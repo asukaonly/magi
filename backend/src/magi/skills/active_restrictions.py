@@ -12,9 +12,8 @@ We implement that by:
 1. Pushing the skill's parsed rules onto a per-task contextvar stack at
    the start of skill execution (both direct and fork modes).
 2. Letting :mod:`magi.agent.execution.function_calling.permission`
-   consult :func:`is_call_preapproved` before raising a prompt — when a
-   call matches any active rule, the permission gateway is short-
-   circuited with an "allowed" decision.
+   pass a matching rule into the permission gateway. The gateway still
+   applies hard safety and plan-mode checks before suppressing a prompt.
 3. Letting the contextvar fall off the stack naturally when the asyncio
    task running the turn ends; there is no explicit pop required, which
    matches the desired "pre-approval is active for the rest of this

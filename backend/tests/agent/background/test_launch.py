@@ -347,6 +347,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
         title="T",
         goal="do the thing",
         selected_tools=["deep_research"],
+        skill_preapproval_rules=("bash(git diff *)",),
         workspace_path="/w",
         trigger_source=BackgroundTaskTriggerSource.RULE,
         max_iterations=7,
@@ -371,6 +372,9 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert call.max_iterations == 7
     assert call.execution_preset == "background"
     assert call.execution_agent_id == f"background:{task.task_id}"
+    assert [rule.display for rule in call.skill_preapproval_rules] == [
+        "bash(git diff *)"
+    ]
     # Cancellation is plumbed through.
     assert call.control is not None
     assert call.control.cancel_token is not None

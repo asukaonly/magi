@@ -13,6 +13,7 @@ from ....events.first_context import (
 )
 from ....events.recall_feedback import RecallFeedbackRequest
 from ...execution.reasoning import ReasoningPolicy
+from magi.skills.allowed_tools_rules import ToolRule
 
 
 class IncomingFactKind(str, Enum):
@@ -196,6 +197,7 @@ class PreparedAgentRunRequest(ExecutionRequest):
     selected_tools: list[str] = field(default_factory=list)
     reasoning_policy: ReasoningPolicy = field(default_factory=ReasoningPolicy)
     context_sources: tuple[dict[str, Any], ...] = ()
+    skill_preapproval_rules: tuple[ToolRule, ...] = ()
 
 
 @dataclass(slots=True)

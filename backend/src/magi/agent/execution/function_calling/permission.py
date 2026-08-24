@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol, cast
 
 from magi.control.permission import PermissionOutcome, ToolOrigin
+from magi.skills.active_restrictions import is_call_preapproved, matched_rule
+from magi.skills.allowed_tools_rules import ToolRule, any_rule_matches
 
 from ....tools.schema import ToolErrorCode
 from .types import ToolCall, ToolCallResult
@@ -65,6 +67,7 @@ class FunctionCallingPermissionMixin:
         workspace: Optional[str],
         execution_preset: str,
         start_time: float,
+        skill_preapproval_rules: tuple[ToolRule, ...],
     ) -> Optional[ToolCallResult]:
         """Run the permission gateway; return a failure result if blocked."""
         host = cast(_PermissionHostProtocol, self)
@@ -97,7 +100,11 @@ class FunctionCallingPermissionMixin:
                 tool_risk_authoritative=bool(
                     tool_metadata.get("permission_risk_authoritative", False)
                 ),
-                skill_preapproved=_is_skill_preapproved(tool_name, arguments),
+                skill_preapproved=_is_skill_preapproved(
+                    tool_name,
+                    arguments,
+                    skill_preapproval_rules,
+                ),
             )
         except Exception as exc:
             logger.exception("[FunctionCalling] permission gateway raised")
@@ -120,17 +127,25 @@ def _tool_origin(execution_preset: str) -> ToolOrigin:
     return ToolOrigin.CHAT
 
 
-def _is_skill_preapproved(tool_name: str, arguments: Dict[str, Any]) -> bool:
+def _is_skill_preapproved(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    run_rules: tuple[ToolRule, ...],
+) -> bool:
     # A matching rule suppresses only the interactive prompt. The gateway still
     # applies system safety, plan mode, and effect policy first.
-    try:
-        from ....skills.active_restrictions import is_call_preapproved, matched_rule
-    except Exception:
-        return False
-    if not is_call_preapproved(tool_name, arguments):
+    matching_run_rule = next(
+        (
+            rule
+            for rule in run_rules
+            if any_rule_matches((rule,), tool_name, arguments)
+        ),
+        None,
+    )
+    if matching_run_rule is None and not is_call_preapproved(tool_name, arguments):
         return False
 
-    rule = matched_rule(tool_name, arguments)
+    rule = matching_run_rule or matched_rule(tool_name, arguments)
     logger.info(
         "[FunctionCalling] skill rule matched before permission gate tool=%s rule=%s",
         tool_name,

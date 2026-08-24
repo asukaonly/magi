@@ -8,6 +8,7 @@ from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ...cancel import CancelToken, null_cancel_token
 from magi.control.run_control import RunControl
+from magi.skills.allowed_tools_rules import ToolRule
 from .step_models import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
@@ -41,6 +42,7 @@ class FunctionCallingStepExecutor:
         llm_timeout_seconds: float | None = None,
         cancel_token: CancelToken | None = None,
         control: RunControl | None = None,
+        skill_preapproval_rules: tuple[ToolRule, ...] = (),
     ) -> FunctionCallingStepOutcome:
         """Run one bounded loop iteration and return control to the caller."""
         token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -54,6 +56,7 @@ class FunctionCallingStepExecutor:
             execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
+            skill_preapproval_rules=skill_preapproval_rules,
         )
         return await self._execute_step_with_context(
             state=state,

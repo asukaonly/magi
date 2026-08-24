@@ -44,6 +44,7 @@ from .recall_feedback import (
 )
 from ...execution.attachment_resolver import AttachmentResolverPort, NullAttachmentResolver
 from ....llm.model_context import ModelContextProfile
+from ....skills.allowed_tools_rules import ToolRule, parse_allowed_tools
 
 logger = get_logger(__name__)
 
@@ -67,6 +68,16 @@ def _build_inline_skill_prompt(request: ExecutionRequest) -> str:
         f"{rendered_prompt}\n"
         "</skill>"
     )
+
+
+def _inline_skill_preapproval_rules(
+    request: ExecutionRequest,
+) -> tuple[ToolRule, ...]:
+    payload = getattr(request.context, "latest_payload", None)
+    invocation = getattr(payload, "skill_invocation", None)
+    if not isinstance(invocation, dict):
+        return ()
+    return tuple(parse_allowed_tools(invocation.get("allowed_tools")))
 
 
 def _build_context_sources(
@@ -227,6 +238,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             selected_tools=selected_tools,
             reasoning_policy=ReasoningPolicy.from_preference(request.intent.reasoning_preference),
             context_sources=context_sources,
+            skill_preapproval_rules=_inline_skill_preapproval_rules(request),
         )
 
     async def _build_prompt_package(self, request: ExecutionRequest) -> Any:
@@ -392,6 +404,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 session_id=request.context.session_id,
                 run_id=run_id,
             ),
+            skill_preapproval_rules=request.skill_preapproval_rules,
         )
 
     @staticmethod

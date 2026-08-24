@@ -9,6 +9,7 @@ from ..evidence import ToolExecutionEvidence
 from ..journal import AgentRunJournal
 from ..reasoning import ReasoningPolicy, ReasoningState
 from ..run_plan_port import RunPlanReader
+from magi.skills.allowed_tools_rules import ToolRule
 
 
 @dataclass(slots=True)
@@ -68,3 +69,4 @@ class StepExecutionContext:
     execution_preset: str
     execution_agent_id: str
     execution_workspace: str | None
+    skill_preapproval_rules: tuple[ToolRule, ...] = ()

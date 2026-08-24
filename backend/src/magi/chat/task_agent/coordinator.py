@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable
 
 from magi.core.logger import get_logger
 from magi.llm.streaming_events import LLMStreamEvent
+from magi.skills.allowed_tools_rules import parse_allowed_tools
 from magi.agent.execution.capability_resolver import CapabilityResolver
 from magi.agent.task_agents.common import (
     ExecutionHandlerRegistry,
@@ -88,8 +89,8 @@ class ChatExecutionCoordinator:
             return ToolSelection(reasoning=intent.reasoning)
         resolution = self._capability_resolver.resolve(
             user_message=context.latest_user_message,
-            explicit_tools=_inline_skill_tools(context),
-            attachment_tools=_attachment_resolver_tools(context),
+            pinned_tools=_inline_skill_tools(context),
+            required_tools=_attachment_resolver_tools(context),
             recent_tool_errors=context.recent_tool_errors,
             model_supports_tool_calls=context.core_model_supports_tool_calls,
         )
@@ -322,14 +323,9 @@ def _inline_skill_tools(context: ChatRuntimeContext) -> list[str]:
     invocation = getattr(payload, "skill_invocation", None)
     if not isinstance(invocation, dict):
         return []
-    raw_tools = invocation.get("allowed_tools")
-    if not isinstance(raw_tools, list):
-        return []
     return list(
         dict.fromkeys(
-            str(name).strip()
-            for name in raw_tools
-            if str(name).strip()
+            rule.tool for rule in parse_allowed_tools(invocation.get("allowed_tools"))
         )
     )
 

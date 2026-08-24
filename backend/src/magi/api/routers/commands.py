@@ -36,6 +36,7 @@ from ...core.logger import get_logger
 from ...core.runtime_bindings import require_chat_surface_write_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from ...skills.expander import SkillExpansion, expand_skill
+from ...skills.allowed_tools_rules import parse_allowed_tools, rules_to_strings
 from ...skills.provider import resolve_skill_indexer
 from ...skills.service_access import get_enabled_skill_names
 from ...tools import tool_registry
@@ -228,6 +229,7 @@ def _background_skill_spec(
     title: str,
     selected_tools: list[str],
     pending_message_id: str,
+    skill_preapproval_rules: tuple[str, ...],
 ) -> BackgroundTaskSpec:
     return BackgroundTaskSpec(
         user_id=request.user_id,
@@ -236,6 +238,7 @@ def _background_skill_spec(
         title=title,
         goal=expansion.rendered_prompt,
         selected_tools=selected_tools,
+        skill_preapproval_rules=skill_preapproval_rules,
         context_sources=(
             {
                 "provider": "skill",
@@ -245,7 +248,7 @@ def _background_skill_spec(
                 "rendered_prompt": expansion.rendered_prompt,
                 "content_hash": expansion.content_hash,
                 "context_mode": "fork",
-                "allowed_tools": selected_tools,
+                "allowed_tools": list(skill_preapproval_rules),
             },
         ),
         workspace_path=request.workspace_path,
@@ -306,7 +309,9 @@ async def run_skill_as_background(
     expansion = _expand_background_skill(request)
     manager = _resolve_background_manager()
     title = _background_skill_title(expansion, request.skill_name)
-    selected_tools = list(expansion.allowed_tools or [])
+    preapproval_rules = parse_allowed_tools(expansion.allowed_tools)
+    selected_tools = list(dict.fromkeys(rule.tool for rule in preapproval_rules))
+    serialized_preapproval_rules = tuple(rules_to_strings(preapproval_rules))
 
     writer = require_chat_surface_write_service()
     pending_message_id = await _create_background_skill_pending_message(
@@ -322,6 +327,7 @@ async def run_skill_as_background(
         title=title,
         selected_tools=selected_tools,
         pending_message_id=pending_message_id,
+        skill_preapproval_rules=serialized_preapproval_rules,
     )
     task = await manager.enqueue(spec)
 

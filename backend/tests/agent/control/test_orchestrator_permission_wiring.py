@@ -21,6 +21,7 @@ from magi.agent.execution.function_calling import (
 )
 from magi.tools.schema import ToolErrorCode, ToolResult
 from magi.skills.active_restrictions import skill_preapproval
+from magi.skills.allowed_tools_rules import parse_allowed_tools
 
 
 class _FakeToolRegistry:
@@ -311,6 +312,42 @@ async def test_skill_preapproval_skips_prompt_but_not_kill_list() -> None:
     assert blocked.success is False
     assert blocked.error_code == ToolErrorCode.PERMISSION_DENIED.value
     assert registry.executed == [("bash", {"command": "npm install react"})]
+
+
+@pytest.mark.asyncio
+async def test_run_scoped_skill_pattern_preapproves_only_matching_arguments() -> None:
+    registry = _FakeToolRegistry(dangerous=True)
+    gateway = await _make_gateway(mode=PermissionMode.ALL)
+    orch = _orchestrator(registry=registry, gateway=gateway)
+    rules = tuple(parse_allowed_tools(["bash(git diff *)"]))
+
+    allowed = await orch._execute_tool_call(
+        tool_call=ToolCall(id="allowed", name="bash", arguments={"command": "git diff --stat"}),
+        user_id="u",
+        session_id="s",
+        turn_id="t",
+        execution_preset="chat",
+        execution_agent_id="a",
+        execution_workspace=None,
+        run_id="run-1",
+        skill_preapproval_rules=rules,
+    )
+    denied = await orch._execute_tool_call(
+        tool_call=ToolCall(id="denied", name="bash", arguments={"command": "npm install x"}),
+        user_id="u",
+        session_id="s",
+        turn_id="t",
+        execution_preset="chat",
+        execution_agent_id="a",
+        execution_workspace=None,
+        run_id="run-1",
+        skill_preapproval_rules=rules,
+    )
+
+    assert allowed.success is True
+    assert denied.success is False
+    assert denied.error_code == ToolErrorCode.PERMISSION_DENIED.value
+    assert registry.executed == [("bash", {"command": "git diff --stat"})]
 
 
 @pytest.mark.asyncio

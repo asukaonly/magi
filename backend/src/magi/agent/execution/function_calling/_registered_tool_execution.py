@@ -176,6 +176,7 @@ class _RegisteredToolExecutor:
             workspace=workspace,
             execution_preset=request.execution_preset,
             start_time=request.start_time,
+            skill_preapproval_rules=request.skill_preapproval_rules,
         )
 
     def _log_tool_start(

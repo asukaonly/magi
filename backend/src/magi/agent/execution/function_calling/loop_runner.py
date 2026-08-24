@@ -446,6 +446,7 @@ class FunctionCallingLoopRunner:
                 llm_timeout_seconds=run_input.llm_timeout_seconds,
                 cancel_token=control.cancel_token,
                 control=control,
+                skill_preapproval_rules=run_input.skill_preapproval_rules,
             ),
         )
 

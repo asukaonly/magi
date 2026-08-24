@@ -202,8 +202,9 @@ Slash recognition is owned before the model-facing run:
 - user-invocable tool commands execute through `CommandRunner`, including the
   same permission boundary used by model-driven calls;
 - inline skills are expanded by the backend and become typed, trusted context in
-  `UserMessagePayload.skill_invocation`; their allowed tools are pinned into the
-  initial capability view;
+  `UserMessagePayload.skill_invocation`; each `allowed-tools` rule is parsed into
+  a base tool name for capability pinning plus an argument-aware, run-scoped
+  permission pre-approval rule;
 - a slash-like string not resolved by the command catalog remains ordinary user
   text. The model may interpret its meaning, but cannot turn it into a privileged
   command.
@@ -235,7 +236,7 @@ output previously duplicated decisions the main model had to make again.
 the first model call. Its inputs are deterministic or retrieval-based:
 
 - resident system tools;
-- tools explicitly granted by an inline skill;
+- base tool names referenced by an inline skill's pre-approval rules;
 - attachment resolver tools required by current/replied-to assets;
 - a bounded continuity pin for a recent failed tool;
 - Top-K metadata search over the live tool/skill registry;
@@ -245,6 +246,13 @@ the first model call. Its inputs are deterministic or retrieval-based:
 L4 advisories may rerank optional candidates but cannot authorize a disabled
 tool or displace resident/pinned capabilities. A local-write or unknown-effect
 candidate also causes `verify` to be exposed when available.
+
+Pinned skill tools are optional capabilities, not hard run requirements. A model
+without tool calling may still execute the skill instructions without them.
+Attachment resolver tools are hard requirements because the current message
+cannot be grounded without resolving its managed assets. Patterned rules such as
+`bash(git diff *)` pin only `bash`; the full pattern travels separately on the
+run and is matched against actual arguments at the permission boundary.
 
 If the first surface is insufficient, the model may use the bounded discovery
 tool during the loop. The runtime appends only admitted capabilities and records

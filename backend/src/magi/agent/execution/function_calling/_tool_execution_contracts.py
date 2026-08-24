@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from ...cancel import CancelToken
 from ..reasoning import ReasoningPolicy, ReasoningState
 from .types import ToolCall, ToolCallResult
+from magi.skills.allowed_tools_rules import ToolRule
 
 
 class _ToolRegistryProtocol(Protocol):
@@ -58,6 +59,7 @@ class _FunctionCallingToolExecutionHostProtocol(Protocol):
         workspace: str | None,
         execution_preset: str,
         start_time: float,
+        skill_preapproval_rules: tuple[ToolRule, ...],
     ) -> ToolCallResult | None: ...
 
     def _resolve_scan_root_path(self, path_value: Any, execution_workspace: str | None) -> str: ...
@@ -83,6 +85,7 @@ class _RegisteredToolExecutionRequest:
     start_time: float
     token: CancelToken
     workspace_root: str
+    skill_preapproval_rules: tuple[ToolRule, ...]
 
 
 @dataclass(slots=True)

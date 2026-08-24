@@ -17,6 +17,7 @@ from ._tool_execution_contracts import (
     _failed_tool_call_result,
 )
 from .types import ToolCall, ToolCallResult
+from magi.skills.allowed_tools_rules import ToolRule
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ def _build_registered_tool_execution_request(
     start_time: float,
     token: CancelToken,
     workspace_root: str,
+    skill_preapproval_rules: tuple[ToolRule, ...],
 ) -> _RegisteredToolExecutionRequest:
     return _RegisteredToolExecutionRequest(
         tool_call=tool_call,
@@ -155,6 +157,7 @@ def _build_registered_tool_execution_request(
         start_time=start_time,
         token=token,
         workspace_root=workspace_root,
+        skill_preapproval_rules=skill_preapproval_rules,
     )
 
 
@@ -176,6 +179,7 @@ def _prepare_registered_tool_execution_request(
     iteration: int | None,
     cancel_token: CancelToken | None,
     recent_messages: list[dict[str, Any]] | None,
+    skill_preapproval_rules: tuple[ToolRule, ...],
 ) -> _RegisteredToolExecutionRequest:
     start_time = time.time()
     token = cancel_token if cancel_token is not None else null_cancel_token()
@@ -201,6 +205,7 @@ def _prepare_registered_tool_execution_request(
         start_time=start_time,
         token=token,
         workspace_root=host._resolve_execution_workspace(execution_workspace),
+        skill_preapproval_rules=skill_preapproval_rules,
     )
 
 
@@ -224,6 +229,7 @@ class FunctionCallingToolExecutionMixin:
         iteration: int | None = None,
         cancel_token: CancelToken | None = None,
         recent_messages: list[dict[str, Any]] | None = None,
+        skill_preapproval_rules: tuple[ToolRule, ...] = (),
     ) -> ToolCallResult:
         """Execute a single tool call."""
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
@@ -244,6 +250,7 @@ class FunctionCallingToolExecutionMixin:
             iteration=iteration,
             cancel_token=cancel_token,
             recent_messages=recent_messages,
+            skill_preapproval_rules=skill_preapproval_rules,
         )
 
         if await request.token.is_cancelled():

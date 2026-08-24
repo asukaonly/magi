@@ -59,8 +59,8 @@ class CapabilityResolver:
         self,
         *,
         user_message: str,
-        explicit_tools: Iterable[str] = (),
-        attachment_tools: Iterable[str] = (),
+        pinned_tools: Iterable[str] = (),
+        required_tools: Iterable[str] = (),
         recent_tool_errors: Iterable[dict[str, Any]] = (),
         enabled_features: list[str] | None = None,
         model_supports_tool_calls: bool = True,
@@ -80,8 +80,9 @@ class CapabilityResolver:
             registered,
         )
         continuity = _continuity_tools(recent_tool_errors, registered)
-        required_requested = _dedupe([*explicit_tools, *attachment_tools])
-        requested = _dedupe([*required_requested, *continuity])
+        pinned_requested = _dedupe(pinned_tools)
+        required_requested = _dedupe(required_tools)
+        requested = _dedupe([*pinned_requested, *required_requested, *continuity])
         hard_required = [name for name in required_requested if name in registered]
         if not model_supports_tool_calls:
             candidates = _dedupe([*resident, *requested])

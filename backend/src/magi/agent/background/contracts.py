@@ -112,6 +112,7 @@ class BackgroundTaskSpec:
     goal: str
     run_id: str = field(default_factory=lambda: uuid4().hex)
     selected_tools: list[str] = field(default_factory=list)
+    skill_preapproval_rules: tuple[str, ...] = ()
     system_prompt: str = ""
     execution_preset: str = "background"
     reasoning_policy: dict[str, Any] = field(default_factory=dict)
@@ -188,6 +189,7 @@ class BackgroundTaskSpec:
             "goal": self.goal,
             "run_id": self.run_id,
             "selected_tools": list(self.selected_tools),
+            "skill_preapproval_rules": list(self.skill_preapproval_rules),
             "system_prompt": self.system_prompt,
             "execution_preset": self.execution_preset,
             "reasoning_policy": deepcopy(self.reasoning_policy),
@@ -221,6 +223,7 @@ class BackgroundTaskSpec:
             goal=str(data["goal"]),
             run_id=str(data["run_id"]),
             selected_tools=list(data.get("selected_tools") or []),
+            skill_preapproval_rules=tuple(data.get("skill_preapproval_rules") or ()),
             system_prompt=str(data.get("system_prompt") or ""),
             execution_preset=str(data.get("execution_preset") or "background"),
             reasoning_policy=dict(data.get("reasoning_policy") or {}),
