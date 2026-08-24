@@ -58,14 +58,9 @@ export interface UserPreferences {
   allow_ask_in_background: boolean;
 }
 
-export interface AgentBackgroundTasksConfig {
-  auto_detect_long_task: boolean;
-}
-
 export interface AgentConfig {
   name: string;
   description?: string;
-  background_tasks: AgentBackgroundTasksConfig;
 }
 
 export type ProxyType = 'http' | 'socks5';
@@ -682,9 +677,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   agent: {
     name: 'magi-agent',
     description: 'Magi AI Agent Framework',
-    background_tasks: {
-      auto_detect_long_task: false,
-    },
   },
   llm: {
     providers: {},

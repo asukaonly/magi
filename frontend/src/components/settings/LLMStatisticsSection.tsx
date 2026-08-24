@@ -22,7 +22,7 @@ type TableTab = (typeof TABLE_TABS)[number];
 
 const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: string }> = {
   chat: { scenario: 'generalChat', stage: 'uncategorizedChat' },
-  auxiliary: { scenario: 'contextDecision', stage: 'toolMemorySelection' },
+  auxiliary: { scenario: 'supportTasks', stage: 'supportInference' },
   'function_calling:tools': { scenario: 'toolConversation', stage: 'toolDecision' },
   'function_calling:chat_tools': { scenario: 'toolConversation', stage: 'chatToolDecision' },
   'function_calling:worker_tools': { scenario: 'toolConversation', stage: 'workerToolDecision' },

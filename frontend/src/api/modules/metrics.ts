@@ -84,8 +84,6 @@ export interface RuntimeOverviewModelExecution {
   ttft_available: boolean;
   core_model_success_rate?: number | null;
   core_model_success_rate_available: boolean;
-  intent_success_rate?: number | null;
-  intent_success_rate_available: boolean;
 }
 
 export interface RuntimeOverviewPendingLayer {

@@ -333,9 +333,6 @@ def _agent_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     return {
         "agent.name": config.agent.name,
         "agent.description": config.agent.description,
-        "agent.background_tasks.auto_detect_long_task": (
-            config.agent.background_tasks.auto_detect_long_task
-        ),
     }
 
 

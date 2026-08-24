@@ -416,16 +416,6 @@ class BackgroundTasksSettings(BaseModel):
         default=True,
         description="Queue tasks when at cap; when false, falls back to foreground.",
     )
-    auto_detect_long_task: bool = Field(
-        default=False,
-        description="Automatically route likely long-running chat tasks to background.",
-    )
-    auto_detect_threshold: float = Field(
-        default=0.7,
-        ge=0.0,
-        le=1.0,
-        description="Minimum classifier confidence to pick background.",
-    )
     default_task_timeout_seconds: int = Field(
         default=1800,
         ge=60,

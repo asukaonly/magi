@@ -52,7 +52,6 @@ from .config_response_builders import (
 )
 from .config_schemas import (
     AgentConfigModel,
-    BackgroundTasksConfigModel,
     ConfigResponse,
     DiagnosticsConfigModel,
     FullPersonalityConfigModel,
@@ -142,9 +141,6 @@ def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
         agent=AgentConfigModel(
             name=runtime_config.agent.name,
             description=raw.get("agent", {}).get("description", "Magi AI Agent Framework"),
-            background_tasks=BackgroundTasksConfigModel(
-                auto_detect_long_task=(runtime_config.agent.background_tasks.auto_detect_long_task),
-            ),
         ),
         llm=_build_llm_config_model(
             runtime_config=runtime_config,

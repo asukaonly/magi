@@ -351,7 +351,6 @@ class AgentRuntimeModule(LifecycleModule):
         logger.info(
             "AgentRuntime started (L11)",
             background_tasks_enabled=bg_settings.enabled,
-            background_tasks_auto_detect_long_task=bg_settings.auto_detect_long_task,
             background_tasks_max_concurrent=bg_settings.max_concurrent,
         )
 

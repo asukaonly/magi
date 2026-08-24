@@ -55,7 +55,7 @@ fn empty_runtime_overview() -> Value {
         "captured_at_ms": now_ms(),
         "system": { "cpu_percent": 0.0, "memory_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0 },
         "runtime": { "status": "offline", "runtime_ready": false, "runtime_status": "offline", "queue_backlog_healthy": null, "pending_commands": null },
-        "model_execution": { "avg_ttft_ms": null, "ttft_available": false, "core_model_success_rate": null, "core_model_success_rate_available": false, "intent_success_rate": null, "intent_success_rate_available": false },
+        "model_execution": { "avg_ttft_ms": null, "ttft_available": false, "core_model_success_rate": null, "core_model_success_rate_available": false },
         "memory": empty_memory_section(),
         "scheduler": empty_scheduler_section(),
     })
@@ -185,7 +185,6 @@ fn build_model_execution() -> Value {
             return json!({
                 "avg_ttft_ms": null, "ttft_available": false,
                 "core_model_success_rate": null, "core_model_success_rate_available": false,
-                "intent_success_rate": null, "intent_success_rate_available": false,
             });
         }
     };
@@ -211,16 +210,11 @@ fn build_model_execution() -> Value {
     // Core model (chat) success rate
     let (core_rate, core_available) = compute_success_rate(&conn, cutoff, "chat");
 
-    // Intent success rate
-    let (intent_rate, intent_available) = compute_success_rate(&conn, cutoff, "intent");
-
     json!({
         "avg_ttft_ms": avg_ttft,
         "ttft_available": ttft_available,
         "core_model_success_rate": core_rate,
         "core_model_success_rate_available": core_available,
-        "intent_success_rate": intent_rate,
-        "intent_success_rate_available": intent_available,
     })
 }
 

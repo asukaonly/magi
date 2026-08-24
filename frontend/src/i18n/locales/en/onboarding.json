@@ -684,7 +684,7 @@
   "llm": {
     "modelSelection": {
       "title": "Model Selection",
-      "desc": "Assign models for different tasks. The planning model handles quick decisions; the core model handles deep reasoning.",
+      "desc": "Assign models by responsibility. The core model runs the agent loop; support models handle bounded background work.",
       "empty": "Enable at least one provider first, then come back to assign models.",
       "selectEmbeddingModel": "Select embedding model",
       "selectEmbeddingDimension": "Select embedding dimension",
@@ -769,8 +769,8 @@
     },
     "scenarios": {
       "auxiliary": {
-        "title": "Planning Model",
-        "desc": "Quickly analyzes each message to determine intent, select tools, and plan the execution path. A fast, cost-effective model is recommended."
+        "title": "Support Model",
+        "desc": "Handles bounded support work such as context compaction without adding a routing call before every message. A fast, cost-effective model is recommended."
       },
       "core": {
         "title": "Core Model",

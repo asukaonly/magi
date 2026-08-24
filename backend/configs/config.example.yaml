@@ -174,8 +174,6 @@ agent:
     enabled: true
     max_concurrent: 2
     queue_when_full: true
-    auto_detect_long_task: false
-    auto_detect_threshold: 0.7
     default_task_timeout_seconds: 1800
     history_retention_days: 30
 

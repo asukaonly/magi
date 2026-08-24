@@ -186,7 +186,6 @@ const RuntimeStatisticsSectionInner: FC = () => {
         cpu: null,
         memory: null,
         ttft: null,
-        intentSuccess: null,
         coreSuccess: null,
       };
     }
@@ -197,10 +196,6 @@ const RuntimeStatisticsSectionInner: FC = () => {
       ttft:
         overview.model_execution.ttft_available
           ? formatLatency(overview.model_execution.avg_ttft_ms)
-          : null,
-      intentSuccess:
-        overview.model_execution.intent_success_rate_available
-          ? formatPercent(overview.model_execution.intent_success_rate)
           : null,
       coreSuccess:
         overview.model_execution.core_model_success_rate_available
@@ -299,10 +294,6 @@ const RuntimeStatisticsSectionInner: FC = () => {
             <SignalItem
               label={t('settings.statistics.runtime.cards.ttft')}
               value={getUnavailableFallback(signalValues.ttft, t('settings.statistics.shared.unavailable'))}
-            />
-            <SignalItem
-              label={t('settings.statistics.runtime.cards.intentSuccess')}
-              value={getUnavailableFallback(signalValues.intentSuccess, t('settings.statistics.shared.unavailable'))}
             />
             <SignalItem
               label={t('settings.statistics.runtime.cards.coreSuccess')}

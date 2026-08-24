@@ -32,7 +32,6 @@ from magi.api.services.config_secrets import (
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
 from magi.config.models import (
-    BackgroundTasksSettings,
     LLMCapabilityOverridesSettings,
     LLMConcurrencyOverrideSettings,
     LLMLimitsOverrideSettings,
@@ -296,27 +295,6 @@ def test_system_config_defaults_include_close_to_tray_enabled_preference():
     assert config.preferences.allow_media_grounding_for_conversation is True
     assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
     assert config.diagnostics.full_content_logging_enabled is True
-
-
-def test_background_auto_dispatch_defaults_off():
-    config = SystemConfigModel()
-
-    assert config.agent.background_tasks.auto_detect_long_task is False
-    assert BackgroundTasksSettings().auto_detect_long_task is False
-
-
-def test_build_update_paths_includes_background_auto_dispatch_setting(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "magi.api.routers.config._build_system_config",
-        lambda mask_secrets=True: SystemConfigModel(),
-    )
-    config = SystemConfigModel(agent={"background_tasks": {"auto_detect_long_task": True}})
-
-    updates = _build_update_paths(config)
-
-    assert updates["agent.background_tasks.auto_detect_long_task"] is True
 
 
 def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(

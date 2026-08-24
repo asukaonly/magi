@@ -271,8 +271,8 @@ Current product expectations:
 - clearing the default chat workspace should fall back to provider-independent runtime defaults
 - per-conversation workspace changes should not overwrite the saved global default
 - assistant interjection should default to off until the user enables it
-- automatic long-task background routing should default to off; when enabled, Magi may use rule and model classification to move likely long-running chat turns to background execution
-- when automatic long-task background routing is off, users should still be able to move an active task to the background manually from the chat surface
+- Magi does not run a separate long-task classifier or expose an automatic-routing threshold; the active agent may request typed detach during execution when the task, remaining budget, and available background runtime justify it
+- users can move an eligible active task to the background manually from the chat surface; both model-requested and user-requested detach pass through the same deterministic governance path
 
 ## Code Agent Settings
 
