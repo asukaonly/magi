@@ -377,6 +377,7 @@ class FunctionCallingLoopRunner:
             state.repeated_blocker_tool_names = set(checkpoint.repeated_blocker_tool_names)
             state.suppressed_tool_names = set(checkpoint.suppressed_tool_names)
             state.persona_task_clamp_applied = checkpoint.persona_task_clamp_applied
+        state.run_plan_reader = run_input.run_plan_reader
         self._host._current_messages = state.messages
         return state
 
@@ -436,8 +437,8 @@ class FunctionCallingLoopRunner:
                 thinking_depth=thinking_depth,
                 user_id=run_input.user_id,
                 session_id=run_input.session_id,
-                session_run_id=run_input.session_run_id,
-                session_run_revision=run_input.session_run_revision,
+                run_id=run_input.run_id,
+                run_revision=run_input.run_revision,
                 turn_id=run_input.turn_id,
                 execution_preset=run_input.execution_preset,
                 execution_agent_id=run_input.execution_agent_id,
@@ -503,9 +504,7 @@ class FunctionCallingLoopRunner:
             policy=run_input.completion_policy,
             evidence=state.tool_evidence,
             repair_iterations=state.repair_iterations,
-            run_plan=(
-                run_input.run_plan_provider() if run_input.run_plan_provider is not None else None
-            ),
+            run_plan=run_input.run_plan_reader.current(),
         )
         if decision.outcome is CompletionOutcome.COMPLETE:
             return _build_completed_outcome(state, step_outcome)
@@ -661,8 +660,8 @@ class FunctionCallingLoopRunner:
                 thinking_depth=thinking_depth,
                 user_id=run_input.user_id,
                 session_id=run_input.session_id,
-                session_run_id=run_input.session_run_id,
-                session_run_revision=run_input.session_run_revision,
+                run_id=run_input.run_id,
+                run_revision=run_input.run_revision,
                 turn_id=run_input.turn_id,
                 execution_preset=run_input.execution_preset,
                 execution_agent_id=run_input.execution_agent_id,

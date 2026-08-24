@@ -65,6 +65,11 @@ The request carries explicit capabilities, reasoning policy, bounds,
 cancellation, journal/checkpoint services, and optional domain collaborators.
 Headless constructors omit chat-only fields by construction.
 
+One canonical `run_id` owns journal events, tool context, versioned plans,
+checkpoints, and child parent links. Background scheduling has a separate
+`task_id`; detach resumes the same run and verifies the checkpoint's plan ID and
+version through an injected run-bound plan reader.
+
 ### 4. Runtime governance
 
 The main model owns semantic decisions inside the loop. Runtime code owns:

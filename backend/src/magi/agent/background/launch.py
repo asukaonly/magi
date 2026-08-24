@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from uuid import uuid4
 
 import structlog
 
@@ -35,6 +36,7 @@ from ..turn_input import UserTurnInput
 from ..execution.checkpoint import AgentRunCheckpoint
 from ..execution.function_calling.run_input import AgentRunRequest
 from ..execution.reasoning import ReasoningPolicy
+from ..execution.run_plan_port import BoundRunPlanReader
 from ..execution.task_budget import TaskExecutionBudgetStore, task_execution_budget_scope
 from .contracts import (
     BackgroundTask,
@@ -128,6 +130,12 @@ def build_spec_from_request(
         origin_turn_id=str(turn_id),
         title=_derive_title(user_message),
         goal=user_message,
+        run_id=(
+            str(agent_run_checkpoint.get("run_id") or "").strip()
+            if agent_run_checkpoint is not None
+            else ""
+        )
+        or uuid4().hex,
         selected_tools=list(request.tool_selection.tools or []),
         workspace_path=workspace_path,
         trigger_source=trigger_source,
@@ -136,9 +144,7 @@ def build_spec_from_request(
         max_iterations=max_iterations,
         task_budget_root_turn_id=task_budget_root_turn_id,
         agent_run_checkpoint=(
-            dict(agent_run_checkpoint)
-            if agent_run_checkpoint is not None
-            else None
+            dict(agent_run_checkpoint) if agent_run_checkpoint is not None else None
         ),
     )
 
@@ -233,6 +239,7 @@ def build_background_run_fn(
     function_calling_orchestrator: Any,
     chat_task_budget_store: TaskExecutionBudgetStore | None = None,
     background_task_budget_store: TaskExecutionBudgetStore | None = None,
+    run_plan_store: Any,
     execution_agent_id_prefix: str = "background",
     intent_label: str = "background",
 ) -> BackgroundTaskRunFn:
@@ -278,8 +285,7 @@ def build_background_run_fn(
                     system_prompt=spec.system_prompt,
                     user_id=spec.user_id,
                     session_id=spec.session_id or None,
-                    session_run_id=task.task_id,
-                    run_id=task.task_id,
+                    run_id=spec.run_id,
                     parent_run_id=spec.parent_run_id,
                     turn_id=spec.origin_turn_id or None,
                     max_iterations=spec.max_iterations,
@@ -289,6 +295,11 @@ def build_background_run_fn(
                     control=_background_run_control(cancel_token),
                     context_sources=spec.context_sources,
                     checkpoint=checkpoint,
+                    run_plan_reader=BoundRunPlanReader(
+                        store=run_plan_store,
+                        session_id=spec.session_id,
+                        run_id=spec.run_id,
+                    ),
                     reasoning_policy=(
                         ReasoningPolicy.from_dict(spec.reasoning_policy)
                         if spec.reasoning_policy

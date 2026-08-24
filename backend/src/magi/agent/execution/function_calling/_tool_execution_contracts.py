@@ -10,6 +10,7 @@ from ...cancel import CancelToken
 from ..reasoning import ReasoningPolicy, ReasoningState
 from .types import ToolCall, ToolCallResult
 
+
 class _ToolRegistryProtocol(Protocol):
     def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
 
@@ -74,8 +75,8 @@ class _RegisteredToolExecutionRequest:
     execution_preset: str
     execution_agent_id: str
     execution_workspace: str | None
-    session_run_id: str | None
-    session_run_revision: int
+    run_id: str
+    run_revision: int
     reasoning_policy: ReasoningPolicy | None
     reasoning_state: ReasoningState | None
     user_message: str | None

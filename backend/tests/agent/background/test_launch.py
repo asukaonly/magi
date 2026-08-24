@@ -37,6 +37,7 @@ from magi.agent.task_agents.common.contracts import (
     UserMessagePayload,
 )
 from magi.chat import ChatStore
+from magi.control.session_store import ControlSessionStore
 # ----------------------------------------------------------------------
 # Fixtures
 # ----------------------------------------------------------------------
@@ -334,7 +335,10 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
         iterations=3,
     )
     orchestrator = _RecordingOrchestrator(outcome)
-    run_fn = build_background_run_fn(function_calling_orchestrator=orchestrator)
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        run_plan_store=ControlSessionStore(),
+    )
 
     spec = BackgroundTaskSpec(
         user_id="u1",
@@ -376,7 +380,10 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
 async def test_run_fn_passes_cancel_token_through() -> None:
     outcome = ExecutionOutcome(status="cancelled", content="", tool_failures=[], iterations=1)
     orchestrator = _RecordingOrchestrator(outcome)
-    run_fn = build_background_run_fn(function_calling_orchestrator=orchestrator)
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        run_plan_store=ControlSessionStore(),
+    )
 
     token = EventCancelToken()
     spec = BackgroundTaskSpec(
@@ -406,6 +413,7 @@ async def test_standalone_run_rehydrates_task_budget_across_retries(
     run_fn = build_background_run_fn(
         function_calling_orchestrator=orchestrator,
         background_task_budget_store=store,
+        run_plan_store=ControlSessionStore(),
     )
     from magi.agent.background.contracts import BackgroundTask
 
@@ -453,6 +461,7 @@ async def test_chat_background_run_continues_root_turn_budget(
         function_calling_orchestrator=orchestrator,
         chat_task_budget_store=chat_store,
         background_task_budget_store=background_store,
+        run_plan_store=ControlSessionStore(),
     )
     from magi.agent.background.contracts import BackgroundTask
 
@@ -487,7 +496,10 @@ async def test_run_fn_resumes_from_agent_checkpoint() -> None:
         status="completed", content="resumed answer", tool_failures=[], iterations=2
     )
     orchestrator = _RecordingOrchestrator(outcome)
-    run_fn = build_background_run_fn(function_calling_orchestrator=orchestrator)
+    run_fn = build_background_run_fn(
+        function_calling_orchestrator=orchestrator,
+        run_plan_store=ControlSessionStore(),
+    )
 
     snapshot_messages = [
         {"role": "user", "content": "please analyse the repo"},
@@ -511,6 +523,7 @@ async def test_run_fn_resumes_from_agent_checkpoint() -> None:
         origin_turn_id="turn-1",
         title="T",
         goal="please analyse the repo",
+        run_id="run-1",
         selected_tools=["deep_research"],
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
         agent_run_checkpoint=checkpoint.to_dict(),
@@ -545,6 +558,7 @@ def test_spec_roundtrip_preserves_agent_checkpoint() -> None:
         origin_turn_id="t",
         title="T",
         goal="g",
+        run_id="run-1",
         trigger_source=BackgroundTaskTriggerSource.MANUAL,
         agent_run_checkpoint=checkpoint.to_dict(),
     )

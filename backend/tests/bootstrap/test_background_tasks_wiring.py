@@ -6,6 +6,7 @@ from pathlib import Path
 
 from magi.agent.background import BackgroundTaskRetentionScheduleContrib, BackgroundTaskStore
 from magi.bootstrap.background_tasks import build_background_task_wiring
+from magi.control.session_store import ControlSessionStore
 
 
 # ----------------------------------------------------------------------
@@ -21,6 +22,7 @@ def test_build_background_task_wiring_composes_components(tmp_path: Path) -> Non
         skill_runner=None,
         runtime_trace_store=None,
         chat_task_budget_store=None,
+        run_plan_store=ControlSessionStore(),
         max_concurrent=3,
     )
     assert isinstance(wiring.store, BackgroundTaskStore)

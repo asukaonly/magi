@@ -15,6 +15,7 @@ from .fallback_flow import (
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome
 
+
 class FunctionCallingFallbackMixin:
     """Run the bounded no-tools fallback once the normal tool loop stops."""
 
@@ -25,8 +26,8 @@ class FunctionCallingFallbackMixin:
         thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         user_id: str,
         session_id: str | None,
-        session_run_id: str | None,
-        session_run_revision: int,
+        run_id: str,
+        run_revision: int,
         turn_id: str | None,
         execution_preset: str,
         execution_agent_id: str,
@@ -42,8 +43,8 @@ class FunctionCallingFallbackMixin:
         context = FallbackExecutionContext(
             user_id=user_id,
             session_id=session_id,
-            session_run_id=session_run_id,
-            session_run_revision=session_run_revision,
+            run_id=run_id,
+            run_revision=run_revision,
             turn_id=turn_id,
             execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,

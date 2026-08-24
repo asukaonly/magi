@@ -52,6 +52,7 @@ class ChatTaskAgentRuntimeConfig:
     delivery_dispatcher_resolver: Callable[[], Any] | None = None
     conversation_log_resolver: Callable[[], Any] | None = None
     message_bus: Any | None = None
+    run_plan_store: Any | None = None
 
 
 @dataclass(slots=True)

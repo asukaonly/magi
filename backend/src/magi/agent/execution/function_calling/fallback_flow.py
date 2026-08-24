@@ -80,8 +80,8 @@ class FallbackHostProtocol(Protocol):
 class FallbackExecutionContext:
     user_id: str
     session_id: str | None
-    session_run_id: str | None
-    session_run_revision: int
+    run_id: str
+    run_revision: int
     turn_id: str | None
     execution_preset: str
     execution_agent_id: str

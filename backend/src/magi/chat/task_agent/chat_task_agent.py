@@ -85,6 +85,7 @@ _RUNTIME_CONFIG_INIT_FIELDS = (
     "delivery_dispatcher_resolver",
     "conversation_log_resolver",
     "message_bus",
+    "run_plan_store",
 )
 
 
@@ -145,7 +146,12 @@ class ChatTaskAgent(
         delivery_dispatcher_resolver: Callable[[], Any] | None = None,
         conversation_log_resolver: Callable[[], Any] | None = None,
         message_bus: Any | None = None,
+        run_plan_store: Any | None = None,
     ) -> None:
+        if run_plan_store is None:
+            from magi.control.session_store import ControlSessionStore
+
+            run_plan_store = ControlSessionStore()
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
         init_values = locals()
         self._store_runtime_roots(init_values)
@@ -232,8 +238,7 @@ class ChatTaskAgent(
         """Keep the session alive while durable post-processing is unfinished."""
 
         return (
-            super().has_inflight_work()
-            or self._postprocess_service.has_pending_background_work()
+            super().has_inflight_work() or self._postprocess_service.has_pending_background_work()
         )
 
     async def _deliver_final_response_from_postprocess(
@@ -380,18 +385,15 @@ class ChatTaskAgent(
     ) -> bool:
         """Keep admitted user turns as non-mergeable command boundaries."""
 
-        if (
-            next_fact.event_type == EventTypes.USER_MESSAGE
-            and any(fact.event_type == EventTypes.USER_MESSAGE for fact in batch)
+        if next_fact.event_type == EventTypes.USER_MESSAGE and any(
+            fact.event_type == EventTypes.USER_MESSAGE for fact in batch
         ):
             return True
         return False
 
     async def merge_facts(self, new_facts: list[FactRecord]) -> list[FactRecord]:
         executable_facts = [
-            fact
-            for fact in new_facts
-            if await self._fact_delivery_is_executable(fact)
+            fact for fact in new_facts if await self._fact_delivery_is_executable(fact)
         ]
         self._last_batch_facts = list(executable_facts)
         self._active_batch_facts = list(executable_facts)
@@ -437,9 +439,7 @@ class ChatTaskAgent(
                 session_id=str(payload.get("session_id") or ""),
                 turn_id=turn_id,
                 delivery_state=delivery.delivery_state,
-                terminal=(
-                    delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
-                ),
+                terminal=(delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL),
             )
         return executable
 
@@ -520,27 +520,17 @@ class ChatTaskAgent(
 
         original_batch = list(self._last_batch_facts)
         executable_batch = [
-            fact
-            for fact in original_batch
-            if await self._fact_delivery_is_executable(fact)
+            fact for fact in original_batch if await self._fact_delivery_is_executable(fact)
         ]
         if len(executable_batch) == len(original_batch):
             return merged_facts, executable_batch
 
         executable_ids = {id(fact) for fact in executable_batch}
-        removed_ids = {
-            id(fact)
-            for fact in original_batch
-            if id(fact) not in executable_ids
-        }
+        removed_ids = {id(fact) for fact in original_batch if id(fact) not in executable_ids}
         self._last_batch_facts = list(executable_batch)
         self._active_batch_facts = list(executable_batch)
-        self._fact_memory = [
-            fact for fact in self._fact_memory if id(fact) not in removed_ids
-        ]
-        filtered_merged_facts = [
-            fact for fact in merged_facts if id(fact) not in removed_ids
-        ]
+        self._fact_memory = [fact for fact in self._fact_memory if id(fact) not in removed_ids]
+        filtered_merged_facts = [fact for fact in merged_facts if id(fact) not in removed_ids]
         return filtered_merged_facts, executable_batch
 
     async def _after_execution_run_admitted(
@@ -559,9 +549,8 @@ class ChatTaskAgent(
     ) -> None:
         async with self._execution_admission_lock:
             latest_fact = context.latest_fact
-            if (
-                isinstance(latest_fact, FactRecord)
-                and not await self._fact_delivery_is_executable(latest_fact)
+            if isinstance(latest_fact, FactRecord) and not await self._fact_delivery_is_executable(
+                latest_fact
             ):
                 raise TaskAgentBatchDiscarded
             if await context.control.cancel_token.is_cancelled():
@@ -616,6 +605,7 @@ class ChatTaskAgent(
         )
         if not completed:
             return
+
     async def _load_context_inputs(self, classified: Any, run_decision: Any) -> _ChatContextInputs:
         session_id = self._context_assembler.require_session_id(
             classified.user_id, classified.session_id
@@ -767,9 +757,7 @@ class ChatTaskAgent(
     async def _resolve_context_root_turn_id(self, context: object) -> str:
         """Recover the durable budget identity even after the chat actor restarts."""
         latest_payload = getattr(context, "latest_payload", None)
-        payload_root = str(
-            getattr(latest_payload, "root_turn_id", "") or ""
-        ).strip()
+        payload_root = str(getattr(latest_payload, "root_turn_id", "") or "").strip()
         if payload_root:
             return payload_root
 
@@ -783,9 +771,7 @@ class ChatTaskAgent(
         get_active_run = getattr(run_coordinator, "get_active_run", None)
         if session_id and callable(get_active_run):
             restored_run = get_active_run(session_id)
-            return str(
-                getattr(restored_run, "root_turn_id", "") or ""
-            ).strip()
+            return str(getattr(restored_run, "root_turn_id", "") or "").strip()
         return ""
 
     @asynccontextmanager
@@ -805,9 +791,7 @@ class ChatTaskAgent(
             # Product runtime has durable chat storage. Missing identity or a
             # partially wired store must deny model/worker reservations instead
             # of silently resetting a fresh per-admission allowance.
-            raise RuntimeError(
-                "Durable chat task budget root identity is unavailable"
-            )
+            raise RuntimeError("Durable chat task budget root identity is unavailable")
         async with task_execution_budget_scope():
             yield
 
@@ -1075,12 +1059,10 @@ class ChatTaskAgent(
         active_run = self._session_run_coordinator.get_active_run(session_id)
         if active_run is None or active_run.root_turn_id != turn_id:
             return
-        completed, pending_inputs = (
-            self._session_run_coordinator.complete_run_with_pending_inputs(
-                session_id=session_id,
-                run_id=active_run.run_id,
-                revision=active_run.revision,
-            )
+        completed, pending_inputs = self._session_run_coordinator.complete_run_with_pending_inputs(
+            session_id=session_id,
+            run_id=active_run.run_id,
+            revision=active_run.revision,
         )
         if not completed:
             return

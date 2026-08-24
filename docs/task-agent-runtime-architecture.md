@@ -258,10 +258,12 @@ single model-facing request contract. It carries:
 - typed `UserTurnInput`, effective system prompt, history, summary, reply and
   ephemeral context;
 - selected tools and a snapshot of capability resolution;
-- user/session/turn/run/parent-run identity;
+- user/session/turn identity plus one canonical `run_id`, optional parent run,
+  and a separate background task ID owned by the scheduler;
 - execution preset, workspace, model capabilities, timeout, and task bounds;
 - `ReasoningPolicy` and current `ReasoningState`;
-- `CompletionPolicy` and a provider for the current versioned `RunPlan`;
+- `CompletionPolicy` and a run-bound reader for the current versioned
+  `RunPlan`;
 - `RunControl`, checkpoint, and context-source snapshots.
 
 `AgentRunRequest.headless(...)` is used by background and child execution. It
@@ -369,6 +371,14 @@ Important invariants:
 - cancellation marks the run-owned active plan cancelled;
 - the completion gate reads the current `RunPlan`, not model prose.
 
+`run_id` has one meaning across the journal, plan store, tool context,
+checkpoint, and child `parent_run_id`. The chat session coordinator's active
+run ID becomes this canonical ID when the request is built. A background
+`task_id` remains a scheduling/delivery identity and never replaces `run_id`.
+Detach preserves the foreground `run_id`; the checkpoint records its current
+plan ID and version, and resume fails if that plan cannot be resolved. The plan
+store may retain independent plans for multiple runs in the same session.
+
 A successful `todo_write` produces `PLAN_UPDATED` in the run journal. The trace
 projection exposes the latest plan to the frontend. The retired `todo_state`
 chat message and `/control/.../todos` duplicate read API no longer exist. The
@@ -427,8 +437,8 @@ steps, and final delivery recheck the cancel token at side-effect boundaries.
 
 Detach transfers eligible foreground work into the background runtime through a
 typed control/tool path. The background task receives the trigger, remaining
-budget, context snapshot, and cancellation ownership explicitly; detach is not
-inferred from arbitrary prose.
+budget, canonical run identity, run-bound plan reader, context snapshot, and
+cancellation ownership explicitly; detach is not inferred from arbitrary prose.
 
 ## Persona Boundary
 

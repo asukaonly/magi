@@ -114,6 +114,37 @@ async def test_run_plan_rehydrates_after_restart(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_plans_are_isolated_by_canonical_run_within_one_session(tmp_path) -> None:
+    db_path = tmp_path / "runtime_trace.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(SCHEMA_SQL)
+
+    first = ControlSessionStore(db_path=db_path)
+    await first.initialize()
+    plan_one = await first.mutate_run_plan(
+        "session-1",
+        run_id="run-1",
+        plan_id=None,
+        expected_version=0,
+        item_mutations=[{"content": "Foreground work"}],
+    )
+    plan_two = await first.mutate_run_plan(
+        "session-1",
+        run_id="run-2",
+        plan_id=None,
+        expected_version=0,
+        item_mutations=[{"content": "Independent background work"}],
+    )
+    await first.shutdown()
+
+    restored = ControlSessionStore(db_path=db_path)
+    await restored.initialize()
+
+    assert restored.current_run_plan("session-1", run_id="run-1") == plan_one
+    assert restored.current_run_plan("session-1", run_id="run-2") == plan_two
+
+
+@pytest.mark.asyncio
 async def test_full_clear_removes_durable_run_plans(tmp_path) -> None:
     db_path = tmp_path / "runtime_trace.db"
     with sqlite3.connect(db_path) as connection:

@@ -21,6 +21,8 @@ class AgentRunCheckpoint:
     iteration: int
     reasoning_policy: ReasoningPolicy
     reasoning_state: ReasoningState
+    run_plan_id: str | None = None
+    run_plan_version: int = 0
     selected_tool_names: list[str] = field(default_factory=list)
     repair_iterations: int = 0
     tool_evidence: list[ToolExecutionEvidence] = field(default_factory=list)
@@ -47,6 +49,8 @@ class AgentRunCheckpoint:
             "iteration": self.iteration,
             "reasoning_policy": self.reasoning_policy.to_dict(),
             "reasoning_state": self.reasoning_state.to_dict(),
+            "run_plan_id": self.run_plan_id,
+            "run_plan_version": self.run_plan_version,
             "selected_tool_names": list(self.selected_tool_names),
             "repair_iterations": self.repair_iterations,
             "tool_evidence": [item.to_dict() for item in self.tool_evidence],
@@ -75,19 +79,20 @@ class AgentRunCheckpoint:
             iteration=int(value["iteration"]),
             reasoning_policy=ReasoningPolicy.from_dict(dict(value["reasoning_policy"])),
             reasoning_state=ReasoningState.from_dict(dict(value["reasoning_state"])),
+            run_plan_id=(
+                str(value["run_plan_id"]) if value.get("run_plan_id") is not None else None
+            ),
+            run_plan_version=int(value.get("run_plan_version") or 0),
             selected_tool_names=[str(item) for item in value["selected_tool_names"]],
             repair_iterations=int(value["repair_iterations"]),
             tool_evidence=[
-                ToolExecutionEvidence.from_dict(dict(item))
-                for item in value["tool_evidence"]
+                ToolExecutionEvidence.from_dict(dict(item)) for item in value["tool_evidence"]
             ],
             tool_failures=deepcopy(value["tool_failures"]),
             chat_attachments=deepcopy(value["chat_attachments"]),
             message_payload=deepcopy(value["message_payload"]),
             tool_expansion_count=int(value["tool_expansion_count"]),
-            consecutive_failed_tool_iterations=int(
-                value["consecutive_failed_tool_iterations"]
-            ),
+            consecutive_failed_tool_iterations=int(value["consecutive_failed_tool_iterations"]),
             all_tools_failed=bool(value["all_tools_failed"]),
             failed_tool_call_fingerprints=set(value["failed_tool_call_fingerprints"]),
             failure_signature_counts={

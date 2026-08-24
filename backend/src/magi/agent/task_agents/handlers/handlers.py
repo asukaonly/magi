@@ -13,6 +13,7 @@ from magi.control.run_control import null_run_control
 from ....agent.turn_input import UserTurnInput
 from ....agent.execution.function_calling import AgentRunRequest
 from ....agent.execution.reasoning import ReasoningPolicy
+from ....agent.execution.run_plan_port import BoundRunPlanReader
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
@@ -62,29 +63,10 @@ def _build_inline_skill_prompt(request: ExecutionRequest) -> str:
         f"The user explicitly invoked the enabled skill `{name}`. Apply the "
         "following trusted skill instructions to this run while preserving all "
         "runtime permission and completion policies.\n\n"
-        f"<skill name=\"{name}\" sha256=\"{content_hash}\">\n"
+        f'<skill name="{name}" sha256="{content_hash}">\n'
         f"{rendered_prompt}\n"
         "</skill>"
     )
-
-
-def _run_plan_provider(session_id: str, run_id: str | None):
-    normalized_run_id = str(run_id or "").strip()
-
-    def _resolve():
-        if not normalized_run_id:
-            return None
-        try:
-            from magi.control.provider import resolve_control_session_store
-
-            return resolve_control_session_store().current_run_plan(
-                session_id,
-                run_id=normalized_run_id,
-            )
-        except RuntimeError:
-            return None
-
-    return _resolve
 
 
 def _build_context_sources(
@@ -115,15 +97,13 @@ def _build_context_sources(
     sources.append(
         {
             "provider": "continuity",
-            "recent_tool_errors": list(
-                getattr(request.context, "recent_tool_errors", None) or []
-            )[:3],
-            "recent_tool_state": list(
-                getattr(request.context, "recent_tool_state", None) or []
-            )[:3],
-            "pending_interaction": bool(
-                getattr(request.context, "recall_feedback", None)
-            ),
+            "recent_tool_errors": list(getattr(request.context, "recent_tool_errors", None) or [])[
+                :3
+            ],
+            "recent_tool_state": list(getattr(request.context, "recent_tool_state", None) or [])[
+                :3
+            ],
+            "pending_interaction": bool(getattr(request.context, "recall_feedback", None)),
         }
     )
     latest_payload = getattr(request.context, "latest_payload", None)
@@ -134,19 +114,11 @@ def _build_context_sources(
                 "provider": "skill",
                 "name": str(skill_invocation.get("name") or ""),
                 "arguments": list(skill_invocation.get("arguments") or []),
-                "invocation_text": str(
-                    skill_invocation.get("invocation_text") or ""
-                ),
-                "rendered_prompt": str(
-                    skill_invocation.get("rendered_prompt") or ""
-                ),
-                "content_hash": str(
-                    skill_invocation.get("content_hash") or ""
-                ),
+                "invocation_text": str(skill_invocation.get("invocation_text") or ""),
+                "rendered_prompt": str(skill_invocation.get("rendered_prompt") or ""),
+                "content_hash": str(skill_invocation.get("content_hash") or ""),
                 "context_mode": "inline",
-                "allowed_tools": list(
-                    skill_invocation.get("allowed_tools") or []
-                ),
+                "allowed_tools": list(skill_invocation.get("allowed_tools") or []),
             }
         )
     return tuple(sources)
@@ -165,10 +137,11 @@ class ChatHandlerDependencies:
     prompt_service: PromptServiceProtocol
     # Not touched by ring-2 handler code (only carried for other consumers);
     # left untyped so the bundle stays free of concrete chat service classes.
-    function_calling_orchestrator: any
+    function_calling_orchestrator: Any
     context_assembler: HistoryServiceProtocol
     agent_id: str
     model_context_provider: Callable[[], ModelContextProfile]
+    run_plan_store: Any
     # Resolves managed attachment payloads for a turn. Chat wires a
     # chat-backed resolver; defaults to a null resolver so tests / non-chat
     # callers can build dependencies without a chat read service.
@@ -252,9 +225,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             prompt_context=prompt_package.prompt_context,
             system_prompt=system_prompt,
             selected_tools=selected_tools,
-            reasoning_policy=ReasoningPolicy.from_preference(
-                request.intent.reasoning_preference
-            ),
+            reasoning_policy=ReasoningPolicy.from_preference(request.intent.reasoning_preference),
             context_sources=context_sources,
         )
 
@@ -315,9 +286,7 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         session_id = str(getattr(request.context, "session_id", "") or "").strip()
         detach_signal = self._build_detach_signal(session_id=session_id)
         cancel_token = self._build_cancel_token(request)
-        context_control = (
-            request.context.control if hasattr(request.context, "control") else None
-        )
+        context_control = request.context.control if hasattr(request.context, "control") else None
         control = self._build_run_control(
             context_control,
             cancel_token,
@@ -384,6 +353,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         turn_id: str | None,
         control: Any,
     ) -> AgentRunRequest:
+        run_id = str(request.context.session_run_id or "").strip()
+        if not run_id:
+            raise RuntimeError("Chat agent run requires a canonical run_id")
         return AgentRunRequest(
             turn=UserTurnInput(
                 text=request.context.latest_user_message,
@@ -396,9 +368,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             system_prompt=request.system_prompt,
             selected_tools=request.selected_tools,
             user_id=request.context.user_id,
+            run_id=run_id,
             session_id=request.context.session_id,
-            session_run_id=request.context.session_run_id,
-            session_run_revision=request.context.session_run_revision,
+            run_revision=request.context.session_run_revision,
             turn_id=turn_id,
             conversation_history=request.context.history,
             session_summary=getattr(request.context, "session_summary", None),
@@ -415,9 +387,10 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 if request.intent.capability_resolution is not None
                 else {}
             ),
-            run_plan_provider=_run_plan_provider(
-                request.context.session_id,
-                request.context.session_run_id,
+            run_plan_reader=BoundRunPlanReader(
+                store=self._deps.run_plan_store,
+                session_id=request.context.session_id,
+                run_id=run_id,
             ),
         )
 

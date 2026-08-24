@@ -14,6 +14,7 @@ from ..bootstrap.background_tasks import (
 )
 from ..core.logger import get_logger
 from ..control.permission.provider import get_permission_gateway
+from ..control.provider import resolve_control_session_store
 from ..tools import tool_registry
 from .background.notifications import broadcast_background_task_state_changed
 from .post_turn_understanding import (
@@ -158,9 +159,12 @@ class AgentRuntimeModule(LifecycleModule):
         bg_settings = deps.config.agent.background_tasks
         background_wiring = build_background_task_wiring(
             store_db_path=str(runtime_paths.background_tasks_db_path),
+            llm_adapter=deps.llm_adapter,
+            llm_pool=deps.llm_pool,
             skill_runner=deps.skill_runner,
             runtime_trace_store=deps.runtime_trace_store,
             chat_task_budget_store=deps.chat_store,
+            run_plan_store=resolve_control_session_store(),
             max_concurrent=bg_settings.max_concurrent,
             permission_gateway_provider=get_permission_gateway,
         )
@@ -265,6 +269,7 @@ class AgentRuntimeModule(LifecycleModule):
             delivery_dispatcher_resolver=self._resolve_delivery_dispatcher,
             conversation_log_resolver=self._resolve_conversation_log,
             message_bus=deps.message_bus,
+            run_plan_store=resolve_control_session_store(),
         )
 
     def _build_default_agent_factory(

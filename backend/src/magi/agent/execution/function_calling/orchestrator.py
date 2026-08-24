@@ -579,6 +579,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     ) -> AgentRunCheckpoint:
         if state.reasoning_policy is None or state.reasoning_state is None:
             raise RuntimeError("Agent run reasoning state is unavailable at checkpoint boundary")
+        plan = state.run_plan_reader.current() if state.run_plan_reader is not None else None
         return AgentRunCheckpoint(
             run_id=state.run_id,
             messages=[dict(message) for message in state.messages],
@@ -587,6 +588,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             iteration=state.iteration,
             reasoning_policy=state.reasoning_policy,
             reasoning_state=state.reasoning_state,
+            run_plan_id=plan.plan_id if plan is not None else None,
+            run_plan_version=plan.version if plan is not None else 0,
             selected_tool_names=list(state.selected_tool_names),
             repair_iterations=state.repair_iterations,
             tool_evidence=list(state.tool_evidence),

@@ -125,17 +125,15 @@ class _RegisteredToolExecutor:
                 "session_id": request.session_id or "",
                 "turn_id": request.turn_id or "",
                 "execution_preset": request.execution_preset,
-                "run_id": request.session_run_id or "",
-                "run_revision": str(request.session_run_revision),
+                "run_id": request.run_id,
+                "run_revision": str(request.run_revision),
                 "parent_reasoning_policy": json.dumps(
                     request.reasoning_policy.to_dict()
                     if request.reasoning_policy is not None
                     else {}
                 ),
                 "parent_reasoning_state": json.dumps(
-                    request.reasoning_state.to_dict()
-                    if request.reasoning_state is not None
-                    else {}
+                    request.reasoning_state.to_dict() if request.reasoning_state is not None else {}
                 ),
                 "target_task_agent_type": "chat",
                 "target_task_agent_id": target_task_agent_id,

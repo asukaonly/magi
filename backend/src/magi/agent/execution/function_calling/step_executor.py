@@ -15,6 +15,7 @@ from .step_models import (
 )
 from .step_tool_batch import FunctionCallingToolBatchExecutor
 
+
 class FunctionCallingStepExecutor:
     """Execute one LLM decision and at most one tool batch."""
 
@@ -31,8 +32,8 @@ class FunctionCallingStepExecutor:
         thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
         user_id: str,
         session_id: str | None,
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
+        run_id: str,
+        run_revision: int = 0,
         turn_id: str | None,
         execution_preset: str,
         execution_agent_id: str,
@@ -47,8 +48,8 @@ class FunctionCallingStepExecutor:
             user_message=user_message,
             user_id=user_id,
             session_id=session_id,
-            session_run_id=session_run_id,
-            session_run_revision=session_run_revision,
+            run_id=run_id,
+            run_revision=run_revision,
             turn_id=turn_id,
             execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
@@ -120,9 +121,7 @@ class FunctionCallingStepExecutor:
                 step_index=iteration,
                 payload={
                     "assistant_message": (
-                        dict(assistant_message)
-                        if isinstance(assistant_message, dict)
-                        else None
+                        dict(assistant_message) if isinstance(assistant_message, dict) else None
                     ),
                     "content": response.get("content"),
                     "tool_calls": [

@@ -45,6 +45,7 @@ def build_background_task_wiring(
     skill_runner: Any,
     runtime_trace_store: Any,
     chat_task_budget_store: Any,
+    run_plan_store: Any,
     max_concurrent: int = 2,
     permission_gateway_provider: Callable[[], Any] | None = None,
 ) -> BackgroundTaskWiring:
@@ -69,6 +70,7 @@ def build_background_task_wiring(
         function_calling_orchestrator=orchestrator,
         chat_task_budget_store=chat_task_budget_store,
         background_task_budget_store=store,
+        run_plan_store=run_plan_store,
     )
     manager = BackgroundTaskManager(
         store=store,

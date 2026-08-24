@@ -33,6 +33,7 @@ def create_chat_agent_factory(
     delivery_dispatcher_resolver: Callable[[], Any] | None = None,
     conversation_log_resolver: Callable[[], Any] | None = None,
     message_bus: Any | None = None,
+    run_plan_store: Any,
 ) -> Callable[[str], ChatTaskAgent]:
     """Return a factory callable that creates ChatTaskAgent instances."""
 
@@ -56,6 +57,7 @@ def create_chat_agent_factory(
             delivery_dispatcher_resolver=delivery_dispatcher_resolver,
             conversation_log_resolver=conversation_log_resolver,
             message_bus=message_bus,
+            run_plan_store=run_plan_store,
         )
 
     return _create

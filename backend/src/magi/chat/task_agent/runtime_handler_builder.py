@@ -73,6 +73,7 @@ def _build_handler_dependencies(
         context_assembler=context_parts.context_assembler,
         agent_id=config.agent_id,
         model_context_provider=context_parts.model_context_provider,
+        run_plan_store=config.run_plan_store,
         attachment_resolver=context_parts.attachment_resolver,
         session_run_coordinator=execution_parts.session_run_coordinator,
         background_launch_service=config.background_launch_service,

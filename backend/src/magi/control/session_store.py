@@ -122,7 +122,7 @@ class AskState:
 @dataclass(slots=True)
 class _SessionEntry:
     plan: PlanModeState = field(default_factory=PlanModeState)
-    run_plan: RunPlan | None = None
+    run_plans: dict[str, RunPlan] = field(default_factory=dict)
     ask: AskState | None = None
 
 
@@ -178,13 +178,11 @@ class ControlSessionStore:
                     ORDER BY session_id ASC, updated_at_ms DESC
                     """
                 )
-                seen_sessions: set[str] = set()
                 for row in await cursor.fetchall():
                     plan = RunPlan.from_dict(json.loads(row["plan_json"]))
-                    if plan.session_id in seen_sessions:
-                        continue
-                    seen_sessions.add(plan.session_id)
-                    self._entries.setdefault(plan.session_id, _SessionEntry()).run_plan = plan
+                    self._entries.setdefault(plan.session_id, _SessionEntry()).run_plans[
+                        plan.run_id
+                    ] = plan
         self._initialized = True
 
     async def shutdown(self) -> None:
@@ -203,19 +201,12 @@ class ControlSessionStore:
         operation instead of leaving a publish window after the store write.
         """
         generation = (
-            self._clear_generation
-            if expected_generation is None
-            else int(expected_generation)
+            self._clear_generation if expected_generation is None else int(expected_generation)
         )
         if self._clear_request_count > 0:
-            raise ControlSessionClearedError(
-                "control session content is being cleared"
-            )
+            raise ControlSessionClearedError("control session content is being cleared")
         async with self._clear_barrier.operation():
-            if (
-                self._clear_request_count > 0
-                or generation != self._clear_generation
-            ):
+            if self._clear_request_count > 0 or generation != self._clear_generation:
                 raise ControlSessionClearedError(
                     "control session operation crossed a full data clear"
                 )
@@ -295,9 +286,7 @@ class ControlSessionStore:
         state = self.plan_state(session_id)
         if not state.active:
             return True
-        allowlist: tuple[str, ...] = (
-            state.allowed_tools or self._default_plan_mode_allowed_tools
-        )
+        allowlist: tuple[str, ...] = state.allowed_tools or self._default_plan_mode_allowed_tools
         return tool_name in allowlist
 
     # ------------------------------------------------------------------
@@ -323,9 +312,7 @@ class ControlSessionStore:
         async with self.user_content_operation():
             async with self._lock:
                 entry = self._entries.setdefault(normalized_session_id, _SessionEntry())
-                current = entry.run_plan
-                if current is not None and current.run_id != normalized_run_id:
-                    current = None
+                current = entry.run_plans.get(normalized_run_id)
                 plan = apply_plan_mutation(
                     current,
                     session_id=normalized_session_id,
@@ -337,7 +324,7 @@ class ControlSessionStore:
                     item_mutations=item_mutations,
                 )
                 await self._persist_run_plan(plan)
-                entry.run_plan = plan
+                entry.run_plans[normalized_run_id] = plan
                 return plan
 
     def current_run_plan(
@@ -349,10 +336,15 @@ class ControlSessionStore:
         if self._clear_request_count > 0:
             return None
         entry = self._entries.get(session_id)
-        plan = entry.run_plan if entry else None
-        if plan is None or (run_id is not None and plan.run_id != run_id):
+        if entry is None:
             return None
-        return plan
+        if run_id is not None:
+            return entry.run_plans.get(run_id)
+        return max(
+            entry.run_plans.values(),
+            key=lambda plan: plan.updated_at_ms,
+            default=None,
+        )
 
     async def _persist_run_plan(self, plan: RunPlan) -> None:
         if self._db_path is None:
@@ -428,12 +420,8 @@ class ControlSessionStore:
     ) -> AskState:
         async with self.user_content_operation() as generation:
             now = time.time()
-            timeout_value = (
-                float(timeout_seconds) if timeout_seconds is not None else None
-            )
-            expires_at = (
-                now + timeout_value if timeout_value and timeout_value > 0 else None
-            )
+            timeout_value = float(timeout_seconds) if timeout_seconds is not None else None
+            expires_at = now + timeout_value if timeout_value and timeout_value > 0 else None
             async with self._lock:
                 entry = self._entries.setdefault(session_id, _SessionEntry())
                 entry.ask = AskState(
@@ -457,9 +445,7 @@ class ControlSessionStore:
         answer: str | None,
         resolution: str,
     ) -> AskState | None:
-        async with self.user_content_operation(
-            expected_generation=expected_generation
-        ):
+        async with self.user_content_operation(expected_generation=expected_generation):
             async with self._lock:
                 entry = self._entries.get(session_id)
                 if (

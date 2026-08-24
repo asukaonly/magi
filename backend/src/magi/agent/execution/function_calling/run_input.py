@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from ...turn_input import UserTurnInput
@@ -13,6 +13,7 @@ from ..completion_policy import CompletionPolicy
 from ..checkpoint import AgentRunCheckpoint
 from ..model_capabilities import ModelCapabilityProfile
 from ..reasoning import ReasoningPolicy, ReasoningState
+from ..run_plan_port import NullRunPlanReader, RunPlanReader
 
 DEFAULT_MAX_ITERATIONS = 30
 
@@ -30,8 +31,7 @@ class AgentRunRequest:
     parent_run_id: str | None = None
     checkpoint: AgentRunCheckpoint | None = None
     session_id: str | None = None
-    session_run_id: str | None = None
-    session_run_revision: int = 0
+    run_revision: int = 0
     turn_id: str | None = None
     conversation_history: list[dict[str, Any]] | None = None
     session_summary: str | None = None
@@ -50,7 +50,7 @@ class AgentRunRequest:
     completion_policy: CompletionPolicy = field(default_factory=CompletionPolicy)
     context_sources: tuple[dict[str, Any], ...] = ()
     capability_resolution: dict[str, Any] = field(default_factory=dict)
-    run_plan_provider: Callable[[], Any] | None = None
+    run_plan_reader: RunPlanReader = field(default_factory=NullRunPlanReader)
     model_capabilities: ModelCapabilityProfile | None = None
 
     control: RunControl | None = None
@@ -61,6 +61,13 @@ class AgentRunRequest:
         self.run_id = self.checkpoint.run_id
         self.reasoning_policy = self.checkpoint.reasoning_policy
         self.reasoning_state = self.checkpoint.reasoning_state
+        plan = self.run_plan_reader.current()
+        if self.checkpoint.run_plan_id is None:
+            return
+        if plan is None or plan.plan_id != self.checkpoint.run_plan_id:
+            raise RuntimeError("Checkpoint run plan is unavailable for the canonical run")
+        if plan.version < self.checkpoint.run_plan_version:
+            raise RuntimeError("Checkpoint run plan version is newer than the plan store")
 
     @classmethod
     def headless(
@@ -87,8 +94,8 @@ class AgentRunRequest:
         checkpoint: AgentRunCheckpoint | None = None,
         run_id: str | None = None,
         parent_run_id: str | None = None,
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
+        run_revision: int = 0,
+        run_plan_reader: RunPlanReader | None = None,
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
@@ -99,8 +106,7 @@ class AgentRunRequest:
             parent_run_id=parent_run_id,
             checkpoint=checkpoint,
             session_id=session_id,
-            session_run_id=session_run_id,
-            session_run_revision=session_run_revision,
+            run_revision=run_revision,
             turn_id=turn_id,
             conversation_history=conversation_history,
             max_iterations=max_iterations,
@@ -114,6 +120,7 @@ class AgentRunRequest:
             final_response_json_mode=final_response_json_mode,
             ephemeral_context=ephemeral_context,
             context_sources=context_sources,
+            run_plan_reader=run_plan_reader or NullRunPlanReader(),
         )
 
 

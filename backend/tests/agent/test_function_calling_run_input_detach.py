@@ -1,4 +1,5 @@
 """Integration tests for run-input and detach handling in the unified loop."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -20,6 +21,8 @@ from magi.control.run_control import (
     null_run_control,
 )
 from magi.agent.turn_input import UserTurnInput
+from magi.agent.execution.run_plan_port import BoundRunPlanReader
+from magi.control.session_store import ControlSessionStore
 
 
 class _FakeToolRegistry:
@@ -86,8 +89,11 @@ async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await run_agent(orchestrator,
-        turn=UserTurnInput(text="Write a sorting example.", attachments=[], user_id=None, session_id=None),
+    outcome = await run_agent(
+        orchestrator,
+        turn=UserTurnInput(
+            text="Write a sorting example.", attachments=[], user_id=None, session_id=None
+        ),
         system_prompt="system prompt",
         selected_tools=[],
         user_id="u",
@@ -126,7 +132,8 @@ async def test_execute_with_tools_skips_empty_run_inputs(monkeypatch) -> None:
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await run_agent(orchestrator,
+    outcome = await run_agent(
+        orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
@@ -143,6 +150,15 @@ async def test_execute_with_tools_returns_detached_with_snapshot(monkeypatch) ->
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
 
     detach = DetachSignal()
+    plan_store = ControlSessionStore()
+    plan = await plan_store.mutate_run_plan(
+        "session-1",
+        run_id="run-1",
+        plan_id=None,
+        expected_version=0,
+        required=True,
+        item_mutations=[{"content": "Finish the work", "status": "in_progress"}],
+    )
     iteration_counter = {"value": 0}
 
     async def _fake_call_llm_with_tools(*, messages, **_kwargs):  # type: ignore[no-untyped-def]
@@ -185,11 +201,15 @@ async def test_execute_with_tools_returns_detached_with_snapshot(monkeypatch) ->
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
     monkeypatch.setattr(orchestrator, "_execute_tool_call", _fake_execute_tool_call)
 
-    outcome = await run_agent(orchestrator,
+    outcome = await run_agent(
+        orchestrator,
         turn=UserTurnInput(text="start work", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=["noop_tool"],
         user_id="u",
+        run_id="run-1",
+        session_id="session-1",
+        run_plan_reader=BoundRunPlanReader(plan_store, "session-1", "run-1"),
         max_iterations=5,
         control=_run_control(detach_signal=detach),
     )
@@ -208,6 +228,9 @@ async def test_execute_with_tools_returns_detached_with_snapshot(monkeypatch) ->
     assert "tool" in roles
     assert outcome.snapshot.reason == "user_request"
     assert outcome.snapshot.note == "move to bg"
+    assert outcome.snapshot.run_id == "run-1"
+    assert outcome.snapshot.run_plan_id == plan.plan_id
+    assert outcome.snapshot.run_plan_version == plan.version
 
 
 @pytest.mark.asyncio
@@ -224,7 +247,8 @@ async def test_execute_with_tools_detach_before_first_llm_call(monkeypatch) -> N
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _never_called)
 
-    outcome = await run_agent(orchestrator,
+    outcome = await run_agent(
+        orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],
@@ -257,7 +281,8 @@ async def test_execute_with_tools_without_signals_behaves_like_before(monkeypatc
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
 
-    outcome = await run_agent(orchestrator,
+    outcome = await run_agent(
+        orchestrator,
         turn=UserTurnInput(text="hi", attachments=[], user_id=None, session_id=None),
         system_prompt="sys",
         selected_tools=[],

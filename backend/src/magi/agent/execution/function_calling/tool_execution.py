@@ -115,7 +115,6 @@ def _inject_memory_query_context(
     return enriched
 
 
-
 def _build_registered_tool_execution_request(
     *,
     tool_call: ToolCall,
@@ -127,8 +126,8 @@ def _build_registered_tool_execution_request(
     execution_preset: str,
     execution_agent_id: str,
     execution_workspace: str | None,
-    session_run_id: str | None,
-    session_run_revision: int,
+    run_id: str,
+    run_revision: int,
     reasoning_policy: Any = None,
     reasoning_state: Any = None,
     user_message: str | None,
@@ -147,8 +146,8 @@ def _build_registered_tool_execution_request(
         execution_preset=execution_preset,
         execution_agent_id=execution_agent_id,
         execution_workspace=execution_workspace,
-        session_run_id=session_run_id,
-        session_run_revision=session_run_revision,
+        run_id=run_id,
+        run_revision=run_revision,
         reasoning_policy=reasoning_policy,
         reasoning_state=reasoning_state,
         user_message=user_message,
@@ -169,8 +168,8 @@ def _prepare_registered_tool_execution_request(
     execution_preset: str,
     execution_agent_id: str,
     execution_workspace: str | None,
-    session_run_id: str | None,
-    session_run_revision: int,
+    run_id: str,
+    run_revision: int,
     reasoning_policy: Any = None,
     reasoning_state: Any = None,
     user_message: str | None,
@@ -193,8 +192,8 @@ def _prepare_registered_tool_execution_request(
         execution_preset=execution_preset,
         execution_agent_id=execution_agent_id,
         execution_workspace=execution_workspace,
-        session_run_id=session_run_id,
-        session_run_revision=session_run_revision,
+        run_id=run_id,
+        run_revision=run_revision,
         reasoning_policy=reasoning_policy,
         reasoning_state=reasoning_state,
         user_message=user_message,
@@ -203,6 +202,7 @@ def _prepare_registered_tool_execution_request(
         token=token,
         workspace_root=host._resolve_execution_workspace(execution_workspace),
     )
+
 
 class FunctionCallingToolExecutionMixin:
     """Execute concrete tool calls and skill-backed tools."""
@@ -216,8 +216,8 @@ class FunctionCallingToolExecutionMixin:
         execution_preset: str,
         execution_agent_id: str,
         execution_workspace: str | None,
-        session_run_id: str | None = None,
-        session_run_revision: int = 0,
+        run_id: str,
+        run_revision: int = 0,
         reasoning_policy: Any = None,
         reasoning_state: Any = None,
         user_message: str | None = None,
@@ -236,8 +236,8 @@ class FunctionCallingToolExecutionMixin:
             execution_preset=execution_preset,
             execution_agent_id=execution_agent_id,
             execution_workspace=execution_workspace,
-            session_run_id=session_run_id,
-            session_run_revision=session_run_revision,
+            run_id=run_id,
+            run_revision=run_revision,
             reasoning_policy=reasoning_policy,
             reasoning_state=reasoning_state,
             user_message=user_message,

@@ -309,9 +309,7 @@ class FunctionCallingToolBatchExecutor:
                         if repeated_blocker
                         else "Tool is unavailable for the rest of this run after a terminal error."
                     ),
-                    error_code=(
-                        "REPEATED_TOOL_BLOCKER" if repeated_blocker else "TOOL_SUPPRESSED"
-                    ),
+                    error_code=("REPEATED_TOOL_BLOCKER" if repeated_blocker else "TOOL_SUPPRESSED"),
                 ),
             )
         if fingerprint in state.failed_tool_call_fingerprints:
@@ -338,8 +336,8 @@ class FunctionCallingToolBatchExecutor:
                 user_message=ctx.user_message,
                 user_id=ctx.user_id,
                 session_id=ctx.session_id,
-                session_run_id=ctx.session_run_id,
-                session_run_revision=ctx.session_run_revision,
+                run_id=ctx.run_id,
+                run_revision=ctx.run_revision,
                 reasoning_policy=state.reasoning_policy,
                 reasoning_state=state.reasoning_state,
                 turn_id=ctx.turn_id,
@@ -714,8 +712,7 @@ class FunctionCallingToolBatchExecutor:
             {
                 str(result.error_code or "").strip()
                 for result in tool_results
-                if result.tool_name in newly_suppressed
-                and str(result.error_code or "").strip()
+                if result.tool_name in newly_suppressed and str(result.error_code or "").strip()
             }
         )
 

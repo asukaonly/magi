@@ -110,6 +110,7 @@ class BackgroundTaskSpec:
     origin_turn_id: str
     title: str
     goal: str
+    run_id: str = field(default_factory=lambda: uuid4().hex)
     selected_tools: list[str] = field(default_factory=list)
     system_prompt: str = ""
     execution_preset: str = "background"
@@ -145,6 +146,14 @@ class BackgroundTaskSpec:
     today; legacy detach paths leave it ``None``.
     """
 
+    def __post_init__(self) -> None:
+        checkpoint = self.agent_run_checkpoint
+        if checkpoint is None:
+            return
+        checkpoint_run_id = str(checkpoint.get("run_id") or "").strip()
+        if not checkpoint_run_id or checkpoint_run_id != self.run_id:
+            raise ValueError("Background checkpoint must match the spec run_id")
+
     def as_run_request(self) -> RunRequest:
         """Project this background spec into a unified ``RunRequest`` (ADR-0004 P3).
 
@@ -177,6 +186,7 @@ class BackgroundTaskSpec:
             "origin_turn_id": self.origin_turn_id,
             "title": self.title,
             "goal": self.goal,
+            "run_id": self.run_id,
             "selected_tools": list(self.selected_tools),
             "system_prompt": self.system_prompt,
             "execution_preset": self.execution_preset,
@@ -209,20 +219,17 @@ class BackgroundTaskSpec:
             origin_turn_id=str(data["origin_turn_id"]),
             title=str(data["title"]),
             goal=str(data["goal"]),
+            run_id=str(data["run_id"]),
             selected_tools=list(data.get("selected_tools") or []),
             system_prompt=str(data.get("system_prompt") or ""),
             execution_preset=str(data.get("execution_preset") or "background"),
             reasoning_policy=dict(data.get("reasoning_policy") or {}),
             parent_run_id=(
-                str(data["parent_run_id"])
-                if data.get("parent_run_id") is not None
-                else None
+                str(data["parent_run_id"]) if data.get("parent_run_id") is not None else None
             ),
             final_response_json_mode=bool(data.get("final_response_json_mode", False)),
             context_sources=tuple(
-                deepcopy(item)
-                for item in data.get("context_sources", [])
-                if isinstance(item, dict)
+                deepcopy(item) for item in data.get("context_sources", []) if isinstance(item, dict)
             ),
             workspace_path=(
                 str(data["workspace_path"]) if data.get("workspace_path") is not None else None
