@@ -13,7 +13,6 @@ from ..bootstrap.background_tasks import (
     build_background_task_wiring,
 )
 from ..core.logger import get_logger
-from ..control.provider import resolve_control_session_store
 from ..control.permission.provider import get_permission_gateway
 from ..tools import tool_registry
 from .background.notifications import broadcast_background_task_state_changed
@@ -265,7 +264,6 @@ class AgentRuntimeModule(LifecycleModule):
                 background_wiring.launch_service if bg_settings.enabled else None
             ),
             permission_gateway_provider=get_permission_gateway,
-            control_session_store_provider=resolve_control_session_store,
             delivery_dispatcher_resolver=self._resolve_delivery_dispatcher,
             conversation_log_resolver=self._resolve_conversation_log,
             message_bus=deps.message_bus,
@@ -287,7 +285,6 @@ class AgentRuntimeModule(LifecycleModule):
                 "sensor ingestion gateway",
             ),
             build_timeline_handler=self._build_timeline_handler,
-            control_session_store_provider=resolve_control_session_store,
             chat_store=deps.chat_store,
         )
 

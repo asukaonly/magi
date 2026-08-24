@@ -52,7 +52,6 @@ class ChatTaskAgentRuntimeConfig:
     chat_read_service_factory: Callable[[], ChatReadService] | None = None
     background_launch_service: Any | None = None
     permission_gateway_provider: Callable[[], Any] | None = None
-    control_session_store_provider: Callable[[], Any] | None = None
     delivery_dispatcher_resolver: Callable[[], Any] | None = None
     conversation_log_resolver: Callable[[], Any] | None = None
     message_bus: Any | None = None

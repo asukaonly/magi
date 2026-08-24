@@ -24,7 +24,6 @@ def create_default_agent_factory(
     sensor_registry: Any,
     sensor_ingestion_gateway: Any,
     build_timeline_handler: Callable[..., Any],
-    control_session_store_provider: Callable[[], Any] | None = None,
     chat_store: Any | None = None,
 ) -> Callable[[str, str], Any]:
     """Return a factory callable that creates non-chat task agent instances."""
@@ -35,7 +34,6 @@ def create_default_agent_factory(
                 agent_id=agent_id,
                 llm_adapter=llm_adapter,
                 llm_pool=llm_pool,
-                control_session_store_provider=control_session_store_provider,
                 chat_store=chat_store,
             )
         if agent_type == TaskAgentType.TIMELINE.value:

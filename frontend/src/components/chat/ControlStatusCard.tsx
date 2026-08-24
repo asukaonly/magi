@@ -389,10 +389,19 @@ export const ControlStatusCard = ({ message, shouldReduceMotion }: ControlStatus
             {presentation.items.length ? (
               <ul className="space-y-2">
                 {presentation.items.map((item) => {
-                  const glyph = item.status === 'completed' ? '●' : item.status === 'in_progress' ? '◐' : '○';
+                  const glyph = item.status === 'completed'
+                    ? '●'
+                    : item.status === 'in_progress'
+                      ? '◐'
+                      : item.status === 'blocked'
+                        ? '!'
+                        : item.status === 'cancelled' || item.status === 'skipped'
+                          ? '–'
+                          : '○';
+                  const terminalMuted = ['completed', 'skipped', 'cancelled'].includes(item.status);
 
                   return (
-                    <li key={item.id} className={`flex items-start gap-2 text-sm ${item.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                    <li key={item.id} className={`flex items-start gap-2 text-sm ${terminalMuted ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                       <span className="shrink-0 font-mono">{glyph}</span>
                       <span className="flex-1">{item.content}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">{t(`control:todo.status.${item.status}`)}</span>

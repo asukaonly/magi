@@ -70,6 +70,25 @@ def _build_inline_skill_prompt(request: ExecutionRequest) -> str:
     )
 
 
+def _run_plan_provider(session_id: str, run_id: str | None):
+    normalized_run_id = str(run_id or "").strip()
+
+    def _resolve():
+        if not normalized_run_id:
+            return None
+        try:
+            from magi.control.provider import resolve_control_session_store
+
+            return resolve_control_session_store().current_run_plan(
+                session_id,
+                run_id=normalized_run_id,
+            )
+        except RuntimeError:
+            return None
+
+    return _resolve
+
+
 def _build_context_sources(
     request: ExecutionRequest,
     prompt_context: Any,
@@ -406,6 +425,10 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 request.intent.capability_resolution.to_event_payload()
                 if request.intent.capability_resolution is not None
                 else {}
+            ),
+            run_plan_provider=_run_plan_provider(
+                request.context.session_id,
+                request.context.session_run_id,
             ),
         )
 

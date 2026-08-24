@@ -162,7 +162,6 @@ class TaskOrchestrationUpdateProcessor:
     ) -> None:
         for state in states:
             await self._host._orchestration_store.save_orchestration(state)
-            await self._host._publish_session_todos(state)
 
     async def _finish_terminal_states(
         self,

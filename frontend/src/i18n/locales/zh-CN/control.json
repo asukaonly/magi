@@ -88,9 +88,12 @@
     "title": "待办列表",
     "empty": "暂无待办。",
     "status": {
-      "not_started": "未开始",
+      "pending": "待处理",
       "in_progress": "进行中",
-      "completed": "已完成"
+      "completed": "已完成",
+      "blocked": "已阻塞",
+      "skipped": "已跳过",
+      "cancelled": "已取消"
     }
   },
   "settings": {

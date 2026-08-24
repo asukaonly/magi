@@ -17,7 +17,6 @@ from .orchestration import (
     get_orchestration_store,
 )
 from .task_orchestration_lifecycle import TaskOrchestrationLifecyclePublisher
-from .task_orchestration_todos import TaskOrchestrationTodosMixin
 from .task_orchestration_transitions import mark_remaining_subtasks_cancelled
 from .task_orchestration_updates import TaskOrchestrationUpdateProcessor
 from .task_orchestration_workers import TaskOrchestrationWorkerMixin
@@ -37,12 +36,8 @@ WorkerPlanCallback = Callable[
 AggregateCallback = Callable[[TaskOrchestrationState], Awaitable[str]]
 HistoryCallback = Callable[[str, str], None]
 SessionWorkspaceProvider = Callable[..., Awaitable[str | None] | str | None]
-ControlSessionStoreProvider = Callable[[], Any]
-
-
 class TaskOrchestrator(
     TaskOrchestrationWorkerMixin,
-    TaskOrchestrationTodosMixin,
     TaskOrchestrationWorkspaceMixin,
 ):
     """Runtime parent-task orchestrator shared by task agents."""
@@ -56,7 +51,6 @@ class TaskOrchestrator(
         register_user_message: HistoryCallback,
         parent_task_agent_type: str = "chat",
         session_workspace_provider: SessionWorkspaceProvider | None = None,
-        control_session_store_provider: ControlSessionStoreProvider | None = None,
     ) -> None:
         self._runtime_key = runtime_key
         self._tool_registry = tool_registry
@@ -65,7 +59,6 @@ class TaskOrchestrator(
         self._register_user_message = register_user_message
         self._parent_task_agent_type = parent_task_agent_type
         self._session_workspace_provider = session_workspace_provider
-        self._control_session_store_provider = control_session_store_provider
         self._orchestration_store = get_orchestration_store()
         self._lifecycle_publisher = TaskOrchestrationLifecyclePublisher(self)
         self._starter = TaskOrchestrationStarter(self)

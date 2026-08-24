@@ -14,7 +14,7 @@ Wiring order:
    in-memory otherwise for tests).
 2. Build settings manager seeded from defaults (L0 preference
    persistence is orthogonal and loads later).
-3. Build broker + session store (pure in-memory).
+3. Build broker + session store and hydrate durable run plans.
 4. Wire the gateway, pointing its ``plan_mode_guard`` at the session
    store's ``plan_allows`` method.
 5. Override the DI container providers so every consumer — API
@@ -141,7 +141,14 @@ class ControlPlaneModule(LifecycleModule):
 
         settings_manager = ControlSettingsManager(ControlSettings())
         broker = InteractionBroker()
-        session_store = ControlSessionStore()
+        session_store = ControlSessionStore(
+            db_path=(
+                runtime_paths.runtime_trace_db_path
+                if runtime_paths is not None
+                else None
+            )
+        )
+        await session_store.initialize()
         pending_permissions = PendingPermissionRegistry()
         user_content_clear = ControlUserContentClearCoordinator(
             session_store=session_store,
@@ -215,6 +222,7 @@ class ControlPlaneModule(LifecycleModule):
         container.pending_permission_registry.reset_override()
 
         if self._wiring is not None:
+            await self._wiring.session_store.shutdown()
             try:
                 await self._wiring.broker.close(reason="shutdown")
             except Exception as exc:  # pragma: no cover — defensive

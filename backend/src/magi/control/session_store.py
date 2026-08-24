@@ -5,108 +5,51 @@ Holds the non-permission state shared across the control-plane tools:
 * **Plan mode** — whether the session is currently in read-only
   planning, which tools are allowed while in that mode, and the
   authoring plan text.
-* **Todo list** — the working task list maintained by ``todo_write``.
-  The in-progress cap (≤ 1) is enforced here so any caller (UI,
-  tool, test) gets consistent validation.
+* **Run plan** — the durable, versioned plan maintained by ``todo_write``.
 * **Ask state** — the last outstanding ``ask_user_question`` request
   for the session, so the UI can render or replay it even if the IPC
   event was missed.
 
-The store is purely in-memory. Durability is an orthogonal concern:
-sessions that survive restarts will rehydrate through their own
-persistence layer and replay ``set_plan``/``set_todos`` on load.
+Plan mode and asks are process-local control state. Run plans are persisted in
+the runtime database and rehydrated at startup.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
+import aiosqlite
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from enum import Enum
+from pathlib import Path
 from typing import Any, Iterable
 
 from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.core.sqlite import sqlite_connection_async
+
+from .run_plan import (
+    RunPlan,
+    RunPlanError,
+    RunPlanVersionConflict,
+    TodoItem,
+    TodoStatus,
+    apply_plan_mutation,
+)
 
 __all__ = [
     "AskState",
     "ControlSessionClearedError",
     "ControlSessionStore",
     "PlanModeState",
+    "RunPlan",
+    "RunPlanError",
+    "RunPlanVersionConflict",
     "TodoItem",
     "TodoStatus",
-    "TodoListError",
 ]
-
-
-class TodoStatus(str, Enum):
-    NOT_STARTED = "not_started"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-
-
-@dataclass(slots=True)
-class TodoItem:
-    id: str
-    content: str
-    status: TodoStatus = TodoStatus.NOT_STARTED
-    created_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
-    updated_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
-
-    @property
-    def title(self) -> str:
-        return self.content
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "content": self.content,
-            "status": self.status.value,
-            "created_at_ms": self.created_at_ms,
-            "updated_at_ms": self.updated_at_ms,
-        }
-
-    @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "TodoItem":
-        status_raw = payload.get("status") or TodoStatus.NOT_STARTED.value
-        try:
-            status = TodoStatus(status_raw)
-        except ValueError:
-            status = TodoStatus.NOT_STARTED
-        item_id = payload.get("id") or uuid.uuid4().hex
-        content = str(payload.get("content") or payload.get("title") or "").strip()
-        if not content:
-            raise TodoListError("each todo item requires non-empty content")
-        created_at_ms = _coerce_timestamp_ms(payload.get("created_at_ms"))
-        updated_at_ms = _coerce_timestamp_ms(payload.get("updated_at_ms"))
-        if created_at_ms is None:
-            created_at_ms = int(time.time() * 1000)
-        if updated_at_ms is None:
-            updated_at_ms = created_at_ms
-        if updated_at_ms < created_at_ms:
-            updated_at_ms = created_at_ms
-        return cls(
-            id=str(item_id),
-            content=content,
-            status=status,
-            created_at_ms=created_at_ms,
-            updated_at_ms=updated_at_ms,
-        )
-
-
-def _coerce_timestamp_ms(value: Any) -> int | None:
-    try:
-        if value is None or value == "":
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-class TodoListError(ValueError):
-    """Raised when a todo list violates the server-side invariants."""
 
 
 class ControlSessionClearedError(RuntimeError):
@@ -179,7 +122,7 @@ class AskState:
 @dataclass(slots=True)
 class _SessionEntry:
     plan: PlanModeState = field(default_factory=PlanModeState)
-    todos: list[TodoItem] = field(default_factory=list)
+    run_plan: RunPlan | None = None
     ask: AskState | None = None
 
 
@@ -202,17 +145,15 @@ DEFAULT_PLAN_MODE_ALLOWED_TOOLS: tuple[str, ...] = (
 
 
 class ControlSessionStore:
-    """Thread-safe, async-locked, in-memory state keyed by ``session_id``.
-
-    A single instance is process-global; concurrent workers coordinate
-    on the internal ``asyncio.Lock``.
-    """
+    """Process-wide control state plus durable, versioned run plans."""
 
     def __init__(
         self,
         *,
+        db_path: str | Path | None = None,
         default_plan_mode_allowed_tools: Iterable[str] = DEFAULT_PLAN_MODE_ALLOWED_TOOLS,
     ) -> None:
+        self._db_path = str(Path(db_path).expanduser()) if db_path is not None else None
         self._entries: dict[str, _SessionEntry] = {}
         self._lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
@@ -221,6 +162,33 @@ class ControlSessionStore:
         self._default_plan_mode_allowed_tools: tuple[str, ...] = tuple(
             default_plan_mode_allowed_tools
         )
+        self._initialized = False
+
+    async def initialize(self) -> None:
+        """Load the latest durable plan for every session."""
+        if self._initialized:
+            return
+        if self._db_path is not None:
+            async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """
+                    SELECT plan_json
+                    FROM run_plans
+                    ORDER BY session_id ASC, updated_at_ms DESC
+                    """
+                )
+                seen_sessions: set[str] = set()
+                for row in await cursor.fetchall():
+                    plan = RunPlan.from_dict(json.loads(row["plan_json"]))
+                    if plan.session_id in seen_sessions:
+                        continue
+                    seen_sessions.add(plan.session_id)
+                    self._entries.setdefault(plan.session_id, _SessionEntry()).run_plan = plan
+        self._initialized = True
+
+    async def shutdown(self) -> None:
+        self._initialized = False
 
     @asynccontextmanager
     async def user_content_operation(
@@ -261,6 +229,7 @@ class ControlSessionStore:
         try:
             async with self._clear_barrier.exclusive():
                 async with self._lock:
+                    await self._delete_all_run_plans()
                     self._entries.clear()
                 yield
         finally:
@@ -332,40 +301,116 @@ class ControlSessionStore:
         return tool_name in allowlist
 
     # ------------------------------------------------------------------
-    # Todos
+    # Run plan
     # ------------------------------------------------------------------
 
-    async def replace_todos(
-        self, session_id: str, items: Iterable[dict[str, Any] | TodoItem]
-    ) -> list[TodoItem]:
-        """Replace the todo list wholesale; enforces ≤ 1 in-progress."""
-        todos: list[TodoItem] = []
-        seen_ids: set[str] = set()
-        in_progress_count = 0
-        for raw in items:
-            item = raw if isinstance(raw, TodoItem) else TodoItem.from_dict(raw)
-            if item.id in seen_ids:
-                raise TodoListError(f"duplicate todo id: {item.id}")
-            seen_ids.add(item.id)
-            if item.status is TodoStatus.IN_PROGRESS:
-                in_progress_count += 1
-                if in_progress_count > 1:
-                    raise TodoListError(
-                        "only one todo may be in_progress at a time"
-                    )
-            todos.append(item)
-
+    async def mutate_run_plan(
+        self,
+        session_id: str,
+        *,
+        run_id: str,
+        plan_id: str | None,
+        expected_version: int,
+        required: bool | None = None,
+        status: str | None = None,
+        item_mutations: Iterable[dict[str, Any]] = (),
+    ) -> RunPlan:
+        """Apply one optimistic, versioned plan mutation."""
+        normalized_session_id = str(session_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_session_id or not normalized_run_id:
+            raise RunPlanError("session_id and run_id are required")
         async with self.user_content_operation():
             async with self._lock:
-                entry = self._entries.setdefault(session_id, _SessionEntry())
-                entry.todos = todos
-                return list(entry.todos)
+                entry = self._entries.setdefault(normalized_session_id, _SessionEntry())
+                current = entry.run_plan
+                if current is not None and current.run_id != normalized_run_id:
+                    current = None
+                plan = apply_plan_mutation(
+                    current,
+                    session_id=normalized_session_id,
+                    run_id=normalized_run_id,
+                    plan_id=plan_id,
+                    expected_version=expected_version,
+                    required=required,
+                    status=status,
+                    item_mutations=item_mutations,
+                )
+                await self._persist_run_plan(plan)
+                entry.run_plan = plan
+                return plan
 
-    def list_todos(self, session_id: str) -> list[TodoItem]:
+    def current_run_plan(
+        self,
+        session_id: str,
+        *,
+        run_id: str | None = None,
+    ) -> RunPlan | None:
         if self._clear_request_count > 0:
-            return []
+            return None
         entry = self._entries.get(session_id)
-        return list(entry.todos) if entry else []
+        plan = entry.run_plan if entry else None
+        if plan is None or (run_id is not None and plan.run_id != run_id):
+            return None
+        return plan
+
+    async def _persist_run_plan(self, plan: RunPlan) -> None:
+        if self._db_path is None:
+            return
+        payload = json.dumps(plan.to_dict(), ensure_ascii=False, separators=(",", ":"))
+        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+            await db.execute(
+                """
+                INSERT INTO run_plans (
+                    plan_id, run_id, session_id, version, required, status,
+                    plan_json, created_at_ms, updated_at_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(plan_id) DO UPDATE SET
+                    version = excluded.version,
+                    required = excluded.required,
+                    status = excluded.status,
+                    plan_json = excluded.plan_json,
+                    updated_at_ms = excluded.updated_at_ms
+                """,
+                (
+                    plan.plan_id,
+                    plan.run_id,
+                    plan.session_id,
+                    plan.version,
+                    1 if plan.required else 0,
+                    plan.status.value,
+                    payload,
+                    plan.created_at_ms,
+                    plan.updated_at_ms,
+                ),
+            )
+            await db.commit()
+
+    async def _delete_all_run_plans(self) -> None:
+        if self._db_path is None:
+            return
+        async with sqlite_connection_async(self._db_path, profile="hot_write") as db:
+            await db.execute("DELETE FROM run_plans")
+            await db.commit()
+
+    async def clear_session(self, session_id: str) -> None:
+        """Remove all control state and durable plans for one session."""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            return
+        async with self.user_content_operation():
+            async with self._lock:
+                if self._db_path is not None:
+                    async with sqlite_connection_async(
+                        self._db_path,
+                        profile="hot_write",
+                    ) as db:
+                        await db.execute(
+                            "DELETE FROM run_plans WHERE session_id = ?",
+                            (normalized_session_id,),
+                        )
+                        await db.commit()
+                self._entries.pop(normalized_session_id, None)
 
     # ------------------------------------------------------------------
     # Ask state

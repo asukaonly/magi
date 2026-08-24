@@ -1,15 +1,15 @@
-"""``todo_write`` — manage the session todo list."""
+"""``todo_write`` — versioned mutations for the current run plan."""
 
 from __future__ import annotations
 
-import uuid
 from typing import Any, Dict
 
 from magi.control.common.events import publish_control_todo_state_changed
 from magi.control.provider import resolve_control_session_store
 from magi.core.logger import get_logger
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from magi.control.session_store import ControlSessionClearedError, TodoListError
+from magi.control.session_store import ControlSessionClearedError
+from magi.control.run_plan import RunPlanError
 from magi_plugin_sdk.tools import (
     ParameterType,
     Tool,
@@ -23,40 +23,56 @@ logger = get_logger(__name__)
 
 
 class TodoWriteTool(Tool):
-    """Replace the session todo list.
-
-    The full list is replaced in one call — ``items`` is the complete
-    desired state. Each item has ``title`` (required) and ``status``
-    (``not_started`` / ``in_progress`` / ``completed``; defaults to
-    ``not_started``). ``id`` is optional and auto-generated if absent.
-
-    Server-side invariant: at most one item may be ``in_progress``
-    at any time. Violations return an error without mutating state.
-    """
+    """Create or patch a runtime-owned plan using optimistic concurrency."""
 
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="todo_write",
             description=(
-                "Replace the session's todo list. Call this to track "
-                "progress through multi-step work: add new items, mark "
-                "the current one as in_progress, and mark completed ones "
-                "as completed. Always send the full list — it replaces "
-                "the previous one. At most one item may be in_progress "
-                "at a time."
+                "Create or update the current run plan. The runtime owns IDs, "
+                "versions, and state transitions. Create with expected_version=0 "
+                "and no plan_id. For every later mutation, send the returned "
+                "plan_id and version. Items are patches, not a full replacement. "
+                "A completed item must cite evidence_refs returned by earlier "
+                "tool observations. At most one item may be in_progress."
             ),
             category="control",
             effect_class="external_write",
             parameters=[
                 ToolParameter(
+                    name="plan_id",
+                    type=ParameterType.STRING,
+                    description="Plan ID returned by the first mutation.",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="expected_version",
+                    type=ParameterType.INTEGER,
+                    description="0 when creating; otherwise the last returned version.",
+                    required=True,
+                ),
+                ToolParameter(
+                    name="required",
+                    type=ParameterType.BOOLEAN,
+                    description="Whether Completion Gate must enforce this plan.",
+                    required=False,
+                ),
+                ToolParameter(
+                    name="status",
+                    type=ParameterType.STRING,
+                    description="Optional plan state: active, blocked, or cancelled.",
+                    required=False,
+                    enum=["active", "blocked", "cancelled"],
+                ),
+                ToolParameter(
                     name="items",
                     type=ParameterType.ARRAY,
                     array_item_type=ParameterType.OBJECT,
                     description=(
-                        "The complete todo list. Each item has: title "
-                        "(string, required), status (one of: not_started, "
-                        "in_progress, completed; optional, defaults to "
-                        "not_started), id (string, optional)."
+                        "Todo patches. New items omit id and require content. Existing "
+                        "items use the returned id. Optional fields: content, required, "
+                        "status (pending, in_progress, completed, blocked, skipped, "
+                        "cancelled), evidence_refs, blocked_reason."
                     ),
                     required=True,
                 ),
@@ -79,6 +95,12 @@ class TodoWriteTool(Tool):
             )
         raw_turn = context.env_vars.get("turn_id")
         turn_id = str(raw_turn or "").strip() or None
+        run_id = str(context.env_vars.get("run_id") or "").strip()
+        if not run_id:
+            return ToolResult(
+                success=False,
+                error="todo_write requires an active run",
+            )
         user_id = str(context.env_vars.get("user_id") or "").strip() or DEFAULT_USER_ID
         raw_items = parameters.get("items")
         if not isinstance(raw_items, list):
@@ -86,18 +108,19 @@ class TodoWriteTool(Tool):
                 success=False,
                 error="todo_write requires 'items' to be a list",
             )
-        # Inject ids for items that omit them.
-        normalised: list[dict[str, Any]] = []
         for raw in raw_items:
             if not isinstance(raw, dict):
                 return ToolResult(
                     success=False,
-                    error="each todo item must be an object",
+                    error="each todo mutation must be an object",
                 )
-            item = dict(raw)
-            if not item.get("id"):
-                item["id"] = uuid.uuid4().hex
-            normalised.append(item)
+        try:
+            expected_version = int(parameters.get("expected_version"))
+        except (TypeError, ValueError):
+            return ToolResult(
+                success=False,
+                error="todo_write requires integer expected_version",
+            )
 
         try:
             store = resolve_control_session_store()
@@ -105,20 +128,35 @@ class TodoWriteTool(Tool):
             return ToolResult(success=False, error=str(exc))
         try:
             async with store.user_content_operation():
-                todos = await store.replace_todos(sid, normalised)
+                plan = await store.mutate_run_plan(
+                    sid,
+                    run_id=run_id,
+                    plan_id=str(parameters.get("plan_id") or "").strip() or None,
+                    expected_version=expected_version,
+                    required=(
+                        bool(parameters["required"])
+                        if "required" in parameters
+                        else None
+                    ),
+                    status=str(parameters.get("status") or "").strip() or None,
+                    item_mutations=[dict(item) for item in raw_items],
+                )
                 logger.info(
-                    "todo_write.replaced",
+                    "todo_write.mutated",
                     session_id=sid,
-                    count=len(todos),
+                    run_id=run_id,
+                    plan_id=plan.plan_id,
+                    version=plan.version,
+                    count=len(plan.items),
                     in_progress=sum(
-                        1 for t in todos if t.status.value == "in_progress"
+                        1 for item in plan.items if item.status.value == "in_progress"
                     ),
                 )
                 await publish_control_todo_state_changed(
                     session_id=sid,
                     user_id=user_id,
                     turn_id=turn_id,
-                    items=[t.to_dict() for t in todos],
+                    plan=plan.to_dict(),
                 )
                 try:
                     from magi.control.common.events import publish_control_event
@@ -127,18 +165,18 @@ class TodoWriteTool(Tool):
                         "control.todo.updated",
                         {
                             "session_id": sid,
-                            "items": [t.to_dict() for t in todos],
+                            "plan": plan.to_dict(),
                         },
                         session_id=sid,
                         turn_id=turn_id,
                     )
                 except Exception:  # pragma: no cover - defensive
                     logger.debug("todo_write.event_failed", exc_info=True)
-        except (ControlSessionClearedError, TodoListError) as exc:
+        except (ControlSessionClearedError, RunPlanError) as exc:
             return ToolResult(success=False, error=str(exc))
         return ToolResult(
             success=True,
-            data={"items": [t.to_dict() for t in todos]},
+            data=plan.to_dict(),
         )
 
 

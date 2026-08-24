@@ -810,7 +810,7 @@ describe('chat trace state helpers', () => {
       items: [
         { id: 'todo-1', content: 'Inspect runtime drift', status: 'in_progress' },
         { id: 'Patch UI', content: 'Patch UI', status: 'completed' },
-        { id: 'todo-2', content: '', status: 'not_started' },
+        { id: 'todo-2', content: '', status: 'pending' },
       ],
     });
 

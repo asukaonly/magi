@@ -183,13 +183,12 @@ class ControlPlanStateChanged:
 
 @dataclass(frozen=True)
 class ControlTodoStateChanged:
-    """Session todo list replaced; transcript should show/hide the todo row."""
+    """Canonical run plan changed; transcript may project its todo items."""
 
     session_id: str
     user_id: Optional[str]
     turn_id: Optional[str]
-    items: tuple[Mapping[str, Any], ...]
-    orchestration_id: Optional[str] = None
+    plan: Mapping[str, Any]
 
 
 @dataclass(frozen=True)

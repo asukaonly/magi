@@ -88,9 +88,12 @@
     "title": "Todo list",
     "empty": "No todos yet.",
     "status": {
-      "not_started": "Not started",
+      "pending": "Pending",
       "in_progress": "In progress",
-      "completed": "Completed"
+      "completed": "Completed",
+      "blocked": "Blocked",
+      "skipped": "Skipped",
+      "cancelled": "Cancelled"
     }
   },
   "settings": {

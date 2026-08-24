@@ -501,6 +501,11 @@ class FunctionCallingLoopRunner:
             policy=run_input.completion_policy,
             evidence=state.tool_evidence,
             repair_iterations=state.repair_iterations,
+            run_plan=(
+                run_input.run_plan_provider()
+                if run_input.run_plan_provider is not None
+                else None
+            ),
         )
         if decision.outcome is CompletionOutcome.COMPLETE:
             return _build_completed_outcome(state, step_outcome)

@@ -99,7 +99,7 @@ export type ControlStatusTone = 'neutral' | 'warning' | 'danger' | 'success';
 export interface ProjectedControlTodoItem {
   id: string;
   content: string;
-  status: 'not_started' | 'in_progress' | 'completed';
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'skipped' | 'cancelled';
 }
 
 export type ProjectedControlStatusCardPresentation =

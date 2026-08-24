@@ -9,6 +9,7 @@ from .evidence import (
     failed_validation_evidence,
     successful_validation_evidence,
 )
+from magi.control.run_plan import PlanStatus, RunPlan, TodoStatus
 
 
 class CompletionGate:
@@ -21,6 +22,7 @@ class CompletionGate:
         evidence: list[ToolExecutionEvidence],
         repair_iterations: int,
         pending_interaction: bool = False,
+        run_plan: RunPlan | None = None,
     ) -> CompletionDecision:
         refs = tuple(item.to_ref() for item in evidence)
         if pending_interaction:
@@ -40,6 +42,16 @@ class CompletionGate:
                 ),
                 evidence_refs=refs,
             )
+
+        plan_decision = _evaluate_required_plan(
+            run_plan,
+            evidence=evidence,
+            repair_iterations=repair_iterations,
+            max_repair_iterations=policy.max_repair_iterations,
+            refs=refs,
+        )
+        if plan_decision is not None:
+            return plan_decision
 
         failed_validation = failed_validation_evidence(
             evidence,
@@ -122,3 +134,77 @@ class CompletionGate:
 
 
 __all__ = ["CompletionGate"]
+
+
+def _evaluate_required_plan(
+    plan: RunPlan | None,
+    *,
+    evidence: list[ToolExecutionEvidence],
+    repair_iterations: int,
+    max_repair_iterations: int,
+    refs,
+) -> CompletionDecision | None:
+    if plan is None or not plan.required:
+        return None
+    if plan.status in {PlanStatus.BLOCKED, PlanStatus.CANCELLED}:
+        return CompletionDecision(
+            outcome=CompletionOutcome.BLOCKED,
+            reason_code=f"plan_{plan.status.value}",
+            observations=(f"Required plan is {plan.status.value}.",),
+            evidence_refs=refs,
+        )
+
+    incomplete = [
+        item
+        for item in plan.items
+        if item.required and item.status is not TodoStatus.COMPLETED
+    ]
+    if incomplete:
+        if repair_iterations >= max_repair_iterations:
+            return CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED,
+                reason_code="required_plan_incomplete",
+                observations=("Required plan items remain incomplete.",),
+                evidence_refs=refs,
+            )
+        return CompletionDecision(
+            outcome=CompletionOutcome.CONTINUE,
+            reason_code="required_plan_incomplete",
+            observations=(
+                "Complete or explicitly block every required plan item before finishing.",
+            ),
+            evidence_refs=refs,
+            repairable=True,
+        )
+
+    available_refs = {
+        reference
+        for item in evidence
+        for reference in (item.evidence_id, item.tool_call_id)
+        if reference
+    }
+    ungrounded = [
+        item.id
+        for item in plan.items
+        if item.required
+        and item.status is TodoStatus.COMPLETED
+        and not available_refs.intersection(item.evidence_refs)
+    ]
+    if ungrounded:
+        if repair_iterations >= max_repair_iterations:
+            return CompletionDecision(
+                outcome=CompletionOutcome.BLOCKED,
+                reason_code="todo_evidence_missing",
+                observations=("Required completed todos lack matching run evidence.",),
+                evidence_refs=refs,
+            )
+        return CompletionDecision(
+            outcome=CompletionOutcome.CONTINUE,
+            reason_code="todo_evidence_missing",
+            observations=(
+                "Attach an evidence_ref from this run to every completed required todo.",
+            ),
+            evidence_refs=refs,
+            repairable=True,
+        )
+    return None

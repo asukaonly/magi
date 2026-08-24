@@ -2215,6 +2215,10 @@ def test_clear_history_requires_explicit_session_id():
 def test_clear_history_route_waits_for_governed_service(monkeypatch):
     calls: list[str] = []
 
+    class _ControlStore:
+        async def clear_session(self, session_id: str) -> None:
+            calls.append(f"control:{session_id}")
+
     class _Service:
         async def clear_history(self, *, user_id: str, session_id: str):
             calls.append(f"clear:{user_id}:{session_id}")
@@ -2227,6 +2231,10 @@ def test_clear_history_route_waits_for_governed_service(monkeypatch):
         "magi.api.routers.messages_content.require_chat_forgetting_service",
         lambda: _Service(),
     )
+    monkeypatch.setattr(
+        "magi.api.routers.messages_content.resolve_control_session_store",
+        lambda: _ControlStore(),
+    )
 
     result = __import__("asyncio").run(
         messages.clear_conversation_history(user_id="u1", session_id="s1")
@@ -2236,10 +2244,16 @@ def test_clear_history_route_waits_for_governed_service(monkeypatch):
     assert result["cleared_message_ids"] == ["message-1"]
     assert result["cleared_turn_ids"] == ["turn-1"]
     assert result["cleanup_pending"] is False
-    assert calls == ["clear:u1:s1"]
+    assert calls == ["clear:u1:s1", "control:s1"]
 
 
 def test_clear_history_route_confirms_redaction_with_pending_cleanup(monkeypatch):
+    cleared_control_sessions: list[str] = []
+
+    class _ControlStore:
+        async def clear_session(self, session_id: str) -> None:
+            cleared_control_sessions.append(session_id)
+
     class _Service:
         async def clear_history(self, *, user_id: str, session_id: str):
             raise ChatSurfaceCleanupPendingError(
@@ -2254,6 +2268,10 @@ def test_clear_history_route_confirms_redaction_with_pending_cleanup(monkeypatch
         "magi.api.routers.messages_content.require_chat_forgetting_service",
         lambda: _Service(),
     )
+    monkeypatch.setattr(
+        "magi.api.routers.messages_content.resolve_control_session_store",
+        lambda: _ControlStore(),
+    )
 
     result = __import__("asyncio").run(
         messages.clear_conversation_history(user_id="u1", session_id="s1")
@@ -2263,6 +2281,7 @@ def test_clear_history_route_confirms_redaction_with_pending_cleanup(monkeypatch
     assert result["cleared_message_ids"] == ["message-1"]
     assert result["cleared_turn_ids"] == ["turn-1"]
     assert result["cleanup_pending"] is True
+    assert cleared_control_sessions == ["s1"]
 
 
 def test_clear_history_route_does_not_report_success_on_failure(monkeypatch):

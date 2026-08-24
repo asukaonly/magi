@@ -438,7 +438,7 @@ class FunctionCallingToolBatchExecutor:
             tool_call_id=record.tool_call.id,
         )
         state.tool_evidence.append(evidence)
-        self._append_tool_message(state, record)
+        self._append_tool_message(state, record, evidence=evidence)
         if state.journal is not None:
             if _tool_execution_was_admitted(result):
                 await state.journal.append(
@@ -842,17 +842,22 @@ class FunctionCallingToolBatchExecutor:
         self,
         state: FunctionCallingStepState,
         record: _ToolExecutionRecord,
+        *,
+        evidence: ToolExecutionEvidence,
     ) -> None:
+        payload = self._driver.postprocessor.build_tool_message_payload(
+            tool_name=record.tool_call.name,
+            result=record.result,
+        )
+        if isinstance(payload, dict):
+            payload["_runtime_evidence_ref"] = evidence.evidence_id
         self._driver._append_message(
             state.messages,
             {
                 "role": "tool",
                 "tool_call_id": record.tool_call.id,
                 "content": json.dumps(
-                    self._driver.postprocessor.build_tool_message_payload(
-                        tool_name=record.tool_call.name,
-                        result=record.result,
-                    ),
+                    payload,
                     ensure_ascii=False,
                 ),
             },

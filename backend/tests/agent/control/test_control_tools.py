@@ -53,7 +53,7 @@ def _override(**bindings):
 def _ctx(session_id: str = "sid", intent: str = "chat") -> ToolExecutionContext:
     return ToolExecutionContext(
         agent_id="test-agent",
-        env_vars={"session_id": session_id, "intent": intent},
+        env_vars={"session_id": session_id, "run_id": "run-1", "intent": intent},
         permissions=[],
         enabled_features=[],
         # ask_user_question routes through the SDK InteractionPort; the host
@@ -107,6 +107,8 @@ async def test_todo_write_happy_path() -> None:
         tool = TodoWriteTool()
         result = await tool.execute(
             {
+                "expected_version": 0,
+                "required": True,
                 "items": [
                     {"title": "a"},
                     {"title": "b", "status": "in_progress"},
@@ -127,6 +129,7 @@ async def test_todo_write_rejects_double_in_progress() -> None:
         tool = TodoWriteTool()
         result = await tool.execute(
             {
+                "expected_version": 0,
                 "items": [
                     {"title": "a", "status": "in_progress"},
                     {"title": "b", "status": "in_progress"},
@@ -362,7 +365,10 @@ async def test_todo_write_publishes_todo_state_event() -> None:
     bus = _RecordingBus()
     with _override(control_session_store=store, message_bus=bus):
         result = await TodoWriteTool().execute(
-            {"items": [{"title": "a"}, {"title": "b", "status": "in_progress"}]},
+            {
+                "expected_version": 0,
+                "items": [{"title": "a"}, {"title": "b", "status": "in_progress"}],
+            },
             _ctx("sid-B"),
         )
         assert result.success
@@ -370,7 +376,7 @@ async def test_todo_write_publishes_todo_state_event() -> None:
     assert len(todo_events) == 1
     payload = todo_events[0].data
     assert payload.session_id == "sid-B"
-    assert [item["content"] for item in payload.items] == ["a", "b"]
+    assert [item["content"] for item in payload.plan["items"]] == ["a", "b"]
 
 
 @pytest.mark.asyncio

@@ -285,9 +285,13 @@ async def test_choice_only_ask_rejects_free_text_without_consuming_waiter(wiring
 async def test_session_plan_and_todos_and_ask(wiring):
     store: ControlSessionStore = wiring["store"]
     await store.enter_plan_mode("sid-2")
-    await store.replace_todos(
+    await store.mutate_run_plan(
         "sid-2",
-        [{"title": "a"}, {"title": "b", "status": "in_progress"}],
+        run_id="run-2",
+        plan_id=None,
+        expected_version=0,
+        required=True,
+        item_mutations=[{"title": "a"}, {"title": "b", "status": "in_progress"}],
     )
     await store.open_ask(
         "sid-2", question="Proceed?", options=["yes", "no"]
@@ -300,9 +304,10 @@ async def test_session_plan_and_todos_and_ask(wiring):
     assert plan["active"] is True
 
     todos = client.get("/api/control/sessions/sid-2/todos").json()
-    assert [t["content"] for t in todos["items"]] == ["a", "b"]
-    assert all("created_at_ms" in t for t in todos["items"])
-    assert all("updated_at_ms" in t for t in todos["items"])
+    assert todos["plan"]["run_id"] == "run-2"
+    assert [t["content"] for t in todos["plan"]["items"]] == ["a", "b"]
+    assert all("created_at_ms" in t for t in todos["plan"]["items"])
+    assert all("updated_at_ms" in t for t in todos["plan"]["items"])
 
     ask = client.get("/api/control/sessions/sid-2/ask").json()
     assert ask["ask"]["question"] == "Proceed?"
@@ -347,55 +352,19 @@ def test_session_plan_falls_back_to_runtime_notifications(wiring, monkeypatch):
     assert plan.json()["plan_text"] == "Inspect runtime heartbeat path"
 
 
-def test_session_todos_fall_back_to_runtime_notifications(wiring, monkeypatch):
+def test_session_todos_do_not_restore_from_notification_projection(wiring, monkeypatch):
     monkeypatch.setattr(
         control_module,
         "resolve_runtime_trace_store",
-        lambda: _FakeRuntimeTraceStore(
-            [
-                RuntimeNotificationRecord(
-                    notification_id=5,
-                    channel="control.todo.updated",
-                    user_id="user-1",
-                    session_id="sid-fallback",
-                    turn_id="turn-2",
-                    payload_json=json.dumps(
-                        {
-                            "session_id": "sid-fallback",
-                            "items": [
-                                {"id": "1", "content": "Trace heartbeat loop", "status": "in_progress"},
-                                {"id": "2", "content": "Block home-dir glob", "status": "not_started"},
-                            ],
-                        }
-                    ),
-                    created_at_ms=456,
-                )
-            ]
-        ),
+        lambda: _FakeRuntimeTraceStore([]),
     )
-
     app = FastAPI()
     app.include_router(control_router, prefix="/api/control")
     client = TestClient(app)
 
-    todos = client.get("/api/control/sessions/sid-fallback/todos")
+    todos = client.get("/api/control/sessions/sid-empty/todos")
     assert todos.status_code == 200
-    assert todos.json()["items"] == [
-        {
-            "id": "1",
-            "content": "Trace heartbeat loop",
-            "status": "in_progress",
-            "created_at_ms": todos.json()["items"][0]["created_at_ms"],
-            "updated_at_ms": todos.json()["items"][0]["updated_at_ms"],
-        },
-        {
-            "id": "2",
-            "content": "Block home-dir glob",
-            "status": "not_started",
-            "created_at_ms": todos.json()["items"][1]["created_at_ms"],
-            "updated_at_ms": todos.json()["items"][1]["updated_at_ms"],
-        },
-    ]
+    assert todos.json() == {"plan": None}
 
 
 @pytest.mark.asyncio

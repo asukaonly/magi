@@ -100,6 +100,7 @@ async def test_runtime_trace_store_creates_turn_and_span_tables(tmp_path: Path) 
         assert "runtime_notifications" in tables
         assert "agent_run_manifests" in tables
         assert "agent_run_events" in tables
+        assert "run_plans" in tables
         assert {"run_id", "run_revision"}.issubset(_list_columns(db_path, "trace_turns"))
         assert {"run_id", "run_revision", "input_preview", "output_preview"}.issubset(
             _list_columns(db_path, "trace_spans")

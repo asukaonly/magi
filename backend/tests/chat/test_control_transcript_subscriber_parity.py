@@ -309,7 +309,7 @@ async def test_todo_state_nonempty_parity(tmp_path, monkeypatch: pytest.MonkeyPa
     items = [
         {"id": "todo-1", "content": "Inspect runtime drift", "status": "in_progress",
          "created_at_ms": 1, "updated_at_ms": 2},
-        {"id": "todo-2", "content": "Ship fix", "status": "not_started",
+        {"id": "todo-2", "content": "Ship fix", "status": "pending",
          "created_at_ms": 1, "updated_at_ms": 3},
     ]
 
@@ -320,7 +320,7 @@ async def test_todo_state_nonempty_parity(tmp_path, monkeypatch: pytest.MonkeyPa
             EventTypes.CONTROL_TODO_STATE_CHANGED,
             ControlTodoStateChanged(
                 session_id="session-1", user_id="user-1", turn_id="turn-1",
-                items=tuple(items), orchestration_id="orch-1",
+                plan={"plan_id": "plan-1", "items": items},
             ),
         )
 
@@ -334,8 +334,8 @@ async def test_todo_state_nonempty_parity(tmp_path, monkeypatch: pytest.MonkeyPa
             payload_json=(
                 '{"items": [{"id": "todo-1", "content": "Inspect runtime drift", '
                 '"status": "in_progress", "created_at_ms": 1, "updated_at_ms": 2}, '
-                '{"id": "todo-2", "content": "Ship fix", "status": "not_started", '
-                '"created_at_ms": 1, "updated_at_ms": 3}], "orchestration_id": "orch-1"}'
+                '{"id": "todo-2", "content": "Ship fix", "status": "pending", '
+                '"created_at_ms": 1, "updated_at_ms": 3}], "orchestration_id": null}'
             ),
             created_at_ms=3000,
             sequence_no=1,
@@ -369,14 +369,15 @@ async def test_todo_state_empty_hides_parity(tmp_path, monkeypatch: pytest.Monke
             EventTypes.CONTROL_TODO_STATE_CHANGED,
             ControlTodoStateChanged(
                 session_id="session-1", user_id="user-1", turn_id="turn-1",
-                items=tuple(items),
+                plan={"plan_id": "plan-1", "items": items},
             ),
         )
         await _run(
             sub,
             EventTypes.CONTROL_TODO_STATE_CHANGED,
             ControlTodoStateChanged(
-                session_id="session-1", user_id="user-1", turn_id="turn-1", items=(),
+                session_id="session-1", user_id="user-1", turn_id="turn-1",
+                plan={"plan_id": "plan-1", "items": []},
             ),
         )
 

@@ -101,7 +101,13 @@ async def test_clear_rejects_permission_waiters_without_late_resolved_event() ->
     )
 
     await store.enter_plan_mode("session-1")
-    await store.replace_todos("session-1", [{"title": "secret todo"}])
+    await store.mutate_run_plan(
+        "session-1",
+        run_id="run-1",
+        plan_id=None,
+        expected_version=0,
+        item_mutations=[{"title": "secret todo"}],
+    )
     await store.open_ask(
         "session-1",
         question="secret question",
@@ -113,7 +119,7 @@ async def test_clear_rejects_permission_waiters_without_late_resolved_event() ->
         assert registry.snapshot(session_id="*") == []
         assert broker.pending_count() == 0
         assert store.plan_state("session-1").active is False
-        assert store.list_todos("session-1") == []
+        assert store.current_run_plan("session-1") is None
         assert store.ask_state("session-1") is None
         assert (
             await broker.resolve(

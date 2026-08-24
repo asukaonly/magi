@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from ...turn_input import UserTurnInput
@@ -49,6 +49,7 @@ class AgentRunRequest:
     completion_policy: CompletionPolicy = field(default_factory=CompletionPolicy)
     context_sources: tuple[dict[str, Any], ...] = ()
     capability_resolution: dict[str, Any] = field(default_factory=dict)
+    run_plan_provider: Callable[[], Any] | None = None
     model_capabilities: ModelCapabilityProfile | None = None
 
     control: RunControl | None = None

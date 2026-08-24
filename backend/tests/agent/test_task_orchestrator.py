@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -30,19 +29,6 @@ async def _fake_aggregate(*args, **kwargs):  # type: ignore[no-untyped-def]
 
 def _fake_register_user_message(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
     _ = (args, kwargs)
-
-
-class _FakeControlSessionStore:
-    def __init__(self) -> None:
-        self.replace_calls: list[tuple[str, list[dict[str, object]]]] = []
-
-    async def replace_todos(self, session_id: str, items: list[dict[str, object]]):
-        self.replace_calls.append((session_id, items))
-        return []
-
-    @asynccontextmanager
-    async def user_content_operation(self):
-        yield
 
 
 @pytest.mark.asyncio
@@ -92,63 +78,6 @@ def test_orchestration_state_persists_user_message_generation() -> None:
     restored = TaskOrchestrationState.from_dict(state.to_dict())
 
     assert restored.user_message_generation == 7
-
-
-@pytest.mark.asyncio
-async def test_publish_session_todos_uses_injected_control_session_store() -> None:
-    store = _FakeControlSessionStore()
-    orchestrator = TaskOrchestrator(
-        runtime_key="chat:user-1",
-        tool_registry=ToolRegistry(),
-        plan_subtasks=_fake_plan_subtasks,
-        aggregate_orchestration=_fake_aggregate,
-        register_user_message=_fake_register_user_message,
-        parent_task_agent_type="chat",
-        control_session_store_provider=lambda: store,
-    )
-    state = TaskOrchestrationState(
-        orchestration_id="orch-1",
-        user_id="user-1",
-        session_id="session-1",
-        root_user_message="do it",
-        planner="task_agent",
-        subtasks=[
-            SubtaskDefinition(
-                subtask_id="subtask-1",
-                description="Inspect logs",
-                subagent_type="CodeExplore",
-                prompt="Inspect logs",
-                status="running",
-            ),
-            SubtaskDefinition(
-                subtask_id="subtask-2",
-                description="Patch fix",
-                subagent_type="CodeExplore",
-                prompt="Patch fix",
-                status="running",
-            ),
-        ],
-    )
-
-    await orchestrator._publish_session_todos(state)
-
-    assert store.replace_calls == [
-        (
-            "session-1",
-            [
-                {
-                    "id": "subtask-1",
-                    "content": "Inspect logs",
-                    "status": "in_progress",
-                },
-                {
-                    "id": "subtask-2",
-                    "content": "Patch fix",
-                    "status": "not_started",
-                },
-            ],
-        )
-    ]
 
 
 @pytest.mark.asyncio
@@ -425,7 +354,6 @@ async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cancel_token = EventCancelToken()
-    control_store = _FakeControlSessionStore()
 
     async def _planning_then_cancel(*args, **kwargs):  # type: ignore[no-untyped-def]
         _ = (args, kwargs)
@@ -448,7 +376,6 @@ async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
         aggregate_orchestration=_fake_aggregate,
         register_user_message=_fake_register_user_message,
         parent_task_agent_type="chat",
-        control_session_store_provider=lambda: control_store,
     )
 
     class _UnexpectedStore:
@@ -484,7 +411,6 @@ async def test_start_orchestration_discards_plan_when_cancelled_during_planning(
 
     assert result.skip_emit is True
     assert result.response == ""
-    assert control_store.replace_calls == []
 
 
 @pytest.mark.asyncio

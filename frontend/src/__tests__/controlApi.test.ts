@@ -14,7 +14,7 @@ import {
   getAskState,
   getControlSettings,
   getPlanState,
-  getTodos,
+  getRunPlan,
   listPendingPermissions,
   respondAsk,
   respondPermission,
@@ -35,7 +35,7 @@ describe('control API routes', () => {
     await listPendingPermissions('session-1');
     await getAskState('session-1');
     await getPlanState('session-1');
-    await getTodos('session-1');
+    await getRunPlan('session-1');
 
     expect(api.get).toHaveBeenNthCalledWith(1, '/control/settings');
     expect(api.get).toHaveBeenNthCalledWith(2, '/control/sessions/session-1/permissions');
@@ -74,23 +74,39 @@ describe('control API routes', () => {
         ],
       } as any)
       .mockResolvedValueOnce({
-        items: [
+        plan: {
+          plan_id: 'plan-1',
+          run_id: 'run-1',
+          session_id: 'session-1',
+          version: 2,
+          required: true,
+          status: 'active',
+          created_at_ms: 1,
+          updated_at_ms: 20,
+          items: [
           {
             id: 'todo-1',
             content: 'Inspect runtime drift',
             status: 'in_progress',
+            required: true,
+            evidence_refs: [],
+            blocked_reason: null,
             created_at_ms: 10,
             updated_at_ms: 20,
           },
-        ],
+          ],
+        },
       } as any);
 
     await expect(listPendingPermissions('session-1')).resolves.toEqual([
       expect.objectContaining({ request_id: 'perm-1', tool: 'bash', tool_name: 'bash' }),
     ]);
-    await expect(getTodos('session-1')).resolves.toEqual([
-      expect.objectContaining({ id: 'todo-1', content: 'Inspect runtime drift' }),
-    ]);
+    await expect(getRunPlan('session-1')).resolves.toEqual(
+      expect.objectContaining({
+        plan_id: 'plan-1',
+        items: [expect.objectContaining({ id: 'todo-1', content: 'Inspect runtime drift' })],
+      }),
+    );
   });
 
   it('normalizes legacy ask state fields into the frontend contract', async () => {

@@ -77,13 +77,20 @@ const normalizeTodoStatus = (value: unknown): ProjectedControlTodoItem['status']
     case 'completed':
     case 'done':
       return 'completed';
+    case 'blocked':
+      return 'blocked';
+    case 'skipped':
+      return 'skipped';
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled';
     case 'in_progress':
     case 'in-progress':
     case 'running':
     case 'active':
       return 'in_progress';
     default:
-      return 'not_started';
+      return 'pending';
   }
 };
 

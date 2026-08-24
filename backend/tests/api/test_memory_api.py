@@ -2932,7 +2932,13 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
                 await asyncio.sleep(0)
 
     await store.enter_plan_mode("session-old")
-    await store.replace_todos("session-old", [{"title": "private todo"}])
+    await store.mutate_run_plan(
+        "session-old",
+        run_id="run-old",
+        plan_id=None,
+        expected_version=0,
+        item_mutations=[{"title": "private todo"}],
+    )
     old_ask_task = asyncio.create_task(
         ask_service.ask(ask_request("session-old", "private question"))
     )
@@ -2962,7 +2968,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
 
     assert response.status_code == 200
     assert store.plan_state("session-old").active is False
-    assert store.list_todos("session-old") == []
+    assert store.current_run_plan("session-old") is None
     assert store.ask_state("session-old") is None
     assert registry.snapshot(session_id="*") == []
     assert (

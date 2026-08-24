@@ -105,8 +105,7 @@ async def publish_control_todo_state_changed(
     session_id: str,
     user_id: str | None,
     turn_id: str | None,
-    items: Any,
-    orchestration_id: str | None = None,
+    plan: dict[str, Any],
 ) -> None:
     """Emit ``CONTROL_TODO_STATE_CHANGED`` for the chat transcript subscriber."""
     from ...events.domain_payloads import ControlTodoStateChanged
@@ -118,8 +117,7 @@ async def publish_control_todo_state_changed(
             session_id=session_id,
             user_id=user_id,
             turn_id=turn_id,
-            items=tuple(dict(item) for item in items if isinstance(item, dict)),
-            orchestration_id=orchestration_id,
+            plan=dict(plan),
         ),
     )
 

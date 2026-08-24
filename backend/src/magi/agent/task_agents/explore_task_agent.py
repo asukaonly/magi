@@ -62,7 +62,6 @@ class ExploreTaskAgent(
         agent_id: str,
         llm_adapter=None,
         llm_pool=None,
-        control_session_store_provider: Callable[[], Any] | None = None,
         chat_store: Any | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.EXPLORE, agent_id=agent_id)
@@ -83,7 +82,6 @@ class ExploreTaskAgent(
             aggregate_orchestration=self._aggregation_service.aggregate_orchestration,
             register_user_message=self._session_service.append_request,
             parent_task_agent_type=TaskAgentType.EXPLORE.value,
-            control_session_store_provider=control_session_store_provider,
         )
         self._postprocess_service = ExplorePostProcessService(
             get_task_agent_manager=lambda: self._task_agent_manager,

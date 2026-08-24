@@ -158,12 +158,11 @@ class TaskOrchestrationStarter:
         ):
             return _cancelled_result(request)
 
-        await self._host._publish_session_todos(state)
         if await self._cancel_at_startup_boundary(
             request,
             cancel_token=cancel_token,
             state=state,
-            log_message="Cancelling orchestration after todo publish",
+            log_message="Cancelling orchestration after state persistence",
         ):
             return _cancelled_result(request)
 

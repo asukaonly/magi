@@ -355,20 +355,41 @@ export async function getPlanState(sessionId: string): Promise<PlanStateDTO> {
   return unwrapControlResponse<PlanStateDTO>(res);
 }
 
-export type TodoStatus = 'not_started' | 'in_progress' | 'completed';
+export type RunPlanStatus = 'active' | 'completed' | 'blocked' | 'cancelled';
+export type TodoStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'blocked'
+  | 'skipped'
+  | 'cancelled';
 
 export interface TodoItemDTO {
   id: string;
   content: string;
   status: TodoStatus;
+  required: boolean;
+  evidence_refs: string[];
+  blocked_reason: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 }
 
-export async function getTodos(sessionId: string): Promise<TodoItemDTO[]> {
-  const res = await api.get<{ items: TodoItemDTO[] }>(
-    `/control/sessions/${encodeURIComponent(sessionId)}/todos`,
-  );
-  return unwrapControlResponse<{ items: TodoItemDTO[] }>(res).items;
+export interface RunPlanDTO {
+  plan_id: string;
+  run_id: string;
+  session_id: string;
+  version: number;
+  required: boolean;
+  status: RunPlanStatus;
+  items: TodoItemDTO[];
+  created_at_ms: number;
+  updated_at_ms: number;
 }
 
+export async function getRunPlan(sessionId: string): Promise<RunPlanDTO | null> {
+  const res = await api.get<{ plan: RunPlanDTO | null }>(
+    `/control/sessions/${encodeURIComponent(sessionId)}/todos`,
+  );
+  return unwrapControlResponse<{ plan: RunPlanDTO | null }>(res).plan;
+}

@@ -904,12 +904,17 @@ class ControlTranscriptSubscriber:
         )
 
     async def _project_todo_state(self, p: ControlTodoStateChanged) -> None:
+        raw_items = p.plan.get("items")
         await persist_todo_state_message(
             session_id=p.session_id,
             user_id=p.user_id,
             turn_id=p.turn_id,
-            items=[dict(item) for item in p.items],
-            orchestration_id=p.orchestration_id,
+            items=[
+                dict(item)
+                for item in raw_items
+                if isinstance(item, dict)
+            ] if isinstance(raw_items, (list, tuple)) else [],
+            orchestration_id=None,
         )
 
     async def _project_ask_requested(self, p: ControlAskRequested) -> None:

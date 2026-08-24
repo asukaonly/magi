@@ -8,7 +8,7 @@ container:
 * ``PermissionRuleStore``    — permission rules (session + persistent)
 * ``InteractionBroker``      — async gate that permission / ask tools
   suspend on
-* ``ControlSessionStore``    — plan-mode + todo + ask state per session
+* ``ControlSessionStore``    — plan-mode + durable run plan + ask state
 
 Endpoints:
 
@@ -22,7 +22,7 @@ Endpoints:
 * ``POST   /permission/{request_id}/respond`` — resolve a pending prompt
 * ``POST   /ask/{request_id}/respond``    — answer an ``ask_user_question``
 * ``GET    /sessions/{sid}/plan``         — plan-mode state
-* ``GET    /sessions/{sid}/todos``        — todo list snapshot
+* ``GET    /sessions/{sid}/todos``        — canonical run-plan snapshot
 * ``GET    /sessions/{sid}/ask``          — current ask state (if any)
 * ``GET    /sessions/{sid}/permissions``  — pending permission prompts
 """
@@ -52,7 +52,6 @@ from ...control.provider import (
     resolve_pending_permission_registry,
     resolve_permission_rule_store,
 )
-from ...control.session_store import TodoItem
 from ...runtime_trace.provider import resolve_runtime_trace_store
 
 control_router = APIRouter()
@@ -389,27 +388,8 @@ async def get_plan_state(session_id: str) -> dict[str, Any]:
 
 @control_router.get("/sessions/{session_id}/todos")
 async def get_todos(session_id: str) -> dict[str, Any]:
-    todos = _session_store().list_todos(session_id)
-    if todos:
-        return {"items": [t.to_dict() for t in todos]}
-
-    payload = await _load_latest_control_notification(
-        session_id=session_id,
-        channel="control.todo.updated",
-    )
-    raw_items = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(raw_items, list):
-        return {"items": []}
-
-    restored_items: list[dict[str, Any]] = []
-    for raw in raw_items:
-        if not isinstance(raw, dict):
-            continue
-        try:
-            restored_items.append(TodoItem.from_dict(raw).to_dict())
-        except Exception:
-            continue
-    return {"items": restored_items}
+    plan = _session_store().current_run_plan(session_id)
+    return {"plan": plan.to_dict() if plan is not None else None}
 
 
 @control_router.get("/sessions/{session_id}/ask")

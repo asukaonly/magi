@@ -383,6 +383,12 @@ class ChatSessionControlMixin:
             run_revision=active_run.revision,
             strict_worker_cancellation=True,
         )
+        await _cancel_owned_run_plan(
+            session_id=normalized_session_id,
+            run_id=active_run.run_id,
+            user_id=self.agent_id,
+            turn_id=root_turn_id,
+        )
         completed = self._session_run_coordinator.complete_run(
             session_id=normalized_session_id,
             run_id=active_run.run_id,
@@ -613,6 +619,12 @@ class ChatSessionControlMixin:
             strict_worker_cancellation=reason
             in {"memory_clear", "privacy_delete", "privacy_context_changed"},
         )
+        await _cancel_owned_run_plan(
+            session_id=normalized_session_id,
+            run_id=active_run.run_id,
+            user_id=normalized_user_id or self.agent_id,
+            turn_id=cancellation_turn_id,
+        )
         await self._postprocess_service.mark_user_turn_delivery_terminal_if_persisted(
             turn_id=cancellation_turn_id,
             source_fact=None,
@@ -785,3 +797,46 @@ class ChatSessionControlMixin:
             "detach_requested_by": requested_by,
             "detach_anchor_turn_id": anchor_turn_id,
         }
+
+
+async def _cancel_owned_run_plan(
+    *,
+    session_id: str,
+    run_id: str,
+    user_id: str,
+    turn_id: str | None,
+) -> None:
+    """Cancel the current run's plan and wake every projection."""
+    try:
+        from magi.control.common.events import (
+            publish_control_event,
+            publish_control_todo_state_changed,
+        )
+        from magi.control.provider import resolve_control_session_store
+
+        store = resolve_control_session_store()
+        current = store.current_run_plan(session_id, run_id=run_id)
+        if current is None or current.status.value in {"completed", "cancelled"}:
+            return
+        plan = await store.mutate_run_plan(
+            session_id,
+            run_id=run_id,
+            plan_id=current.plan_id,
+            expected_version=current.version,
+            status="cancelled",
+        )
+        await publish_control_todo_state_changed(
+            session_id=session_id,
+            user_id=user_id,
+            turn_id=turn_id,
+            plan=plan.to_dict(),
+        )
+        await publish_control_event(
+            "control.todo.updated",
+            {"session_id": session_id, "plan": plan.to_dict()},
+            session_id=session_id,
+            user_id=user_id,
+            turn_id=turn_id,
+        )
+    except Exception:
+        logger.debug("run_plan.cancel_failed", exc_info=True)

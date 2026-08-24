@@ -144,7 +144,6 @@ def _build_task_orchestrator(
         register_user_message=context_parts.context_assembler.append_user_message,
         parent_task_agent_type=TaskAgentType.CHAT.value,
         session_workspace_provider=callbacks.session_workspace_provider,
-        control_session_store_provider=config.control_session_store_provider,
     )
 
 
