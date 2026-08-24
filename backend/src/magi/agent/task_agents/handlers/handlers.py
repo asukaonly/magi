@@ -159,10 +159,8 @@ class ChatHandlerDependencies:
     attachment_resolver: AttachmentResolverPort = field(default_factory=NullAttachmentResolver)
     session_run_coordinator: Any | None = None
     background_launch_service: BackgroundLaunchService | None = None
-    # Optional reference to the ChatExecutionCoordinator so the
-    # streaming-path handler can route ``text_delta`` chunks through
-    # ``coordinator.dispatch_stream_chunk`` (multi-channel fanout). Optional
-    # so legacy tests can build dependencies without wiring a coordinator.
+    # Set immediately after coordinator construction because the streaming
+    # path and coordinator depend on each other during composition.
     coordinator: Any | None = None
 
 

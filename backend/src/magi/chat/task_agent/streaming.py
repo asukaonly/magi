@@ -51,7 +51,7 @@ class ChatStreamingMixin:
     ) -> None:
         """Route one LLM stream event onto the canonical chunk path.
 
-        ``text`` mirrors the event's text so text-only/legacy channels keep
+        ``text`` mirrors the event's text so text-only channels keep
         working; ``event`` carries the full wire payload so streaming channels
         render every event kind. ``is_final`` stays ``False`` — the stream's
         boundary chunk is dispatched separately by the handler.
