@@ -140,6 +140,13 @@ class FunctionCallingStepExecutor:
             )
         if assistant_message:
             self._driver._append_message(state.messages, assistant_message)
+            if state.model_context_port is not None:
+                await state.model_context_port.commit(
+                    messages=state.messages,
+                    turn_id=state.model_context_turn_id,
+                    run_id=state.run_id,
+                    step_index=iteration,
+                )
 
         if response.get("tool_calls"):
             return await self._tool_batch_executor.handle_tool_call_response(

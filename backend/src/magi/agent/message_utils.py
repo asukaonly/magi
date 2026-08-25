@@ -178,6 +178,16 @@ def _build_latest_user_message_content(
                 "type": "image",
                 "mime_type": mime_type,
                 "data": base64.b64encode(image_bytes).decode("ascii"),
+                "attachment_id": str(
+                    resolved_attachment.get("attachment_id")
+                    or attachment.get("attachment_id")
+                    or ""
+                ),
+                "original_name": str(
+                    resolved_attachment.get("original_name")
+                    or attachment.get("original_name")
+                    or ""
+                ),
             }
         )
 

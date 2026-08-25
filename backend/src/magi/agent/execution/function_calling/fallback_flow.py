@@ -385,6 +385,12 @@ async def _complete_fallback_response(
 
     final_content = str(final_response.get("content", ""))
     if final_content.strip():
+        assistant_message = final_response.get("assistant_message")
+        state.messages.append(
+            dict(assistant_message)
+            if isinstance(assistant_message, dict)
+            else {"role": "assistant", "content": final_content}
+        )
         return await _completed_fallback_outcome(
             host,
             state,

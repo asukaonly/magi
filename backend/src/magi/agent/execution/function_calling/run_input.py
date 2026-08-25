@@ -13,6 +13,7 @@ from magi.skills.allowed_tools_rules import ToolRule
 from ..completion_policy import CompletionPolicy
 from ..checkpoint import AgentRunCheckpoint
 from ..model_capabilities import ModelCapabilityProfile
+from ..model_context_port import ModelContextPort
 from ..reasoning import ReasoningPolicy, ReasoningState
 from ..run_plan_port import NullRunPlanReader, RunPlanReader
 
@@ -54,6 +55,7 @@ class AgentRunRequest:
     run_plan_reader: RunPlanReader = field(default_factory=NullRunPlanReader)
     model_capabilities: ModelCapabilityProfile | None = None
     skill_preapproval_rules: tuple[ToolRule, ...] = ()
+    model_context_port: ModelContextPort | None = None
 
     control: RunControl | None = None
 
@@ -99,6 +101,7 @@ class AgentRunRequest:
         run_revision: int = 0,
         run_plan_reader: RunPlanReader | None = None,
         skill_preapproval_rules: tuple[ToolRule, ...] = (),
+        model_context_port: ModelContextPort | None = None,
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
@@ -125,6 +128,7 @@ class AgentRunRequest:
             context_sources=context_sources,
             run_plan_reader=run_plan_reader or NullRunPlanReader(),
             skill_preapproval_rules=skill_preapproval_rules,
+            model_context_port=model_context_port,
         )
 
 

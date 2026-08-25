@@ -623,7 +623,6 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             failure_signature_counts=dict(state.failure_signature_counts),
             repeated_blocker_tool_names=set(state.repeated_blocker_tool_names),
             suppressed_tool_names=set(state.suppressed_tool_names),
-            persona_task_clamp_applied=state.persona_task_clamp_applied,
             reason=reason,
             note=note,
         )

@@ -28,7 +28,7 @@ class ChatHistoryUnavailableError(RuntimeError):
 
 @dataclass(slots=True)
 class CachedConversationHistory:
-    """In-memory conversation history paired with the durable transcript version."""
+    """In-memory model context paired with the durable surface revision."""
 
     version: int
     messages: list[dict[str, Any]]
@@ -108,10 +108,13 @@ class ChatContextAssembler:
         history_key = self.history_key(user_id, session_id)
         normalized_persona_id = self._normalize_persona_id(active_persona_id)
         durable_version = 0
-        active_summary = None
+        model_history: list[dict[str, Any]] = []
         if self._chat_store is not None:
-            durable_version = await self._chat_store.get_history_version(session_id)
-            active_summary = await self._chat_store.get_active_context_summary(session_id=session_id)
+            model_context = await self._chat_store.load_model_context(
+                session_id=session_id,
+            )
+            durable_version = model_context.revision
+            model_history = model_context.to_prompt_messages()
         cached_entry = self._conversation_history.get(history_key)
         if (
             cached_entry is not None
@@ -121,34 +124,29 @@ class ChatContextAssembler:
             return cached_entry
         try:
             read_service = self._get_chat_read_service()
-            first_kept_message_id = (
-                active_summary.first_kept_message_id if active_summary is not None else None
-            )
-            history = read_service.get_conversation_history(
+            visible_history = read_service.get_conversation_history(
                 user_id=user_id,
                 session_id=session_id,
                 limit=None,
-                start_message_id=first_kept_message_id,
             )
             attachment_manifest = self._load_attachment_manifest(
                 read_service=read_service,
                 user_id=user_id,
                 session_id=session_id,
             )
-            history, persona_boundary_summary = await self._persona_boundary.summarize(
+            _, persona_boundary_summary = await self._persona_boundary.summarize(
                 session_id=session_id,
-                history=history,
+                history=visible_history,
                 active_persona_id=normalized_persona_id,
             )
             cached_history = CachedConversationHistory(
                 version=durable_version,
-                messages=[item.to_prompt_message() for item in history],
+                messages=model_history,
                 session_summary=self._combine_session_summaries(
-                    active_summary.summary_text if active_summary is not None else None,
                     persona_boundary_summary,
                     attachment_manifest,
                 ),
-                session_origin=(active_summary.session_origin if active_summary is not None else None),
+                session_origin=None,
                 active_persona_id=normalized_persona_id,
             )
             self._conversation_history[history_key] = cached_history
@@ -183,42 +181,6 @@ class ChatContextAssembler:
             CachedConversationHistory(version=0, messages=[]),
         )
         return cached.messages
-
-    def append_user_message(self, history_key: str, user_message: str) -> None:
-        """Push a user message onto the in-memory LLM-prompt cache.
-
-        Does *not* persist to chat_messages — the durable write happens
-        elsewhere (dispatcher for user messages; ChatOutcomeWriter for
-        assistant replies; ControlTranscriptSubscriber for plan/todo/ask
-        control state). This call only keeps the prompt cache hot so the
-        next LLM turn does not need to re-query the DB.
-        """
-        if not user_message:
-            return
-        cached = self._conversation_history.setdefault(
-            history_key,
-            CachedConversationHistory(version=0, messages=[]),
-        )
-        history = cached.messages
-        if history and history[-1].get("role") == "user" and history[-1].get("content") == user_message:
-            return
-        history.append({"role": "user", "content": user_message})
-        self._update_lru_cache(history_key)
-
-    def append_assistant_message(self, history_key: str, response_text: str) -> None:
-        """Push an assistant reply onto the in-memory LLM-prompt cache.
-
-        Cache-only (see :py:meth:`append_user_message` for the durable
-        write path).
-        """
-        if not response_text:
-            return
-        cached = self._conversation_history.setdefault(
-            history_key,
-            CachedConversationHistory(version=0, messages=[]),
-        )
-        cached.messages.append({"role": "assistant", "content": response_text})
-        self._update_lru_cache(history_key)
 
     @property
     def tool_state_view(self) -> ChatToolStateView:
@@ -257,16 +219,12 @@ class ChatContextAssembler:
 
     @staticmethod
     def _combine_session_summaries(
-        token_budget_summary: str | None,
         persona_boundary_summary: str | None,
         attachment_manifest: str | None = None,
     ) -> str | None:
-        token_text = str(token_budget_summary or "").strip()
         boundary_text = str(persona_boundary_summary or "").strip()
         attachment_text = str(attachment_manifest or "").strip()
         sections: list[str] = []
-        if token_text:
-            sections.extend(["# Rolling Token-Budget Summary", token_text, ""])
         if boundary_text:
             sections.extend(["# Persona Boundary Summary", boundary_text, ""])
         if attachment_text:

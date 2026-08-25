@@ -53,6 +53,7 @@ class FunctionCallingLoopRunner:
             run_input.reasoning_policy
         )
         self._resolve_effective_reasoning_depth(state)
+        await self._sync_model_context(state)
         await self._journal.start(state, run_input)
         capability_outcome = await self._model_capability_flow.prepare(
             state=state,
@@ -72,6 +73,7 @@ class FunctionCallingLoopRunner:
                     state,
                     cast(ExecutionOutcome, context_failure),
                 )
+            await self._sync_model_context(state)
             await self._journal.record_effective_context(
                 state,
                 mode="tool_loop",
@@ -175,10 +177,22 @@ class FunctionCallingLoopRunner:
             state.failure_signature_counts = dict(checkpoint.failure_signature_counts)
             state.repeated_blocker_tool_names = set(checkpoint.repeated_blocker_tool_names)
             state.suppressed_tool_names = set(checkpoint.suppressed_tool_names)
-            state.persona_task_clamp_applied = checkpoint.persona_task_clamp_applied
         state.run_plan_reader = run_input.run_plan_reader
+        state.model_context_port = run_input.model_context_port
+        state.model_context_turn_id = run_input.turn_id
         self._host._current_messages = state.messages
         return state
+
+    async def _sync_model_context(self, state: FunctionCallingStepState) -> None:
+        port = state.model_context_port
+        if port is None:
+            return
+        await port.commit(
+            messages=state.messages,
+            turn_id=state.model_context_turn_id,
+            run_id=state.run_id,
+            step_index=state.iteration,
+        )
 
     async def _poll_control_boundary(
         self,
@@ -534,6 +548,7 @@ class FunctionCallingLoopRunner:
         state: FunctionCallingStepState,
         outcome: ExecutionOutcome,
     ) -> ExecutionOutcome:
+        await self._sync_model_context(state)
         return await self._journal.record_terminal(state, outcome)
 
     async def _run_fallback_final_response(
@@ -551,6 +566,7 @@ class FunctionCallingLoopRunner:
         )
         if context_failure is not None:
             return cast(ExecutionOutcome, context_failure)
+        await self._sync_model_context(state)
         return cast(
             ExecutionOutcome,
             await self._host._execute_fallback_final_response(

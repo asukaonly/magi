@@ -557,12 +557,7 @@ class ChatPostProcessService:
     ) -> None:
         user_message = result.root_user_message or context.latest_user_message
         if prepared.latest_fact.event_type == EventTypes.USER_MESSAGE and user_message:
-            self._context_assembler.append_user_message(context.history_key, user_message)
             prepared.history_stored = True
-        self._context_assembler.append_assistant_message(
-            context.history_key,
-            prepared.response_text,
-        )
         prepared.history_stored = True
         prepared.user_message = user_message
         is_first_context_story = (

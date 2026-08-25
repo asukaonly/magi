@@ -600,6 +600,7 @@ class ChatTaskAgent(
             recall_feedback=context_inputs.recall_feedback,
             session_summary=context_inputs.history_context.session_summary,
             session_origin=context_inputs.history_context.session_origin,
+            model_context_revision=context_inputs.history_context.version,
             active_persona_id=context_inputs.active_persona_id,
             streaming_chat_enabled=context_inputs.preferences.streaming_chat_enabled,
             allow_media_grounding_for_conversation=(

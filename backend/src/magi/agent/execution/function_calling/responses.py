@@ -20,6 +20,10 @@ class FunctionCallingResponseMixin:
 
     def _augment_system_prompt(self, system_prompt: str) -> str:
         guidance = (
+            "\n\nExecution-phase expression rule:\n"
+            "- Once tool execution begins, keep subsequent decisions and synthesis focused, "
+            "concrete, and evidence-led. Personality may shape phrasing but must not weaken "
+            "task progress, validation, or factual precision."
             "\n\nTool recovery rules:\n"
             "- When a tool fails, inspect the tool error before deciding the next step.\n"
             "- Do not repeat the same tool call with the same arguments after a failure.\n"
@@ -56,7 +60,11 @@ class FunctionCallingResponseMixin:
             system_prompt,
             maxsplit=1,
         )[0]
-        prompt = re.split(r"\nTool recovery rules:\n", prompt, maxsplit=1)[0].rstrip()
+        prompt = re.split(
+            r"\nExecution-phase expression rule:\n|\nTool recovery rules:\n",
+            prompt,
+            maxsplit=1,
+        )[0].rstrip()
         rules = [
             "Final Response Rules:",
             "- Tools are no longer available in this step.",
@@ -64,6 +72,7 @@ class FunctionCallingResponseMixin:
             "- Use the existing evidence in the conversation and write the final answer directly.",
             "- When tool results conflict, prefer the later tool result over earlier plans, guesses, or dry-run output.",
             "- Treat successful verification and directory-listing tool results as the current state of the world.",
+            "- Personality may shape phrasing but must not weaken validation or factual precision.",
             "- If a dry-run reports zero planned operations, do not tell the user to run the script unless later evidence proves work is still pending; explain whether the current state already appears complete or the script failed to match.",
             "- Return natural language only.",
         ]

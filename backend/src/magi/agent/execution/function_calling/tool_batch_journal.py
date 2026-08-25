@@ -140,6 +140,13 @@ class FunctionCallingToolBatchJournal:
         )
         state.tool_evidence.append(evidence)
         self._append_tool_message(state, record, evidence=evidence)
+        if state.model_context_port is not None:
+            await state.model_context_port.commit(
+                messages=state.messages,
+                turn_id=state.model_context_turn_id,
+                run_id=state.run_id,
+                step_index=iteration,
+            )
         logger.info(
             "agent_run.tool_finished",
             run_id=state.run_id,

@@ -9,6 +9,7 @@ from ..evidence import ToolExecutionEvidence
 from ..journal import AgentRunJournal
 from ..reasoning import ReasoningPolicy, ReasoningState
 from ..run_plan_port import RunPlanReader
+from ..model_context_port import ModelContextPort
 from magi.skills.allowed_tools_rules import ToolRule
 
 
@@ -41,8 +42,9 @@ class FunctionCallingStepState:
     run_id: str = ""
     reasoning_policy: ReasoningPolicy | None = None
     reasoning_state: ReasoningState | None = None
-    persona_task_clamp_applied: bool = False
     run_plan_reader: RunPlanReader | None = None
+    model_context_port: ModelContextPort | None = None
+    model_context_turn_id: str | None = None
 
 
 @dataclass(slots=True)

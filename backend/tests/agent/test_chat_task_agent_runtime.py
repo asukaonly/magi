@@ -145,6 +145,7 @@ class _AroutePausedChatAgent(ChatTaskAgent):
             session_id=classified.session_id,
             active_persona_id=None,
             history_context=SimpleNamespace(
+                version=0,
                 session_summary=None,
                 session_origin="chat",
             ),

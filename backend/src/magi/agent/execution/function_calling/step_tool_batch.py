@@ -68,7 +68,6 @@ class FunctionCallingToolBatchExecutor:
             ctx=ctx,
             iteration=iteration,
         )
-        self._apply_task_persona_clamp(state)
         return await self._finish_tool_batch(
             state=state,
             tool_results=tool_results,
@@ -76,23 +75,6 @@ class FunctionCallingToolBatchExecutor:
             iteration=iteration,
             iteration_started_at_ms=iteration_started_at_ms,
         )
-
-    @staticmethod
-    def _apply_task_persona_clamp(state: FunctionCallingStepState) -> None:
-        if state.persona_task_clamp_applied:
-            return
-        state.messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "[Runtime expression policy]\n"
-                    "This run has entered execution. Keep subsequent decisions and synthesis "
-                    "focused, concrete, and evidence-led. Personality may shape phrasing but "
-                    "must not weaken task progress, validation, or factual precision."
-                ),
-            }
-        )
-        state.persona_task_clamp_applied = True
 
     async def _finish_tool_batch(
         self,

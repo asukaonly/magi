@@ -267,6 +267,17 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
     )
     llm_calls: list[dict[str, object]] = []
     tool_calls: list[str] = []
+    context_commits: list[list[str]] = []
+
+    class _RecordingModelContextPort:
+        async def commit(self, **kwargs):  # type: ignore[no-untyped-def]
+            context_commits.append(
+                [str(message.get("role") or "") for message in kwargs["messages"]]
+            )
+
+    step_state.model_context_port = _RecordingModelContextPort()  # type: ignore[assignment]
+    step_state.model_context_turn_id = "turn-1"
+    step_state.run_id = "run-1"
 
     async def _fake_call_llm_with_tools(**kwargs):  # type: ignore[no-untyped-def]
         llm_calls.append(kwargs)
@@ -330,9 +341,13 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
         "user",
         "assistant",
         "tool",
-        "user",
     ]
-    assert "Runtime expression policy" in step_state.messages[-1]["content"]
+    assert "Runtime expression policy" not in str(step_state.messages)
+    assert "Execution-phase expression rule" in step_state.effective_system_prompt
+    assert context_commits == [
+        ["user", "assistant"],
+        ["user", "assistant", "tool"],
+    ]
 
 
 @pytest.mark.asyncio

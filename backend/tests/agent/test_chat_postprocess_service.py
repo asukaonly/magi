@@ -2765,11 +2765,7 @@ async def test_handle_strips_sentinel_from_history_and_events() -> None:
     outcome = await service.handle(context, result)
 
     assert outcome.emitted is True
-    assistant_entries = [
-        entry for entry in context_assembler.history if entry["role"] == "assistant"
-    ]
-    assert len(assistant_entries) == 1
-    assert assistant_entries[0]["content"] == "alpha beta"
+    assert context_assembler.history == []
     assert "‖" not in event_emitter.chat_response_events[0]["response"]
     assert event_emitter.chat_response_events[0]["response"] == "alpha beta"
 
@@ -4454,7 +4450,7 @@ async def test_first_context_story_stores_chat_but_skips_relationship_memory_upd
 
     await service._record_chat_history_and_memory(context, result, prepared)
 
-    assert [item["role"] for item in assembler.history] == ["user", "assistant"]
+    assert assembler.history == []
     assert scheduled == []
     assert prepared.history_stored is True
     assert prepared.memory_updated is False

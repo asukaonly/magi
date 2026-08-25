@@ -14,6 +14,7 @@ from ....agent.turn_input import UserTurnInput
 from ....agent.execution.function_calling import AgentRunRequest
 from ....agent.execution.reasoning import ReasoningPolicy
 from ....agent.execution.run_plan_port import BoundRunPlanReader
+from ....agent.execution.model_context_port import ModelContextPort
 from ....context.service import ContextAssemblyService
 from ....context.scenarios import Scenario
 from ..common import (
@@ -48,6 +49,37 @@ from ....llm.model_context import ModelContextProfile
 from ....skills.allowed_tools_rules import ToolRule, parse_allowed_tools
 
 logger = get_logger(__name__)
+
+
+def _build_session_continuity_block(context: Any) -> str:
+    summary = str(getattr(context, "session_summary", None) or "").strip()
+    origin = str(getattr(context, "session_origin", None) or "").strip()
+    if not summary and not origin:
+        return ""
+    lines = ["# Session Continuity"]
+    if origin:
+        lines.extend(["## Origin", origin])
+    if summary:
+        lines.extend(["## Current References", summary])
+    lines.append(
+        "Treat this as turn-local continuity context. The canonical model-context "
+        "surface remains authoritative for prior model-visible exchanges."
+    )
+    return "\n".join(lines)
+
+
+def _build_chat_model_context_port(
+    deps: "ChatHandlerDependencies",
+    context: Any,
+) -> ModelContextPort | None:
+    factory = deps.model_context_port_factory
+    session_id = str(getattr(context, "session_id", "") or "").strip()
+    if factory is None or not session_id:
+        return None
+    return factory(
+        session_id,
+        int(getattr(context, "model_context_revision", 0) or 0),
+    )
 
 
 def _build_inline_skill_prompt(request: ExecutionRequest) -> str:
@@ -172,6 +204,7 @@ class ChatHandlerDependencies:
     attachment_resolver: AttachmentResolverPort = field(default_factory=NullAttachmentResolver)
     session_run_coordinator: Any | None = None
     background_launch_service: BackgroundLaunchService | None = None
+    model_context_port_factory: Callable[[str, int], ModelContextPort] | None = None
     # Set immediately after coordinator construction because the streaming
     # path and coordinator depend on each other during composition.
     coordinator: Any | None = None
@@ -241,6 +274,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
         )
         if first_context_guidance:
             system_prompt = f"{system_prompt}\n\n{first_context_guidance}"
+        session_continuity = _build_session_continuity_block(request.context)
+        if session_continuity:
+            system_prompt = f"{system_prompt}\n\n{session_continuity}"
         context_sources = _build_context_sources(
             request,
             prompt_package.prompt_context,
@@ -413,8 +449,6 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             run_revision=request.context.session_run_revision,
             turn_id=turn_id,
             conversation_history=request.context.history,
-            session_summary=getattr(request.context, "session_summary", None),
-            session_origin=getattr(request.context, "session_origin", None),
             reply_context=getattr(request.context, "reply_context", None),
             reasoning_policy=request.reasoning_policy,
             execution_preset="chat",
@@ -433,6 +467,10 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 run_id=run_id,
             ),
             skill_preapproval_rules=request.skill_preapproval_rules,
+            model_context_port=_build_chat_model_context_port(
+                self._deps,
+                request.context,
+            ),
         )
 
     @staticmethod

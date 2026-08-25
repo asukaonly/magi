@@ -36,7 +36,6 @@ class AgentRunCheckpoint:
     failure_signature_counts: dict[str, int] = field(default_factory=dict)
     repeated_blocker_tool_names: set[str] = field(default_factory=set)
     suppressed_tool_names: set[str] = field(default_factory=set)
-    persona_task_clamp_applied: bool = False
     reason: str = "checkpoint"
     note: str = ""
 
@@ -64,7 +63,6 @@ class AgentRunCheckpoint:
             "failure_signature_counts": dict(self.failure_signature_counts),
             "repeated_blocker_tool_names": sorted(self.repeated_blocker_tool_names),
             "suppressed_tool_names": sorted(self.suppressed_tool_names),
-            "persona_task_clamp_applied": self.persona_task_clamp_applied,
             "reason": self.reason,
             "note": self.note,
         }
@@ -101,7 +99,6 @@ class AgentRunCheckpoint:
             },
             repeated_blocker_tool_names=set(value["repeated_blocker_tool_names"]),
             suppressed_tool_names=set(value["suppressed_tool_names"]),
-            persona_task_clamp_applied=bool(value["persona_task_clamp_applied"]),
             reason=str(value["reason"]),
             note=str(value["note"]),
         )

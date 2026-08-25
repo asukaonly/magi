@@ -89,6 +89,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     recall_feedback: "RecallFeedbackContext | None" = None
     session_summary: str | None = None
     session_origin: str | None = None
+    model_context_revision: int = 0
     active_persona_id: str | None = None
     streaming_chat_enabled: bool = False
     allow_media_grounding_for_conversation: bool = False

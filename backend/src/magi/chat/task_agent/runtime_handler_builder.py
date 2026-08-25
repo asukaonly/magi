@@ -14,6 +14,7 @@ from magi.agent.task_agents.handlers.handlers import (
     build_common_handler_dependencies,
 )
 from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+from magi.chat.task_agent.model_context_port import ChatModelContextPort
 from magi.tools.registry import tool_registry
 
 from .runtime_context_builder import ChatContextRuntimeParts
@@ -77,6 +78,17 @@ def _build_handler_dependencies(
         attachment_resolver=context_parts.attachment_resolver,
         session_run_coordinator=execution_parts.session_run_coordinator,
         background_launch_service=config.background_launch_service,
+        model_context_port_factory=(
+            (
+                lambda session_id, revision: ChatModelContextPort(
+                    store=config.chat_store,
+                    session_id=session_id,
+                    revision=revision,
+                )
+            )
+            if config.chat_store is not None
+            else None
+        ),
     )
 
 
