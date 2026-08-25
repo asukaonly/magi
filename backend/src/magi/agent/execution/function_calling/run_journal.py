@@ -53,6 +53,7 @@ class FunctionCallingRunJournal:
             "reasoning_effective": state.reasoning_state.effective_depth.value,
             "reasoning_maximum": run_input.reasoning_policy.maximum_depth.value,
             "reasoning_escalation_budget": run_input.reasoning_policy.max_escalations,
+            "reasoning_escalation_step": run_input.reasoning_policy.escalation_step,
         }
         logger.info(
             "agent_run.resumed" if run_input.checkpoint is not None else "agent_run.started",

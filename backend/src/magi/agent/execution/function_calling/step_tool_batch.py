@@ -202,9 +202,7 @@ class FunctionCallingToolBatchExecutor:
         reasoning_state = state.reasoning_state
         reasoning_policy = state.reasoning_policy
         previous_depth = (
-            reasoning_state.effective_depth.value
-            if reasoning_state is not None
-            else None
+            reasoning_state.effective_depth.value if reasoning_state is not None else None
         )
         approved = bool(
             reasoning_state is not None
@@ -218,19 +216,16 @@ class FunctionCallingToolBatchExecutor:
             **result.data,
             "approved": approved,
             "requested_depth": (
-                reasoning_state.requested_depth.value
-                if reasoning_state is not None
-                else None
+                reasoning_state.requested_depth.value if reasoning_state is not None else None
             ),
             "maximum_depth": (
-                reasoning_policy.maximum_depth.value
-                if reasoning_policy is not None
-                else None
+                reasoning_policy.maximum_depth.value if reasoning_policy is not None else None
             ),
             "escalation_count": (
-                reasoning_state.escalation_count
-                if reasoning_state is not None
-                else 0
+                reasoning_state.escalation_count if reasoning_state is not None else 0
+            ),
+            "escalation_step": (
+                reasoning_policy.escalation_step if reasoning_policy is not None else None
             ),
             "denial_reason": None if approved else "policy_or_budget_limit",
         }
@@ -244,6 +239,7 @@ class FunctionCallingToolBatchExecutor:
             previous_depth=previous_depth,
             requested_depth=result.data["requested_depth"],
             maximum_depth=result.data["maximum_depth"],
+            escalation_step=result.data["escalation_step"],
             escalation_count=result.data["escalation_count"],
             denial_reason=result.data["denial_reason"],
         )

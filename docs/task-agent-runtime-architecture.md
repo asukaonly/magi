@@ -389,8 +389,9 @@ It enforces these current invariants:
   successful, task-substantive evidence from the current run; permission,
   discovery, ask, and plan-maintenance calls cannot prove task completion;
 - failed validation must be followed by a successful validation after repair;
-- canonical `verify` outcomes treat `fail` and `timeout` as failed validation,
-  while `skipped` is inconclusive and cannot satisfy a validation requirement;
+- canonical `verify` outcomes treat `fail` as failed validation; `timeout` and
+  `skipped` are inconclusive, cannot satisfy validation, and do not by
+  themselves justify deeper reasoning;
 - local-write and unknown-effect work must have current validation evidence;
 - repair cannot exceed the configured budget.
 
@@ -416,7 +417,8 @@ Reasoning depth has four layers of ownership:
 3. **Model/provider clamp.** `ModelCapabilityProfile` maps the requested depth to
    what the active provider/model can actually support.
 4. **Evidence-driven escalation.** Validation failure or another completion
-   rejection marked `reasoning_helpful` may raise the next step monotonically.
+   rejection marked `reasoning_helpful` may raise the next policy target
+   monotonically.
 
 Composer controls and the `/auto`, `/fast`, and `/deep` modifiers edit the
 visible draft prefix rather than hidden UI state. On submit, that prefix writes
@@ -427,8 +429,8 @@ model or memory content. It is not global or session configuration. A retry
 preserves the original turn's explicit preference because it reuses the
 already-built envelope.
 
-The resident `request_reasoning_depth` control lets the model request one step
-of additional reasoning for a small stable set of reasons such as conflicting
+The resident `request_reasoning_depth` control lets the model request one
+policy-defined increase for a small stable set of reasons such as conflicting
 evidence or stalled reasoning. The request is advisory: `ReasoningPolicy` may
 deny it because of `fast` mode, the maximum depth, or the escalation budget.
 Permission, dependency, network, uncertain-effect, user-input, and exhausted-
@@ -439,9 +441,10 @@ escalation.
 maximum, or reset its counter on retry. A validation-required rejection caused
 only by missing evidence does not automatically buy more reasoning.
 
-Operationally, ordinary `auto` chat starts at low depth without a router call;
-`fast` starts at none and is capped at low; `deep` starts at medium and may reach
-max where the provider supports it.
+Operationally, ordinary `auto` chat starts at low depth without a router call,
+then moves to high and max after at most two independently approved escalation
+signals. `fast` starts at none and is capped at low. `deep` starts at medium and
+moves through high to max where the provider supports it.
 
 ## Versioned Run Plans
 

@@ -88,7 +88,7 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
     assert decision.reasoning_helpful is True
 
 
-def test_validation_timeout_requests_reasoning_helpful_repair() -> None:
+def test_validation_timeout_requests_repair_without_reasoning_escalation() -> None:
     decision = CompletionGate().evaluate(
         policy=CompletionPolicy(),
         evidence=[
@@ -107,8 +107,8 @@ def test_validation_timeout_requests_reasoning_helpful_repair() -> None:
     )
 
     assert decision.outcome is CompletionOutcome.CONTINUE
-    assert decision.reason_code == "validation_failed"
-    assert decision.reasoning_helpful is True
+    assert decision.reason_code == "validation_inconclusive"
+    assert decision.reasoning_helpful is False
 
 
 def test_skipped_validation_does_not_satisfy_local_write_requirement() -> None:
@@ -136,7 +136,7 @@ def test_skipped_validation_does_not_satisfy_local_write_requirement() -> None:
     )
 
     assert decision.outcome is CompletionOutcome.CONTINUE
-    assert decision.reason_code == "validation_required"
+    assert decision.reason_code == "validation_inconclusive"
     assert decision.reasoning_helpful is False
 
 

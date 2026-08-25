@@ -66,21 +66,44 @@ async def test_runtime_approves_model_request_within_policy_and_records_event() 
     )
     record = _record("conflicting_evidence")
 
-    await FunctionCallingToolBatchExecutor(
-        SimpleNamespace()
-    )._apply_reasoning_depth_request(
+    await FunctionCallingToolBatchExecutor(SimpleNamespace())._apply_reasoning_depth_request(
         state=state,
         record=record,
         iteration=2,
     )
 
     assert record.result.data["approved"] is True
-    assert record.result.data["requested_depth"] == "medium"
-    assert state.reasoning_state.requested_depth.value == "medium"
+    assert record.result.data["requested_depth"] == "high"
+    assert state.reasoning_state.requested_depth.value == "high"
     assert [event.event_type for event in state.journal.events] == [
         AgentRunEventType.REASONING_DEPTH_CHANGED
     ]
     assert state.journal.events[0].payload["request_source"] == "model"
+
+
+@pytest.mark.asyncio
+async def test_auto_reaches_max_after_two_approved_requests() -> None:
+    policy = ReasoningPolicy.from_preference(ReasoningPreference.AUTO)
+    state = FunctionCallingStepState(
+        messages=[],
+        effective_system_prompt="system",
+        tools=[],
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    )
+    executor = FunctionCallingToolBatchExecutor(SimpleNamespace())
+    first = _record("task_complexity")
+    second = _record("conflicting_evidence")
+    third = _record("stalled_reasoning")
+
+    await executor._apply_reasoning_depth_request(state=state, record=first, iteration=1)
+    await executor._apply_reasoning_depth_request(state=state, record=second, iteration=2)
+    await executor._apply_reasoning_depth_request(state=state, record=third, iteration=3)
+
+    assert first.result.data["requested_depth"] == "high"
+    assert second.result.data["requested_depth"] == "max"
+    assert third.result.data["approved"] is False
+    assert state.reasoning_state.requested_depth.value == "max"
 
 
 @pytest.mark.asyncio

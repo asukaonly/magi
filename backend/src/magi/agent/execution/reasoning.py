@@ -23,8 +23,17 @@ class ReasoningPolicy:
 
     preference: ReasoningPreference = ReasoningPreference.AUTO
     initial_depth: ThinkingDepth = ThinkingDepth.LOW
-    maximum_depth: ThinkingDepth = ThinkingDepth.HIGH
+    maximum_depth: ThinkingDepth = ThinkingDepth.MAX
     max_escalations: int = 2
+    escalation_step: int = 2
+
+    def __post_init__(self) -> None:
+        if _rank(self.initial_depth) > _rank(self.maximum_depth):
+            raise ValueError("initial reasoning depth must not exceed the maximum")
+        if self.max_escalations < 0:
+            raise ValueError("reasoning escalation budget must not be negative")
+        if self.escalation_step < 1:
+            raise ValueError("reasoning escalation step must be positive")
 
     @classmethod
     def from_preference(cls, preference: ReasoningPreference) -> "ReasoningPolicy":
@@ -34,6 +43,7 @@ class ReasoningPolicy:
                 initial_depth=ThinkingDepth.NONE,
                 maximum_depth=ThinkingDepth.LOW,
                 max_escalations=1,
+                escalation_step=1,
             )
         if preference is ReasoningPreference.DEEP:
             return cls(
@@ -41,6 +51,7 @@ class ReasoningPolicy:
                 initial_depth=ThinkingDepth.MEDIUM,
                 maximum_depth=ThinkingDepth.MAX,
                 max_escalations=2,
+                escalation_step=1,
             )
         return cls(preference=preference)
 
@@ -50,6 +61,7 @@ class ReasoningPolicy:
             "initial_depth": self.initial_depth.value,
             "maximum_depth": self.maximum_depth.value,
             "max_escalations": self.max_escalations,
+            "escalation_step": self.escalation_step,
         }
 
     @classmethod
@@ -59,6 +71,7 @@ class ReasoningPolicy:
             initial_depth=ThinkingDepth(str(value["initial_depth"])),
             maximum_depth=ThinkingDepth(str(value["maximum_depth"])),
             max_escalations=int(value["max_escalations"]),
+            escalation_step=int(value["escalation_step"]),
         )
 
 
@@ -81,9 +94,9 @@ class ReasoningState:
     def escalate(self, policy: ReasoningPolicy, *, reason: str) -> bool:
         if self.escalation_count >= policy.max_escalations:
             return False
-        next_depth = _next_depth(self.requested_depth)
+        next_depth = _advance_depth(self.requested_depth, policy.escalation_step)
         if _rank(next_depth) > _rank(policy.maximum_depth):
-            return False
+            next_depth = policy.maximum_depth
         if next_depth is self.requested_depth:
             return False
         self.requested_depth = next_depth
@@ -123,8 +136,8 @@ def _rank(depth: ThinkingDepth) -> int:
     return _DEPTHS.index(depth)
 
 
-def _next_depth(depth: ThinkingDepth) -> ThinkingDepth:
-    return _DEPTHS[min(_rank(depth) + 1, len(_DEPTHS) - 1)]
+def _advance_depth(depth: ThinkingDepth, step: int) -> ThinkingDepth:
+    return _DEPTHS[min(_rank(depth) + step, len(_DEPTHS) - 1)]
 
 
 __all__ = ["ReasoningPolicy", "ReasoningPreference", "ReasoningState"]

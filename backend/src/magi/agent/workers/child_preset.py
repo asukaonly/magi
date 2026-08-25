@@ -49,9 +49,7 @@ _POLICIES = {
     ),
     ChildRunPreset.WORKSPACE_WRITE: ChildPresetPolicy(
         preset=ChildRunPreset.WORKSPACE_WRITE,
-        allowed_effects=frozenset(
-            {ToolEffectClass.READ_ONLY, ToolEffectClass.LOCAL_WRITE}
-        ),
+        allowed_effects=frozenset({ToolEffectClass.READ_ONLY, ToolEffectClass.LOCAL_WRITE}),
         preferred_initial_depth=ThinkingDepth.MEDIUM,
         maximum_depth=ThinkingDepth.HIGH,
         max_escalations=1,
@@ -123,6 +121,7 @@ def resolve_child_reasoning_policy(
         initial_depth=initial,
         maximum_depth=maximum,
         max_escalations=min(preset_policy.max_escalations, remaining_escalations),
+        escalation_step=parent_policy.escalation_step,
     )
 
 

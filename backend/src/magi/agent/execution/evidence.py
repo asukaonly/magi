@@ -119,15 +119,30 @@ def failed_validation_evidence(
     ]
 
 
+def inconclusive_validation_evidence(
+    evidence: list[ToolExecutionEvidence],
+    *,
+    validation_tool_names: frozenset[str],
+) -> list[ToolExecutionEvidence]:
+    """Return validation calls that completed without checking every target."""
+
+    return [
+        item
+        for item in evidence
+        if item.tool_name in validation_tool_names
+        and item.success
+        and _result_reports_validation_inconclusive(item.result)
+    ]
+
+
 def _result_reports_validation_failure(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
     summary = value.get("summary")
     if isinstance(summary, dict):
-        for key in ("fail", "timeout"):
-            count = summary.get(key)
-            if isinstance(count, (int, float)) and count > 0:
-                return True
+        failed = summary.get("fail")
+        if isinstance(failed, (int, float)) and failed > 0:
+            return True
         if summary.get("success") is False:
             return True
     results = value.get("results")
@@ -136,7 +151,7 @@ def _result_reports_validation_failure(value: Any) -> bool:
             isinstance(item, dict)
             and (
                 item.get("success") is False
-                or str(item.get("status") or "").lower() in {"fail", "error", "invalid", "timeout"}
+                or str(item.get("status") or "").lower() in {"fail", "error", "invalid"}
             )
             for item in results
         )
@@ -150,12 +165,13 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
         return False
     summary = value.get("summary")
     if isinstance(summary, dict):
-        skipped = summary.get("skipped")
-        if isinstance(skipped, (int, float)) and skipped > 0:
-            return True
+        for key in ("skipped", "timeout"):
+            count = summary.get(key)
+            if isinstance(count, (int, float)) and count > 0:
+                return True
     results = value.get("results")
     return isinstance(results, list) and any(
-        isinstance(item, dict) and str(item.get("status") or "").lower() == "skipped"
+        isinstance(item, dict) and str(item.get("status") or "").lower() in {"skipped", "timeout"}
         for item in results
     )
 
@@ -163,5 +179,6 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
 __all__ = [
     "ToolExecutionEvidence",
     "failed_validation_evidence",
+    "inconclusive_validation_evidence",
     "successful_validation_evidence",
 ]

@@ -380,6 +380,7 @@ class FunctionCallingLoopRunner:
                     previous_depth=previous.value,
                     requested_depth=state.reasoning_state.requested_depth.value,
                     maximum_depth=run_input.reasoning_policy.maximum_depth.value,
+                    escalation_step=run_input.reasoning_policy.escalation_step,
                     escalation_count=state.reasoning_state.escalation_count,
                 )
                 if escalated and state.journal is not None:
@@ -496,8 +497,7 @@ class FunctionCallingLoopRunner:
             return True
         return bool(
             decision.reason_code == "required_plan_incomplete"
-            and state.repair_iterations
-            >= run_input.completion_policy.max_repair_iterations
+            and state.repair_iterations >= run_input.completion_policy.max_repair_iterations
         )
 
     @staticmethod

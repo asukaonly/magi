@@ -16,6 +16,104 @@ from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 from magi.agent.turn_input import UserTurnInput
 
 
+def _verify_evidence(status: str) -> ToolExecutionEvidence:
+    summary = {"pass": 0, "fail": 0, "skipped": 0, "timeout": 0}
+    summary[status] = 1
+    return ToolExecutionEvidence(
+        tool_name="verify",
+        success=True,
+        effect_class="read_only",
+        replay_policy="read_only",
+        result={"summary": summary, "results": [{"status": status}]},
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_validation_uses_auto_escalation_step() -> None:
+    policy = ReasoningPolicy()
+    state = FunctionCallingStepState(
+        messages=[],
+        effective_system_prompt="system",
+        tools=[],
+        iteration=1,
+        tool_evidence=[_verify_evidence("fail")],
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    )
+    state.journal = AgentRunJournal(
+        run_id="run-1",
+        turn_id="turn-1",
+        session_id="session-1",
+        user_id="user-1",
+    )
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="finish the change"),
+        system_prompt="system",
+        selected_tools=[],
+        user_id="user-1",
+        reasoning_policy=policy,
+    )
+
+    outcome = await FunctionCallingLoopRunner(object())._evaluate_proposed_final(
+        state=state,
+        step_outcome=FunctionCallingStepOutcome(
+            status="completed",
+            iteration=1,
+            content="done",
+        ),
+        run_input=run_input,
+    )
+
+    assert outcome is None
+    assert state.reasoning_state.requested_depth.value == "high"
+    assert AgentRunEventType.REASONING_DEPTH_CHANGED in {
+        event.event_type for event in state.journal.events
+    }
+
+
+@pytest.mark.asyncio
+async def test_inconclusive_validation_repairs_without_escalation() -> None:
+    policy = ReasoningPolicy()
+    state = FunctionCallingStepState(
+        messages=[],
+        effective_system_prompt="system",
+        tools=[],
+        iteration=1,
+        tool_evidence=[_verify_evidence("timeout")],
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    )
+    state.journal = AgentRunJournal(
+        run_id="run-1",
+        turn_id="turn-1",
+        session_id="session-1",
+        user_id="user-1",
+    )
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="finish the change"),
+        system_prompt="system",
+        selected_tools=[],
+        user_id="user-1",
+        reasoning_policy=policy,
+    )
+
+    outcome = await FunctionCallingLoopRunner(object())._evaluate_proposed_final(
+        state=state,
+        step_outcome=FunctionCallingStepOutcome(
+            status="completed",
+            iteration=1,
+            content="done",
+        ),
+        run_input=run_input,
+    )
+
+    assert outcome is None
+    assert state.reasoning_state.requested_depth.value == "low"
+    assert AgentRunEventType.REASONING_DEPTH_CHANGED not in {
+        event.event_type for event in state.journal.events
+    }
+
+
 @pytest.mark.asyncio
 async def test_repair_exhaustion_is_recorded_before_blocking() -> None:
     state = FunctionCallingStepState(

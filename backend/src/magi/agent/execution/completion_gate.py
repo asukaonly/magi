@@ -7,6 +7,7 @@ from .contracts import CompletionDecision, CompletionOutcome
 from .evidence import (
     ToolExecutionEvidence,
     failed_validation_evidence,
+    inconclusive_validation_evidence,
     successful_validation_evidence,
 )
 from magi.control.run_plan import PlanStatus, RunPlan, TodoStatus
@@ -52,6 +53,10 @@ class CompletionGate:
             evidence,
             validation_tool_names=policy.validation_tool_names,
         )
+        inconclusive_validation = inconclusive_validation_evidence(
+            evidence,
+            validation_tool_names=policy.validation_tool_names,
+        )
         latest_failed_validation_index = max(
             (index for index, item in enumerate(evidence) if item in failed_validation),
             default=-1,
@@ -60,7 +65,14 @@ class CompletionGate:
             (index for index, item in enumerate(evidence) if item in successful_validation),
             default=-1,
         )
-        if latest_failed_validation_index > latest_successful_validation_index:
+        latest_inconclusive_validation_index = max(
+            (index for index, item in enumerate(evidence) if item in inconclusive_validation),
+            default=-1,
+        )
+        if latest_failed_validation_index > max(
+            latest_successful_validation_index,
+            latest_inconclusive_validation_index,
+        ):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -77,6 +89,29 @@ class CompletionGate:
                 evidence_refs=refs,
                 repairable=True,
                 reasoning_helpful=True,
+            )
+        if latest_inconclusive_validation_index > max(
+            latest_successful_validation_index,
+            latest_failed_validation_index,
+        ):
+            if repair_iterations >= policy.max_repair_iterations:
+                return CompletionDecision(
+                    outcome=CompletionOutcome.BLOCKED,
+                    reason_code="repair_exhausted",
+                    observations=(
+                        "Validation remained inconclusive after the repair budget was exhausted.",
+                    ),
+                    evidence_refs=refs,
+                )
+            return CompletionDecision(
+                outcome=CompletionOutcome.CONTINUE,
+                reason_code="validation_inconclusive",
+                observations=(
+                    "Validation timed out or skipped a target. Retry it or use a validation method that can check every target.",
+                ),
+                evidence_refs=refs,
+                repairable=True,
+                reasoning_helpful=False,
             )
 
         local_writes = [
@@ -102,7 +137,9 @@ class CompletionGate:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
                     reason_code="repair_exhausted",
-                    observations=("The run changed local state but never produced validation evidence.",),
+                    observations=(
+                        "The run changed local state but never produced validation evidence.",
+                    ),
                     evidence_refs=refs,
                 )
             return CompletionDecision(
@@ -145,9 +182,7 @@ def _evaluate_required_plan(
         )
 
     incomplete = [
-        item
-        for item in plan.items
-        if item.required and item.status is not TodoStatus.COMPLETED
+        item for item in plan.items if item.required and item.status is not TodoStatus.COMPLETED
     ]
     if incomplete:
         if repair_iterations >= max_repair_iterations:

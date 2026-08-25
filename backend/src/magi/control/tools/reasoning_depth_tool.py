@@ -15,13 +15,13 @@ from magi_plugin_sdk.tools import (
 
 
 class RequestReasoningDepthTool(Tool):
-    """Let the model request one bounded reasoning-depth escalation."""
+    """Let the model request one policy-bounded reasoning-depth escalation."""
 
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="request_reasoning_depth",
             description=(
-                "Request one reasoning-depth increase for the next model step when "
+                "Request one policy-defined reasoning-depth increase for the next model step when "
                 "additional reasoning may change the decision. The runtime may deny "
                 "the request because of the user's mode, depth limit, or escalation "
                 "budget. Do not use this for permission, network, dependency, user-input, "
