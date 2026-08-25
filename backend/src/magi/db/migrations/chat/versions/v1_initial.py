@@ -9,6 +9,50 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
+
+_MODEL_CONTEXT_TABLES = (
+    "chat_model_context_heads",
+    "chat_model_context_events",
+    "chat_model_context_revisions",
+    "chat_model_context_surface_nodes",
+    "chat_model_context_run_heads",
+    "chat_model_context_epochs",
+    "chat_model_context_boundaries",
+)
+
+
+def _model_context_insert_trigger_sql(table: str) -> str:
+    trigger = f"trg_{table}_reject_unavailable_session"
+    return f"""
+CREATE TRIGGER IF NOT EXISTS {trigger}
+BEFORE INSERT ON {table}
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
+    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
+)
+OR EXISTS (
+    SELECT 1 FROM chat_cleared_session_scopes AS cleared
+    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
+)
+BEGIN
+    SELECT RAISE(ABORT, 'chat session is unavailable');
+END
+    """
+
+
+MODEL_CONTEXT_SESSION_TRIGGERS_SQL = ";\n".join(
+    _model_context_insert_trigger_sql(table).strip()
+    for table in _MODEL_CONTEXT_TABLES
+)
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id TEXT PRIMARY KEY,
@@ -497,115 +541,7 @@ BEGIN
     SELECT RAISE(ABORT, 'chat message was cleared');
 END;
 
-CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_heads_reject_unavailable_session
-BEFORE INSERT ON chat_model_context_heads
-WHEN EXISTS (
-    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
-)
-OR EXISTS (
-    SELECT 1 FROM chat_cleared_session_scopes AS cleared
-    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-)
-OR EXISTS (
-    SELECT 1 FROM chat_sessions AS sessions
-    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-      AND (
-          sessions.session_id != NEW.session_id
-          OR sessions.deleted_at_ms IS NOT NULL
-          OR sessions.archived_at_ms IS NOT NULL
-      )
-)
-BEGIN
-    SELECT RAISE(ABORT, 'chat session is unavailable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_events_reject_unavailable_session
-BEFORE INSERT ON chat_model_context_events
-WHEN EXISTS (
-    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
-)
-OR EXISTS (
-    SELECT 1 FROM chat_cleared_session_scopes AS cleared
-    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-)
-OR EXISTS (
-    SELECT 1 FROM chat_sessions AS sessions
-    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-      AND (
-          sessions.session_id != NEW.session_id
-          OR sessions.deleted_at_ms IS NOT NULL
-          OR sessions.archived_at_ms IS NOT NULL
-      )
-)
-BEGIN
-    SELECT RAISE(ABORT, 'chat session is unavailable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_surface_nodes_reject_unavailable_session
-BEFORE INSERT ON chat_model_context_surface_nodes
-WHEN EXISTS (
-    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
-)
-OR EXISTS (
-    SELECT 1 FROM chat_cleared_session_scopes AS cleared
-    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-)
-OR EXISTS (
-    SELECT 1 FROM chat_sessions AS sessions
-    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-      AND (
-          sessions.session_id != NEW.session_id
-          OR sessions.deleted_at_ms IS NOT NULL
-          OR sessions.archived_at_ms IS NOT NULL
-      )
-)
-BEGIN
-    SELECT RAISE(ABORT, 'chat session is unavailable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_epochs_reject_unavailable_session
-BEFORE INSERT ON chat_model_context_epochs
-WHEN EXISTS (
-    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
-)
-OR EXISTS (
-    SELECT 1 FROM chat_cleared_session_scopes AS cleared
-    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-)
-OR EXISTS (
-    SELECT 1 FROM chat_sessions AS sessions
-    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-      AND (
-          sessions.session_id != NEW.session_id
-          OR sessions.deleted_at_ms IS NOT NULL
-          OR sessions.archived_at_ms IS NOT NULL
-      )
-)
-BEGIN
-    SELECT RAISE(ABORT, 'chat session is unavailable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_boundaries_reject_unavailable_session
-BEFORE INSERT ON chat_model_context_boundaries
-WHEN EXISTS (
-    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
-)
-OR EXISTS (
-    SELECT 1 FROM chat_cleared_session_scopes AS cleared
-    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-)
-OR EXISTS (
-    SELECT 1 FROM chat_sessions AS sessions
-    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-      AND (
-          sessions.session_id != NEW.session_id
-          OR sessions.deleted_at_ms IS NOT NULL
-          OR sessions.archived_at_ms IS NOT NULL
-      )
-)
-BEGIN
-    SELECT RAISE(ABORT, 'chat session is unavailable');
-END;
+""" + MODEL_CONTEXT_SESSION_TRIGGERS_SQL + ";\n" + """
 
 CREATE TRIGGER IF NOT EXISTS trg_chat_attachments_reject_unavailable_session
 BEFORE INSERT ON chat_attachments
@@ -787,6 +723,8 @@ DROP TRIGGER IF EXISTS trg_chat_assistant_memory_outbox_reject_unavailable_sessi
 DROP TRIGGER IF EXISTS trg_chat_model_context_boundaries_reject_unavailable_session;
 
 DROP TRIGGER IF EXISTS trg_chat_model_context_run_heads_reject_unavailable_session;
+
+DROP TRIGGER IF EXISTS trg_chat_model_context_revisions_reject_unavailable_session;
 
 DROP TRIGGER IF EXISTS trg_chat_model_context_epochs_reject_unavailable_session;
 
