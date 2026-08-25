@@ -550,8 +550,12 @@ turn-wide replay blocking. The L1 session preview is rebuilt from surviving
 events after a message delete and scrubbed when the whole session is deleted.
 After memory cleanup succeeds, single-message deletion first commits an
 inaccessible redacted row, removes its public attachment metadata, invalidates
-session context summaries, clears reply previews that point to it, and rebuilds
-the visible session preview. A user message also owns the execution boundary for
+session boundary summaries, clears the complete session Model Context Log and
+Surface, clears reply previews that point to it, and rebuilds the visible
+session preview. Clearing the complete model context is conservative and
+necessary because surviving tool results or summaries may still derive from the
+deleted message; the visible transcript is never used to reconstruct a partial
+prompt history. A user message also owns the execution boundary for
 its turn, so deleting that message removes its delivery copy and linked turn
 trace. Deleting a completed assistant message preserves the originating user
 turn's trace and delivery row; if its reply is still unfinished, the runtime

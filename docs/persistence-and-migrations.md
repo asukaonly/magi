@@ -71,7 +71,7 @@ the new files and finishes removing plaintext rollback artifacts.
 
 | File | Owner | Holds |
 |------|-------|-------|
-| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, durable root-turn execution budgets, messages, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, context summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
+| `data/chat/chat.db` | chat | sessions, session-creation idempotency mappings, turns, durable root-turn execution budgets, visible messages, append-only model-context events, current context surfaces, deduplicated system/tool epochs, model-call boundaries, attachments, per-turn context-usage snapshots, canonical message-to-asset and message-to-code-delegation ownership, private attachment/code-delegation cleanup registries, named boundary summaries, user-turn delivery checkpoints, retryable assistant-memory projection intents, interrupted global-clear intent, permanent cleared-session and cleared-message scopes |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | short-term attention checkpoints, grounded Claim/evidence/entity-reference ledgers, exact L2 projection attempts and outcomes, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | canonical run manifests/events, versioned plans, normalized spans / llm calls / tools, plugin ingress events |
@@ -395,7 +395,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 
 | environment | head | Boundary added at head |
 |-------------|------|------------------------|
-| `chat` | `v13` | root-turn execution budgets persist across queue admissions and process restarts |
+| `chat` | `v16` | reconstructible model-context surfaces plus exact system/tool epochs and model-call boundaries |
 | `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
@@ -410,6 +410,36 @@ Chat-derived background continuations retain this root identity. Standalone
 background tasks store the equivalent counters on their `background_tasks` row,
 keyed by the stable task id, so another attempt or process restart rehydrates the
 same allowance.
+
+Chat model context is intentionally separate from the visible transcript:
+
+- `chat_model_context_events` is the append-only provider-neutral event log;
+- `chat_model_context_surface_nodes` orders the events visible to the next model
+  call, while `chat_model_context_heads` owns its optimistic revision;
+- `chat_model_context_epochs` deduplicates the exact stable system prompt and
+  canonical tool declaration set;
+- `chat_model_context_boundaries` binds each actual model call to one surface
+  revision and one epoch.
+
+The runtime synchronizes the surface before a model call and after every output
+that can affect a later call. Surface replacement records new events instead of
+mutating earlier log rows. Raw attachment bytes are not stored in context JSON;
+stable attachment identifiers and metadata are retained. The runtime trace
+stores only privacy-safe fingerprints and metrics, not a duplicate prompt
+archive.
+
+There is no data migration from `chat_messages` or an earlier transcript-summary
+format. Existing development sessions begin with an empty context head when they
+receive their first post-cutover turn. This follows the pre-release no-
+compatibility policy and prevents the visible transcript and Model Context Log
+from becoming competing prompt sources.
+
+Message deletion clears the complete session Model Context Log because surviving
+context may still contain the deleted content or a tool result derived from it.
+History clear, session deletion, and global clear physically remove the matching
+heads, events, surfaces, epochs, and boundaries inside the governed chat cleanup
+transaction. The visible transcript is never used to reconstruct a partial
+replacement after deletion.
 
 `tool_effect_attempts` is the execution-safety source of truth for non-read-only
 tool calls. It stores stable scope and tool-call identities plus SHA-256 digests,

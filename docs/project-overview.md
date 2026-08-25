@@ -228,12 +228,14 @@ Magi uses a lifecycle-based memory model instead of the older feature-stacked fr
   Procedural memory and reusable execution heuristics
 
 `L0` is a disposable, rebuildable projection rather than memory truth. Chat
-owns the transcript and rolling summaries; runtime owns live runs, tools,
-interruptions, and recovery; `L1` and above own durable evidence and
-understanding. Only an accepted complete chat turn may enter shared post-turn
-understanding. That bounded analysis can produce an L0 attention delta together
-with separately validated personality and durable-memory candidates, avoiding
-duplicate model calls without merging their storage authority.
+owns the visible transcript and a separate canonical Model Context Log/Surface;
+runtime owns live runs, tools, interruptions, and recovery; `L1` and above own
+durable evidence and understanding. Named chat summaries are boundary caches,
+not the normal prompt frontier. Only an accepted complete chat turn may enter
+shared post-turn understanding. That bounded analysis can produce an L0
+attention delta together with separately validated personality and durable-
+memory candidates, avoiding duplicate model calls without merging their storage
+authority.
 
 By default, L0 understanding runs after three newly accepted turns, after 30
 seconds of conversational idle time, or no later than 90 seconds after the
@@ -242,7 +244,8 @@ turns only; it never delays or changes the accepted answer that triggered it.
 Its pending analysis queue is process-local: normal shutdown gives it a
 five-second best-effort flush, while a crash or force termination may lose
 pending analysis and uncheckpointed attention. Restart restores checkpointed
-attention only; durable chat history, not L0, preserves the conversation.
+attention only; the chat-owned Context Surface, not L0 or the visible transcript,
+preserves model-visible conversation state.
 
 This separates short-term attention and live runtime state from durable user
 memory while keeping retrieval and future behavior adaptation connected to

@@ -39,10 +39,11 @@ Last reviewed against the implementation: 2026-08-25.
    `auto`, `fast`, or `deep`; completion evidence and the model's typed
    `request_reasoning_depth` control may request monotonic escalation, while the
    runtime owns the ceiling and budget.
-7. **Durable stores have one truth each.** Context manifests and ordered run
-   events own execution history; `run_plans` owns current plan state. Chat trace
-   summaries join those sources for metrics, validation, repair, children, and
-   the latest plan without copying either into chat.
+7. **Durable stores have one truth each.** The chat-owned Model Context Log and
+   current Context Surface own reconstructible model-visible conversation state;
+   visible transcript rows own product presentation; ordered run events own
+   execution observability; `run_plans` owns current plan state. None is rebuilt
+   from another as a compatibility fallback.
 
 ## System Topology
 
@@ -453,21 +454,24 @@ then moves to high and max after at most two independently approved escalation
 signals. `fast` starts at none and is capped at low. `deep` starts at medium and
 moves through high to max where the provider supports it.
 
-Tool-call messages, tool results, and runtime execution directives are
-run-local scratch context. A later user turn reconstructs history from the
-canonical visible transcript (`user_text`, accepted `assistant_final`, and
-collapsed rhythm segments), not from the previous run's private chain. Keeping
-private chain-of-action messages solely to preserve a provider cache would grow
-context, expose stale control state to the next decision, and make the durable
-chat transcript cease to be the source of truth.
+Every provider-visible message is materialized before the next model call. This
+includes the explicit turn-context snapshot, user messages, assistant tool-call
+messages, tool results, runtime observations and controls, compaction summaries,
+and accepted assistant responses. A later turn resumes from the chat-owned
+Context Surface instead of reconstructing model history from the visible
+transcript. This preserves tool-call identifiers and the exact causal chain the
+model already observed; runtime controls are not silently removed between
+turns.
 
-Prompt-cache optimization follows that ownership boundary. Stable tools, the
-cacheable system head, and canonical older history form the reusable prefix;
-per-turn context and run-local execution messages are appended after it. A
-reasoning-depth change may still select a different provider request profile
-and therefore a different cache partition even when the message prefix is
-unchanged. Cache reuse is an optimization and must not change which runtime
-state is semantically valid for a later turn.
+The cacheable system head and tool declarations are stored separately as a
+deduplicated context epoch. Each model-call boundary references one surface
+revision and one epoch, so diagnostics can reconstruct the exact request shape
+without copying prompts into the privacy-safe runtime trace. The provider
+request keeps the stable system/tools/older-history prefix first; the explicit
+per-turn `<turn_context>` and current user message follow it. A changed system
+head, tool set, or provider reasoning profile may still start a new cache
+partition. Cache reuse remains an optimization and never changes semantic
+context ownership.
 
 ## Versioned Run Plans
 
@@ -616,13 +620,15 @@ The journal is an observability source, not a second prompt archive. Manifests
 and `CONTEXT_PREPARED` events never copy system prompts, conversation messages,
 rendered memory/persona/skill context, tool schemas, or attachment bytes. They
 store deterministic digests, encoded sizes, counts, and stable source IDs. The
-live loop and an explicitly persisted background handoff checkpoint may retain
-the model-facing context required to continue execution; chat forgetting removes
-the checkpoint through its origin-turn ownership boundary.
+chat-owned Model Context Log retains reconstructible foreground context; an
+explicitly persisted background handoff checkpoint may retain the model-facing
+context required for headless continuation. Chat forgetting removes both through
+their owning session or origin-turn boundaries.
 
-Chat transcript truth remains in `chat.db`. Execution plans and intermediate
-runtime state are not duplicated as chat messages. Runtime notifications are
-best-effort wakeups; reload always reconstructs from durable stores.
+Visible transcript truth and model-context truth both live in `chat.db`, but in
+separate schemas with separate consumers. Execution plans and intermediate
+runtime state are not duplicated as visible chat messages. Runtime notifications
+are best-effort wakeups; reload always reconstructs from durable stores.
 
 The backend text log also emits privacy-safe `agent_run.*` breadcrumbs for
 manual diagnostics: run start/resume/terminal, step boundaries, requested and
@@ -635,7 +641,9 @@ observations.
 ## Persistence Boundaries
 
 - `chat.db` — sessions, turns, visible messages, attachments, reply/label state,
-  accepted-turn delivery ledger, rolling summaries, and projection intents;
+  accepted-turn delivery ledger, the append-only Model Context Log, current
+  Context Surface, model-call epochs/boundaries, named boundary summaries, and
+  projection intents;
 - `runtime_trace.db` — run manifests/events/plans, normalized execution traces,
   and live notification records;
 - `message_queue.db` — durable command admission and delivery attempts;
@@ -653,7 +661,7 @@ identity are the only execution ownership seams.
 
 Chat prompt assembly combines:
 
-- the active rolling summary and complete unsummarized user-led tail;
+- the current ordered Context Surface loaded from `chat_model_context_*`;
 - the current typed turn and reply target;
 - managed attachment references;
 - bounded recent tool-state continuity;
@@ -668,14 +676,31 @@ is exposed. An empty bounded result is never represented as proof that the user
 has no relevant history, and a retrieval outage does not fail an otherwise
 valid chat turn.
 
-Display-history pagination never defines model context. Under pressure,
-compaction keeps complete protocol groups and preserves tool-call identifiers.
-The active model's input/output limits determine the capacity decision.
-Provider-facing prompt measurement is performed before every model call.
+Before each foreground model call, the loop synchronizes the exact provider-
+neutral message list into the Context Surface and records a boundary referencing
+the matching system/tool epoch. After an assistant tool-call response, each tool
+result, attachment-grounding observation, compaction, and terminal response, it
+commits the updated surface before any later call can depend on it. Raw image
+bytes are not copied into SQLite; stable attachment handles remain resolvable by
+the chat domain.
 
-Session summaries are continuation checkpoints in `chat.db`, not long-term
-memory facts. A summary or attachment metadata failure must not silently turn a
-known conversation into an empty prompt.
+Display-history pagination never defines model context. Under pressure, the
+runtime compactor replaces the active Context Surface while the append log keeps
+the prior events until governed deletion. Compaction keeps complete protocol
+groups and tool-call identifiers. The active model's input/output limits
+determine the capacity decision, and provider-facing prompt measurement occurs
+before every model call.
+
+`chat_context_summaries` is an explicitly named boundary-summary cache, currently
+used for persona-switch continuity. It is not the normal prompt-history owner and
+has no implicit `token_budget` mode. L0 is a disposable semantic-attention
+projection; it may contribute to a turn-context snapshot but never stores the
+model conversation frontier.
+
+There is deliberately no import from historical transcript rows into the Model
+Context Log. A pre-cutover session therefore starts with an empty Context Surface
+on its first new turn. This project is pre-release and does not carry a legacy
+fallback that would create two competing prompt histories.
 
 ## Background And Scheduled Execution
 
@@ -717,11 +742,13 @@ exactly-once delivery.
 ## Layer Ownership
 
 - `agent/execution/` owns the unified run request, loop, journal, capability
-  policy, reasoning state, effect evidence, completion gate, and checkpoints;
+  policy, reasoning state, effect evidence, completion gate, context-port
+  contract, and checkpoints;
 - `agent/workers/` owns bounded child-run mechanics and presets;
 - `agent/task_agents/` owns generic task-agent hooks and handler contracts;
-- `chat/task_agent/` owns chat context, session/run admission, safe-boundary
-  input, presentation, post-processing, and transcript outcome policy;
+- `chat/task_agent/` owns the chat adapter for the Model Context Log, turn-context
+  assembly, session/run admission, safe-boundary input, presentation,
+  post-processing, and transcript outcome policy;
 - `commands/` and `skills/` own typed slash resolution and expansion;
 - `control/` owns permissions, asks, plan state, run control, and user-content
   clear coordination;
@@ -744,6 +771,7 @@ a domain-neutral execution result.
 | Model reasoning request | no routing call | may raise effort on a later step only if policy approves |
 | Active-run replacement | no classifier call | old run cancels before the durable replacement becomes root |
 | `fast` / `deep` | same call count | changes reasoning effort/budget, not route shape |
+| Model-context durability | no additional model calls | adds bounded local SQLite writes before model boundaries and removes the old transcript-summary model call path |
 
 The architecture removes one serial auxiliary LLM call from every ordinary
 turn. It may spend extra calls when capability recovery, child work, or repair
@@ -754,6 +782,8 @@ metrics.
 
 - `backend/src/magi/chat/task_agent/turn_admission_service.py`
 - `backend/src/magi/chat/task_agent/coordinator.py`
+- `backend/src/magi/chat/model_context.py`
+- `backend/src/magi/chat/task_agent/model_context_port.py`
 - `backend/src/magi/agent/execution/function_calling/run_input.py`
 - `backend/src/magi/agent/execution/function_calling/loop_runner.py`
 - `backend/src/magi/agent/execution/function_calling/model_capability_flow.py`

@@ -576,7 +576,10 @@ Current storage implementation notes:
 
 - `agent.memory.db_path` is persisted for forward compatibility, but the current Settings UI hides it until runtime directory switching and migration are implemented; active memory still uses `data/memory/`.
 - `message_queue.db` is reserved for runtime command persistence, not long-term L1 memory.
-- `chat.db` is the product-domain source of truth for chat sessions, turn state, and visible transcript rows.
+- `chat.db` owns both chat presentation state and model-facing continuity, but in
+  separate schemas: visible transcript rows drive the product surface, while the
+  canonical Model Context Log/Surface drives later model calls. Neither L0 nor
+  the visible transcript is a fallback prompt store.
 - `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, LLM prompt-cache diagnostics, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
