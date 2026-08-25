@@ -7,9 +7,9 @@
  * control commands stay local, tool commands use the command runner, and
  * skills create typed invocations.
  *
- * Action commands clear the textarea and execute immediately. Reasoning
- * modifiers remain visible in the textarea and are interpreted only when the
- * user submits the message.
+ * Selecting a command consumes only the active slash query. Any existing draft
+ * remains in the textarea; reasoning modifiers are inserted at its start while
+ * action, tool, and skill commands execute without discarding unrelated text.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
@@ -104,6 +104,21 @@ const isAtMessageStart = (value: string, cursor: number): boolean => {
   const between = before.slice(slashIdx + 1);
   if (/[\s\n]/.test(between)) return false;
   return true;
+};
+
+const removeActiveSlashQuery = (
+  value: string,
+  cursor: number,
+): { value: string; cursor: number } => {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  if (!isAtMessageStart(value, safeCursor)) {
+    return { value, cursor: safeCursor };
+  }
+
+  const slashIndex = value.lastIndexOf('/', Math.max(0, safeCursor - 1));
+  const remainingValue = `${value.slice(0, slashIndex)}${value.slice(safeCursor)}`
+    .trimStart();
+  return { value: remainingValue, cursor: 0 };
 };
 
 interface UseChatComposerCommandsOptions {
@@ -261,15 +276,18 @@ export function useChatComposerCommands({
     (item: SlashCommandItem) => {
       mruCache.recordUse(mruKey(item));
       close();
-      let nextCursor = 0;
+      const textarea = textareaRef.current;
+      const currentValue = textarea?.value ?? '';
+      const currentCursor = textarea?.selectionStart ?? currentValue.length;
+      const remainingDraft = removeActiveSlashQuery(currentValue, currentCursor);
+      let nextValue = remainingDraft.value;
+      let nextCursor = remainingDraft.cursor;
       if (item.source === 'modifier') {
-        const nextValue = `/${item.preference} `;
-        setInputValue(nextValue);
-        nextCursor = nextValue.length;
-      } else {
-        // Action, tool, and skill invocations surface outside the textarea.
-        setInputValue('');
+        const prefix = `/${item.preference} `;
+        nextValue = `${prefix}${remainingDraft.value}`;
+        nextCursor = prefix.length;
       }
+      setInputValue(nextValue);
       if (item.source === 'internal') {
         void onPickInternal(item.action);
       } else if (item.source === 'tool') {
@@ -278,11 +296,9 @@ export function useChatComposerCommands({
         onPickSkill(item.descriptor);
       }
       requestAnimationFrame(() => {
-        const textarea = textareaRef.current;
-        textarea?.focus();
-        if (nextCursor > 0) {
-          textarea?.setSelectionRange(nextCursor, nextCursor);
-        }
+        const nextTextarea = textareaRef.current;
+        nextTextarea?.focus();
+        nextTextarea?.setSelectionRange(nextCursor, nextCursor);
       });
     },
     [close, onPickInternal, onPickSkill, onPickTool, setInputValue, textareaRef],

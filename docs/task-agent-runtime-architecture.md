@@ -207,6 +207,9 @@ Slash recognition is owned before the model-facing run:
 - `/auto`, `/fast`, and `/deep` are inline message modifiers: the composer
   keeps the prefix visible, strips it from semantic message content on submit,
   and writes the selected preference into the typed turn envelope;
+- selecting a picker result consumes only the active slash query: reasoning
+  modifiers are inserted before the remaining draft, while client, tool, and
+  skill commands execute without discarding unrelated draft text;
 - cancellation remains run-targeted: the locked composer exposes a stop
   button; when interjection keeps the composer enabled, `/cancel` is offered
   only while an exact active foreground turn is known and dispatches against

@@ -182,7 +182,7 @@ describe('useChatComposerCommands', () => {
     expect(within(clearOption).getByLabelText('chat.commands.dangerous')).toBeInTheDocument();
   });
 
-  it('select on internal command runs handler and clears input', async () => {
+  it('select on internal command runs handler without discarding the draft', async () => {
     const setInputValue = vi.fn();
     const onPickInternal = vi.fn();
     const Harness = () => {
@@ -196,12 +196,12 @@ describe('useChatComposerCommands', () => {
       });
       return (
         <div>
-          <textarea ref={ref} defaultValue="/cl" />
+          <textarea ref={ref} defaultValue="/cl Keep this draft" />
           <button
             data-testid="open"
             onClick={() => {
               if (ref.current) ref.current.setSelectionRange(3, 3);
-              hook.onValueChange('/cl');
+              hook.onValueChange('/cl Keep this draft');
             }}
           />
           <button
@@ -222,11 +222,11 @@ describe('useChatComposerCommands', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('select-clear'));
     });
-    expect(setInputValue).toHaveBeenCalledWith('');
+    expect(setInputValue).toHaveBeenCalledWith('Keep this draft');
     expect(onPickInternal).toHaveBeenCalledWith('clear');
   });
 
-  it('select on reasoning modifier keeps it visible for message composition', async () => {
+  it('select on reasoning modifier keeps it visible and preserves the draft', async () => {
     const setInputValue = vi.fn();
     const onPickInternal = vi.fn();
     const Harness = () => {
@@ -240,21 +240,17 @@ describe('useChatComposerCommands', () => {
       });
       return (
         <div>
-          <textarea ref={ref} defaultValue="/fa" />
+          <textarea
+            ref={ref}
+            data-testid="modifier-input"
+            defaultValue="/fa Keep this draft"
+            onKeyDown={(event) => hook.onKeyDown(event)}
+          />
           <button
             data-testid="open-fast"
             onClick={() => {
               ref.current?.setSelectionRange(3, 3);
-              hook.onValueChange('/fa');
-            }}
-          />
-          <button
-            data-testid="select-fast"
-            onClick={() => {
-              const item = hook.items.find((candidate) => (
-                candidate.source === 'modifier' && candidate.name === 'fast'
-              ));
-              if (item) hook.select(item);
+              hook.onValueChange('/fa Keep this draft');
             }}
           />
         </div>
@@ -264,9 +260,9 @@ describe('useChatComposerCommands', () => {
     render(<Harness />);
     fireEvent.click(screen.getByTestId('open-fast'));
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/commands/'));
-    fireEvent.click(screen.getByTestId('select-fast'));
+    fireEvent.keyDown(screen.getByTestId('modifier-input'), { key: 'Enter' });
 
-    expect(setInputValue).toHaveBeenCalledWith('/fast ');
+    expect(setInputValue).toHaveBeenCalledWith('/fast Keep this draft');
     expect(onPickInternal).not.toHaveBeenCalled();
   });
 
