@@ -185,6 +185,28 @@ describe('useChatComposerController pending ask drafts', () => {
     expect(clearDraftAttachmentsMock).toHaveBeenCalledTimes(1);
   });
 
+  it('clears a one-turn reasoning override after the submitted draft is accepted', () => {
+    const hook = renderController('session-a', null);
+
+    act(() => {
+      hook.result.current.setInputValue('Answer briefly');
+      hook.result.current.setReasoningPreference('fast');
+    });
+    const submittedOptions = latestSendOptions();
+
+    expect(hook.result.current.reasoningPreference).toBe('fast');
+    expect(submittedOptions.reasoningPreference).toBe('fast');
+
+    act(() => {
+      submittedOptions.clearComposerDraftIfUnchanged(
+        submittedOptions.composerDraftIdentity,
+        'normal',
+      );
+    });
+
+    expect(hook.result.current.reasoningPreference).toBe('auto');
+  });
+
   it('clears an accepted first-context answer after the prompt advances', () => {
     const firstContextQuestion = {
       questionId: 'repeating_content' as const,

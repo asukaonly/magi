@@ -7,6 +7,7 @@ import {
   saveRetryableChatSends,
   type RetryableChatSendOperation,
 } from '@/hooks/chatRetryableSendStorage';
+import type { ReasoningPreference } from '@/components/chat/ComposerReasoningControl';
 import { useChatSendMessage } from '@/hooks/useChatSendMessage';
 import { useConversationStore } from '@/stores/conversation-store';
 
@@ -137,6 +138,7 @@ const createDeferred = <T,>() => {
 const renderSendHook = ({
   inputValue,
   pendingAsk = null,
+  reasoningPreference = 'auto',
 }: {
   inputValue: string;
   pendingAsk?: {
@@ -148,6 +150,7 @@ const renderSendHook = ({
     allowFreeText: boolean;
     expiresAtMs: number | null;
   } | null;
+  reasoningPreference?: ReasoningPreference;
 }) => {
   const appendPendingTurn = vi.fn();
   const clearComposerDraftIfUnchanged = vi.fn();
@@ -164,7 +167,7 @@ const renderSendHook = ({
     allowInterjection: true,
     pendingAsk,
     recallFeedbackDraft: null,
-    reasoningPreference: 'auto',
+    reasoningPreference,
     appendPendingTurn,
     removePendingMessage,
     setCurrentSessionId: vi.fn(),
@@ -238,6 +241,26 @@ describe('useChatSendMessage', () => {
     expect(window.sessionStorage.getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
+  });
+
+  it('sends an explicit reasoning preference only in the current turn request', async () => {
+    const hook = renderSendHook({
+      inputValue: 'Answer briefly',
+      reasoningPreference: 'fast',
+    });
+
+    await act(async () => {
+      await hook.result.current.handleSendMessage();
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Answer briefly',
+      reasoning_preference: 'fast',
+    }));
+    expect(hook.clearComposerDraftIfUnchanged).toHaveBeenCalledWith(
+      'current-identity',
+      'normal',
+    );
   });
 
   it('concludes a cancelled old ask and sends the current new ask answer', async () => {

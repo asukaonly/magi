@@ -812,7 +812,13 @@ export const ChatPage: React.FC = () => {
       try {
         if (action === 'auto' || action === 'fast' || action === 'deep') {
           setReasoningPreference(action);
-          toast.success(t(`chat.reasoning.${action}.label`));
+          if (action === 'auto') {
+            toast.info(t('chat.reasoning.overrideCleared'));
+          } else {
+            toast.info(t('chat.reasoning.nextMessageToast', {
+              mode: t(`chat.reasoning.${action}.label`),
+            }));
+          }
           return;
         }
         if (action === 'clear') {

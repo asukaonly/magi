@@ -1016,18 +1016,22 @@
     },
     "reasoning": {
       "controlLabel": "Choose how to handle this message",
-      "controlTitle": "Reasoning mode: {{mode}}",
+      "controlTitle": "This message: {{mode}}",
+      "turnOverride": "This turn · {{mode}}",
+      "clearOverride": "Clear the reasoning override for this message",
+      "nextMessageToast": "The next message will use {{mode}} mode",
+      "overrideCleared": "The next message is back to Auto",
       "auto": {
         "label": "Auto",
-        "description": "Start light and increase effort only when the run produces evidence that it helps."
+        "description": "Clear this message's override, start light, and increase effort only when runtime evidence helps."
       },
       "fast": {
         "label": "Fast",
-        "description": "Prefer lower latency and cap the maximum reasoning effort."
+        "description": "Next message only: prefer lower latency and cap the maximum reasoning effort."
       },
       "deep": {
         "label": "Deep",
-        "description": "Allow a higher starting point and more reasoning headroom."
+        "description": "Next message only: allow a higher starting point and more reasoning headroom."
       }
     },
     "attachments": {

@@ -1016,18 +1016,22 @@
     },
     "reasoning": {
       "controlLabel": "选择这条消息的处理方式",
-      "controlTitle": "处理方式：{{mode}}",
+      "controlTitle": "本条消息：{{mode}}",
+      "turnOverride": "本条 · {{mode}}",
+      "clearOverride": "取消本条消息的推理覆盖",
+      "nextMessageToast": "下一条消息将使用{{mode}}模式",
+      "overrideCleared": "已恢复下一条消息的自动模式",
       "auto": {
         "label": "自动",
-        "description": "从轻量模式开始，只在运行证据表明确有帮助时增加推理。"
+        "description": "取消本条消息的覆盖，从轻量模式开始并按运行证据增加推理。"
       },
       "fast": {
         "label": "快速",
-        "description": "优先降低等待时间，并限制最高推理强度。"
+        "description": "仅用于下一条消息：优先降低等待时间，并限制最高推理强度。"
       },
       "deep": {
         "label": "深入",
-        "description": "允许更高的初始强度和推理上限。"
+        "description": "仅用于下一条消息：允许更高的初始强度和推理上限。"
       }
     },
     "attachments": {

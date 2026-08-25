@@ -406,6 +406,12 @@ Reasoning depth has four layers of ownership:
 4. **Evidence-driven escalation.** Validation failure or another completion
    rejection marked `reasoning_helpful` may raise the next step monotonically.
 
+Composer controls and the `/auto`, `/fast`, and `/deep` commands write only to
+the next user-turn envelope. They are not global or session configuration. The
+composer returns to `auto` after a confirmed send or a session switch, while a
+retry preserves the original turn's explicit preference so execution policy
+does not change between attempts.
+
 The resident `request_reasoning_depth` control lets the model request one step
 of additional reasoning for a small stable set of reasons such as conflicting
 evidence or stalled reasoning. The request is advisory: `ReasoningPolicy` may

@@ -68,6 +68,8 @@ export function useChatComposerController({
   const [pendingAskDraft, setPendingAskDraft] = useState<PendingAskDraft | null>(null);
   const [recallFeedbackDraft, setRecallFeedbackDraft] = useState<RecallFeedbackDraft | null>(null);
   const [replyTarget, setReplyTarget] = useState<ChatTimelineReplyPreview | null>(null);
+  // This preference belongs to the current draft only. It is sent in one turn
+  // envelope and reset after a confirmed send or a session change.
   const [reasoningPreference, setReasoningPreference] = useState<ReasoningPreference>('auto');
   const [pendingResponseTurnsBySession, setPendingResponseTurnsBySession] = useState<Record<string, string>>({});
   const pendingResponseTurnsRef = useRef<Record<string, string>>({});
