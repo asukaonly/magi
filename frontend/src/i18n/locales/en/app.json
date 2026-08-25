@@ -1019,15 +1019,15 @@
       "controlTitle": "This message: {{mode}}",
       "auto": {
         "label": "Auto",
-        "description": "Remove the reasoning modifier from the message, start light, and increase effort only when runtime evidence helps."
+        "description": "Adjust reasoning effort automatically from task and runtime evidence."
       },
       "fast": {
         "label": "Fast",
-        "description": "Insert /fast at the start of this message to prefer lower latency and cap reasoning effort."
+        "description": "Prioritize response speed and cap reasoning effort for this message."
       },
       "deep": {
         "label": "Deep",
-        "description": "Insert /deep at the start of this message to allow more initial effort and reasoning headroom."
+        "description": "Increase the initial reasoning effort and ceiling for this message."
       }
     },
     "attachments": {

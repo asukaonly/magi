@@ -569,9 +569,9 @@ describe('ComposerSlashPicker', () => {
         onActiveIndexChange={() => undefined}
       />,
     );
-    expect(screen.getByText('/clear')).toBeTruthy();
-    expect(screen.getByText('/fast')).toBeTruthy();
-    expect(screen.getByText('/echo')).toBeTruthy();
+    expect(screen.getByText('/clear')).toHaveClass('text-foreground');
+    expect(screen.getByText('/fast')).toHaveClass('text-primary');
+    expect(screen.getByText('/echo')).toHaveClass('text-foreground');
   });
 });
 

@@ -106,7 +106,9 @@ export const ComposerSlashPicker = ({
             >
               <Icon className="h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 truncate font-medium text-foreground">
+                <div className={`flex items-center gap-2 truncate font-medium ${
+                  item.source === 'modifier' ? 'text-primary' : 'text-foreground'
+                }`}>
                   /{item.name}
                   {item.source !== 'skill' && item.dangerous ? (
                     <AlertTriangle

@@ -1019,15 +1019,15 @@
       "controlTitle": "本条消息：{{mode}}",
       "auto": {
         "label": "自动",
-        "description": "移除消息开头的推理修饰符，从轻量模式开始并按运行证据增加推理。"
+        "description": "根据任务和运行反馈自动调整推理强度。"
       },
       "fast": {
         "label": "快速",
-        "description": "在消息开头插入 /fast，仅对本条消息降低等待时间和推理上限。"
+        "description": "优先响应速度，并限制本条消息的最高推理强度。"
       },
       "deep": {
         "label": "深入",
-        "description": "在消息开头插入 /deep，仅对本条消息提高初始强度和推理上限。"
+        "description": "提高本条消息的初始推理强度和上限。"
       }
     },
     "attachments": {
