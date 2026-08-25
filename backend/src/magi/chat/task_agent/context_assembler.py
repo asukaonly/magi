@@ -130,16 +130,28 @@ class ChatContextAssembler:
                 user_id=user_id,
                 session_id=session_id,
             )
-            _, persona_boundary_summary = await self._persona_boundary.summarize(
+            retained_history, persona_boundary_summary = await self._persona_boundary.summarize(
                 session_id=session_id,
                 history=visible_history,
                 active_persona_id=normalized_persona_id,
             )
+            if (
+                persona_boundary_summary
+                and normalized_persona_id
+                and not self._has_persona_boundary_compaction(
+                    model_history,
+                    persona_id=normalized_persona_id,
+                )
+            ):
+                model_history = self._build_persona_boundary_compaction(
+                    retained_history=retained_history,
+                    summary=persona_boundary_summary,
+                    persona_id=normalized_persona_id,
+                )
             cached_history = CachedConversationHistory(
                 version=durable_version,
                 messages=model_history,
                 session_summary=self._combine_session_summaries(
-                    persona_boundary_summary,
                     attachment_manifest,
                 ),
                 session_origin=None,
@@ -215,17 +227,48 @@ class ChatContextAssembler:
 
     @staticmethod
     def _combine_session_summaries(
-        persona_boundary_summary: str | None,
         attachment_manifest: str | None = None,
     ) -> str | None:
-        boundary_text = str(persona_boundary_summary or "").strip()
         attachment_text = str(attachment_manifest or "").strip()
         sections: list[str] = []
-        if boundary_text:
-            sections.extend(["# Persona Boundary Summary", boundary_text, ""])
         if attachment_text:
             sections.extend(["# Session Attachment References", attachment_text])
         return "\n".join(sections).strip() or None
+
+    @staticmethod
+    def _has_persona_boundary_compaction(
+        messages: list[dict[str, Any]],
+        *,
+        persona_id: str,
+    ) -> bool:
+        marker = f"[persona_boundary:{persona_id}]"
+        return any(marker in str(message.get("content") or "") for message in messages)
+
+    @staticmethod
+    def _build_persona_boundary_compaction(
+        *,
+        retained_history: list[Any],
+        summary: str,
+        persona_id: str,
+    ) -> list[dict[str, Any]]:
+        compacted: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": (
+                    "[context compacted] Earlier messages from another assistant persona "
+                    "were replaced by a neutral continuity summary.\n"
+                    f"[persona_boundary:{persona_id}]\n\n{summary.strip()}"
+                ),
+            }
+        ]
+        for item in retained_history:
+            to_prompt_message = getattr(item, "to_prompt_message", None)
+            if not callable(to_prompt_message):
+                continue
+            message = to_prompt_message()
+            if isinstance(message, dict) and str(message.get("content") or "").strip():
+                compacted.append(dict(message))
+        return compacted
 
     @staticmethod
     def _build_session_attachment_manifest(messages: list[Any]) -> str | None:
