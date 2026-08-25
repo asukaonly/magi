@@ -60,7 +60,9 @@ defineChatPageSuite('ChatPage message interactions', () => {
     const composerInput = await screen.findByTestId('chat-composer-input');
     const composerRoot = composerInput.parentElement;
     const toolbar = screen.getByTestId('chat-composer-toolbar');
+    const options = screen.getByTestId('chat-composer-options');
     const primaryAction = screen.getByTestId('chat-composer-primary-action');
+    const contextUsage = screen.getByTestId('chat-composer-context-usage');
     const sendButton = screen.getByRole('button', { name: 'chat.send' });
     const textarea = screen.getByPlaceholderText('chat.inputPlaceholder') as HTMLTextAreaElement;
 
@@ -69,6 +71,9 @@ defineChatPageSuite('ChatPage message interactions', () => {
     expect(composerRoot).not.toHaveClass('rounded-[28px]');
     expect(toolbar).not.toHaveClass('border-t');
     expect(toolbar).toHaveClass('items-end', 'px-3', 'pb-3');
+    expect(options).not.toContainElement(contextUsage);
+    expect(primaryAction).toContainElement(contextUsage);
+    expect(contextUsage.compareDocumentPosition(sendButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(primaryAction).not.toHaveClass('pb-2');
     expect(sendButton).toHaveClass(
       'h-9',
@@ -77,6 +82,23 @@ defineChatPageSuite('ChatPage message interactions', () => {
       'text-primary-foreground',
     );
     expect(textarea.style.height).toBe('72px');
+  });
+
+  it('opens an opaque reasoning menu from a brain icon trigger', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+
+    const reasoningTrigger = await screen.findByRole('button', { name: 'chat.reasoning.controlLabel' });
+    expect(reasoningTrigger.querySelector('.lucide-brain')).toBeInTheDocument();
+
+    await user.click(reasoningTrigger);
+
+    const reasoningMenu = await screen.findByTestId('composer-reasoning-menu');
+    expect(reasoningMenu).toHaveClass('bg-card', 'text-card-foreground');
+    expect(reasoningMenu).not.toHaveClass('backdrop-blur');
+    expect(within(reasoningMenu).getByText('chat.reasoning.auto.label')).toBeInTheDocument();
+    expect(within(reasoningMenu).getByText('chat.reasoning.fast.label')).toBeInTheDocument();
+    expect(within(reasoningMenu).getByText('chat.reasoning.deep.label')).toBeInTheDocument();
   });
 
   it('disables image attachments when the core model does not support vision', async () => {

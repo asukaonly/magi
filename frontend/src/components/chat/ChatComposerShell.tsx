@@ -169,7 +169,7 @@ export const ChatComposerShell = ({
         data-testid="chat-composer-toolbar"
         className="flex items-end justify-between px-3 pb-3 pt-1"
       >
-        <div className="flex items-center gap-1">
+        <div data-testid="chat-composer-options" className="flex items-center gap-1">
           <ComposerAttachmentMenu
             isOpen={attachmentMenuOpen}
             coreModelSupportsVision={coreModelSupportsVision}
@@ -181,17 +181,19 @@ export const ChatComposerShell = ({
           <div className="relative">
             <SessionSafetyControl sessionId={sessionId} />
           </div>
-          <ContextUsageRing
-            sessionId={sessionId}
-            configuredWindowSize={coreModelContextWindow}
-          />
           <ComposerReasoningControl
             value={reasoningPreference}
             onChange={onReasoningPreferenceChange}
             disabled={feedbackMode || answeringAsk || effectiveWaitingForReply}
           />
         </div>
-        <div data-testid="chat-composer-primary-action">
+        <div data-testid="chat-composer-primary-action" className="flex items-center gap-2">
+          <div data-testid="chat-composer-context-usage" className="shrink-0">
+            <ContextUsageRing
+              sessionId={sessionId}
+              configuredWindowSize={coreModelContextWindow}
+            />
+          </div>
           <button
             type="button"
             onClick={onPrimaryAction}
