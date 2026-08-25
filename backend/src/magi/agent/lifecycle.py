@@ -275,10 +275,8 @@ class AgentRuntimeModule(LifecycleModule):
     def _build_default_agent_factory(
         self,
         deps: _AgentRuntimeDependencies,
-    ) -> Callable[[str], "TaskAgent"]:
+    ) -> Callable[[str, str], "TaskAgent"]:
         return create_default_agent_factory(
-            llm_adapter=deps.llm_adapter,
-            llm_pool=deps.llm_pool,
             config=deps.config,
             unified_memory=deps.unified_memory,
             plugin_manager=deps.plugin_manager,

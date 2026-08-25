@@ -4,6 +4,36 @@ from unittest.mock import AsyncMock
 import pytest
 
 from magi.agent.lifecycle import AgentRuntimeModule
+from magi.agent.task_agents import DefaultTaskAgent
+from magi.bootstrap.context import RuntimeBootstrapContext
+
+
+def test_default_agent_factory_wiring_matches_runtime_contract() -> None:
+    """Build the non-chat factory through the production composition seam."""
+
+    context = RuntimeBootstrapContext()
+    context.agent_runtime.sensor_ingestion_gateway = object()
+    module = AgentRuntimeModule(
+        context,
+        create_chat_agent_factory=lambda **_kwargs: lambda _agent_id: None,
+        chat_read_service_factory=lambda *_args, **_kwargs: None,
+        build_timeline_handler=lambda *_args, **_kwargs: None,
+        global_clear_pending=AsyncMock(return_value=False),
+    )
+    deps = SimpleNamespace(
+        config=object(),
+        llm_adapter=object(),
+        llm_pool=object(),
+        unified_memory=object(),
+        plugin_manager=object(),
+        sensor_registry=object(),
+    )
+
+    factory = module._build_default_agent_factory(deps)
+    agent = factory("custom", "worker-1")
+
+    assert isinstance(agent, DefaultTaskAgent)
+    assert agent.runtime_key == "custom:worker-1"
 
 
 @pytest.mark.asyncio
