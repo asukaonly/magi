@@ -534,8 +534,12 @@ completion decision, repair start/exhaustion, reasoning-depth change,
 suspension, blocked, completion, failure, and cancellation.
 
 `ChatTraceReadService` prefers canonical run events when they exist and falls
-back to normalized trace rows only for non-unified producers. It joins the
-current canonical plan by `run_id`; the combined projection is the source for:
+back to normalized trace rows only for non-unified producers. For unified runs,
+canonical events own lifecycle structure and status while normalized model/tool
+rows enrich the matching nodes with input/output previews, execution timing, and
+provider details. The join uses step identity for model calls and tool-call ID
+for tools, then reapplies cancelled-draft redaction. It also joins the current
+canonical plan by `run_id`; the combined projection is the source for:
 
 - current plan summary;
 - child, validation, repair, and reasoning nodes;

@@ -6,6 +6,7 @@ import sqlite3
 from _shared.db_schema import apply_chain_schema
 
 from magi.agent.execution.contracts import AgentRunEvent, AgentRunEventType
+from magi.runtime_trace.chat_trace.detail_enrichment import enrich_projected_trace
 from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 from magi.runtime_trace.chat_trace.run_event_projection import project_run_events
 
@@ -205,7 +206,24 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
         )
         for event in (
             _event(1, AgentRunEventType.RUN_STARTED),
-            _event(2, AgentRunEventType.RUN_COMPLETED, step_index=1),
+            _event(
+                2,
+                AgentRunEventType.MODEL_OUTPUT,
+                step_index=1,
+                payload={
+                    "llm_trace": {
+                        "provider": "openai",
+                        "model": "gpt-test",
+                        "duration_ms": 450,
+                        "input_tokens": 12,
+                        "output_tokens": 2,
+                        "reasoning_tokens": 1,
+                        "thinking_enabled": True,
+                        "thinking_depth": "low",
+                    }
+                },
+            ),
+            _event(3, AgentRunEventType.RUN_COMPLETED, step_index=1),
         ):
             connection.execute(
                 """
@@ -229,6 +247,95 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
             )
         connection.execute(
             """
+            INSERT INTO trace_turns (
+                trace_id, turn_id, session_id, user_id, status, mode,
+                started_at_ms, ended_at_ms, duration_ms, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "trace-1",
+                "turn-1",
+                "session-1",
+                "user-1",
+                "completed",
+                "agent_loop",
+                1000,
+                1400,
+                400,
+                1000,
+                1400,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO trace_spans (
+                span_id, trace_id, turn_id, parent_span_id, node_type,
+                name, status, iteration, started_at_ms, ended_at_ms,
+                duration_ms, created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "iteration-1",
+                "trace-1",
+                "turn-1",
+                None,
+                "iteration",
+                "Iteration 1",
+                "completed",
+                1,
+                1050,
+                1350,
+                300,
+                1050,
+                1350,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO trace_spans (
+                span_id, trace_id, turn_id, parent_span_id, node_type,
+                name, status, started_at_ms, ended_at_ms, duration_ms,
+                created_at_ms, updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "llm-1",
+                "trace-1",
+                "turn-1",
+                "iteration-1",
+                "llm_call",
+                "gpt-test",
+                "ok",
+                1100,
+                1300,
+                200,
+                1100,
+                1300,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO trace_llm_calls (
+                span_id, trace_id, turn_id, provider, model,
+                input_tokens, output_tokens, reasoning_tokens,
+                request_preview, response_preview
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "llm-1",
+                "trace-1",
+                "turn-1",
+                "openai",
+                "gpt-test",
+                12,
+                2,
+                1,
+                "Reply only with received.",
+                "Received.",
+            ),
+        )
+        connection.execute(
+            """
             INSERT INTO run_plans (
                 plan_id, run_id, session_id, version, required, status,
                 plan_json, created_at_ms, updated_at_ms
@@ -249,9 +356,7 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
                         "version": 1,
                         "required": True,
                         "status": "active",
-                        "items": [
-                            {"id": "todo-1", "content": "Inspect", "status": "in_progress"}
-                        ],
+                        "items": [{"id": "todo-1", "content": "Inspect", "status": "in_progress"}],
                         "created_at_ms": 1000,
                         "updated_at_ms": 1000,
                     }
@@ -279,7 +384,114 @@ def test_chat_trace_read_service_prefers_canonical_run_events(tmp_path) -> None:
     assert snapshot["mode"] == "agent_loop"
     assert snapshot["root"]["metadata"]["canonical_run_events"] is True
     assert snapshot["summary"]["plan_summary"]["steps"][0]["label"] == "Inspect"
+    llm_node = snapshot["root"]["children"][0]["children"][0]
+    assert llm_node["kind"] == "llm"
+    assert llm_node["started_at"] == 1.1
+    assert llm_node["ended_at"] == 1.3
+    assert llm_node["metadata"]["duration_ms"] == 200
+    assert llm_node["metadata"]["thinking_depth"] == "low"
+    assert llm_node["metadata"]["request_preview"] == "Reply only with received."
+    assert llm_node["metadata"]["response_preview"] == "Received."
+    assert llm_node["metadata"]["input"] == {"preview": "Reply only with received."}
+    assert llm_node["metadata"]["output"] == {"preview": "Received."}
     assert activity["turn-1"]["status"] == "completed"
+
+
+def test_enrichment_uses_tool_call_identity_and_redacts_cancelled_drafts() -> None:
+    snapshot = project_run_events(
+        [
+            _event(1, AgentRunEventType.RUN_STARTED),
+            _event(
+                2,
+                AgentRunEventType.MODEL_OUTPUT,
+                step_index=1,
+                payload={"llm_trace": {"model": "gpt-test"}},
+            ),
+            _event(
+                3,
+                AgentRunEventType.TOOL_CALL_REQUESTED,
+                step_index=1,
+                payload={
+                    "tool_calls": [{"id": "call-1", "name": "lookup", "arguments": {"q": "Magi"}}]
+                },
+            ),
+            _event(
+                4,
+                AgentRunEventType.TOOL_RESULT,
+                step_index=1,
+                payload={
+                    "source": "lookup",
+                    "status": "succeeded",
+                    "metadata": {"tool_call_id": "call-1"},
+                },
+            ),
+            _event(5, AgentRunEventType.RUN_CANCELLED, step_index=1),
+        ],
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+    )
+    assert snapshot is not None
+
+    merged = enrich_projected_trace(
+        snapshot,
+        spans=[
+            {
+                "span_id": "iteration-1",
+                "node_type": "iteration",
+                "name": "Iteration 1",
+                "status": "completed",
+                "iteration": 1,
+                "started_at_ms": 1100,
+                "ended_at_ms": 1500,
+            },
+            {
+                "span_id": "llm-1",
+                "parent_span_id": "iteration-1",
+                "node_type": "llm_call",
+                "name": "gpt-test",
+                "status": "completed",
+                "started_at_ms": 1150,
+                "ended_at_ms": 1250,
+            },
+            {
+                "span_id": "tool-1",
+                "parent_span_id": "iteration-1",
+                "node_type": "tool_call",
+                "name": "lookup",
+                "status": "completed",
+                "started_at_ms": 1300,
+                "ended_at_ms": 1400,
+            },
+        ],
+        llm_calls=[
+            {
+                "span_id": "llm-1",
+                "request_preview": "user request",
+                "response_preview": "uncommitted response",
+            }
+        ],
+        tool_calls=[
+            {
+                "span_id": "tool-1",
+                "tool_call_id": "call-1",
+                "tool_name": "lookup",
+                "arguments_json": '{"q":"Magi"}',
+                "result_preview": "tool evidence",
+                "result_json": '{"answer":"found"}',
+            }
+        ],
+    )
+
+    assert merged == (1, 1)
+    llm_node, tool_node = snapshot.root.children[0].children
+    assert llm_node.metadata["request_preview"] == "user request"
+    assert "response_preview" not in llm_node.metadata
+    assert "output" not in llm_node.metadata
+    assert llm_node.result_preview == ""
+    assert tool_node.metadata["tool_call_id"] == "call-1"
+    assert tool_node.metadata["result_json"] == {"answer": "found"}
+    assert tool_node.result_preview == "tool evidence"
 
 
 def test_projection_preserves_blocked_terminal_status() -> None:

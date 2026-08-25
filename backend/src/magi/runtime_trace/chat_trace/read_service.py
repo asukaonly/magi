@@ -1,4 +1,5 @@
 """Read-side aggregation service for per-turn execution traces."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +10,7 @@ from typing import Any, Optional
 
 from ...core.logger import get_logger
 from ...utils.runtime import get_runtime_paths
+from .detail_enrichment import enrich_projected_trace
 from .models import (
     ExecutionTraceNode,
 )
@@ -51,6 +53,11 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             session_id=session_id,
             turn_id=normalized_turn_id,
         )
+        turn = self._load_trace_turn(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=normalized_turn_id,
+        )
         if run_events:
             projection = project_run_events(
                 run_events,
@@ -60,13 +67,41 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
                 run_plan=run_plan,
             )
             if projection is not None:
+                if turn is not None:
+                    trace_id = str(turn.get("trace_id") or "")
+                    spans = self._load_trace_spans(trace_id=trace_id)
+                    llm_calls = self._load_detail_rows(
+                        table="trace_llm_calls",
+                        trace_id=trace_id,
+                    )
+                    tool_calls = self._load_detail_rows(
+                        table="trace_tools",
+                        trace_id=trace_id,
+                    )
+                    merged_llm, merged_tools = enrich_projected_trace(
+                        projection,
+                        spans=spans,
+                        llm_calls=llm_calls,
+                        tool_calls=tool_calls,
+                    )
+                    logger.debug(
+                        "Canonical chat trace details merged",
+                        user_id=user_id,
+                        session_id=session_id,
+                        turn_id=normalized_turn_id,
+                        llm_nodes=merged_llm,
+                        tool_nodes=merged_tools,
+                    )
                 return projection.to_dict()
-        turn = self._load_trace_turn(user_id=user_id, session_id=session_id, turn_id=normalized_turn_id)
         if turn is None:
             return None
         spans = self._load_trace_spans(trace_id=str(turn.get("trace_id") or ""))
-        llm_calls = self._load_detail_rows(table="trace_llm_calls", trace_id=str(turn.get("trace_id") or ""))
-        tool_calls = self._load_detail_rows(table="trace_tools", trace_id=str(turn.get("trace_id") or ""))
+        llm_calls = self._load_detail_rows(
+            table="trace_llm_calls", trace_id=str(turn.get("trace_id") or "")
+        )
+        tool_calls = self._load_detail_rows(
+            table="trace_tools", trace_id=str(turn.get("trace_id") or "")
+        )
         snapshot = self._build_snapshot_from_trace_rows(
             user_id=user_id,
             session_id=session_id,
@@ -155,7 +190,9 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             turn_id = str(turn.get("turn_id") or "").strip()
             if turn_id in activity:
                 continue
-            summary = self.get_trace_summary(user_id=user_id, session_id=session_id, turn_id=turn_id)
+            summary = self.get_trace_summary(
+                user_id=user_id, session_id=session_id, turn_id=turn_id
+            )
             if summary is not None:
                 activity[turn_id] = summary
         return activity
@@ -216,11 +253,7 @@ class ChatTraceReadService(TraceSnapshotBuilderMixin, TraceRuntimeRowsMixin):
             }
             for row in rows
         ]
-        plan = (
-            json.loads(str(plan_row["plan_json"]))
-            if plan_row is not None
-            else None
-        )
+        plan = json.loads(str(plan_row["plan_json"])) if plan_row is not None else None
         return events, dict(plan) if isinstance(plan, dict) else None
 
     def _load_session_run_turn_ids(

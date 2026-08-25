@@ -170,19 +170,33 @@ def _project_event_nodes(events: list[AgentRunEvent]) -> list[ExecutionTraceNode
         payload = event.payload
         if event.event_type is AgentRunEventType.MODEL_OUTPUT:
             trace = payload.get("llm_trace") if isinstance(payload.get("llm_trace"), dict) else {}
-            nodes.append(
-                _node(
-                    event,
-                    kind="llm",
-                    label="Model decision",
-                    status="completed",
-                    metadata={
-                        "model": trace.get("model"),
-                        "provider": trace.get("provider"),
-                        "tool_call_count": len(payload.get("tool_calls") or []),
-                    },
-                )
+            duration_ms = _int_value(trace.get("duration_ms"))
+            node = _node(
+                event,
+                kind="llm",
+                label="Model decision",
+                status="completed",
+                metadata={
+                    "model": trace.get("model"),
+                    "provider": trace.get("provider"),
+                    "tool_call_count": len(payload.get("tool_calls") or []),
+                    "duration_ms": duration_ms,
+                    "input_tokens": _int_value(
+                        trace.get("input_tokens") or trace.get("prompt_tokens")
+                    ),
+                    "output_tokens": _int_value(
+                        trace.get("output_tokens") or trace.get("completion_tokens")
+                    ),
+                    "reasoning_tokens": _int_value(trace.get("reasoning_tokens")),
+                    "cache_read_tokens": _int_value(trace.get("cache_read_tokens")),
+                    "cache_write_tokens": _int_value(trace.get("cache_write_tokens")),
+                    "thinking_enabled": trace.get("thinking_enabled"),
+                    "thinking_depth": trace.get("thinking_depth"),
+                },
             )
+            if duration_ms > 0 and node.ended_at is not None:
+                node.started_at = max(0.0, node.ended_at - duration_ms / 1000)
+            nodes.append(node)
         elif event.event_type is AgentRunEventType.TOOL_CALL_REQUESTED:
             for raw in payload.get("tool_calls") or []:
                 if not isinstance(raw, dict):
@@ -323,12 +337,13 @@ def _project_plan_summary(plan: dict[str, Any] | None) -> ExecutionPlanSummary |
             status=str(item.get("status") or "pending"),
         )
         for item in raw_items
-        if isinstance(item, dict)
-        and str(item.get("content") or item.get("title") or "").strip()
+        if isinstance(item, dict) and str(item.get("content") or item.get("title") or "").strip()
     ]
     if not steps:
         return None
-    terminal = sum(step.status in {"completed", "blocked", "skipped", "cancelled"} for step in steps)
+    terminal = sum(
+        step.status in {"completed", "blocked", "skipped", "cancelled"} for step in steps
+    )
     return ExecutionPlanSummary(
         planner="main_model",
         parallel_mode="sequential",
@@ -378,9 +393,7 @@ def _project_metrics(
             int((ended_at_ms or events[-1].created_at_ms) - started_at_ms),
         ),
         "first_action_latency_ms": (
-            max(0, first_action.created_at_ms - started_at_ms)
-            if first_action is not None
-            else None
+            max(0, first_action.created_at_ms - started_at_ms) if first_action is not None else None
         ),
         "model_calls": len(model_events),
         "tool_calls": sum(
@@ -457,7 +470,11 @@ def _child_status(event: AgentRunEvent) -> str:
 
 
 def _count_steps(nodes: list[ExecutionTraceNode]) -> tuple[int, int, int]:
-    semantic = [node for node in _walk(nodes) if node.kind in {"attempt", "tool", "worker", "validation", "repair"}]
+    semantic = [
+        node
+        for node in _walk(nodes)
+        if node.kind in {"attempt", "tool", "worker", "validation", "repair"}
+    ]
     active = sum(node.status in {"running", "pending"} for node in semantic)
     failed = sum(node.status == "failed" for node in semantic)
     return active, len(semantic) - active - failed, failed
