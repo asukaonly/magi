@@ -286,7 +286,6 @@ class _FakeAdmissionDecision:
         self.execution_mode = None
         self.tools: list[str] = []
         self.task_hint: dict[str, object] = {}
-        self.recommended_tools: list[dict[str, object]] = []
         self.reasoning = "direct response"
         self.orchestration_plan = None
         self.ux_plan = type(

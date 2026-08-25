@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..tool_metadata import ToolEffectClass, resolve_tool_capability_metadata
 from .step_models import FunctionCallingStepState
 
 
@@ -19,15 +20,17 @@ def apply_tool_expansion_from_results(
     if not raw_append_tools:
         return []
 
-    max_additions = _resolve_available_expansion_slots(host, state)
-    if max_additions <= 0:
-        return []
-
     additions = _filter_known_additions(
         host,
         raw_append_tools=raw_append_tools,
         known_names=set(state.selected_tool_names),
-        max_additions=max_additions,
+        max_additions=int(host._MAX_TOOLS_PER_EXPANSION),
+    )
+    additions = _ensure_validation_companion(
+        host,
+        additions=additions,
+        selected_names=set(state.selected_tool_names),
+        max_additions=int(host._MAX_TOOLS_PER_EXPANSION),
     )
     if not additions:
         return []
@@ -55,14 +58,43 @@ def _collect_requested_tool_names(tool_results: list[Any]) -> list[str]:
     return raw_append_tools
 
 
-def _resolve_available_expansion_slots(
+def _ensure_validation_companion(
     host: Any,
-    state: FunctionCallingStepState,
-) -> int:
-    total_limit = int(host._MAX_TOTAL_TOOLS_PER_TURN)
-    expansion_limit = int(host._MAX_TOOLS_PER_EXPANSION)
-    available_slots = max(0, total_limit - len(state.selected_tool_names))
-    return min(expansion_limit, available_slots)
+    *,
+    additions: list[str],
+    selected_names: set[str],
+    max_additions: int,
+) -> list[str]:
+    if not additions or "verify" in selected_names:
+        return additions
+    validation_required = {
+        name
+        for name in additions
+        if resolve_tool_capability_metadata(host.tool_registry, name).effect_class
+        in {ToolEffectClass.LOCAL_WRITE, ToolEffectClass.UNKNOWN}
+    }
+    if not validation_required:
+        return additions
+    verify_name = _normalize_known_tool_name(host, "verify")
+    if verify_name is None or verify_name in additions:
+        return additions
+    if max_additions < 2:
+        return []
+    # Verification is a policy companion, so it displaces the lowest-ranked
+    # read-only capability when the bounded expansion is already full. A tool
+    # that created the validation obligation must never be the displaced item.
+    admitted = list(additions)
+    if len(admitted) >= max_additions:
+        drop_index = next(
+            (
+                index
+                for index in range(len(admitted) - 1, -1, -1)
+                if admitted[index] not in validation_required
+            ),
+            len(admitted) - 1,
+        )
+        admitted.pop(drop_index)
+    return [*admitted, verify_name]
 
 
 def _filter_known_additions(

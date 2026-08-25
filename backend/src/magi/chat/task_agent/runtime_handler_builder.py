@@ -104,7 +104,6 @@ def _build_coordinator(
         fact_classifier=context_parts.fact_classifier,
         handler_registry=handler_registry,
         agent_run_handler=agent_run_handler,
-        tool_advisory_provider=callbacks.tool_advisory_provider,
         capability_trace_callback=execution_parts.postprocess_service.record_capability_resolution,
         delivery_dispatcher=execution_parts.delivery_dispatcher,
         conversation_log=execution_parts.conversation_log,

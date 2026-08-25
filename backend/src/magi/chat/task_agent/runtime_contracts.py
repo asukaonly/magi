@@ -63,7 +63,6 @@ class ChatTaskAgentRuntimeCallbacks:
     max_fact_memory: int
     release_pending_inputs: Callable[..., Any]
     deliver_final_response: Callable[..., Any]
-    tool_advisory_provider: Callable[..., Any]
     session_workspace_provider: Callable[..., Any]
 
 

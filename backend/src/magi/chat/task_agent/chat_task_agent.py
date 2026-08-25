@@ -35,7 +35,6 @@ from magi.agent.runtime.task_agent import (
     TaskAgentRuntimeContext,
 )
 from magi.agent.runtime.types import TaskAgentType
-from magi.tools.registry import tool_registry
 from magi.runtime_trace import RuntimeTraceStore
 from magi.utils.runtime import get_runtime_paths
 from magi.llm.streaming_events import stream_scope
@@ -186,7 +185,6 @@ class ChatTaskAgent(
             max_fact_memory=self._max_fact_memory,
             release_pending_inputs=self._release_pending_inputs,
             deliver_final_response=self._deliver_final_response_from_postprocess,
-            tool_advisory_provider=self._get_tool_advisory,
             session_workspace_provider=self._resolve_session_workspace_path,
         )
 
@@ -264,87 +262,6 @@ class ChatTaskAgent(
     async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
         summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
-
-    async def _get_tool_advisory(
-        self,
-        task_context: str | None = None,
-        tool_names: list[str] | None = None,
-        limit: int = 10,
-    ) -> list[dict]:
-        """Fetch notable L4 advisories for the coordinator."""
-        available_tool_names = list(tool_names or tool_registry.list_tools())
-        targeted_mode = bool(tool_names)
-        advisories_by_tool = await self._collect_tool_advisories(
-            available_tool_names=available_tool_names,
-            task_context=task_context,
-            targeted_mode=targeted_mode,
-            tool_names=tool_names,
-            limit=limit,
-        )
-
-        if targeted_mode:
-            return _ordered_target_tool_advisories(advisories_by_tool, tool_names, limit)
-
-        return _notable_tool_advisories(advisories_by_tool, limit)
-
-    async def _collect_tool_advisories(
-        self,
-        *,
-        available_tool_names: list[str],
-        task_context: str | None,
-        targeted_mode: bool,
-        tool_names: list[str] | None,
-        limit: int,
-    ) -> dict[str, dict]:
-        advisories_by_tool = _advisories_by_tool(
-            await self._fetch_l4_tool_advisories(
-                task_context=task_context,
-                targeted_mode=targeted_mode,
-                tool_names=tool_names,
-                limit=limit,
-            )
-        )
-        _merge_trace_tool_stats(
-            advisories_by_tool,
-            await self._fetch_tool_trace_stats(available_tool_names),
-        )
-        return advisories_by_tool
-
-    async def _fetch_tool_trace_stats(
-        self,
-        available_tool_names: list[str],
-    ) -> dict[str, dict[str, float | int]]:
-        if self._runtime_trace_store is None:
-            return {}
-        try:
-            return await self._runtime_trace_store.get_tool_execution_stats(available_tool_names)
-        except Exception as exc:
-            logger.debug("Failed to fetch runtime trace tool stats: %s", exc)
-            return {}
-
-    async def _fetch_l4_tool_advisories(
-        self,
-        *,
-        task_context: str | None,
-        targeted_mode: bool,
-        tool_names: list[str] | None,
-        limit: int,
-    ) -> list[dict]:
-        if self.unified_memory is None or self.unified_memory.l4 is None:
-            return []
-        try:
-            if targeted_mode:
-                return await self.unified_memory.l4.get_tool_advisory(
-                    tool_names=list(tool_names or []),
-                    task_context=task_context,
-                )
-            return await self.unified_memory.l4.get_notable_advisories(
-                task_context=task_context,
-                limit=limit,
-            )
-        except Exception as exc:
-            logger.debug("Failed to fetch L4 tool advisories: %s", exc)
-            return []
 
     async def add_fact(self, fact: FactRecord) -> bool:
         """Admit controls and active-run inputs without starting a second loop."""
@@ -1120,77 +1037,6 @@ def _runtime_key(base_context: Any, fallback: str) -> str:
     if not isinstance(base_context, TaskAgentRuntimeContext):
         return fallback
     return str(base_context.runtime_key)
-
-
-def _advisories_by_tool(base_advisories: list[dict]) -> dict[str, dict]:
-    advisories_by_tool: dict[str, dict] = {}
-    for advisory in base_advisories:
-        tool_name = str(advisory.get("tool_name") or "").strip()
-        if tool_name:
-            advisories_by_tool[tool_name] = dict(advisory)
-    return advisories_by_tool
-
-
-def _merge_trace_tool_stats(
-    advisories_by_tool: dict[str, dict],
-    trace_stats: dict[str, dict[str, float | int]],
-) -> None:
-    for tool_name, stats in trace_stats.items():
-        total_calls = int(stats.get("total_calls") or 0)
-        if total_calls <= 0:
-            continue
-        _merge_one_trace_tool_stat(advisories_by_tool, tool_name, stats, total_calls)
-
-
-def _merge_one_trace_tool_stat(
-    advisories_by_tool: dict[str, dict],
-    tool_name: str,
-    stats: dict[str, float | int],
-    total_calls: int,
-) -> None:
-    success_rate = float(stats.get("success_rate") or 0.0)
-    advisory = advisories_by_tool.setdefault(
-        tool_name,
-        {
-            "tool_name": tool_name,
-            "available": True,
-            "breaker_state": "closed",
-            "strategy_hint": None,
-            "context_fit": 0.0,
-        },
-    )
-    advisory["success_rate"] = success_rate
-    advisory["total_attempts"] = total_calls
-    advisory["failure_count"] = int(stats.get("failed_calls") or 0)
-    advisory["stats_source"] = "runtime_trace.trace_tools"
-    if success_rate < 0.7 and total_calls >= 3:
-        advisory["risk_note"] = f"Low success rate ({success_rate:.0%} over {total_calls} attempts)"
-
-
-def _ordered_target_tool_advisories(
-    advisories_by_tool: dict[str, dict],
-    tool_names: list[str] | None,
-    limit: int,
-) -> list[dict]:
-    ordered: list[dict] = []
-    for tool_name in list(tool_names or []):
-        advisory = advisories_by_tool.get(tool_name)
-        if advisory is not None:
-            ordered.append(advisory)
-    return ordered[:limit]
-
-
-def _notable_tool_advisories(advisories_by_tool: dict[str, dict], limit: int) -> list[dict]:
-    return [
-        advisory
-        for advisory in advisories_by_tool.values()
-        if advisory.get("strategy_hint") is not None
-        or advisory.get("breaker_state") != "closed"
-        or (
-            float(advisory.get("success_rate") or 0.0) < 0.7
-            and int(advisory.get("total_attempts") or 0) >= 3
-        )
-    ][:limit]
 
 
 def _resolve_chat_runtime_preferences() -> _ChatRuntimePreferences:

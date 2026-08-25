@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any, Protocol, cast
 
 from magi.chat import ChatMessageRecord
@@ -242,25 +241,3 @@ class ChatPostprocessOutcomeMixin:
     @staticmethod
     def _resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
         return str(resolve_reaction_text(ux_plan) or "")
-
-    @staticmethod
-    def _serialize_selected_tools_payload(
-        *,
-        router_tools: list[str],
-        selected_tools: list[str],
-        task_hint: Any,
-        recommended_tools: list[dict[str, Any]],
-        llm_trace: dict[str, Any] | None = None,
-    ) -> str:
-        payload = {
-            "router_tools": list(router_tools or []),
-            "selected_tools": list(selected_tools or []),
-            "task_hint": dict(task_hint or {}),
-            "recommended_tools": list(recommended_tools or []),
-        }
-        if isinstance(llm_trace, dict):
-            payload["llm_trace"] = dict(llm_trace)
-        return json.dumps(
-            payload,
-            ensure_ascii=False,
-        )

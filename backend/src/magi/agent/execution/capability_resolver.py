@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterable
 
-from ...tools.discovery_index import ToolDiscoveryIndex
 from ...tools.system_tools import resolve_resident_system_tools
 from .tool_metadata import ToolEffectClass, resolve_tool_capability_metadata
 
@@ -32,7 +31,6 @@ class CapabilityResolution:
     required_tools: tuple[str, ...] = ()
     continuity_pinned_tools: tuple[str, ...] = ()
     rejected_tools: tuple[CapabilityRejection, ...] = ()
-    discovery_scores: dict[str, float] = field(default_factory=dict)
 
     def to_event_payload(self) -> dict[str, Any]:
         return {
@@ -43,22 +41,18 @@ class CapabilityResolution:
             "required_tools": list(self.required_tools),
             "continuity_pinned_tools": list(self.continuity_pinned_tools),
             "rejected_tools": [item.to_dict() for item in self.rejected_tools],
-            "discovery_scores": dict(self.discovery_scores),
         }
 
 
 class CapabilityResolver:
-    """Build a bounded tool catalog without semantic intent classification."""
+    """Build a bounded, message-independent initial tool catalog."""
 
-    def __init__(self, tool_registry: Any, *, top_k: int = 4, max_tools: int = 12) -> None:
+    def __init__(self, tool_registry: Any) -> None:
         self._registry = tool_registry
-        self._top_k = max(0, top_k)
-        self._max_tools = max(1, max_tools)
 
     def resolve(
         self,
         *,
-        user_message: str,
         pinned_tools: Iterable[str] = (),
         required_tools: Iterable[str] = (),
         recent_tool_errors: Iterable[dict[str, Any]] = (),
@@ -105,41 +99,19 @@ class CapabilityResolver:
         )
         pinned = [name for name in requested if name in registered and name not in resident]
 
-        discovery_rows: list[dict[str, Any]] = []
-        if self._top_k and str(user_message or "").strip():
-            index = ToolDiscoveryIndex.from_registry(
-                self._registry,
-                enabled_features=enabled_features,
-            )
-            discovery_rows = index.search(
-                query=user_message,
-                limit=self._top_k,
-                current_tools=[*resident, *pinned],
-            )
-        discovered = [
-            str(row.get("name") or "")
-            for row in discovery_rows
-            if row.get("type") in {"tool", "skill"}
-            and str(row.get("name") or "") in registered
-        ]
-        if (
-            "verify" in registered
-            and any(
-                resolve_tool_capability_metadata(self._registry, name).effect_class
-                in {ToolEffectClass.LOCAL_WRITE, ToolEffectClass.UNKNOWN}
-                for name in [*pinned, *discovered]
-            )
+        validation_tools: list[str] = []
+        if "verify" in registered and any(
+            resolve_tool_capability_metadata(self._registry, name).effect_class
+            in {ToolEffectClass.LOCAL_WRITE, ToolEffectClass.UNKNOWN}
+            for name in pinned
         ):
-            discovered.append("verify")
-        candidates = _dedupe([*resident, *requested, *discovered])
+            validation_tools.append("verify")
+        candidates = _dedupe([*resident, *requested, *validation_tools])
 
-        # Resident and pinned capabilities cannot be displaced by general Top-K
-        # results. If those required groups exceed the normal budget, retain them
-        # and let the provider schema budget make the final fail-closed decision.
-        required = _dedupe([*resident, *pinned])
-        remaining = max(0, self._max_tools - len(required))
-        optional = [name for name in discovered if name not in required][:remaining]
-        exposed = _dedupe([*required, *optional])
+        # Resident, explicitly pinned, and validation capabilities cannot be
+        # displaced. The active model's schema limits make the final fail-closed
+        # decision instead of silently removing a capability required by policy.
+        exposed = _dedupe([*resident, *pinned, *validation_tools])
         return CapabilityResolution(
             candidate_tools=tuple(candidates),
             initial_exposed_tools=tuple(exposed),
@@ -148,11 +120,6 @@ class CapabilityResolver:
             required_tools=tuple(hard_required),
             continuity_pinned_tools=tuple(name for name in continuity if name in exposed),
             rejected_tools=rejected,
-            discovery_scores={
-                str(row.get("name")): float(row.get("score") or 0.0)
-                for row in discovery_rows
-                if row.get("type") in {"tool", "skill"} and row.get("name")
-            },
         )
 
 

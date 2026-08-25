@@ -231,8 +231,9 @@ responsibilities: `admit_context`, `resolve_capabilities`,
 - every ordinary model-facing run deterministically requests a collapsible trace
   entry, while fact-only domain events keep trace display disabled; this
   presentation policy does not depend on semantic intent classification;
-- `CapabilityResolver` exposes resident, pinned, attachment-required, and
-  discoverable capabilities without predicting a chat/code/explore class;
+- `CapabilityResolver` exposes resident, explicitly pinned,
+  attachment-required, and bounded continuity capabilities without predicting
+  a chat/code/explore class;
 - `ExecutionMode` therefore describes only deterministic domain-event handling,
   not chat/code/explore/orchestration model paths.
 
@@ -243,19 +244,25 @@ output previously duplicated decisions the main model had to make again.
 ## Initial Capability Resolution
 
 `CapabilityResolver` constructs a bounded, auditable initial tool surface before
-the first model call. Its inputs are deterministic or retrieval-based:
+the first model call. Its inputs are deterministic:
 
 - resident system tools;
 - base tool names referenced by an inline skill's pre-approval rules;
 - attachment resolver tools required by current/replied-to assets;
 - a bounded continuity pin for a recent failed tool;
-- Top-K metadata search over the live tool/skill registry;
 - model support for tool calling, feature flags, registrations, and effect
   metadata.
 
-L4 advisories may rerank optional candidates but cannot authorize a disabled
-tool or displace resident/pinned capabilities. A local-write or unknown-effect
-candidate also causes `verify` to be exposed when available.
+The user's message text is deliberately not an input to initial capability
+resolution. Ordinary messages with the same deterministic runtime inputs expose
+the same name-sorted tool schemas, so keywords or negation cannot perturb the
+provider prompt-cache prefix. The initial surface changes only for an explicit
+skill, current/replied-to attachments, bounded failed-tool continuity, model or
+feature availability, or registry/configuration changes.
+
+A local-write or unknown-effect pinned capability also causes `verify` to be
+exposed when available. It is a policy companion and cannot be silently removed
+to satisfy a soft count target; declared model schema limits fail closed instead.
 
 Pinned skill tools are optional capabilities, not hard run requirements. A model
 without tool calling may still execute the skill instructions without them.
@@ -270,9 +277,14 @@ image support, tool calling, image-plus-tool support, tool-schema count, and
 schema-token limits when the active profile declares them. It never silently
 drops a required attachment or pinned capability to make a call fit.
 
-If the first surface is insufficient, the model may use the bounded discovery
-tool during the loop. The runtime appends only admitted capabilities and records
-`CAPABILITIES_EXPANDED`; it does not restart semantic routing.
+If the first surface is insufficient, the model may use the resident,
+bounded `find-relevant-tools` capability during the loop. Metadata retrieval and
+L4 advisory reranking happen only inside that explicit discovery step. The
+runtime appends at most two admitted capabilities for the turn, reserves one of
+those slots for `verify` when a discovered capability has a local-write or
+unknown effect, and records `CAPABILITIES_EXPANDED`; it does not restart semantic
+routing. This intentionally changes the tool-schema prefix only for a run that
+has produced evidence that its stable initial surface is insufficient.
 
 ## `AgentRunRequest`
 
@@ -678,7 +690,7 @@ a domain-neutral execution result.
 | Scenario | Current model calls | Runtime consequence |
 | --- | --- | --- |
 | Simple chat | one main call | no serial router latency |
-| Ordinary tool task | main loop calls only | bounded metadata capability resolution is local |
+| Ordinary tool task | main loop calls only | stable initial capability resolution is local; discovery expands only on model request |
 | Inline skill | skill expansion plus main loop | no additional intent call |
 | Child decomposition | parent calls plus child calls | fan-out occurs only when the parent requests it |
 | Validation repair | additional main repair calls | paid only after observed evidence requires repair |

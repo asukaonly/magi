@@ -67,7 +67,6 @@ class ChatPostprocessCapabilityMixin:
             if resolution is not None
             else {"initial_exposed_tools": list(getattr(capabilities, "tools", []) or [])}
         )
-        payload["advisories"] = list(getattr(admission, "recommended_tools", []) or [])
         bus = getattr(host, "_event_bus", None) or resolve_event_bus()
         await publish_trace_span(
             event_bus=bus,

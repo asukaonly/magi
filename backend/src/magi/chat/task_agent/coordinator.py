@@ -32,10 +32,6 @@ from .fact_classifier import ChatFactClassifier
 from .turn_admission_service import ChatTurnAdmissionService
 from magi.agent.response_rhythm import strip_segmentation_sentinel
 
-ToolAdvisoryProvider = Callable[
-    [str | None, list[str] | None, int], Awaitable[list[dict[str, Any]]]
-]
-
 logger = get_logger(__name__)
 
 
@@ -54,7 +50,6 @@ class ChatExecutionCoordinator:
         fact_classifier: ChatFactClassifier,
         handler_registry: ExecutionHandlerRegistry,
         agent_run_handler: Any,
-        tool_advisory_provider: ToolAdvisoryProvider | None = None,
         capability_trace_callback: CapabilityTraceCallback | None = None,
         delivery_dispatcher: ChatDeliveryDispatchPort | None = None,
         conversation_log: Any | None = None,
@@ -72,7 +67,6 @@ class ChatExecutionCoordinator:
         # When supplied, the conversation log records this run as a consumer
         # of visible messages so later retracts can propagate to dependents.
         self._conversation_log = conversation_log
-        self._tool_advisory_provider = tool_advisory_provider
         self._turn_admission_service = ChatTurnAdmissionService()
         self._capability_resolver = CapabilityResolver(tool_registry)
 
@@ -87,48 +81,22 @@ class ChatExecutionCoordinator:
         if admission.execution_mode is not None:
             return CapabilitySelection(reasoning=admission.reasoning)
         resolution = self._capability_resolver.resolve(
-            user_message=context.latest_user_message,
             pinned_tools=_inline_skill_tools(context),
             required_tools=_attachment_resolver_tools(context),
             recent_tool_errors=context.recent_tool_errors,
             model_supports_tool_calls=context.core_model_supports_tool_calls,
         )
-        advisories = await self._load_capability_advisories(
-            context.latest_user_message,
-            list(resolution.initial_exposed_tools),
-        )
-        resolution = _rerank_capability_resolution(resolution, advisories)
         admission.capability_resolution = resolution
         admission.tools = list(resolution.initial_exposed_tools)
-        admission.recommended_tools = list(advisories)
         capabilities = CapabilitySelection(
             tools=list(resolution.initial_exposed_tools),
-            reasoning="Deterministic resident, continuity, and metadata discovery.",
+            reasoning="Stable resident, explicit, attachment, and continuity capabilities.",
         )
         if self._capability_trace_callback is not None:
             callback_result = self._capability_trace_callback(context, admission, capabilities)
             if inspect.isawaitable(callback_result):
                 await callback_result
         return capabilities
-
-    async def _load_capability_advisories(
-        self,
-        user_message: str,
-        tool_names: list[str],
-    ) -> list[dict[str, Any]]:
-        if self._tool_advisory_provider is None or not tool_names:
-            return []
-        try:
-            return list(
-                await self._tool_advisory_provider(
-                    user_message,
-                    tool_names,
-                    len(tool_names),
-                )
-            )
-        except Exception as exc:
-            logger.debug("Capability advisory lookup failed: %s", exc)
-            return []
 
     async def build_execution_request(
         self,
@@ -323,34 +291,4 @@ def _inline_skill_tools(context: ChatRuntimeContext) -> list[str]:
         return []
     return list(
         dict.fromkeys(rule.tool for rule in parse_allowed_tools(invocation.get("allowed_tools")))
-    )
-
-
-def _rerank_capability_resolution(resolution, advisories: list[dict[str, Any]]):
-    """Rerank optional candidates without changing runtime authorization."""
-
-    if not advisories:
-        return resolution
-    advisory_by_name = {
-        str(item.get("tool_name") or item.get("name") or "").strip(): item
-        for item in advisories
-        if isinstance(item, dict)
-    }
-    required = list(
-        dict.fromkeys(
-            [*resolution.resident_tools, *resolution.continuity_pinned_tools]
-            + list(resolution.pinned_tools)
-        )
-    )
-    optional = [name for name in resolution.initial_exposed_tools if name not in required]
-
-    def rank(name: str) -> tuple[int, float, str]:
-        advisory = advisory_by_name.get(name) or {}
-        breaker = str(advisory.get("breaker_state") or "closed").strip().lower()
-        success_rate = float(advisory.get("success_rate") or 0.0)
-        return (0 if breaker == "closed" else 1, -success_rate, name)
-
-    return replace(
-        resolution,
-        initial_exposed_tools=tuple([*required, *sorted(optional, key=rank)]),
     )

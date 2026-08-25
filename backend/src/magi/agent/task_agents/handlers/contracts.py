@@ -131,7 +131,6 @@ class TurnAdmissionDecision(BaseAdmissionDecision):
     ux_plan: TurnUXPlan = field(default_factory=TurnUXPlan)
     tools: list[str] = field(default_factory=list)
     task_hint: dict[str, Any] = field(default_factory=dict)
-    recommended_tools: list[dict[str, Any]] = field(default_factory=list)
     reasoning_preference: ReasoningPreference = ReasoningPreference.AUTO
     capability_resolution: CapabilityResolution | None = None
 

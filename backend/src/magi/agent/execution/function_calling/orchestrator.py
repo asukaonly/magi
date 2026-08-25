@@ -83,7 +83,6 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
     _MAX_TOOL_EXPANSIONS_PER_TURN = 1
     _MAX_TOOLS_PER_EXPANSION = 2
-    _MAX_TOTAL_TOOLS_PER_TURN = 6
     _NON_REPLAN_ERROR_CODES = {
         "ACCESS_DENIED",
         "AUTH_REQUIRED",
