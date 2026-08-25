@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ...utils.model_context_messages import is_turn_context_message
+
 from ...config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ...config.models import ModelVendor
 
@@ -135,8 +137,6 @@ def last_user_message_index(messages: list[dict[str, Any]]) -> int:
 
 def turn_context_message_index(messages: list[dict[str, Any]]) -> int:
     """Return the latest explicit turn-context snapshot index, or ``-1``."""
-
-    from ...chat.model_context import is_turn_context_message
 
     for index in range(len(messages) - 1, -1, -1):
         if is_turn_context_message(messages[index]):

@@ -9,8 +9,11 @@ from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
 from ....llm.provider_bridge.cache_policy import split_on_boundary
 from ....runtime_trace import RuntimeTraceStore
-from ....chat.model_context import build_turn_context_message, is_turn_context_message
 from ....config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
+from ....utils.model_context_messages import (
+    build_turn_context_message,
+    is_turn_context_message,
+)
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
 from ....llm.model_context import ResolvedModel, unknown_model_context

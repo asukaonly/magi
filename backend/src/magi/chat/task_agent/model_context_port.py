@@ -9,10 +9,10 @@ from magi.chat.model_context import (
     ModelContextItemKind,
     ModelContextScope,
     infer_model_context_item_kind,
-    is_turn_context_message,
 )
 from magi.chat.store import ChatStore
 from magi.core.logger import get_logger
+from magi.utils.model_context_messages import is_turn_context_message
 
 logger = get_logger(__name__)
 
