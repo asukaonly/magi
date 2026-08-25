@@ -1681,7 +1681,7 @@ async fn native_session_creation_uses_server_identity_and_deduplicates_retries()
 }
 
 #[tokio::test]
-async fn native_message_routes_return_history_versions() {
+async fn native_session_routes_return_history_versions() {
     let home = isolated_home("message-history-version");
     let chat_dir = home.path().join(".magi").join("data").join("chat");
     std::fs::create_dir_all(&chat_dir).unwrap();
@@ -1747,19 +1747,6 @@ async fn native_message_routes_return_history_versions() {
 
     let state = test_state().await;
     let router = api::build_router(state);
-
-    let (status, history) = request_json(
-        router.clone(),
-        "GET",
-        "/api/messages/history?user_id=u1&session_id=s-history",
-        None,
-    )
-    .await;
-    assert_eq!(status, 200, "history={history:?} home={:?}", home.path());
-    assert_eq!(history["history_version"], 7);
-    assert_eq!(history["count"], 1);
-    assert_eq!(history["messages"][0]["content"], "hello");
-    assert_eq!(history["messages"][0]["persona_id"], "persona-1");
 
     let (status, sessions) =
         request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;

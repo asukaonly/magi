@@ -12,7 +12,6 @@ pub mod security;
 mod sessions;
 pub mod state;
 mod tasks;
-mod trace;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,10 +42,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/messages/sessions",
             axum::routing::get(sessions::list_sessions),
-        )
-        .route(
-            "/api/messages/history",
-            axum::routing::get(messages::message_history),
         )
         .route(
             "/api/messages/session/{session_id}/attachments",
@@ -82,7 +77,6 @@ pub fn build_router(state: ApiState) -> Router {
             "/api/messages/session/{session_id}",
             axum::routing::patch(messages::rename_session).delete(proxy::proxy_handler),
         )
-        .route("/api/messages/trace", axum::routing::get(trace::get_trace))
         // Tasks
         .route(
             "/api/tasks/{task_id}",

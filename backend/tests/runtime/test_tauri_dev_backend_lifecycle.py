@@ -93,8 +93,8 @@ def test_tauri_spawns_unified_role() -> None:
     assert "runtime_worker_process:" not in source
 
 
-def test_axum_native_routes_cover_read_endpoints() -> None:
-    """Verify Axum router registers native Rust routes for all read-only endpoints."""
+def test_axum_declares_expected_native_read_endpoints() -> None:
+    """Verify Axum registers only the read endpoints owned by the gateway."""
     mod_path = (
         Path(__file__).resolve().parents[3] / "crates" / "magi-gateway" / "src" / "api" / "mod.rs"
     )
@@ -104,8 +104,6 @@ def test_axum_native_routes_cover_read_endpoints() -> None:
         "/api/health",
         "/api/ready",
         "/api/messages/sessions",
-        "/api/messages/history",
-        "/api/messages/trace",
         "/api/tasks",
         "/api/tasks/{task_id}",
         "/api/schedules",

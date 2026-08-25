@@ -544,6 +544,11 @@ current canonical plan by `run_id`; the combined projection is the source for:
 - first-action and total runtime latency;
 - token totals, reasoning escalation count, and repair exhaustion count.
 
+The desktop gateway proxies chat history and trace-detail reads to this
+canonical Python projection. It must not maintain a second SQL-to-trace
+projection in Rust, because that duplicate would have to reproduce run-event,
+plan, and schema evolution semantics.
+
 The journal is an observability source, not a second prompt archive. Manifests
 and `CONTEXT_PREPARED` events never copy system prompts, conversation messages,
 rendered memory/persona/skill context, tool schemas, or attachment bytes. They

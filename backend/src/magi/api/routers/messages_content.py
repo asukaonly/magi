@@ -17,6 +17,7 @@ from magi.core.chat_assets.io import (
     stream_managed_chat_file,
 )
 from magi.core.chat_assets.paths import normalize_chat_asset_component
+from ...core.logger import get_logger
 from ...core.runtime_bindings import (
     require_chat_forgetting_service,
     require_chat_read_service,
@@ -30,6 +31,7 @@ from .messages_common import get_chat_attachment_ingestion_service, require_sess
 from .messages_models import ClearHistoryResponse
 
 message_content_router = APIRouter()
+logger = get_logger(__name__)
 
 
 @message_content_router.post("/session/{session_id}/attachments", response_model=Dict[str, Any])
@@ -229,6 +231,23 @@ async def get_execution_trace(
         user_id=user_id,
         session_id=resolved_session_id,
         turn_id=turn_id,
+    )
+    summary = snapshot.get("summary") if isinstance(snapshot, dict) else None
+    root = snapshot.get("root") if isinstance(snapshot, dict) else None
+    root_metadata = root.get("metadata") if isinstance(root, dict) else None
+    logger.info(
+        "Chat trace read completed",
+        user_id=user_id,
+        session_id=resolved_session_id,
+        turn_id=turn_id,
+        found=snapshot is not None,
+        trace_available=bool(
+            isinstance(summary, dict) and summary.get("trace_available")
+        ),
+        canonical_run_events=bool(
+            isinstance(root_metadata, dict)
+            and root_metadata.get("canonical_run_events")
+        ),
     )
     return {
         "success": snapshot is not None,

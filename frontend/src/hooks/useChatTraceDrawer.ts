@@ -32,8 +32,20 @@ export function useChatTraceDrawer({ currentSessionId }: UseChatTraceDrawerOptio
       const snapshot = normalizeTraceSnapshot(result.trace || undefined);
       if (snapshot) {
         setSnapshot(result.trace!);
+      } else {
+        console.warn('[chat.trace] Trace response did not contain a valid snapshot', {
+          sessionId: currentSessionId,
+          turnId,
+          responseSuccess: result.success,
+          responseTurnId: result.turn_id,
+        });
       }
-    } catch {
+    } catch (error) {
+      console.error('[chat.trace] Failed to load trace snapshot', {
+        sessionId: currentSessionId,
+        turnId,
+        error,
+      });
       toast.error(t('chat.trace.loadFailed'));
     } finally {
       setLoadingTrace(false);
