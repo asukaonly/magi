@@ -18,6 +18,7 @@ from .storage.context_summaries import ChatContextSummaryPersistenceMixin
 from .storage.delivery_failures import ChatDeliveryFailurePersistenceMixin
 from .storage.delivery_outcomes import ChatDeliveryOutcomePersistenceMixin
 from .storage.messages import ChatMessagePersistenceMixin
+from .storage.model_context import ChatModelContextPersistenceMixin
 from .storage.sessions import ChatSessionPersistenceMixin
 from .storage.task_execution_budgets import (
     ChatTaskExecutionBudgetPersistenceMixin,
@@ -39,6 +40,7 @@ class ChatStore(
     ChatDeliveryFailurePersistenceMixin,
     ChatDeliveryOutcomePersistenceMixin,
     ChatMessagePersistenceMixin,
+    ChatModelContextPersistenceMixin,
     ChatSessionPersistenceMixin,
     ChatTaskExecutionBudgetPersistenceMixin,
     ChatTurnPersistenceMixin,
