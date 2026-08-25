@@ -7,6 +7,7 @@ from typing import Any
 
 from ....config.models import ThinkingDepth
 from ....context.window_budget import estimate_context_tokens
+from ....core.logger import get_logger
 from ....llm.streaming_events import stream_scope
 from magi.control.run_control import RunControl
 from ..context_fingerprint import stable_hash
@@ -16,6 +17,8 @@ from .run_input import AgentRunRequest
 from .run_journal import FunctionCallingRunJournal
 from .step_models import FunctionCallingStepState
 from .types import ExecutionOutcome
+
+logger = get_logger(__name__)
 
 
 class FunctionCallingModelCapabilityFlow:
@@ -41,18 +44,41 @@ class FunctionCallingModelCapabilityFlow:
             for name in run_input.capability_resolution.get("required_tools", [])
             if str(name).strip()
         )
+        has_images = _messages_contain_images(state.messages)
         if required_tools and not profile.supports_tool_calls:
+            logger.warning(
+                "agent_run.model_capability_blocked",
+                run_id=run_input.run_id,
+                reason_code="tool_calls_unsupported",
+                has_images=has_images,
+                tool_count=len(state.selected_tool_names),
+                required_tool_count=len(required_tools),
+            )
             return _unsupported_outcome(state, "tool_calls_unsupported")
 
         issue = profile.validate_run(
-            has_images=_messages_contain_images(state.messages),
+            has_images=has_images,
             tool_count=len(state.selected_tool_names),
             schema_tokens=(estimate_context_tokens(state.tools) if state.tools else 0),
         )
         if issue is None:
             return None
         if issue != "attachment_observation_required":
+            logger.warning(
+                "agent_run.model_capability_blocked",
+                run_id=run_input.run_id,
+                reason_code=issue,
+                has_images=has_images,
+                tool_count=len(state.selected_tool_names),
+                required_tool_count=len(required_tools),
+            )
             return _unsupported_outcome(state, issue)
+        logger.info(
+            "agent_run.attachment_grounding_started",
+            run_id=run_input.run_id,
+            tool_count=len(state.selected_tool_names),
+            reasoning_depth=thinking_depth.value,
+        )
         return await self._ground_attachments(
             state=state,
             run_input=run_input,
@@ -131,6 +157,15 @@ class FunctionCallingModelCapabilityFlow:
                     ),
                 },
             )
+        logger.info(
+            "agent_run.attachment_grounding_completed",
+            run_id=run_input.run_id,
+            observation_size_bytes=len(
+                json.dumps(observation, ensure_ascii=False, default=str).encode("utf-8")
+            ),
+            visible_fact_count=len(observation.get("visible_facts") or []),
+            uncertainty_count=len(observation.get("uncertainty") or []),
+        )
         return None
 
 

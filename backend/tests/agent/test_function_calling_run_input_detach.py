@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -65,6 +66,7 @@ def _patch_trace_and_event_helpers(monkeypatch, orchestrator: FunctionCallingOrc
 @pytest.mark.asyncio
 async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
     monkeypatch,
+    caplog,
 ) -> None:
     orchestrator = _build_orchestrator()
     _patch_trace_and_event_helpers(monkeypatch, orchestrator)
@@ -88,6 +90,7 @@ async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
         }
 
     monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+    caplog.set_level(logging.INFO)
 
     outcome = await run_agent(
         orchestrator,
@@ -111,6 +114,13 @@ async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
         ("user", "Write a sorting example."),
         ("user", "use Python, not JavaScript"),
     ]
+    assert "agent_run.input_injected" in caplog.text
+    record = next(
+        item for item in caplog.records if item.getMessage() == "agent_run.input_injected"
+    )
+    assert record.run_id
+    assert record.message_chars == 26
+    assert "use Python, not JavaScript" not in caplog.text
 
 
 @pytest.mark.asyncio

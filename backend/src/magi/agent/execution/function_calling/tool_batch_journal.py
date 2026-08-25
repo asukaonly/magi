@@ -6,12 +6,15 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from ....core.logger import get_logger
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
 from ..contracts import AgentRunEventType
 from ..evidence import ToolExecutionEvidence
 from ..tool_metadata import resolve_tool_capability_metadata
 from .step_models import FunctionCallingStepState, StepExecutionContext
 from .types import ToolCallResult
+
+logger = get_logger(__name__)
 
 MAX_RUNTIME_STATUS_CHARS = 2_000
 _ADMISSION_REJECTION_CODES = frozenset(
@@ -79,6 +82,15 @@ class FunctionCallingToolBatchJournal:
                     ]
                 },
             )
+        logger.info(
+            "agent_run.tools_requested",
+            run_id=state.run_id,
+            step_index=iteration,
+            tool_count=len(tool_calls),
+            tool_names=[tool_call.name for tool_call in tool_calls],
+            execution_preset=ctx.execution_preset,
+            execution_agent_id=ctx.execution_agent_id,
+        )
         await self._driver._emit_loop_event(
             {
                 "stage": "llm_requested_tools",
@@ -128,6 +140,20 @@ class FunctionCallingToolBatchJournal:
         )
         state.tool_evidence.append(evidence)
         self._append_tool_message(state, record, evidence=evidence)
+        logger.info(
+            "agent_run.tool_finished",
+            run_id=state.run_id,
+            step_index=iteration,
+            tool_name=record.tool_call.name,
+            tool_call_id=record.tool_call.id,
+            success=result.success,
+            effect_class=metadata.effect_class.value,
+            replay_policy=metadata.replay_policy.value,
+            error_code=result.error_code,
+            elapsed_ms=round(float(result.execution_time or 0.0) * 1000, 1),
+            execution_preset=ctx.execution_preset,
+            execution_agent_id=ctx.execution_agent_id,
+        )
         if state.journal is not None:
             if _tool_execution_was_admitted(result):
                 await state.journal.append(

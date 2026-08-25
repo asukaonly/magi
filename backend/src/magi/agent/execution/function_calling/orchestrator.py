@@ -489,9 +489,14 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 }
             )
             logger.info(
-                "[FunctionCalling] Run input injected at iteration=%s reason=%s",
-                state.iteration,
-                message.reason,
+                "agent_run.input_injected",
+                extra={
+                    "run_id": state.run_id,
+                    "step_index": state.iteration,
+                    "reason": message.reason,
+                    "message_chars": len(content),
+                    "metadata_keys": sorted(message.metadata),
+                },
             )
         return injected
 

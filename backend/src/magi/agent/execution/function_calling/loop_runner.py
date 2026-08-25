@@ -91,11 +91,22 @@ class FunctionCallingLoopRunner:
                     final_response_reason="task_budget_finalization",
                 )
                 return await self._gate_fallback_outcome(state, run_input, outcome)
+            requested_depth = state.reasoning_state.requested_depth
+            effective_depth = self._resolve_effective_reasoning_depth(state)
+            logger.info(
+                "agent_run.step_started",
+                run_id=run_input.run_id,
+                step_index=state.iteration + 1,
+                repair_iterations=state.repair_iterations,
+                tool_count=len(state.selected_tool_names),
+                requested_reasoning_depth=requested_depth.value,
+                effective_reasoning_depth=effective_depth.value,
+            )
             step_outcome = await self._execute_step(
                 state=state,
                 run_input=run_input,
-                requested_thinking_depth=state.reasoning_state.requested_depth,
-                thinking_depth=self._resolve_effective_reasoning_depth(state),
+                requested_thinking_depth=requested_depth,
+                thinking_depth=effective_depth,
                 control=control,
             )
             loop_outcome = await self._handle_step_outcome(
@@ -259,6 +270,15 @@ class FunctionCallingLoopRunner:
         step_outcome: FunctionCallingStepOutcome,
         run_input: AgentRunRequest,
     ) -> ExecutionOutcome | None:
+        logger.info(
+            "agent_run.step_finished",
+            run_id=run_input.run_id,
+            step_index=step_outcome.iteration,
+            status=step_outcome.status,
+            failure_reason=step_outcome.failure_reason,
+            evidence_count=len(state.tool_evidence),
+            tool_failure_count=len(state.tool_failures),
+        )
         if step_outcome.status == "aborted":
             return None
         if step_outcome.status == "continue":
@@ -289,6 +309,7 @@ class FunctionCallingLoopRunner:
                 step_index=step_outcome.iteration,
                 payload={"response_hash": stable_hash(step_outcome.content)},
             )
+        run_plan = None
         try:
             run_plan = run_input.run_plan_reader.current()
         except Exception:
@@ -307,6 +328,25 @@ class FunctionCallingLoopRunner:
                 repair_iterations=state.repair_iterations,
                 run_plan=run_plan,
             )
+        logger.info(
+            "agent_run.completion_decision",
+            run_id=run_input.run_id,
+            step_index=step_outcome.iteration,
+            outcome=decision.outcome.value,
+            reason_code=decision.reason_code,
+            reasoning_helpful=decision.reasoning_helpful,
+            repair_iterations=state.repair_iterations,
+            max_repair_iterations=run_input.completion_policy.max_repair_iterations,
+            evidence_count=len(state.tool_evidence),
+            successful_evidence_count=sum(1 for item in state.tool_evidence if item.success),
+            plan_id=getattr(run_plan, "plan_id", None),
+            plan_version=getattr(run_plan, "version", None),
+            plan_status=(
+                getattr(getattr(run_plan, "status", None), "value", None)
+                if run_plan is not None
+                else None
+            ),
+        )
         if decision.outcome is CompletionOutcome.COMPLETE:
             return _build_completed_outcome(state, step_outcome)
         await emit_stream_event(
@@ -329,6 +369,18 @@ class FunctionCallingLoopRunner:
                 escalated = state.reasoning_state.escalate(
                     run_input.reasoning_policy,
                     reason=decision.reason_code,
+                )
+                logger.info(
+                    "agent_run.reasoning_escalation",
+                    run_id=run_input.run_id,
+                    step_index=step_outcome.iteration,
+                    source="completion_gate",
+                    reason=decision.reason_code,
+                    approved=escalated,
+                    previous_depth=previous.value,
+                    requested_depth=state.reasoning_state.requested_depth.value,
+                    maximum_depth=run_input.reasoning_policy.maximum_depth.value,
+                    escalation_count=state.reasoning_state.escalation_count,
                 )
                 if escalated and state.journal is not None:
                     await state.journal.append(

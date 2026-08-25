@@ -553,6 +553,14 @@ Chat transcript truth remains in `chat.db`. Execution plans and intermediate
 runtime state are not duplicated as chat messages. Runtime notifications are
 best-effort wakeups; reload always reconstructs from durable stores.
 
+The backend text log also emits privacy-safe `agent_run.*` breadcrumbs for
+manual diagnostics: run start/resume/terminal, step boundaries, requested and
+finished tools, safe-boundary input injection, completion decisions, reasoning
+escalation, and model-capability or attachment-grounding outcomes. These records
+include stable IDs, reason codes, counts, tool names, and policy state, but never
+user message bodies, tool arguments, tool results, prompts, or attachment
+observations.
+
 ## Persistence Boundaries
 
 - `chat.db` — sessions, turns, visible messages, attachments, reply/label state,

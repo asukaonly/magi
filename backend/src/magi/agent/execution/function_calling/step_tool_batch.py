@@ -7,6 +7,7 @@ import re
 from contextlib import suppress
 from typing import Any
 
+from ....core.logger import get_logger
 from ...cancel import CancelToken
 from ..contracts import AgentRunEventType
 from .step_models import (
@@ -20,6 +21,8 @@ from .tool_batch_journal import (
     build_tool_failure_summary,
 )
 from .types import ToolCallResult
+
+logger = get_logger(__name__)
 
 
 class FunctionCallingToolBatchExecutor:
@@ -231,6 +234,19 @@ class FunctionCallingToolBatchExecutor:
             ),
             "denial_reason": None if approved else "policy_or_budget_limit",
         }
+        logger.info(
+            "agent_run.reasoning_escalation",
+            run_id=state.run_id,
+            step_index=iteration,
+            source="model",
+            reason=reason,
+            approved=approved,
+            previous_depth=previous_depth,
+            requested_depth=result.data["requested_depth"],
+            maximum_depth=result.data["maximum_depth"],
+            escalation_count=result.data["escalation_count"],
+            denial_reason=result.data["denial_reason"],
+        )
         if approved and state.journal is not None:
             await state.journal.append(
                 AgentRunEventType.REASONING_DEPTH_CHANGED,
