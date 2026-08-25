@@ -11,6 +11,11 @@ from .schema import (
     CHAT_MESSAGE_ASSET_REFS_TABLE,
     CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,
     CHAT_MESSAGES_TABLE,
+    CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE,
+    CHAT_MODEL_CONTEXT_EPOCHS_TABLE,
+    CHAT_MODEL_CONTEXT_EVENTS_TABLE,
+    CHAT_MODEL_CONTEXT_HEADS_TABLE,
+    CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
 )
 from ...core.code_agent_artifacts import CodeAgentDelegationReference
 
@@ -192,10 +197,51 @@ def delete_scoped_message_tombstones(
     )
 
 
+def delete_session_model_context(
+    conn: sqlite3.Connection,
+    *,
+    session_id: str,
+) -> int:
+    """Physically clear every model-visible context record for one session."""
+
+    deleted = 0
+    for table in (
+        CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE,
+        CHAT_MODEL_CONTEXT_EPOCHS_TABLE,
+        CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
+        CHAT_MODEL_CONTEXT_EVENTS_TABLE,
+        CHAT_MODEL_CONTEXT_HEADS_TABLE,
+    ):
+        cursor = conn.execute(
+            f"DELETE FROM {table} WHERE session_id = ? COLLATE NOCASE",
+            (session_id,),
+        )
+        deleted += int(cursor.rowcount or 0)
+    return deleted
+
+
+def delete_all_model_context(conn: sqlite3.Connection) -> int:
+    """Physically clear every model-visible context record."""
+
+    deleted = 0
+    for table in (
+        CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE,
+        CHAT_MODEL_CONTEXT_EPOCHS_TABLE,
+        CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
+        CHAT_MODEL_CONTEXT_EVENTS_TABLE,
+        CHAT_MODEL_CONTEXT_HEADS_TABLE,
+    ):
+        cursor = conn.execute(f"DELETE FROM {table}")
+        deleted += int(cursor.rowcount or 0)
+    return deleted
+
+
 __all__ = [
     "DELETION_MESSAGE_IDS_TABLE",
     "DELETION_TURN_IDS_TABLE",
     "delete_code_delegation_artifact_records",
+    "delete_all_model_context",
+    "delete_session_model_context",
     "delete_scoped_asset_references",
     "delete_scoped_code_delegation_references",
     "delete_scoped_message_tombstones",

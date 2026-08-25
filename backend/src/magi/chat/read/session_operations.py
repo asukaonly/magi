@@ -24,6 +24,8 @@ from .asset_ownership import (
 from .deletion_phases import (
     DELETION_TURN_IDS_TABLE,
     delete_code_delegation_artifact_records,
+    delete_all_model_context,
+    delete_session_model_context,
     delete_scoped_asset_references,
     delete_scoped_code_delegation_references,
     delete_scoped_message_tombstones,
@@ -51,6 +53,11 @@ from .schema import (
     CHAT_MESSAGE_ASSET_REFS_TABLE,
     CHAT_MESSAGE_CODE_DELEGATION_REFS_TABLE,
     CHAT_MESSAGES_TABLE,
+    CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE,
+    CHAT_MODEL_CONTEXT_EPOCHS_TABLE,
+    CHAT_MODEL_CONTEXT_EVENTS_TABLE,
+    CHAT_MODEL_CONTEXT_HEADS_TABLE,
+    CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE,
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
     CHAT_SESSION_CREATION_REQUESTS_TABLE,
     CHAT_SESSIONS_TABLE,
@@ -916,6 +923,10 @@ class ChatSessionOperationsMixin:
                     session_id=normalized_session_id,
                 )
             )
+            delete_session_model_context(
+                conn,
+                session_id=normalized_session_id,
+            )
             if (
                 existing["deleted_at_ms"] is not None
                 and not message_ids
@@ -1180,6 +1191,7 @@ class ChatSessionOperationsMixin:
             conn.execute(f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE}")
             conn.execute(f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
+            delete_all_model_context(conn)
             conn.execute(
                 f"""
                 UPDATE {CHAT_SESSIONS_TABLE}
@@ -1295,6 +1307,11 @@ class ChatSessionOperationsMixin:
                   + (SELECT COUNT(*) FROM {CHAT_CONTEXT_SUMMARIES_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_CONTEXT_USAGE_SNAPSHOTS_TABLE})
                   + (SELECT COUNT(*) FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_HEADS_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_EVENTS_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_SURFACE_NODES_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_EPOCHS_TABLE})
+                  + (SELECT COUNT(*) FROM {CHAT_MODEL_CONTEXT_BOUNDARIES_TABLE})
                 """
             ).fetchone()
             if remaining is None or int(remaining[0] or 0) != 0:

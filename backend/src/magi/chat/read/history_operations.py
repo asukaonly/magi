@@ -22,6 +22,7 @@ from .deletion_phases import (
     DELETION_MESSAGE_IDS_TABLE,
     DELETION_TURN_IDS_TABLE,
     delete_code_delegation_artifact_records,
+    delete_session_model_context,
     delete_scoped_asset_references,
     delete_scoped_code_delegation_references,
     delete_scoped_message_tombstones,
@@ -890,6 +891,10 @@ class ChatHistoryOperationsMixin:
                 user_id=normalized_user_id,
                 session_id=normalized_session_id,
             )
+            delete_session_model_context(
+                conn,
+                session_id=normalized_session_id,
+            )
             if turn_id and is_user_message:
                 conn.execute(
                     f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE} WHERE turn_id = ?",
@@ -1087,7 +1092,14 @@ class ChatHistoryOperationsMixin:
                 requested_turn_ids=normalized_turn_ids,
             )
             if snapshot is None:
-                conn.rollback()
+                deleted_context_rows = delete_session_model_context(
+                    conn,
+                    session_id=normalized_session_id,
+                )
+                if deleted_context_rows:
+                    conn.commit()
+                else:
+                    conn.rollback()
                 return
             replace_deletion_scope(
                 conn,
@@ -1129,6 +1141,10 @@ class ChatHistoryOperationsMixin:
             redact_scoped_messages(
                 conn,
                 user_id=normalized_user_id,
+                session_id=normalized_session_id,
+            )
+            delete_session_model_context(
+                conn,
                 session_id=normalized_session_id,
             )
             if snapshot.delete_entire_session:
