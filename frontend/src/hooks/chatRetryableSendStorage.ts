@@ -217,6 +217,7 @@ const skillInvocationSchema = z.object({
   name: requiredId,
   arguments: z.array(z.string()).max(64),
 }).strict();
+const reasoningPreferenceSchema = z.enum(['auto', 'fast', 'deep']);
 const requestSchema = z.object({
   message: z.string(),
   user_id: z.string().optional(),
@@ -225,7 +226,7 @@ const requestSchema = z.object({
   reply_to_message_id: z.string().nullable().optional(),
   workspace_path: z.string().nullable().optional(),
   client_turn_id: requiredId,
-  reasoning_preference: z.enum(['auto', 'fast', 'deep']).optional(),
+  reasoning_preference: reasoningPreferenceSchema.optional(),
   run_disposition: z.enum(['message', 'replace']).optional(),
   skill_invocation: skillInvocationSchema.optional(),
   recall_feedback: recallFeedbackSchema.optional(),
@@ -261,6 +262,10 @@ const pendingPayloadSchema = z.union([
   z.object({
     interaction_kind: z.literal('first_context_story'),
     first_context: firstContextSchema,
+    reasoning_preference: reasoningPreferenceSchema.optional(),
+  }).strict(),
+  z.object({
+    reasoning_preference: reasoningPreferenceSchema,
   }).strict(),
 ]);
 const pendingTurnSchema = z.object({

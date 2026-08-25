@@ -67,6 +67,7 @@ logger = get_logger(__name__)
 _RECOMPUTED_DELIVERY_METADATA_KEYS = frozenset(
     key for key in CHAT_PROJECTION_METADATA_KEYS if key != FIRST_CONTEXT_METADATA_KEY
 )
+_REASONING_PREFERENCES = frozenset({"auto", "fast", "deep"})
 
 
 @dataclass(slots=True)
@@ -761,6 +762,11 @@ async def _persist_user_message_turn(
             message_payload[FIRST_CONTEXT_METADATA_KEY] = dict(
                 submission.metadata[FIRST_CONTEXT_METADATA_KEY]
             )
+        reasoning_preference = str(
+            submission.metadata.get("reasoning_preference") or ""
+        ).strip().lower()
+        if reasoning_preference in _REASONING_PREFERENCES:
+            message_payload["reasoning_preference"] = reasoning_preference
         runtime_envelope = _build_runtime_envelope(submission)
         result = await chat_store.create_user_turn_once(
             session_id=submission.session_id,

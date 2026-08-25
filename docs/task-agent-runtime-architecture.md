@@ -416,8 +416,11 @@ Reasoning depth has four layers of ownership:
 Composer controls and the `/auto`, `/fast`, and `/deep` modifiers edit the
 visible draft prefix rather than hidden UI state. On submit, that prefix writes
 only to the current user-turn envelope and is removed from the semantic message
-body. It is not global or session configuration. A retry preserves the original
-turn's explicit preference because it reuses the already-built envelope.
+body. The canonical transcript payload preserves an explicitly selected
+preference so the user bubble can render the modifier without adding it back to
+model or memory content. It is not global or session configuration. A retry
+preserves the original turn's explicit preference because it reuses the
+already-built envelope.
 
 The resident `request_reasoning_depth` control lets the model request one step
 of additional reasoning for a small stable set of reasons such as conflicting

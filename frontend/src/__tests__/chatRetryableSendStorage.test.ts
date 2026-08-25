@@ -163,6 +163,24 @@ describe('chat retryable send storage', () => {
     ).toEqual(operation);
   });
 
+  it('round-trips an explicit reasoning preference with the pending transcript', () => {
+    const operation = buildOperation();
+    operation.request.reasoning_preference = 'fast';
+    operation.pendingTurn!.payload = { reasoning_preference: 'fast' };
+
+    saveRetryableChatSends(
+      new Map([[operation.sessionId, operation]]),
+      window.sessionStorage,
+      NOW_MS,
+    );
+
+    expect(
+      loadRetryableChatSends(NOW_MS, window.sessionStorage).get(
+        operation.sessionId,
+      ),
+    ).toEqual(operation);
+  });
+
   it('rejects non-JSON attachment values instead of persisting File objects', () => {
     const operation = buildOperation();
     (operation.request.attachments?.[0] as Record<string, unknown>).file = (

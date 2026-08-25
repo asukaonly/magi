@@ -1093,6 +1093,50 @@ def test_get_display_history_restores_controlled_first_context_payload(tmp_path)
     }
 
 
+def test_get_display_history_restores_reasoning_preference(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Fast Chat",
+        created_at=1000,
+        updated_at=1000,
+        message_count=1,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        created_at_ms=1000,
+        updated_at_ms=1000,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="Plan a day trip",
+        payload_json=json.dumps(
+            {
+                "reasoning_preference": "fast",
+                "internal_note": "must not reach the client",
+            }
+        ),
+        created_at_ms=1000,
+    )
+
+    history = service.get_display_history("u1", "s1", limit=10)
+
+    assert history[0].content == "Plan a day trip"
+    assert history[0].payload == {"reasoning_preference": "fast"}
+
+
 def test_get_display_history_includes_turn_run_state(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

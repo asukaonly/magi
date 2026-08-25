@@ -345,6 +345,31 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(
 
 
 @pytest.mark.asyncio
+async def test_dispatch_user_message_persists_explicit_reasoning_preference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="Plan a day trip",
+        session_id="session-for-u1",
+        metadata={"reasoning_preference": "fast"},
+    )
+
+    assert outcome.success is True
+    assert chat_store.created_turns[0]["message_text"] == "Plan a day trip"
+    assert chat_store.created_turns[0]["message_payload"] == {
+        "reasoning_preference": "fast",
+    }
+    assert queue.commands[0].metadata["reasoning_preference"] == "fast"
+
+
+@pytest.mark.asyncio
 async def test_dispatch_accepts_agent_admission_before_queue_stage_is_recorded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

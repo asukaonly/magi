@@ -252,6 +252,10 @@ describe('useChatSendMessage', () => {
       message: 'Answer briefly',
       reasoning_preference: 'fast',
     }));
+    expect(hook.appendPendingTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: 'Answer briefly',
+      payload: { reasoning_preference: 'fast' },
+    }));
     expect(hook.clearComposerDraftIfUnchanged).toHaveBeenCalledWith(
       'current-identity',
       'normal',
@@ -265,9 +269,27 @@ describe('useChatSendMessage', () => {
       await hook.result.current.handleSendMessage();
     });
 
-    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+    const request = sendMessageMock.mock.calls[0]?.[0];
+    expect(request).toEqual(expect.objectContaining({
       message: '/fastest route',
+    }));
+    expect(request).not.toHaveProperty('reasoning_preference');
+  });
+
+  it('preserves an explicitly typed auto modifier for the current transcript turn', async () => {
+    const hook = renderSendHook({ inputValue: '/auto Answer normally' });
+
+    await act(async () => {
+      await hook.result.current.handleSendMessage();
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'Answer normally',
       reasoning_preference: 'auto',
+    }));
+    expect(hook.appendPendingTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: 'Answer normally',
+      payload: { reasoning_preference: 'auto' },
     }));
   });
 

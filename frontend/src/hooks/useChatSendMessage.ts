@@ -809,7 +809,9 @@ export function useChatSendMessage({
           reply_to_message_id: replyTarget?.messageId,
           workspace_path: currentWorkspacePath ?? null,
           client_turn_id: turnId,
-          reasoning_preference: parsedReasoningMessage.preference,
+          ...(parsedReasoningMessage.explicit ? {
+            reasoning_preference: parsedReasoningMessage.preference,
+          } : {}),
           ...(firstContextQuestion ? {
             interaction_kind: 'first_context_story' as const,
             first_context: {
@@ -831,12 +833,17 @@ export function useChatSendMessage({
           pendingLabel: translate('chat.trace.pending'),
           attachments: uploadedAttachments,
           replyTo: replyTarget,
-          payload: firstContextQuestion ? {
-            interaction_kind: 'first_context_story',
-            first_context: {
-              question_id: firstContextQuestion.questionId,
-              question_text: firstContextQuestion.questionText,
-            },
+          payload: parsedReasoningMessage.explicit || firstContextQuestion ? {
+            ...(parsedReasoningMessage.explicit ? {
+              reasoning_preference: parsedReasoningMessage.preference,
+            } : {}),
+            ...(firstContextQuestion ? {
+              interaction_kind: 'first_context_story',
+              first_context: {
+                question_id: firstContextQuestion.questionId,
+                question_text: firstContextQuestion.questionText,
+              },
+            } : {}),
           } : undefined,
         },
       };

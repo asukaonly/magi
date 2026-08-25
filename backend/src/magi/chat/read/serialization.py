@@ -76,7 +76,12 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
             context,
             role="user",
             kind="user",
-            payload_keys=("recall_feedback", "interaction_kind", "first_context"),
+            payload_keys=(
+                "recall_feedback",
+                "interaction_kind",
+                "first_context",
+                "reasoning_preference",
+            ),
         )
     if context.message_kind in _USER_PAYLOAD_MESSAGE_KINDS:
         return _build_display_message(

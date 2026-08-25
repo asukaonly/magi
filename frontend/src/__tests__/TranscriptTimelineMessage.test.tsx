@@ -91,4 +91,29 @@ describe('TranscriptTimelineMessage', () => {
       'You',
     ]);
   });
+
+  it('renders an explicit reasoning modifier without changing the message body', () => {
+    const message: ChatTimelineMessage = {
+      id: 'msg-user-fast',
+      role: 'user',
+      kind: 'user',
+      content: '杭州一日游怎么安排比较好',
+      timestamp: 1,
+      payload: { reasoning_preference: 'fast' },
+    };
+
+    render(
+      <TranscriptTimelineMessage
+        message={message}
+        assistantName="Magi"
+        userNameLabel="You"
+        timestampLabel="16:45"
+        shouldReduceMotion
+        avatar={null}
+      />,
+    );
+
+    expect(screen.getByText('/fast')).toHaveClass('text-primary');
+    expect(screen.getByText('杭州一日游怎么安排比较好')).toBeInTheDocument();
+  });
 });

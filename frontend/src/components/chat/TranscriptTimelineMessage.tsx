@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { AssistantRuntimePanel } from './AssistantRuntimePanel';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 import { normalizeAssistantMarkdownContent } from '@/domain/chat/markdown';
+import { readReasoningPreference } from '@/domain/chat/reasoning';
 import { createMarkdownComponents } from '@/components/ui/markdown-components';
 import { useStreamingText } from '@/hooks/useStreamingText';
 
@@ -56,8 +57,11 @@ export const TranscriptTimelineMessage = ({
     { disabled: shouldReduceMotion },
   );
   const displayContent = message.role === 'assistant' ? drippedContent : renderedContent;
-  const showStreamingCaret = Boolean(message.streaming && !String(displayContent || '').trim());
   const isUserMessage = message.role === 'user';
+  const reasoningPreference = isUserMessage
+    ? readReasoningPreference(message.payload)
+    : null;
+  const showStreamingCaret = Boolean(message.streaming && !String(displayContent || '').trim());
   const displayName = isUserMessage ? userNameLabel : assistantName;
   const headerActions = headerExtras ? (
     <span className="pointer-events-none inline-flex items-center gap-2 opacity-0 transition-opacity duration-150 group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100">
@@ -115,9 +119,17 @@ export const TranscriptTimelineMessage = ({
               )}
               {bubbleFooter}
             </div>
-          ) : displayContent ? (
+          ) : displayContent || reasoningPreference ? (
             <>
-              <p className="m-0 whitespace-pre-wrap text-[14px] leading-6">{displayContent}</p>
+              <p className="m-0 whitespace-pre-wrap text-[14px] leading-6">
+                {reasoningPreference ? (
+                  <>
+                    <span className="text-primary">/{reasoningPreference}</span>
+                    {displayContent ? ' ' : null}
+                  </>
+                ) : null}
+                {displayContent}
+              </p>
               {bubbleFooter}
             </>
           ) : null}

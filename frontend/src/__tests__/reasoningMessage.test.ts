@@ -4,6 +4,7 @@ import {
   applyReasoningModifier,
   getReasoningModifierDecoration,
   parseReasoningMessage,
+  readReasoningPreference,
 } from '@/domain/chat/reasoning';
 
 describe('reasoning message modifiers', () => {
@@ -58,5 +59,11 @@ describe('reasoning message modifiers', () => {
     expect(applyReasoningModifier('/deep Explain HTTPS', 'auto')).toBe(
       'Explain HTTPS',
     );
+  });
+
+  it('reads only explicit transcript reasoning preferences', () => {
+    expect(readReasoningPreference({ reasoning_preference: 'fast' })).toBe('fast');
+    expect(readReasoningPreference({ reasoning_preference: 'invalid' })).toBeNull();
+    expect(readReasoningPreference(null)).toBeNull();
   });
 });

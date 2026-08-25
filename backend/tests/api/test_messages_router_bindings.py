@@ -834,6 +834,29 @@ def test_user_message_request_accepts_safe_client_turn_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reasoning_preference_is_canonical_typed_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _empty_metadata(**_kwargs):  # type: ignore[no-untyped-def]
+        return {}
+
+    monkeypatch.setattr(
+        messages_dispatch,
+        "build_bootstrap_l2_priority_metadata",
+        _empty_metadata,
+    )
+    request = messages_router.UserMessageRequest(
+        message="Plan a day trip",
+        reasoning_preference="fast",
+        metadata={"reasoning_preference": "deep"},
+    )
+
+    metadata, _ = await messages_dispatch._prepare_api_dispatch_metadata(request)
+
+    assert metadata["reasoning_preference"] == "fast"
+
+
+@pytest.mark.asyncio
 async def test_set_message_label_route_updates_message_without_creating_new_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

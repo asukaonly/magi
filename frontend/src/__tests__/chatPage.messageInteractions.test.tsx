@@ -246,7 +246,6 @@ defineChatPageSuite('ChatPage message interactions', () => {
       session_id: 'session-1',
       message: 'Please inspect this file',
       reply_to_message_id: undefined,
-      reasoning_preference: 'auto',
       attachments: [
         expect.objectContaining({
           attachment_id: 'att-1',

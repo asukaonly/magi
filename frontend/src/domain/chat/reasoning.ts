@@ -45,6 +45,15 @@ export const parseReasoningMessage = (input: string): ParsedReasoningMessage => 
   };
 };
 
+export const readReasoningPreference = (
+  payload: Record<string, unknown> | null | undefined,
+): ReasoningPreference | null => {
+  const value = payload?.reasoning_preference;
+  return value === 'auto' || value === 'fast' || value === 'deep'
+    ? value
+    : null;
+};
+
 export const applyReasoningModifier = (
   input: string,
   preference: ReasoningPreference,
