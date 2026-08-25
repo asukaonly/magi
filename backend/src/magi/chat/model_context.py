@@ -122,11 +122,13 @@ class ModelContextEvent:
 
 @dataclass(frozen=True, slots=True)
 class ModelContextSnapshot:
-    """Current ordered model-facing surface and its optimistic revision."""
+    """One immutable ordered model-facing surface."""
 
     session_id: str
     generation: int
     revision: int
+    accepted_revision: int = 0
+    run_id: str | None = None
     events: tuple[ModelContextEvent, ...] = ()
 
     @property
@@ -135,6 +137,23 @@ class ModelContextSnapshot:
 
     def to_prompt_messages(self) -> list[dict[str, Any]]:
         return [event.item.to_prompt_message() for event in self.events]
+
+    def contains_turn(self, turn_id: str | None) -> bool:
+        """Return whether this surface already contains the named user turn."""
+
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_turn_id:
+            return False
+        return any(
+            event.item.kind is ModelContextItemKind.USER_MESSAGE
+            and str(event.item.metadata.get("origin_turn_id") or "").strip()
+            == normalized_turn_id
+            for event in self.events
+        )
+
+    @property
+    def is_working(self) -> bool:
+        return self.run_id is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +184,17 @@ class ModelContextBoundary:
     turn_id: str | None
     run_id: str | None
     step_index: int | None
+    request_options: Mapping[str, Any]
     created_at_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class ModelContextCallSnapshot:
+    """Reconstructible provider-neutral input for one attempted model call."""
+
+    boundary: ModelContextBoundary
+    epoch: ModelContextEpoch
+    surface: ModelContextSnapshot
 
 
 class ModelContextRevisionConflictError(RuntimeError):
@@ -188,6 +217,7 @@ def infer_model_context_item_kind(message: Mapping[str, Any]) -> ModelContextIte
 
 __all__ = [
     "ModelContextBoundary",
+    "ModelContextCallSnapshot",
     "ModelContextEpoch",
     "ModelContextEvent",
     "ModelContextItem",

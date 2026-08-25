@@ -72,6 +72,7 @@ async def test_append_and_load_model_context(tmp_path) -> None:
     )
 
     assert snapshot.revision == 1
+    assert snapshot.accepted_revision == 1
     assert [item.kind for item in snapshot.items] == [
         ModelContextItemKind.TURN_CONTEXT,
         ModelContextItemKind.USER_MESSAGE,
@@ -98,8 +99,11 @@ async def test_sync_appends_suffix_and_replaces_changed_surface(tmp_path) -> Non
         session_id="session-1",
         items=first.items,
         expected_revision=first.revision,
+        turn_id="turn-1",
+        run_id="run-1",
     )
     assert unchanged.revision == 1
+    assert unchanged.is_working
 
     appended = await store.sync_model_context_surface(
         session_id="session-1",
@@ -110,7 +114,8 @@ async def test_sync_appends_suffix_and_replaces_changed_surface(tmp_path) -> Non
         step_index=1,
     )
     assert appended.revision == 2
-    assert [event.operation for event in appended.events] == ["append", "append"]
+    assert appended.accepted_revision == 1
+    assert [event.operation for event in appended.events] == ["append", "working_append"]
 
     replacement_item = _item(
         "user",
@@ -131,13 +136,63 @@ async def test_sync_appends_suffix_and_replaces_changed_surface(tmp_path) -> Non
         ModelContextItemKind.COMPACTION_SUMMARY,
         ModelContextItemKind.ASSISTANT_MESSAGE,
     ]
-    assert all(event.operation == "surface_replace" for event in replaced.events)
+    assert [event.operation for event in replaced.events] == [
+        "working_replace",
+        "working_append",
+    ]
+
+    accepted = await store.load_model_context(session_id="session-1")
+    assert accepted.revision == 1
+    working = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert working.revision == 3
+    assert working.items == replaced.items
 
     with sqlite3.connect(store.db_path) as conn:
         event_count = conn.execute(
             "SELECT COUNT(*) FROM chat_model_context_events"
         ).fetchone()[0]
-    assert event_count == 4
+    assert event_count == 3
+
+
+@pytest.mark.asyncio
+async def test_boundary_reconstructs_immutable_model_call(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    initial = await store.append_model_context(
+        session_id="session-1",
+        items=(_item("user", "hello"),),
+        expected_revision=0,
+    )
+    working, boundary = await store.prepare_model_context_call(
+        session_id="session-1",
+        items=(*initial.items, _item("assistant", "draft")),
+        expected_revision=initial.revision,
+        system_prompt="system-v1",
+        tools=[{"type": "function", "function": {"name": "read"}}],
+        boundary_kind="tool_loop",
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=1,
+        request_options={"reasoning_depth": "high"},
+    )
+    await store.sync_model_context_surface(
+        session_id="session-1",
+        items=(*working.items, _item("user", "repair")),
+        expected_revision=working.revision,
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=2,
+    )
+
+    call = await store.load_model_context_call(boundary_id=boundary.boundary_id)
+
+    assert call.surface.revision == working.revision
+    assert call.surface.to_prompt_messages() == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "draft"},
+    ]
+    assert call.epoch.system_prompt == "system-v1"
+    assert call.boundary.request_options == {"reasoning_depth": "high"}
 
 
 @pytest.mark.asyncio

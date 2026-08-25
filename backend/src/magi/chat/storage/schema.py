@@ -99,8 +99,10 @@ CREATE TABLE IF NOT EXISTS chat_model_context_heads (
     session_id TEXT COLLATE NOCASE PRIMARY KEY,
     generation INTEGER NOT NULL DEFAULT 1 CHECK (generation > 0),
     revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    accepted_revision INTEGER NOT NULL DEFAULT 0 CHECK (accepted_revision >= 0),
     last_sequence_no INTEGER NOT NULL DEFAULT 0 CHECK (last_sequence_no >= 0),
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    CHECK (accepted_revision <= revision)
 );
 
 CREATE TABLE IF NOT EXISTS chat_model_context_events (
@@ -108,7 +110,7 @@ CREATE TABLE IF NOT EXISTS chat_model_context_events (
     session_id TEXT COLLATE NOCASE NOT NULL,
     generation INTEGER NOT NULL CHECK (generation > 0),
     sequence_no INTEGER NOT NULL CHECK (sequence_no > 0),
-    operation TEXT NOT NULL CHECK (operation IN ('append', 'surface_replace')),
+    operation TEXT NOT NULL,
     item_kind TEXT NOT NULL,
     item_json TEXT NOT NULL,
     turn_id TEXT,
@@ -122,14 +124,42 @@ CREATE INDEX IF NOT EXISTS idx_chat_model_context_events_session_sequence
 CREATE INDEX IF NOT EXISTS idx_chat_model_context_events_turn
     ON chat_model_context_events(session_id, turn_id, sequence_no);
 
+CREATE TABLE IF NOT EXISTS chat_model_context_revisions (
+    session_id TEXT COLLATE NOCASE NOT NULL,
+    generation INTEGER NOT NULL CHECK (generation > 0),
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    parent_revision INTEGER NOT NULL CHECK (parent_revision >= 0),
+    branch_kind TEXT NOT NULL CHECK (branch_kind IN ('accepted', 'working')),
+    run_id TEXT,
+    item_count INTEGER NOT NULL CHECK (item_count >= 0),
+    created_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (session_id, generation, revision)
+);
+
 CREATE TABLE IF NOT EXISTS chat_model_context_surface_nodes (
     session_id TEXT COLLATE NOCASE NOT NULL,
     generation INTEGER NOT NULL CHECK (generation > 0),
+    revision INTEGER NOT NULL CHECK (revision > 0),
     position INTEGER NOT NULL CHECK (position >= 0),
     event_sequence_no INTEGER NOT NULL CHECK (event_sequence_no > 0),
-    PRIMARY KEY (session_id, generation, position),
-    UNIQUE (session_id, generation, event_sequence_no)
+    PRIMARY KEY (session_id, generation, revision, position),
+    UNIQUE (session_id, generation, revision, event_sequence_no)
 );
+
+CREATE TABLE IF NOT EXISTS chat_model_context_run_heads (
+    session_id TEXT COLLATE NOCASE NOT NULL,
+    run_id TEXT NOT NULL,
+    turn_id TEXT,
+    generation INTEGER NOT NULL CHECK (generation > 0),
+    base_revision INTEGER NOT NULL CHECK (base_revision >= 0),
+    working_revision INTEGER NOT NULL CHECK (working_revision >= 0),
+    status TEXT NOT NULL CHECK (status IN ('active', 'accepted', 'abandoned')),
+    updated_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (session_id, run_id),
+    CHECK (working_revision >= base_revision)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_model_context_run_heads_status
+    ON chat_model_context_run_heads(session_id, status, updated_at_ms);
 
 CREATE TABLE IF NOT EXISTS chat_model_context_epochs (
     epoch_id TEXT PRIMARY KEY,
@@ -154,6 +184,7 @@ CREATE TABLE IF NOT EXISTS chat_model_context_boundaries (
     turn_id TEXT,
     run_id TEXT,
     step_index INTEGER CHECK (step_index IS NULL OR step_index >= 0),
+    request_options_json TEXT NOT NULL DEFAULT '{}',
     created_at_ms INTEGER NOT NULL,
     UNIQUE (session_id, generation, boundary_no)
 );
@@ -444,7 +475,15 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_heads_reject_unavailable_session
 BEFORE INSERT ON chat_model_context_heads
-WHEN EXISTS (
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
     SELECT 1
     FROM chat_global_clear_intent
     WHERE intent_key = 'global'
@@ -470,7 +509,15 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_events_reject_unavailable_session
 BEFORE INSERT ON chat_model_context_events
-WHEN EXISTS (
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
     SELECT 1
     FROM chat_global_clear_intent
     WHERE intent_key = 'global'
@@ -496,7 +543,15 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_surface_nodes_reject_unavailable_session
 BEFORE INSERT ON chat_model_context_surface_nodes
-WHEN EXISTS (
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
     SELECT 1
     FROM chat_global_clear_intent
     WHERE intent_key = 'global'
@@ -520,9 +575,62 @@ BEGIN
     SELECT RAISE(ABORT, 'chat session is unavailable');
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_revisions_reject_unavailable_session
+BEFORE INSERT ON chat_model_context_revisions
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
+    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
+)
+OR EXISTS (
+    SELECT 1 FROM chat_cleared_session_scopes AS cleared
+    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
+)
+BEGIN
+    SELECT RAISE(ABORT, 'chat session is unavailable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_run_heads_reject_unavailable_session
+BEFORE INSERT ON chat_model_context_run_heads
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
+    SELECT 1
+    FROM chat_global_clear_intent
+    WHERE intent_key = 'global'
+)
+OR EXISTS (
+    SELECT 1
+    FROM chat_cleared_session_scopes AS cleared
+    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
+)
+BEGIN
+    SELECT RAISE(ABORT, 'chat session is unavailable');
+END;
+
 CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_epochs_reject_unavailable_session
 BEFORE INSERT ON chat_model_context_epochs
-WHEN EXISTS (
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
     SELECT 1
     FROM chat_global_clear_intent
     WHERE intent_key = 'global'
@@ -548,7 +656,15 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS trg_chat_model_context_boundaries_reject_unavailable_session
 BEFORE INSERT ON chat_model_context_boundaries
-WHEN EXISTS (
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND sessions.session_id = NEW.session_id
+      AND sessions.deleted_at_ms IS NULL
+      AND sessions.archived_at_ms IS NULL
+)
+OR EXISTS (
     SELECT 1
     FROM chat_global_clear_intent
     WHERE intent_key = 'global'

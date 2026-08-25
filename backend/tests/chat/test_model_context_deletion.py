@@ -14,7 +14,9 @@ from magi.utils.runtime import RuntimePaths
 _MODEL_CONTEXT_TABLES = (
     "chat_model_context_boundaries",
     "chat_model_context_epochs",
+    "chat_model_context_run_heads",
     "chat_model_context_surface_nodes",
+    "chat_model_context_revisions",
     "chat_model_context_events",
     "chat_model_context_heads",
 )
