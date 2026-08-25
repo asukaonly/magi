@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from magi.runtime_trace.run_events import AgentRunEventType
+
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ...cancel import CancelToken, null_cancel_token
@@ -82,8 +84,6 @@ class FunctionCallingStepExecutor:
         state.iteration += 1
         iteration = state.iteration
         if state.journal is not None:
-            from ..contracts import AgentRunEventType
-
             if state.repair_iterations:
                 await state.journal.append(
                     AgentRunEventType.REPAIR_STEP_STARTED,
@@ -117,8 +117,6 @@ class FunctionCallingStepExecutor:
 
         assistant_message = response.get("assistant_message")
         if state.journal is not None:
-            from ..contracts import AgentRunEventType
-
             await state.journal.append(
                 AgentRunEventType.MODEL_OUTPUT,
                 step_index=iteration,
@@ -205,6 +203,11 @@ class FunctionCallingStepExecutor:
                     system_prompt=state.effective_system_prompt,
                     tools=state.tools,
                     boundary_kind="tool_loop",
+                    request_options={
+                        "reasoning_depth": thinking_depth.value,
+                        "timeout_seconds": llm_timeout_seconds,
+                        "json_mode": False,
+                    },
                 )
             response = await self._driver._call_llm_with_tools(
                 system_prompt=state.effective_system_prompt,

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import base64
 from copy import deepcopy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from magi.core.chat_assets.io import open_managed_chat_attachment
 from magi.context.window_budget import estimate_context_tokens
 
-from .execution.attachment_resolver import AttachmentResolverPort
 from .turn_input import UserTurnInput
 from ..utils.message_text import (
     _extract_text_content,
@@ -17,6 +16,9 @@ from ..utils.message_text import (
 )
 
 _SESSION_CONTEXT_ROLE = "user"
+
+if TYPE_CHECKING:
+    from .execution.attachment_resolver import AttachmentResolverPort
 
 
 def append_latest_user_message(
@@ -29,6 +31,7 @@ def append_latest_user_message(
     session_summary: str | None = None,
     session_origin: str | None = None,
     reply_context: Any | None = None,
+    latest_turn_already_present: bool = False,
 ) -> list[dict[str, Any]]:
     """Return prompt history with the current user turn appended once.
 
@@ -50,9 +53,33 @@ def append_latest_user_message(
         session_id=turn.session_id,
         reply_context=reply_context,
     )
-    # The durable history can already include the current turn before the
+    if latest_turn_already_present:
+        for index in range(len(source_messages) - 1, -1, -1):
+            if _is_matching_user_message(source_messages[index], normalized_latest):
+                if latest_content is not None:
+                    source_messages[index] = {"role": "user", "content": latest_content}
+                break
+        else:
+            if latest_content is not None:
+                source_messages.append({"role": "user", "content": latest_content})
+        if history_limit is not None:
+            safe_history_limit = max(0, history_limit)
+            return (
+                []
+                if safe_history_limit == 0
+                else list(source_messages[-safe_history_limit:])
+            )
+        return _select_history_for_prompt(
+            source_messages,
+            latest_content=None,
+            history_token_budget=history_token_budget,
+            session_summary=session_summary,
+            session_origin=session_origin,
+        )
+
+    # Visible history can already end with the current user turn before the
     # runtime command is processed. Keep the richer latest turn below, which
-    # may include model-visible attachments, and remove matching text copies.
+    # may include model-visible attachments, and remove matching tail copies.
     while source_messages and _is_matching_user_message(source_messages[-1], normalized_latest):
         source_messages.pop()
 

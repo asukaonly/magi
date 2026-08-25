@@ -531,10 +531,19 @@ class ChatTaskAgent(
             classified.user_id, classified.session_id
         )
         active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
+        active_run = run_decision.active_run
+        run_id = active_run.run_id if active_run is not None else None
+        current_turn_id = str(
+            getattr(run_decision.latest_payload, "turn_id", None)
+            or getattr(active_run, "root_turn_id", None)
+            or ""
+        ).strip() or None
         history_context = await self._context_assembler.get_or_load_history_context(
             classified.user_id,
             session_id,
             active_persona_id=active_persona_id,
+            run_id=run_id,
+            current_turn_id=current_turn_id,
         )
         history_key = self._context_assembler.history_key(classified.user_id, session_id)
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
@@ -599,6 +608,9 @@ class ChatTaskAgent(
             recall_feedback=context_inputs.recall_feedback,
             session_summary=context_inputs.history_context.session_summary,
             model_context_revision=context_inputs.history_context.version,
+            current_turn_in_model_context=(
+                context_inputs.history_context.contains_current_turn
+            ),
             active_persona_id=context_inputs.active_persona_id,
             streaming_chat_enabled=context_inputs.preferences.streaming_chat_enabled,
             allow_media_grounding_for_conversation=(

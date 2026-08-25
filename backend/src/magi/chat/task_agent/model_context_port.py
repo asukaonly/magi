@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from difflib import SequenceMatcher
+import json
+from typing import Any, Mapping
 
 from magi.chat.model_context import (
     ModelContextItem,
@@ -26,10 +28,14 @@ class ChatModelContextPort:
         store: ChatStore,
         session_id: str,
         revision: int,
+        persona_id: str | None = None,
     ) -> None:
         self._store = store
         self._session_id = str(session_id or "").strip()
         self._revision = int(revision)
+        self._persona_id = str(persona_id or "").strip() or None
+        self._run_id: str | None = None
+        self._items: tuple[ModelContextItem, ...] | None = None
         if not self._session_id:
             raise ValueError("Session ID is required for chat model context")
 
@@ -47,35 +53,53 @@ class ChatModelContextPort:
         system_prompt: str | None = None,
         tools: list[dict[str, Any]] | None = None,
         boundary_kind: str | None = None,
+        request_options: Mapping[str, Any] | None = None,
     ) -> None:
-        items = tuple(_item_from_runtime_message(message) for message in messages)
-        previous_revision = self._revision
-        snapshot = await self._store.sync_model_context_surface(
-            session_id=self._session_id,
-            items=items,
-            expected_revision=previous_revision,
+        if self._run_id != run_id or self._items is None:
+            current = await self._store.load_model_context(
+                session_id=self._session_id,
+                run_id=run_id,
+            )
+            self._run_id = run_id
+            self._revision = current.revision
+            self._items = current.items
+        items = _align_runtime_items(
+            current=self._items,
+            messages=messages,
             turn_id=turn_id,
-            run_id=run_id,
-            step_index=step_index,
+            persona_id=self._persona_id,
         )
-        self._revision = snapshot.revision
+        previous_revision = self._revision
         boundary_id: str | None = None
         epoch_id: str | None = None
         if boundary_kind is not None:
             if system_prompt is None or tools is None:
                 raise ValueError("Model boundary requires system prompt and tools")
-            boundary = await self._store.record_model_context_boundary(
+            snapshot, boundary = await self._store.prepare_model_context_call(
                 session_id=self._session_id,
-                surface_revision=self._revision,
+                items=items,
+                expected_revision=previous_revision,
                 system_prompt=system_prompt,
                 tools=tools,
                 boundary_kind=boundary_kind,
                 turn_id=turn_id,
                 run_id=run_id,
                 step_index=step_index,
+                request_options=request_options,
             )
             boundary_id = boundary.boundary_id
             epoch_id = boundary.epoch_id
+        else:
+            snapshot = await self._store.sync_model_context_surface(
+                session_id=self._session_id,
+                items=items,
+                expected_revision=previous_revision,
+                turn_id=turn_id,
+                run_id=run_id,
+                step_index=step_index,
+            )
+        self._revision = snapshot.revision
+        self._items = snapshot.items
         logger.info(
             "agent_run.model_context_committed",
             session_id=self._session_id,
@@ -89,17 +113,65 @@ class ChatModelContextPort:
             boundary_kind=boundary_kind,
             boundary_id=boundary_id,
             epoch_id=epoch_id,
+            accepted_revision=snapshot.accepted_revision,
         )
 
 
-def _item_from_runtime_message(message: dict[str, Any]) -> ModelContextItem:
+def _item_from_runtime_message(
+    message: dict[str, Any],
+    *,
+    turn_id: str | None,
+    persona_id: str | None,
+) -> ModelContextItem:
     normalized_message = _normalize_message_for_storage(message)
     kind, source, scope = _classify_runtime_message(normalized_message)
+    metadata: dict[str, Any] = {}
+    if turn_id:
+        metadata["origin_turn_id"] = turn_id
+    if persona_id:
+        metadata["persona_id"] = persona_id
     return ModelContextItem.from_prompt_message(
         normalized_message,
         source=source,
         kind=kind,
         scope=scope,
+        metadata=metadata,
+    )
+
+
+def _align_runtime_items(
+    *,
+    current: tuple[ModelContextItem, ...],
+    messages: list[dict[str, Any]],
+    turn_id: str | None,
+    persona_id: str | None,
+) -> tuple[ModelContextItem, ...]:
+    normalized = [_normalize_message_for_storage(message) for message in messages]
+    current_keys = [_message_key(item.message) for item in current]
+    desired_keys = [_message_key(message) for message in normalized]
+    matcher = SequenceMatcher(a=current_keys, b=desired_keys, autojunk=False)
+    reused: dict[int, ModelContextItem] = {}
+    for block in matcher.get_matching_blocks():
+        for offset in range(block.size):
+            reused[block.b + offset] = current[block.a + offset]
+    return tuple(
+        reused.get(index)
+        or _item_from_runtime_message(
+            message,
+            turn_id=turn_id,
+            persona_id=persona_id,
+        )
+        for index, message in enumerate(normalized)
+    )
+
+
+def _message_key(message: Mapping[str, Any]) -> str:
+    return json.dumps(
+        dict(message),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
     )
 
 

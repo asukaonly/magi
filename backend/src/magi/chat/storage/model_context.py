@@ -377,7 +377,64 @@ class ChatModelContextPersistenceMixin:
             run_id=normalized_run_id,
         )
         if run_head is None:
-            return None
+            accepted = await self._load_revision_with_connection(
+                db,
+                session_id=normalized_session_id,
+                head=head,
+                revision=head.accepted_revision,
+            )
+            source_items = list(accepted.items)
+            if not accepted.contains_turn(turn_id):
+                cursor = await db.execute(
+                    """
+                    SELECT content_text, persona_id
+                    FROM chat_messages
+                    WHERE session_id = ? COLLATE NOCASE AND turn_id = ?
+                      AND role = 'user' AND is_visible = 1
+                    ORDER BY sequence_no ASC
+                    LIMIT 1
+                    """,
+                    (normalized_session_id, turn_id),
+                )
+                user_row = await cursor.fetchone()
+                if user_row is not None:
+                    user_metadata: dict[str, Any] = {"origin_turn_id": turn_id}
+                    user_persona_id = str(user_row["persona_id"] or "").strip()
+                    if user_persona_id:
+                        user_metadata["persona_id"] = user_persona_id
+                    source_items.append(
+                        ModelContextItem.from_prompt_message(
+                            {
+                                "role": "user",
+                                "content": str(user_row["content_text"] or ""),
+                            },
+                            source="user",
+                            scope=ModelContextScope.SESSION,
+                            metadata=user_metadata,
+                        )
+                    )
+            accepted_items = _accepted_outcome_items(
+                tuple(source_items),
+                turn_id=turn_id,
+                outcome_text=outcome_text,
+                outcome_kind=outcome_kind,
+                persona_id=persona_id,
+            )
+            if _item_payloads(accepted_items) == _item_payloads(accepted.items):
+                return accepted
+            return await self._write_revision(
+                db,
+                session_id=normalized_session_id,
+                head=head,
+                current=accepted,
+                items=accepted_items,
+                operation="run_accept",
+                turn_id=turn_id,
+                run_id=normalized_run_id,
+                step_index=None,
+                accept=True,
+                created_at_ms=completed_at_ms,
+            )
         if str(run_head["status"]) != "active":
             return await self._load_revision_with_connection(
                 db,
@@ -762,6 +819,28 @@ class ChatModelContextPersistenceMixin:
         *,
         session_id: str,
     ) -> _HeadState:
+        existing = await self._load_head(db, session_id=session_id)
+        if existing is not None:
+            return existing
+        timestamp = now_wall_ms()
+        await db.execute(
+            """
+            INSERT INTO chat_model_context_heads(
+                session_id, generation, revision, accepted_revision,
+                last_sequence_no, updated_at_ms
+            )
+            VALUES (?, 1, 0, 0, 0, ?)
+            """,
+            (session_id, timestamp),
+        )
+        return _HeadState(1, 0, 0, 0)
+
+    async def _load_head(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+    ) -> _HeadState | None:
         cursor = await db.execute(
             """
             SELECT generation, revision, accepted_revision, last_sequence_no
@@ -772,18 +851,7 @@ class ChatModelContextPersistenceMixin:
         )
         row = await cursor.fetchone()
         if row is None:
-            timestamp = now_wall_ms()
-            await db.execute(
-                """
-                INSERT INTO chat_model_context_heads(
-                    session_id, generation, revision, accepted_revision,
-                    last_sequence_no, updated_at_ms
-                )
-                VALUES (?, 1, 0, 0, 0, ?)
-                """,
-                (session_id, timestamp),
-            )
-            return _HeadState(1, 0, 0, 0)
+            return None
         return _HeadState(
             generation=int(row["generation"]),
             revision=int(row["revision"]),
@@ -848,7 +916,14 @@ class ChatModelContextPersistenceMixin:
         run_id: str | None = None,
         revision: int | None = None,
     ) -> ModelContextSnapshot:
-        head = await self._ensure_head(db, session_id=session_id)
+        head = await self._load_head(db, session_id=session_id)
+        if head is None:
+            return ModelContextSnapshot(
+                session_id=session_id,
+                generation=1,
+                revision=0,
+                accepted_revision=0,
+            )
         resolved_run_id: str | None = None
         if revision is None and run_id is not None:
             run_head = await self._load_run_head(

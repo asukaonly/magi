@@ -10,7 +10,7 @@ from typing import Any, Protocol, TypeVar
 from ....config.models import ThinkingDepth
 from ...cancel import CancelToken, null_cancel_token
 from magi.control.run_control import RunControl
-from ..contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from ..context_fingerprint import effective_context_fingerprint
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome
@@ -177,6 +177,11 @@ async def _call_fallback_llm(
             system_prompt=system_prompt,
             tools=[],
             boundary_kind="fallback_finalization",
+            request_options={
+                "reasoning_depth": thinking_depth.value,
+                "timeout_seconds": context.llm_timeout_seconds,
+                "json_mode": False,
+            },
         )
     if state.journal is not None:
         await state.journal.append(

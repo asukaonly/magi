@@ -5,7 +5,8 @@ import sqlite3
 
 import pytest
 
-from magi.agent.execution.contracts import AgentRunEventType, RunContextManifest
+from magi.agent.execution.contracts import RunContextManifest
+from magi.runtime_trace.run_events import AgentRunEventType
 from magi.agent.execution.context_fingerprint import (
     context_source_refs,
     effective_context_fingerprint,

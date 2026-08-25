@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.agent.execution.completion_policy import CompletionPolicy
-from magi.agent.execution.contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from magi.agent.execution.evidence import ToolExecutionEvidence
 from magi.agent.execution.function_calling.loop_runner import FunctionCallingLoopRunner
 from magi.agent.execution.function_calling.run_input import AgentRunRequest

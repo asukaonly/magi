@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from magi.chat.contracts import ChatSessionRecord
@@ -12,33 +10,6 @@ from magi.chat.task_agent.model_context_port import ChatModelContextPort
 
 
 class _VisibleHistory:
-    def __init__(self) -> None:
-        self.messages = [
-            SimpleNamespace(
-                message_id="message-1",
-                role="assistant",
-                content="old persona voice",
-                persona_id="persona-a",
-                message_kind="assistant_final",
-                to_prompt_message=lambda: {
-                    "role": "assistant",
-                    "content": "old persona voice",
-                },
-            ),
-            SimpleNamespace(
-                message_id="message-2",
-                role="user",
-                content="continue",
-                persona_id=None,
-                message_kind="user_text",
-                to_prompt_message=lambda: {"role": "user", "content": "continue"},
-            ),
-        ]
-
-    def get_conversation_history(self, **kwargs):  # type: ignore[no-untyped-def]
-        _ = kwargs
-        return list(self.messages)
-
     def get_session_attachment_references(self, **kwargs):  # type: ignore[no-untyped-def]
         _ = kwargs
         return []
@@ -66,7 +37,7 @@ async def _create_session(store: ChatStore) -> None:
 
 
 @pytest.mark.asyncio
-async def test_persona_switch_rewrites_the_canonical_model_surface_once(tmp_path) -> None:
+async def test_persona_switch_compacts_a_run_branch_without_rebuilding_from_chat(tmp_path) -> None:
     store = ChatStore(db_path=str(tmp_path / "chat.db"))
     await _create_session(store)
     original = await store.append_model_context(
@@ -75,6 +46,7 @@ async def test_persona_switch_rewrites_the_canonical_model_surface_once(tmp_path
             ModelContextItem.from_prompt_message(
                 {"role": "assistant", "content": "old persona voice"},
                 source="model",
+                metadata={"persona_id": "persona-a"},
             ),
         ),
         expected_revision=0,
@@ -91,6 +63,7 @@ async def test_persona_switch_rewrites_the_canonical_model_surface_once(tmp_path
         "user-1",
         "session-1",
         active_persona_id="persona-b",
+        run_id="run-2",
     )
 
     assert first.version == original.revision
@@ -103,6 +76,7 @@ async def test_persona_switch_rewrites_the_canonical_model_surface_once(tmp_path
         store=store,
         session_id="session-1",
         revision=first.version,
+        persona_id="persona-b",
     )
     await port.commit(
         messages=first.messages,
@@ -114,9 +88,108 @@ async def test_persona_switch_rewrites_the_canonical_model_surface_once(tmp_path
         "user-1",
         "session-1",
         active_persona_id="persona-b",
+        run_id="run-2",
     )
-    snapshot = await store.load_model_context(session_id="session-1")
+    accepted = await store.load_model_context(session_id="session-1")
+    working = await store.load_model_context(session_id="session-1", run_id="run-2")
 
-    assert second.version == snapshot.revision
+    assert second.version == working.revision
     assert second.messages == first.messages
-    assert snapshot.items[0].kind == ModelContextItemKind.COMPACTION_SUMMARY
+    assert accepted.revision == original.revision
+    assert accepted.to_prompt_messages() == [
+        {"role": "assistant", "content": "old persona voice"}
+    ]
+    assert working.items[0].kind == ModelContextItemKind.COMPACTION_SUMMARY
+
+
+@pytest.mark.asyncio
+async def test_persona_switch_back_preserves_canonical_tool_tail(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    await store.append_model_context(
+        session_id="session-1",
+        items=(
+            ModelContextItem.from_prompt_message(
+                {"role": "assistant", "content": "persona a old"},
+                source="model",
+                metadata={"persona_id": "persona-a"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-b",
+                            "type": "function",
+                            "function": {"name": "read", "arguments": "{}"},
+                        }
+                    ],
+                },
+                source="model",
+                metadata={"persona_id": "persona-b"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "tool", "content": "foreign evidence", "tool_call_id": "call-b"},
+                source="tool",
+                metadata={"persona_id": "persona-b"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "continue as a"},
+                source="user",
+                metadata={"persona_id": "persona-a"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-a",
+                            "type": "function",
+                            "function": {"name": "search", "arguments": "{}"},
+                        }
+                    ],
+                },
+                source="model",
+                metadata={"persona_id": "persona-a"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "tool", "content": "current evidence", "tool_call_id": "call-a"},
+                source="tool",
+                metadata={"persona_id": "persona-a"},
+            ),
+        ),
+        expected_revision=0,
+    )
+    assembler = ChatContextAssembler(
+        runtime_trace_db_path=tmp_path / "trace.db",
+        chat_store=store,
+        chat_read_service_factory=_VisibleHistory,
+        persona_boundary_summary_generator=lambda summary_input: "neutral continuity",
+    )
+
+    history = await assembler.get_or_load_history_context(
+        "user-1",
+        "session-1",
+        active_persona_id="persona-a",
+        run_id="run-a",
+    )
+
+    assert "persona a old" not in str(history.messages)
+    assert "foreign evidence" not in str(history.messages)
+    assert history.messages[1:] == [
+        {"role": "user", "content": "continue as a"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call-a",
+                    "type": "function",
+                    "function": {"name": "search", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "content": "current evidence", "tool_call_id": "call-a"},
+    ]

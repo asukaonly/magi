@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from magi.chat import ChatStore
+from magi.chat.model_context import ModelContextEvent
 from magi.core.logger import get_logger
 from magi.utils.runtime import get_runtime_paths
 
@@ -32,7 +33,35 @@ class CachedConversationHistory:
     messages: list[dict[str, Any]]
     session_summary: str | None = None
     active_persona_id: str | None = None
+    run_id: str | None = None
+    contains_current_turn: bool = False
     loaded_at_ms: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _CanonicalModelContextEntry:
+    """Persona summarizer view over one canonical context event."""
+
+    event: ModelContextEvent
+
+    @property
+    def message_id(self) -> str:
+        return self.event.event_id
+
+    @property
+    def role(self) -> str:
+        return str(self.event.item.message.get("role") or "unknown")
+
+    @property
+    def persona_id(self) -> str | None:
+        return str(self.event.item.metadata.get("persona_id") or "").strip() or None
+
+    @property
+    def message_kind(self) -> str:
+        return self.event.item.kind.value
+
+    def to_prompt_message(self) -> dict[str, Any]:
+        return self.event.item.to_prompt_message()
 
 
 class ChatContextAssembler:
@@ -84,12 +113,16 @@ class ChatContextAssembler:
         session_id: str,
         *,
         active_persona_id: str | None = None,
+        run_id: str | None = None,
+        current_turn_id: str | None = None,
     ) -> list[dict[str, Any]]:
         return (
             await self.get_or_load_history_context(
                 user_id,
                 session_id,
                 active_persona_id=active_persona_id,
+                run_id=run_id,
+                current_turn_id=current_turn_id,
             )
         ).messages
 
@@ -99,31 +132,38 @@ class ChatContextAssembler:
         session_id: str,
         *,
         active_persona_id: str | None = None,
+        run_id: str | None = None,
+        current_turn_id: str | None = None,
     ) -> CachedConversationHistory:
         history_key = self.history_key(user_id, session_id)
         normalized_persona_id = self._normalize_persona_id(active_persona_id)
         durable_version = 0
+        contains_current_turn = False
         model_history: list[dict[str, Any]] = []
+        canonical_history: list[_CanonicalModelContextEntry] = []
         if self._chat_store is not None:
             model_context = await self._chat_store.load_model_context(
                 session_id=session_id,
+                run_id=run_id,
             )
             durable_version = model_context.revision
             model_history = model_context.to_prompt_messages()
+            canonical_history = [
+                _CanonicalModelContextEntry(event=event)
+                for event in model_context.events
+            ]
+            contains_current_turn = model_context.contains_turn(current_turn_id)
         cached_entry = self._conversation_history.get(history_key)
         if (
             cached_entry is not None
             and cached_entry.version == durable_version
             and cached_entry.active_persona_id == normalized_persona_id
+            and cached_entry.run_id == run_id
+            and cached_entry.contains_current_turn == contains_current_turn
         ):
             return cached_entry
         try:
             read_service = self._get_chat_read_service()
-            visible_history = read_service.get_conversation_history(
-                user_id=user_id,
-                session_id=session_id,
-                limit=None,
-            )
             attachment_manifest = self._load_attachment_manifest(
                 read_service=read_service,
                 user_id=user_id,
@@ -131,7 +171,7 @@ class ChatContextAssembler:
             )
             retained_history, persona_boundary_summary = await self._persona_boundary.summarize(
                 session_id=session_id,
-                history=visible_history,
+                history=canonical_history,
                 active_persona_id=normalized_persona_id,
             )
             if (
@@ -154,6 +194,8 @@ class ChatContextAssembler:
                     attachment_manifest,
                 ),
                 active_persona_id=normalized_persona_id,
+                run_id=run_id,
+                contains_current_turn=contains_current_turn,
             )
             self._conversation_history[history_key] = cached_history
             self._update_lru_cache(history_key)
@@ -264,7 +306,7 @@ class ChatContextAssembler:
             if not callable(to_prompt_message):
                 continue
             message = to_prompt_message()
-            if isinstance(message, dict) and str(message.get("content") or "").strip():
+            if isinstance(message, dict):
                 compacted.append(dict(message))
         return compacted
 

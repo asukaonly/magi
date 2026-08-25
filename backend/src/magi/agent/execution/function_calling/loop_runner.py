@@ -15,8 +15,9 @@ from ...turn_input import UserTurnInput
 from magi.control.run_control import RunControl
 from ..completion_gate import CompletionGate
 from ..context_fingerprint import stable_hash
+from magi.runtime_trace.run_events import AgentRunEventType
+
 from ..contracts import (
-    AgentRunEventType,
     CompletionDecision,
     CompletionOutcome,
 )
@@ -155,6 +156,9 @@ class FunctionCallingLoopRunner:
                 session_origin=run_input.session_origin,
                 reply_context=run_input.reply_context,
                 ephemeral_context=run_input.ephemeral_context,
+                current_turn_in_model_context=(
+                    run_input.current_turn_in_model_context
+                ),
             ),
         )
         state.run_id = run_input.run_id

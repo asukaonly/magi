@@ -50,7 +50,9 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                            turns.status,
                            turns.response_mode,
                            turns.run_disposition,
-                           turns.updated_at_ms
+                           turns.updated_at_ms,
+                           turns.session_id,
+                           turns.run_id
                     FROM chat_user_turn_delivery AS delivery
                     JOIN chat_turns AS turns
                       ON turns.turn_id = delivery.turn_id
@@ -89,7 +91,8 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                 output_rows = list(
                     await db.execute_fetchall(
                         """
-                    SELECT message_kind, is_final, payload_json, created_at_ms
+                    SELECT message_kind, is_final, payload_json, created_at_ms,
+                           content_text, persona_id
                     FROM chat_messages
                     WHERE turn_id = ?
                       AND role = 'assistant'
@@ -175,6 +178,33 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     ),
                 )
                 changed = int(cursor.rowcount or 0) == 1
+                effective_run_id = str(owner["run_id"] or "").strip()
+                if changed and effective_run_id:
+                    visible_text = "\n".join(
+                        str(row["content_text"] or "").strip()
+                        for row in output_rows
+                        if str(row["content_text"] or "").strip()
+                    )
+                    await self._promote_model_context_run_with_connection(
+                        db,
+                        session_id=str(owner["session_id"]),
+                        run_id=effective_run_id,
+                        turn_id=normalized_turn_id,
+                        outcome_text=(
+                            visible_text
+                            or "[Runtime outcome] The recovered turn had no visible assistant message."
+                        ),
+                        outcome_kind="assistant" if visible_text else "runtime",
+                        persona_id=next(
+                            (
+                                str(row["persona_id"])
+                                for row in output_rows
+                                if row["persona_id"] is not None
+                            ),
+                            None,
+                        ),
+                        completed_at_ms=int(updated_at_ms),
+                    )
                 await db.commit()
             except BaseException:
                 await db.rollback()
@@ -225,7 +255,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                 turn_rows = list(
                     await db.execute_fetchall(
                         """
-                    SELECT session_id, user_id, updated_at_ms
+                    SELECT session_id, user_id, updated_at_ms, run_id
                     FROM chat_turns
                     WHERE turn_id = ?
                     """,
@@ -351,6 +381,18 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                 if int(cursor.rowcount or 0) != 1:
                     await db.rollback()
                     return False
+                effective_run_id = str(turn["run_id"] or "").strip()
+                if effective_run_id:
+                    await self._promote_model_context_run_with_connection(
+                        db,
+                        session_id=session_id,
+                        run_id=effective_run_id,
+                        turn_id=normalized_turn_id,
+                        outcome_text=normalized_user_message,
+                        outcome_kind="assistant",
+                        persona_id=None,
+                        completed_at_ms=int(updated_at_ms),
+                    )
                 await db.commit()
                 return True
             except BaseException:

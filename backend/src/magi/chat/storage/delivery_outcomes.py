@@ -54,6 +54,19 @@ class _ChatAssistantOutcomeHost(Protocol):
         updated_at_ms: int,
     ) -> None: ...
 
+    async def _promote_model_context_run_with_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+        run_id: str,
+        turn_id: str,
+        outcome_text: str,
+        outcome_kind: str,
+        persona_id: str | None,
+        completed_at_ms: int,
+    ) -> Any: ...
+
     def _notify_assistant_memory_outbox(self) -> None: ...
 
 
@@ -297,6 +310,40 @@ class ChatDeliveryOutcomePersistenceMixin:
                     )
                     should_notify_projection = True
 
+                effective_run_id = str(
+                    run_id or owner["run_id"] or ""
+                ).strip()
+                if effective_run_id:
+                    visible_outcome_text = "\n".join(
+                        str(message.content_text or "").strip()
+                        for message in committed_messages
+                        if str(message.content_text or "").strip()
+                    )
+                    await host._promote_model_context_run_with_connection(
+                        db,
+                        session_id=session_id,
+                        run_id=effective_run_id,
+                        turn_id=normalized_turn_id,
+                        outcome_text=(
+                            visible_outcome_text
+                            or "[Runtime outcome] The turn completed without a visible assistant message."
+                        ),
+                        outcome_kind=(
+                            "assistant" if visible_outcome_text else "runtime"
+                        ),
+                        persona_id=(
+                            next(
+                                (
+                                    message.persona_id
+                                    for message in committed_messages
+                                    if message.persona_id
+                                ),
+                                None,
+                            )
+                        ),
+                        completed_at_ms=int(completed_at_ms),
+                    )
+
                 normalized_ux_plan = ux_plan if isinstance(ux_plan, dict) else {}
                 completed_turn = await db.execute(
                     """
@@ -480,6 +527,20 @@ class ChatDeliveryOutcomePersistenceMixin:
                 ):
                     await db.rollback()
                     return False
+                effective_run_id = str(run_id or owner["run_id"] or "").strip()
+                if effective_run_id:
+                    await host._promote_model_context_run_with_connection(
+                        db,
+                        session_id=str(owner["session_id"]),
+                        run_id=effective_run_id,
+                        turn_id=normalized_turn_id,
+                        outcome_text=(
+                            "[Runtime outcome] The turn was cancelled before a final response."
+                        ),
+                        outcome_kind="runtime",
+                        persona_id=None,
+                        completed_at_ms=int(updated_at_ms),
+                    )
                 await db.commit()
                 return True
             except BaseException:

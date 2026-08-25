@@ -6,7 +6,9 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from .contracts import AgentRunEvent, AgentRunEventType, RunContextManifest
+from magi.runtime_trace.run_events import AgentRunEvent, AgentRunEventType
+
+from .contracts import RunContextManifest
 
 
 class AgentRunJournal:

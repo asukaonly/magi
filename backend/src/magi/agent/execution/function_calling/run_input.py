@@ -56,6 +56,7 @@ class AgentRunRequest:
     model_capabilities: ModelCapabilityProfile | None = None
     skill_preapproval_rules: tuple[ToolRule, ...] = ()
     model_context_port: ModelContextPort | None = None
+    current_turn_in_model_context: bool = False
 
     control: RunControl | None = None
 
@@ -102,6 +103,7 @@ class AgentRunRequest:
         run_plan_reader: RunPlanReader | None = None,
         skill_preapproval_rules: tuple[ToolRule, ...] = (),
         model_context_port: ModelContextPort | None = None,
+        current_turn_in_model_context: bool = False,
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
@@ -129,6 +131,7 @@ class AgentRunRequest:
             run_plan_reader=run_plan_reader or NullRunPlanReader(),
             skill_preapproval_rules=skill_preapproval_rules,
             model_context_port=model_context_port,
+            current_turn_in_model_context=current_turn_in_model_context,
         )
 
 

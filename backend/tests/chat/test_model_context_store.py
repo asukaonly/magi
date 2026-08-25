@@ -12,6 +12,7 @@ from magi.chat.model_context import (
 )
 from magi.chat.store import ChatStore
 from magi.chat.contracts import ChatSessionRecord
+from magi.chat.contracts import ChatMessageRecord
 
 
 def _item(
@@ -193,6 +194,230 @@ async def test_boundary_reconstructs_immutable_model_call(tmp_path) -> None:
     ]
     assert call.epoch.system_prompt == "system-v1"
     assert call.boundary.request_options == {"reasoning_depth": "high"}
+
+
+@pytest.mark.asyncio
+async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    await store.create_user_turn(
+        session_id="session-1",
+        user_id="user-1",
+        turn_id="turn-1",
+        message_text="solve this",
+        created_at_ms=10,
+        run_id="run-1",
+        run_revision=1,
+    )
+    working = await store.sync_model_context_surface(
+        session_id="session-1",
+        items=(
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "solve this"},
+                source="user",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "assistant", "content": "unaccepted draft"},
+                source="model",
+                metadata={"origin_turn_id": "turn-1", "persona_id": "persona-a"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "[Runtime validation] retry"},
+                source="runtime_control",
+                kind=ModelContextItemKind.RUNTIME_CONTROL,
+                scope=ModelContextScope.RUN,
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+        ),
+        expected_revision=0,
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=1,
+    )
+    assert working.accepted_revision == 0
+    committed = await store.commit_unmanaged_assistant_outcome(
+        turn_id="turn-1",
+        messages=[
+            ChatMessageRecord(
+                message_id="assistant-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                user_id="user-1",
+                role="assistant",
+                message_kind="assistant_final",
+                content_text="accepted answer",
+                payload_json="{}",
+                is_final=True,
+                is_visible=True,
+                created_at_ms=20,
+                sequence_no=0,
+                replaces_message_id=None,
+                replaced_by_message_id=None,
+                persona_id="persona-a",
+            )
+        ],
+        attachment_payloads_by_message_id={},
+        trace_id=None,
+        execution_mode="agent",
+        ux_plan=None,
+        response_mode="final_only",
+        started_at_ms=10,
+        completed_at_ms=20,
+        run_id="run-1",
+        run_revision=1,
+    )
+
+    assert committed is not None
+    accepted = await store.load_model_context(session_id="session-1")
+    assert accepted.accepted_revision == accepted.revision
+    assert [message["content"] for message in accepted.to_prompt_messages()] == [
+        "solve this",
+        "[Runtime validation] retry",
+        "accepted answer",
+    ]
+    assert accepted.items[-1].metadata == {
+        "origin_turn_id": "turn-1",
+        "accepted_outcome": True,
+        "persona_id": "persona-a",
+    }
+
+
+@pytest.mark.asyncio
+async def test_outcome_failure_rolls_back_model_context_promotion(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    await store.create_user_turn(
+        session_id="session-1",
+        user_id="user-1",
+        turn_id="turn-1",
+        message_text="solve this",
+        created_at_ms=10,
+        run_id="run-1",
+        run_revision=1,
+    )
+    await store.sync_model_context_surface(
+        session_id="session-1",
+        items=(
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "solve this"},
+                source="user",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "assistant", "content": "draft"},
+                source="model",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+        ),
+        expected_revision=0,
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=1,
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            """
+            CREATE TRIGGER abort_turn_completion
+            BEFORE UPDATE OF status ON chat_turns
+            WHEN NEW.turn_id = 'turn-1' AND NEW.status = 'completed'
+            BEGIN
+                SELECT RAISE(ABORT, 'turn completion blocked');
+            END
+            """
+        )
+        conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match="turn completion blocked"):
+        await store.commit_unmanaged_assistant_outcome(
+            turn_id="turn-1",
+            messages=[
+                ChatMessageRecord(
+                    message_id="assistant-1",
+                    session_id="session-1",
+                    turn_id="turn-1",
+                    user_id="user-1",
+                    role="assistant",
+                    message_kind="assistant_final",
+                    content_text="accepted answer",
+                    payload_json="{}",
+                    is_final=True,
+                    is_visible=True,
+                    created_at_ms=20,
+                    sequence_no=0,
+                    replaces_message_id=None,
+                    replaced_by_message_id=None,
+                )
+            ],
+            attachment_payloads_by_message_id={},
+            trace_id=None,
+            execution_mode="agent",
+            ux_plan=None,
+            response_mode="final_only",
+            started_at_ms=10,
+            completed_at_ms=20,
+            run_id="run-1",
+            run_revision=1,
+        )
+
+    accepted = await store.load_model_context(session_id="session-1")
+    working = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert accepted.revision == 0
+    assert [item.message["content"] for item in working.items] == [
+        "solve this",
+        "draft",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_promotes_runtime_outcome_without_draft(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    await store.create_user_turn(
+        session_id="session-1",
+        user_id="user-1",
+        turn_id="turn-1",
+        message_text="long task",
+        created_at_ms=10,
+        run_id="run-1",
+        run_revision=1,
+    )
+    await store.sync_model_context_surface(
+        session_id="session-1",
+        items=(
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "long task"},
+                source="user",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "assistant", "content": "partial draft"},
+                source="model",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+        ),
+        expected_revision=0,
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=1,
+    )
+
+    cancelled = await store.cancel_user_turn_delivery_if_active(
+        turn_id="turn-1",
+        expected_session_id="session-1",
+        expected_user_id="user-1",
+        run_id="run-1",
+        run_revision=1,
+        reason="user_cancel",
+        updated_at_ms=20,
+    )
+
+    assert cancelled
+    accepted = await store.load_model_context(session_id="session-1")
+    contents = [str(item.message["content"]) for item in accepted.items]
+    assert contents[0] == "long task"
+    assert "partial draft" not in contents
+    assert contents[-1].startswith("[Runtime outcome]")
 
 
 @pytest.mark.asyncio

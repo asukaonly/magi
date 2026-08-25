@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from magi.agent.execution.contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from magi.agent.execution.function_calling.step_models import FunctionCallingStepState
 from magi.agent.execution.function_calling.step_tool_batch import (
     FunctionCallingToolBatchExecutor,

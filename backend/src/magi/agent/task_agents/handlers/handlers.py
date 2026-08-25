@@ -74,6 +74,7 @@ def _build_chat_model_context_port(
     return factory(
         session_id,
         int(getattr(context, "model_context_revision", 0) or 0),
+        getattr(context, "active_persona_id", None),
     )
 
 
@@ -198,7 +199,7 @@ class ChatHandlerDependencies:
     attachment_resolver: AttachmentResolverPort = field(default_factory=NullAttachmentResolver)
     session_run_coordinator: Any | None = None
     background_launch_service: BackgroundLaunchService | None = None
-    model_context_port_factory: Callable[[str, int], ModelContextPort] | None = None
+    model_context_port_factory: Callable[[str, int, str | None], ModelContextPort] | None = None
     # Set immediately after coordinator construction because the streaming
     # path and coordinator depend on each other during composition.
     coordinator: Any | None = None
@@ -464,6 +465,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             model_context_port=_build_chat_model_context_port(
                 self._deps,
                 request.context,
+            ),
+            current_turn_in_model_context=bool(
+                getattr(request.context, "current_turn_in_model_context", False)
             ),
         )
 

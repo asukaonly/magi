@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 
 class ModelContextPort(Protocol):
@@ -18,6 +18,7 @@ class ModelContextPort(Protocol):
         system_prompt: str | None = None,
         tools: list[dict[str, Any]] | None = None,
         boundary_kind: str | None = None,
+        request_options: Mapping[str, Any] | None = None,
     ) -> None: ...
 
 

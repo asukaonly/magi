@@ -12,7 +12,9 @@ from ..context_fingerprint import (
     message_fingerprints,
     stable_hash,
 )
-from ..contracts import AgentRunEventType, RunContextManifest
+from magi.runtime_trace.run_events import AgentRunEventType
+
+from ..contracts import RunContextManifest
 from ..journal import AgentRunJournal
 from .run_input import AgentRunRequest
 from .step_models import FunctionCallingStepState

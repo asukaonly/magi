@@ -211,6 +211,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         reply_context: Any | None = None,
         allow_attachment_grounding: bool = False,
         ephemeral_context: str | None = None,
+        current_turn_in_model_context: bool = False,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         self._resolve_llm()
@@ -232,16 +233,26 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
+            latest_turn_already_present=current_turn_in_model_context,
         )
         turn_context_message = build_turn_context_message(turn_context_text)
-        if turn_context_message is not None and messages:
+        if (
+            turn_context_message is not None
+            and messages
+            and not current_turn_in_model_context
+        ):
             insert_at = len(messages) - 1
             if insert_at <= 0 or not is_turn_context_message(messages[insert_at - 1]):
                 messages.insert(insert_at, turn_context_message)
         ephemeral_context_message_index: int | None = None
         ephemeral_context_original_content: Any | None = None
         context_text = str(ephemeral_context or "").strip()
-        if context_text and messages and messages[-1].get("role") == "user":
+        if (
+            context_text
+            and messages
+            and messages[-1].get("role") == "user"
+            and not current_turn_in_model_context
+        ):
             ephemeral_context_message_index = len(messages) - 1
             ephemeral_context_original_content = messages[-1].get("content")
             messages[-1]["content"] = self._append_ephemeral_context_to_content(

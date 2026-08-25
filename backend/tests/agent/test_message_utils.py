@@ -170,6 +170,30 @@ def test_append_latest_user_message_removes_persisted_current_turn_with_attachme
     ]
 
 
+def test_append_latest_user_message_resumes_existing_turn_in_place() -> None:
+    history = [
+        {"role": "user", "content": "previous message"},
+        {"role": "assistant", "content": "previous answer"},
+        {"role": "user", "content": "current request"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "call-1", "function": {"name": "read"}}],
+        },
+        {"role": "tool", "content": "evidence", "tool_call_id": "call-1"},
+    ]
+
+    messages = append_latest_user_message(
+        history,
+        UserTurnInput(text="current request"),
+        history_token_budget=10_000,
+        resolver=_NULL_RESOLVER,
+        latest_turn_already_present=True,
+    )
+
+    assert messages == history
+
+
 def test_append_latest_user_message_marks_explicit_reply_target_attachments() -> None:
     reply_context = ChatReplyContext(
         message_id="msg-image",

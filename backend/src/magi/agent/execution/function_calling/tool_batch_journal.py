@@ -8,7 +8,7 @@ from typing import Any
 
 from ....core.logger import get_logger
 from ....llm.streaming_events import LLMStreamEvent, emit_stream_event
-from ..contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from ..evidence import ToolExecutionEvidence
 from ..tool_metadata import resolve_tool_capability_metadata
 from .step_models import FunctionCallingStepState, StepExecutionContext

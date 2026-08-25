@@ -9,7 +9,7 @@ from typing import Any
 
 from ....core.logger import get_logger
 from ...cancel import CancelToken
-from ..contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from .step_models import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,

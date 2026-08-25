@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Iterable
 
-from magi.agent.execution.contracts import AgentRunEvent, AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEvent, AgentRunEventType
 
 from .models import (
     ExecutionPlanStepSummary,

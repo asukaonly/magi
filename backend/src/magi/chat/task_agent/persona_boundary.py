@@ -9,7 +9,7 @@ does not own.
 
 This module is the L14 chat-domain side of that work. It is invoked
 from :py:class:`ChatContextAssembler` during prompt assembly with
-the raw history loaded by :py:class:`ChatReadService`, and returns:
+canonical model-context events, and returns:
 
 * the trimmed tail (everything from the active persona's first turn
   onwards), which the assembler renders normally into the prompt;
@@ -103,7 +103,17 @@ def _message_content(item: Any) -> str:
     if callable(to_prompt_message):
         prompt_message = to_prompt_message()
         if isinstance(prompt_message, dict):
-            return str(prompt_message.get("content") or "").strip()
+            content = prompt_message.get("content")
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                return "\n".join(
+                    str(block.get("text") or "").strip()
+                    for block in content
+                    if isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and str(block.get("text") or "").strip()
+                )
     return str(getattr(item, "content", "") or "").strip()
 
 
@@ -369,8 +379,9 @@ class PersonaBoundarySummarizer:
     @staticmethod
     def _find_persona_boundary_index(history: list[Any], active_persona_id: str) -> int | None:
         """Walk the transcript from the tail back; the boundary is the
-        index *after* the last foreign-persona turn that precedes any
-        current-persona turn. Returns None when no boundary exists."""
+        index *after* the last foreign-persona item that precedes the
+        current-persona segment. Returns the tail when the current persona
+        has not produced any canonical item yet."""
         saw_current_segment = False
         for index in range(len(history) - 1, -1, -1):
             persona_id = _message_persona_id(history[index])

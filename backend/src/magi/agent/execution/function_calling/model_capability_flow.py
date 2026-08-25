@@ -11,7 +11,7 @@ from ....core.logger import get_logger
 from ....llm.streaming_events import stream_scope
 from magi.control.run_control import RunControl
 from ..context_fingerprint import stable_hash
-from ..contracts import AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEventType
 from ..model_capabilities import ModelCapabilityProfile
 from .run_input import AgentRunRequest
 from .run_journal import FunctionCallingRunJournal
@@ -117,6 +117,11 @@ class FunctionCallingModelCapabilityFlow:
                 system_prompt=grounding_prompt,
                 tools=[],
                 boundary_kind="attachment_grounding",
+                request_options={
+                    "reasoning_depth": thinking_depth.value,
+                    "timeout_seconds": run_input.llm_timeout_seconds,
+                    "json_mode": True,
+                },
             )
         try:
             async with stream_scope(None):

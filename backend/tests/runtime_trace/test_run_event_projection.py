@@ -5,7 +5,7 @@ import sqlite3
 
 from _shared.db_schema import apply_chain_schema
 
-from magi.agent.execution.contracts import AgentRunEvent, AgentRunEventType
+from magi.runtime_trace.run_events import AgentRunEvent, AgentRunEventType
 from magi.runtime_trace.chat_trace.detail_enrichment import enrich_projected_trace
 from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 from magi.runtime_trace.chat_trace.run_event_projection import project_run_events

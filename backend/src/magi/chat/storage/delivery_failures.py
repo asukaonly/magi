@@ -204,6 +204,42 @@ class ChatDeliveryFailurePersistenceMixin:
                 if int(terminal.rowcount or 0) != 1:
                     await db.rollback()
                     return ChatDeliveryFailureFinalization(applied=False)
+                effective_run_id = str(delivery_row["run_id"] or "").strip()
+                if effective_run_id:
+                    accepted_message = visible_final
+                    outcome_text = (
+                        str(accepted_message.content_text or "").strip()
+                        if accepted_message is not None
+                        else (
+                            "\n".join(
+                                str(segment.content_text or "").strip()
+                                for segment in (complete_rhythm or [])
+                                if str(segment.content_text or "").strip()
+                            )
+                            or normalized_user_message
+                        )
+                    )
+                    await self._promote_model_context_run_with_connection(
+                        db,
+                        session_id=str(delivery_row["session_id"]),
+                        run_id=effective_run_id,
+                        turn_id=normalized_turn_id,
+                        outcome_text=outcome_text,
+                        outcome_kind="assistant",
+                        persona_id=(
+                            accepted_message.persona_id
+                            if accepted_message is not None
+                            else next(
+                                (
+                                    segment.persona_id
+                                    for segment in (complete_rhythm or [])
+                                    if segment.persona_id
+                                ),
+                                None,
+                            )
+                        ),
+                        completed_at_ms=now_ms,
+                    )
                 if transcript_changed:
                     await db.execute(
                         """
@@ -235,7 +271,8 @@ class ChatDeliveryFailurePersistenceMixin:
                    delivery.delivery_state,
                    delivery.current_command_id,
                    turns.session_id,
-                   turns.user_id
+                   turns.user_id,
+                   turns.run_id
             FROM chat_user_turn_delivery AS delivery
             JOIN chat_turns AS turns
               ON turns.turn_id = delivery.turn_id

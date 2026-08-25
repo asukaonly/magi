@@ -79,10 +79,11 @@ def _build_handler_dependencies(
         background_launch_service=config.background_launch_service,
         model_context_port_factory=(
             (
-                lambda session_id, revision: ChatModelContextPort(
+                lambda session_id, revision, persona_id: ChatModelContextPort(
                     store=config.chat_store,
                     session_id=session_id,
                     revision=revision,
+                    persona_id=persona_id,
                 )
             )
             if config.chat_store is not None
