@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyReasoningModifier,
+  getReasoningModifierDecoration,
   parseReasoningMessage,
 } from '@/domain/chat/reasoning';
 
@@ -30,6 +31,21 @@ describe('reasoning message modifiers', () => {
       preference: 'auto',
       explicit: false,
     });
+  });
+
+  it('preserves the visible text while isolating the recognized modifier', () => {
+    expect(getReasoningModifierDecoration('/fast Explain HTTPS')).toEqual({
+      leadingText: '',
+      modifierText: '/fast',
+      trailingText: ' Explain HTTPS',
+    });
+    expect(getReasoningModifierDecoration('  /DEEP\nCompare both designs')).toEqual({
+      leadingText: '  ',
+      modifierText: '/DEEP',
+      trailingText: '\nCompare both designs',
+    });
+    expect(getReasoningModifierDecoration('/fastest route')).toBeNull();
+    expect(getReasoningModifierDecoration('Explain /fast mode')).toBeNull();
   });
 
   it('replaces or removes the visible modifier without hidden state', () => {

@@ -1,7 +1,6 @@
 import type { ClipboardEventHandler, KeyboardEventHandler, ReactNode, Ref } from 'react';
 import { ArrowUp, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AutoResizeTextarea } from '@/components/ui/auto-resize-textarea';
 import { SessionSafetyControl } from '@/components/control';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
 import type { RecallFeedbackDraft } from '@/domain/chat/recall-feedback';
@@ -10,6 +9,7 @@ import { ComposerDraftAttachments } from './ComposerDraftAttachments';
 import { ComposerReplyPreview } from './ComposerReplyPreview';
 import { ContextUsageRing } from './ContextUsageRing';
 import { ComposerRecallFeedbackBanner } from './ComposerRecallFeedbackBanner';
+import { ComposerCommandTextarea } from './ComposerCommandTextarea';
 import {
   ComposerReasoningControl,
 } from './ComposerReasoningControl';
@@ -145,7 +145,7 @@ export const ChatComposerShell = ({
       >
         {askAnswerSlot}
         {pickerSlot}
-        <AutoResizeTextarea
+        <ComposerCommandTextarea
           ref={textareaRef}
           value={inputValue}
           onChange={(event) => onInputChange(event.target.value)}

@@ -6,7 +6,28 @@ export type ParsedReasoningMessage = {
   explicit: boolean;
 };
 
-const REASONING_MODIFIER_PATTERN = /^\s*\/(auto|fast|deep)(?=$|\s)[ \t]*/i;
+export type ReasoningModifierDecoration = {
+  leadingText: string;
+  modifierText: string;
+  trailingText: string;
+};
+
+const REASONING_MODIFIER_PATTERN = /^(\s*)(\/(auto|fast|deep))(?=$|\s)([ \t]*)/i;
+
+export const getReasoningModifierDecoration = (
+  input: string,
+): ReasoningModifierDecoration | null => {
+  const match = input.match(REASONING_MODIFIER_PATTERN);
+  if (!match) return null;
+
+  const leadingText = match[1];
+  const modifierText = match[2];
+  return {
+    leadingText,
+    modifierText,
+    trailingText: input.slice(leadingText.length + modifierText.length),
+  };
+};
 
 export const parseReasoningMessage = (input: string): ParsedReasoningMessage => {
   const match = input.match(REASONING_MODIFIER_PATTERN);
@@ -19,7 +40,7 @@ export const parseReasoningMessage = (input: string): ParsedReasoningMessage => 
   }
   return {
     message: input.slice(match[0].length),
-    preference: match[1].toLowerCase() as ReasoningPreference,
+    preference: match[3].toLowerCase() as ReasoningPreference,
     explicit: true,
   };
 };

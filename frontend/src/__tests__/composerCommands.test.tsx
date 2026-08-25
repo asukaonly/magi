@@ -570,7 +570,7 @@ describe('ComposerSlashPicker', () => {
       />,
     );
     expect(screen.getByText('/clear')).toHaveClass('text-foreground');
-    expect(screen.getByText('/fast')).toHaveClass('text-primary');
+    expect(screen.getByText('/fast')).toHaveClass('text-foreground');
     expect(screen.getByText('/echo')).toHaveClass('text-foreground');
   });
 });
