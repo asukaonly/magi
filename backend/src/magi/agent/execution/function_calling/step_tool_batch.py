@@ -212,8 +212,10 @@ class FunctionCallingToolBatchExecutor:
                 reason=f"model_request:{reason}",
             )
         )
+        denial_reason = None if approved else "policy_or_budget_limit"
         result.data = {
             **result.data,
+            "status": "approved" if approved else "denied",
             "approved": approved,
             "requested_depth": (
                 reasoning_state.requested_depth.value if reasoning_state is not None else None
@@ -227,7 +229,13 @@ class FunctionCallingToolBatchExecutor:
             "escalation_step": (
                 reasoning_policy.escalation_step if reasoning_policy is not None else None
             ),
-            "denial_reason": None if approved else "policy_or_budget_limit",
+            "denial_reason": denial_reason,
+            "visibility": "runtime_internal",
+            "next_action": (
+                "continue_with_approved_depth"
+                if approved
+                else "continue_at_current_depth"
+            ),
         }
         logger.info(
             "agent_run.reasoning_escalation",
@@ -241,7 +249,7 @@ class FunctionCallingToolBatchExecutor:
             maximum_depth=result.data["maximum_depth"],
             escalation_step=result.data["escalation_step"],
             escalation_count=result.data["escalation_count"],
-            denial_reason=result.data["denial_reason"],
+            denial_reason=denial_reason,
         )
         if approved and state.journal is not None:
             await state.journal.append(

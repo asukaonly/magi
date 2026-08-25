@@ -73,7 +73,10 @@ async def test_runtime_approves_model_request_within_policy_and_records_event() 
     )
 
     assert record.result.data["approved"] is True
+    assert record.result.data["status"] == "approved"
     assert record.result.data["requested_depth"] == "high"
+    assert record.result.data["visibility"] == "runtime_internal"
+    assert record.result.data["next_action"] == "continue_with_approved_depth"
     assert state.reasoning_state.requested_depth.value == "high"
     assert [event.event_type for event in state.journal.events] == [
         AgentRunEventType.REASONING_DEPTH_CHANGED
@@ -126,5 +129,9 @@ async def test_runtime_denies_model_request_at_user_mode_limit() -> None:
     assert first.result.data["approved"] is True
     assert first.result.data["requested_depth"] == "low"
     assert second.result.data["approved"] is False
+    assert second.result.success is True
+    assert second.result.data["status"] == "denied"
     assert second.result.data["denial_reason"] == "policy_or_budget_limit"
+    assert second.result.data["visibility"] == "runtime_internal"
+    assert second.result.data["next_action"] == "continue_at_current_depth"
     assert state.reasoning_state.requested_depth.value == "low"

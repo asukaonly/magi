@@ -24,8 +24,11 @@ class RequestReasoningDepthTool(Tool):
                 "Request one policy-defined reasoning-depth increase for the next model step when "
                 "additional reasoning may change the decision. The runtime may deny "
                 "the request because of the user's mode, depth limit, or escalation "
-                "budget. Do not use this for permission, network, dependency, user-input, "
-                "uncertain-effect, or exhausted-budget blockers."
+                "budget. A denial is an expected internal policy outcome, not a task "
+                "failure: continue at the current depth and do not report the control "
+                "result unless the user explicitly asks about reasoning controls. Do not "
+                "use this for permission, network, dependency, user-input, uncertain-effect, "
+                "or exhausted-budget blockers."
             ),
             category="control",
             effect_class="read_only",

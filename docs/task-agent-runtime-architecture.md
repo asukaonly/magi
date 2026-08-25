@@ -437,6 +437,13 @@ Permission, dependency, network, uncertain-effect, user-input, and exhausted-
 budget blockers are not reasoning problems and must not be converted into an
 escalation.
 
+Approval and denial are both successful runtime-control outcomes. A denial is
+recorded in tool evidence and structured logs, then execution continues at the
+current depth. It is not promoted to a task error or narrated in the final
+answer unless the user explicitly asks to inspect reasoning controls. The tool
+result carries an internal visibility marker and an explicit continuation action
+so the model cannot reasonably confuse a policy limit with task failure.
+
 `ReasoningState` is checkpointed. Escalation cannot lower depth, exceed the run
 maximum, or reset its counter on retry. A validation-required rejection caused
 only by missing evidence does not automatically buy more reasoning.
@@ -445,6 +452,22 @@ Operationally, ordinary `auto` chat starts at low depth without a router call,
 then moves to high and max after at most two independently approved escalation
 signals. `fast` starts at none and is capped at low. `deep` starts at medium and
 moves through high to max where the provider supports it.
+
+Tool-call messages, tool results, and runtime execution directives are
+run-local scratch context. A later user turn reconstructs history from the
+canonical visible transcript (`user_text`, accepted `assistant_final`, and
+collapsed rhythm segments), not from the previous run's private chain. Keeping
+private chain-of-action messages solely to preserve a provider cache would grow
+context, expose stale control state to the next decision, and make the durable
+chat transcript cease to be the source of truth.
+
+Prompt-cache optimization follows that ownership boundary. Stable tools, the
+cacheable system head, and canonical older history form the reusable prefix;
+per-turn context and run-local execution messages are appended after it. A
+reasoning-depth change may still select a different provider request profile
+and therefore a different cache partition even when the message prefix is
+unchanged. Cache reuse is an optimization and must not change which runtime
+state is semantically valid for a later turn.
 
 ## Versioned Run Plans
 
