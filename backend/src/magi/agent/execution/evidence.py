@@ -78,16 +78,10 @@ class ToolExecutionEvidence:
             success=bool(value["success"]),
             effect_class=str(value["effect_class"]),
             replay_policy=str(value["replay_policy"]),
-            error_code=(
-                str(value["error_code"])
-                if value.get("error_code") is not None
-                else None
-            ),
+            error_code=(str(value["error_code"]) if value.get("error_code") is not None else None),
             result=deepcopy(value.get("result")),
             tool_call_id=(
-                str(value["tool_call_id"])
-                if value.get("tool_call_id") is not None
-                else None
+                str(value["tool_call_id"]) if value.get("tool_call_id") is not None else None
             ),
             created_at_ms=int(value["created_at_ms"]),
         )
@@ -106,6 +100,7 @@ def successful_validation_evidence(
         if item.tool_name in validation_tool_names
         and item.success
         and not _result_reports_validation_failure(item.result)
+        and not _result_reports_validation_inconclusive(item.result)
     ]
 
 
@@ -120,10 +115,7 @@ def failed_validation_evidence(
         item
         for item in evidence
         if item.tool_name in validation_tool_names
-        and (
-            not item.success
-            or _result_reports_validation_failure(item.result)
-        )
+        and (not item.success or _result_reports_validation_failure(item.result))
     ]
 
 
@@ -132,9 +124,10 @@ def _result_reports_validation_failure(value: Any) -> bool:
         return False
     summary = value.get("summary")
     if isinstance(summary, dict):
-        failed = summary.get("failed")
-        if isinstance(failed, (int, float)) and failed > 0:
-            return True
+        for key in ("fail", "timeout"):
+            count = summary.get(key)
+            if isinstance(count, (int, float)) and count > 0:
+                return True
         if summary.get("success") is False:
             return True
     results = value.get("results")
@@ -143,11 +136,28 @@ def _result_reports_validation_failure(value: Any) -> bool:
             isinstance(item, dict)
             and (
                 item.get("success") is False
-                or str(item.get("status") or "").lower() in {"failed", "error", "invalid"}
+                or str(item.get("status") or "").lower() in {"fail", "error", "invalid", "timeout"}
             )
             for item in results
         )
     return value.get("success") is False
+
+
+def _result_reports_validation_inconclusive(value: Any) -> bool:
+    """Return whether structured validation completed without checking every target."""
+
+    if not isinstance(value, dict):
+        return False
+    summary = value.get("summary")
+    if isinstance(summary, dict):
+        skipped = summary.get("skipped")
+        if isinstance(skipped, (int, float)) and skipped > 0:
+            return True
+    results = value.get("results")
+    return isinstance(results, list) and any(
+        isinstance(item, dict) and str(item.get("status") or "").lower() == "skipped"
+        for item in results
+    )
 
 
 __all__ = [

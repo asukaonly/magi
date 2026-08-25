@@ -389,6 +389,8 @@ It enforces these current invariants:
   successful, task-substantive evidence from the current run; permission,
   discovery, ask, and plan-maintenance calls cannot prove task completion;
 - failed validation must be followed by a successful validation after repair;
+- canonical `verify` outcomes treat `fail` and `timeout` as failed validation,
+  while `skipped` is inconclusive and cannot satisfy a validation requirement;
 - local-write and unknown-effect work must have current validation evidence;
 - repair cannot exceed the configured budget.
 

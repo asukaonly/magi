@@ -53,7 +53,10 @@ def test_successful_validation_allows_local_write_completion() -> None:
                 success=True,
                 effect_class="read_only",
                 replay_policy="read_only",
-                result={"summary": {"failed": 0}},
+                result={
+                    "summary": {"pass": 1, "fail": 0, "skipped": 0, "timeout": 0},
+                    "results": [{"status": "pass"}],
+                },
             ),
         ],
         repair_iterations=0,
@@ -71,7 +74,10 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
                 success=True,
                 effect_class="read_only",
                 replay_policy="read_only",
-                result={"summary": {"failed": 1}},
+                result={
+                    "summary": {"pass": 0, "fail": 1, "skipped": 0, "timeout": 0},
+                    "results": [{"status": "fail"}],
+                },
             )
         ],
         repair_iterations=0,
@@ -80,6 +86,58 @@ def test_failed_validation_requests_reasoning_helpful_repair() -> None:
     assert decision.outcome is CompletionOutcome.CONTINUE
     assert decision.reason_code == "validation_failed"
     assert decision.reasoning_helpful is True
+
+
+def test_validation_timeout_requests_reasoning_helpful_repair() -> None:
+    decision = CompletionGate().evaluate(
+        policy=CompletionPolicy(),
+        evidence=[
+            ToolExecutionEvidence(
+                tool_name="verify",
+                success=True,
+                effect_class="read_only",
+                replay_policy="read_only",
+                result={
+                    "summary": {"pass": 0, "fail": 0, "skipped": 0, "timeout": 1},
+                    "results": [{"status": "timeout"}],
+                },
+            )
+        ],
+        repair_iterations=0,
+    )
+
+    assert decision.outcome is CompletionOutcome.CONTINUE
+    assert decision.reason_code == "validation_failed"
+    assert decision.reasoning_helpful is True
+
+
+def test_skipped_validation_does_not_satisfy_local_write_requirement() -> None:
+    decision = CompletionGate().evaluate(
+        policy=CompletionPolicy(),
+        evidence=[
+            ToolExecutionEvidence(
+                tool_name="file_edit",
+                success=True,
+                effect_class="local_write",
+                replay_policy="reconcilable",
+            ),
+            ToolExecutionEvidence(
+                tool_name="verify",
+                success=True,
+                effect_class="read_only",
+                replay_policy="read_only",
+                result={
+                    "summary": {"pass": 0, "fail": 0, "skipped": 1, "timeout": 0},
+                    "results": [{"status": "skipped"}],
+                },
+            ),
+        ],
+        repair_iterations=0,
+    )
+
+    assert decision.outcome is CompletionOutcome.CONTINUE
+    assert decision.reason_code == "validation_required"
+    assert decision.reasoning_helpful is False
 
 
 def test_uncertain_effect_blocks_without_retry() -> None:
