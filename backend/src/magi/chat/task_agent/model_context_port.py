@@ -44,6 +44,9 @@ class ChatModelContextPort:
         turn_id: str | None,
         run_id: str,
         step_index: int,
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        boundary_kind: str | None = None,
     ) -> None:
         items = tuple(_item_from_runtime_message(message) for message in messages)
         previous_revision = self._revision
@@ -56,6 +59,21 @@ class ChatModelContextPort:
             step_index=step_index,
         )
         self._revision = snapshot.revision
+        boundary_id: str | None = None
+        if boundary_kind is not None:
+            if system_prompt is None or tools is None:
+                raise ValueError("Model boundary requires system prompt and tools")
+            boundary = await self._store.record_model_context_boundary(
+                session_id=self._session_id,
+                surface_revision=self._revision,
+                system_prompt=system_prompt,
+                tools=tools,
+                boundary_kind=boundary_kind,
+                turn_id=turn_id,
+                run_id=run_id,
+                step_index=step_index,
+            )
+            boundary_id = boundary.boundary_id
         logger.info(
             "agent_run.model_context_committed",
             session_id=self._session_id,
@@ -66,6 +84,8 @@ class ChatModelContextPort:
             revision=self._revision,
             item_count=len(items),
             changed=self._revision != previous_revision,
+            boundary_kind=boundary_kind,
+            boundary_id=boundary_id,
         )
 
 

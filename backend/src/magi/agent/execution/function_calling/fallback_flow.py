@@ -168,6 +168,16 @@ async def _call_fallback_llm(
     messages: list[dict[str, Any]],
     thinking_depth: ThinkingDepth,
 ) -> dict[str, Any]:
+    if state.model_context_port is not None:
+        await state.model_context_port.commit(
+            messages=messages,
+            turn_id=state.model_context_turn_id,
+            run_id=state.run_id,
+            step_index=state.iteration,
+            system_prompt=system_prompt,
+            tools=[],
+            boundary_kind="fallback_finalization",
+        )
     if state.journal is not None:
         await state.journal.append(
             AgentRunEventType.CONTEXT_PREPARED,

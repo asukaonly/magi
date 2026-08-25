@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from magi.chat.contracts import ChatSessionRecord
@@ -71,3 +73,41 @@ async def test_chat_model_context_port_commits_runtime_surface_without_image_byt
     assert "attachment_id=attachment-1" in image_reference
     assert "name=diagram.png" in image_reference
     assert "secret-bytes" not in str(prompt)
+
+
+@pytest.mark.asyncio
+async def test_chat_model_context_port_records_deduplicated_model_epochs(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+    messages = [{"role": "user", "content": "hello"}]
+    tools = [{"type": "function", "function": {"name": "read", "parameters": {}}}]
+
+    for step_index in (1, 2):
+        await port.commit(
+            messages=messages,
+            turn_id="turn-1",
+            run_id="run-1",
+            step_index=step_index,
+            system_prompt="stable system",
+            tools=tools,
+            boundary_kind="tool_loop",
+        )
+
+    with sqlite3.connect(store.db_path) as conn:
+        epoch_count = conn.execute(
+            "SELECT COUNT(*) FROM chat_model_context_epochs"
+        ).fetchone()[0]
+        boundaries = conn.execute(
+            """
+            SELECT boundary_no, surface_revision, boundary_kind, step_index
+            FROM chat_model_context_boundaries
+            ORDER BY boundary_no
+            """
+        ).fetchall()
+
+    assert epoch_count == 1
+    assert boundaries == [
+        (1, 1, "tool_loop", 1),
+        (2, 1, "tool_loop", 2),
+    ]

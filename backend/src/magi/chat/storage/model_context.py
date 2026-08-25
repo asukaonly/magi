@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from typing import Iterable
+from typing import Any, Iterable
 from uuid import uuid4
 
 import aiosqlite
@@ -11,6 +12,7 @@ import aiosqlite
 from ...agent.trace import now_wall_ms
 from ...core.sqlite import sqlite_connection_async
 from ..model_context import (
+    ModelContextBoundary,
     ModelContextEvent,
     ModelContextItem,
     ModelContextRevisionConflictError,
@@ -250,6 +252,8 @@ class ChatModelContextPersistenceMixin:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 for table in (
+                    "chat_model_context_boundaries",
+                    "chat_model_context_epochs",
                     "chat_model_context_surface_nodes",
                     "chat_model_context_events",
                     "chat_model_context_heads",
@@ -262,6 +266,146 @@ class ChatModelContextPersistenceMixin:
             except BaseException:
                 await db.rollback()
                 raise
+
+    async def record_model_context_boundary(
+        self,
+        *,
+        session_id: str,
+        surface_revision: int,
+        system_prompt: str,
+        tools: list[dict[str, Any]],
+        boundary_kind: str,
+        turn_id: str | None = None,
+        run_id: str | None = None,
+        step_index: int | None = None,
+    ) -> ModelContextBoundary:
+        """Record the exact stable prompt/tool epoch used by one model call."""
+
+        normalized_session_id = _require_session_id(session_id)
+        normalized_kind = str(boundary_kind or "").strip()
+        if not normalized_kind:
+            raise ValueError("Model-context boundary kind is required")
+        normalized_system_prompt = str(system_prompt or "")
+        normalized_tools = [dict(tool) for tool in tools]
+        tools_json = _canonical_json(normalized_tools)
+        system_hash = _content_hash(normalized_system_prompt)
+        tools_hash = _content_hash(tools_json)
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                generation, revision, _ = await self._ensure_head(
+                    db,
+                    session_id=normalized_session_id,
+                )
+                _check_revision(surface_revision, revision)
+                epoch_id = uuid4().hex
+                created_at_ms = now_wall_ms()
+                await db.execute(
+                    """
+                    INSERT OR IGNORE INTO chat_model_context_epochs(
+                        epoch_id,
+                        session_id,
+                        generation,
+                        system_hash,
+                        system_prompt,
+                        tools_hash,
+                        tools_json,
+                        created_at_ms
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        epoch_id,
+                        normalized_session_id,
+                        generation,
+                        system_hash,
+                        normalized_system_prompt,
+                        tools_hash,
+                        tools_json,
+                        created_at_ms,
+                    ),
+                )
+                cursor = await db.execute(
+                    """
+                    SELECT epoch_id
+                    FROM chat_model_context_epochs
+                    WHERE session_id = ? COLLATE NOCASE
+                      AND generation = ?
+                      AND system_hash = ?
+                      AND tools_hash = ?
+                    """,
+                    (
+                        normalized_session_id,
+                        generation,
+                        system_hash,
+                        tools_hash,
+                    ),
+                )
+                epoch_row = await cursor.fetchone()
+                if epoch_row is None:  # pragma: no cover - transaction invariant
+                    raise RuntimeError("Model-context epoch insert was not observable")
+                epoch_id = str(epoch_row["epoch_id"])
+                cursor = await db.execute(
+                    """
+                    SELECT COALESCE(MAX(boundary_no), 0) + 1
+                    FROM chat_model_context_boundaries
+                    WHERE session_id = ? COLLATE NOCASE AND generation = ?
+                    """,
+                    (normalized_session_id, generation),
+                )
+                boundary_no_row = await cursor.fetchone()
+                boundary_no = int(boundary_no_row[0] if boundary_no_row is not None else 1)
+                boundary_id = uuid4().hex
+                await db.execute(
+                    """
+                    INSERT INTO chat_model_context_boundaries(
+                        boundary_id,
+                        session_id,
+                        generation,
+                        boundary_no,
+                        surface_revision,
+                        epoch_id,
+                        boundary_kind,
+                        turn_id,
+                        run_id,
+                        step_index,
+                        created_at_ms
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        boundary_id,
+                        normalized_session_id,
+                        generation,
+                        boundary_no,
+                        revision,
+                        epoch_id,
+                        normalized_kind,
+                        turn_id,
+                        run_id,
+                        step_index,
+                        created_at_ms,
+                    ),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return ModelContextBoundary(
+            boundary_id=boundary_id,
+            session_id=normalized_session_id,
+            generation=generation,
+            boundary_no=boundary_no,
+            surface_revision=revision,
+            epoch_id=epoch_id,
+            boundary_kind=normalized_kind,
+            turn_id=turn_id,
+            run_id=run_id,
+            step_index=step_index,
+            created_at_ms=created_at_ms,
+        )
 
     async def _ensure_head(
         self,
@@ -466,6 +610,20 @@ def _check_revision(expected: int | None, actual: int) -> None:
         raise ModelContextRevisionConflictError(
             f"Model-context revision conflict: expected {expected}, found {actual}"
         )
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _content_hash(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 __all__ = ["ChatModelContextPersistenceMixin"]

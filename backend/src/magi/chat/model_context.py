@@ -133,6 +133,37 @@ class ModelContextSnapshot:
         return [event.item.to_prompt_message() for event in self.events]
 
 
+@dataclass(frozen=True, slots=True)
+class ModelContextEpoch:
+    """Deduplicated stable system prompt and tool declaration set."""
+
+    epoch_id: str
+    session_id: str
+    generation: int
+    system_prompt: str
+    tools: tuple[Mapping[str, Any], ...]
+    system_hash: str
+    tools_hash: str
+    created_at_ms: int
+
+
+@dataclass(frozen=True, slots=True)
+class ModelContextBoundary:
+    """One durable model-call boundary over a surface revision and epoch."""
+
+    boundary_id: str
+    session_id: str
+    generation: int
+    boundary_no: int
+    surface_revision: int
+    epoch_id: str
+    boundary_kind: str
+    turn_id: str | None
+    run_id: str | None
+    step_index: int | None
+    created_at_ms: int
+
+
 class ModelContextRevisionConflictError(RuntimeError):
     """Raised when a stale writer tries to replace the current surface."""
 
@@ -181,6 +212,8 @@ def is_turn_context_message(message: Mapping[str, Any]) -> bool:
 
 
 __all__ = [
+    "ModelContextBoundary",
+    "ModelContextEpoch",
     "ModelContextEvent",
     "ModelContextItem",
     "ModelContextItemKind",

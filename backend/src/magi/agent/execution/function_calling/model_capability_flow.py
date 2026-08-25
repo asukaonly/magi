@@ -108,6 +108,16 @@ class FunctionCallingModelCapabilityFlow:
             messages=state.messages,
             tools=[],
         )
+        if state.model_context_port is not None:
+            await state.model_context_port.commit(
+                messages=state.messages,
+                turn_id=state.model_context_turn_id,
+                run_id=state.run_id,
+                step_index=state.iteration,
+                system_prompt=grounding_prompt,
+                tools=[],
+                boundary_kind="attachment_grounding",
+            )
         try:
             async with stream_scope(None):
                 response = await self._host._call_llm_without_tools(

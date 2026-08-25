@@ -20,38 +20,34 @@ _SESSION_SCOPED_TABLES = (
 def _insert_trigger_sql(table: str) -> str:
     trigger = f"trg_{table}_reject_unavailable_session"
     return f"""
-        CREATE TRIGGER IF NOT EXISTS {trigger}
-        BEFORE INSERT ON {table}
-        WHEN EXISTS (
-            SELECT 1
-            FROM chat_global_clear_intent
-            WHERE intent_key = 'global'
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM chat_cleared_session_scopes AS cleared
-            WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
-        )
-        OR EXISTS (
-            SELECT 1
-            FROM chat_sessions AS sessions
-            WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
-              AND (
-                  sessions.session_id != NEW.session_id
-                  OR sessions.deleted_at_ms IS NOT NULL
-                  OR sessions.archived_at_ms IS NOT NULL
-              )
-        )
-        BEGIN
-            SELECT RAISE(ABORT, 'chat session is unavailable');
-        END
+CREATE TRIGGER IF NOT EXISTS {trigger}
+BEFORE INSERT ON {table}
+WHEN EXISTS (
+    SELECT 1 FROM chat_global_clear_intent WHERE intent_key = 'global'
+)
+OR EXISTS (
+    SELECT 1 FROM chat_cleared_session_scopes AS cleared
+    WHERE cleared.session_id = NEW.session_id COLLATE NOCASE
+)
+OR EXISTS (
+    SELECT 1 FROM chat_sessions AS sessions
+    WHERE sessions.session_id = NEW.session_id COLLATE NOCASE
+      AND (
+          sessions.session_id != NEW.session_id
+          OR sessions.deleted_at_ms IS NOT NULL
+          OR sessions.archived_at_ms IS NOT NULL
+      )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'chat session is unavailable');
+END
     """
 
 
 def upgrade() -> None:
     op.execute(
         """
-        CREATE TABLE chat_model_context_heads (
+        CREATE TABLE IF NOT EXISTS chat_model_context_heads (
             session_id TEXT COLLATE NOCASE PRIMARY KEY,
             generation INTEGER NOT NULL DEFAULT 1 CHECK (generation > 0),
             revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
@@ -62,7 +58,7 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE TABLE chat_model_context_events (
+        CREATE TABLE IF NOT EXISTS chat_model_context_events (
             event_id TEXT PRIMARY KEY,
             session_id TEXT COLLATE NOCASE NOT NULL,
             generation INTEGER NOT NULL CHECK (generation > 0),
@@ -80,19 +76,19 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        CREATE INDEX idx_chat_model_context_events_session_sequence
+        CREATE INDEX IF NOT EXISTS idx_chat_model_context_events_session_sequence
         ON chat_model_context_events(session_id, generation, sequence_no)
         """
     )
     op.execute(
         """
-        CREATE INDEX idx_chat_model_context_events_turn
+        CREATE INDEX IF NOT EXISTS idx_chat_model_context_events_turn
         ON chat_model_context_events(session_id, turn_id, sequence_no)
         """
     )
     op.execute(
         """
-        CREATE TABLE chat_model_context_surface_nodes (
+        CREATE TABLE IF NOT EXISTS chat_model_context_surface_nodes (
             session_id TEXT COLLATE NOCASE NOT NULL,
             generation INTEGER NOT NULL CHECK (generation > 0),
             position INTEGER NOT NULL CHECK (position >= 0),

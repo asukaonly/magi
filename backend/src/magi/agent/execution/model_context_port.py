@@ -15,6 +15,9 @@ class ModelContextPort(Protocol):
         turn_id: str | None,
         run_id: str,
         step_index: int,
+        system_prompt: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        boundary_kind: str | None = None,
     ) -> None: ...
 
 

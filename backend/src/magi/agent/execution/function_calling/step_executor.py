@@ -196,6 +196,16 @@ class FunctionCallingStepExecutor:
         control: RunControl | None,
     ) -> tuple[dict[str, Any] | None, FunctionCallingStepOutcome | None]:
         try:
+            if state.model_context_port is not None:
+                await state.model_context_port.commit(
+                    messages=state.messages,
+                    turn_id=state.model_context_turn_id,
+                    run_id=state.run_id,
+                    step_index=iteration,
+                    system_prompt=state.effective_system_prompt,
+                    tools=state.tools,
+                    boundary_kind="tool_loop",
+                )
             response = await self._driver._call_llm_with_tools(
                 system_prompt=state.effective_system_prompt,
                 messages=state.messages,

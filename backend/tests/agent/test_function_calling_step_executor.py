@@ -345,6 +345,7 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
     assert "Runtime expression policy" not in str(step_state.messages)
     assert "Execution-phase expression rule" in step_state.effective_system_prompt
     assert context_commits == [
+        ["user"],
         ["user", "assistant"],
         ["user", "assistant", "tool"],
     ]
