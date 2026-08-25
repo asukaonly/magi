@@ -150,7 +150,7 @@ class ChatUserTurnDeliveryRecord:
 
 @dataclass(slots=True)
 class ChatContextSummaryRecord:
-    """Durable rolling summary for one chat session prompt frontier."""
+    """Durable named summary for one chat-session boundary."""
 
     summary_id: str
     session_id: str

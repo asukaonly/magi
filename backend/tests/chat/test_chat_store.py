@@ -1063,7 +1063,10 @@ async def test_chat_store_activates_latest_context_summary(runtime_paths_with_sc
             )
         )
 
-        active = await store.get_active_context_summary(session_id="session-1")
+        active = await store.get_active_context_summary(
+            session_id="session-1",
+            summary_kind="token_budget",
+        )
 
         assert active is not None
         assert active.summary_id == "summary-b"
@@ -1127,7 +1130,8 @@ async def test_chat_store_activates_summary_only_for_expected_history_version(
         assert activated is True
         assert await store.get_history_version("session-conditional") == 2
         active = await store.get_active_context_summary(
-            session_id="session-conditional"
+            session_id="session-conditional",
+            summary_kind="token_budget",
         )
         assert active is not None
         assert active.summary_id == "summary-conditional"

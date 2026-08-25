@@ -1,4 +1,4 @@
-"""Persistent rolling context summaries for chat sessions."""
+"""Persistent named boundary summaries for chat sessions."""
 
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ WHERE session_id = ?
 
 
 class ChatContextSummaryPersistenceMixin:
-    """Persist and query session-scoped rolling context summaries."""
+    """Persist and query explicitly named session-boundary summaries."""
 
     db_path: str
 
@@ -96,10 +96,10 @@ class ChatContextSummaryPersistenceMixin:
         self,
         *,
         session_id: str,
-        summary_kind: str = "token_budget",
+        summary_kind: str,
         persona_scope: str | None = None,
     ) -> ChatContextSummaryRecord | None:
-        """Return the active rolling summary for one session/scope."""
+        """Return the active named summary for one session/scope."""
         await self.initialize()
         normalized_scope = str(persona_scope or "").strip()
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
