@@ -94,9 +94,9 @@ def cache_marked_system_content(
 ) -> str | list[dict[str, Any]]:
     """Return the SYSTEM field content, with a cache_control marker when applicable.
 
-    The per-turn tail (after the boundary) is NOT returned here — it is moved
-    into the message stream by :func:`inject_turn_context`, so the system head
-    plus the conversation history form one stable, cacheable prefix (#100/P2).
+    The per-turn tail (after the boundary) is not returned here. The runtime
+    materializes it as a durable turn-context message before calling the bridge,
+    so the system head plus older context form one stable prefix.
 
     - marker vendor + boundary: a content-block list with an ``ephemeral``
       cache_control on the head (with optional ``ttl`` for marker vendors that
@@ -121,37 +121,26 @@ def cache_marked_system_content(
     return head
 
 
-def extract_turn_context(system: str) -> str:
-    """The per-turn dynamic tail (after the boundary), or '' if no boundary."""
-    parts = split_on_boundary(system)
-    return parts[1] if parts is not None else ""
-
-
-def _wrap_turn_context(tail: str) -> str:
-    return f"<turn_context>\n{tail}\n</turn_context>"
-
-
-def _prepend_text(message: dict[str, Any], text: str) -> dict[str, Any]:
-    content = message.get("content")
-    if isinstance(content, list):
-        new_content: Any = [{"type": "text", "text": text}, *content]
-    elif isinstance(content, str):
-        new_content = f"{text}\n\n{content}"
-    else:
-        new_content = text
-    return {**message, "content": new_content}
-
-
 def last_user_message_index(messages: list[dict[str, Any]]) -> int:
     """Index of the last ``user`` message, or -1 if there is none.
 
-    This is the message :func:`inject_turn_context` attaches the per-turn context
-    to. Tool results carry role ``tool`` (not ``user``), so during a tool loop
-    this still resolves to the human turn that started it.
+    Tool results carry role ``tool`` (not ``user``), so during a tool loop this
+    still resolves to the most recent user or runtime-control message.
     """
     for i in range(len(messages) - 1, -1, -1):
         if messages[i].get("role") == "user":
             return i
+    return -1
+
+
+def turn_context_message_index(messages: list[dict[str, Any]]) -> int:
+    """Return the latest explicit turn-context snapshot index, or ``-1``."""
+
+    from ...chat.model_context import is_turn_context_message
+
+    for index in range(len(messages) - 1, -1, -1):
+        if is_turn_context_message(messages[index]):
+            return index
     return -1
 
 
@@ -200,30 +189,3 @@ def mark_tool_loop_tail_breakpoint(
     if not active:
         return api_messages
     return _mark_at(api_messages, len(api_messages) - 1, ttl)
-
-
-def inject_turn_context(messages: list[dict[str, Any]], system: str) -> list[dict[str, Any]]:
-    """Move the system's per-turn tail into the message stream as turn context.
-
-    The tail (memory / profile / runtime-time / attachments) is prepended —
-    send-time only, never persisted — to the LAST user message, so it sits as
-    context right *before* the user's current input (context-then-question, not
-    after it, so it doesn't pull the model off the actual question). This keeps
-    the system head + conversation history a byte-stable cacheable prefix while
-    the per-turn context rides in the uncached tail (#100/P2a).
-
-    Returns a new list; inputs are not mutated. No boundary/tail -> unchanged.
-    """
-    tail = extract_turn_context(system)
-    if not tail:
-        return messages
-
-    ctx = _wrap_turn_context(tail)
-    out = list(messages)
-    for i in range(len(out) - 1, -1, -1):
-        if out[i].get("role") == "user":
-            out[i] = _prepend_text(out[i], ctx)
-            return out
-    # No user message to attach to — append the context as a trailing user turn.
-    out.append({"role": "user", "content": ctx})
-    return out

@@ -62,7 +62,6 @@ class ProviderBridgeChatStreamingMixin:
             system_prompt=system_prompt,
             tools=[],
         )
-        messages = host._inject_turn_context(messages, system_prompt)
         event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
         state = _ChatStreamState(started_at=time.time())

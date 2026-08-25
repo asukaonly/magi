@@ -96,7 +96,6 @@ class ProviderBridgeToolStreamingMixin:
         timeout_seconds: Optional[float],
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
-        messages = host._inject_turn_context(messages, system_prompt)
         anthropic_kwargs = self._build_anthropic_tool_stream_kwargs(
             host,
             system_prompt=system_prompt,
@@ -367,7 +366,6 @@ class ProviderBridgeToolStreamingMixin:
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
-        messages = host._inject_turn_context(messages, system_prompt)
         kwargs = self._build_openai_tool_stream_kwargs(
             host,
             system_prompt=system_prompt,

@@ -15,10 +15,10 @@ from .cache_routing import (
 )
 from .cache_policy import (
     cache_marked_system_content,
-    inject_turn_context,
     last_user_message_index,
     mark_history_breakpoint,
     mark_tool_loop_tail_breakpoint,
+    turn_context_message_index,
     vendor_supports_cache_marker,
 )
 from ..concurrency_limiter import LLMConcurrencyLimiter, LLMRequestPriority
@@ -263,19 +263,6 @@ class ProviderBridgeOptionsMixin:
             cache_whole=cache_whole,
         )
 
-    def _inject_turn_context(
-        self, messages: list[Dict[str, Any]], system_prompt: str
-    ) -> list[Dict[str, Any]]:
-        """Move the system prompt's per-turn tail into the message stream.
-
-        The dynamic tail (memory/profile/runtime-time/attachments, below the
-        renderer's boundary) is prepended — send-time only — to the last user
-        message so the system head + conversation history stay a stable cacheable
-        prefix (#100/P2a). Returns a new list; the input is not mutated. Call this
-        in every request builder before the Anthropic/OpenAI branch.
-        """
-        return inject_turn_context(messages, system_prompt)
-
     def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[Dict[str, Any]],
@@ -288,9 +275,8 @@ class ProviderBridgeOptionsMixin:
         markers. Two breakpoints, both 5m (they sit after the 1h system head,
         satisfying Anthropic's 1h-before-5m ordering):
 
-        - **Rolling history**: after P2a the per-turn context rides on the last
-          user message, so the message *before* it is the stable history boundary
-          — mark it so older history is reused across turns.
+        - **Rolling history**: the message before the explicit turn-context
+          snapshot is the stable history boundary.
         - **Tool-loop tail**: when the raw turn ends in a tool result we are
           mid-loop; mark the last message so the next loop iteration hits the
           growing tool history (P2b made it append-only/cacheable).
@@ -301,13 +287,17 @@ class ProviderBridgeOptionsMixin:
         results to role ``user``, so this guard never skips on the native path —
         the Anthropic behavior is unchanged.
 
-        Indices align 1:1 between ``injected_messages`` (raw, post turn-context
-        injection) and ``api_messages`` (converted) since conversion is
-        per-message. No-op for non-marker vendors or first turns.
+        Indices align 1:1 between model-context messages and converted messages.
+        No-op for non-marker vendors or first turns.
         """
         if not vendor_supports_cache_marker(self._marker_vendor()):
             return api_messages
-        boundary_index = last_user_message_index(injected_messages) - 1
+        turn_context_index = turn_context_message_index(injected_messages)
+        boundary_index = (
+            turn_context_index - 1
+            if turn_context_index >= 0
+            else last_user_message_index(injected_messages) - 1
+        )
         if (
             0 <= boundary_index < len(api_messages)
             and api_messages[boundary_index].get("role") != "tool"

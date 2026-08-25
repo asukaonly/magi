@@ -5,12 +5,11 @@ from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.config.models import ModelVendor
 from magi.llm.provider_bridge.cache_policy import (
     cache_marked_system_content,
-    extract_turn_context,
-    inject_turn_context,
     last_user_message_index,
     mark_history_breakpoint,
     mark_tool_loop_tail_breakpoint,
     split_on_boundary,
+    turn_context_message_index,
     vendor_supports_cache_marker,
 )
 
@@ -102,54 +101,6 @@ def test_cache_whole_off_leaves_plain_system() -> None:
     assert cache_marked_system_content("S", supports_marker=True, cache_whole=False) == "S"
 
 
-# --- per-turn tail injection into the message stream ---
-
-
-def test_extract_turn_context() -> None:
-    assert extract_turn_context(SYS) == DYNAMIC
-    assert extract_turn_context("no boundary") == ""
-
-
-def test_inject_prepends_wrapped_tail_to_last_user_message_str() -> None:
-    messages = [
-        {"role": "user", "content": "older"},
-        {"role": "assistant", "content": "reply"},
-        {"role": "user", "content": "current question"},
-    ]
-    out = inject_turn_context(messages, SYS)
-
-    # original list/dicts untouched
-    assert messages[-1]["content"] == "current question"
-    # context prepended (wrapped) to the LAST user message, question still last
-    last = out[-1]["content"]
-    assert last.startswith("<turn_context>")
-    assert DYNAMIC in last
-    assert last.endswith("current question")
-    # earlier messages unchanged -> history stays byte-stable / cacheable
-    assert out[0] == messages[0]
-    assert out[1] == messages[1]
-
-
-def test_inject_into_list_content_prepends_text_block() -> None:
-    messages = [{"role": "user", "content": [{"type": "image", "source": "x"}]}]
-    out = inject_turn_context(messages, SYS)
-    blocks = out[0]["content"]
-    assert blocks[0]["type"] == "text" and DYNAMIC in blocks[0]["text"]
-    assert blocks[1] == {"type": "image", "source": "x"}
-
-
-def test_inject_no_boundary_returns_messages_unchanged() -> None:
-    messages = [{"role": "user", "content": "hi"}]
-    assert inject_turn_context(messages, "no boundary system") is messages
-
-
-def test_inject_no_user_message_appends_context_turn() -> None:
-    messages = [{"role": "assistant", "content": "hello"}]
-    out = inject_turn_context(messages, SYS)
-    assert out[-1]["role"] == "user"
-    assert DYNAMIC in out[-1]["content"]
-
-
 # --- rolling history cache breakpoint (Anthropic) ---
 
 
@@ -169,6 +120,17 @@ def test_last_user_message_index() -> None:
     ]
     assert last_user_message_index(loop) == 0
     assert last_user_message_index([{"role": "assistant", "content": "a"}]) == -1
+
+
+def test_turn_context_message_index() -> None:
+    messages = [
+        {"role": "user", "content": "older"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "<turn_context>\ndynamic\n</turn_context>"},
+        {"role": "user", "content": "current"},
+    ]
+    assert turn_context_message_index(messages) == 2
+    assert turn_context_message_index(messages[:2]) == -1
 
 
 def test_mark_history_breakpoint_marks_last_block_of_boundary_message() -> None:

@@ -18,7 +18,8 @@ from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
 
-SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}\nMEMORY + TIME TAIL"
+SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
+TURN_CONTEXT = "<turn_context>\nMEMORY + TIME TAIL\n</turn_context>"
 
 
 class _AnthropicAdapter(LLMAdapter):
@@ -90,16 +91,17 @@ async def test_request_marks_stable_history_before_turn_context() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": TURN_CONTEXT},
             {"role": "user", "content": "u2"},
         ],
     )
 
     sent = client.kwargs["messages"]
-    # turn_context is injected on the last user message (index 2); the breakpoint
-    # lands on the message right before it (a1, index 1).
+    # The explicit turn-context snapshot is index 2, so the breakpoint lands on
+    # the stable message immediately before it (a1, index 1).
     assert sent[1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     # The turn-context-bearing current turn is NOT a breakpoint (volatile).
-    assert "cache_control" not in str(sent[2])
+    assert "cache_control" not in str(sent[2:])
     # Older history before the boundary stays unmarked.
     assert "cache_control" not in str(sent[0])
 
@@ -111,7 +113,10 @@ async def test_no_history_breakpoint_on_first_turn() -> None:
 
     await bridge.chat_response(
         system_prompt=SYS,
-        messages=[{"role": "user", "content": "only turn"}],
+        messages=[
+            {"role": "user", "content": TURN_CONTEXT},
+            {"role": "user", "content": "only turn"},
+        ],
     )
 
     # No prior history to cache; the single (turn-context-bearing) message must
@@ -150,6 +155,7 @@ async def test_tool_loop_marks_pre_turn_history_and_tool_result_tail() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": TURN_CONTEXT},
             {"role": "user", "content": "u2"},
             {
                 "role": "assistant",
@@ -161,9 +167,9 @@ async def test_tool_loop_marks_pre_turn_history_and_tool_result_tail() -> None:
     )
 
     sent = client.kwargs["messages"]
-    # rolling history boundary: last raw user is u2 (index 2) -> breakpoint on a1.
+    # rolling history boundary: the explicit context follows a1.
     assert sent[1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     # the mid-loop assistant tool_use turn is NOT a breakpoint.
-    assert "cache_control" not in str(sent[3])
+    assert "cache_control" not in str(sent[4])
     # the tool-result tail IS a breakpoint (5m), so the next loop iteration hits.
-    assert sent[4]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert sent[5]["content"][-1]["cache_control"] == {"type": "ephemeral"}

@@ -97,10 +97,6 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
 
     def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any: ...
 
-    def _inject_turn_context(
-        self, messages: list[dict[str, Any]], system_prompt: str
-    ) -> list[dict[str, Any]]: ...
-
     def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[dict[str, Any]],

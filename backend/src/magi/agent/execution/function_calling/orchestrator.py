@@ -7,7 +7,10 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, cast
 
 from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
+from ....llm.provider_bridge.cache_policy import split_on_boundary
 from ....runtime_trace import RuntimeTraceStore
+from ....chat.model_context import build_turn_context_message, is_turn_context_message
+from ....config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
 from ....llm.model_context import ResolvedModel, unknown_model_context
@@ -210,6 +213,14 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._resolve_llm()
         self._context_compactor.begin_run()
         normalized_selected_tools = list(dict.fromkeys(selected_tools))
+        augmented_system_prompt = self._augment_system_prompt(system_prompt)
+        prompt_parts = split_on_boundary(augmented_system_prompt)
+        if prompt_parts is None:
+            effective_system_prompt = augmented_system_prompt
+            turn_context_text = ""
+        else:
+            stable_head, turn_context_text = prompt_parts
+            effective_system_prompt = f"{stable_head}\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
         messages = append_latest_user_message(
             conversation_history,
             turn,
@@ -219,6 +230,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             session_origin=session_origin,
             reply_context=reply_context,
         )
+        turn_context_message = build_turn_context_message(turn_context_text)
+        if turn_context_message is not None and messages:
+            insert_at = len(messages) - 1
+            if insert_at <= 0 or not is_turn_context_message(messages[insert_at - 1]):
+                messages.insert(insert_at, turn_context_message)
         ephemeral_context_message_index: int | None = None
         ephemeral_context_original_content: Any | None = None
         context_text = str(ephemeral_context or "").strip()
@@ -231,7 +247,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             )
         return FunctionCallingStepState(
             messages=messages,
-            effective_system_prompt=self._augment_system_prompt(system_prompt),
+            effective_system_prompt=effective_system_prompt,
             tools=self._build_tools_parameter(normalized_selected_tools),
             selected_tool_names=normalized_selected_tools,
             allow_attachment_grounding=allow_attachment_grounding,

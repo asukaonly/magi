@@ -40,10 +40,6 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
 
     def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any: ...
 
-    def _inject_turn_context(
-        self, messages: list[dict[str, Any]], system_prompt: str
-    ) -> list[dict[str, Any]]: ...
-
     def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[dict[str, Any]],
@@ -196,7 +192,7 @@ class ProviderBridgeRequestMixin:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
         request = _ChatResponseRequest(
             system_prompt=system_prompt,
-            messages=host._inject_turn_context(messages, system_prompt),
+            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             thinking_depth=thinking_depth,
@@ -382,7 +378,6 @@ class ProviderBridgeRequestMixin:
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
-        messages = host._inject_turn_context(messages, system_prompt)
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             api_messages = host._mark_message_cache_breakpoints(messages, api_messages)

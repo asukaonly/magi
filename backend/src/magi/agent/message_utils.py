@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 from typing import Any
 
 from magi.core.chat_assets.io import open_managed_chat_attachment
@@ -252,8 +253,13 @@ def _normalize_prompt_messages(history: list[dict[str, Any]]) -> list[dict[str, 
         if role not in {"user", "assistant", "tool", "tool_result"}:
             continue
         content = item.get("content")
-        if _extract_text_content(content) or isinstance(content, list):
-            messages.append({"role": role, "content": content})
+        tool_calls = item.get("tool_calls")
+        has_tool_calls = isinstance(tool_calls, list) and bool(tool_calls)
+        if not (_extract_text_content(content) or isinstance(content, list) or has_tool_calls):
+            continue
+        normalized = deepcopy(dict(item))
+        normalized["role"] = role
+        messages.append(normalized)
     return messages
 
 

@@ -11,6 +11,7 @@ from magi.agent.execution.function_calling import FunctionCallingOrchestrator, T
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 
 
 class _FakeToolRegistry:
@@ -58,6 +59,63 @@ def test_build_step_state_does_not_duplicate_latest_user_message_from_history() 
     )
 
     assert step_state.messages == [{"role": "user", "content": "Inspect the repository."}]
+
+
+def test_build_step_state_materializes_turn_context_before_current_user() -> None:
+    orchestrator = _build_orchestrator()
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=(
+            f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\n"
+            "dynamic memory and runtime state"
+        ),
+        selected_tools=[],
+        conversation_history=[
+            {"role": "user", "content": "older"},
+            {"role": "assistant", "content": "answer"},
+        ],
+    )
+
+    assert step_state.effective_system_prompt == (
+        f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
+    )
+    turn_context = step_state.messages[-2]
+    assert turn_context["role"] == "user"
+    assert str(turn_context["content"]).startswith("<turn_context>\n")
+    assert "dynamic memory and runtime state" in str(turn_context["content"])
+    assert "Tool recovery rules:" in str(turn_context["content"])
+    assert str(turn_context["content"]).endswith("\n</turn_context>")
+    assert step_state.messages[-1] == {"role": "user", "content": "current"}
+
+
+def test_prompt_history_preserves_assistant_tool_calls() -> None:
+    orchestrator = _build_orchestrator()
+    tool_call_message = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "read", "arguments": "{}"},
+            }
+        ],
+    }
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="continue", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=[],
+        conversation_history=[
+            {"role": "user", "content": "inspect"},
+            tool_call_message,
+            {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+        ],
+    )
+
+    assert step_state.messages[1] == tool_call_message
+    assert step_state.messages[2]["tool_call_id"] == "call-1"
 
 
 def test_build_step_state_keeps_complete_raw_tail_before_compaction() -> None:

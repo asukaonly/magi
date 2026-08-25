@@ -20,7 +20,8 @@ from magi.config.models import ModelVendor
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
 
-SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}\nMEMORY + TIME TAIL"
+SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
+TURN_CONTEXT = "<turn_context>\nMEMORY + TIME TAIL\n</turn_context>"
 
 
 class _OpenAIAdapter(LLMAdapter):
@@ -101,6 +102,7 @@ async def test_dashscope_marks_history_boundary_not_current_turn() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": TURN_CONTEXT},
             {"role": "user", "content": "u2"},
         ],
     )
@@ -122,6 +124,7 @@ async def test_non_marker_openai_vendor_gets_no_message_markers() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": TURN_CONTEXT},
             {"role": "user", "content": "u2"},
         ],
     )
@@ -141,6 +144,7 @@ async def test_tool_role_messages_are_never_marked() -> None:
                 {"id": "t1", "type": "function", "function": {"name": "bash", "arguments": "{}"}}
             ]},
             {"role": "tool", "tool_call_id": "t1", "content": '{"ok": true}'},
+            {"role": "user", "content": TURN_CONTEXT},
             {"role": "user", "content": "u2"},
         ],
         tools=[{"type": "function", "function": {"name": "bash"}}],
