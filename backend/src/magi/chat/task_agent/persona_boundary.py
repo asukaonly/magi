@@ -13,8 +13,8 @@ the raw history loaded by :py:class:`ChatReadService`, and returns:
 
 * the trimmed tail (everything from the active persona's first turn
   onwards), which the assembler renders normally into the prompt;
-* an optional neutral *continuity summary* that the assembler folds
-  into ``session_summary`` ahead of the rendered tail.
+* an optional neutral *continuity summary* that the assembler uses to replace
+  the foreign-persona prefix on the canonical model-context surface.
 
 The summarizer caches its output via the existing
 ``chat_context_summaries`` table (keyed by session_id + persona scope +
@@ -144,8 +144,8 @@ class PersonaBoundarySummarizer:
 
         ``history_tail`` is the active-persona segment (caller renders
         it normally into the prompt). ``summary_text`` is the neutral
-        continuity blob (caller folds it into ``session_summary`` above
-        the tail). Returns ``(history, None)`` when no persona switch
+        continuity blob used to compact the foreign-persona prefix.
+        Returns ``(history, None)`` when no persona switch
         is in scope (no active persona, empty history, no foreign
         persona in the prefix, etc.) — caller renders everything as-is.
         """

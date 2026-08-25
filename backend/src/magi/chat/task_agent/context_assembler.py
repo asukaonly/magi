@@ -31,7 +31,6 @@ class CachedConversationHistory:
     version: int
     messages: list[dict[str, Any]]
     session_summary: str | None = None
-    session_origin: str | None = None
     active_persona_id: str | None = None
     loaded_at_ms: int = 0
 
@@ -154,7 +153,6 @@ class ChatContextAssembler:
                 session_summary=self._combine_session_summaries(
                     attachment_manifest,
                 ),
-                session_origin=None,
                 active_persona_id=normalized_persona_id,
             )
             self._conversation_history[history_key] = cached_history

@@ -60,6 +60,7 @@ class ChatModelContextPort:
         )
         self._revision = snapshot.revision
         boundary_id: str | None = None
+        epoch_id: str | None = None
         if boundary_kind is not None:
             if system_prompt is None or tools is None:
                 raise ValueError("Model boundary requires system prompt and tools")
@@ -74,6 +75,7 @@ class ChatModelContextPort:
                 step_index=step_index,
             )
             boundary_id = boundary.boundary_id
+            epoch_id = boundary.epoch_id
         logger.info(
             "agent_run.model_context_committed",
             session_id=self._session_id,
@@ -86,6 +88,7 @@ class ChatModelContextPort:
             changed=self._revision != previous_revision,
             boundary_kind=boundary_kind,
             boundary_id=boundary_id,
+            epoch_id=epoch_id,
         )
 
 

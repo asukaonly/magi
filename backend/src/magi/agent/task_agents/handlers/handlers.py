@@ -52,14 +52,10 @@ logger = get_logger(__name__)
 
 def _build_session_continuity_block(context: Any) -> str:
     summary = str(getattr(context, "session_summary", None) or "").strip()
-    origin = str(getattr(context, "session_origin", None) or "").strip()
-    if not summary and not origin:
+    if not summary:
         return ""
     lines = ["# Session Continuity"]
-    if origin:
-        lines.extend(["## Origin", origin])
-    if summary:
-        lines.extend(["## Current References", summary])
+    lines.extend(["## Current References", summary])
     lines.append(
         "Treat this as turn-local continuity context. The canonical model-context "
         "surface remains authoritative for prior model-visible exchanges."

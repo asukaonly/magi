@@ -147,7 +147,6 @@ class _AroutePausedChatAgent(ChatTaskAgent):
             history_context=SimpleNamespace(
                 version=0,
                 session_summary=None,
-                session_origin="chat",
             ),
             history=[],
             history_key=f"{classified.user_id}:{classified.session_id}",
