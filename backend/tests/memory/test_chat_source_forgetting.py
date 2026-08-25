@@ -1241,12 +1241,11 @@ async def test_message_delete_forgets_only_that_message_and_blocks_its_replay(
             )
         )
         context = await ChatContextAssembler(
-            l1_db_path=Path(memory.l1.db_path),
             chat_store=ChatStore(db_path=str(chat_db)),
             chat_read_service_factory=lambda: read_service,
         ).get_or_load_history_context("u1", "session-1")
-        assert "assistant content" not in str(context.messages)
-        assert "assistant content" not in str(context.session_summary)
+        assert context.messages == []
+        assert context.session_summary is None
 
         trace_conn = sqlite3.connect(runtime_trace_db)
         assert trace_conn.execute(

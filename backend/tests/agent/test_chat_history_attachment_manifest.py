@@ -35,7 +35,7 @@ def test_session_attachment_manifest_keeps_attachment_ids_visible() -> None:
     assert "chars=14355" in manifest
     assert "turn_id=turn-1" in manifest
 
-    summary = ChatContextAssembler._combine_session_summaries(None, None, manifest)
+    summary = ChatContextAssembler._combine_session_summaries(manifest)
 
     assert summary is not None
     assert "# Session Attachment References" in summary
