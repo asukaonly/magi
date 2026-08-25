@@ -346,11 +346,14 @@ The execution stack has three ownership rings:
 
 Both seams are inverted and enforced by package-boundary tests. The engine consumes
 generic request, tool, cancellation, attachment, journal, and checkpoint ports.
-The chat domain owns its visible transcript, canonical Model Context Log and
-Context Surface, session, streaming, admission, and post-processing services. It
-injects a narrow model-context commit port into the generic handler, so the
-generic engine can durably materialize provider-neutral messages without
-importing chat persistence.
+The chat domain owns its visible transcript, canonical Model Context Log,
+immutable surface revisions, Session Accepted Surface, per-run Working Surface,
+session, streaming, admission, and post-processing services. It injects a narrow
+model-context commit port into the generic handler, so the generic engine can
+durably materialize provider-neutral messages and atomic call boundaries without
+importing chat persistence. Visible outcome persistence promotes the Working
+Surface inside the same chat transaction; the generic engine cannot directly
+advance the accepted frontier.
 
 Driver rule: a domain driver may shape domain context, apply deterministic
 admission rules, own surface state, and construct `AgentRunRequest`. It must not
@@ -423,12 +426,16 @@ Notes:
   service rather than implemented as native soft-deletes
 - requests requiring the Python runtime are dispatched via IPC `api.forward` to FastAPI routers running as an in-memory ASGI app
 - `chat/` owns visible transcript truth and reconstructible model-context truth
-  as separate schemas in `chat.db`, plus attachment storage, session workspace,
+  as separate schemas in `chat.db`, including accepted and working frontiers,
+  plus attachment storage, session workspace,
   code-delegation ownership references, and deletion-recovery registries; it is
   not the memory layer, and L0 never owns the model conversation frontier
 - the visible transcript is a presentation/read surface, not a prompt-history
   fallback; `agent/execution` sees only the injected model-context port and must
   not import `chat` storage
+- `runtime_trace/` owns the provider-neutral durable run-event protocol consumed
+  by both the agent journal and trace projection; it must not import the upper
+  `agent/` layer to recover those event types
 - inbound user-message handling is chat-owned: API and channel surfaces should hand off to the active user-message dispatcher instead of assembling chat turns, attachments, and runtime queue commands themselves
 - API and command surfaces must not assemble chat transcript rows directly; command, background-task, label/delete, and bootstrap assistant rows go through the chat-owned surface write service
 - `chat/portrait/` owns persona-voiced portrait cards shown in the chat rail; it
