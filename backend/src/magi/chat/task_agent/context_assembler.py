@@ -7,7 +7,6 @@ from typing import Any, Callable, Optional
 
 from magi.chat import ChatStore
 from magi.core.logger import get_logger
-from magi.core.sqlite import connect_sqlite
 from magi.utils.runtime import get_runtime_paths
 
 from .persona_boundary import (
@@ -18,7 +17,6 @@ from .tool_state_view import ChatToolStateView
 
 logger = get_logger(__name__)
 
-FACT_EVENTS_TABLE = "fact_events"
 _SESSION_ATTACHMENT_MANIFEST_LIMIT = 40
 
 
@@ -44,7 +42,6 @@ class ChatContextAssembler:
     def __init__(
         self,
         *,
-        l1_db_path: Path,
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
         chat_store: ChatStore | None = None,
@@ -54,7 +51,6 @@ class ChatContextAssembler:
         persona_boundary_summary_generator: PersonaBoundarySummaryGenerator | None = None,
     ) -> None:
         runtime_paths = get_runtime_paths()
-        self._l1_db_path = l1_db_path
         self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
         self._conversation_history: dict[str, CachedConversationHistory] = {}
@@ -340,52 +336,3 @@ class ChatContextAssembler:
                     close()
                 setattr(read_service, "_chat_db_path", target_path)
         return read_service
-
-    def restore_conversation_from_events(self) -> None:
-        fact_rows: list[tuple[Any, ...]] = []
-        try:
-            if not self._l1_db_path.exists():
-                return
-            conn = connect_sqlite(self._l1_db_path, profile="hot_write", use_row_factory=False)
-            cur = conn.cursor()
-            cur.execute(
-                f"""
-                SELECT event_type, content, timestamp, user_id, session_id, turn_id
-                FROM {FACT_EVENTS_TABLE}
-                WHERE deleted_at IS NULL
-                  AND event_type IN ('UserMessage', 'AIResponse')
-                ORDER BY timestamp ASC
-                LIMIT 5000
-                """
-            )
-            fact_rows = cur.fetchall()
-            conn.close()
-        except Exception as exc:
-            logger.warning("Failed to restore conversation from L1 store: %s", exc)
-            return
-
-        for event_type, raw_content, _, user_id, raw_session_id, _ in fact_rows:
-            if not user_id:
-                continue
-            session_id = str(raw_session_id or "").strip()
-            if not session_id:
-                continue
-            key = self.history_key(user_id, session_id)
-            cached = self._conversation_history.setdefault(
-                key,
-                CachedConversationHistory(version=0, messages=[]),
-            )
-            history = cached.messages
-            if event_type == "UserMessage":
-                content = str(raw_content or "").strip()
-                if content:
-                    history.append({"role": "user", "content": str(content)})
-            elif event_type == "AIResponse":
-                content = str(raw_content or "").strip()
-                if content:
-                    history.append({"role": "assistant", "content": str(content)})
-
-        self._tool_state_view.restore_from_trace(
-            require_session_id=self.require_session_id,
-            build_history_key=self.history_key,
-        )

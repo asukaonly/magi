@@ -71,7 +71,6 @@ def _build_handler_dependencies(
         context_service=context_parts.context_service,
         prompt_service=context_parts.prompt_service,
         function_calling_orchestrator=execution_parts.function_calling_orchestrator,
-        context_assembler=context_parts.context_assembler,
         agent_id=config.agent_id,
         model_context_provider=context_parts.model_context_provider,
         run_plan_store=config.run_plan_store,

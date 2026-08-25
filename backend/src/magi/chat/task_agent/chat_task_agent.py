@@ -211,7 +211,6 @@ class ChatTaskAgent(
         self._fact_classifier = runtime_parts.fact_classifier
         self._prompt_service = runtime_parts.prompt_service
         self._session_run_coordinator = runtime_parts.session_run_coordinator
-        self._transcript_summarizer = runtime_parts.transcript_summarizer
         self._postprocess_service = runtime_parts.postprocess_service
         self.function_calling_orchestrator = runtime_parts.function_calling_orchestrator
         self._handler_registry = runtime_parts.handler_registry

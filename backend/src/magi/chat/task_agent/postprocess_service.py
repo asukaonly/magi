@@ -103,7 +103,6 @@ class ChatPostProcessService:
         resolve_session_run_status: Callable[[str, str, int], Any] | None = None,
         release_pending_inputs: Callable[[str, list[Any]], Any] | None = None,
         response_rhythm_planner: Any | None = None,
-        transcript_summarizer: Any | None = None,
         event_bus: Any | None = None,
         deliver_final_response: Callable[..., Awaitable[DeliveryFanoutResult]] | None = None,
     ) -> None:
@@ -130,7 +129,6 @@ class ChatPostProcessService:
             resolve_session_run_status=resolve_session_run_status,
             release_pending_inputs=release_pending_inputs,
             response_rhythm_planner=response_rhythm_planner,
-            transcript_summarizer=transcript_summarizer,
         )
         self._wire_delivery(deliver_final_response)
     async def cancel_background_tasks(self) -> None:
@@ -315,13 +313,11 @@ class ChatPostProcessService:
         resolve_session_run_status: Callable[[str, str, int], Any] | None,
         release_pending_inputs: Callable[[str, list[Any]], Any] | None,
         response_rhythm_planner: Any | None,
-        transcript_summarizer: Any | None,
     ) -> None:
         self._complete_session_run = complete_session_run
         self._resolve_session_run_status = resolve_session_run_status
         self._release_pending_inputs = release_pending_inputs
         self._response_rhythm_planner = response_rhythm_planner
-        self._transcript_summarizer = transcript_summarizer
 
     def _wire_delivery(
         self,
@@ -417,7 +413,6 @@ class ChatPostProcessService:
         )
         await self._record_chat_history_and_memory(context, result, prepared)
         await self._finalize_session_run(context)
-        self._schedule_transcript_summary_update(context)
         return await self._deliver_chat_response_outcome(context, result, prepared)
 
     async def _prepare_chat_postprocess(
@@ -871,30 +866,6 @@ class ChatPostProcessService:
             ),
             False,
         )
-
-    def _schedule_transcript_summary_update(self, context: ChatRuntimeContext) -> None:
-        if self._transcript_summarizer is None:
-            return
-
-        async def _runner() -> None:
-            try:
-                await self._transcript_summarizer.maybe_summarize_session(
-                    user_id=context.user_id,
-                    session_id=context.session_id,
-                )
-            except Exception:
-                logger.exception(
-                    "Background transcript summary failed user_id=%s session_id=%s",
-                    context.user_id,
-                    context.session_id,
-                )
-
-        task = asyncio.create_task(
-            _runner(),
-            name=f"chat-transcript-summary:{context.session_id}",
-        )
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
 
     async def _build_response_rhythm_plan(
         self,

@@ -20,7 +20,6 @@ from magi.context import (
 from magi.config.models import LLMScenario
 from magi.llm.model_context import ModelContextProfile, unknown_model_context
 from magi.context.user_profile_service import UserProfileService
-from magi.utils.runtime import get_runtime_paths
 
 from .runtime_contracts import (
     ChatTaskAgentRuntimeCallbacks,
@@ -117,9 +116,7 @@ def _build_context_assembler(
     config: ChatTaskAgentRuntimeConfig,
     chat_read_service_factory: Callable[[], ChatReadService],
 ) -> ChatContextAssembler:
-    runtime_paths = get_runtime_paths()
     return ChatContextAssembler(
-        l1_db_path=runtime_paths.l1_memory_db_path,
         history_cache_max_sessions=config.history_cache_max_sessions,
         chat_store=config.chat_store,
         chat_read_service_factory=chat_read_service_factory,

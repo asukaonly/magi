@@ -10,7 +10,6 @@ from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.agent.response_rhythm import ResponseRhythmPlanner
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
-from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
 from magi.config.models import LLMScenario
 from magi.tools.registry import tool_registry
 
@@ -26,7 +25,6 @@ class ChatExecutionRuntimeParts:
     delivery_dispatcher: Any
     conversation_log: Any
     session_run_coordinator: SessionRunCoordinator
-    transcript_summarizer: ChatTranscriptSummarizer
     postprocess_service: ChatPostProcessService
     function_calling_orchestrator: FunctionCallingOrchestrator
 
@@ -48,13 +46,11 @@ def build_chat_execution_runtime_parts(
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
     )
-    transcript_summarizer = _build_transcript_summarizer(config, context_parts=context_parts)
     postprocess_service = _build_postprocess_service(
         config,
         callbacks,
         context_parts=context_parts,
         session_run_coordinator=session_run_coordinator,
-        transcript_summarizer=transcript_summarizer,
         delivery_dispatcher=delivery_dispatcher,
     )
 
@@ -62,7 +58,6 @@ def build_chat_execution_runtime_parts(
         delivery_dispatcher=delivery_dispatcher,
         conversation_log=conversation_log,
         session_run_coordinator=session_run_coordinator,
-        transcript_summarizer=transcript_summarizer,
         postprocess_service=postprocess_service,
         function_calling_orchestrator=_build_function_calling_orchestrator(
             config,
@@ -96,30 +91,12 @@ def _build_session_run_coordinator(
     )
 
 
-def _build_transcript_summarizer(
-    config: ChatTaskAgentRuntimeConfig,
-    *,
-    context_parts: ChatContextRuntimeParts,
-) -> ChatTranscriptSummarizer:
-    return ChatTranscriptSummarizer(
-        chat_store=config.chat_store,
-        scenario_llm_pool=config.llm_pool,
-        llm_adapter=config.llm_adapter,
-        model_context_provider=(
-            lambda: config.llm_pool.resolve(LLMScenario.CORE).context
-            if config.llm_pool is not None
-            else context_parts.model_context_provider()
-        ),
-    )
-
-
 def _build_postprocess_service(
     config: ChatTaskAgentRuntimeConfig,
     callbacks: ChatTaskAgentRuntimeCallbacks,
     *,
     context_parts: ChatContextRuntimeParts,
     session_run_coordinator: SessionRunCoordinator,
-    transcript_summarizer: ChatTranscriptSummarizer,
     delivery_dispatcher: Any,
 ) -> ChatPostProcessService:
     return ChatPostProcessService(
@@ -148,7 +125,6 @@ def _build_postprocess_service(
         ),
         release_pending_inputs=callbacks.release_pending_inputs,
         response_rhythm_planner=ResponseRhythmPlanner(),
-        transcript_summarizer=transcript_summarizer,
         event_bus=config.message_bus,
         deliver_final_response=(
             callbacks.deliver_final_response

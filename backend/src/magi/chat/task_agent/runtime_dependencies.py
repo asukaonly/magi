@@ -42,7 +42,6 @@ def build_chat_task_agent_runtime_parts(
         fact_classifier=context_parts.fact_classifier,
         prompt_service=context_parts.prompt_service,
         session_run_coordinator=execution_parts.session_run_coordinator,
-        transcript_summarizer=execution_parts.transcript_summarizer,
         postprocess_service=execution_parts.postprocess_service,
         function_calling_orchestrator=execution_parts.function_calling_orchestrator,
         handler_registry=handler_parts.handler_registry,

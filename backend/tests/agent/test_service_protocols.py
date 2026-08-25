@@ -15,10 +15,8 @@ import unittest
 from pathlib import Path
 
 from magi.agent.task_agents.common.service_protocols import (
-    HistoryServiceProtocol,
     PromptServiceProtocol,
 )
-from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.task_agent.prompt_service import ChatPromptService
 
 
@@ -39,14 +37,6 @@ class TestPromptServiceProtocol(unittest.TestCase):
             if not name.startswith("_")
         }
         self.assertEqual(members, expected)
-
-
-class TestHistoryServiceProtocol(unittest.TestCase):
-    def test_chat_context_assembler_is_structural_match(self) -> None:
-        # __init__ only stores the path (it does not open the DB), so a bare
-        # temp path is enough to build an instance for the structural check.
-        service = ChatContextAssembler(l1_db_path=Path("/tmp/magi-test-l1.db"))
-        self.assertIsInstance(service, HistoryServiceProtocol)
 
 
 class TestDependencyBundleImports(unittest.TestCase):

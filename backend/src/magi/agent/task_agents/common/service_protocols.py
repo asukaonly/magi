@@ -74,18 +74,6 @@ class PromptServiceProtocol(Protocol):
     ) -> str:
         ...
 
-@runtime_checkable
-class HistoryServiceProtocol(Protocol):
-    """The exact history-service surface the generic handlers call.
-
-    ``ChatContextAssembler`` matches this signature structurally.
-    """
-
-    def append_user_message(self, history_key: str, user_message: str) -> None:
-        ...
-
-
 __all__ = [
     "PromptServiceProtocol",
-    "HistoryServiceProtocol",
 ]

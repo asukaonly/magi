@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from magi.chat.task_agent.postprocess_service import ChatPostProcessService
     from magi.chat.task_agent.prompt_service import ChatPromptService
     from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
-    from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
     from magi.context import (
         ContextAssemblyService,
         ContextRetrievalService,
@@ -79,7 +78,6 @@ class ChatTaskAgentRuntimeParts:
     fact_classifier: ChatFactClassifier
     prompt_service: ChatPromptService
     session_run_coordinator: SessionRunCoordinator
-    transcript_summarizer: ChatTranscriptSummarizer
     postprocess_service: ChatPostProcessService
     function_calling_orchestrator: FunctionCallingOrchestrator
     handler_registry: ExecutionHandlerRegistry

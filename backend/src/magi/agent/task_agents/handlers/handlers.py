@@ -26,7 +26,6 @@ from ..common import (
     PreparedAgentRunRequest,
 )
 from ..common.service_protocols import (
-    HistoryServiceProtocol,
     PromptServiceProtocol,
 )
 from .runtime_control import FunctionCallingRuntimeControlMixin
@@ -194,7 +193,6 @@ class ChatHandlerDependencies:
     # Not touched by ring-2 handler code (only carried for other consumers);
     # left untyped so the bundle stays free of concrete chat service classes.
     function_calling_orchestrator: Any
-    context_assembler: HistoryServiceProtocol
     agent_id: str
     model_context_provider: Callable[[], ModelContextProfile]
     run_plan_store: Any
