@@ -22,7 +22,11 @@ class ModelContextItemKind(str, Enum):
 
 
 class ModelContextScope(str, Enum):
-    """Lifetime annotation for a model-context item."""
+    """Origin boundary for a model-context item, not a retention policy.
+
+    Items remain on the current surface until explicit compaction or governed
+    deletion, regardless of the boundary that produced them.
+    """
 
     SESSION = "session"
     TURN = "turn"
