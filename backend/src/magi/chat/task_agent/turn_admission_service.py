@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from magi.agent.task_agents.common import ExecutionMode, IncomingFactKind
-from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, TurnAdmissionDecision
+from magi.agent.task_agents.handlers.contracts import (
+    ChatRuntimeContext,
+    TraceDisplayMode,
+    TurnAdmissionDecision,
+    TurnUXPlan,
+)
 from magi.agent.execution.reasoning import ReasoningPreference
 
 
@@ -23,6 +28,7 @@ class ChatTurnAdmissionService:
             None,
             "Ordinary user turns enter the unified agent loop without classification.",
             reasoning_preference=_reasoning_preference(context),
+            ux_plan=TurnUXPlan(trace_display_mode=TraceDisplayMode.COLLAPSIBLE),
         )
 
 
@@ -31,12 +37,14 @@ def _decision(
     mode: ExecutionMode | None,
     reasoning: str,
     reasoning_preference: ReasoningPreference = ReasoningPreference.AUTO,
+    ux_plan: TurnUXPlan | None = None,
 ) -> TurnAdmissionDecision:
     return TurnAdmissionDecision(
         run_kind=run_kind,
         execution_mode=mode,
         reasoning=reasoning,
         reasoning_preference=reasoning_preference,
+        ux_plan=ux_plan or TurnUXPlan(),
     )
 
 

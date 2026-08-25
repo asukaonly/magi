@@ -15,7 +15,7 @@ The architecture is model-first but runtime-governed:
 - ordinary user messages do not pass through a semantic intent-classifier LLM;
 - chat, background, worker, and skill-backed work share one bounded run loop.
 
-Last reviewed against the implementation: 2026-08-24.
+Last reviewed against the implementation: 2026-08-25.
 
 ## Core Decisions
 
@@ -228,6 +228,9 @@ responsibilities: `admit_context`, `resolve_capabilities`,
 - `ChatTurnAdmissionService` routes non-user facts to `ExecutionMode.FACT_ONLY`;
 - every ordinary user message returns the `unified_agent_run` admission with no
   route-derived execution mode;
+- every ordinary model-facing run deterministically requests a collapsible trace
+  entry, while fact-only domain events keep trace display disabled; this
+  presentation policy does not depend on semantic intent classification;
 - `CapabilityResolver` exposes resident, pinned, attachment-required, and
   discoverable capabilities without predicting a chat/code/explore class;
 - `ExecutionMode` therefore describes only deterministic domain-event handling,
