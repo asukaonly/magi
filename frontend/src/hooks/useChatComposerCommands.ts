@@ -7,28 +7,27 @@
  * control commands stay local, tool commands use the command runner, and
  * skills create typed invocations.
  *
- * Selecting a command clears the textarea (no `/cmd` left behind — the
- * invocation will surface as a chat message instead).
+ * Action commands clear the textarea and execute immediately. Reasoning
+ * modifiers remain visible in the textarea and are interpreted only when the
+ * user submits the message.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import { useTranslation } from 'react-i18next';
 import { commandsApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
+import type { ReasoningPreference } from '@/domain/chat/reasoning';
 import { fuzzyScore } from '@/lib/fuzzyMatch';
 import { MRUCache } from '@/lib/mruCache';
 
 const mruCache = new MRUCache('commands');
 
-export type SlashCommandSource = 'internal' | 'tool' | 'skill';
+export type SlashCommandSource = 'internal' | 'modifier' | 'tool' | 'skill';
 
 export type SlashInternalAction =
   | 'clear'
   | 'new-session'
   | 'cancel'
-  | 'help'
-  | 'auto'
-  | 'fast'
-  | 'deep';
+  | 'help';
 
 export type SlashCommandItem =
   | {
@@ -39,6 +38,14 @@ export type SlashCommandItem =
     icon?: string;
     dangerous?: boolean;
     descriptor?: CommandDescriptor;
+  }
+  | {
+    source: 'modifier';
+    name: string;
+    description: string;
+    preference: ReasoningPreference;
+    dangerous?: false;
+    descriptor: CommandDescriptor;
   }
   | {
     source: 'tool';
@@ -70,10 +77,11 @@ const CLIENT_ACTIONS = new Set<SlashInternalAction>([
   'new-session',
   'cancel',
   'help',
-  'auto',
-  'fast',
-  'deep',
 ]);
+
+const isReasoningPreference = (value: unknown): value is ReasoningPreference => (
+  value === 'auto' || value === 'fast' || value === 'deep'
+);
 
 const mruKey = (item: SlashCommandItem): string => `${item.source}|${item.name}`;
 
@@ -102,6 +110,8 @@ interface UseChatComposerCommandsOptions {
   setInputValue: (value: string) => void;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   allowInlineSkills?: boolean;
+  allowMessageModifiers?: boolean;
+  allowCancelAction?: boolean;
   onPickInternal: (action: SlashInternalAction) => void | Promise<void>;
   onPickTool: (descriptor: CommandDescriptor) => void;
   onPickSkill: (descriptor: SkillCommandDescriptor) => void;
@@ -111,6 +121,8 @@ export function useChatComposerCommands({
   setInputValue,
   textareaRef,
   allowInlineSkills = true,
+  allowMessageModifiers = true,
+  allowCancelAction = false,
   onPickInternal,
   onPickTool,
   onPickSkill,
@@ -149,6 +161,9 @@ export function useChatComposerCommands({
         : descriptor.description
     );
     const merged = catalog.flatMap<SlashCommandItem>((descriptor) => {
+      if ((descriptor.visibility ?? 'composer') !== 'composer') {
+        return [];
+      }
       if (descriptor.kind === 'tool') {
         return [{
           source: 'tool',
@@ -172,6 +187,21 @@ export function useChatComposerCommands({
           descriptor: skill,
         }];
       }
+      if (
+        allowMessageModifiers
+        && isReasoningPreference(descriptor.reasoning_preference)
+      ) {
+        return [{
+          source: 'modifier',
+          name: descriptor.name,
+          description: description(descriptor),
+          preference: descriptor.reasoning_preference,
+          descriptor,
+        }];
+      }
+      if (descriptor.name === 'cancel' && !allowCancelAction) {
+        return [];
+      }
       if (!CLIENT_ACTIONS.has(descriptor.name as SlashInternalAction)) {
         return [];
       }
@@ -194,16 +224,16 @@ export function useChatComposerCommands({
     scored.sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (b.recency !== a.recency) return b.recency - a.recency;
-      // Within equal score+recency: internals first, then skills, then tools, alpha.
+      // Within equal score+recency: local controls first, then skills and tools.
       const sourceRank = (s: SlashCommandSource) =>
-        s === 'internal' ? 0 : s === 'skill' ? 1 : 2;
+        s === 'internal' || s === 'modifier' ? 0 : s === 'skill' ? 1 : 2;
       const aRank = sourceRank(a.item.source);
       const bRank = sourceRank(b.item.source);
       if (aRank !== bRank) return aRank - bRank;
       return a.item.name.localeCompare(b.item.name);
     });
     return scored.map(({ item }) => item);
-  }, [allowInlineSkills, catalog, state, t]);
+  }, [allowCancelAction, allowInlineSkills, allowMessageModifiers, catalog, state, t]);
 
   const onValueChange = useCallback(
     (nextValue: string) => {
@@ -229,19 +259,30 @@ export function useChatComposerCommands({
 
   const select = useCallback(
     (item: SlashCommandItem) => {
-      // Strip the textarea — the invocation surface is the chat timeline.
-      setInputValue('');
       mruCache.recordUse(mruKey(item));
       close();
+      let nextCursor = 0;
+      if (item.source === 'modifier') {
+        const nextValue = `/${item.preference} `;
+        setInputValue(nextValue);
+        nextCursor = nextValue.length;
+      } else {
+        // Action, tool, and skill invocations surface outside the textarea.
+        setInputValue('');
+      }
       if (item.source === 'internal') {
         void onPickInternal(item.action);
       } else if (item.source === 'tool') {
         onPickTool(item.descriptor);
-      } else {
+      } else if (item.source === 'skill') {
         onPickSkill(item.descriptor);
       }
       requestAnimationFrame(() => {
-        textareaRef.current?.focus();
+        const textarea = textareaRef.current;
+        textarea?.focus();
+        if (nextCursor > 0) {
+          textarea?.setSelectionRange(nextCursor, nextCursor);
+        }
       });
     },
     [close, onPickInternal, onPickSkill, onPickTool, setInputValue, textareaRef],

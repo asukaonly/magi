@@ -12,8 +12,8 @@ import { ContextUsageRing } from './ContextUsageRing';
 import { ComposerRecallFeedbackBanner } from './ComposerRecallFeedbackBanner';
 import {
   ComposerReasoningControl,
-  type ReasoningPreference,
 } from './ComposerReasoningControl';
+import type { ReasoningPreference } from '@/domain/chat/reasoning';
 
 type ComposerDraftAttachmentItem =
   | {

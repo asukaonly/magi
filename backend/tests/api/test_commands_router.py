@@ -132,6 +132,11 @@ def test_list_user_invocable_commands(client):
         "deep",
         "clear",
     }
+    cancel = next(item for item in payload["data"] if item["name"] == "cancel")
+    assert cancel["visibility"] == "composer"
+    fast = next(item for item in payload["data"] if item["name"] == "fast")
+    assert fast["visibility"] == "composer"
+    assert fast["reasoning_preference"] == "fast"
 
 
 def test_public_router_exposes_only_current_command_contract() -> None:

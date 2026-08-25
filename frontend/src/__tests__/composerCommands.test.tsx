@@ -38,6 +38,9 @@ const CLIENT_LIST = [
   { name: 'new-session', kind: 'client', execution_owner: 'client', visibility: 'composer', description: 'Start a new chat session', category: '', dangerous: false, parameters: [] },
   { name: 'cancel', kind: 'control', execution_owner: 'client', visibility: 'composer', description: 'Cancel the current run', category: '', dangerous: false, parameters: [] },
   { name: 'help', kind: 'client', execution_owner: 'client', visibility: 'composer', description: 'List available commands', category: '', dangerous: false, parameters: [] },
+  { name: 'auto', kind: 'control', execution_owner: 'client', visibility: 'composer', description: 'Use automatic reasoning', category: '', dangerous: false, parameters: [], reasoning_preference: 'auto' },
+  { name: 'fast', kind: 'control', execution_owner: 'client', visibility: 'composer', description: 'Use fast reasoning', category: '', dangerous: false, parameters: [], reasoning_preference: 'fast' },
+  { name: 'deep', kind: 'control', execution_owner: 'client', visibility: 'composer', description: 'Use deep reasoning', category: '', dangerous: false, parameters: [], reasoning_preference: 'deep' },
 ];
 
 beforeEach(() => {
@@ -128,8 +131,10 @@ describe('useChatComposerCommands', () => {
     await waitFor(() => {
       const text = screen.getByTestId('items').textContent;
       expect(text).toContain('internal|clear');
+      expect(text).toContain('modifier|fast');
       expect(text).toContain('tool|echo');
       expect(text).toContain('tool|rm');
+      expect(text).not.toContain('internal|cancel');
     });
   });
 
@@ -219,6 +224,142 @@ describe('useChatComposerCommands', () => {
     });
     expect(setInputValue).toHaveBeenCalledWith('');
     expect(onPickInternal).toHaveBeenCalledWith('clear');
+  });
+
+  it('select on reasoning modifier keeps it visible for message composition', async () => {
+    const setInputValue = vi.fn();
+    const onPickInternal = vi.fn();
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue,
+        textareaRef: ref,
+        onPickInternal,
+        onPickTool: () => undefined,
+        onPickSkill: () => undefined,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/fa" />
+          <button
+            data-testid="open-fast"
+            onClick={() => {
+              ref.current?.setSelectionRange(3, 3);
+              hook.onValueChange('/fa');
+            }}
+          />
+          <button
+            data-testid="select-fast"
+            onClick={() => {
+              const item = hook.items.find((candidate) => (
+                candidate.source === 'modifier' && candidate.name === 'fast'
+              ));
+              if (item) hook.select(item);
+            }}
+          />
+        </div>
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('open-fast'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/commands/'));
+    fireEvent.click(screen.getByTestId('select-fast'));
+
+    expect(setInputValue).toHaveBeenCalledWith('/fast ');
+    expect(onPickInternal).not.toHaveBeenCalled();
+  });
+
+  it('offers cancel only when the enabled composer has an active run target', async () => {
+    const onPickInternal = vi.fn();
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue: vi.fn(),
+        textareaRef: ref,
+        allowCancelAction: true,
+        onPickInternal,
+        onPickTool: () => undefined,
+        onPickSkill: () => undefined,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/ca" />
+          <button
+            data-testid="open-cancel"
+            onClick={() => {
+              ref.current?.setSelectionRange(3, 3);
+              hook.onValueChange('/ca');
+            }}
+          />
+          <button
+            data-testid="select-cancel"
+            onClick={() => {
+              const item = hook.items.find((candidate) => (
+                candidate.source === 'internal' && candidate.name === 'cancel'
+              ));
+              if (item) hook.select(item);
+            }}
+          />
+          <div data-testid="cancel-items">
+            {hook.items.map((item) => `${item.source}|${item.name}`).join(',')}
+          </div>
+        </div>
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('open-cancel'));
+    await waitFor(() => {
+      expect(screen.getByTestId('cancel-items')).toHaveTextContent(
+        'internal|cancel',
+      );
+    });
+    fireEvent.click(screen.getByTestId('select-cancel'));
+    expect(onPickInternal).toHaveBeenCalledWith('cancel');
+  });
+
+  it('hides message modifiers when the current composer mode cannot use them', async () => {
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue: () => undefined,
+        textareaRef: ref,
+        allowMessageModifiers: false,
+        onPickInternal: () => undefined,
+        onPickTool: () => undefined,
+        onPickSkill: () => undefined,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/" />
+          <button
+            data-testid="open-without-modifiers"
+            onClick={() => {
+              ref.current?.setSelectionRange(1, 1);
+              hook.onValueChange('/');
+            }}
+          />
+          <ul data-testid="items-without-modifiers">
+            {hook.items.map((item) => (
+              <li key={`${item.source}|${item.name}`}>{item.source}|{item.name}</li>
+            ))}
+          </ul>
+        </div>
+      );
+    };
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId('open-without-modifiers'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('items-without-modifiers')).toHaveTextContent(
+        'internal|clear',
+      );
+    });
+    expect(screen.getByTestId('items-without-modifiers')).not.toHaveTextContent(
+      'modifier|fast',
+    );
   });
 
   it('select on tool command opens dialog via onPickTool', async () => {
@@ -407,6 +548,13 @@ describe('ComposerSlashPicker', () => {
         items={[
           { source: 'internal', name: 'clear', description: 'clear', action: 'clear' },
           {
+            source: 'modifier',
+            name: 'fast',
+            description: 'fast',
+            preference: 'fast',
+            descriptor: { name: 'fast', description: 'fast', category: '', dangerous: false, parameters: [], reasoning_preference: 'fast' },
+          },
+          {
             source: 'tool',
             name: 'echo',
             description: 'echo',
@@ -422,6 +570,7 @@ describe('ComposerSlashPicker', () => {
       />,
     );
     expect(screen.getByText('/clear')).toBeTruthy();
+    expect(screen.getByText('/fast')).toBeTruthy();
     expect(screen.getByText('/echo')).toBeTruthy();
   });
 });

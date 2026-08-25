@@ -185,17 +185,15 @@ describe('useChatComposerController pending ask drafts', () => {
     expect(clearDraftAttachmentsMock).toHaveBeenCalledTimes(1);
   });
 
-  it('clears a one-turn reasoning override after the submitted draft is accepted', () => {
+  it('derives reasoning from the visible draft and clears it with the draft', () => {
     const hook = renderController('session-a', null);
 
     act(() => {
-      hook.result.current.setInputValue('Answer briefly');
-      hook.result.current.setReasoningPreference('fast');
+      hook.result.current.setInputValue('/fast Answer briefly');
     });
     const submittedOptions = latestSendOptions();
 
     expect(hook.result.current.reasoningPreference).toBe('fast');
-    expect(submittedOptions.reasoningPreference).toBe('fast');
 
     act(() => {
       submittedOptions.clearComposerDraftIfUnchanged(
@@ -205,6 +203,7 @@ describe('useChatComposerController pending ask drafts', () => {
     });
 
     expect(hook.result.current.reasoningPreference).toBe('auto');
+    expect(hook.result.current.inputValue).toBe('');
   });
 
   it('clears an accepted first-context answer after the prompt advances', () => {

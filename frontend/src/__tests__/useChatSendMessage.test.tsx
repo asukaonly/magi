@@ -7,7 +7,6 @@ import {
   saveRetryableChatSends,
   type RetryableChatSendOperation,
 } from '@/hooks/chatRetryableSendStorage';
-import type { ReasoningPreference } from '@/components/chat/ComposerReasoningControl';
 import { useChatSendMessage } from '@/hooks/useChatSendMessage';
 import { useConversationStore } from '@/stores/conversation-store';
 
@@ -138,7 +137,6 @@ const createDeferred = <T,>() => {
 const renderSendHook = ({
   inputValue,
   pendingAsk = null,
-  reasoningPreference = 'auto',
 }: {
   inputValue: string;
   pendingAsk?: {
@@ -150,7 +148,6 @@ const renderSendHook = ({
     allowFreeText: boolean;
     expiresAtMs: number | null;
   } | null;
-  reasoningPreference?: ReasoningPreference;
 }) => {
   const appendPendingTurn = vi.fn();
   const clearComposerDraftIfUnchanged = vi.fn();
@@ -167,7 +164,6 @@ const renderSendHook = ({
     allowInterjection: true,
     pendingAsk,
     recallFeedbackDraft: null,
-    reasoningPreference,
     appendPendingTurn,
     removePendingMessage,
     setCurrentSessionId: vi.fn(),
@@ -243,10 +239,9 @@ describe('useChatSendMessage', () => {
     )).toBeNull();
   });
 
-  it('sends an explicit reasoning preference only in the current turn request', async () => {
+  it('moves a visible reasoning modifier into the current turn request', async () => {
     const hook = renderSendHook({
-      inputValue: 'Answer briefly',
-      reasoningPreference: 'fast',
+      inputValue: '/fast Answer briefly',
     });
 
     await act(async () => {
@@ -261,6 +256,19 @@ describe('useChatSendMessage', () => {
       'current-identity',
       'normal',
     );
+  });
+
+  it('keeps an unknown slash prefix as ordinary auto-mode message text', async () => {
+    const hook = renderSendHook({ inputValue: '/fastest route' });
+
+    await act(async () => {
+      await hook.result.current.handleSendMessage();
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(expect.objectContaining({
+      message: '/fastest route',
+      reasoning_preference: 'auto',
+    }));
   });
 
   it('concludes a cancelled old ask and sends the current new ask answer', async () => {

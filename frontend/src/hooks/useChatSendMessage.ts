@@ -9,6 +9,7 @@ import {
   type ChatTimelineReplyPreview,
 } from '@/domain/chat/state';
 import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
+import { parseReasoningMessage } from '@/domain/chat/reasoning';
 import {
   toRecallFeedbackReplyPreview,
   toRecallFeedbackRequest,
@@ -45,7 +46,6 @@ import {
   type RetryableSendDraftKind,
 } from './chatRetryableSendStorage';
 import type { ComposerDraftItem } from './useChatDraftAttachments';
-import type { ReasoningPreference } from '@/components/chat/ComposerReasoningControl';
 import { isFileDraftAttachment, isMcpDraftAttachment } from './useChatDraftAttachments';
 
 const USER_ID = DEFAULT_USER_ID;
@@ -68,7 +68,6 @@ export type UseChatSendMessageOptions = {
   pendingAsk: PendingAskSendContext | null;
   firstContextQuestion?: FirstContextQuestionContext | null;
   recallFeedbackDraft: RecallFeedbackDraft | null;
-  reasoningPreference: ReasoningPreference;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   removePendingMessage: (sessionId: string, messageId: string) => void;
   setCurrentSessionId: (sessionId: string | null) => void;
@@ -124,7 +123,6 @@ export function useChatSendMessage({
   pendingAsk,
   firstContextQuestion = null,
   recallFeedbackDraft,
-  reasoningPreference,
   appendPendingTurn,
   removePendingMessage,
   setCurrentSessionId,
@@ -544,6 +542,8 @@ export function useChatSendMessage({
     admissionGuard?: ChatRetryGuard,
   ) => {
     const trimmedMessage = inputValue.trim();
+    const parsedReasoningMessage = parseReasoningMessage(inputValue);
+    const trimmedTurnMessage = parsedReasoningMessage.message.trim();
     if (!currentSessionId) {
       toast.error(translate('chat.sessionRequired'));
       return;
@@ -664,7 +664,7 @@ export function useChatSendMessage({
       toast.warning(translate('chat.emptyInput'));
       return;
     }
-    if (!recallFeedbackDraft && !trimmedMessage && draftAttachments.length === 0) {
+    if (!recallFeedbackDraft && !pendingAsk && !trimmedTurnMessage && draftAttachments.length === 0) {
       toast.warning(translate('chat.emptyInput'));
       return;
     }
@@ -769,7 +769,7 @@ export function useChatSendMessage({
       return;
     }
 
-    const messageContent = trimmedMessage;
+    const messageContent = trimmedTurnMessage;
 
     setSessionSending(originSessionId, true);
     try {
@@ -809,7 +809,7 @@ export function useChatSendMessage({
           reply_to_message_id: replyTarget?.messageId,
           workspace_path: currentWorkspacePath ?? null,
           client_turn_id: turnId,
-          reasoning_preference: reasoningPreference,
+          reasoning_preference: parsedReasoningMessage.preference,
           ...(firstContextQuestion ? {
             interaction_kind: 'first_context_story' as const,
             first_context: {
@@ -864,7 +864,6 @@ export function useChatSendMessage({
     onPendingResponseFailure,
     onPendingResponseTurn,
     recallFeedbackDraft,
-    reasoningPreference,
     reconcileChangedDraftOperation,
     reconcileExternalTurnBeforeSend,
     removePendingMessage,

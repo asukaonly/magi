@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Loader2, Slash, Sparkles, SquareSplitVertical, Wrench } from 'lucide-react';
+import { AlertTriangle, BrainCircuit, Loader2, Slash, Sparkles, SquareSplitVertical, Wrench } from 'lucide-react';
 import type { SlashCommandItem } from '@/hooks/useChatComposerCommands';
 
 type ComposerSlashPickerProps = {
@@ -75,12 +75,16 @@ export const ComposerSlashPicker = ({
           const Icon =
             item.source === 'internal'
               ? Slash
+              : item.source === 'modifier'
+                ? BrainCircuit
               : item.source === 'skill'
                 ? Sparkles
                 : Wrench;
           const kindLabel =
             item.source === 'internal'
               ? t('chat.commands.kindInternal')
+              : item.source === 'modifier'
+                ? t('chat.commands.kindModifier')
               : item.source === 'skill'
                 ? t('chat.commands.kindSkill', { defaultValue: 'skill' })
                 : t('chat.commands.kindTool');

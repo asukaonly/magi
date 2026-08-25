@@ -1017,21 +1017,17 @@
     "reasoning": {
       "controlLabel": "选择这条消息的处理方式",
       "controlTitle": "本条消息：{{mode}}",
-      "turnOverride": "本条 · {{mode}}",
-      "clearOverride": "取消本条消息的推理覆盖",
-      "nextMessageToast": "下一条消息将使用{{mode}}模式",
-      "overrideCleared": "已恢复下一条消息的自动模式",
       "auto": {
         "label": "自动",
-        "description": "取消本条消息的覆盖，从轻量模式开始并按运行证据增加推理。"
+        "description": "移除消息开头的推理修饰符，从轻量模式开始并按运行证据增加推理。"
       },
       "fast": {
         "label": "快速",
-        "description": "仅用于下一条消息：优先降低等待时间，并限制最高推理强度。"
+        "description": "在消息开头插入 /fast，仅对本条消息降低等待时间和推理上限。"
       },
       "deep": {
         "label": "深入",
-        "description": "仅用于下一条消息：允许更高的初始强度和推理上限。"
+        "description": "在消息开头插入 /deep，仅对本条消息提高初始强度和推理上限。"
       }
     },
     "attachments": {
@@ -1061,6 +1057,7 @@
       "loading": "加载中…",
       "empty": "没有匹配的命令。",
       "kindInternal": "内置",
+      "kindModifier": "消息修饰符",
       "kindTool": "工具",
       "kindSkill": "技能",
       "forkLabel": "后台",
@@ -1071,7 +1068,6 @@
       "noArguments": "该命令不需要参数。",
       "run": "运行",
       "cancel": "取消",
-      "nothingToCancel": "当前没有运行可取消。",
       "internal": {
         "clear": "清空这段聊天和由它形成的相关记忆",
         "newSession": "开始新的聊天",

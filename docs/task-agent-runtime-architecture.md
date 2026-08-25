@@ -202,8 +202,15 @@ Slash recognition is owned before the model-facing run:
 
 - `CommandRegistry` is the canonical catalog for client, control, tool, and
   skill commands;
-- client/control commands such as `/cancel`, `/clear`, `/fast`, and `/deep` are
-  handled deterministically by their declared owner;
+- client actions such as `/clear` are handled deterministically by their
+  declared owner;
+- `/auto`, `/fast`, and `/deep` are inline message modifiers: the composer
+  keeps the prefix visible, strips it from semantic message content on submit,
+  and writes the selected preference into the typed turn envelope;
+- cancellation remains run-targeted: the locked composer exposes a stop
+  button; when interjection keeps the composer enabled, `/cancel` is offered
+  only while an exact active foreground turn is known and dispatches against
+  that turn identity;
 - user-invocable tool commands execute through `CommandRunner`, including the
   same permission boundary used by model-driven calls;
 - inline skills are expanded by the backend and become typed, trusted context in
@@ -406,11 +413,11 @@ Reasoning depth has four layers of ownership:
 4. **Evidence-driven escalation.** Validation failure or another completion
    rejection marked `reasoning_helpful` may raise the next step monotonically.
 
-Composer controls and the `/auto`, `/fast`, and `/deep` commands write only to
-the next user-turn envelope. They are not global or session configuration. The
-composer returns to `auto` after a confirmed send or a session switch, while a
-retry preserves the original turn's explicit preference so execution policy
-does not change between attempts.
+Composer controls and the `/auto`, `/fast`, and `/deep` modifiers edit the
+visible draft prefix rather than hidden UI state. On submit, that prefix writes
+only to the current user-turn envelope and is removed from the semantic message
+body. It is not global or session configuration. A retry preserves the original
+turn's explicit preference because it reuses the already-built envelope.
 
 The resident `request_reasoning_depth` control lets the model request one step
 of additional reasoning for a small stable set of reasons such as conflicting

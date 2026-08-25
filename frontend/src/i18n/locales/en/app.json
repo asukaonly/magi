@@ -1017,21 +1017,17 @@
     "reasoning": {
       "controlLabel": "Choose how to handle this message",
       "controlTitle": "This message: {{mode}}",
-      "turnOverride": "This turn · {{mode}}",
-      "clearOverride": "Clear the reasoning override for this message",
-      "nextMessageToast": "The next message will use {{mode}} mode",
-      "overrideCleared": "The next message is back to Auto",
       "auto": {
         "label": "Auto",
-        "description": "Clear this message's override, start light, and increase effort only when runtime evidence helps."
+        "description": "Remove the reasoning modifier from the message, start light, and increase effort only when runtime evidence helps."
       },
       "fast": {
         "label": "Fast",
-        "description": "Next message only: prefer lower latency and cap the maximum reasoning effort."
+        "description": "Insert /fast at the start of this message to prefer lower latency and cap reasoning effort."
       },
       "deep": {
         "label": "Deep",
-        "description": "Next message only: allow a higher starting point and more reasoning headroom."
+        "description": "Insert /deep at the start of this message to allow more initial effort and reasoning headroom."
       }
     },
     "attachments": {
@@ -1061,6 +1057,7 @@
       "loading": "Loading…",
       "empty": "No matching commands.",
       "kindInternal": "built-in",
+      "kindModifier": "message modifier",
       "kindTool": "tool",
       "kindSkill": "skill",
       "forkLabel": "fork",
@@ -1071,7 +1068,6 @@
       "noArguments": "This command takes no arguments.",
       "run": "Run",
       "cancel": "Cancel",
-      "nothingToCancel": "No active run to cancel.",
       "internal": {
         "clear": "Clear this chat and its related memories",
         "newSession": "Start a new chat session",

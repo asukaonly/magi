@@ -60,6 +60,10 @@ import {
   type ChatTimelineMessage,
 } from '@/domain/chat/state';
 import {
+  applyReasoningModifier,
+  type ReasoningPreference,
+} from '@/domain/chat/reasoning';
+import {
   answeredFirstContextQuestionIds,
   canOfferFirstContextContinuation,
   chooseAlternativeFirstContextQuestion,
@@ -323,6 +327,18 @@ export const ChatPage: React.FC = () => {
     removeMessage,
     translate: t,
   });
+  const activeCancelableTurnId = React.useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const turnId = String(messages[index]?.turnId || '').trim();
+      if (
+        turnId
+        && executionControlByTurnId[turnId]?.state === 'running'
+      ) {
+        return turnId;
+      }
+    }
+    return null;
+  }, [executionControlByTurnId, messages]);
 
   const activePendingAsk = React.useMemo(
     () => resolvePendingAskComposerState(
@@ -550,7 +566,6 @@ export const ChatPage: React.FC = () => {
     setAttachmentMenuOpen,
     setInputValue,
     setReplyTarget,
-    setReasoningPreference,
     startRecallFeedback,
     cancelRecallFeedback,
     convertRecallFeedbackToNormal,
@@ -810,17 +825,6 @@ export const ChatPage: React.FC = () => {
         isBrowserContentGenerationCurrent(contentGeneration)
       );
       try {
-        if (action === 'auto' || action === 'fast' || action === 'deep') {
-          setReasoningPreference(action);
-          if (action === 'auto') {
-            toast.info(t('chat.reasoning.overrideCleared'));
-          } else {
-            toast.info(t('chat.reasoning.nextMessageToast', {
-              mode: t(`chat.reasoning.${action}.label`),
-            }));
-          }
-          return;
-        }
         if (action === 'clear') {
           if (!currentSessionId) {
             toast.warning(t('chat.sessionRequired'));
@@ -844,20 +848,10 @@ export const ChatPage: React.FC = () => {
           return;
         }
         if (action === 'cancel') {
-          if (!pendingResponseTurnId) {
-            toast.info(t('chat.commands.nothingToCancel', { defaultValue: 'No active run to cancel.' }));
+          if (!allowInterjection || !activeCancelableTurnId) {
             return;
           }
-          const outcome = await requestRunCancel(pendingResponseTurnId);
-          if (!operationIsCurrent()) {
-            return;
-          }
-          if (outcome === 'settled') {
-            clearPendingResponseTurn({
-              sessionId: currentSessionId || undefined,
-              turnId: pendingResponseTurnId,
-            });
-          }
+          await requestRunCancel(activeCancelableTurnId);
           return;
         }
         if (action === 'help') {
@@ -865,7 +859,16 @@ export const ChatPage: React.FC = () => {
           if (!operationIsCurrent()) {
             return;
           }
-          const lines = list.map((c) => `/${c.name} — ${c.description}`).join('\n');
+          const lines = list
+            .filter((command) => (
+              (command.visibility ?? 'composer') === 'composer'
+              && (
+                command.name !== 'cancel'
+                || (allowInterjection && Boolean(activeCancelableTurnId))
+              )
+            ))
+            .map((command) => `/${command.name} — ${command.description}`)
+            .join('\n');
           toast.message('Commands', {
             description: lines || t('chat.commands.empty', { defaultValue: 'No matching commands.' }),
           });
@@ -877,11 +880,10 @@ export const ChatPage: React.FC = () => {
       }
     },
     [
-      clearPendingResponseTurn,
+      activeCancelableTurnId,
+      allowInterjection,
       currentSessionId,
-      pendingResponseTurnId,
       requestRunCancel,
-      setReasoningPreference,
       setCurrentSessionId,
       t,
     ],
@@ -935,6 +937,8 @@ export const ChatPage: React.FC = () => {
     setInputValue,
     textareaRef: composerTextareaRef,
     allowInlineSkills: !activePendingAsk && !activeFirstContextQuestion,
+    allowMessageModifiers: !activePendingAsk && !recallFeedbackDraft,
+    allowCancelAction: allowInterjection && Boolean(activeCancelableTurnId),
     onPickInternal: handleInternalCommand,
     onPickTool: handleToolPicked,
     onPickSkill: handleSkillPicked,
@@ -951,6 +955,18 @@ export const ChatPage: React.FC = () => {
     },
     [commands, mentions, recallFeedbackDraft, setInputValue],
   );
+
+  const handleReasoningPreferenceChange = React.useCallback((
+    preference: ReasoningPreference,
+  ) => {
+    const nextValue = applyReasoningModifier(inputValue, preference);
+    setInputValue(nextValue);
+    window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(nextValue.length, nextValue.length);
+    });
+  }, [inputValue, setInputValue]);
 
   const handleAskQuickReplyPicked = React.useCallback(
     (value: string) => {
@@ -1293,7 +1309,7 @@ export const ChatPage: React.FC = () => {
         onCancelRecallFeedback={cancelRecallFeedback}
         onConvertRecallFeedbackToNormal={convertRecallFeedbackToNormal}
         reasoningPreference={reasoningPreference}
-        onReasoningPreferenceChange={setReasoningPreference}
+        onReasoningPreferenceChange={handleReasoningPreferenceChange}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
