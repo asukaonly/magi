@@ -161,16 +161,21 @@ class ContextAssemblyService:
         )
         if resolved_persona_id:
             prompt_context.metadata["persona_id"] = resolved_persona_id
-        system_prompt = self._prompt_context_renderer.render_system_prompt(
+        rendered = self._prompt_context_renderer.render_prompt_layers(
             prompt_context,
             include_tool_catalog=include_tool_catalog,
         )
         recent_tool_errors_block = self.build_recent_tool_errors_block(recent_tool_errors or [])
+        working_context = rendered.working_context
         if recent_tool_errors_block:
-            system_prompt = f"{system_prompt}\n\n{recent_tool_errors_block}"
+            working_context = "\n\n".join(
+                part for part in (working_context, recent_tool_errors_block) if part
+            )
         return PromptPackage(
             prompt_context=prompt_context,
-            system_prompt=system_prompt,
+            system_prompt=rendered.system_prompt,
+            runtime_world_state=rendered.runtime_world_state,
+            working_context=working_context,
             recent_tool_errors_block=recent_tool_errors_block,
             memory_availability="available" if memory_available else "unavailable",
             memory_retrieval_status=memory_retrieval_status,

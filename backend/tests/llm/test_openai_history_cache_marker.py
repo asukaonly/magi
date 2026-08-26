@@ -19,9 +19,11 @@ from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.config.models import ModelVendor
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
+from magi.utils.model_context_messages import build_working_context_message
 
 SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
-TURN_CONTEXT = "<turn_context>\nMEMORY + TIME TAIL\n</turn_context>"
+WORKING_CONTEXT = build_working_context_message("MEMORY TAIL")
+assert WORKING_CONTEXT is not None
 
 
 class _OpenAIAdapter(LLMAdapter):
@@ -102,16 +104,16 @@ async def test_dashscope_marks_history_boundary_not_current_turn() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
     )
     sent = completions.kwargs["messages"]
-    # full_messages = [system, u1, a1, u2]; turn_context rides on u2 (last user),
-    # so the breakpoint lands on the prior assistant turn (a1).
+    assert "_magi_context_kind" not in str(sent)
+    # The breakpoint lands on the prior accepted assistant turn (a1).
     a1 = next(m for m in sent if m.get("role") == "assistant")
     assert _has_cc(a1)
-    # the current (turn-context-bearing) user turn is NOT a breakpoint.
+    # the current Working Context and user turn are NOT breakpoints.
     u2 = [m for m in sent if m.get("role") == "user"][-1]
     assert not _has_cc(u2)
 
@@ -124,7 +126,7 @@ async def test_non_marker_openai_vendor_gets_no_message_markers() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
     )
@@ -144,7 +146,7 @@ async def test_tool_role_messages_are_never_marked() -> None:
                 {"id": "t1", "type": "function", "function": {"name": "bash", "arguments": "{}"}}
             ]},
             {"role": "tool", "tool_call_id": "t1", "content": '{"ok": true}'},
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
         tools=[{"type": "function", "function": {"name": "bash"}}],

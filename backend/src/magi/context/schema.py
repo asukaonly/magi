@@ -51,7 +51,7 @@ class ProfileMemoryContext:
 class RuntimeSystemContext:
     """Module 4: Runtime system metadata."""
 
-    current_time_iso: str
+    current_date: str
     timezone: str
     os_name: str
     os_version: str

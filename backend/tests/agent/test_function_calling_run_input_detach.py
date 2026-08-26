@@ -24,6 +24,7 @@ from magi.control.run_control import (
 from magi.agent.turn_input import UserTurnInput
 from magi.agent.execution.run_plan_port import BoundRunPlanReader
 from magi.control.session_store import ControlSessionStore
+from magi.utils.model_context_messages import is_working_context_message
 
 
 class _FakeToolRegistry:
@@ -106,10 +107,12 @@ async def test_execute_with_tools_injects_run_inputs_before_next_llm_call(
 
     assert outcome.status == "completed"
     assert len(llm_call_messages) == 1
-    # The run input lands after the original user message as a separate
-    # ``user`` entry and precedes any assistant response, ready for the next
-    # LLM call.
-    contents = [(m.get("role"), m.get("content")) for m in llm_call_messages[0]]
+    # The run-local working context stays distinct from both user-authored
+    # messages. The injected input follows the original user message and
+    # precedes any assistant response, ready for the next LLM call.
+    call_messages = llm_call_messages[0]
+    assert is_working_context_message(call_messages[0])
+    contents = [(m.get("role"), m.get("content")) for m in call_messages[1:]]
     assert contents == [
         ("user", "Write a sorting example."),
         ("user", "use Python, not JavaScript"),
@@ -270,9 +273,10 @@ async def test_execute_with_tools_detach_before_first_llm_call(monkeypatch) -> N
     assert outcome.status == "detached"
     assert outcome.iterations == 0
     assert outcome.snapshot is not None
-    # The seeded user message is preserved so the background worker can
-    # start from scratch but with the correct goal.
-    assert outcome.snapshot.messages == [{"role": "user", "content": "hi"}]
+    # The seeded user message and run-local working context are preserved so
+    # the background worker resumes the same run contract and goal.
+    assert is_working_context_message(outcome.snapshot.messages[0])
+    assert outcome.snapshot.messages[1:] == [{"role": "user", "content": "hi"}]
     assert outcome.snapshot.reason == "pre_flight"
 
 

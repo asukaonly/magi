@@ -65,10 +65,10 @@ class PromptServiceProtocol(Protocol):
     ) -> "AsyncIterator[LLMStreamEvent]":
         ...
 
-    def augment_system_prompt_with_reply_context(
+    def augment_working_context_with_reply_context(
         self,
         *,
-        system_prompt: str,
+        working_context: str,
         reply_context: "ChatReplyContext | None",
         recent_tool_state: list[dict[str, Any]] | None = None,
     ) -> str:

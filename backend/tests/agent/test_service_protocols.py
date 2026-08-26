@@ -29,7 +29,7 @@ class TestPromptServiceProtocol(unittest.TestCase):
         expected = {
             "call_llm",
             "call_llm_stream",
-            "augment_system_prompt_with_reply_context",
+            "augment_working_context_with_reply_context",
         }
         members = {
             name

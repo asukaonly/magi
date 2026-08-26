@@ -297,10 +297,11 @@ def test_post_preview_restores_masked_llm_override_before_resolving_deps(
 
 
 def _capture_prompt_app(captured: dict) -> FastAPI:
-    """Build a preview app whose fake LLM records the system prompt it gets."""
+    """Build a preview app whose fake LLM records its provider inputs."""
 
     async def fake_llm(*, system_prompt, messages, model):
         captured["system_prompt"] = system_prompt
+        captured["messages"] = messages
         yield "ok"
 
     def fake_loader(seed_slug: str, locale: str) -> PersonalityConfig:
@@ -321,7 +322,7 @@ def _capture_prompt_app(captured: dict) -> FastAPI:
 
 def test_post_preview_accepts_complete_persona_override() -> None:
     """An unsaved persona uses the normal prompt with its complete behavior config."""
-    captured: dict[str, str] = {}
+    captured: dict = {}
     client = TestClient(_capture_prompt_app(captured))
     with client.stream(
         "POST",
@@ -354,19 +355,25 @@ def test_post_preview_accepts_complete_persona_override() -> None:
         b"".join(response.iter_bytes())
 
     prompt = captured["system_prompt"]
+    working_context = next(
+        message["content"]
+        for message in captured["messages"]
+        if str(message.get("content") or "").startswith("<working_context>")
+    )
     # The complete override (not the seed loader) supplied the normal prompt.
     assert "# System Definition" in prompt
     assert "# Persona Runtime Plan" in prompt
-    assert "# Persona Turn Steer" in prompt
+    assert "# Persona Turn Steer" not in prompt
+    assert "# Persona Turn Steer" in working_context
     assert "Aria" in prompt
     assert "a calm, curious companion" in prompt
     assert "short and warm" in prompt
-    assert "Use short sentences and quick particles." in prompt
-    assert "[User: hello]" in prompt
+    assert "Use short sentences and quick particles." in working_context
+    assert "[User: hello]" in working_context
     assert "Most replies are 1-3 lines." in prompt
-    assert "# Tool Use Guidance" not in prompt
-    assert "Persona preview scene" not in prompt
-    assert "seed prompt" not in prompt
+    assert "# Tool Use Guidance" not in working_context
+    assert "Persona preview scene" not in working_context
+    assert "seed prompt" not in working_context
 
 
 class _FakeBridge:
@@ -427,28 +434,31 @@ def test_resolve_persona_config_reads_locale_preset() -> None:
 async def test_seed_preview_uses_normal_first_chat_prompt() -> None:
     """Bundled personas use normal identity, planner, examples, and empty context."""
     from magi.api.routers.chat_preview_routes import _resolve_persona_config
-    from magi.chat_preview import build_preview_system_prompt
+    from magi.chat_preview import build_preview_prompt_package
 
     config = _resolve_persona_config("seven_hacker", "zh")
-    prompt = await build_preview_system_prompt(
+    package = await build_preview_prompt_package(
         persona_config=config,
         user_message="第一次见面，你会怎么和我相处？",
     )
+    stable_prompt = package.system_prompt
+    working_context = package.working_context
 
-    assert "# System Definition" in prompt
-    assert "# Persona Runtime Plan" in prompt
-    assert "# Persona Turn Steer" in prompt
-    assert "Most replies are 1-3 lines." in prompt
-    assert "默认 1-3 句" in prompt
-    assert "不用bullet list处理日常对话" in prompt
-    assert "## Relevant Persona Examples" in prompt
-    assert "* Good:" in prompt
-    assert "# Memory Library" in prompt
-    assert "* (empty)" in prompt
-    assert "# Tool Use Guidance" not in prompt
-    assert "Persona preview scene" not in prompt
-    assert "seven_guard_down" not in prompt
-    assert "当场认大哥" not in prompt
+    assert "# System Definition" in stable_prompt
+    assert "# Persona Runtime Plan" in stable_prompt
+    assert "# Persona Turn Steer" not in stable_prompt
+    assert "# Persona Turn Steer" in working_context
+    assert "Most replies are 1-3 lines." in stable_prompt
+    assert "默认 1-3 句" in working_context
+    assert "不用bullet list处理日常对话" in stable_prompt
+    assert "## Relevant Persona Examples" in working_context
+    assert "* Good:" in working_context
+    assert "# Memory Library" in working_context
+    assert "* (empty)" in working_context
+    assert "# Tool Use Guidance" not in working_context
+    assert "Persona preview scene" not in working_context
+    assert "seven_guard_down" not in working_context
+    assert "当场认大哥" not in working_context
 
 
 def test_resolve_persona_config_unknown_seed_raises() -> None:

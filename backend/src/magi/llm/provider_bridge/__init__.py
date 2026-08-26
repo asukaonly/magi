@@ -202,6 +202,7 @@ class LLMProviderBridge:
         event_context = self._plain_chat_event_context(
             event_context,
             system_prompt=system_prompt,
+            messages=messages,
             cache_system=cache_system,
         )
         started_at = time.time()
@@ -241,7 +242,12 @@ class LLMProviderBridge:
     ) -> ProviderResponse:
         """Unified tool-calling chat call."""
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
-        event_context = self._tool_event_context(event_context, system_prompt, tools)
+        event_context = self._tool_event_context(
+            event_context,
+            system_prompt,
+            tools,
+            messages,
+        )
         started_at = time.time()
         try:
             if self._should_fallback_to_chat_response():
@@ -283,11 +289,13 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]],
         system_prompt: str,
         tools: List[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         return self._operations._with_cache_observation(
             event_context,
             system_prompt=system_prompt,
             tools=tools,
+            messages=messages,
         )
 
     def _plain_chat_event_context(
@@ -295,12 +303,14 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]],
         *,
         system_prompt: str,
+        messages: List[Dict[str, Any]],
         cache_system: bool,
     ) -> Optional[Dict[str, Any]]:
         return self._operations._with_cache_observation(
             event_context,
             system_prompt=system_prompt,
             tools=[],
+            messages=messages,
             cache_whole_system=cache_system,
         )
 
@@ -493,7 +503,12 @@ class LLMProviderBridge:
         response.
         """
         depth = _coerce_thinking_depth(thinking_depth, None)
-        event_context = self._tool_event_context(event_context, system_prompt, tools)
+        event_context = self._tool_event_context(
+            event_context,
+            system_prompt,
+            tools,
+            messages,
+        )
         started_at = time.time()
         try:
             result = await self._run_chat_with_tools_stream(

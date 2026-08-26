@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Optional, Protocol, cast
 
 from ...i18n import llm_language_label
+from ...utils.calendar_timezone import local_calendar_timezone_id
 from ...utils.runtime import get_default_chat_workspace_path
 from .child_preset import (
     ChildRunPreset,
@@ -121,14 +122,16 @@ class WorkerPromptMixin:
     def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
         workspace_root = self._resolve_execution_workspace(execution_workspace)
         home_dir = os.path.realpath(os.path.expanduser("~"))
-        current_time = datetime.now().astimezone().isoformat(timespec="seconds")
+        now = datetime.now().astimezone()
         return "\n".join(
             [
                 "Execution environment:",
                 f"- Workspace root: {workspace_root}",
                 f"- Home directory: {home_dir}",
                 f"- Operating system: {platform.system()} {platform.release()}",
-                f"- Current local time: {current_time}",
+                f"- Local date: {now.date().isoformat()}",
+                f"- Timezone: {local_calendar_timezone_id() or str(now.tzinfo or 'unknown')}",
+                "- Use the current_time tool when exact wall-clock time matters.",
                 "- Prefer paths under the workspace root unless the objective explicitly requires another location.",
             ]
         )

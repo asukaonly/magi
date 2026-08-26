@@ -39,7 +39,7 @@ def _context(
         ),
         profile_memory=ProfileMemoryContext(user_id="u1"),
         runtime_system=RuntimeSystemContext(
-            current_time_iso="2026-01-01T00:00:00",
+            current_date="2026-01-01",
             timezone="UTC",
             os_name="Darwin",
             os_version="24.0",
@@ -65,10 +65,12 @@ def _set_rhythm(monkeypatch, *, on: bool = True) -> None:
 def test_segmentation_protocol_is_above_cache_boundary_and_stable(monkeypatch) -> None:
     _set_rhythm(monkeypatch)
     renderer = PromptContextRenderer()
-    chat_prompt = renderer.render_system_prompt(_context(register="chat", chattiness=0.9))
-    task_prompt = renderer.render_system_prompt(
+    chat_prompt = renderer.render_prompt_layers(
+        _context(register="chat", chattiness=0.9)
+    ).system_prompt
+    task_prompt = renderer.render_prompt_layers(
         _context(register="task", chattiness=0.1, persona_name="Other")
-    )
+    ).system_prompt
 
     assert "# Reply Segmentation Protocol" in chat_prompt
     assert "‖" in chat_prompt
@@ -82,28 +84,35 @@ def test_segmentation_protocol_is_above_cache_boundary_and_stable(monkeypatch) -
     assert protocol_section(chat_prompt) == protocol_section(task_prompt)
 
 
-def test_reply_pacing_is_below_cache_boundary_and_persona_aware(monkeypatch) -> None:
+def test_reply_pacing_is_in_working_context_and_persona_aware(monkeypatch) -> None:
     _set_rhythm(monkeypatch)
     renderer = PromptContextRenderer()
-    chatty_prompt = renderer.render_system_prompt(_context(register="chat", chattiness=0.85))
+    chatty_layers = renderer.render_prompt_layers(
+        _context(register="chat", chattiness=0.85)
+    )
+    chatty_prompt = chatty_layers.working_context
     assert "## Reply Pacing" in chatty_prompt
-    assert chatty_prompt.index("## Reply Pacing") > chatty_prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert "## Reply Pacing" not in chatty_layers.system_prompt
     assert "2-6 short bubbles" in chatty_prompt
 
-    serious_prompt = renderer.render_system_prompt(
+    serious_prompt = renderer.render_prompt_layers(
         _context(register="crisis", chattiness=0.9, persona_intensity=0)
-    )
+    ).working_context
     serious_pacing = serious_prompt[serious_prompt.index("## Reply Pacing"):]
     assert "one message" in serious_pacing
 
-    reserved_prompt = renderer.render_system_prompt(_context(register="chat", chattiness=0.3))
+    reserved_prompt = renderer.render_prompt_layers(
+        _context(register="chat", chattiness=0.3)
+    ).working_context
     reserved_pacing = reserved_prompt[reserved_prompt.index("## Reply Pacing"):]
     assert "only split" in reserved_pacing
 
 
 def test_segmentation_blocks_absent_when_rhythm_disabled(monkeypatch) -> None:
     _set_rhythm(monkeypatch, on=False)
-    prompt = PromptContextRenderer().render_system_prompt(_context(register="chat", chattiness=0.9))
+    layers = PromptContextRenderer().render_prompt_layers(
+        _context(register="chat", chattiness=0.9)
+    )
 
-    assert "# Reply Segmentation Protocol" not in prompt
-    assert "## Reply Pacing" not in prompt
+    assert "# Reply Segmentation Protocol" not in layers.system_prompt
+    assert "## Reply Pacing" not in layers.working_context

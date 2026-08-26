@@ -101,7 +101,8 @@ async def _render_seven_prompt(
         persona_name="seven_hacker",
         user_message=user_message,
     )
-    return PromptContextRenderer().render_system_prompt(context)
+    layers = PromptContextRenderer().render_prompt_layers(context)
+    return f"{layers.system_prompt}\n{layers.working_context}"
 
 
 async def _render_persona_prompt(
@@ -130,7 +131,8 @@ async def _render_persona_prompt(
         persona_name=persona_name,
         user_message=user_message,
     )
-    return PromptContextRenderer().render_system_prompt(context)
+    layers = PromptContextRenderer().render_prompt_layers(context)
+    return f"{layers.system_prompt}\n{layers.working_context}"
 
 
 @pytest.mark.asyncio

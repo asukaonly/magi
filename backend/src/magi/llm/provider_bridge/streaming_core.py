@@ -113,6 +113,7 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
         *,
         system_prompt: str,
         tools: list[dict[str, Any]] | None,
+        messages: list[dict[str, Any]] | None = None,
         cache_whole_system: bool = False,
     ) -> dict[str, Any] | None: ...
 

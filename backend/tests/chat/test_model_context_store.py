@@ -61,8 +61,8 @@ async def test_append_and_load_model_context(tmp_path) -> None:
         items=(
             _item(
                 "user",
-                "<turn_context>snapshot</turn_context>",
-                kind=ModelContextItemKind.TURN_CONTEXT,
+                "<runtime_world_state>snapshot</runtime_world_state>",
+                kind=ModelContextItemKind.RUNTIME_WORLD_STATE,
             ),
             _item("user", "hello"),
         ),
@@ -75,11 +75,14 @@ async def test_append_and_load_model_context(tmp_path) -> None:
     assert snapshot.revision == 1
     assert snapshot.accepted_revision == 1
     assert [item.kind for item in snapshot.items] == [
-        ModelContextItemKind.TURN_CONTEXT,
+        ModelContextItemKind.RUNTIME_WORLD_STATE,
         ModelContextItemKind.USER_MESSAGE,
     ]
     assert snapshot.to_prompt_messages() == [
-        {"role": "user", "content": "<turn_context>snapshot</turn_context>"},
+        {
+            "role": "user",
+            "content": "<runtime_world_state>snapshot</runtime_world_state>",
+        },
         {"role": "user", "content": "hello"},
     ]
     assert {event.turn_id for event in snapshot.events} == {"turn-1"}
@@ -213,8 +216,27 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
         session_id="session-1",
         items=(
             ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "<runtime_world_state>old</runtime_world_state>"},
+                source="runtime_world_state",
+                kind=ModelContextItemKind.RUNTIME_WORLD_STATE,
+                scope=ModelContextScope.SESSION,
+            ),
+            ModelContextItem.from_prompt_message(
                 {"role": "user", "content": "solve this"},
                 source="user",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "<runtime_world_state>new</runtime_world_state>"},
+                source="runtime_world_state",
+                kind=ModelContextItemKind.RUNTIME_WORLD_STATE,
+                scope=ModelContextScope.SESSION,
+            ),
+            ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "<working_context>recall</working_context>"},
+                source="context_assembly",
+                kind=ModelContextItemKind.WORKING_CONTEXT,
+                scope=ModelContextScope.RUN,
                 metadata={"origin_turn_id": "turn-1"},
             ),
             ModelContextItem.from_prompt_message(
@@ -273,6 +295,7 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
     assert accepted.accepted_revision == accepted.revision
     assert [message["content"] for message in accepted.to_prompt_messages()] == [
         "solve this",
+        "<runtime_world_state>new</runtime_world_state>",
         "[Runtime validation] retry",
         "accepted answer",
     ]

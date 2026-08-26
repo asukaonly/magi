@@ -14,7 +14,10 @@ from magi.chat.model_context import (
 )
 from magi.chat.store import ChatStore
 from magi.core.logger import get_logger
-from magi.utils.model_context_messages import is_turn_context_message
+from magi.utils.model_context_messages import (
+    is_runtime_world_state_message,
+    is_working_context_message,
+)
 
 logger = get_logger(__name__)
 
@@ -178,11 +181,17 @@ def _message_key(message: Mapping[str, Any]) -> str:
 def _classify_runtime_message(
     message: dict[str, Any],
 ) -> tuple[ModelContextItemKind, str, ModelContextScope]:
-    if is_turn_context_message(message):
+    if is_runtime_world_state_message(message):
         return (
-            ModelContextItemKind.TURN_CONTEXT,
+            ModelContextItemKind.RUNTIME_WORLD_STATE,
+            "runtime_world_state",
+            ModelContextScope.SESSION,
+        )
+    if is_working_context_message(message):
+        return (
+            ModelContextItemKind.WORKING_CONTEXT,
             "context_assembly",
-            ModelContextScope.TURN,
+            ModelContextScope.RUN,
         )
     role = str(message.get("role") or "").strip()
     text = _message_text(message)

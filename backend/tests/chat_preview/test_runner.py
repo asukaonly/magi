@@ -6,7 +6,7 @@ The runner MUST:
 - Skip the memory pipeline entirely
 - Skip auxiliary model calls
 - Stream output tokens via an async generator
-- Build the system prompt from the caller-supplied persona preview prompt
+- Preserve caller-supplied stable and dynamic prompt layers
 """
 
 from __future__ import annotations
@@ -23,21 +23,11 @@ from magi.chat_preview.runner import (
 
 
 @pytest.fixture
-def fake_persona_loader():
-    """Provides a callable load_persona_prompt(seed_slug) -> str."""
-
-    def loader(seed_slug: str) -> str:
-        return f"<system prompt for {seed_slug}>"
-
-    return loader
-
-
-@pytest.fixture
 def fake_llm_call():
     """An async iterator that yields chunks 'hello', ' ', 'world'."""
 
     async def call(*, system_prompt: str, messages: list, model: str) -> AsyncIterator[str]:
-        assert system_prompt.startswith("<system prompt for ")
+        assert system_prompt == "<stable system prompt>"
         assert messages[-1]["content"] == "hi"
         assert model == "gpt-4o"  # the configured `core` model in the test
         for chunk in ["hello", " ", "world"]:
@@ -46,24 +36,22 @@ def fake_llm_call():
     return call
 
 
-async def test_run_preview_streams_chunks_from_core_model(
-    fake_persona_loader, fake_llm_call
-) -> None:
+async def test_run_preview_streams_chunks_from_core_model(fake_llm_call) -> None:
     chunks: list[str] = []
     async for chunk in run_preview(
         PreviewMode(seed_slug="nova", core_model="gpt-4o"),
         history=[],
         message=PreviewMessage(role="user", content="hi"),
-        load_persona_prompt=fake_persona_loader,
+        system_prompt="<stable system prompt>",
+        runtime_world_state="Local date: 2026-08-26",
+        working_context="Persona turn steer",
         invoke_llm=fake_llm_call,
     ):
         chunks.append(chunk)
     assert "".join(chunks) == "hello world"
 
 
-async def test_run_preview_includes_prior_history(
-    fake_persona_loader,
-) -> None:
+async def test_run_preview_includes_prior_history_and_runtime_layers() -> None:
     captured_messages: list = []
 
     async def capture_call(*, system_prompt, messages, model):
@@ -78,38 +66,29 @@ async def test_run_preview_includes_prior_history(
             PreviewMessage(role="assistant", content="earlier reply"),
         ],
         message=PreviewMessage(role="user", content="latest"),
-        load_persona_prompt=fake_persona_loader,
+        system_prompt="<stable system prompt>",
+        runtime_world_state="Local date: 2026-08-26",
+        working_context="Persona turn steer",
         invoke_llm=capture_call,
     ):
         pass
 
-    # History + new user message, in order
-    assert [m["role"] for m in captured_messages] == ["user", "assistant", "user"]
+    # Accepted history, runtime-owned layers, then the new user message.
+    assert [m["role"] for m in captured_messages] == [
+        "user",
+        "assistant",
+        "user",
+        "user",
+        "user",
+    ]
     assert captured_messages[0]["content"] == "earlier user msg"
+    assert captured_messages[2]["content"].startswith("<runtime_world_state>")
+    assert captured_messages[3]["content"].startswith("<working_context>")
     assert captured_messages[-1]["content"] == "latest"
 
 
-async def test_run_preview_rejects_unknown_seed(fake_llm_call) -> None:
-    def loader(seed_slug: str) -> str:
-        raise ValueError(f"unknown seed: {seed_slug}")
-
-    with pytest.raises(ValueError, match="unknown seed"):
-        async for _ in run_preview(
-            PreviewMode(seed_slug="ghost", core_model="gpt-4o"),
-            history=[],
-            message=PreviewMessage(role="user", content="hi"),
-            load_persona_prompt=loader,
-            invoke_llm=fake_llm_call,
-        ):
-            pass
-
-
-async def test_run_preview_never_invokes_tools_or_memory(
-    fake_persona_loader, fake_llm_call
-) -> None:
-    """Smoke check: runner signature accepts ONLY persona loader + llm call.
-    There must be no tool registry, no memory store, no context decider
-    parameters threaded through."""
+async def test_run_preview_never_invokes_tools_or_memory() -> None:
+    """The preview runner has no tool, memory-store, or router dependency."""
     import inspect
 
     sig = inspect.signature(run_preview)

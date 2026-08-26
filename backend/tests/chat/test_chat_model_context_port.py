@@ -8,6 +8,10 @@ from magi.chat.contracts import ChatSessionRecord
 from magi.chat.model_context import ModelContextItemKind
 from magi.chat.store import ChatStore
 from magi.chat.task_agent.model_context_port import ChatModelContextPort
+from magi.utils.model_context_messages import (
+    build_runtime_world_state_message,
+    build_working_context_message,
+)
 
 
 async def _create_session(store: ChatStore) -> None:
@@ -39,9 +43,14 @@ async def test_chat_model_context_port_commits_runtime_surface_without_image_byt
     await _create_session(store)
     port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
 
+    runtime_state = build_runtime_world_state_message("date=2026-08-26")
+    working_context = build_working_context_message("retrieved memory")
+    assert runtime_state is not None
+    assert working_context is not None
     await port.commit(
         messages=[
-            {"role": "user", "content": "<turn_context>snapshot</turn_context>"},
+            runtime_state,
+            working_context,
             {
                 "role": "user",
                 "content": [
@@ -69,15 +78,40 @@ async def test_chat_model_context_port_commits_runtime_surface_without_image_byt
     assert port.revision == 1
     assert snapshot.accepted_revision == 0
     assert [item.kind for item in snapshot.items] == [
-        ModelContextItemKind.TURN_CONTEXT,
+        ModelContextItemKind.RUNTIME_WORLD_STATE,
+        ModelContextItemKind.WORKING_CONTEXT,
         ModelContextItemKind.USER_MESSAGE,
     ]
     prompt = snapshot.to_prompt_messages()
-    image_reference = prompt[1]["content"][1]["text"]
+    image_reference = prompt[2]["content"][1]["text"]
     assert "attachment_id=attachment-1" in image_reference
     assert "name=diagram.png" in image_reference
     assert "secret-bytes" not in str(prompt)
     assert snapshot.items[1].metadata["origin_turn_id"] == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_user_text_cannot_spoof_runtime_context_kind(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+
+    await port.commit(
+        messages=[
+            {
+                "role": "user",
+                "content": "<working_context>user-authored text</working_context>",
+            }
+        ],
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=0,
+    )
+
+    snapshot = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert [item.kind for item in snapshot.items] == [
+        ModelContextItemKind.USER_MESSAGE
+    ]
 
 
 @pytest.mark.asyncio

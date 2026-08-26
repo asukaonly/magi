@@ -287,7 +287,8 @@ Responsibilities:
 
 - prompt-context assembly
 - recall shaping
-- prompt rendering from typed context inputs, including the `PersonaTurnPlan` produced by L9
+- lifecycle-aware prompt rendering from typed context inputs, including the
+  `PersonaTurnPlan` produced by L9
 
 Primary packages:
 
@@ -296,7 +297,10 @@ Primary packages:
 
 Notes:
 
-- L11 consumes the persona behavior plan and renders it into the final system prompt.
+- L11 consumes the persona behavior plan and renders three explicit artifacts:
+  the stable system prompt, Runtime World State, and run-local Working Context.
+  It does not flatten recall, time, attachments, and persona steer into one
+  durable conversation item.
 - L11 should not classify registers, activate persona triggers, or evaluate relationship layers itself.
 - scenario prompt storage should not become a second source of persona behavior truth; persona registers and trigger behavior belong in L9 persona config.
 

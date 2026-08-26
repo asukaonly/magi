@@ -121,7 +121,6 @@ def build_default_chat_preview_router(
                 persona_config=persona_config,
                 user_message=request.message.content,
             )
-            system_prompt = prompt_package.system_prompt
             persona_rhythm = extract_persona_rhythm(prompt_package.prompt_context)
 
             llm_override = _normalize_llm_override(request.llm_override)
@@ -140,9 +139,9 @@ def build_default_chat_preview_router(
             message=PreviewMessage(
                 role=request.message.role, content=request.message.content
             ),
-            # The prompt is already resolved; run_preview just needs a
-            # zero-cost provider for it.
-            load_persona_prompt=lambda _slug: system_prompt,
+            system_prompt=prompt_package.system_prompt,
+            runtime_world_state=prompt_package.runtime_world_state,
+            working_context=prompt_package.working_context,
             invoke_llm=llm_call,
         ):
             chunks.append(chunk)

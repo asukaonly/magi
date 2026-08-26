@@ -155,6 +155,8 @@ class FunctionCallingLoopRunner:
                 session_summary=run_input.session_summary,
                 session_origin=run_input.session_origin,
                 reply_context=run_input.reply_context,
+                runtime_world_state=run_input.runtime_world_state,
+                working_context=run_input.working_context,
                 ephemeral_context=run_input.ephemeral_context,
                 current_turn_in_model_context=(
                     run_input.current_turn_in_model_context

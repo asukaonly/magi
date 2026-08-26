@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -16,6 +17,15 @@ from .schema import (
     RuntimeSystemContext,
     ToolCatalogContext,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedPromptLayers:
+    """Prompt text split by lifecycle before provider projection."""
+
+    system_prompt: str
+    runtime_world_state: str
+    working_context: str
 
 
 def _conversation_rhythm_enabled() -> bool:
@@ -37,14 +47,16 @@ def _conversation_rhythm_enabled() -> bool:
 
 
 class PromptContextRenderer:
-    """Renders modular prompt contexts into final system prompt text."""
+    """Render stable, world-state, and run-working prompt layers."""
 
-    def render_system_prompt(
+    def render_prompt_layers(
         self, context: PromptAssemblyContext, *, include_tool_catalog: bool = True
-    ) -> str:
-        lines: List[str] = []
+    ) -> RenderedPromptLayers:
+        """Render prompt sources according to their actual lifecycle."""
 
-        lines.extend(
+        system_lines: List[str] = []
+
+        system_lines.extend(
             [
                 "# System Definition",
                 context.identity_constraints.system_definition,
@@ -55,27 +67,16 @@ class PromptContextRenderer:
             ]
         )
 
-        # Only the byte-stable persona DEFINITION (identity + baseline voice)
-        # joins the cached head. Per-turn steer (register / modulation /
-        # relationship layer / examples) and selected tools are recomputed by
-        # PersonaTurnPlanner and capability resolution — keeping either above the
-        # boundary invalidated the cached prefix when it changed. They are
-        # rendered below the boundary so the bridge moves them into the
-        # per-turn message tail (#100/P2a).
-        lines.extend(self._render_persona_identity(context.self_memory.persona_turn_plan))
-        lines.extend(self._render_segmentation_protocol())
+        system_lines.extend(
+            self._render_persona_identity(context.self_memory.persona_turn_plan)
+        )
+        system_lines.extend(self._render_segmentation_protocol())
+        system_lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
 
-        # Cache boundary: identity + persona definition + reply-segmentation
-        # protocol above is the stable head; the per-turn blocks below (persona
-        # turn steer / reply pacing / selected tools / memory / profile /
-        # runtime+time / attachments) are moved OUT of the system prompt into the
-        # message stream by the provider bridge (#100/P2a), so the system head +
-        # conversation history stay a byte-stable, cacheable prefix. The marker
-        # is stripped before sending so it never reaches the model.
-        lines.append(SYSTEM_PROMPT_CACHE_BOUNDARY)
-
-        # Per-turn dynamic blocks — moved to the message tail by the bridge.
-        lines.extend(self._render_persona_turn_steer(context.self_memory.persona_turn_plan))
+        working_lines: List[str] = []
+        working_lines.extend(
+            self._render_persona_turn_steer(context.self_memory.persona_turn_plan)
+        )
         if include_tool_catalog:
             # Tool definitions live in the provider tools parameter. Prompt text
             # carries only turn-level strategy, and emotional / crisis registers
@@ -86,19 +87,28 @@ class PromptContextRenderer:
                 else None
             )
             suppress_tool_imperatives = register in {"emotional", "crisis"}
-            lines.extend(
+            working_lines.extend(
                 self._render_tool_catalog(
                     context.tool_catalog,
                     suppress_imperatives=suppress_tool_imperatives,
                 )
             )
-        lines.extend(self._render_persona_journal(context.self_memory.persona_journal_entries))
-        lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
-        lines.extend(self._render_profile_memory(context.profile_memory))
-        lines.extend(self._render_runtime_system(context.runtime_system))
-        lines.extend(self._render_active_attachments(context.runtime_system.active_attachments))
+        working_lines.extend(
+            self._render_persona_journal(context.self_memory.persona_journal_entries)
+        )
+        working_lines.extend(self._render_memory_library(context.self_memory.retrieval_memory))
+        working_lines.extend(self._render_profile_memory(context.profile_memory))
+        working_lines.extend(
+            self._render_active_attachments(context.runtime_system.active_attachments)
+        )
 
-        return "\n".join(lines).strip()
+        return RenderedPromptLayers(
+            system_prompt="\n".join(system_lines).strip(),
+            runtime_world_state="\n".join(
+                self._render_runtime_system(context.runtime_system)
+            ).strip(),
+            working_context="\n".join(working_lines).strip(),
+        )
 
     def _render_persona_identity(self, plan: PersonaTurnPlan | None) -> List[str]:
         """Render the byte-stable persona definition (Identity Core + Baseline
@@ -566,8 +576,9 @@ class PromptContextRenderer:
 
     def _render_runtime_system(self, runtime: RuntimeSystemContext) -> List[str]:
         """Render runtime system as markdown."""
-        lines = ["# System Information"]
-        lines.append(f"* Time: {runtime.current_time_iso} ({runtime.timezone})")
+        lines = ["# Runtime World State"]
+        lines.append(f"* Local Date: {runtime.current_date}")
+        lines.append(f"* Timezone: {runtime.timezone}")
         lines.append(f"* OS: {runtime.os_name} {runtime.os_version}")
         lines.append(f"* Working Directory: {runtime.cwd}")
         lines.append(f"* Agent: {runtime.agent_id} (type: {runtime.agent_type})")
@@ -679,4 +690,4 @@ class PromptContextRenderer:
         return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-__all__ = ["PromptContextRenderer"]
+__all__ = ["PromptContextRenderer", "RenderedPromptLayers"]

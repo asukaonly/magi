@@ -54,16 +54,4 @@ async def build_preview_prompt_package(
     )
 
 
-async def build_preview_system_prompt(
-    *,
-    persona_config: PersonalityConfig,
-    user_message: str,
-) -> str:
-    package = await build_preview_prompt_package(
-        persona_config=persona_config,
-        user_message=user_message,
-    )
-    return package.system_prompt
-
-
-__all__ = ["build_preview_prompt_package", "build_preview_system_prompt"]
+__all__ = ["build_preview_prompt_package"]

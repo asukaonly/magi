@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
+from ....utils.model_context_messages import build_working_context_message
 from ...asset_refs import normalize_asset_ref_payload
 from .types import ToolCallResult
 
@@ -18,9 +18,9 @@ class FunctionCallingResponseMixin:
     _PARENT_CONTEXT_MAX_CHARS: int
     _current_messages: list[dict[str, Any]]
 
-    def _augment_system_prompt(self, system_prompt: str) -> str:
-        guidance = (
-            "\n\nExecution-phase expression rule:\n"
+    def _build_execution_guidance(self) -> str:
+        return (
+            "Execution-phase expression rule:\n"
             "- Once tool execution begins, keep subsequent decisions and synthesis focused, "
             "concrete, and evidence-led. Personality may shape phrasing but must not weaken "
             "task progress, validation, or factual precision."
@@ -43,28 +43,16 @@ class FunctionCallingResponseMixin:
             "- Always pass current_tools with the tools already available in this turn.\n"
             "- After a successful find-relevant-tools call, use newly recommended tools only "
             "if they directly close that gap."
-        )
-        if guidance.strip() in system_prompt:
-            return system_prompt
-        return f"{system_prompt}{guidance}"
+        ).strip()
 
-    def _build_final_response_system_prompt(
+    def _build_final_response_guidance(
         self,
-        system_prompt: str,
+        messages: list[dict[str, Any]],
         *,
-        strict_plain_text: bool = False,
+        force_plain_text: bool = False,
     ) -> str:
-        """Strip tool-oriented guidance and replace it with final-answer-only rules."""
-        prompt = re.split(
-            r"(?:^|\n)# Tool (?:Information|Use Guidance)\b",
-            system_prompt,
-            maxsplit=1,
-        )[0]
-        prompt = re.split(
-            r"\nExecution-phase expression rule:\n|\nTool recovery rules:\n",
-            prompt,
-            maxsplit=1,
-        )[0].rstrip()
+        """Build run-local finalization rules without mutating the system prompt."""
+
         rules = [
             "Final Response Rules:",
             "- Tools are no longer available in this step.",
@@ -76,14 +64,14 @@ class FunctionCallingResponseMixin:
             "- If a dry-run reports zero planned operations, do not tell the user to run the script unless later evidence proves work is still pending; explain whether the current state already appears complete or the script failed to match.",
             "- Return natural language only.",
         ]
-        if strict_plain_text:
+        if force_plain_text:
             rules.extend(
                 [
                     "- Do not ask to keep searching or mention missing tools.",
                     "- If evidence is incomplete, clearly state the limitation and still answer with the strongest grounded explanation you can.",
                 ]
             )
-        if "memory_query" in system_prompt or "# Memory Query Guidance" in system_prompt:
+        if self._messages_include_memory_query_guidance(messages):
             rules.extend(
                 [
                     "- Treat memory_query results as the source of truth for historical recall in this turn.",
@@ -92,7 +80,17 @@ class FunctionCallingResponseMixin:
                     "- Persona or tone may change phrasing, but must not broaden or distort memory evidence.",
                 ]
             )
-        return f"{prompt}\n\n" + "\n".join(rules)
+        reminder = (
+            "This is the final retry. Write the answer in plain natural language only. "
+            "Do not call tools, do not output <tool_call>, and do not output JSON."
+            if force_plain_text
+            else (
+                "Use the gathered evidence and write the final answer now. "
+                "Prefer the latest successful verification/listing result when describing "
+                "current state. Do not call tools or output any tool markup."
+            )
+        )
+        return "\n".join([*rules, "", reminder])
 
     def _build_final_response_messages(
         self,
@@ -100,20 +98,28 @@ class FunctionCallingResponseMixin:
         *,
         force_plain_text: bool = False,
     ) -> list[dict[str, Any]]:
-        """Clone messages and append a final plain-text-only instruction."""
+        """Clone messages and append typed run-local finalization guidance."""
+
         final_messages = [dict(message) for message in messages]
-        reminder = (
-            "Use the gathered evidence and write the final answer now. "
-            "Prefer the latest successful verification/listing result when describing current state. "
-            "Do not call tools or output any tool markup."
-        )
-        if force_plain_text:
-            reminder = (
-                "This is the final retry. Write the answer in plain natural language only. "
-                "Do not call tools, do not output <tool_call>, and do not output JSON."
+        finalization_message = build_working_context_message(
+            self._build_final_response_guidance(
+                messages,
+                force_plain_text=force_plain_text,
             )
-        final_messages.append({"role": "user", "content": reminder})
+        )
+        if finalization_message is not None:
+            final_messages.append(finalization_message)
         return final_messages
+
+    @staticmethod
+    def _messages_include_memory_query_guidance(
+        messages: list[dict[str, Any]],
+    ) -> bool:
+        for message in messages:
+            content = message.get("content")
+            if "# Memory Query Guidance" in str(content or ""):
+                return True
+        return False
 
     def _should_allow_replan_after_failed_iteration(
         self,

@@ -13,6 +13,10 @@ from typing import Any
 
 from ..config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ..config.models import ModelVendor
+from ..utils.model_context_messages import (
+    current_dynamic_context_messages,
+    strip_runtime_context_metadata,
+)
 
 _MARKER_VENDORS: frozenset[ModelVendor] = frozenset(
     {ModelVendor.ANTHROPIC, ModelVendor.DASHSCOPE}
@@ -85,19 +89,27 @@ def build_cache_observation(
     event_context: dict[str, Any] | None,
     cache_whole_system: bool,
     store_tool_names: bool,
+    messages: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build sanitized prompt-cache diagnostics for one provider request."""
 
     parts = _split_on_boundary(system_prompt)
     if parts is not None:
-        system_head, turn_context = parts
+        system_head, dynamic_context = parts
         explicit_system_marker = True
     elif cache_whole_system:
-        system_head, turn_context = system_prompt, ""
+        system_head, dynamic_context = system_prompt, ""
         explicit_system_marker = True
     else:
-        system_head, turn_context = system_prompt, ""
+        system_head, dynamic_context = system_prompt, ""
         explicit_system_marker = False
+
+    if not dynamic_context and messages:
+        dynamic_messages = current_dynamic_context_messages(messages)
+        if dynamic_messages:
+            dynamic_context = _canonical_json(
+                [strip_runtime_context_metadata(message) for message in dynamic_messages]
+            )
 
     tool_payload = tools or []
     tools_json = _canonical_json(tool_payload)
@@ -114,8 +126,8 @@ def build_cache_observation(
         "cache_eligible": strategy != "none",
         "system_head_hash": _hash_text(system_head),
         "system_head_chars": len(system_head),
-        "turn_context_hash": _hash_text(turn_context),
-        "turn_context_chars": len(turn_context),
+        "dynamic_context_hash": _hash_text(dynamic_context),
+        "dynamic_context_chars": len(dynamic_context),
         "tools_hash": _hash_text(tools_json),
         "tool_count": len(tool_payload),
         "tool_names": tool_names,

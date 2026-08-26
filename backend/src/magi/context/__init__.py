@@ -3,6 +3,7 @@
 from .assembler import PromptContextAssembler, PromptContextRenderer
 from .contracts import ContextPolicyDecision, PromptPackage
 from .policy import ContextPolicy
+from .renderer import RenderedPromptLayers
 from .retrieval import ContextRetrievalService
 from .service import ContextAssemblyService
 from .user_profile_service import UserProfileService
@@ -35,6 +36,7 @@ __all__ = [
     "PromptAssemblyContext",
     "PromptContextAssembler",
     "PromptContextRenderer",
+    "RenderedPromptLayers",
     "RetrievalMemoryContext",
     "RuntimeSystemContext",
     "Scenario",

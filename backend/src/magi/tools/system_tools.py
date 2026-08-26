@@ -10,17 +10,17 @@ schema is availability, not authorization; invocation still crosses capability,
 permission, effect, and budget guards.
 
 Residency is defined as: every tool in the ``control`` category, plus a small
-explicit allowlist of ``system``-category tools that are control-in-spirit
-(they change execution context) but are not categorised as
-``control``.
+explicit allowlist of ``system``-category tools that either change execution
+context or provide a small universal runtime fact on demand, but are not
+categorised as ``control``.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# Tools that behave like runtime-control (change execution context, discover
-# tools, or hand work off to a background orchestrator) and should be resident
-# even though they are not categorised as ``control``.
+# System tools that must remain reachable without semantic pre-routing. Most
+# change execution context, discover tools, or hand work off; ``current_time``
+# supplies exact wall-clock state that is intentionally absent from prompts.
 #
 # ``batch_create`` is the entry point for the deterministic batch orchestrator:
 # it changes the execution shape by spawning long-running background runs, the
@@ -35,6 +35,7 @@ _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "find-relevant-tools",
     "memory_query",
     "trace_query",
+    "current_time",
 )
 
 

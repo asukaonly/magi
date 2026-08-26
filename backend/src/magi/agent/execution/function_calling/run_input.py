@@ -39,6 +39,8 @@ class AgentRunRequest:
     session_summary: str | None = None
     session_origin: str | None = None
     reply_context: Any | None = None
+    runtime_world_state: str = ""
+    working_context: str = ""
     ephemeral_context: str | None = None
 
     max_iterations: int = DEFAULT_MAX_ITERATIONS
@@ -94,6 +96,8 @@ class AgentRunRequest:
         reasoning_state: ReasoningState | None = None,
         llm_timeout_seconds: float | None = None,
         final_response_json_mode: bool = False,
+        runtime_world_state: str = "",
+        working_context: str = "",
         ephemeral_context: str | None = None,
         context_sources: tuple[dict[str, Any], ...] = (),
         checkpoint: AgentRunCheckpoint | None = None,
@@ -126,6 +130,8 @@ class AgentRunRequest:
             reasoning_state=reasoning_state,
             llm_timeout_seconds=llm_timeout_seconds,
             final_response_json_mode=final_response_json_mode,
+            runtime_world_state=runtime_world_state,
+            working_context=working_context,
             ephemeral_context=ephemeral_context,
             context_sources=context_sources,
             run_plan_reader=run_plan_reader or NullRunPlanReader(),

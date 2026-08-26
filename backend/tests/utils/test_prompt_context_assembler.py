@@ -79,26 +79,23 @@ class TestPromptContextAssembler(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        prompt = renderer.render_system_prompt(assembled)
+        layers = renderer.render_prompt_layers(assembled)
 
-        i1 = prompt.find("# System Definition")
-        i2 = prompt.find("# Persona Runtime Plan")
-        i3 = prompt.find("# Profile Memory")
-        i4 = prompt.find("# System Information")
-        i5 = prompt.find("# Tool Use Guidance")
+        i_definition = layers.system_prompt.find("# System Definition")
+        i_persona = layers.system_prompt.find("# Persona Runtime Plan")
+        i_tools = layers.working_context.find("# Tool Use Guidance")
+        i_profile = layers.working_context.find("# Profile Memory")
 
-        self.assertTrue(i1 >= 0)
-        # Cache-prefix order: stable identity/persona definition first, then
-        # turn-level tool guidance before memory/runtime context.
-        self.assertTrue(i2 > i1)
-        self.assertTrue(i5 > i2)
-        self.assertTrue(i3 > i5)
-        self.assertTrue(i4 > i3)
-        self.assertNotIn("weather", prompt)
-        self.assertIn("* User Name: 哈基米", prompt)
-        self.assertIn("* Preferred Address: 哈基米", prompt)
-        self.assertIn("* Avoid Addressing As: 老师", prompt)
-        self.assertNotIn("### User Preferences", prompt)
+        self.assertTrue(i_definition >= 0)
+        self.assertTrue(i_persona > i_definition)
+        self.assertTrue(i_tools >= 0)
+        self.assertTrue(i_profile > i_tools)
+        self.assertIn("# Runtime World State", layers.runtime_world_state)
+        self.assertNotIn("weather", layers.working_context)
+        self.assertIn("* User Name: 哈基米", layers.working_context)
+        self.assertIn("* Preferred Address: 哈基米", layers.working_context)
+        self.assertIn("* Avoid Addressing As: 老师", layers.working_context)
+        self.assertNotIn("### User Preferences", layers.working_context)
         self.assertNotIn("user_preferences", assembled.self_memory.retrieval_memory.preference_memory)
 
     async def test_profile_emotion_mapping_uses_relationship_scores(self):

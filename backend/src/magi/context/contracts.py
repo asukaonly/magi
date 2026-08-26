@@ -21,6 +21,8 @@ class PromptPackage:
 
     prompt_context: Any
     system_prompt: str
+    runtime_world_state: str = ""
+    working_context: str = ""
     recent_tool_errors_block: str = ""
     memory_availability: str = "unknown"
     memory_retrieval_status: str = "unknown"

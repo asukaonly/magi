@@ -1,16 +1,15 @@
 """Unified prompt-cache layer: provider-capability-gated cache_control markers.
 
-Caching is a prefix match. The renderer marks the byte-stable head of the
-system prompt with ``SYSTEM_PROMPT_CACHE_BOUNDARY`` (identity and persona
-definition before it are stable across turns; selected tools, persona steer,
-memory, and runtime context after it vary per turn). Here we:
+Caching is a prefix match. The renderer marks the byte-stable system prompt
+with ``SYSTEM_PROMPT_CACHE_BOUNDARY`` after identity and persona definition.
+Runtime World State and Working Context are emitted later as typed messages.
+Here we:
 
 - gate by provider capability: only vendors whose wire API honors inline
   ``cache_control`` markers get them (Anthropic, Qwen/DashScope; others are
   automatic-only and must NOT receive markers — they'd be ignored or 400);
 - for marker vendors, place a single ``ephemeral`` breakpoint on the stable
-  head only (the dynamic tail stays unmarked so a per-turn change there never
-  invalidates the cached head);
+  head only;
 - always strip the internal boundary so it never reaches the model.
 
 Block format (``{"type":"text","text":...,"cache_control":{"type":"ephemeral"}}``)
@@ -21,8 +20,6 @@ system message content, so one helper serves both. See #110.
 from __future__ import annotations
 
 from typing import Any
-
-from ...utils.model_context_messages import is_turn_context_message
 
 from ...config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ...config.models import ModelVendor
@@ -96,9 +93,9 @@ def cache_marked_system_content(
 ) -> str | list[dict[str, Any]]:
     """Return the SYSTEM field content, with a cache_control marker when applicable.
 
-    The per-turn tail (after the boundary) is not returned here. The runtime
-    materializes it as a durable turn-context message before calling the bridge,
-    so the system head plus older context form one stable prefix.
+    Text after the boundary is not returned here. The unified chat path supplies
+    Runtime World State and Working Context as typed messages instead, so the
+    system head plus older accepted context form one stable prefix.
 
     - marker vendor + boundary: a content-block list with an ``ephemeral``
       cache_control on the head (with optional ``ttl`` for marker vendors that
@@ -132,15 +129,6 @@ def last_user_message_index(messages: list[dict[str, Any]]) -> int:
     for i in range(len(messages) - 1, -1, -1):
         if messages[i].get("role") == "user":
             return i
-    return -1
-
-
-def turn_context_message_index(messages: list[dict[str, Any]]) -> int:
-    """Return the latest explicit turn-context snapshot index, or ``-1``."""
-
-    for index in range(len(messages) - 1, -1, -1):
-        if is_turn_context_message(messages[index]):
-            return index
     return -1
 
 

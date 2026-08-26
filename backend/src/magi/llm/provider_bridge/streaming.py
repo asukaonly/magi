@@ -61,6 +61,7 @@ class ProviderBridgeChatStreamingMixin:
             event_context,
             system_prompt=system_prompt,
             tools=[],
+            messages=messages,
         )
         event_context = enrich_event_context_with_turn_trace(event_context)
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM

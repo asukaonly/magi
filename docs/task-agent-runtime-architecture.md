@@ -455,16 +455,46 @@ then moves to high and max after at most two independently approved escalation
 signals. `fast` starts at none and is capped at low. `deep` starts at medium and
 moves through high to max where the provider supports it.
 
+Provider input is assembled in three lifecycle layers instead of one repeated
+per-turn blob:
+
+- the Stable Prompt Epoch contains identity, durable behavior constraints, and
+  other byte-stable system instructions;
+- Runtime World State contains host-owned facts such as local date, IANA
+  timezone, OS, working directory, and active agent identity. The first run
+  emits a full snapshot; later runs emit another full, superseding snapshot only
+  when those canonical fields change or recovery finds no raw snapshot. Exact
+  wall-clock time is deliberately absent and is read through
+  the resident read-only `current_time` tool when a task actually needs it;
+- Working Context contains run-local persona steer, bounded memory recall,
+  profile projection, attachment extraction, reply/continuity hints, inline
+  skill instructions, and capability guidance. It is visible and reconstructible
+  for every call in the run, but is removed when the run is promoted to the
+  Session Accepted Surface.
+
+Runtime World State and Working Context use explicit typed message envelopes.
+They may project to provider `user` messages for wire compatibility, but their
+content identifies them as runtime-owned and they are never treated as authored
+user turns. Classification uses runtime-only provenance metadata rather than a
+user-spoofable text tag; provider conversion strips that metadata before the API
+call while retaining the explanatory envelope text. The actual user message
+remains a separate item after them. The
+Stable Prompt Epoch must end at its cache boundary; runtime rejects any dynamic
+tail appended after that marker instead of silently reclassifying it.
+Fallback finalization and forced plain-text retry rules are also typed Working
+Context. They do not rewrite the Stable Prompt Epoch and cannot be promoted as
+user-authored conversation history.
+
 Every provider-visible message is materialized before the next model call. This
-includes the explicit turn-context snapshot, user messages, assistant tool-call
-messages, tool results, runtime observations and controls, compaction summaries,
-and accepted assistant responses. During execution these messages live on an
+includes typed context envelopes, user messages, assistant tool-call messages,
+tool results, runtime observations and controls, compaction summaries, and
+accepted assistant responses. During execution these messages live on an
 isolated run Working Surface. A later call in the same run resumes that surface;
 a later turn starts only from the Session Accepted Surface. Model history is
 never reconstructed from the visible transcript. This preserves tool-call
 identifiers and the exact causal chain the model already observed without
-letting an unaccepted draft become future session history; runtime controls are
-not silently removed between calls or during acceptance.
+letting an unaccepted draft or turn-local recall become future session history;
+runtime controls are not silently removed between calls or during acceptance.
 
 The cacheable system head and tool declarations are stored separately as a
 deduplicated context epoch. Each model-call boundary references one surface
@@ -474,10 +504,11 @@ revisions no longer at either frontier, so diagnostics can reconstruct the
 exact request shape without copying prompts into the privacy-safe runtime
 trace. Persisting a call boundary and its Working Surface happens in one SQLite
 transaction. The provider request keeps the stable system/tools/older-history
-prefix first; the explicit per-turn `<turn_context>` and current user message
-follow it. A changed system head, tool set, or provider reasoning profile may
-still start a new cache partition. Cache reuse remains an optimization and
-never changes semantic context ownership.
+prefix first; any changed Runtime World State, the current Working Context, and
+the current user message follow it. The rolling cache breakpoint is placed
+before the first of those dynamic messages. A changed system head, tool set, or
+provider reasoning profile may still start a new cache partition. Cache reuse
+remains an optimization and never changes semantic context ownership.
 
 ## Versioned Run Plans
 
@@ -639,10 +670,12 @@ are best-effort wakeups; reload always reconstructs from durable stores.
 The backend text log also emits privacy-safe `agent_run.*` breadcrumbs for
 manual diagnostics: run start/resume/terminal, step boundaries, requested and
 finished tools, safe-boundary input injection, completion decisions, reasoning
-escalation, and model-capability or attachment-grounding outcomes. These records
-include stable IDs, reason codes, counts, tool names, and policy state, but never
-user message bodies, tool arguments, tool results, prompts, or attachment
-observations.
+escalation, context-layer materialization, and model-capability or attachment-
+grounding outcomes. Context-layer breadcrumbs report only whether world state
+was emitted and the character counts of the runtime/working layers. These
+records include stable IDs, reason codes, counts, tool names, and policy state,
+but never user message bodies, tool arguments, tool results, prompts, or
+attachment observations.
 
 ## Persistence Boundaries
 
@@ -670,6 +703,8 @@ Chat prompt assembly combines:
 
 - the active run's ordered Working Surface when it exists, otherwise the
   Session Accepted Surface, loaded from `chat_model_context_*`;
+- the Stable Prompt Epoch, changed-only Runtime World State, and current
+  run-local Working Context as separate typed inputs;
 - the current typed turn and reply target;
 - managed attachment references;
 - bounded recent tool-state continuity;
@@ -694,19 +729,28 @@ into SQLite; stable attachment handles remain resolvable by the chat domain.
 
 The Working Surface is never accepted merely because a model produced text.
 Visible assistant delivery and model-context promotion share one transaction.
-Promotion removes unaccepted assistant drafts for the current turn and appends
-the exact visible assistant outcome. Cancellation, governed failure, and
-delivery recovery promote an explicit runtime outcome instead. If any terminal
-chat write fails, both visible delivery and the Accepted Surface pointer roll
-back, leaving the Working Surface available for exact retry. A recovered run
-loads its Working Surface by `run_id` and replaces the current user payload in
-place when richer attachment bytes are available; it never appends the same
-user turn after an assistant/tool tail.
+Promotion removes the current run's Working Context, unaccepted assistant
+drafts, and superseded Runtime World State snapshots, then appends the exact
+visible assistant outcome. Only the latest host-owned snapshot is retained;
+memory recall, persona steer, attachment extraction, and other run-local
+material are not.
+Cancellation, governed failure, and delivery recovery promote an explicit
+runtime outcome instead. If any terminal chat write fails, both visible delivery
+and the Accepted Surface pointer roll back, leaving the Working Surface and its
+call boundaries available for exact retry. A recovered run loads its Working
+Surface by `run_id` and replaces the current user payload in place when richer
+attachment bytes are available; it never appends the same user turn after an
+assistant/tool tail.
 
 Display-history pagination never defines model context. Under pressure, the
 runtime compactor creates a new immutable Working Surface revision while the
 prior revision and its model-call boundary remain readable until governed
 deletion. Compaction keeps complete protocol groups and tool-call identifiers.
+It excludes runtime-owned context envelopes from summary input, retains only the
+latest Runtime World State and current Working Context as raw typed messages,
+and places them after the new compaction boundary. Consequently, superseded
+host state is dropped and run-local recall cannot leak into a durable compaction
+summary that would survive Accepted Surface promotion.
 The active model's input/output limits determine the capacity decision, and
 provider-facing prompt measurement occurs before every model call.
 
@@ -717,8 +761,13 @@ they never rebuild from visible chat rows. This preserves assistant tool-call
 messages, tool results, runtime controls, and correct A-to-B-to-A switch-back
 boundaries. The summary cache is not the normal prompt-history owner and has no
 implicit `token_budget` mode. L0 is a disposable semantic-attention projection;
-it may contribute to a turn-context snapshot but never stores either model
-conversation frontier.
+it may contribute to the current run's Working Context but never stores either
+model conversation frontier.
+
+Ephemeral onboarding persona preview uses the same three rendered artifacts and
+projects Runtime World State and Working Context as typed messages before the
+preview user's current message. It does not rebuild dynamic persona steer into
+the system prompt or introduce a preview-only prompt path.
 
 There is deliberately no import from historical transcript rows into the Model
 Context Log. A pre-cutover session therefore starts with an empty Context Surface
@@ -733,6 +782,9 @@ call the unified loop with explicit presets and durable budgets. A fork-context
 skill is a background root task so the foreground chat remains available; it is
 not represented as a child owned by an unrelated active foreground run. Child
 lineage is reserved for work launched by a parent through the `agent` tool.
+Child environment prompts follow the same clock rule: they carry local date and
+timezone, while exact wall-clock time comes from the resident `current_time`
+tool.
 Background completion is stored before delivery fan-out so startup can resume
 pending completion intents without rerunning the model task.
 
@@ -770,8 +822,8 @@ exactly-once delivery.
   contract, and checkpoints;
 - `agent/workers/` owns bounded child-run mechanics and presets;
 - `agent/task_agents/` owns generic task-agent hooks and handler contracts;
-- `chat/task_agent/` owns the chat adapter for the Model Context Log, turn-context
-  assembly, session/run admission, safe-boundary input, presentation,
+- `chat/task_agent/` owns the chat adapter for the Model Context Log, typed
+  context-layer assembly, session/run admission, safe-boundary input, presentation,
   post-processing, and transcript outcome policy;
 - `commands/` and `skills/` own typed slash resolution and expansion;
 - `control/` owns permissions, asks, plan state, run control, and user-content

@@ -1,5 +1,4 @@
-"""Unified prompt-cache layer: capability gate, boundary split, head-only system
-field, and per-turn-context injection into the message stream (#110 / #100)."""
+"""Unified prompt-cache layer and typed dynamic-context breakpoints."""
 
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.config.models import ModelVendor
@@ -9,8 +8,12 @@ from magi.llm.provider_bridge.cache_policy import (
     mark_history_breakpoint,
     mark_tool_loop_tail_breakpoint,
     split_on_boundary,
-    turn_context_message_index,
     vendor_supports_cache_marker,
+)
+from magi.utils.model_context_messages import (
+    build_runtime_world_state_message,
+    build_working_context_message,
+    dynamic_context_start_index,
 )
 
 EPHEMERAL = {"type": "ephemeral"}
@@ -122,15 +125,19 @@ def test_last_user_message_index() -> None:
     assert last_user_message_index([{"role": "assistant", "content": "a"}]) == -1
 
 
-def test_turn_context_message_index() -> None:
+def test_dynamic_context_start_index_includes_changed_world_state() -> None:
+    runtime_state = build_runtime_world_state_message("changed")
+    working_context = build_working_context_message("dynamic")
+    assert runtime_state and working_context
     messages = [
         {"role": "user", "content": "older"},
         {"role": "assistant", "content": "answer"},
-        {"role": "user", "content": "<turn_context>\ndynamic\n</turn_context>"},
+        runtime_state,
+        working_context,
         {"role": "user", "content": "current"},
     ]
-    assert turn_context_message_index(messages) == 2
-    assert turn_context_message_index(messages[:2]) == -1
+    assert dynamic_context_start_index(messages) == 2
+    assert dynamic_context_start_index(messages[:2]) == -1
 
 
 def test_mark_history_breakpoint_marks_last_block_of_boundary_message() -> None:
@@ -142,7 +149,7 @@ def test_mark_history_breakpoint_marks_last_block_of_boundary_message() -> None:
     out = mark_history_breakpoint(api, 1)
     # boundary message gets the breakpoint on its last block
     assert out[1]["content"][-1]["cache_control"] == EPHEMERAL
-    # current turn (carries turn_context) stays unmarked -> reusable next turn
+    # current turn's dynamic context stays unmarked -> reusable next turn
     assert "cache_control" not in out[2]["content"][-1]
     # earlier history untouched
     assert "cache_control" not in out[0]["content"][-1]

@@ -164,7 +164,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             workspace_path=None,
             allowed_layers=("L0",),
         )
-        self.assertIn("# Recent Tool Errors", package.system_prompt)
+        self.assertIn("# Recent Tool Errors", package.working_context)
         self.assertEqual(
             package.prompt_context.self_memory.retrieval_memory.l0_workbench[0][
                 "attention_items"
@@ -246,7 +246,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
 
         session_workspace_provider.assert_awaited_once_with(user_id="u1", session_id="s1")
         self.assertEqual(package.prompt_context.runtime_system.cwd, "/tmp/magi")
-        self.assertIn("* Working Directory: /tmp/magi", package.system_prompt)
+        self.assertIn("* Working Directory: /tmp/magi", package.runtime_world_state)
 
     async def test_build_prompt_package_uses_stored_persona_id_for_prompt_identity(self):
         persona_config = PersonalityConfig.from_dict(
@@ -321,7 +321,10 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(package.prompt_context.runtime_system.cwd, str(managed_workspace))
-        self.assertIn(f"* Working Directory: {managed_workspace}", package.system_prompt)
+        self.assertIn(
+            f"* Working Directory: {managed_workspace}",
+            package.runtime_world_state,
+        )
 
     async def test_build_prompt_package_renders_active_text_and_pdf_attachments(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
@@ -384,11 +387,11 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
-        self.assertIn("# Active Attachments", package.system_prompt)
-        self.assertIn("notes.md", package.system_prompt)
-        self.assertIn("Alpha\nBeta", package.system_prompt)
-        self.assertIn("report.pdf", package.system_prompt)
-        self.assertIn("Quarterly summary", package.system_prompt)
+        self.assertIn("# Active Attachments", package.working_context)
+        self.assertIn("notes.md", package.working_context)
+        self.assertIn("Alpha\nBeta", package.working_context)
+        self.assertIn("report.pdf", package.working_context)
+        self.assertIn("Quarterly summary", package.working_context)
 
     async def test_build_prompt_package_prefers_full_attachment_text_over_excerpt(self):
         retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
@@ -436,8 +439,8 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
-        self.assertIn("First line\nSecond line\nFinal line", package.system_prompt)
-        self.assertNotIn("```text\nFirst line\n```", package.system_prompt)
+        self.assertIn("First line\nSecond line\nFinal line", package.working_context)
+        self.assertNotIn("```text\nFirst line\n```", package.working_context)
 
     async def test_build_prompt_package_does_not_read_derived_text_outside_chat_storage(
         self,
@@ -480,7 +483,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
-        self.assertNotIn("PRIVATE OUTSIDE TEXT", package.system_prompt)
+        self.assertNotIn("PRIVATE OUTSIDE TEXT", package.working_context)
 
     @staticmethod
     def _empty_retrieval_payload() -> dict[str, object]:

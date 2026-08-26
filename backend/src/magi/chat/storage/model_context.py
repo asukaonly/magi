@@ -1025,10 +1025,23 @@ def _accepted_outcome_items(
     outcome_kind: str,
     persona_id: str | None,
 ) -> tuple[ModelContextItem, ...]:
+    latest_runtime_world_state = next(
+        (
+            item
+            for item in reversed(items)
+            if item.kind is ModelContextItemKind.RUNTIME_WORLD_STATE
+        ),
+        None,
+    )
     filtered = tuple(
         item
         for item in items
-        if not (
+        if item.kind is not ModelContextItemKind.WORKING_CONTEXT
+        and (
+            item.kind is not ModelContextItemKind.RUNTIME_WORLD_STATE
+            or item is latest_runtime_world_state
+        )
+        and not (
             item.kind is ModelContextItemKind.ASSISTANT_MESSAGE
             and str(item.metadata.get("origin_turn_id") or "") == turn_id
         )

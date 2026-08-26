@@ -35,6 +35,10 @@ from ...llm.model_context import (
     unknown_model_context,
 )
 from ...llm.provider_bridge import LLMProviderBridge
+from ...utils.model_context_messages import (
+    is_runtime_world_state_message,
+    is_working_context_message,
+)
 from .task_budget import (
     TaskBudgetExceeded,
     prepay_task_llm_calls,
@@ -162,9 +166,42 @@ def _latest_user_message(
     messages: List[Dict[str, Any]],
 ) -> Dict[str, Any] | None:
     for message in reversed(messages):
-        if message.get("role") == "user":
+        if message.get("role") == "user" and not _is_runtime_owned_context(message):
             return message
     return None
+
+
+def _is_runtime_owned_context(message: Dict[str, Any]) -> bool:
+    return is_runtime_world_state_message(message) or is_working_context_message(message)
+
+
+def _latest_runtime_owned_context(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Keep only the active snapshot of each runtime-owned context layer."""
+
+    latest_runtime_state: Dict[str, Any] | None = None
+    latest_working_context: Dict[str, Any] | None = None
+    for message in reversed(messages):
+        if latest_working_context is None and is_working_context_message(message):
+            latest_working_context = message
+        elif latest_runtime_state is None and is_runtime_world_state_message(message):
+            latest_runtime_state = message
+        if latest_runtime_state is not None and latest_working_context is not None:
+            break
+
+    retained_ids = {
+        id(message)
+        for message in (latest_runtime_state, latest_working_context)
+        if message is not None
+    }
+    return [message for message in messages if id(message) in retained_ids]
+
+
+def _without_runtime_owned_context(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    return [message for message in messages if not _is_runtime_owned_context(message)]
 
 
 def _contains_message(
@@ -457,6 +494,12 @@ class ContextCompactor:
         older_groups = groups[: -len(recent_groups)]
         older_messages = _flatten_groups(older_groups)
         recent_messages = _flatten_groups(recent_groups)
+        runtime_context = _latest_runtime_owned_context(messages)
+        older_messages = _without_runtime_owned_context(older_messages)
+        recent_messages = [
+            *runtime_context,
+            *_without_runtime_owned_context(recent_messages),
+        ]
         latest_user_message = _latest_user_message(messages)
         if _contains_message(older_messages, latest_user_message):
             older_messages = [
@@ -629,6 +672,8 @@ class ContextCompactor:
             else _group_messages_by_round(messages)
         )
         kept = self._select_recent_group_suffix(groups)
+        runtime_context = _latest_runtime_owned_context(messages)
+        kept = [*runtime_context, *_without_runtime_owned_context(kept)]
         latest_user_message = _latest_user_message(messages)
         if latest_user_message is not None and not _contains_message(
             kept,

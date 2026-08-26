@@ -3,7 +3,7 @@
 The single public function is ``run_preview``. It must:
 - Force the `core` scenario model (caller supplies the model id explicitly)
 - Skip tool invocation entirely
-- Receive an already-assembled normal first-chat system prompt
+- Receive already-rendered stable and dynamic prompt layers
 - Stream output tokens via an async generator
 
 Dependencies are injected (persona loader + llm caller) so unit tests don't
@@ -13,7 +13,12 @@ need the real persona registry or LLM provider.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import AsyncIterator, Callable, Iterable, Protocol
+from typing import AsyncIterator, Iterable, Protocol
+
+from magi.utils.model_context_messages import (
+    build_runtime_world_state_message,
+    build_working_context_message,
+)
 
 
 @dataclass(frozen=True)
@@ -49,19 +54,22 @@ async def run_preview(
     *,
     history: Iterable[PreviewMessage],
     message: PreviewMessage,
-    load_persona_prompt: Callable[[str], str],
+    system_prompt: str,
+    runtime_world_state: str,
+    working_context: str,
     invoke_llm: _LLMCall,
 ) -> AsyncIterator[str]:
-    """Stream the persona's reply to ``message`` given the prior ``history``.
-
-    Raises:
-        ValueError: if ``load_persona_prompt`` can't resolve the seed_slug.
-    """
-    system_prompt = load_persona_prompt(mode.seed_slug)
+    """Stream the persona's reply to ``message`` given the prior ``history``."""
 
     wire_messages: list[dict] = [
         {"role": m.role, "content": m.content} for m in history
     ]
+    runtime_message = build_runtime_world_state_message(runtime_world_state)
+    working_message = build_working_context_message(working_context)
+    if runtime_message is not None:
+        wire_messages.append(runtime_message)
+    if working_message is not None:
+        wire_messages.append(working_message)
     wire_messages.append({"role": message.role, "content": message.content})
 
     async for chunk in invoke_llm(

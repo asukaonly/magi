@@ -11,6 +11,7 @@ from magi.control.tools import (
 from .builtin.ask_user_question_tool import AskUserQuestionTool
 from .builtin.bash_tool import BashTool
 from .builtin.capabilities_tool import CapabilitiesTool
+from .builtin.current_time_tool import CurrentTimeTool
 from .builtin.delegate_to_external_coder_tool import DelegateToExternalCoderTool
 from .builtin.detach_to_background_tool import DetachToBackgroundTool
 from .builtin.file_diff_tool import FileDiffTool
@@ -57,6 +58,7 @@ def core_tool_classes_for_os(os_name: str | None = None) -> tuple[type, ...]:
         GrepTool,
         GlobTool,
         CapabilitiesTool,
+        CurrentTimeTool,
         FindRelevantToolsTool,
         WebSearchTool,
         WebFetchTool,

@@ -8,6 +8,8 @@ import time
 import uuid
 from typing import Any
 
+from ...utils.model_context_messages import strip_runtime_context_metadata
+
 from ..parsers import parse_legacy_tool_calls, sanitize_llm_text
 from .models import ProviderResponse, ProviderToolCall, ProviderUsage
 from ...config.models import ThinkingDepth
@@ -212,6 +214,7 @@ class ProviderBridgeResponseMixin:
     def _convert_messages_to_openai(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
         for message in messages:
+            provider_message = strip_runtime_context_metadata(message)
             if message.get("role") == "user" and isinstance(message.get("content"), list):
                 converted.append(
                     {
@@ -220,7 +223,7 @@ class ProviderBridgeResponseMixin:
                     }
                 )
                 continue
-            converted.append(dict(message))
+            converted.append(provider_message)
         return converted
 
     @staticmethod

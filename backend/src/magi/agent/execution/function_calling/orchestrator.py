@@ -9,10 +9,10 @@ from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
 from ....llm.provider_bridge.cache_policy import split_on_boundary
 from ....runtime_trace import RuntimeTraceStore
-from ....config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ....utils.model_context_messages import (
-    build_turn_context_message,
-    is_turn_context_message,
+    build_runtime_world_state_message,
+    build_working_context_message,
+    latest_runtime_world_state_content,
 )
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
@@ -210,6 +210,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         session_origin: str | None = None,
         reply_context: Any | None = None,
         allow_attachment_grounding: bool = False,
+        runtime_world_state: str = "",
+        working_context: str = "",
         ephemeral_context: str | None = None,
         current_turn_in_model_context: bool = False,
     ) -> FunctionCallingStepState:
@@ -217,14 +219,21 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._resolve_llm()
         self._context_compactor.begin_run()
         normalized_selected_tools = list(dict.fromkeys(selected_tools))
-        augmented_system_prompt = self._augment_system_prompt(system_prompt)
-        prompt_parts = split_on_boundary(augmented_system_prompt)
-        if prompt_parts is None:
-            effective_system_prompt = augmented_system_prompt
-            turn_context_text = ""
-        else:
-            stable_head, turn_context_text = prompt_parts
-            effective_system_prompt = f"{stable_head}\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
+        prompt_parts = split_on_boundary(system_prompt)
+        if prompt_parts is not None and prompt_parts[1].strip():
+            raise ValueError(
+                "Stable system prompt must not contain text after the cache boundary"
+            )
+        effective_system_prompt = system_prompt
+        execution_guidance = self._build_execution_guidance()
+        working_context_text = "\n\n".join(
+            part
+            for part in (
+                str(working_context or "").strip(),
+                str(execution_guidance or "").strip(),
+            )
+            if part
+        )
         messages = append_latest_user_message(
             conversation_history,
             turn,
@@ -235,29 +244,48 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             reply_context=reply_context,
             latest_turn_already_present=current_turn_in_model_context,
         )
-        turn_context_message = build_turn_context_message(turn_context_text)
-        if (
-            turn_context_message is not None
-            and messages
-            and not current_turn_in_model_context
-        ):
+        runtime_message = build_runtime_world_state_message(runtime_world_state)
+        working_message = build_working_context_message(working_context_text)
+        runtime_state_emitted = False
+        working_message_index: int | None = None
+        if messages and not current_turn_in_model_context:
             insert_at = len(messages) - 1
-            if insert_at <= 0 or not is_turn_context_message(messages[insert_at - 1]):
-                messages.insert(insert_at, turn_context_message)
+            if (
+                runtime_message is not None
+                and latest_runtime_world_state_content(messages)
+                != str(runtime_message["content"]).strip()
+            ):
+                messages.insert(insert_at, runtime_message)
+                insert_at += 1
+                runtime_state_emitted = True
+            if working_message is not None:
+                messages.insert(insert_at, working_message)
+                working_message_index = insert_at
+        logger.info(
+            "agent_run.context_layers_materialized runtime_state_emitted=%s "
+            "runtime_state_chars=%d working_context_chars=%d current_turn_restored=%s",
+            runtime_state_emitted,
+            len(str(runtime_world_state or "")),
+            len(working_context_text),
+            current_turn_in_model_context,
+        )
         ephemeral_context_message_index: int | None = None
         ephemeral_context_original_content: Any | None = None
         context_text = str(ephemeral_context or "").strip()
         if (
             context_text
-            and messages
-            and messages[-1].get("role") == "user"
+            and working_message_index is not None
             and not current_turn_in_model_context
         ):
-            ephemeral_context_message_index = len(messages) - 1
-            ephemeral_context_original_content = messages[-1].get("content")
-            messages[-1]["content"] = self._append_ephemeral_context_to_content(
-                ephemeral_context_original_content,
-                context_text,
+            ephemeral_context_message_index = working_message_index
+            ephemeral_context_original_content = messages[working_message_index].get(
+                "content"
+            )
+            messages[working_message_index]["content"] = (
+                self._append_ephemeral_context_to_content(
+                    ephemeral_context_original_content,
+                    context_text,
+                )
             )
         return FunctionCallingStepState(
             messages=messages,

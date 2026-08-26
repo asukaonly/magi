@@ -58,19 +58,24 @@ class _FakeContextService:
 
     async def build_prompt_package(self, **kwargs):  # type: ignore[no-untyped-def]
         self.calls.append(dict(kwargs))
-        return SimpleNamespace(prompt_context={}, system_prompt="sys")
+        return SimpleNamespace(
+            prompt_context={},
+            system_prompt="sys",
+            runtime_world_state="world",
+            working_context="working",
+        )
 
 
 class _FakePromptService:
-    def augment_system_prompt_with_reply_context(
+    def augment_working_context_with_reply_context(
         self,
         *,
-        system_prompt,
+        working_context,
         reply_context=None,
         recent_tool_state=None,
     ):
         _ = (reply_context, recent_tool_state)
-        return system_prompt
+        return working_context
 
 
 def _build_context(message: str = "do you remember when we talked about X"):
@@ -140,7 +145,7 @@ async def test_guidance_attached_when_memory_query_is_selected():
             ),
         )
     )
-    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.system_prompt
+    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.working_context
 
 
 @pytest.mark.asyncio
@@ -168,7 +173,7 @@ async def test_guidance_attached_with_other_selected_tools():
             ),
         )
     )
-    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.system_prompt, (
+    assert MEMORY_QUERY_GUIDANCE_BLOCK in request.working_context, (
         "Turn guidance must be attached whenever memory_query is in selected_tools, "
         "regardless of other selected capabilities."
     )

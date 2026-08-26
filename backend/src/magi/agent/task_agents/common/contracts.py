@@ -197,6 +197,8 @@ class PreparedAgentRunRequest(ExecutionRequest):
 
     prompt_context: Optional[dict[str, Any]] = None
     system_prompt: str = ""
+    runtime_world_state: str = ""
+    working_context: str = ""
     selected_tools: list[str] = field(default_factory=list)
     reasoning_policy: ReasoningPolicy = field(default_factory=ReasoningPolicy)
     context_sources: tuple[dict[str, Any], ...] = ()

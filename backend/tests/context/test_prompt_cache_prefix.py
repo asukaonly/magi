@@ -2,11 +2,10 @@
 
 Prompt caching on every provider is a prefix match: any byte that changes
 between consecutive requests invalidates the cache from that point onward.
-These tests pin the prefix-stabilising guarantees for the system prompt:
+These tests pin the prefix-stabilising guarantees for prompt layers:
 
-1. Static blocks (identity + persona definition) render BEFORE the per-turn
-   dynamic blocks (tool-use guidance, persona steer, memory, runtime/time) so the
-   largest stable chunk sits at the front of the prefix.
+1. Static blocks (identity + persona definition) render only in the system
+   layer; run-local and host-state inputs render in separate typed layers.
 2. The tool list — both the wire ``tools`` parameter and the in-prompt tool
    guidance — does not duplicate tool names/descriptions in the prompt. The
    wire ``tools`` parameter remains deterministic, name-sorted output.
@@ -48,7 +47,7 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
         ),
         profile_memory=ProfileMemoryContext(user_id="u1"),
         runtime_system=RuntimeSystemContext(
-            current_time_iso="2025-01-01T00:00:00",
+            current_date="2025-01-01",
             timezone="UTC",
             os_name="Darwin",
             os_version="24.0",
@@ -60,60 +59,52 @@ def _assembly_context(selected_tools: list[str]) -> PromptAssemblyContext:
     )
 
 
-def _split_prompt(prompt: str) -> tuple[str, str]:
-    assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
-    head, _, tail = prompt.partition(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    return head, tail
+def test_static_and_dynamic_blocks_render_in_separate_layers() -> None:
+    layers = PromptContextRenderer().render_prompt_layers(
+        _assembly_context(["alpha_tool"])
+    )
 
-
-def test_static_blocks_render_before_dynamic_blocks() -> None:
-    prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
-
-    i_definition = prompt.index("# System Definition")
-    i_tools = prompt.index("# Tool Use Guidance")
-    i_persona = prompt.index("# Persona Runtime Plan")
-    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    i_memory = prompt.index("# Memory Library")
-    i_runtime = prompt.index("# System Information")
-
-    # Identity and persona definition are the stable cached head. The tool
-    # catalog is turn-selected, so it belongs with the dynamic tail.
-    assert i_definition < i_persona
-    assert i_persona < i_boundary
-    assert i_boundary < i_tools
-    assert i_tools < i_memory
-    assert i_tools < i_runtime
+    assert layers.system_prompt.index("# System Definition") < layers.system_prompt.index(
+        "# Persona Runtime Plan"
+    )
+    assert layers.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert "# Tool Use Guidance" not in layers.system_prompt
+    assert "# Memory Library" not in layers.system_prompt
+    assert "# Runtime World State" not in layers.system_prompt
+    assert layers.working_context.index("# Tool Use Guidance") < layers.working_context.index(
+        "# Memory Library"
+    )
+    assert "# Runtime World State" in layers.runtime_world_state
 
 
 def test_cache_boundary_sits_after_persona_identity_before_dynamic() -> None:
-    # P2a (#100): only the byte-stable persona DEFINITION (identity + baseline
-    # voice) joins the cached head. The boundary sits after identity + persona
-    # identity, and before the turn-selected tool catalog plus the per-turn
-    # blocks (memory / runtime) that the provider bridge moves out to the
-    # message tail.
-    prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
+    layers = PromptContextRenderer().render_prompt_layers(
+        _assembly_context(["alpha_tool"])
+    )
 
-    assert SYSTEM_PROMPT_CACHE_BOUNDARY in prompt
-    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
-    assert prompt.index("# Persona Runtime Plan") < i_boundary
-    assert i_boundary < prompt.index("# Tool Use Guidance")
-    assert i_boundary < prompt.index("# Memory Library")
-    assert i_boundary < prompt.index("# System Information")
+    assert layers.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert layers.system_prompt.index("# Persona Runtime Plan") < layers.system_prompt.index(
+        SYSTEM_PROMPT_CACHE_BOUNDARY
+    )
+    assert "# Tool Use Guidance" in layers.working_context
+    assert "# Memory Library" in layers.working_context
+    assert "# Runtime World State" in layers.runtime_world_state
 
 
 def test_selected_tool_changes_do_not_change_cacheable_head() -> None:
-    prompt_a = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
-    prompt_b = PromptContextRenderer().render_system_prompt(_assembly_context(["beta_tool"]))
+    layers_a = PromptContextRenderer().render_prompt_layers(
+        _assembly_context(["alpha_tool"])
+    )
+    layers_b = PromptContextRenderer().render_prompt_layers(
+        _assembly_context(["beta_tool"])
+    )
 
-    head_a, tail_a = _split_prompt(prompt_a)
-    head_b, tail_b = _split_prompt(prompt_b)
-
-    assert head_a == head_b
-    assert "alpha_tool" not in head_a
-    assert "beta_tool" not in head_b
-    assert "alpha_tool" not in tail_a
-    assert "beta_tool" not in tail_b
-    assert prompt_a == prompt_b
+    assert layers_a.system_prompt == layers_b.system_prompt
+    assert "alpha_tool" not in layers_a.system_prompt
+    assert "beta_tool" not in layers_b.system_prompt
+    assert "alpha_tool" not in layers_a.working_context
+    assert "beta_tool" not in layers_b.working_context
+    assert layers_a.working_context == layers_b.working_context
 
 
 def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:
@@ -134,7 +125,7 @@ def test_profile_memory_prefers_prompt_summary_over_raw_preferences() -> None:
         ],
     )
 
-    prompt = PromptContextRenderer().render_system_prompt(context)
+    prompt = PromptContextRenderer().render_prompt_layers(context).working_context
 
     assert "# User Understanding" in prompt
     assert "用户长期关注 Magi 记忆系统和 RAG。" in prompt
@@ -164,7 +155,7 @@ def test_profile_memory_fallback_omits_internal_profile_keys() -> None:
         },
     )
 
-    prompt = PromptContextRenderer().render_system_prompt(context)
+    prompt = PromptContextRenderer().render_prompt_layers(context).working_context
 
     assert "Asuka" in prompt
     assert "明日香" in prompt
@@ -194,7 +185,7 @@ def test_profile_memory_recent_emotion_uses_labels_without_scores() -> None:
         },
     )
 
-    prompt = PromptContextRenderer().render_system_prompt(context)
+    prompt = PromptContextRenderer().render_prompt_layers(context).working_context
 
     assert "neutral" in prompt
     assert "medium" in prompt
@@ -210,17 +201,18 @@ def test_persona_identity_in_head_per_turn_steer_in_tail() -> None:
     # modulation, examples) is recomputed every turn by PersonaTurnPlanner, so it
     # must sit below the boundary or it invalidates the cached prefix each turn
     # (root cause of cache read=0 on the chat path).
-    prompt = PromptContextRenderer().render_system_prompt(_assembly_context(["alpha_tool"]))
-    i_boundary = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    layers = PromptContextRenderer().render_prompt_layers(
+        _assembly_context(["alpha_tool"])
+    )
 
-    # Stable persona definition — above the boundary (cached).
-    assert prompt.index("## Identity Core") < i_boundary
-    assert prompt.index("## Baseline Voice") < i_boundary
-
-    # Per-turn steer — below the boundary (moved to the message tail).
-    assert i_boundary < prompt.index("## Expression Policy")
-    assert i_boundary < prompt.index("## Dynamic Modulation")
-    assert i_boundary < prompt.index("## Relevant Persona Examples")
+    assert "## Identity Core" in layers.system_prompt
+    assert "## Baseline Voice" in layers.system_prompt
+    assert "## Expression Policy" not in layers.system_prompt
+    assert "## Dynamic Modulation" not in layers.system_prompt
+    assert "## Relevant Persona Examples" not in layers.system_prompt
+    assert "## Expression Policy" in layers.working_context
+    assert "## Dynamic Modulation" in layers.working_context
+    assert "## Relevant Persona Examples" in layers.working_context
 
 
 class _FakeToolRegistry:

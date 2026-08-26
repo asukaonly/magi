@@ -9,8 +9,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
-from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.agent.execution.context_compactor import (
     ContextCompactor,
     CompactionResult,
@@ -22,6 +20,12 @@ from magi.agent.execution.context_compactor import (
     _group_messages_by_user_turn,
 )
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
+from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
+from magi.utils.model_context_messages import (
+    build_runtime_world_state_message,
+    build_working_context_message,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +507,26 @@ class TestRuleBasedCompact:
             if message.get("role") == "user" and message is not result.messages[0]
         ] == [current_request]
 
+    @pytest.mark.asyncio
+    async def test_rule_fallback_preserves_only_active_runtime_context(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        old_runtime = build_runtime_world_state_message("Local date: 2026-08-25")
+        active_runtime = build_runtime_world_state_message("Local date: 2026-08-26")
+        stale_working = build_working_context_message("stale private recall")
+        active_working = build_working_context_message("active private recall")
+        assert old_runtime and active_runtime and stale_working and active_working
+        messages = [old_runtime, stale_working, {"role": "user", "content": "old request"}]
+        messages.extend(_make_round_messages(rounds=5)[1:])
+        messages.extend([active_runtime, active_working, {"role": "user", "content": "current"}])
+
+        result = await compactor.compact(messages)
+
+        contents = [str(message.get("content") or "") for message in result.messages]
+        assert active_runtime["content"] in contents
+        assert active_working["content"] in contents
+        assert old_runtime["content"] not in contents
+        assert stale_working["content"] not in contents
+
 
 # ---------------------------------------------------------------------------
 # LLM-based compaction
@@ -655,6 +679,48 @@ class TestLLMCompact:
         ] == [current_request]
         summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
         assert current_request not in summary_prompt
+
+    @pytest.mark.asyncio
+    async def test_summary_never_absorbs_runtime_owned_context(self) -> None:
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
+        runtime_state = build_runtime_world_state_message("Local date: 2026-08-26")
+        working_context = build_working_context_message("private recalled context")
+        assert runtime_state and working_context
+        messages: list[dict[str, Any]] = [
+            runtime_state,
+            working_context,
+            {"role": "user", "content": "inspect the repository"},
+        ]
+        for index in range(6):
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"id": f"call-{index}", "name": "demo"}],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": f"call-{index}",
+                        "content": f"result-{index}",
+                    },
+                ]
+            )
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages)
+
+        assert runtime_state in result.messages
+        assert working_context in result.messages
+        summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
+        assert runtime_state["content"] not in summary_prompt
+        assert working_context["content"] not in summary_prompt
 
     @pytest.mark.asyncio
     async def test_llm_failure_falls_back_to_rule_based(self) -> None:

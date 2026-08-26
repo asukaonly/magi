@@ -6,11 +6,11 @@ from magi.chat.task_agent.prompt_service import ChatPromptService
 
 
 class TestChatPromptService(unittest.TestCase):
-    def test_augment_system_prompt_includes_recent_tool_state_block(self) -> None:
+    def test_augment_working_context_includes_recent_tool_state_block(self) -> None:
         service = ChatPromptService(llm_adapter=None, llm_pool=None)
 
-        prompt = service.augment_system_prompt_with_reply_context(
-            system_prompt="BASE SYSTEM PROMPT",
+        prompt = service.augment_working_context_with_reply_context(
+            working_context="BASE WORKING CONTEXT",
             reply_context=None,
             recent_tool_state=[
                 {

@@ -1,10 +1,10 @@
 """Anthropic rolling history cache breakpoint (#110 / #100 follow-up).
 
-After P2a moved per-turn context out of the system prompt and onto the last
-user message, the system head + conversation history form a byte-stable prefix.
+After dynamic context moved out of the system prompt into typed messages, the
+system head + accepted conversation history form a byte-stable prefix.
 DashScope auto-caches such a prefix implicitly, but Anthropic requires an
 explicit ``cache_control`` marker. We place a rolling ``ephemeral`` breakpoint
-on the message *before* the turn-context-bearing message — the stable history
+on the message *before* the working-context message — the stable history
 boundary that is reusable across turns — so older history caches while the
 volatile per-turn context (and the current question) stays uncached.
 """
@@ -17,9 +17,11 @@ import pytest
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
+from magi.utils.model_context_messages import build_working_context_message
 
 SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
-TURN_CONTEXT = "<turn_context>\nMEMORY + TIME TAIL\n</turn_context>"
+WORKING_CONTEXT = build_working_context_message("MEMORY TAIL")
+assert WORKING_CONTEXT is not None
 
 
 class _AnthropicAdapter(LLMAdapter):
@@ -91,16 +93,16 @@ async def test_request_marks_stable_history_before_turn_context() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
     )
 
     sent = client.kwargs["messages"]
-    # The explicit turn-context snapshot is index 2, so the breakpoint lands on
+    # The explicit Working Context is index 2, so the breakpoint lands on
     # the stable message immediately before it (a1, index 1).
     assert sent[1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
-    # The turn-context-bearing current turn is NOT a breakpoint (volatile).
+    # The Working Context and current user turn are NOT breakpoints (volatile).
     assert "cache_control" not in str(sent[2:])
     # Older history before the boundary stays unmarked.
     assert "cache_control" not in str(sent[0])
@@ -114,12 +116,12 @@ async def test_no_history_breakpoint_on_first_turn() -> None:
     await bridge.chat_response(
         system_prompt=SYS,
         messages=[
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "only turn"},
         ],
     )
 
-    # No prior history to cache; the single (turn-context-bearing) message must
+    # No prior history to cache; the Working Context message must
     # not carry a breakpoint. System head marker lives in kwargs["system"], not here.
     assert "cache_control" not in str(client.kwargs["messages"])
 
@@ -155,7 +157,7 @@ async def test_tool_loop_marks_pre_turn_history_and_tool_result_tail() -> None:
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
-            {"role": "user", "content": TURN_CONTEXT},
+            WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
             {
                 "role": "assistant",

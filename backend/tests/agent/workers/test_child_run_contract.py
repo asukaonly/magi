@@ -146,6 +146,17 @@ def test_child_reasoning_is_bounded_by_parent_and_remaining_escalations() -> Non
     assert child.max_escalations == 1
 
 
+def test_child_environment_omits_exact_wall_clock_time() -> None:
+    coordinator = ChildRunCoordinator()
+
+    rules = coordinator._build_worker_environment_rules("/workspace")
+
+    assert "- Local date:" in rules
+    assert "- Timezone:" in rules
+    assert "current_time tool" in rules
+    assert "Current local time:" not in rules
+
+
 @pytest.mark.asyncio
 async def test_targeted_cancel_requires_parent_ownership_and_lineage() -> None:
     coordinator = ChildRunCoordinator()

@@ -18,9 +18,9 @@ from .cache_policy import (
     last_user_message_index,
     mark_history_breakpoint,
     mark_tool_loop_tail_breakpoint,
-    turn_context_message_index,
     vendor_supports_cache_marker,
 )
+from ...utils.model_context_messages import dynamic_context_start_index
 from ..concurrency_limiter import LLMConcurrencyLimiter, LLMRequestPriority
 from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
@@ -275,8 +275,8 @@ class ProviderBridgeOptionsMixin:
         markers. Two breakpoints, both 5m (they sit after the 1h system head,
         satisfying Anthropic's 1h-before-5m ordering):
 
-        - **Rolling history**: the message before the explicit turn-context
-          snapshot is the stable history boundary.
+        - **Rolling history**: the message before the current run's typed
+          dynamic context is the stable history boundary.
         - **Tool-loop tail**: when the raw turn ends in a tool result we are
           mid-loop; mark the last message so the next loop iteration hits the
           growing tool history (P2b made it append-only/cacheable).
@@ -292,10 +292,10 @@ class ProviderBridgeOptionsMixin:
         """
         if not vendor_supports_cache_marker(self._marker_vendor()):
             return api_messages
-        turn_context_index = turn_context_message_index(injected_messages)
+        context_start_index = dynamic_context_start_index(injected_messages)
         boundary_index = (
-            turn_context_index - 1
-            if turn_context_index >= 0
+            context_start_index - 1
+            if context_start_index >= 0
             else last_user_message_index(injected_messages) - 1
         )
         if (
@@ -341,6 +341,7 @@ class ProviderBridgeOptionsMixin:
         *,
         system_prompt: str,
         tools: list[dict[str, Any]] | None,
+        messages: list[dict[str, Any]] | None = None,
         cache_whole_system: bool = False,
     ) -> Dict[str, Any] | None:
         """Attach sanitized prompt-cache diagnostics to the event context."""
@@ -362,6 +363,7 @@ class ProviderBridgeOptionsMixin:
             event_context=context,
             cache_whole_system=cache_whole_system,
             store_tool_names=store_tool_names,
+            messages=messages,
         )
         return context
 

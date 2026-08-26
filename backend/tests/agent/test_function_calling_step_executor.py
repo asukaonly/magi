@@ -12,6 +12,7 @@ from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
+from magi.utils.model_context_messages import build_runtime_world_state_message
 
 
 class _FakeToolRegistry:
@@ -58,18 +59,25 @@ def test_build_step_state_does_not_duplicate_latest_user_message_from_history() 
         conversation_history=[{"role": "user", "content": "Inspect the repository."}],
     )
 
-    assert step_state.messages == [{"role": "user", "content": "Inspect the repository."}]
+    assert str(step_state.messages[0]["content"]).startswith("<working_context>")
+    assert step_state.messages[-1] == {
+        "role": "user",
+        "content": "Inspect the repository.",
+    }
+    assert sum(
+        message.get("content") == "Inspect the repository."
+        for message in step_state.messages
+    ) == 1
 
 
-def test_build_step_state_materializes_turn_context_before_current_user() -> None:
+def test_build_step_state_materializes_typed_context_before_current_user() -> None:
     orchestrator = _build_orchestrator()
 
     step_state = orchestrator.build_step_state(
         turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
-        system_prompt=(
-            f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\n"
-            "dynamic memory and runtime state"
-        ),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        runtime_world_state="date=2026-08-26 timezone=Asia/Shanghai",
+        working_context="retrieved memory for this run",
         selected_tools=[],
         conversation_history=[
             {"role": "user", "content": "older"},
@@ -80,13 +88,58 @@ def test_build_step_state_materializes_turn_context_before_current_user() -> Non
     assert step_state.effective_system_prompt == (
         f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
     )
-    turn_context = step_state.messages[-2]
-    assert turn_context["role"] == "user"
-    assert str(turn_context["content"]).startswith("<turn_context>\n")
-    assert "dynamic memory and runtime state" in str(turn_context["content"])
-    assert "Tool recovery rules:" in str(turn_context["content"])
-    assert str(turn_context["content"]).endswith("\n</turn_context>")
+    runtime_state = step_state.messages[-3]
+    assert str(runtime_state["content"]).startswith("<runtime_world_state>\n")
+    assert "date=2026-08-26" in str(runtime_state["content"])
+    working_context = step_state.messages[-2]
+    assert str(working_context["content"]).startswith("<working_context>\n")
+    assert "retrieved memory for this run" in str(working_context["content"])
+    assert "Tool recovery rules:" in str(working_context["content"])
+    assert str(working_context["content"]).endswith("\n</working_context>")
     assert step_state.messages[-1] == {"role": "user", "content": "current"}
+
+
+def test_build_step_state_rejects_dynamic_system_tail() -> None:
+    orchestrator = _build_orchestrator()
+
+    with pytest.raises(ValueError, match="must not contain text after"):
+        orchestrator.build_step_state(
+            turn=UserTurnInput(
+                text="current",
+                attachments=[],
+                user_id=None,
+                session_id=None,
+            ),
+            system_prompt=f"stable\n{SYSTEM_PROMPT_CACHE_BOUNDARY}\ndynamic tail",
+            selected_tools=[],
+        )
+
+
+def test_build_step_state_emits_runtime_world_state_only_when_changed() -> None:
+    orchestrator = _build_orchestrator()
+    runtime_state = build_runtime_world_state_message(
+        "date=2026-08-26 timezone=Asia/Shanghai"
+    )
+    assert runtime_state is not None
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        selected_tools=[],
+        runtime_world_state="date=2026-08-26 timezone=Asia/Shanghai",
+        working_context="fresh retrieval",
+        conversation_history=[
+            runtime_state,
+            {"role": "user", "content": "older"},
+            {"role": "assistant", "content": "answer"},
+        ],
+    )
+
+    assert sum(
+        str(message.get("content") or "").startswith("<runtime_world_state>")
+        for message in step_state.messages
+    ) == 1
+    assert str(step_state.messages[-2]["content"]).startswith("<working_context>")
 
 
 def test_prompt_history_preserves_assistant_tool_calls() -> None:
@@ -254,6 +307,12 @@ async def test_execute_with_tools_drops_ephemeral_context_after_first_tool_loop(
     assert "large parent conversation snapshot" in llm_message_snapshots[0]
     assert "large parent conversation snapshot" not in llm_message_snapshots[1]
     assert "Inspect the repository." in llm_message_snapshots[1]
+    first_messages = json.loads(llm_message_snapshots[0])
+    assert first_messages[-1] == {
+        "role": "user",
+        "content": "Inspect the repository.",
+    }
+    assert "large parent conversation snapshot" in first_messages[-2]["content"]
 
 
 @pytest.mark.asyncio
@@ -339,15 +398,17 @@ async def test_step_executor_executes_one_llm_decision_and_one_tool_batch(monkey
     assert step_state.iteration == 1
     assert [message["role"] for message in step_state.messages] == [
         "user",
+        "user",
         "assistant",
         "tool",
     ]
     assert "Runtime expression policy" not in str(step_state.messages)
-    assert "Execution-phase expression rule" in step_state.effective_system_prompt
+    assert "Execution-phase expression rule" not in step_state.effective_system_prompt
+    assert "Execution-phase expression rule" in str(step_state.messages[0]["content"])
     assert context_commits == [
-        ["user"],
-        ["user", "assistant"],
-        ["user", "assistant", "tool"],
+        ["user", "user"],
+        ["user", "user", "assistant"],
+        ["user", "user", "assistant", "tool"],
     ]
 
 

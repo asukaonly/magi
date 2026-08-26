@@ -24,6 +24,7 @@ from magi.agent.execution.function_calling import (
 from magi.config.models import ThinkingDepth
 from magi.tools.schema import ToolResult
 from magi.agent.turn_input import UserTurnInput
+from magi.utils.model_context_messages import is_working_context_message
 
 
 class _DummyLLMAdapter(LLMAdapter):
@@ -425,7 +426,7 @@ async def test_max_iterations_fallback_fails_after_repeated_tool_markup() -> Non
 
     result = await run_agent(executor,
         turn=UserTurnInput(text="run tools", attachments=[], user_id=None, session_id=None),
-        system_prompt="sys\n# Tool Use Guidance\nuse tools",
+        system_prompt="sys",
         selected_tools=["bash", "agent", "grep"],
         user_id="u1",
         max_iterations=1,
@@ -434,8 +435,10 @@ async def test_max_iterations_fallback_fails_after_repeated_tool_markup() -> Non
     assert result.status == "failed"
     assert result.content == ""
     assert len(captured_calls) == 2
-    assert "Tool Use Guidance" not in captured_calls[0]["system_prompt"]
-    assert "Do not emit tool calls" in captured_calls[0]["system_prompt"]
+    assert captured_calls[0]["system_prompt"] == "sys"
+    assert captured_calls[1]["system_prompt"] == "sys"
+    assert is_working_context_message(captured_calls[0]["messages"][-1])
+    assert "Do not emit tool calls" in captured_calls[0]["messages"][-1]["content"]
     assert captured_calls[1]["thinking_depth"] == ThinkingDepth.NONE
     assert "This is the final retry" in captured_calls[1]["messages"][-1]["content"]
     assert registry.calls == [("bash", {"command": "echo one"})]
@@ -553,70 +556,60 @@ def test_compact_message_history_preserves_protocol_for_multi_tool_blocks() -> N
     assert messages[-1]["role"] == "tool"
 
 
-def test_build_final_response_system_prompt_removes_tool_guidance() -> None:
+def test_build_final_response_messages_adds_strict_working_guidance() -> None:
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
 
-    system_prompt = (
-        "# System Information\n"
-        "* Time: now\n"
-        "# Tool Use Guidance\n"
-        "Use available tools when needed.\n"
-        "Tool recovery rules:\n"
-        "- use tools\n"
+    final_messages = executor._build_final_response_messages(
+        [{"role": "user", "content": "finish"}],
+        force_plain_text=True,
     )
+    final_guidance = str(final_messages[-1]["content"])
 
-    final_prompt = executor._build_final_response_system_prompt(
-        system_prompt, strict_plain_text=True
-    )
-
-    assert "# Tool Use Guidance" not in final_prompt
-    assert "Tool recovery rules" not in final_prompt
-    assert "Tools are no longer available in this step." in final_prompt
-    assert "Do not emit tool calls" in final_prompt
-    assert "This is the final retry" not in final_prompt
+    assert "Tools are no longer available in this step." in final_guidance
+    assert "Do not emit tool calls" in final_guidance
+    assert "This is the final retry" in final_guidance
 
 
-def test_build_final_response_system_prompt_prioritizes_memory_query_results() -> None:
+def test_build_final_response_messages_prioritizes_memory_query_results() -> None:
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
 
-    system_prompt = (
-        "# System Information\n"
-        "* Time: now\n"
-        "# Memory Query Guidance\n"
-        "Use `memory_query` before answering.\n"
-        "# Tool Use Guidance\n"
-        "Use available tools when needed.\n"
+    final_messages = executor._build_final_response_messages(
+        [
+            {
+                "role": "user",
+                "content": "<working_context>\n# Memory Query Guidance\nUse memory_query.\n</working_context>",
+            }
+        ],
+        force_plain_text=True,
     )
+    final_guidance = str(final_messages[-1]["content"])
 
-    final_prompt = executor._build_final_response_system_prompt(
-        system_prompt, strict_plain_text=True
-    )
-
-    assert "memory_query results as the source of truth" in final_prompt
-    assert "Do not replace missing recall results with implicit memory" in final_prompt
-    assert "Keep historical claims within the returned findings and coverage" in final_prompt
-    assert "Persona or tone may change phrasing" in final_prompt
+    assert "memory_query results as the source of truth" in final_guidance
+    assert "Do not replace missing recall results with implicit memory" in final_guidance
+    assert "Keep historical claims within the returned findings and coverage" in final_guidance
+    assert "Persona or tone may change phrasing" in final_guidance
 
 
-def test_build_final_response_system_prompt_omits_memory_governance_without_memory_query() -> None:
+def test_build_final_response_messages_omit_memory_governance_without_memory_query() -> None:
     executor = FunctionCallingOrchestrator(
         llm_adapter=_DummyLLMAdapter(),
         tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
     )
 
-    final_prompt = executor._build_final_response_system_prompt(
-        "# System Information\n* Time: now\n",
-        strict_plain_text=True,
+    final_messages = executor._build_final_response_messages(
+        [{"role": "user", "content": "finish"}],
+        force_plain_text=True,
     )
+    final_guidance = str(final_messages[-1]["content"])
 
-    assert "Keep historical claims within the returned findings and coverage" not in final_prompt
-    assert "Persona or tone may change phrasing" not in final_prompt
+    assert "Keep historical claims within the returned findings and coverage" not in final_guidance
+    assert "Persona or tone may change phrasing" not in final_guidance
 
 
 def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
@@ -1046,7 +1039,8 @@ async def test_execute_with_tools_replans_after_recoverable_tool_failure() -> No
     assert result.content == "Recovered with a narrower scan."
     assert [call[0] for call in registry.calls] == ["grep", "glob"]
     assert len(llm_calls) == 3
-    assert "Tool recovery rules:" in llm_calls[0]["system_prompt"]
+    assert "Tool recovery rules:" not in llm_calls[0]["system_prompt"]
+    assert "Tool recovery rules:" in str(llm_calls[0]["messages"][0]["content"])
     assert result.tool_failures[0]["error_code"] == "INVALID_PARAMETERS"
 
 

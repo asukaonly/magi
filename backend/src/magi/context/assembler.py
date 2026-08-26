@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..utils.runtime import get_default_chat_workspace_path
+from ..utils.calendar_timezone import local_calendar_timezone_id
 from .schema import (
     IdentityConstraintContext,
     PromptAssemblyContext,
@@ -150,8 +151,8 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         now = datetime.now().astimezone()
         normalized_workspace_path = str(workspace_path or "").strip()
         return RuntimeSystemContext(
-            current_time_iso=now.isoformat(),
-            timezone=str(now.tzinfo or "unknown"),
+            current_date=now.date().isoformat(),
+            timezone=local_calendar_timezone_id() or str(now.tzinfo or "unknown"),
             os_name=platform.system(),
             os_version=platform.release(),
             cwd=normalized_workspace_path or get_default_chat_workspace_path(),

@@ -74,7 +74,7 @@ class TestPersonaTurnPlanRendering:
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(
-                current_time_iso="2025-01-01T00:00:00",
+                current_date="2025-01-01",
                 timezone="UTC",
                 os_name="Darwin",
                 os_version="24.0",
@@ -85,7 +85,8 @@ class TestPersonaTurnPlanRendering:
             tool_catalog=ToolCatalogContext(),
         )
 
-        prompt = PromptContextRenderer().render_system_prompt(ctx)
+        layers = PromptContextRenderer().render_prompt_layers(ctx)
+        prompt = f"{layers.system_prompt}\n{layers.working_context}"
 
         assert "# Persona Runtime Plan" in prompt
         assert "Pinned identity." in prompt
@@ -114,7 +115,7 @@ class TestPersonaTurnPlanRendering:
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(
-                current_time_iso="2025-01-01T00:00:00",
+                current_date="2025-01-01",
                 timezone="UTC",
                 os_name="Darwin",
                 os_version="24.0",
@@ -125,7 +126,7 @@ class TestPersonaTurnPlanRendering:
             tool_catalog=ToolCatalogContext(),
         )
 
-        prompt = PromptContextRenderer().render_system_prompt(ctx)
+        prompt = PromptContextRenderer().render_prompt_layers(ctx).working_context
 
         assert "* Prefer: 改代码前先讲方案" in prompt
         assert "* Avoid: 未验证就说完成" in prompt

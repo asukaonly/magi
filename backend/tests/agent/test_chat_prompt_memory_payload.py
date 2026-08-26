@@ -80,7 +80,7 @@ class TestChatPromptMemoryPayload(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        prompt = renderer.render_system_prompt(assembled)
+        prompt = renderer.render_prompt_layers(assembled).working_context
 
         self.assertEqual(
             assembled.self_memory.retrieval_memory.l0_workbench[0][

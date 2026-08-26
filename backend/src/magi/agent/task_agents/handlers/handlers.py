@@ -247,16 +247,16 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
     async def build_request(self, request: ExecutionRequest) -> PreparedAgentRunRequest:
         prompt_package = await self._build_prompt_package(request)
         selected_tools = list(request.capabilities.tools)
-        system_prompt, selected_tools = self._apply_prompt_guidance(
+        working_context, selected_tools = self._apply_working_context_guidance(
             request=request,
-            system_prompt=prompt_package.system_prompt,
+            working_context=prompt_package.working_context,
             selected_tools=selected_tools,
             memory_availability=str(
                 getattr(prompt_package, "memory_availability", "unknown")
             ),
         )
-        system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
-            system_prompt=system_prompt,
+        working_context = self._deps.prompt_service.augment_working_context_with_reply_context(
+            working_context=working_context,
             reply_context=getattr(request.context, "reply_context", None),
             recent_tool_state=getattr(request.context, "recent_tool_state", None),
         )
@@ -268,10 +268,10 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             }
         )
         if first_context_guidance:
-            system_prompt = f"{system_prompt}\n\n{first_context_guidance}"
+            working_context = f"{working_context}\n\n{first_context_guidance}"
         session_continuity = _build_session_continuity_block(request.context)
         if session_continuity:
-            system_prompt = f"{system_prompt}\n\n{session_continuity}"
+            working_context = f"{working_context}\n\n{session_continuity}"
         context_sources = _build_context_sources(
             request,
             prompt_package.prompt_context,
@@ -288,7 +288,9 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             admission=request.admission,
             capabilities=request.capabilities,
             prompt_context=prompt_package.prompt_context,
-            system_prompt=system_prompt,
+            system_prompt=prompt_package.system_prompt,
+            runtime_world_state=prompt_package.runtime_world_state,
+            working_context=working_context,
             selected_tools=selected_tools,
             reasoning_policy=ReasoningPolicy.from_preference(
                 request.admission.reasoning_preference
@@ -315,40 +317,40 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
             allow_implicit_memory=getattr(request.context, "recall_feedback", None) is None,
         )
 
-    def _apply_prompt_guidance(
+    def _apply_working_context_guidance(
         self,
         *,
         request: ExecutionRequest,
-        system_prompt: str,
+        working_context: str,
         selected_tools: list[str],
         memory_availability: str = "unknown",
     ) -> tuple[str, list[str]]:
         if "memory_query" in selected_tools:
             # Keep retrieval observations verbatim whenever the resident
             # memory capability is exposed to the model.
-            system_prompt = f"{system_prompt}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
+            working_context = f"{working_context}\n\n{MEMORY_QUERY_GUIDANCE_BLOCK}"
         elif memory_availability == "unavailable":
-            system_prompt = f"{system_prompt}\n\n{MEMORY_UNAVAILABLE_GUIDANCE_BLOCK}"
+            working_context = f"{working_context}\n\n{MEMORY_UNAVAILABLE_GUIDANCE_BLOCK}"
 
         scope_guidance_block = _build_scope_guidance_block(
             getattr(request.capabilities, "task_hint", None)
             or getattr(request.admission, "task_hint", None)
         )
         if scope_guidance_block:
-            system_prompt = f"{system_prompt}\n\n{scope_guidance_block}"
+            working_context = f"{working_context}\n\n{scope_guidance_block}"
 
         attachment_guidance_block = _build_attachment_preparation_guidance_block(selected_tools)
         if attachment_guidance_block:
-            system_prompt = f"{system_prompt}\n\n{attachment_guidance_block}"
+            working_context = f"{working_context}\n\n{attachment_guidance_block}"
         recall_feedback_prompt = build_recall_feedback_prompt(
             getattr(request.context, "recall_feedback", None)
         )
         if recall_feedback_prompt:
-            system_prompt = f"{system_prompt}\n\n{recall_feedback_prompt}"
+            working_context = f"{working_context}\n\n{recall_feedback_prompt}"
         skill_prompt = _build_inline_skill_prompt(request)
         if skill_prompt:
-            system_prompt = f"{system_prompt}\n\n{skill_prompt}"
-        return system_prompt, selected_tools
+            working_context = f"{working_context}\n\n{skill_prompt}"
+        return working_context, selected_tools
 
     async def execute(self, request: PreparedAgentRunRequest) -> ExecutionResult:
         execution_workspace = _resolve_execution_workspace(request)
@@ -437,6 +439,8 @@ class AgentRunHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHandler):
                 session_id=request.context.session_id,
             ),
             system_prompt=request.system_prompt,
+            runtime_world_state=request.runtime_world_state,
+            working_context=request.working_context,
             selected_tools=request.selected_tools,
             user_id=request.context.user_id,
             run_id=run_id,

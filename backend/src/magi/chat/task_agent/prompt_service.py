@@ -76,10 +76,10 @@ class ChatPromptService:
         ):
             yield event
 
-    def augment_system_prompt_with_reply_context(
+    def augment_working_context_with_reply_context(
         self,
         *,
-        system_prompt: str,
+        working_context: str,
         reply_context: ChatReplyContext | None,
         recent_tool_state: list[dict[str, Any]] | None = None,
     ) -> str:
@@ -91,7 +91,7 @@ class ChatPromptService:
             )
             if block
         ]
-        return "\n\n".join([system_prompt, *blocks])
+        return "\n\n".join(part for part in (working_context, *blocks) if part)
 
     def build_recent_tool_state_block(
         self,

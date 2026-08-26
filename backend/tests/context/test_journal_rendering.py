@@ -55,7 +55,7 @@ class TestPersonaJournalRendering:
             ),
             profile_memory=ProfileMemoryContext(user_id="u1"),
             runtime_system=RuntimeSystemContext(
-                current_time_iso="2024-01-01T00:00:00",
+                current_date="2024-01-01",
                 timezone="UTC",
                 os_name="Darwin",
                 os_version="23.0",
@@ -67,19 +67,20 @@ class TestPersonaJournalRendering:
         )
 
         renderer = PromptContextRenderer()
-        prompt = renderer.render_system_prompt(ctx)
+        layers = renderer.render_prompt_layers(ctx)
+        prompt = layers.working_context
 
         # Journal should be present
         assert "Internal Reflections" in prompt
         assert "Reflected on recent growth." in prompt
 
-        # Journal should be dynamic turn context: after the cache boundary and
-        # before memory context.
-        persona_pos = prompt.index("Persona Runtime Plan")
-        boundary_pos = prompt.index(SYSTEM_PROMPT_CACHE_BOUNDARY)
+        # Identity and the cache boundary stay in the stable layer. Journal
+        # content stays in Working Context before retrieved memory.
+        assert "Persona Runtime Plan" in layers.system_prompt
+        assert SYSTEM_PROMPT_CACHE_BOUNDARY in layers.system_prompt
         journal_pos = prompt.index("Internal Reflections")
         memory_pos = prompt.index("Memory Library")
-        assert persona_pos < boundary_pos < journal_pos < memory_pos
+        assert journal_pos < memory_pos
 
     def test_skips_entries_without_content(self):
         renderer = PromptContextRenderer()

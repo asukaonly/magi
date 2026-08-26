@@ -31,6 +31,8 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             return_value=PromptPackage(
                 prompt_context=None,
                 system_prompt="owned-by-context-layer",
+                runtime_world_state="world-state",
+                working_context="working-context",
                 recent_tool_errors_block="",
             )
         )
@@ -76,6 +78,8 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             allow_implicit_memory=True,
         )
         self.assertEqual(request.system_prompt, "owned-by-context-layer")
+        self.assertEqual(request.runtime_world_state, "world-state")
+        self.assertEqual(request.working_context, "working-context")
 
     async def test_chat_handlers_add_memory_query_guidance_when_capability_is_selected(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
@@ -83,6 +87,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             return_value=PromptPackage(
                 prompt_context=None,
                 system_prompt="owned-by-context-layer",
+                working_context="working-context",
                 recent_tool_errors_block="",
             )
         )
@@ -117,7 +122,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
         request = await agent.build_execution_request(context, admission, capabilities)
 
         self.assertIn("memory_query", request.selected_tools)
-        self.assertIn("source of truth", request.system_prompt.lower())
+        self.assertIn("source of truth", request.working_context.lower())
 
     async def test_chat_handlers_expose_unavailable_memory_without_implying_no_history(self):
         agent = ChatTaskAgent(agent_id="u-chat", llm_adapter=_FakeLLMAdapter())
@@ -125,6 +130,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
             return_value=PromptPackage(
                 prompt_context=None,
                 system_prompt="owned-by-context-layer",
+                working_context="working-context",
                 memory_availability="unavailable",
                 memory_retrieval_status="failed",
             )
@@ -156,7 +162,7 @@ class TestChatContextOwner(unittest.IsolatedAsyncioTestCase):
 
         request = await agent.build_execution_request(context, admission, capabilities)
 
-        self.assertIn("Historical memory lookup is unavailable", request.system_prompt)
+        self.assertIn("Historical memory lookup is unavailable", request.working_context)
         memory_source = next(
             source for source in request.context_sources if source["provider"] == "memory"
         )

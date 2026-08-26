@@ -22,13 +22,6 @@ _FallbackStepResult = TypeVar("_FallbackStepResult")
 class FallbackHostProtocol(Protocol):
     async def _emit_loop_event(self, payload: dict[str, Any]) -> None: ...
 
-    def _build_final_response_system_prompt(
-        self,
-        system_prompt: str,
-        *,
-        strict_plain_text: bool = False,
-    ) -> str: ...
-
     def _build_final_response_messages(
         self,
         messages: list[dict[str, Any]],
@@ -259,10 +252,7 @@ async def _force_plain_text_retry_if_needed(
         host,
         state,
         context,
-        system_prompt=host._build_final_response_system_prompt(
-            state.effective_system_prompt,
-            strict_plain_text=True,
-        ),
+        system_prompt=state.effective_system_prompt,
         messages=host._build_final_response_messages(
             state.messages,
             force_plain_text=True,
@@ -276,7 +266,7 @@ async def _request_initial_fallback_response(
     state: FunctionCallingStepState,
     context: FallbackExecutionContext,
 ) -> tuple[str, dict[str, Any]]:
-    final_system_prompt = host._build_final_response_system_prompt(state.effective_system_prompt)
+    final_system_prompt = state.effective_system_prompt
     final_response = await _call_fallback_llm(
         host,
         state,
