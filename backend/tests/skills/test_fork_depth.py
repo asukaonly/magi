@@ -45,8 +45,11 @@ async def test_fork_depth_resets_on_exit(monkeypatch):
     skill = _make_skill()
     loader = type("Loader", (), {"load_skill": lambda _self, _name: skill})()
 
+    captured_request: dict[str, object] = {}
+
     class _Orchestrator:
-        async def run(self, _request):  # type: ignore[no-untyped-def]
+        async def run(self, request):  # type: ignore[no-untyped-def]
+            captured_request.update(request)
             return type(
                 "Outcome",
                 (),
@@ -64,3 +67,5 @@ async def test_fork_depth_resets_on_exit(monkeypatch):
     after = runner_module._fork_depth.get()
     assert result.success is True
     assert before == after
+    assert "system_prompt" not in captured_request
+    assert "body" in str(captured_request["working_context"])

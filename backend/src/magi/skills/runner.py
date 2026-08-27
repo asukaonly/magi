@@ -317,7 +317,6 @@ class SkillRunner:
                         user_id=str(context.get("user_id") or "skill"),
                         session_id=child_session_id,
                     ),
-                    system_prompt=prompt,
                     selected_tools=selected_tools,
                     user_id=str(context.get("user_id") or "skill"),
                     session_id=child_session_id,
@@ -325,6 +324,7 @@ class SkillRunner:
                     execution_preset="skill",
                     execution_agent_id="skill_child",
                     execution_workspace=self._resolve_workspace(context),
+                    working_context=prompt,
                     context_sources=(
                         {
                             "provider": "skill",

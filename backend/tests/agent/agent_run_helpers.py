@@ -7,6 +7,7 @@ from typing import Any
 from agent.permission_helpers import AllowAllPermissionGateway
 
 from magi.agent.execution.function_calling.run_input import AgentRunRequest
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 
 
 async def run_agent(orchestrator: Any, **kwargs: Any) -> Any:
@@ -20,6 +21,9 @@ async def run_agent(orchestrator: Any, **kwargs: Any) -> Any:
     intent = kwargs.pop("intent", None)
     if intent is not None:
         kwargs["execution_preset"] = intent
+    system_prompt = str(kwargs.get("system_prompt") or "").strip()
+    if SYSTEM_PROMPT_CACHE_BOUNDARY not in system_prompt:
+        kwargs["system_prompt"] = f"{system_prompt}\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
     return await orchestrator.run(AgentRunRequest(**kwargs))
 
 

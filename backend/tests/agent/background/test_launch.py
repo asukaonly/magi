@@ -25,6 +25,7 @@ from magi.agent.cancel import CancelToken, EventCancelToken, null_cancel_token
 from magi.agent.execution.function_calling import ExecutionOutcome
 from magi.agent.execution.checkpoint import AgentRunCheckpoint
 from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.agent.execution.task_budget import (
     consume_task_llm_calls,
     current_task_budget,
@@ -349,7 +350,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
         goal="do the thing",
         selected_tools=["deep_research"],
         skill_preapproval_rules=("bash(git diff *)",),
-        system_prompt="stable prompt",
+        system_prompt=f"stable prompt\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
         working_context="run-local guidance",
         ephemeral_context="launch snapshot",
         workspace_path="/w",
@@ -373,7 +374,7 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert call.user_id == "u1"
     assert call.session_id == "s1"
     assert call.execution_workspace == "/w"
-    assert call.system_prompt == "stable prompt"
+    assert call.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
     assert "# Runtime World State" in call.runtime_world_state
     assert "* Working Directory: /w" in call.runtime_world_state
     assert call.working_context == "run-local guidance"
@@ -443,6 +444,10 @@ async def test_run_fn_passes_cancel_token_through() -> None:
         await run_fn(task, token)
 
     assert orchestrator.calls[0].control.cancel_token is token
+    assert orchestrator.calls[0].system_prompt.endswith(
+        SYSTEM_PROMPT_CACHE_BOUNDARY
+    )
+    assert "# Runtime World State" in orchestrator.calls[0].runtime_world_state
 
 
 @pytest.mark.asyncio
@@ -551,7 +556,7 @@ async def test_run_fn_resumes_from_agent_checkpoint() -> None:
     checkpoint = AgentRunCheckpoint(
         run_id="run-1",
         messages=snapshot_messages,
-        effective_system_prompt="system",
+        effective_system_prompt=f"system\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
         tools=[],
         iteration=1,
         reasoning_policy=policy,
@@ -587,7 +592,7 @@ def test_spec_roundtrip_preserves_agent_checkpoint() -> None:
     checkpoint = AgentRunCheckpoint(
         run_id="run-1",
         messages=messages,
-        effective_system_prompt="system",
+        effective_system_prompt=f"system\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
         tools=[],
         iteration=1,
         reasoning_policy=policy,

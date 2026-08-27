@@ -10,6 +10,7 @@ from ....context.window_budget import estimate_context_tokens
 from ....core.logger import get_logger
 from ....llm.streaming_events import stream_scope
 from ....tools.system_tools import resolve_runtime_fact_tools
+from ....utils.model_context_messages import build_working_context_message
 from magi.control.run_control import RunControl
 from ..context_fingerprint import stable_hash
 from magi.runtime_trace.run_events import AgentRunEventType
@@ -130,27 +131,29 @@ class FunctionCallingModelCapabilityFlow:
         control: RunControl,
         thinking_depth: ThinkingDepth,
     ) -> ExecutionOutcome | None:
-        grounding_prompt = (
-            f"{state.effective_system_prompt}\n\n"
-            "Attachment grounding step: inspect only the attached images. Return a compact "
-            "JSON object with keys summary, visible_facts, uncertainty, and attachment_refs. "
-            "Do not solve the broader task and do not expose hidden reasoning."
+        grounding_message = build_working_context_message(
+            "Attachment grounding step: inspect only the attached images. Return a "
+            "compact JSON object with keys summary, visible_facts, uncertainty, and "
+            "attachment_refs. Do not solve the broader task and do not expose hidden "
+            "reasoning."
         )
+        assert grounding_message is not None
+        grounding_messages = [*state.messages, grounding_message]
         await self._journal.record_effective_context(
             state,
             mode="attachment_grounding",
             step_index=state.iteration,
-            system_prompt=grounding_prompt,
-            messages=state.messages,
+            system_prompt=state.effective_system_prompt,
+            messages=grounding_messages,
             tools=[],
         )
         if state.model_context_port is not None:
             await state.model_context_port.commit(
-                messages=state.messages,
+                messages=grounding_messages,
                 turn_id=state.model_context_turn_id,
                 run_id=state.run_id,
                 step_index=state.iteration,
-                system_prompt=grounding_prompt,
+                system_prompt=state.effective_system_prompt,
                 tools=[],
                 boundary_kind="attachment_grounding",
                 request_options={
@@ -162,8 +165,8 @@ class FunctionCallingModelCapabilityFlow:
         try:
             async with stream_scope(None):
                 response = await self._host._call_llm_without_tools(
-                    system_prompt=grounding_prompt,
-                    messages=state.messages,
+                    system_prompt=state.effective_system_prompt,
+                    messages=grounding_messages,
                     thinking_depth=thinking_depth,
                     json_mode=True,
                     timeout_seconds=run_input.llm_timeout_seconds,

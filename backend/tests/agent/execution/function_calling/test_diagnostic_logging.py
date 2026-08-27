@@ -16,6 +16,7 @@ from magi.agent.execution.function_calling.step_models import FunctionCallingSte
 from magi.agent.execution.function_calling.types import ExecutionOutcome
 from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 from magi.agent.turn_input import UserTurnInput
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.utils.diagnostic_logging import set_full_content_logging_enabled
 
 
@@ -76,7 +77,7 @@ async def test_agent_run_breadcrumbs_omit_prompt_and_message_content(caplog) -> 
     )
     run_input = AgentRunRequest(
         turn=UserTurnInput(text=secret_message),
-        system_prompt=secret_prompt,
+        system_prompt=f"{secret_prompt}\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
         selected_tools=["memory_query"],
         user_id="user-1",
         run_id="run-1",

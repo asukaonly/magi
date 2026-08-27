@@ -7,6 +7,10 @@ from typing import Any
 from uuid import uuid4
 
 from ...turn_input import UserTurnInput
+from ....context.prompt_lifecycle import (
+    require_stable_system_prompt,
+    resolve_headless_system_prompt,
+)
 from magi.control.run_control import RunControl
 from magi.skills.allowed_tools_rules import ToolRule
 
@@ -63,8 +67,10 @@ class AgentRunRequest:
     control: RunControl | None = None
 
     def __post_init__(self) -> None:
+        self.system_prompt = require_stable_system_prompt(self.system_prompt)
         if self.checkpoint is None:
             return
+        require_stable_system_prompt(self.checkpoint.effective_system_prompt)
         self.run_id = self.checkpoint.run_id
         self.reasoning_policy = self.checkpoint.reasoning_policy
         self.reasoning_state = self.checkpoint.reasoning_state
@@ -84,7 +90,7 @@ class AgentRunRequest:
         selected_tools: list[str],
         user_id: str,
         session_id: str | None = None,
-        system_prompt: str = "",
+        system_prompt: str | None = None,
         turn_id: str | None = None,
         conversation_history: list[dict[str, Any]] | None = None,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
@@ -112,7 +118,7 @@ class AgentRunRequest:
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
-            system_prompt=system_prompt,
+            system_prompt=resolve_headless_system_prompt(system_prompt),
             selected_tools=selected_tools,
             user_id=user_id,
             run_id=run_id or uuid4().hex,

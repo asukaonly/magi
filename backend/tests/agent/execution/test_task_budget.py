@@ -24,6 +24,7 @@ from magi.agent.execution.task_budget import (
     task_execution_budget_scope,
 )
 from magi.agent.turn_input import UserTurnInput
+from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
 from magi.llm.provider_bridge import ProviderResponse
 
 
@@ -97,7 +98,7 @@ async def test_orchestrator_root_budget_is_independent_from_local_iteration_limi
     outcome = await orchestrator.run(
         AgentRunRequest(
             turn=UserTurnInput(text="probe"),
-            system_prompt="",
+            system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
             selected_tools=[],
             user_id="u-budget",
             max_iterations=max_iterations,
@@ -320,7 +321,7 @@ async def test_last_budget_slot_forces_a_tool_turn_to_finalize() -> None:
         result = await orchestrator.run(
             AgentRunRequest(
                 turn=UserTurnInput(text="Use a tool if needed."),
-                system_prompt="Finish the task.",
+                system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
                 selected_tools=["demo"],
                 user_id="budget-user",
                 final_response_json_mode=True,

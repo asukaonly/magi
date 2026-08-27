@@ -12,6 +12,7 @@ from magi.agent.execution.function_calling.types import ExecutionOutcome
 from magi.agent.execution.model_capabilities import ModelCapabilityProfile
 from magi.agent.turn_input import UserTurnInput
 from magi.control.run_control import null_run_control
+from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_required_capability_fails_before_model_call_when_tools_are_unsupp
     outcome = await runner.run(
         AgentRunRequest(
             turn=UserTurnInput(text="inspect the attachment"),
-            system_prompt="system",
+            system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
             selected_tools=[],
             user_id="user-1",
             capability_resolution={"required_tools": ["photo_resolver"]},
@@ -79,7 +80,7 @@ async def test_oversized_tool_schemas_fail_before_model_call() -> None:
     outcome = await runner.run(
         AgentRunRequest(
             turn=UserTurnInput(text="use the tool"),
-            system_prompt="system",
+            system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
             selected_tools=["demo"],
             user_id="user-1",
             model_capabilities=ModelCapabilityProfile(max_schema_tokens=20),
@@ -128,7 +129,7 @@ async def test_compacts_before_first_model_request() -> None:
     runner = FunctionCallingLoopRunner(host)
     run_input = AgentRunRequest(
         turn=UserTurnInput(text="hello"),
-        system_prompt="system",
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
         selected_tools=["demo"],
         user_id="user-1",
     )
@@ -180,7 +181,7 @@ async def test_context_failure_stops_before_model_request() -> None:
     runner = FunctionCallingLoopRunner(_Host())
     run_input = AgentRunRequest(
         turn=UserTurnInput(text="hello"),
-        system_prompt="system",
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
         selected_tools=[],
         user_id="user-1",
     )
@@ -228,7 +229,7 @@ async def test_plan_reader_failure_blocks_completion() -> None:
     outcome = await FunctionCallingLoopRunner(_Host()).run(
         AgentRunRequest(
             turn=UserTurnInput(text="finish the task"),
-            system_prompt="system",
+            system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
             selected_tools=[],
             user_id="user-1",
             run_plan_reader=_FailingPlanReader(),

@@ -14,6 +14,7 @@ from magi.agent.execution.function_calling.step_models import (
 from magi.agent.execution.journal import AgentRunJournal
 from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 from magi.agent.turn_input import UserTurnInput
+from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
 
 
 def _verify_evidence(status: str) -> ToolExecutionEvidence:
@@ -48,7 +49,7 @@ async def test_failed_validation_uses_auto_escalation_step() -> None:
     )
     run_input = AgentRunRequest(
         turn=UserTurnInput(text="finish the change"),
-        system_prompt="system",
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
         selected_tools=[],
         user_id="user-1",
         reasoning_policy=policy,
@@ -91,7 +92,7 @@ async def test_inconclusive_validation_repairs_without_escalation() -> None:
     )
     run_input = AgentRunRequest(
         turn=UserTurnInput(text="finish the change"),
-        system_prompt="system",
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
         selected_tools=[],
         user_id="user-1",
         reasoning_policy=policy,
@@ -140,7 +141,7 @@ async def test_repair_exhaustion_is_recorded_before_blocking() -> None:
     )
     run_input = AgentRunRequest(
         turn=UserTurnInput(text="finish the change"),
-        system_prompt="system",
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
         selected_tools=[],
         user_id="user-1",
         completion_policy=CompletionPolicy(max_repair_iterations=1),

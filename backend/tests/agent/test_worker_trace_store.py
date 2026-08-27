@@ -15,6 +15,7 @@ from magi.runtime_trace.subscribers.runtime_trace_subscriber import (
 )
 from magi.agent.runtime_tools import AgentTool, WorkerRunState
 from magi.agent.workers.child_preset import ChildRunPreset
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 
 
 @pytest.fixture
@@ -244,7 +245,7 @@ async def test_worker_run_marks_stream_events_as_worker_source(
         await manager._run_worker(
             run_state=run_state,
             prompt_layers=WorkerPromptLayers(
-                system_prompt="worker prompt",
+                system_prompt=f"worker prompt\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
                 working_context="worker context",
             ),
             selected_tools=[],

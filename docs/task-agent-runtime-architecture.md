@@ -472,15 +472,23 @@ per-turn blob:
   for every call in the run, but is removed when the run is promoted to the
   Session Accepted Surface.
 
-Runtime World State and Working Context use explicit typed message envelopes.
-They may project to provider `user` messages for wire compatibility, but their
-content identifies them as runtime-owned and they are never treated as authored
-user turns. Classification uses runtime-only provenance metadata rather than a
-user-spoofable text tag; provider conversion strips that metadata before the API
-call while retaining the explanatory envelope text. The actual user message
-remains a separate item after them. The
-Stable Prompt Epoch must end at its cache boundary; runtime rejects any dynamic
-tail appended after that marker instead of silently reclassifying it.
+A launch-only typed envelope is the short-lived subset of run-local context used
+to explain why a child or detached run started. It remains distinct from Working
+Context, survives any compaction before the first provider call, and is removed
+by runtime provenance after the first completed tool iteration. The runtime never
+tracks this envelope by a mutable message-array index.
+
+Runtime World State, Working Context, and launch-only context use explicit typed
+message envelopes. They may project to provider `user` messages for wire
+compatibility, but their content identifies them as runtime-owned and they are
+never treated as authored user turns. Classification uses runtime-only
+provenance metadata rather than a user-spoofable text tag; provider conversion
+strips that metadata before the API call while retaining the explanatory
+envelope text. The actual user message remains a separate item after them. The
+Stable Prompt Epoch must contain exactly one cache boundary and end there. Every
+`AgentRunRequest` rejects a missing, duplicated, or tailed boundary; headless
+drivers that do not define specialized stable rules receive the canonical
+headless prompt epoch.
 Fallback finalization and forced plain-text retry rules are also typed Working
 Context. They do not rewrite the Stable Prompt Epoch and cannot be promoted as
 user-authored conversation history.
@@ -509,6 +517,22 @@ the current user message follow it. The rolling cache breakpoint is placed
 before the first of those dynamic messages. A changed system head, tool set, or
 provider reasoning profile may still start a new cache partition. Cache reuse
 remains an optimization and never changes semantic context ownership.
+
+Chat, foreground child, background child, detached, scheduled, batch, and forked
+skill runs all enter this same lifecycle contract. Child task descriptions and
+capability hints belong to Working Context, parent snapshots belong to launch-
+only context, and the host captures Runtime World State when the execution
+attempt actually starts. Forked skill instructions are Working Context rather
+than a dynamic system prompt. Attachment-grounding and finalization instructions
+also use typed Working Context, so no runtime path appends instructions beyond
+the stable cache boundary.
+
+Universal read-only runtime facts are admitted at the shared model-capability
+boundary before the effective tool set is journaled. `current_time` is therefore
+available to every tool-capable driver without repeating exact wall-clock time in
+prompts. Driver-specific control tools and child preset capabilities remain
+separate; universal fact admission does not give leaf agents parent control
+capabilities and is skipped for models without tool calling.
 
 ## Versioned Run Plans
 
@@ -704,7 +728,7 @@ Chat prompt assembly combines:
 - the active run's ordered Working Surface when it exists, otherwise the
   Session Accepted Surface, loaded from `chat_model_context_*`;
 - the Stable Prompt Epoch, changed-only Runtime World State, and current
-  run-local Working Context as separate typed inputs;
+  run-local Working Context and launch-only snapshot as separate typed inputs;
 - the current typed turn and reply target;
 - managed attachment references;
 - bounded recent tool-state continuity;
@@ -729,11 +753,11 @@ into SQLite; stable attachment handles remain resolvable by the chat domain.
 
 The Working Surface is never accepted merely because a model produced text.
 Visible assistant delivery and model-context promotion share one transaction.
-Promotion removes the current run's Working Context, unaccepted assistant
-drafts, and superseded Runtime World State snapshots, then appends the exact
-visible assistant outcome. Only the latest host-owned snapshot is retained;
-memory recall, persona steer, attachment extraction, and other run-local
-material are not.
+Promotion removes the current run's Working Context and launch-only context,
+unaccepted assistant drafts, and superseded Runtime World State snapshots, then
+appends the exact visible assistant outcome. Only the latest host-owned snapshot
+is retained; memory recall, persona steer, attachment extraction, parent launch
+snapshots, and other run-local material are not.
 Cancellation, governed failure, and delivery recovery promote an explicit
 runtime outcome instead. If any terminal chat write fails, both visible delivery
 and the Accepted Surface pointer roll back, leaving the Working Surface and its
@@ -747,9 +771,10 @@ runtime compactor creates a new immutable Working Surface revision while the
 prior revision and its model-call boundary remain readable until governed
 deletion. Compaction keeps complete protocol groups and tool-call identifiers.
 It excludes runtime-owned context envelopes from summary input, retains only the
-latest Runtime World State and current Working Context as raw typed messages,
-and places them after the new compaction boundary. Consequently, superseded
-host state is dropped and run-local recall cannot leak into a durable compaction
+latest Runtime World State, current Working Context, and active launch-only
+context as raw typed messages, and places them after the new compaction boundary.
+Consequently, superseded host state is dropped, launch context remains removable
+after reindexing, and run-local recall cannot leak into a durable compaction
 summary that would survive Accepted Surface promotion.
 The active model's input/output limits determine the capacity decision, and
 provider-facing prompt measurement occurs before every model call.

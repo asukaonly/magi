@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from magi.config.models import ThinkingDepth
+from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
+from magi.control.run_control import null_run_control
+from magi.utils.model_context_messages import is_working_context_message
 from magi.agent.execution.function_calling.model_capability_flow import (
     FunctionCallingModelCapabilityFlow,
 )
@@ -64,3 +70,58 @@ def test_runtime_fact_is_not_admitted_when_model_cannot_call_tools() -> None:
 
     assert state.selected_tool_names == []
     assert state.tools == []
+
+
+@pytest.mark.asyncio
+async def test_attachment_grounding_keeps_instruction_out_of_stable_system_prompt() -> None:
+    recorded_call: dict[str, object] = {}
+
+    class _GroundingHost(_Host):
+        _current_messages: list[dict[str, object]] = []
+
+        async def _call_llm_without_tools(self, **kwargs):  # type: ignore[no-untyped-def]
+            recorded_call.update(kwargs)
+            return {
+                "content": (
+                    '{"summary":"diagram","visible_facts":[],"uncertainty":[],'
+                    '"attachment_refs":[]}'
+                )
+            }
+
+        @staticmethod
+        def _format_exception_trace_text(exc: Exception) -> str:
+            return str(exc)
+
+    class _Journal:
+        async def record_effective_context(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            _ = (args, kwargs)
+
+    state = FunctionCallingStepState(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "inspect"},
+                    {"type": "image", "data": "data:image/png;base64,AA=="},
+                ],
+            }
+        ],
+        effective_system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+        tools=[],
+    )
+    flow = FunctionCallingModelCapabilityFlow(_GroundingHost(), _Journal())
+
+    outcome = await flow._ground_attachments(
+        state=state,
+        run_input=_request(supports_tool_calls=False),
+        control=null_run_control(),
+        thinking_depth=ThinkingDepth.LOW,
+    )
+
+    assert outcome is None
+    assert recorded_call["system_prompt"] == DEFAULT_HEADLESS_SYSTEM_PROMPT
+    grounding_messages = recorded_call["messages"]
+    assert isinstance(grounding_messages, list)
+    assert is_working_context_message(grounding_messages[-1])
+    assert "Attachment grounding step" in str(grounding_messages[-1]["content"])
+    assert "Attachment grounding step" not in DEFAULT_HEADLESS_SYSTEM_PROMPT

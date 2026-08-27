@@ -57,6 +57,9 @@ def test_spec_round_trips_through_to_dict_from_dict() -> None:
         trigger_source=BackgroundTaskTriggerSource.USER,
         timeout_seconds=None,
     )
+    original.system_prompt = "stable prompt"
+    original.working_context = "run-local context"
+    original.ephemeral_context = "launch snapshot"
 
     restored = BackgroundTaskSpec.from_dict(original.to_dict())
 
