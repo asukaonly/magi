@@ -309,7 +309,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch(
-            "magi.context.assembler.get_default_chat_workspace_path",
+            "magi.context.runtime_world_state.get_default_chat_workspace_path",
             return_value=str(managed_workspace),
         ):
             package = await service.build_prompt_package(

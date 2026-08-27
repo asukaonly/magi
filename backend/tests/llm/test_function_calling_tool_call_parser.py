@@ -22,6 +22,7 @@ from magi.agent.execution.function_calling import (
     ToolCallResult,
 )
 from magi.config.models import ThinkingDepth
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.tools.schema import ToolResult
 from magi.agent.turn_input import UserTurnInput
 from magi.utils.model_context_messages import is_working_context_message
@@ -435,8 +436,9 @@ async def test_max_iterations_fallback_fails_after_repeated_tool_markup() -> Non
     assert result.status == "failed"
     assert result.content == ""
     assert len(captured_calls) == 2
-    assert captured_calls[0]["system_prompt"] == "sys"
-    assert captured_calls[1]["system_prompt"] == "sys"
+    expected_system_prompt = f"sys\n{SYSTEM_PROMPT_CACHE_BOUNDARY}"
+    assert captured_calls[0]["system_prompt"] == expected_system_prompt
+    assert captured_calls[1]["system_prompt"] == expected_system_prompt
     assert is_working_context_message(captured_calls[0]["messages"][-1])
     assert "Do not emit tool calls" in captured_calls[0]["messages"][-1]["content"]
     assert captured_calls[1]["thinking_depth"] == ThinkingDepth.NONE
