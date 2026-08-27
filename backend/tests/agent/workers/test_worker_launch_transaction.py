@@ -11,6 +11,7 @@ import pytest
 from magi.agent.execution.task_budget import task_execution_budget_scope
 from magi.agent.workers.worker_launch import WorkerLaunchMixin
 from magi.agent.workers.worker_manager import ChildRunCoordinator
+from magi.agent.workers.worker_prompting import WorkerPromptLayers
 from magi.agent.workers.worker_state import WorkerRunState
 from magi.agent.workers.worker_status import WorkerStatusMixin
 from magi.tools.schema import ToolExecutionContext, ToolResult
@@ -52,21 +53,23 @@ class _WorkerLaunchHost(WorkerLaunchMixin, WorkerStatusMixin):
     def _resolve_tools_for_preset(self, preset: str) -> list[str]:
         return []
 
-    def _build_worker_system_prompt(
+    def _build_worker_prompt_layers(
         self,
         *,
         worker_id: str,
         preset: str,
         description: str,
         selected_tools: list[str],
-        execution_workspace: str,
-    ) -> str:
-        return f"{worker_id}:{description}"
+    ) -> WorkerPromptLayers:
+        return WorkerPromptLayers(
+            system_prompt="stable prompt",
+            working_context=f"{worker_id}:{description}",
+        )
 
     async def _run_worker(
         self,
         run_state: WorkerRunState,
-        worker_system_prompt: str,
+        prompt_layers: WorkerPromptLayers,
         selected_tools: list[str],
         max_iterations: int,
         execution_workspace: str,

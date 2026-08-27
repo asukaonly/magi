@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
-import platform
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from ..utils.runtime import get_default_chat_workspace_path
-from ..utils.calendar_timezone import local_calendar_timezone_id
 from .schema import (
     IdentityConstraintContext,
     PromptAssemblyContext,
-    RuntimeSystemContext,
     ToolCatalogContext,
 )
 from .renderer import PromptContextRenderer as PromptContextRenderer
+from .runtime_world_state import build_runtime_system_context
 from .self_memory import PromptSelfMemoryMixin
 from .user_profile_service import UserProfileService
 from ..personality.persona_journal_service import PersonaJournalService
@@ -113,12 +109,12 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
             self_memory=self_memory,
             user_id=user_id,
         )
-        runtime = self._build_runtime_system_context(
+        runtime = build_runtime_system_context(
             agent_id=agent_id,
             agent_type=agent_type,
             workspace_path=workspace_path,
-            attachments=attachments,
         )
+        runtime.active_attachments = list(attachments or [])
         tools = self._build_tool_catalog_context(tool_result=tool_result)
 
         return PromptAssemblyContext(
@@ -138,27 +134,6 @@ class PromptContextAssembler(PromptSelfMemoryMixin):
         return IdentityConstraintContext(
             system_definition=IDENTITY_TEMPLATE,
             core_truths_and_boundaries=BOUNDARY_TEMPLATE,
-        )
-
-    def _build_runtime_system_context(
-        self,
-        *,
-        agent_id: str,
-        agent_type: str,
-        workspace_path: str | None = None,
-        attachments: Optional[List[Dict[str, Any]]] = None,
-    ) -> RuntimeSystemContext:
-        now = datetime.now().astimezone()
-        normalized_workspace_path = str(workspace_path or "").strip()
-        return RuntimeSystemContext(
-            current_date=now.date().isoformat(),
-            timezone=local_calendar_timezone_id() or str(now.tzinfo or "unknown"),
-            os_name=platform.system(),
-            os_version=platform.release(),
-            cwd=normalized_workspace_path or get_default_chat_workspace_path(),
-            agent_id=agent_id,
-            agent_type=agent_type,
-            active_attachments=list(attachments or []),
         )
 
     def _build_tool_catalog_context(self, *, tool_result: Optional[Dict[str, Any]]) -> ToolCatalogContext:

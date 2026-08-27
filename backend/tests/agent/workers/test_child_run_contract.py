@@ -23,8 +23,11 @@ from magi.agent.workers.child_preset import (
     resolve_child_tools,
 )
 from magi.agent.workers.worker_manager import ChildRunCoordinator
+from magi.agent.workers.worker_execution import _build_agent_run_request
+from magi.agent.workers.worker_prompting import WorkerPromptLayers
 from magi.agent.workers.worker_state import WorkerRunState
 from magi.config.models import ThinkingDepth
+from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -146,15 +149,44 @@ def test_child_reasoning_is_bounded_by_parent_and_remaining_escalations() -> Non
     assert child.max_escalations == 1
 
 
-def test_child_environment_omits_exact_wall_clock_time() -> None:
+def test_child_prompt_separates_stable_rules_from_dynamic_assignment() -> None:
     coordinator = ChildRunCoordinator()
 
-    rules = coordinator._build_worker_environment_rules("/workspace")
+    layers = coordinator._build_worker_prompt_layers(
+        worker_id="worker-1",
+        preset="read_only",
+        description="inspect runtime",
+        selected_tools=["inspect", "current_time"],
+    )
 
-    assert "- Local date:" in rules
-    assert "- Timezone:" in rules
-    assert "current_time tool" in rules
-    assert "Current local time:" not in rules
+    assert "worker-1" not in layers.system_prompt
+    assert "inspect runtime" not in layers.system_prompt
+    assert "inspect, current_time" not in layers.system_prompt
+    assert layers.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert "worker-1" in layers.working_context
+    assert "inspect runtime" in layers.working_context
+    assert "inspect, current_time" in layers.working_context
+
+
+def test_foreground_child_request_materializes_all_prompt_lifecycles() -> None:
+    state = _state()
+    state.parent_context_summary = "parent snapshot"
+    request = _build_agent_run_request(
+        state,
+        prompt_layers=WorkerPromptLayers(
+            system_prompt=f"stable child rules\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+            working_context="child assignment",
+        ),
+        selected_tools=["inspect"],
+        max_iterations=5,
+        execution_workspace="/workspace",
+    )
+
+    assert request.system_prompt.endswith(SYSTEM_PROMPT_CACHE_BOUNDARY)
+    assert "* Working Directory: /workspace" in request.runtime_world_state
+    assert "worker-1" in request.runtime_world_state
+    assert request.working_context == "child assignment"
+    assert request.ephemeral_context == "parent snapshot"
 
 
 @pytest.mark.asyncio
@@ -229,6 +261,9 @@ async def test_background_child_launch_transfers_to_durable_runtime() -> None:
     assert manager.spec.parent_run_id == "run-parent"
     assert manager.spec.selected_tools == ["inspect"]
     assert manager.spec.final_response_json_mode is True
+    assert "inspect runtime" not in manager.spec.system_prompt
+    assert "inspect runtime" in manager.spec.working_context
+    assert manager.spec.ephemeral_context is None
 
 
 def test_workspace_write_result_requires_artifacts_and_passing_verification() -> None:

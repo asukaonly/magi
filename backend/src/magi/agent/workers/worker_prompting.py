@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import os
-import platform
-from datetime import datetime
-from typing import Any, Optional, Protocol, cast
+from dataclasses import dataclass
+from typing import Any, Protocol, cast
 
+from ...config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from ...i18n import llm_language_label
-from ...utils.calendar_timezone import local_calendar_timezone_id
-from ...utils.runtime import get_default_chat_workspace_path
 from .child_preset import (
     ChildRunPreset,
     parse_child_preset,
@@ -19,6 +16,14 @@ from .child_preset import (
 
 class _WorkerPromptHostProtocol(Protocol):
     _tool_registry: Any
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerPromptLayers:
+    """Stable and run-local prompt layers for one bounded child run."""
+
+    system_prompt: str
+    working_context: str
 
 
 class WorkerPromptMixin:
@@ -35,42 +40,51 @@ class WorkerPromptMixin:
             return []
         return resolve_child_tools(host._tool_registry, preset)
 
-    def _build_worker_system_prompt(
+    def _build_worker_prompt_layers(
         self,
         worker_id: str,
         preset: str,
         description: str,
         selected_tools: list[str],
-        execution_workspace: Optional[str] = None,
-    ) -> str:
+    ) -> WorkerPromptLayers:
         resolved_preset = parse_child_preset(preset)
         if resolved_preset is None:
             raise ValueError(f"Unsupported child preset: {preset}")
         base_rules = (
-            f"You are bounded child agent {worker_id}. "
-            f"Task summary: {description}. "
-            "You are a leaf executor. Stay inside the given objective and return "
+            "You are a bounded child agent and leaf executor. Stay inside the "
+            "assigned objective and return "
             "only the requested structured JSON result. Do not create child agents "
             "or modify the parent run plan."
-        )
-        environment_rules = self._build_worker_environment_rules(execution_workspace)
-        tool_rules = (
-            "Only use these tools: " + ", ".join(selected_tools)
-            if selected_tools
-            else "No tools are available. Reason directly from the supplied context."
         )
         language_rules = (
             f"Response language: {llm_language_label()}. Write natural-language JSON "
             "values in this language unless preserving exact identifiers or sources."
         )
-        return "\n".join(
-            [
+        system_prompt = "\n".join(
+            (
                 base_rules,
-                environment_rules,
                 self._build_preset_rules(resolved_preset),
                 language_rules,
-                tool_rules,
-            ]
+                "Use only capabilities exposed by the runtime. If no tool is exposed, "
+                "reason directly from the supplied context.",
+                SYSTEM_PROMPT_CACHE_BOUNDARY,
+            )
+        )
+        selected_capabilities = ", ".join(selected_tools) if selected_tools else "none"
+        working_context = "\n".join(
+            (
+                "# Child Run Assignment",
+                f"* Worker ID: {worker_id}",
+                f"* Task Summary: {description}",
+                f"* Exposed Capabilities: {selected_capabilities}",
+                "* Prefer paths under the Runtime World State working directory unless "
+                "the objective explicitly requires another location.",
+                "* Use current_time when exact wall-clock time matters.",
+            )
+        )
+        return WorkerPromptLayers(
+            system_prompt=system_prompt,
+            working_context=working_context,
         )
 
     def _build_preset_rules(self, preset: ChildRunPreset) -> str:
@@ -119,29 +133,4 @@ class WorkerPromptMixin:
             "and passing verification evidence."
         )
 
-    def _build_worker_environment_rules(self, execution_workspace: Optional[str]) -> str:
-        workspace_root = self._resolve_execution_workspace(execution_workspace)
-        home_dir = os.path.realpath(os.path.expanduser("~"))
-        now = datetime.now().astimezone()
-        return "\n".join(
-            [
-                "Execution environment:",
-                f"- Workspace root: {workspace_root}",
-                f"- Home directory: {home_dir}",
-                f"- Operating system: {platform.system()} {platform.release()}",
-                f"- Local date: {now.date().isoformat()}",
-                f"- Timezone: {local_calendar_timezone_id() or str(now.tzinfo or 'unknown')}",
-                "- Use the current_time tool when exact wall-clock time matters.",
-                "- Prefer paths under the workspace root unless the objective explicitly requires another location.",
-            ]
-        )
-
-    def _resolve_execution_workspace(self, execution_workspace: Optional[str]) -> str:
-        raw_workspace = (
-            str(execution_workspace or "").strip()
-            or get_default_chat_workspace_path()
-        )
-        return os.path.realpath(os.path.expandvars(os.path.expanduser(raw_workspace)))
-
-
-__all__ = ["WorkerPromptMixin"]
+__all__ = ["WorkerPromptLayers", "WorkerPromptMixin"]

@@ -33,6 +33,7 @@ import structlog
 
 from ..cancel import CancelToken
 from ...control.run_control import null_run_control
+from ...context.runtime_world_state import build_runtime_world_state
 from ..turn_input import UserTurnInput
 from ..execution.checkpoint import AgentRunCheckpoint
 from ..execution.function_calling.run_input import AgentRunRequest
@@ -253,10 +254,9 @@ def build_background_run_fn(
     The closure invokes
     :meth:`FunctionCallingOrchestrator.run` with the
     task's own spec + the provided :class:`CancelToken`, then wraps the
-    outcome into :class:`BackgroundTaskRunResult`. ``system_prompt`` is
-    left blank so the orchestrator falls back to its built-in scenario
-    prompt — the spec.goal alone is sufficient once decoupled from the
-    original chat turn.
+    outcome into :class:`BackgroundTaskRunResult`. Stable prompt rules and
+    run-local context remain separate on the task spec; host-owned Runtime
+    World State is captured only when an attempt actually starts.
 
     The ``execution_agent_id`` forwarded to the orchestrator is
     ``f"{execution_agent_id_prefix}:{task.task_id}"`` so runtime-trace
@@ -297,6 +297,13 @@ def build_background_run_fn(
                     execution_preset=spec.execution_preset or intent_label,
                     execution_agent_id=execution_agent_id,
                     execution_workspace=spec.workspace_path,
+                    runtime_world_state=build_runtime_world_state(
+                        agent_id=execution_agent_id,
+                        agent_type=spec.execution_preset or intent_label,
+                        workspace_path=spec.workspace_path,
+                    ),
+                    working_context=spec.working_context,
+                    ephemeral_context=spec.ephemeral_context,
                     control=_background_run_control(cancel_token),
                     context_sources=spec.context_sources,
                     checkpoint=checkpoint,

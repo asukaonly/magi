@@ -14,9 +14,9 @@ from .schema import (
     ProfileMemoryContext,
     PromptAssemblyContext,
     RetrievalMemoryContext,
-    RuntimeSystemContext,
     ToolCatalogContext,
 )
+from .runtime_world_state import render_runtime_world_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,9 +104,7 @@ class PromptContextRenderer:
 
         return RenderedPromptLayers(
             system_prompt="\n".join(system_lines).strip(),
-            runtime_world_state="\n".join(
-                self._render_runtime_system(context.runtime_system)
-            ).strip(),
+            runtime_world_state=render_runtime_world_state(context.runtime_system),
             working_context="\n".join(working_lines).strip(),
         )
 
@@ -573,17 +571,6 @@ class PromptContextRenderer:
         if isinstance(value, dict):
             return cls._profile_text_list(value.get("value"))
         return []
-
-    def _render_runtime_system(self, runtime: RuntimeSystemContext) -> List[str]:
-        """Render runtime system as markdown."""
-        lines = ["# Runtime World State"]
-        lines.append(f"* Local Date: {runtime.current_date}")
-        lines.append(f"* Timezone: {runtime.timezone}")
-        lines.append(f"* OS: {runtime.os_name} {runtime.os_version}")
-        lines.append(f"* Working Directory: {runtime.cwd}")
-        lines.append(f"* Agent: {runtime.agent_id} (type: {runtime.agent_type})")
-        lines.append("")
-        return lines
 
     def _render_tool_catalog(
         self,

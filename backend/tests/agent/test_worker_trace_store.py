@@ -230,6 +230,7 @@ async def test_worker_run_marks_stream_events_as_worker_source(
     manager._emit_worker_completed_trace = AsyncMock()
     manager._emit_worker_failed_trace = AsyncMock()
     from magi.agent.workers import worker_execution as worker_execution_module
+    from magi.agent.workers.worker_prompting import WorkerPromptLayers
 
     monkeypatch.setattr(
         worker_execution_module,
@@ -242,7 +243,10 @@ async def test_worker_run_marks_stream_events_as_worker_source(
     async with stream_scope(sink, source="chat"):
         await manager._run_worker(
             run_state=run_state,
-            worker_system_prompt="worker prompt",
+            prompt_layers=WorkerPromptLayers(
+                system_prompt="worker prompt",
+                working_context="worker context",
+            ),
             selected_tools=[],
             max_iterations=1,
             execution_workspace="/tmp",

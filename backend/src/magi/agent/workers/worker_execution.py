@@ -10,10 +10,12 @@ from ...agent.execution.function_calling import FunctionCallingOrchestrator
 from ...agent.execution.function_calling.run_input import AgentRunRequest
 from ...agent.turn_input import UserTurnInput
 from ...control.run_control import null_run_control
+from ...context.runtime_world_state import build_runtime_world_state
 from ...core.logger import get_logger
 from ...llm.streaming_events import stream_source
 from .worker_state import WorkerRunState
 from .child_result import ChildRunResult
+from .worker_prompting import WorkerPromptLayers
 
 logger = get_logger(__name__)
 
@@ -55,7 +57,7 @@ class WorkerExecutionMixin:
     async def _run_worker(
         self,
         run_state: WorkerRunState,
-        worker_system_prompt: str,
+        prompt_layers: WorkerPromptLayers,
         selected_tools: List[str],
         max_iterations: int,
         execution_workspace: str,
@@ -63,7 +65,7 @@ class WorkerExecutionMixin:
         try:
             outcome = await self._execute_worker(
                 run_state,
-                worker_system_prompt=worker_system_prompt,
+                prompt_layers=prompt_layers,
                 selected_tools=selected_tools,
                 max_iterations=max_iterations,
                 execution_workspace=execution_workspace,
@@ -78,7 +80,7 @@ class WorkerExecutionMixin:
         self,
         run_state: WorkerRunState,
         *,
-        worker_system_prompt: str,
+        prompt_layers: WorkerPromptLayers,
         selected_tools: List[str],
         max_iterations: int,
         execution_workspace: str,
@@ -88,7 +90,7 @@ class WorkerExecutionMixin:
             return await executor.run(
                 _build_agent_run_request(
                     run_state,
-                    worker_system_prompt=worker_system_prompt,
+                    prompt_layers=prompt_layers,
                     selected_tools=selected_tools,
                     max_iterations=max_iterations,
                     execution_workspace=execution_workspace,
@@ -235,7 +237,7 @@ class WorkerExecutionMixin:
 def _build_agent_run_request(
     run_state: WorkerRunState,
     *,
-    worker_system_prompt: str,
+    prompt_layers: WorkerPromptLayers,
     selected_tools: List[str],
     max_iterations: int,
     execution_workspace: str,
@@ -247,7 +249,7 @@ def _build_agent_run_request(
             user_id=run_state.user_id,
             session_id=run_state.session_id or run_state.worker_id,
         ),
-        system_prompt=worker_system_prompt,
+        system_prompt=prompt_layers.system_prompt,
         selected_tools=selected_tools,
         user_id=run_state.user_id,
         session_id=run_state.session_id or run_state.worker_id,
@@ -261,6 +263,12 @@ def _build_agent_run_request(
         execution_preset=f"child_{run_state.preset.value}",
         execution_agent_id=run_state.worker_id,
         execution_workspace=execution_workspace,
+        runtime_world_state=build_runtime_world_state(
+            agent_id=run_state.worker_id,
+            agent_type=f"child_{run_state.preset.value}",
+            workspace_path=execution_workspace,
+        ),
+        working_context=prompt_layers.working_context,
         final_response_json_mode=True,
         control=_worker_run_control(run_state),
         ephemeral_context=run_state.parent_context_summary,

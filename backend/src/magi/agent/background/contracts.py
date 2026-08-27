@@ -114,6 +114,8 @@ class BackgroundTaskSpec:
     selected_tools: list[str] = field(default_factory=list)
     skill_preapproval_rules: tuple[str, ...] = ()
     system_prompt: str = ""
+    working_context: str = ""
+    ephemeral_context: str | None = None
     execution_preset: str = "background"
     reasoning_policy: dict[str, Any] = field(default_factory=dict)
     parent_run_id: str | None = None
@@ -191,6 +193,8 @@ class BackgroundTaskSpec:
             "selected_tools": list(self.selected_tools),
             "skill_preapproval_rules": list(self.skill_preapproval_rules),
             "system_prompt": self.system_prompt,
+            "working_context": self.working_context,
+            "ephemeral_context": self.ephemeral_context,
             "execution_preset": self.execution_preset,
             "reasoning_policy": deepcopy(self.reasoning_policy),
             "parent_run_id": self.parent_run_id,
@@ -225,6 +229,12 @@ class BackgroundTaskSpec:
             selected_tools=list(data.get("selected_tools") or []),
             skill_preapproval_rules=tuple(data.get("skill_preapproval_rules") or ()),
             system_prompt=str(data.get("system_prompt") or ""),
+            working_context=str(data.get("working_context") or ""),
+            ephemeral_context=(
+                str(data["ephemeral_context"])
+                if data.get("ephemeral_context") is not None
+                else None
+            ),
             execution_preset=str(data.get("execution_preset") or "background"),
             reasoning_policy=dict(data.get("reasoning_policy") or {}),
             parent_run_id=(

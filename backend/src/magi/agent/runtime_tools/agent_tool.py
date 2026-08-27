@@ -108,20 +108,18 @@ class AgentTool(Tool):
     def _resolve_tools_for_preset(self, preset: str):
         return self._manager._resolve_tools_for_preset(preset)
 
-    def _build_worker_system_prompt(
+    def _build_worker_prompt_layers(
         self,
         worker_id: str,
         preset: str,
         description: str,
         selected_tools,
-        execution_workspace: Optional[str] = None,
-    ) -> str:
-        return self._manager._build_worker_system_prompt(
+    ):
+        return self._manager._build_worker_prompt_layers(
             worker_id=worker_id,
             preset=preset,
             description=description,
             selected_tools=selected_tools,
-            execution_workspace=execution_workspace,
         )
 
     async def _await_worker(self, worker_id: str, timeout_seconds: int) -> ToolResult:

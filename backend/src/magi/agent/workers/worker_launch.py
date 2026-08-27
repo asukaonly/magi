@@ -19,6 +19,7 @@ from .worker_state import (
     WorkerRunState,
     optional_string,
 )
+from .worker_prompting import WorkerPromptLayers
 from .child_preset import (
     ChildRunPreset,
     parent_reasoning_policy_from_env,
@@ -90,20 +91,19 @@ class _WorkerLaunchHostProtocol(Protocol):
 
     def _resolve_tools_for_preset(self, preset: str) -> List[str]: ...
 
-    def _build_worker_system_prompt(
+    def _build_worker_prompt_layers(
         self,
         *,
         worker_id: str,
         preset: str,
         description: str,
         selected_tools: List[str],
-        execution_workspace: str,
-    ) -> str: ...
+    ) -> WorkerPromptLayers: ...
 
     async def _run_worker(
         self,
         run_state: WorkerRunState,
-        worker_system_prompt: str,
+        prompt_layers: WorkerPromptLayers,
         selected_tools: List[str],
         max_iterations: int,
         execution_workspace: str,
@@ -175,18 +175,12 @@ class WorkerLaunchMixin:
         if isinstance(spec, ToolResult):
             return spec
         selected_tools = host._resolve_tools_for_preset(spec.preset.value)
-        system_prompt = host._build_worker_system_prompt(
+        prompt_layers = host._build_worker_prompt_layers(
             worker_id="background",
             preset=spec.preset.value,
             description=spec.description,
             selected_tools=selected_tools,
-            execution_workspace=spec.execution_workspace,
         )
-        if spec.parent_context_summary:
-            system_prompt = (
-                f"{system_prompt}\n\nParent context snapshot:\n"
-                f"{spec.parent_context_summary}"
-            )
         await reserve_task_worker_launches(1)
         task = await manager.enqueue(
             BackgroundTaskSpec(
@@ -196,7 +190,9 @@ class WorkerLaunchMixin:
                 title=spec.description,
                 goal=spec.prompt,
                 selected_tools=selected_tools,
-                system_prompt=system_prompt,
+                system_prompt=prompt_layers.system_prompt,
+                working_context=prompt_layers.working_context,
+                ephemeral_context=spec.parent_context_summary or None,
                 execution_preset=f"child_{spec.preset.value}",
                 reasoning_policy=spec.reasoning_policy.to_dict(),
                 parent_run_id=spec.parent_run_id,
@@ -254,12 +250,11 @@ class WorkerLaunchMixin:
 
         selected_tools = host._resolve_tools_for_preset(spec.preset.value)
         run_state.selected_tools = list(selected_tools)
-        worker_system_prompt = host._build_worker_system_prompt(
+        prompt_layers = host._build_worker_prompt_layers(
             worker_id=run_state.worker_id,
             preset=spec.preset.value,
             description=spec.description,
             selected_tools=selected_tools,
-            execution_workspace=spec.execution_workspace,
         )
 
         worker_start_gate = start_gate or asyncio.Event()
@@ -271,7 +266,7 @@ class WorkerLaunchMixin:
             run_state.task = _create_worker_task(
                 host,
                 run_state,
-                worker_system_prompt=worker_system_prompt,
+                prompt_layers=prompt_layers,
                 selected_tools=selected_tools,
                 max_iterations=spec.max_iterations,
                 execution_workspace=spec.execution_workspace,
@@ -567,7 +562,7 @@ def _create_worker_task(
     host: _WorkerLaunchHostProtocol,
     run_state: WorkerRunState,
     *,
-    worker_system_prompt: str,
+    prompt_layers: WorkerPromptLayers,
     selected_tools: List[str],
     max_iterations: int,
     execution_workspace: str,
@@ -577,7 +572,7 @@ def _create_worker_task(
         _run_worker_after_start_gate(
             host,
             run_state=run_state,
-            worker_system_prompt=worker_system_prompt,
+            prompt_layers=prompt_layers,
             selected_tools=selected_tools,
             max_iterations=max_iterations,
             execution_workspace=execution_workspace,
@@ -599,7 +594,7 @@ async def _run_worker_after_start_gate(
     host: _WorkerLaunchHostProtocol,
     *,
     run_state: WorkerRunState,
-    worker_system_prompt: str,
+    prompt_layers: WorkerPromptLayers,
     selected_tools: List[str],
     max_iterations: int,
     execution_workspace: str,
@@ -622,7 +617,7 @@ async def _run_worker_after_start_gate(
         return
     await host._run_worker(
         run_state=run_state,
-        worker_system_prompt=worker_system_prompt,
+        prompt_layers=prompt_layers,
         selected_tools=selected_tools,
         max_iterations=max_iterations,
         execution_workspace=execution_workspace,

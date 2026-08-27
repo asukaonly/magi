@@ -349,6 +349,9 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
         goal="do the thing",
         selected_tools=["deep_research"],
         skill_preapproval_rules=("bash(git diff *)",),
+        system_prompt="stable prompt",
+        working_context="run-local guidance",
+        ephemeral_context="launch snapshot",
         workspace_path="/w",
         trigger_source=BackgroundTaskTriggerSource.RULE,
         max_iterations=7,
@@ -370,6 +373,11 @@ async def test_run_fn_wraps_execute_with_tools_outcome() -> None:
     assert call.user_id == "u1"
     assert call.session_id == "s1"
     assert call.execution_workspace == "/w"
+    assert call.system_prompt == "stable prompt"
+    assert "# Runtime World State" in call.runtime_world_state
+    assert "* Working Directory: /w" in call.runtime_world_state
+    assert call.working_context == "run-local guidance"
+    assert call.ephemeral_context == "launch snapshot"
     assert call.max_iterations == 7
     assert call.execution_preset == "background"
     assert call.execution_agent_id == f"background:{task.task_id}"
