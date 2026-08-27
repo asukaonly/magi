@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence
 
 _RUNTIME_WORLD_STATE_TAG = "runtime_world_state"
 _WORKING_CONTEXT_TAG = "working_context"
+_LAUNCH_CONTEXT_TAG = "launch_context"
 _RUNTIME_CONTEXT_KIND_KEY = "_magi_context_kind"
 
 
@@ -48,6 +49,26 @@ def build_working_context_message(content: str) -> dict[str, Any] | None:
     }
 
 
+def build_launch_context_message(content: str) -> dict[str, Any] | None:
+    """Build launch-only context that expires after the first tool iteration."""
+
+    normalized = str(content or "").strip()
+    if not normalized:
+        return None
+    return {
+        "role": "user",
+        _RUNTIME_CONTEXT_KIND_KEY: _LAUNCH_CONTEXT_TAG,
+        "content": (
+            f"<{_LAUNCH_CONTEXT_TAG}>\n"
+            "[Runtime-provided launch snapshot; not authored by the user. Use "
+            "it only to understand why this run started. Later decisions must "
+            "rely on the assigned task and observed tool results.]\n"
+            f"{normalized}\n"
+            f"</{_LAUNCH_CONTEXT_TAG}>"
+        ),
+    }
+
+
 def is_runtime_world_state_message(message: Mapping[str, Any]) -> bool:
     """Return whether a message carries a runtime world-state snapshot."""
 
@@ -58,6 +79,22 @@ def is_working_context_message(message: Mapping[str, Any]) -> bool:
     """Return whether a message carries run-local working context."""
 
     return _is_typed_context_message(message, _WORKING_CONTEXT_TAG)
+
+
+def is_launch_context_message(message: Mapping[str, Any]) -> bool:
+    """Return whether a message carries launch-only runtime context."""
+
+    return _is_typed_context_message(message, _LAUNCH_CONTEXT_TAG)
+
+
+def is_runtime_owned_context_message(message: Mapping[str, Any]) -> bool:
+    """Return whether a message belongs to any typed runtime context layer."""
+
+    return (
+        is_runtime_world_state_message(message)
+        or is_working_context_message(message)
+        or is_launch_context_message(message)
+    )
 
 
 def strip_runtime_context_metadata(message: Mapping[str, Any]) -> dict[str, Any]:
@@ -84,12 +121,15 @@ def latest_runtime_world_state_content(
 def dynamic_context_start_index(messages: Sequence[Mapping[str, Any]]) -> int:
     """Return the first volatile context index for the current model call."""
 
-    for index in range(len(messages) - 1, -1, -1):
-        if not is_working_context_message(messages[index]):
+    for end_index in range(len(messages) - 1, -1, -1):
+        if not is_runtime_owned_context_message(messages[end_index]):
             continue
-        if index > 0 and is_runtime_world_state_message(messages[index - 1]):
-            return index - 1
-        return index
+        start_index = end_index
+        while start_index > 0 and is_runtime_owned_context_message(
+            messages[start_index - 1]
+        ):
+            start_index -= 1
+        return start_index
     return -1
 
 
@@ -103,10 +143,7 @@ def current_dynamic_context_messages(
         return []
     dynamic: list[Mapping[str, Any]] = []
     for message in messages[start_index:]:
-        if not (
-            is_runtime_world_state_message(message)
-            or is_working_context_message(message)
-        ):
+        if not is_runtime_owned_context_message(message):
             break
         dynamic.append(message)
     return dynamic
@@ -135,10 +172,13 @@ def _message_text(message: Mapping[str, Any]) -> str:
 
 
 __all__ = [
+    "build_launch_context_message",
     "build_runtime_world_state_message",
     "build_working_context_message",
     "current_dynamic_context_messages",
     "dynamic_context_start_index",
+    "is_launch_context_message",
+    "is_runtime_owned_context_message",
     "is_runtime_world_state_message",
     "is_working_context_message",
     "latest_runtime_world_state_content",

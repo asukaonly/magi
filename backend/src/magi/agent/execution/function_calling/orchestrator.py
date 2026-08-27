@@ -10,8 +10,10 @@ from ....llm.provider_bridge import LLMProviderBridge
 from ....llm.provider_bridge.cache_policy import split_on_boundary
 from ....runtime_trace import RuntimeTraceStore
 from ....utils.model_context_messages import (
+    build_launch_context_message,
     build_runtime_world_state_message,
     build_working_context_message,
+    is_launch_context_message,
     latest_runtime_world_state_content,
 )
 from ...message_utils import append_latest_user_message
@@ -246,8 +248,8 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         )
         runtime_message = build_runtime_world_state_message(runtime_world_state)
         working_message = build_working_context_message(working_context_text)
+        launch_message = build_launch_context_message(ephemeral_context or "")
         runtime_state_emitted = False
-        working_message_index: int | None = None
         if messages and not current_turn_in_model_context:
             insert_at = len(messages) - 1
             if (
@@ -260,7 +262,9 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 runtime_state_emitted = True
             if working_message is not None:
                 messages.insert(insert_at, working_message)
-                working_message_index = insert_at
+                insert_at += 1
+            if launch_message is not None:
+                messages.insert(insert_at, launch_message)
         logger.info(
             "agent_run.context_layers_materialized runtime_state_emitted=%s "
             "runtime_state_chars=%d working_context_chars=%d current_turn_restored=%s",
@@ -269,49 +273,13 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             len(working_context_text),
             current_turn_in_model_context,
         )
-        ephemeral_context_message_index: int | None = None
-        ephemeral_context_original_content: Any | None = None
-        context_text = str(ephemeral_context or "").strip()
-        if (
-            context_text
-            and working_message_index is not None
-            and not current_turn_in_model_context
-        ):
-            ephemeral_context_message_index = working_message_index
-            ephemeral_context_original_content = messages[working_message_index].get(
-                "content"
-            )
-            messages[working_message_index]["content"] = (
-                self._append_ephemeral_context_to_content(
-                    ephemeral_context_original_content,
-                    context_text,
-                )
-            )
         return FunctionCallingStepState(
             messages=messages,
             effective_system_prompt=effective_system_prompt,
             tools=self._build_tools_parameter(normalized_selected_tools),
             selected_tool_names=normalized_selected_tools,
             allow_attachment_grounding=allow_attachment_grounding,
-            ephemeral_context_message_index=ephemeral_context_message_index,
-            ephemeral_context_original_content=ephemeral_context_original_content,
         )
-
-    @staticmethod
-    def _append_ephemeral_context_to_content(content: Any, context_text: str) -> Any:
-        context_block = (
-            "--- LAUNCH CONTEXT SNAPSHOT ---\n"
-            "Use this snapshot only to understand why this run was started. "
-            "For later tool-loop decisions, rely on the assigned task and observed tool results.\n\n"
-            f"{context_text}\n"
-            "--- END LAUNCH CONTEXT SNAPSHOT ---"
-        )
-        if isinstance(content, list):
-            return [*content, {"type": "text", "text": context_block}]
-        text = str(content or "").strip()
-        if not text:
-            return context_block
-        return f"{text}\n\n{context_block}"
 
     def _apply_tool_expansion_from_results(
         self,
@@ -503,24 +471,20 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
 
     async def _drop_ephemeral_context(self, state: FunctionCallingStepState) -> None:
         """Remove launch-only context after the first tool iteration."""
-        index = state.ephemeral_context_message_index
-        if index is None:
+        retained_messages = [
+            message
+            for message in state.messages
+            if not is_launch_context_message(message)
+        ]
+        if len(retained_messages) == len(state.messages):
             return
-        if index < 0 or index >= len(state.messages):
-            state.ephemeral_context_message_index = None
-            state.ephemeral_context_original_content = None
-            return
-        message = state.messages[index]
-        if message.get("role") == "user":
-            message["content"] = state.ephemeral_context_original_content
-            await self._emit_loop_event(
-                {
-                    "stage": "ephemeral_context_dropped",
-                    "iteration": state.iteration,
-                }
-            )
-        state.ephemeral_context_message_index = None
-        state.ephemeral_context_original_content = None
+        state.messages[:] = retained_messages
+        await self._emit_loop_event(
+            {
+                "stage": "ephemeral_context_dropped",
+                "iteration": state.iteration,
+            }
+        )
 
     async def apply_run_inputs(
         self,

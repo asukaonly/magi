@@ -240,6 +240,13 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
                 metadata={"origin_turn_id": "turn-1"},
             ),
             ModelContextItem.from_prompt_message(
+                {"role": "user", "content": "<launch_context>parent</launch_context>"},
+                source="launch_context",
+                kind=ModelContextItemKind.LAUNCH_CONTEXT,
+                scope=ModelContextScope.RUN,
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
                 {"role": "assistant", "content": "unaccepted draft"},
                 source="model",
                 metadata={"origin_turn_id": "turn-1", "persona_id": "persona-a"},

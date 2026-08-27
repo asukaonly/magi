@@ -36,6 +36,8 @@ from ...llm.model_context import (
 )
 from ...llm.provider_bridge import LLMProviderBridge
 from ...utils.model_context_messages import (
+    is_launch_context_message,
+    is_runtime_owned_context_message,
     is_runtime_world_state_message,
     is_working_context_message,
 )
@@ -172,7 +174,7 @@ def _latest_user_message(
 
 
 def _is_runtime_owned_context(message: Dict[str, Any]) -> bool:
-    return is_runtime_world_state_message(message) or is_working_context_message(message)
+    return is_runtime_owned_context_message(message)
 
 
 def _latest_runtime_owned_context(
@@ -182,17 +184,28 @@ def _latest_runtime_owned_context(
 
     latest_runtime_state: Dict[str, Any] | None = None
     latest_working_context: Dict[str, Any] | None = None
+    latest_launch_context: Dict[str, Any] | None = None
     for message in reversed(messages):
         if latest_working_context is None and is_working_context_message(message):
             latest_working_context = message
         elif latest_runtime_state is None and is_runtime_world_state_message(message):
             latest_runtime_state = message
-        if latest_runtime_state is not None and latest_working_context is not None:
+        elif latest_launch_context is None and is_launch_context_message(message):
+            latest_launch_context = message
+        if (
+            latest_runtime_state is not None
+            and latest_working_context is not None
+            and latest_launch_context is not None
+        ):
             break
 
     retained_ids = {
         id(message)
-        for message in (latest_runtime_state, latest_working_context)
+        for message in (
+            latest_runtime_state,
+            latest_working_context,
+            latest_launch_context,
+        )
         if message is not None
     }
     return [message for message in messages if id(message) in retained_ids]

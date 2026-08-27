@@ -1036,7 +1036,11 @@ def _accepted_outcome_items(
     filtered = tuple(
         item
         for item in items
-        if item.kind is not ModelContextItemKind.WORKING_CONTEXT
+        if item.kind
+        not in {
+            ModelContextItemKind.WORKING_CONTEXT,
+            ModelContextItemKind.LAUNCH_CONTEXT,
+        }
         and (
             item.kind is not ModelContextItemKind.RUNTIME_WORLD_STATE
             or item is latest_runtime_world_state

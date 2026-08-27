@@ -23,6 +23,7 @@ from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.utils.model_context_messages import (
+    build_launch_context_message,
     build_runtime_world_state_message,
     build_working_context_message,
 )
@@ -514,16 +515,26 @@ class TestRuleBasedCompact:
         active_runtime = build_runtime_world_state_message("Local date: 2026-08-26")
         stale_working = build_working_context_message("stale private recall")
         active_working = build_working_context_message("active private recall")
+        active_launch = build_launch_context_message("parent task snapshot")
         assert old_runtime and active_runtime and stale_working and active_working
+        assert active_launch
         messages = [old_runtime, stale_working, {"role": "user", "content": "old request"}]
         messages.extend(_make_round_messages(rounds=5)[1:])
-        messages.extend([active_runtime, active_working, {"role": "user", "content": "current"}])
+        messages.extend(
+            [
+                active_runtime,
+                active_working,
+                active_launch,
+                {"role": "user", "content": "current"},
+            ]
+        )
 
         result = await compactor.compact(messages)
 
         contents = [str(message.get("content") or "") for message in result.messages]
         assert active_runtime["content"] in contents
         assert active_working["content"] in contents
+        assert active_launch["content"] in contents
         assert old_runtime["content"] not in contents
         assert stale_working["content"] not in contents
 
@@ -688,10 +699,12 @@ class TestLLMCompact:
         compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
         runtime_state = build_runtime_world_state_message("Local date: 2026-08-26")
         working_context = build_working_context_message("private recalled context")
-        assert runtime_state and working_context
+        launch_context = build_launch_context_message("parent task snapshot")
+        assert runtime_state and working_context and launch_context
         messages: list[dict[str, Any]] = [
             runtime_state,
             working_context,
+            launch_context,
             {"role": "user", "content": "inspect the repository"},
         ]
         for index in range(6):
@@ -718,9 +731,11 @@ class TestLLMCompact:
 
         assert runtime_state in result.messages
         assert working_context in result.messages
+        assert launch_context in result.messages
         summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
         assert runtime_state["content"] not in summary_prompt
         assert working_context["content"] not in summary_prompt
+        assert launch_context["content"] not in summary_prompt
 
     @pytest.mark.asyncio
     async def test_llm_failure_falls_back_to_rule_based(self) -> None:

@@ -13,6 +13,7 @@ class ModelContextItemKind(str, Enum):
 
     RUNTIME_WORLD_STATE = "runtime_world_state"
     WORKING_CONTEXT = "working_context"
+    LAUNCH_CONTEXT = "launch_context"
     USER_MESSAGE = "user_message"
     ASSISTANT_MESSAGE = "assistant_message"
     ASSISTANT_TOOL_CALL = "assistant_tool_call"

@@ -15,6 +15,7 @@ from magi.chat.model_context import (
 from magi.chat.store import ChatStore
 from magi.core.logger import get_logger
 from magi.utils.model_context_messages import (
+    is_launch_context_message,
     is_runtime_world_state_message,
     is_working_context_message,
 )
@@ -191,6 +192,12 @@ def _classify_runtime_message(
         return (
             ModelContextItemKind.WORKING_CONTEXT,
             "context_assembly",
+            ModelContextScope.RUN,
+        )
+    if is_launch_context_message(message):
+        return (
+            ModelContextItemKind.LAUNCH_CONTEXT,
+            "launch_context",
             ModelContextScope.RUN,
         )
     role = str(message.get("role") or "").strip()

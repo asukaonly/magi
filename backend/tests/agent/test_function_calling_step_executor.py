@@ -12,7 +12,11 @@ from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
-from magi.utils.model_context_messages import build_runtime_world_state_message
+from magi.utils.model_context_messages import (
+    build_runtime_world_state_message,
+    is_launch_context_message,
+    is_working_context_message,
+)
 
 
 class _FakeToolRegistry:
@@ -313,6 +317,42 @@ async def test_execute_with_tools_drops_ephemeral_context_after_first_tool_loop(
         "content": "Inspect the repository.",
     }
     assert "large parent conversation snapshot" in first_messages[-2]["content"]
+
+
+@pytest.mark.asyncio
+async def test_ephemeral_context_drop_survives_message_reindexing_after_compaction(
+    monkeypatch,
+) -> None:
+    orchestrator = _build_orchestrator()
+    state = orchestrator.build_step_state(
+        turn=UserTurnInput(
+            text="Inspect the repository.",
+            attachments=[],
+            user_id=None,
+            session_id=None,
+        ),
+        system_prompt="system prompt",
+        selected_tools=["memory_query"],
+        working_context="base rules",
+        ephemeral_context="large parent conversation snapshot",
+    )
+    assert any(is_launch_context_message(message) for message in state.messages)
+
+    state.messages[:] = [
+        {"role": "user", "content": "[context truncated] Older messages removed."},
+        *state.messages,
+    ]
+
+    async def _noop_async(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+
+    monkeypatch.setattr(orchestrator, "_emit_loop_event", _noop_async)
+    await orchestrator._drop_ephemeral_context(state)
+
+    assert state.messages[0]["content"].startswith("[context truncated]")
+    assert not any(is_launch_context_message(message) for message in state.messages)
+    assert any(is_working_context_message(message) for message in state.messages)
+    assert "large parent conversation snapshot" not in str(state.messages)
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from magi.chat.model_context import ModelContextItemKind
 from magi.chat.store import ChatStore
 from magi.chat.task_agent.model_context_port import ChatModelContextPort
 from magi.utils.model_context_messages import (
+    build_launch_context_message,
     build_runtime_world_state_message,
     build_working_context_message,
 )
@@ -45,12 +46,15 @@ async def test_chat_model_context_port_commits_runtime_surface_without_image_byt
 
     runtime_state = build_runtime_world_state_message("date=2026-08-26")
     working_context = build_working_context_message("retrieved memory")
+    launch_context = build_launch_context_message("parent snapshot")
     assert runtime_state is not None
     assert working_context is not None
+    assert launch_context is not None
     await port.commit(
         messages=[
             runtime_state,
             working_context,
+            launch_context,
             {
                 "role": "user",
                 "content": [
@@ -80,10 +84,11 @@ async def test_chat_model_context_port_commits_runtime_surface_without_image_byt
     assert [item.kind for item in snapshot.items] == [
         ModelContextItemKind.RUNTIME_WORLD_STATE,
         ModelContextItemKind.WORKING_CONTEXT,
+        ModelContextItemKind.LAUNCH_CONTEXT,
         ModelContextItemKind.USER_MESSAGE,
     ]
     prompt = snapshot.to_prompt_messages()
-    image_reference = prompt[2]["content"][1]["text"]
+    image_reference = prompt[3]["content"][1]["text"]
     assert "attachment_id=attachment-1" in image_reference
     assert "name=diagram.png" in image_reference
     assert "secret-bytes" not in str(prompt)

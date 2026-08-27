@@ -33,8 +33,6 @@ class FunctionCallingStepState:
     failure_signature_counts: dict[str, int] = field(default_factory=dict)
     repeated_blocker_tool_names: set[str] = field(default_factory=set)
     suppressed_tool_names: set[str] = field(default_factory=set)
-    ephemeral_context_message_index: int | None = None
-    ephemeral_context_original_content: Any | None = None
     latest_context_usage: dict[str, Any] | None = None
     tool_evidence: list[ToolExecutionEvidence] = field(default_factory=list)
     repair_iterations: int = 0

@@ -11,6 +11,7 @@ from magi.llm.provider_bridge.cache_policy import (
     vendor_supports_cache_marker,
 )
 from magi.utils.model_context_messages import (
+    build_launch_context_message,
     build_runtime_world_state_message,
     build_working_context_message,
     dynamic_context_start_index,
@@ -138,6 +139,21 @@ def test_dynamic_context_start_index_includes_changed_world_state() -> None:
     ]
     assert dynamic_context_start_index(messages) == 2
     assert dynamic_context_start_index(messages[:2]) == -1
+
+
+def test_dynamic_context_start_index_includes_launch_context() -> None:
+    working_context = build_working_context_message("dynamic")
+    launch_context = build_launch_context_message("parent snapshot")
+    assert working_context and launch_context
+    messages = [
+        {"role": "user", "content": "older"},
+        {"role": "assistant", "content": "answer"},
+        working_context,
+        launch_context,
+        {"role": "user", "content": "current"},
+    ]
+
+    assert dynamic_context_start_index(messages) == 2
 
 
 def test_mark_history_breakpoint_marks_last_block_of_boundary_message() -> None:
