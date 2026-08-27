@@ -9,6 +9,7 @@ from ....config.models import ThinkingDepth
 from ....context.window_budget import estimate_context_tokens
 from ....core.logger import get_logger
 from ....llm.streaming_events import stream_scope
+from ....tools.system_tools import resolve_runtime_fact_tools
 from magi.control.run_control import RunControl
 from ..context_fingerprint import stable_hash
 from magi.runtime_trace.run_events import AgentRunEventType
@@ -27,6 +28,41 @@ class FunctionCallingModelCapabilityFlow:
     def __init__(self, host: Any, journal: FunctionCallingRunJournal) -> None:
         self._host = host
         self._journal = journal
+
+    def admit_runtime_facts(
+        self,
+        *,
+        state: FunctionCallingStepState,
+        run_input: AgentRunRequest,
+    ) -> None:
+        """Expose universal runtime facts before journaling the effective tool set."""
+
+        profile = run_input.model_capabilities or ModelCapabilityProfile.from_model_context(
+            getattr(self._host, "_active_model_context", None)
+        )
+        if not profile.supports_tool_calls:
+            return
+        tool_registry = getattr(self._host, "tool_registry", None)
+        build_tools_parameter = getattr(self._host, "_build_tools_parameter", None)
+        if tool_registry is None or not callable(build_tools_parameter):
+            return
+        runtime_fact_tools = resolve_runtime_fact_tools(tool_registry)
+        selected_tools = list(
+            dict.fromkeys([*state.selected_tool_names, *runtime_fact_tools])
+        )
+        if selected_tools == state.selected_tool_names:
+            return
+        added_tools = [
+            name for name in selected_tools if name not in state.selected_tool_names
+        ]
+        state.selected_tool_names = selected_tools
+        state.tools = build_tools_parameter(selected_tools)
+        logger.info(
+            "agent_run.runtime_fact_tools_admitted",
+            run_id=run_input.run_id,
+            added_tools=added_tools,
+            tool_count=len(selected_tools),
+        )
 
     async def prepare(
         self,

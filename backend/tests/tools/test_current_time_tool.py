@@ -8,7 +8,10 @@ import pytest
 
 from magi.tools.builtin.current_time_tool import CurrentTimeTool
 from magi.tools.schema import ToolExecutionContext
-from magi.tools.system_tools import resolve_resident_system_tools
+from magi.tools.system_tools import (
+    resolve_resident_system_tools,
+    resolve_runtime_fact_tools,
+)
 
 
 @pytest.mark.asyncio
@@ -35,3 +38,4 @@ def test_current_time_is_a_resident_system_tool() -> None:
             return ["current_time"]
 
     assert resolve_resident_system_tools(_Registry()) == ["current_time"]
+    assert resolve_runtime_fact_tools(_Registry()) == ["current_time"]

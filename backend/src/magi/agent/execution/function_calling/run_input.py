@@ -108,6 +108,7 @@ class AgentRunRequest:
         skill_preapproval_rules: tuple[ToolRule, ...] = (),
         model_context_port: ModelContextPort | None = None,
         current_turn_in_model_context: bool = False,
+        model_capabilities: ModelCapabilityProfile | None = None,
     ) -> "AgentRunRequest":
         return cls(
             turn=turn,
@@ -138,6 +139,7 @@ class AgentRunRequest:
             skill_preapproval_rules=skill_preapproval_rules,
             model_context_port=model_context_port,
             current_turn_in_model_context=current_turn_in_model_context,
+            model_capabilities=model_capabilities,
         )
 
 

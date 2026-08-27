@@ -54,6 +54,10 @@ class FunctionCallingLoopRunner:
             run_input.reasoning_policy
         )
         self._resolve_effective_reasoning_depth(state)
+        self._model_capability_flow.admit_runtime_facts(
+            state=state,
+            run_input=run_input,
+        )
         await self._sync_model_context(state)
         await self._journal.start(state, run_input)
         capability_outcome = await self._model_capability_flow.prepare(

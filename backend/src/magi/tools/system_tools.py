@@ -28,6 +28,8 @@ from typing import Any
 # main LLM so the model can hand off a large repetitive job mid-loop instead of
 # processing items one-by-one and hitting the per-turn iteration cap — without
 # depending on the router having pre-selected it.
+_RUNTIME_FACT_TOOLS: tuple[str, ...] = ("current_time",)
+
 _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "detach_to_background",
     "batch_create",
@@ -35,7 +37,7 @@ _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "find-relevant-tools",
     "memory_query",
     "trace_query",
-    "current_time",
+    *_RUNTIME_FACT_TOOLS,
 )
 
 
@@ -66,4 +68,14 @@ def resolve_resident_system_tools(tool_registry: Any) -> list[str]:
     return resident
 
 
-__all__ = ["resolve_resident_system_tools"]
+def resolve_runtime_fact_tools(tool_registry: Any) -> list[str]:
+    """Return universal read-only fact tools registered in this runtime."""
+
+    try:
+        registered = set(tool_registry.list_tools())
+    except (AttributeError, TypeError):
+        return []
+    return [name for name in _RUNTIME_FACT_TOOLS if name in registered]
+
+
+__all__ = ["resolve_resident_system_tools", "resolve_runtime_fact_tools"]
