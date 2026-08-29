@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping
 
+from magi.utils.model_context_messages import set_runtime_message_provenance
+
 
 class ModelContextItemKind(str, Enum):
     """Semantic kinds that can appear on the model-visible context surface."""
@@ -56,6 +58,22 @@ class ModelContextItem:
         """Return an isolated provider-facing message dictionary."""
 
         return deepcopy(dict(self.message))
+
+    def to_runtime_message(self, *, fallback_item_id: str | None = None) -> dict[str, Any]:
+        """Return an internal message carrying stable context identity."""
+
+        message = self.to_prompt_message()
+        set_runtime_message_provenance(
+            message,
+            context_item_id=(
+                str(self.metadata.get("context_item_id") or "").strip()
+                or str(fallback_item_id or "").strip()
+                or None
+            ),
+            origin_turn_id=str(self.metadata.get("origin_turn_id") or "").strip() or None,
+            persona_id=str(self.metadata.get("persona_id") or "").strip() or None,
+        )
+        return message
 
     def to_payload(self) -> dict[str, Any]:
         """Serialize the stable provider-neutral representation."""
@@ -139,6 +157,14 @@ class ModelContextSnapshot:
 
     def to_prompt_messages(self) -> list[dict[str, Any]]:
         return [event.item.to_prompt_message() for event in self.events]
+
+    def to_runtime_messages(self) -> list[dict[str, Any]]:
+        """Return messages for runtime reuse with durable item provenance."""
+
+        return [
+            event.item.to_runtime_message(fallback_item_id=event.event_id)
+            for event in self.events
+        ]
 
     def contains_turn(self, turn_id: str | None) -> bool:
         """Return whether this surface already contains the named user turn."""

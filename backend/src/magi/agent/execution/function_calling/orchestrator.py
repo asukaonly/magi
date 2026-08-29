@@ -15,6 +15,7 @@ from ....utils.model_context_messages import (
     build_working_context_message,
     is_launch_context_message,
     latest_runtime_world_state_content,
+    set_runtime_message_provenance,
 )
 from ...message_utils import append_latest_user_message
 from ....context.window_budget import ContextWindowUsage, build_context_window_budget
@@ -501,6 +502,10 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             if not content:
                 continue
             model_message = {"role": "user", "content": content}
+            set_runtime_message_provenance(
+                model_message,
+                origin_turn_id=str(message.metadata.get("turn_id") or "").strip() or None,
+            )
             state.messages.append(model_message)
             injected.append(
                 {

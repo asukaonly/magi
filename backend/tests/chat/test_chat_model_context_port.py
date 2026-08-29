@@ -12,6 +12,7 @@ from magi.utils.model_context_messages import (
     build_launch_context_message,
     build_runtime_world_state_message,
     build_working_context_message,
+    set_runtime_message_provenance,
 )
 
 
@@ -196,15 +197,70 @@ async def test_chat_model_context_port_preserves_existing_item_provenance(tmp_pa
 
     snapshot = await store.load_model_context(session_id="session-1", run_id="run-1")
 
-    assert snapshot.items[0].metadata == {
-        "origin_turn_id": "turn-1",
-        "persona_id": "persona-a",
-    }
-    assert snapshot.items[1].metadata == {
-        "origin_turn_id": "turn-1",
-        "persona_id": "persona-a",
-    }
-    assert snapshot.items[2].metadata == {
-        "origin_turn_id": "turn-1",
-        "persona_id": "persona-a",
-    }
+    assert [item.metadata["origin_turn_id"] for item in snapshot.items] == [
+        "turn-1",
+        "turn-1",
+        "turn-1",
+    ]
+    assert [item.metadata["persona_id"] for item in snapshot.items] == [
+        "persona-a",
+        "persona-a",
+        "persona-a",
+    ]
+    assert len({item.metadata["context_item_id"] for item in snapshot.items}) == 3
+
+
+@pytest.mark.asyncio
+async def test_chat_model_context_port_preserves_injected_turn_identity(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+    root = {"role": "user", "content": "root"}
+    follow_up = {"role": "user", "content": "follow-up"}
+    set_runtime_message_provenance(follow_up, origin_turn_id="turn-follow-up")
+
+    await port.commit(
+        messages=[root, follow_up],
+        turn_id="turn-root",
+        run_id="run-1",
+        step_index=1,
+    )
+
+    snapshot = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert [item.metadata["origin_turn_id"] for item in snapshot.items] == [
+        "turn-root",
+        "turn-follow-up",
+    ]
+    assert "_magi_message_provenance" not in str(snapshot.to_prompt_messages())
+
+
+@pytest.mark.asyncio
+async def test_chat_model_context_port_does_not_reuse_duplicate_text_identity(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+    old = {"role": "user", "content": "same"}
+    new = {"role": "user", "content": "same"}
+    set_runtime_message_provenance(old, origin_turn_id="turn-old")
+    set_runtime_message_provenance(new, origin_turn_id="turn-new")
+    await port.commit(
+        messages=[old, {"role": "assistant", "content": "middle"}, new],
+        turn_id="turn-root",
+        run_id="run-1",
+        step_index=1,
+    )
+    before = await store.load_model_context(session_id="session-1", run_id="run-1")
+    retained_new = before.items[-1].to_runtime_message()
+
+    await port.commit(
+        messages=[{"role": "assistant", "content": "summary"}, retained_new],
+        turn_id="turn-root",
+        run_id="run-1",
+        step_index=2,
+    )
+
+    after = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert after.items[-1].metadata["origin_turn_id"] == "turn-new"
+    assert after.items[-1].metadata["context_item_id"] == (
+        before.items[-1].metadata["context_item_id"]
+    )

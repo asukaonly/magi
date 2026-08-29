@@ -9,6 +9,43 @@ _RUNTIME_WORLD_STATE_TAG = "runtime_world_state"
 _WORKING_CONTEXT_TAG = "working_context"
 _LAUNCH_CONTEXT_TAG = "launch_context"
 _RUNTIME_CONTEXT_KIND_KEY = "_magi_context_kind"
+_RUNTIME_MESSAGE_PROVENANCE_KEY = "_magi_message_provenance"
+
+
+def set_runtime_message_provenance(
+    message: dict[str, Any],
+    *,
+    context_item_id: str | None = None,
+    origin_turn_id: str | None = None,
+    persona_id: str | None = None,
+) -> None:
+    """Attach runtime-only identity without changing provider-visible content."""
+
+    existing = runtime_message_provenance(message)
+    values = {
+        "context_item_id": context_item_id,
+        "origin_turn_id": origin_turn_id,
+        "persona_id": persona_id,
+    }
+    for key, value in values.items():
+        normalized = str(value or "").strip()
+        if normalized:
+            existing[key] = normalized
+    if existing:
+        message[_RUNTIME_MESSAGE_PROVENANCE_KEY] = existing
+
+
+def runtime_message_provenance(message: Mapping[str, Any]) -> dict[str, str]:
+    """Return normalized runtime-only identity attached to one message."""
+
+    raw = message.get(_RUNTIME_MESSAGE_PROVENANCE_KEY)
+    if not isinstance(raw, Mapping):
+        return {}
+    return {
+        key: normalized
+        for key in ("context_item_id", "origin_turn_id", "persona_id")
+        if (normalized := str(raw.get(key) or "").strip())
+    }
 
 
 def build_runtime_world_state_message(content: str) -> dict[str, Any] | None:
@@ -98,12 +135,22 @@ def is_runtime_owned_context_message(message: Mapping[str, Any]) -> bool:
 
 
 def strip_runtime_context_metadata(message: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a provider-safe message without runtime-only type metadata."""
+    """Return a provider-safe message without any runtime-only metadata."""
 
     return {
         key: value
         for key, value in message.items()
-        if key != _RUNTIME_CONTEXT_KIND_KEY
+        if key not in {_RUNTIME_CONTEXT_KIND_KEY, _RUNTIME_MESSAGE_PROVENANCE_KEY}
+    }
+
+
+def strip_runtime_message_provenance(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Remove identity metadata while retaining typed context classification."""
+
+    return {
+        key: value
+        for key, value in message.items()
+        if key != _RUNTIME_MESSAGE_PROVENANCE_KEY
     }
 
 
@@ -182,5 +229,8 @@ __all__ = [
     "is_runtime_world_state_message",
     "is_working_context_message",
     "latest_runtime_world_state_content",
+    "runtime_message_provenance",
+    "set_runtime_message_provenance",
     "strip_runtime_context_metadata",
+    "strip_runtime_message_provenance",
 ]

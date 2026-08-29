@@ -19,7 +19,10 @@ from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.config.models import ModelVendor
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import LLMProviderBridge
-from magi.utils.model_context_messages import build_working_context_message
+from magi.utils.model_context_messages import (
+    build_working_context_message,
+    set_runtime_message_provenance,
+)
 
 SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
 WORKING_CONTEXT = build_working_context_message("MEMORY TAIL")
@@ -99,17 +102,24 @@ def _has_cc(message: Dict[str, Any]) -> bool:
 @pytest.mark.asyncio
 async def test_dashscope_marks_history_boundary_not_current_turn() -> None:
     bridge, completions = _bridge(ModelVendor.DASHSCOPE)
+    current_user = {"role": "user", "content": "u2"}
+    set_runtime_message_provenance(
+        current_user,
+        context_item_id="item-2",
+        origin_turn_id="turn-2",
+    )
     await bridge.chat_response(
         system_prompt=SYS,
         messages=[
             {"role": "user", "content": "u1"},
             {"role": "assistant", "content": "a1"},
             WORKING_CONTEXT,
-            {"role": "user", "content": "u2"},
+            current_user,
         ],
     )
     sent = completions.kwargs["messages"]
     assert "_magi_context_kind" not in str(sent)
+    assert "_magi_message_provenance" not in str(sent)
     # The breakpoint lands on the prior accepted assistant turn (a1).
     a1 = next(m for m in sent if m.get("role") == "assistant")
     assert _has_cc(a1)

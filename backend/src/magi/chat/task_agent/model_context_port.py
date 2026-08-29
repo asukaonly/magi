@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from difflib import SequenceMatcher
+from collections import Counter, defaultdict
 import json
 from typing import Any, Mapping
+from uuid import uuid4
 
 from magi.chat.model_context import (
     ModelContextItem,
@@ -18,6 +19,9 @@ from magi.utils.model_context_messages import (
     is_launch_context_message,
     is_runtime_world_state_message,
     is_working_context_message,
+    runtime_message_provenance,
+    set_runtime_message_provenance,
+    strip_runtime_message_provenance,
 )
 
 logger = get_logger(__name__)
@@ -126,14 +130,18 @@ def _item_from_runtime_message(
     *,
     turn_id: str | None,
     persona_id: str | None,
+    context_item_id: str,
 ) -> ModelContextItem:
     normalized_message = _normalize_message_for_storage(message)
     kind, source, scope = _classify_runtime_message(normalized_message)
-    metadata: dict[str, Any] = {}
-    if turn_id:
-        metadata["origin_turn_id"] = turn_id
-    if persona_id:
-        metadata["persona_id"] = persona_id
+    provenance = runtime_message_provenance(message)
+    metadata: dict[str, Any] = {"context_item_id": context_item_id}
+    origin_turn_id = provenance.get("origin_turn_id") or str(turn_id or "").strip()
+    resolved_persona_id = provenance.get("persona_id") or str(persona_id or "").strip()
+    if origin_turn_id:
+        metadata["origin_turn_id"] = origin_turn_id
+    if resolved_persona_id:
+        metadata["persona_id"] = resolved_persona_id
     return ModelContextItem.from_prompt_message(
         normalized_message,
         source=source,
@@ -150,23 +158,54 @@ def _align_runtime_items(
     turn_id: str | None,
     persona_id: str | None,
 ) -> tuple[ModelContextItem, ...]:
+    current_by_id = {
+        context_item_id: item
+        for item in current
+        if (context_item_id := str(item.metadata.get("context_item_id") or "").strip())
+    }
+    current_by_key: dict[str, list[ModelContextItem]] = defaultdict(list)
+    for item in current:
+        current_by_key[_message_key(item.message)].append(item)
     normalized = [_normalize_message_for_storage(message) for message in messages]
-    current_keys = [_message_key(item.message) for item in current]
-    desired_keys = [_message_key(message) for message in normalized]
-    matcher = SequenceMatcher(a=current_keys, b=desired_keys, autojunk=False)
-    reused: dict[int, ModelContextItem] = {}
-    for block in matcher.get_matching_blocks():
-        for offset in range(block.size):
-            reused[block.b + offset] = current[block.a + offset]
-    return tuple(
-        reused.get(index)
-        or _item_from_runtime_message(
-            message,
-            turn_id=turn_id,
-            persona_id=persona_id,
+    desired_key_counts = Counter(_message_key(message) for message in normalized)
+    aligned: list[ModelContextItem] = []
+    for runtime_message, normalized_message in zip(messages, normalized, strict=True):
+        provenance = runtime_message_provenance(runtime_message)
+        context_item_id = provenance.get("context_item_id")
+        reused = current_by_id.get(context_item_id or "")
+        key = _message_key(normalized_message)
+        if reused is None and not context_item_id:
+            candidates = current_by_key.get(key, [])
+            if len(candidates) == 1 and desired_key_counts[key] == 1:
+                reused = candidates[0]
+                context_item_id = str(
+                    reused.metadata.get("context_item_id") or ""
+                ).strip() or None
+        if reused is not None and _message_key(reused.message) == key:
+            set_runtime_message_provenance(
+                runtime_message,
+                context_item_id=context_item_id,
+                origin_turn_id=str(reused.metadata.get("origin_turn_id") or "").strip() or None,
+                persona_id=str(reused.metadata.get("persona_id") or "").strip() or None,
+            )
+            aligned.append(reused)
+            continue
+        context_item_id = context_item_id or uuid4().hex
+        set_runtime_message_provenance(
+            runtime_message,
+            context_item_id=context_item_id,
+            origin_turn_id=provenance.get("origin_turn_id") or str(turn_id or "").strip() or None,
+            persona_id=provenance.get("persona_id") or str(persona_id or "").strip() or None,
         )
-        for index, message in enumerate(normalized)
-    )
+        aligned.append(
+            _item_from_runtime_message(
+                runtime_message,
+                turn_id=turn_id,
+                persona_id=persona_id,
+                context_item_id=context_item_id,
+            )
+        )
+    return tuple(aligned)
 
 
 def _message_key(message: Mapping[str, Any]) -> str:
@@ -261,7 +300,7 @@ def _message_text(message: dict[str, Any]) -> str:
 def _normalize_message_for_storage(message: dict[str, Any]) -> dict[str, Any]:
     """Remove attachment bytes while retaining stable model-visible handles."""
 
-    normalized = dict(message)
+    normalized = strip_runtime_message_provenance(message)
     content = message.get("content")
     if not isinstance(content, list):
         return normalized

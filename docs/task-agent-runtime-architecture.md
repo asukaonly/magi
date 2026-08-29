@@ -503,6 +503,11 @@ never reconstructed from the visible transcript. This preserves tool-call
 identifiers and the exact causal chain the model already observed without
 letting an unaccepted draft or turn-local recall become future session history;
 runtime controls are not silently removed between calls or during acceptance.
+Each internal runtime message also carries a stable context-item identity and
+its originating turn where applicable. This provenance is persisted beside the
+provider-neutral message, survives compaction and resume, and is stripped before
+provider conversion. Context alignment must use that identity; repeated message
+text is never sufficient evidence that two context items are the same.
 
 The cacheable system head and tool declarations are stored separately as a
 deduplicated context epoch. Each model-call boundary references one surface

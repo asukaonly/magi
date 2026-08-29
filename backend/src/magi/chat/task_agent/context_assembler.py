@@ -63,6 +63,9 @@ class _CanonicalModelContextEntry:
     def to_prompt_message(self) -> dict[str, Any]:
         return self.event.item.to_prompt_message()
 
+    def to_runtime_message(self) -> dict[str, Any]:
+        return self.event.item.to_runtime_message(fallback_item_id=self.event.event_id)
+
 
 class ChatContextAssembler:
     """Owns history caches and lazy history loading for explicit sessions."""
@@ -147,7 +150,7 @@ class ChatContextAssembler:
                 run_id=run_id,
             )
             durable_version = model_context.revision
-            model_history = model_context.to_prompt_messages()
+            model_history = model_context.to_runtime_messages()
             canonical_history = [
                 _CanonicalModelContextEntry(event=event)
                 for event in model_context.events
@@ -302,12 +305,17 @@ class ChatContextAssembler:
             }
         ]
         for item in retained_history:
-            to_prompt_message = getattr(item, "to_prompt_message", None)
-            if not callable(to_prompt_message):
+            to_runtime_message = getattr(item, "to_runtime_message", None)
+            if callable(to_runtime_message):
+                message = to_runtime_message()
+            else:
+                to_prompt_message = getattr(item, "to_prompt_message", None)
+                if not callable(to_prompt_message):
+                    continue
+                message = to_prompt_message()
+            if not isinstance(message, dict):
                 continue
-            message = to_prompt_message()
-            if isinstance(message, dict):
-                compacted.append(dict(message))
+            compacted.append(dict(message))
         return compacted
 
     @staticmethod
