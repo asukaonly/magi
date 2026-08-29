@@ -14,7 +14,6 @@ from ....utils.model_context_messages import (
     build_runtime_world_state_message,
     build_working_context_message,
     is_launch_context_message,
-    latest_runtime_world_state_content,
     set_runtime_message_provenance,
 )
 from ...message_utils import append_latest_user_message
@@ -40,6 +39,7 @@ from ..task_budget import (
 from .failures import FunctionCallingFailureMixin
 from .fallback import FunctionCallingFallbackMixin
 from .guardrails import FunctionCallingGuardrailsMixin
+from .context_layers import materialize_dynamic_context_layers
 from .llm import FunctionCallingLlmMixin
 from .loop_runner import FunctionCallingLoopRunner
 from .messages import FunctionCallingMessageHistoryMixin
@@ -217,6 +217,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         working_context: str = "",
         ephemeral_context: str | None = None,
         current_turn_in_model_context: bool = False,
+        current_turn_id: str | None = None,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
         self._resolve_llm()
@@ -250,26 +251,21 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         runtime_message = build_runtime_world_state_message(runtime_world_state)
         working_message = build_working_context_message(working_context_text)
         launch_message = build_launch_context_message(ephemeral_context or "")
-        runtime_state_emitted = False
-        if messages and not current_turn_in_model_context:
-            insert_at = len(messages) - 1
-            if (
-                runtime_message is not None
-                and latest_runtime_world_state_content(messages)
-                != str(runtime_message["content"]).strip()
-            ):
-                messages.insert(insert_at, runtime_message)
-                insert_at += 1
-                runtime_state_emitted = True
-            if working_message is not None:
-                messages.insert(insert_at, working_message)
-                insert_at += 1
-            if launch_message is not None:
-                messages.insert(insert_at, launch_message)
+        context_emission = materialize_dynamic_context_layers(
+            messages=messages,
+            current_turn_id=current_turn_id,
+            current_turn_text=turn.text,
+            runtime_message=runtime_message,
+            working_message=working_message,
+            launch_message=launch_message,
+        )
         logger.info(
             "agent_run.context_layers_materialized runtime_state_emitted=%s "
+            "working_context_emitted=%s launch_context_emitted=%s "
             "runtime_state_chars=%d working_context_chars=%d current_turn_restored=%s",
-            runtime_state_emitted,
+            context_emission.runtime_state,
+            context_emission.working_context,
+            context_emission.launch_context,
             len(str(runtime_world_state or "")),
             len(working_context_text),
             current_turn_in_model_context,

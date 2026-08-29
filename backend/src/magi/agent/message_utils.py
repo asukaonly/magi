@@ -57,7 +57,11 @@ def append_latest_user_message(
         for index in range(len(source_messages) - 1, -1, -1):
             if _is_matching_user_message(source_messages[index], normalized_latest):
                 if latest_content is not None:
-                    source_messages[index] = {"role": "user", "content": latest_content}
+                    source_messages[index] = {
+                        **source_messages[index],
+                        "role": "user",
+                        "content": latest_content,
+                    }
                 break
         else:
             if latest_content is not None:

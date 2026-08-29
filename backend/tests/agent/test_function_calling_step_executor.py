@@ -13,9 +13,13 @@ from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
 from magi.config.constants import SYSTEM_PROMPT_CACHE_BOUNDARY
 from magi.utils.model_context_messages import (
+    build_launch_context_message,
     build_runtime_world_state_message,
+    build_working_context_message,
     is_launch_context_message,
     is_working_context_message,
+    runtime_message_provenance,
+    set_runtime_message_provenance,
 )
 
 
@@ -101,6 +105,68 @@ def test_build_step_state_materializes_typed_context_before_current_user() -> No
     assert "Tool recovery rules:" in str(working_context["content"])
     assert str(working_context["content"]).endswith("\n</working_context>")
     assert step_state.messages[-1] == {"role": "user", "content": "current"}
+
+
+def test_build_step_state_restores_missing_context_layers_for_existing_turn() -> None:
+    orchestrator = _build_orchestrator()
+    current = {"role": "user", "content": "current"}
+    set_runtime_message_provenance(current, origin_turn_id="turn-current")
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        runtime_world_state="date=2026-08-29 timezone=Asia/Shanghai",
+        working_context="fresh recall",
+        ephemeral_context="launch reason",
+        selected_tools=[],
+        conversation_history=[current],
+        current_turn_in_model_context=True,
+        current_turn_id="turn-current",
+    )
+
+    assert len(step_state.messages) == 4
+    assert str(step_state.messages[0]["content"]).startswith("<runtime_world_state>")
+    assert is_working_context_message(step_state.messages[1])
+    assert is_launch_context_message(step_state.messages[2])
+    assert step_state.messages[3]["content"] == "current"
+    assert runtime_message_provenance(step_state.messages[3])["origin_turn_id"] == (
+        "turn-current"
+    )
+
+
+def test_build_step_state_replaces_dynamic_layers_without_reviving_launch_context() -> None:
+    orchestrator = _build_orchestrator()
+    current = {"role": "user", "content": "current"}
+    set_runtime_message_provenance(current, origin_turn_id="turn-current")
+    old_working = build_working_context_message("old recall")
+    old_launch = build_launch_context_message("old launch")
+    assert old_working is not None
+    assert old_launch is not None
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        working_context="fresh recall",
+        ephemeral_context="launch reason",
+        selected_tools=[],
+        conversation_history=[
+            old_working,
+            old_launch,
+            current,
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "call-1"}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "done"},
+        ],
+        current_turn_in_model_context=True,
+        current_turn_id="turn-current",
+    )
+
+    working_messages = [
+        message for message in step_state.messages if is_working_context_message(message)
+    ]
+    assert len(working_messages) == 1
+    assert "fresh recall" in str(working_messages[0]["content"])
+    assert not any(is_launch_context_message(message) for message in step_state.messages)
+    assert step_state.messages.index(working_messages[0]) < step_state.messages.index(current)
 
 
 def test_build_step_state_rejects_dynamic_system_tail() -> None:

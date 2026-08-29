@@ -165,6 +165,7 @@ class FunctionCallingLoopRunner:
                 current_turn_in_model_context=(
                     run_input.current_turn_in_model_context
                 ),
+                current_turn_id=run_input.turn_id,
             ),
         )
         state.run_id = run_input.run_id
