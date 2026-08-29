@@ -1040,6 +1040,7 @@ def _accepted_outcome_items(
         not in {
             ModelContextItemKind.WORKING_CONTEXT,
             ModelContextItemKind.LAUNCH_CONTEXT,
+            ModelContextItemKind.RUNTIME_CONTROL,
         }
         and (
             item.kind is not ModelContextItemKind.RUNTIME_WORLD_STATE

@@ -507,7 +507,10 @@ a later turn starts only from the Session Accepted Surface. Model history is
 never reconstructed from the visible transcript. This preserves tool-call
 identifiers and the exact causal chain the model already observed without
 letting an unaccepted draft or turn-local recall become future session history;
-runtime controls are not silently removed between calls or during acceptance.
+runtime controls are not silently removed between calls in the same run. Their
+exact causal position remains reconstructible from immutable call boundaries,
+but run-only controls are removed when a successful outcome is promoted to the
+Session Accepted Surface so later turns do not inherit completed repair rules.
 Each internal runtime message also carries a stable context-item identity and
 its originating turn where applicable. This provenance is persisted beside the
 provider-neutral message, survives compaction and resume, and is stripped before

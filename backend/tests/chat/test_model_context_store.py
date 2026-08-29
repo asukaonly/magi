@@ -265,6 +265,9 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
         step_index=1,
     )
     assert working.accepted_revision == 0
+    assert "[Runtime validation] retry" in {
+        message["content"] for message in working.to_prompt_messages()
+    }
     committed = await store.commit_unmanaged_assistant_outcome(
         turn_id="turn-1",
         messages=[
@@ -303,7 +306,6 @@ async def test_visible_outcome_atomically_promotes_working_context(tmp_path) -> 
     assert [message["content"] for message in accepted.to_prompt_messages()] == [
         "solve this",
         "<runtime_world_state>new</runtime_world_state>",
-        "[Runtime validation] retry",
         "accepted answer",
     ]
     assert accepted.items[-1].metadata == {
