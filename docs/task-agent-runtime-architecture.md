@@ -545,6 +545,12 @@ than a dynamic system prompt. Attachment-grounding and finalization instructions
 also use typed Working Context, so no runtime path appends instructions beyond
 the stable cache boundary.
 
+A chat-derived background run is only created by detaching a live unified run.
+Its launch service requires the complete `AgentRunCheckpoint`; it never rebuilds
+a chat prompt from a goal string or silently falls back to a generic headless
+prompt. Scheduled, batch, and other standalone background work construct their
+own explicit headless specs and do not use the chat detach service.
+
 Universal read-only runtime facts are admitted at the shared model-capability
 boundary before the effective tool set is journaled. `current_time` is therefore
 available to every tool-capable driver without repeating exact wall-clock time in

@@ -87,6 +87,19 @@ def _make_request(
     )
 
 
+def _make_checkpoint(run_id: str = "run-detached") -> dict[str, Any]:
+    policy = ReasoningPolicy()
+    return AgentRunCheckpoint(
+        run_id=run_id,
+        messages=[{"role": "user", "content": "detached chat task"}],
+        effective_system_prompt=f"system\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        tools=[],
+        iteration=1,
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    ).to_dict()
+
+
 @pytest.fixture
 async def manager(runtime_paths_with_schema) -> BackgroundTaskManager:
     store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
@@ -133,7 +146,11 @@ def test_build_spec_captures_request_snapshot() -> None:
         turn_id="turn-xyz",
     )
 
-    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.RULE)
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.RULE,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
 
     assert spec.user_id == "u1"
     assert spec.session_id == "s1"
@@ -144,13 +161,28 @@ def test_build_spec_captures_request_snapshot() -> None:
     assert spec.workspace_path == "/home/u/repos/energy"
     assert spec.trigger_source is BackgroundTaskTriggerSource.RULE
     assert spec.task_budget_root_turn_id == "turn-xyz"
+    assert spec.run_id == "run-detached"
+    assert spec.agent_run_checkpoint == _make_checkpoint()
+
+
+def test_build_spec_rejects_incomplete_checkpoint() -> None:
+    with pytest.raises(KeyError, match="run_id"):
+        build_spec_from_request(
+            _make_request(),
+            trigger_source=BackgroundTaskTriggerSource.RULE,
+            agent_run_checkpoint={},
+        )
 
 
 def test_build_spec_derives_title_from_first_line_and_truncates() -> None:
     long_msg = "a" * 200
     request = _make_request(user_message=long_msg)
 
-    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.CLASSIFIER)
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.CLASSIFIER,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
 
     assert len(spec.title) <= 80
     assert spec.title.endswith("...")
@@ -160,7 +192,11 @@ def test_build_spec_derives_title_from_first_line_and_truncates() -> None:
 def test_build_spec_first_line_becomes_title() -> None:
     request = _make_request(user_message="Do the thing\nand then some\ncontinued")
 
-    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.USER)
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.USER,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
 
     assert spec.title == "Do the thing"
 
@@ -168,7 +204,11 @@ def test_build_spec_first_line_becomes_title() -> None:
 def test_build_spec_defaults_title_when_message_empty() -> None:
     request = _make_request(user_message="")
 
-    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.MANUAL)
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.MANUAL,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
 
     assert spec.title == "background task"
 
@@ -176,7 +216,11 @@ def test_build_spec_defaults_title_when_message_empty() -> None:
 def test_build_spec_omits_blank_workspace_path() -> None:
     request = _make_request(workspace_path="   ")
 
-    spec = build_spec_from_request(request, trigger_source=BackgroundTaskTriggerSource.RULE)
+    spec = build_spec_from_request(
+        request,
+        trigger_source=BackgroundTaskTriggerSource.RULE,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
 
     assert spec.workspace_path is None
 
@@ -193,6 +237,7 @@ def test_build_spec_carries_run_trigger() -> None:
     spec = build_spec_from_request(
         request,
         trigger_source=BackgroundTaskTriggerSource.USER,
+        agent_run_checkpoint=_make_checkpoint(),
         trigger=trigger,
     )
 
@@ -201,7 +246,11 @@ def test_build_spec_carries_run_trigger() -> None:
 
 
 def test_build_spec_trigger_defaults_to_none() -> None:
-    spec = build_spec_from_request(_make_request(), trigger_source=BackgroundTaskTriggerSource.RULE)
+    spec = build_spec_from_request(
+        _make_request(),
+        trigger_source=BackgroundTaskTriggerSource.RULE,
+        agent_run_checkpoint=_make_checkpoint(),
+    )
     assert spec.trigger is None
 
 
@@ -211,6 +260,7 @@ def test_build_spec_honours_timeout_and_iteration_overrides() -> None:
     spec = build_spec_from_request(
         request,
         trigger_source=BackgroundTaskTriggerSource.RULE,
+        agent_run_checkpoint=_make_checkpoint(),
         timeout_seconds=600,
         max_iterations=5,
     )
@@ -236,7 +286,9 @@ async def test_launch_service_enqueues_task_and_returns_ack(
     )
 
     result = await service.enqueue_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.RULE
+        request,
+        trigger_source=BackgroundTaskTriggerSource.RULE,
+        agent_run_checkpoint=_make_checkpoint(),
     )
 
     assert result.mode is None
@@ -265,6 +317,7 @@ async def test_launch_service_persists_run_trigger_on_spec(
     result = await service.enqueue_from_request(
         _make_request(user_message="weixin-originated long task"),
         trigger_source=BackgroundTaskTriggerSource.USER,
+        agent_run_checkpoint=_make_checkpoint(),
         trigger=trigger,
     )
 
@@ -288,7 +341,9 @@ async def test_launch_service_uses_custom_ack_builder(
     request = _make_request(user_message="a specific task")
 
     result = await service.enqueue_from_request(
-        request, trigger_source=BackgroundTaskTriggerSource.PLANNER
+        request,
+        trigger_source=BackgroundTaskTriggerSource.PLANNER,
+        agent_run_checkpoint=_make_checkpoint(),
     )
 
     assert result.response_text.startswith("OK[bg_")

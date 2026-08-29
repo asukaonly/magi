@@ -2,12 +2,10 @@
 
 This is the last piece of the background-task runtime (phase 3c):
 
-* :class:`BackgroundLaunchService` turns an :class:`ExecutionRequest`
-  that the dispatcher flagged as BACKGROUND into a persisted
-  :class:`BackgroundTask` via :class:`BackgroundTaskManager`, then
-  returns a short ack :class:`ExecutionResult` so the chat turn can
-  finalize its session-run immediately. No polling, no streaming — the
-  UI is notified through a later completion handshake (phase 4).
+* :class:`BackgroundLaunchService` turns a detached chat run and its complete
+  unified-loop checkpoint into a persisted :class:`BackgroundTask` via
+  :class:`BackgroundTaskManager`, then returns a short acknowledgement so the
+  chat turn can finalize immediately. No polling or streaming is required.
 
 * :func:`build_background_run_fn` returns a
   :class:`BackgroundTaskRunFn` closure that the manager invokes for
@@ -27,7 +25,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
-from uuid import uuid4
 
 import structlog
 
@@ -98,23 +95,19 @@ def build_spec_from_request(
     request: "ExecutionRequest",
     *,
     trigger_source: BackgroundTaskTriggerSource,
+    agent_run_checkpoint: dict[str, Any],
     trigger: "RunTrigger | None" = None,
     timeout_seconds: int | None = 1800,
     max_iterations: int = 50,
-    agent_run_checkpoint: dict[str, Any] | None = None,
 ) -> BackgroundTaskSpec:
     """Construct a :class:`BackgroundTaskSpec` from a chat
     :class:`ExecutionRequest`.
 
-    The spec captures the *intent snapshot* at dispatch time so a retry
-    can rerun the same task without replaying the whole chat turn. The
-    live chat history is intentionally not included — on retry the
-    executor will rebuild its own prompt package.
-
-    A detach-to-background handoff supplies the complete unified-loop
-    checkpoint so the worker resumes governance state and model context
-    together.
+    Chat-derived background work is exclusively a detach handoff. The complete
+    unified-loop checkpoint is validated here so retries resume governance state,
+    model context, tools, and reasoning policy together.
     """
+    checkpoint = AgentRunCheckpoint.from_dict(agent_run_checkpoint)
     context = request.context
     latest_payload = getattr(context, "latest_payload", None)
     turn_id = getattr(latest_payload, "turn_id", None) or ""
@@ -133,12 +126,7 @@ def build_spec_from_request(
         origin_turn_id=str(turn_id),
         title=_derive_title(user_message),
         goal=user_message,
-        run_id=(
-            str(agent_run_checkpoint.get("run_id") or "").strip()
-            if agent_run_checkpoint is not None
-            else ""
-        )
-        or uuid4().hex,
+        run_id=checkpoint.run_id,
         selected_tools=list(request.capabilities.tools or []),
         skill_preapproval_rules=tuple(
             rules_to_strings(getattr(request, "skill_preapproval_rules", ()))
@@ -149,9 +137,7 @@ def build_spec_from_request(
         timeout_seconds=timeout_seconds,
         max_iterations=max_iterations,
         task_budget_root_turn_id=task_budget_root_turn_id,
-        agent_run_checkpoint=(
-            dict(agent_run_checkpoint) if agent_run_checkpoint is not None else None
-        ),
+        agent_run_checkpoint=checkpoint.to_dict(),
     )
 
 
@@ -184,10 +170,10 @@ class BackgroundLaunchService:
         request: "ExecutionRequest",
         *,
         trigger_source: BackgroundTaskTriggerSource,
+        agent_run_checkpoint: dict[str, Any],
         trigger: "RunTrigger | None" = None,
         timeout_seconds: int | None = 1800,
         max_iterations: int = 50,
-        agent_run_checkpoint: dict[str, Any] | None = None,
     ) -> "ExecutionResult":
         # Imported here to avoid a module-load-time cycle:
         # task_agents.common.contracts -> task_agents/__init__.py ->
