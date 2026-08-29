@@ -7,6 +7,10 @@ from magi.chat.model_context import ModelContextItem, ModelContextItemKind
 from magi.chat.store import ChatStore
 from magi.chat.task_agent.context_assembler import ChatContextAssembler
 from magi.chat.task_agent.model_context_port import ChatModelContextPort
+from magi.utils.model_context_messages import (
+    runtime_message_provenance,
+    strip_runtime_context_metadata,
+)
 
 
 class _VisibleHistory:
@@ -178,7 +182,8 @@ async def test_persona_switch_back_preserves_canonical_tool_tail(tmp_path) -> No
 
     assert "persona a old" not in str(history.messages)
     assert "foreign evidence" not in str(history.messages)
-    assert history.messages[1:] == [
+    retained = history.messages[1:]
+    assert [strip_runtime_context_metadata(message) for message in retained] == [
         {"role": "user", "content": "continue as a"},
         {
             "role": "assistant",
@@ -193,3 +198,7 @@ async def test_persona_switch_back_preserves_canonical_tool_tail(tmp_path) -> No
         },
         {"role": "tool", "content": "current evidence", "tool_call_id": "call-a"},
     ]
+    assert all(
+        runtime_message_provenance(message).get("context_item_id")
+        for message in retained
+    )
