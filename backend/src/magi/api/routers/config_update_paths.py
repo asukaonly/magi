@@ -66,6 +66,8 @@ def selection_limits_from_registry_limits(
     return LLMSelectionLimitsSettings(
         context_window=limits.context_window,
         max_output_tokens=limits.max_output_tokens,
+        max_tool_schemas=limits.max_tool_schemas,
+        max_schema_tokens=limits.max_schema_tokens,
     )
 
 

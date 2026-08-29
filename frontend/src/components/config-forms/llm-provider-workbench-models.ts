@@ -22,6 +22,8 @@ export interface ProviderWorkbenchModelItem {
   limits: {
     context_window?: number | null;
     max_output_tokens?: number | null;
+    max_tool_schemas?: number | null;
+    max_schema_tokens?: number | null;
   };
   kinds: Array<'chat' | 'embedding' | 'image'>;
   dimensions: number[];
@@ -38,6 +40,8 @@ const DEFAULT_CAPABILITIES: ProviderWorkbenchModelItem['capabilities'] = {
 const DEFAULT_LIMITS: ProviderWorkbenchModelItem['limits'] = {
   context_window: null,
   max_output_tokens: null,
+  max_tool_schemas: null,
+  max_schema_tokens: null,
 };
 
 const mergeCapabilities = (

@@ -18,6 +18,8 @@ class ModelContextProfile:
     supports_tool_calls: bool = True
     supports_images_with_tools: bool = False
     supports_parallel_tools: bool = False
+    max_tool_schemas: int | None = None
+    max_schema_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,8 @@ def unknown_model_context(adapter: Any | None) -> ModelContextProfile:
         supports_tool_calls=True,
         supports_images_with_tools=False,
         supports_parallel_tools=False,
+        max_tool_schemas=None,
+        max_schema_tokens=None,
     )
 
 

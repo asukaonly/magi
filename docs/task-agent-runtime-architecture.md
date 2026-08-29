@@ -288,6 +288,11 @@ The initial surface is bounded by `CapabilityResolver` before the first call.
 image support, tool calling, image-plus-tool support, tool-schema count, and
 schema-token limits when the active profile declares them. It never silently
 drops a required attachment or pinned capability to make a call fit.
+Tool-schema count and schema-token limits travel through the same production
+model metadata, per-model override, and per-scenario selection chain as context
+window and output-token limits. An undeclared limit remains unknown; a declared
+limit is projected into the resolved model context and enforced before the first
+provider call.
 
 If the first surface is insufficient, the model may use the resident,
 bounded `find-relevant-tools` capability during the loop. Metadata retrieval and

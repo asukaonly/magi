@@ -86,6 +86,18 @@ class ScenarioLLMPool:
                     )
                 ),
                 supports_parallel_tools=False,
+                max_tool_schemas=(
+                    getattr(limits, "max_tool_schemas", None)
+                    if isinstance(getattr(limits, "max_tool_schemas", None), int)
+                    and getattr(limits, "max_tool_schemas", 0) > 0
+                    else None
+                ),
+                max_schema_tokens=(
+                    getattr(limits, "max_schema_tokens", None)
+                    if isinstance(getattr(limits, "max_schema_tokens", None), int)
+                    and getattr(limits, "max_schema_tokens", 0) > 0
+                    else None
+                ),
             ),
         )
 

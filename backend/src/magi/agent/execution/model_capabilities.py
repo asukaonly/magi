@@ -16,7 +16,6 @@ class ModelCapabilityProfile:
     supports_parallel_tools: bool = False
     max_tool_schemas: int | None = None
     max_schema_tokens: int | None = None
-    reasoning_dialects: tuple[str, ...] = ()
 
     @classmethod
     def from_model_context(cls, context: Any) -> "ModelCapabilityProfile":
@@ -30,6 +29,12 @@ class ModelCapabilityProfile:
             ),
             supports_parallel_tools=bool(
                 getattr(context, "supports_parallel_tools", False)
+            ),
+            max_tool_schemas=_positive_int_or_none(
+                getattr(context, "max_tool_schemas", None)
+            ),
+            max_schema_tokens=_positive_int_or_none(
+                getattr(context, "max_schema_tokens", None)
             ),
         )
 
@@ -51,6 +56,10 @@ class ModelCapabilityProfile:
         if self.max_schema_tokens is not None and schema_tokens > self.max_schema_tokens:
             return "tool_schema_token_limit_exceeded"
         return None
+
+
+def _positive_int_or_none(value: Any) -> int | None:
+    return value if isinstance(value, int) and value > 0 else None
 
 
 __all__ = ["ModelCapabilityProfile"]

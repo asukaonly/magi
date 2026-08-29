@@ -104,6 +104,8 @@ class LLMLimitsSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
+    max_tool_schemas: Optional[int] = Field(default=None, ge=1)
+    max_schema_tokens: Optional[int] = Field(default=None, ge=1)
 
 
 class LLMCapabilityOverridesSettings(BaseModel):
@@ -121,6 +123,8 @@ class LLMLimitsOverrideSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
+    max_tool_schemas: Optional[int] = Field(default=None, ge=1)
+    max_schema_tokens: Optional[int] = Field(default=None, ge=1)
 
 
 class LLMModelCostModel(BaseModel):
@@ -169,6 +173,8 @@ class LLMSelectionLimitsSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
+    max_tool_schemas: Optional[int] = Field(default=None, ge=1)
+    max_schema_tokens: Optional[int] = Field(default=None, ge=1)
 
 
 class LLMConcurrencyOverrideSettings(BaseModel):

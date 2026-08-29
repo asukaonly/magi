@@ -143,6 +143,8 @@ export interface LLMCapabilities {
 export interface LLMLimits {
   context_window?: number | null;
   max_output_tokens?: number | null;
+  max_tool_schemas?: number | null;
+  max_schema_tokens?: number | null;
 }
 
 export interface LLMCapabilityOverrides {
@@ -156,6 +158,8 @@ export interface LLMCapabilityOverrides {
 export interface LLMLimitsOverride {
   context_window?: number | null;
   max_output_tokens?: number | null;
+  max_tool_schemas?: number | null;
+  max_schema_tokens?: number | null;
 }
 
 export interface LLMModelCost {
@@ -633,6 +637,8 @@ export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
 export const DEFAULT_LLM_LIMITS: LLMLimits = {
   context_window: null,
   max_output_tokens: null,
+  max_tool_schemas: null,
+  max_schema_tokens: null,
 };
 
 export const DEFAULT_LLM_CUSTOM_PROVIDER_META: LLMCustomProviderMeta = {

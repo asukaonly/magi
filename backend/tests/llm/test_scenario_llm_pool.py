@@ -122,6 +122,30 @@ def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
     assert created == [("openai", "gpt-5-mini"), ("anthropic", "claude-sonnet-4-6")]
 
 
+def test_scenario_llm_pool_projects_configured_tool_schema_limits():
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    config = _build_test_config()
+    selection = config.llm.selections["core"]
+    selection.capability_override_enabled = True
+    selection.limits.max_tool_schemas = 12
+    selection.limits.max_schema_tokens = 4096
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        return DummyAdapter(
+            provider_name=str(kwargs["provider_type"]),
+            model_name=str(kwargs["model"]),
+        )
+
+    resolved = ScenarioLLMPool(
+        config=config,
+        adapter_factory=adapter_factory,
+    ).resolve(LLMScenario.CORE)
+
+    assert resolved.context.max_tool_schemas == 12
+    assert resolved.context.max_schema_tokens == 4096
+
+
 def test_scenario_llm_pool_falls_back_to_core_for_memory_summarizer():
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 

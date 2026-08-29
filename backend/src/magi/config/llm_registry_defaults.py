@@ -153,6 +153,8 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
         "limits": {
             "context_window": None,
             "max_output_tokens": None,
+            "max_tool_schemas": None,
+            "max_schema_tokens": None,
         },
         "provider_options": {},
         "embedding_dimension": None,
