@@ -24,7 +24,7 @@ const message = (
 });
 
 describe('chat turn completion', () => {
-  it.each(['cancelled', 'completed', 'failed', 'interrupted', 'merged'])(
+  it.each(['blocked', 'cancelled', 'completed', 'failed', 'interrupted', 'merged'])(
     'recognizes %s as terminal',
     (state) => {
       expect(isTerminalRunState(state)).toBe(true);

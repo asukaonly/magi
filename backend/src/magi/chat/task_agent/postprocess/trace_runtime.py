@@ -30,6 +30,8 @@ class _ResponseTraceContext:
     ended_at_ms: int
     mode: str
     user_message: str
+    terminal_status: str
+    terminal_error: str | None
 
 
 @dataclass(slots=True)
@@ -133,6 +135,8 @@ class ChatPostprocessRuntimeTraceMixin:
         ended_at_ms: int,
         mode: str,
         user_message: str,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> None:
         normalized_turn_id = str(turn_id or "").strip()
         if self._runtime_trace_store is None or not normalized_turn_id:
@@ -159,10 +163,12 @@ class ChatPostprocessRuntimeTraceMixin:
             ended_at_ms=ended_at_ms,
             mode=mode,
             user_message=user_message,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
         await self._publish_response_emit_span(trace_context)
-        await self._publish_completed_root_turn_span(trace_context)
-        await self._publish_completed_turn_record(trace_context)
+        await self._publish_terminal_root_turn_span(trace_context)
+        await self._publish_terminal_turn_record(trace_context)
 
     async def _publish_response_emit_span(self, trace_context: _ResponseTraceContext) -> None:
         await publish_trace_span(
@@ -179,7 +185,7 @@ class ChatPostprocessRuntimeTraceMixin:
             turn_id=trace_context.turn_id,
         )
 
-    async def _publish_completed_root_turn_span(
+    async def _publish_terminal_root_turn_span(
         self,
         trace_context: _ResponseTraceContext,
     ) -> None:
@@ -190,14 +196,14 @@ class ChatPostprocessRuntimeTraceMixin:
             span_id=self._build_root_span_id(trace_context.turn_id),
             trace_id=trace_context.trace_id,
             parent_span_id=None,
-            status="completed",
+            status=trace_context.terminal_status,
             started_at_ms=trace_context.started_at_ms,
             ended_at_ms=trace_context.ended_at_ms,
             result_preview=trace_context.response_text[:240] or None,
             turn_id=trace_context.turn_id,
         )
 
-    async def _publish_completed_turn_record(
+    async def _publish_terminal_turn_record(
         self,
         trace_context: _ResponseTraceContext,
     ) -> None:
@@ -207,7 +213,9 @@ class ChatPostprocessRuntimeTraceMixin:
             name=f"turn:{trace_context.turn_id}",
             trace_id=trace_context.trace_id,
             parent_span_id=None,
-            status="ok",
+            status=(
+                "ok" if trace_context.terminal_status == "completed" else "error"
+            ),
             started_at_ms=trace_context.started_at_ms,
             ended_at_ms=trace_context.ended_at_ms,
             turn_id=trace_context.turn_id,
@@ -215,13 +223,14 @@ class ChatPostprocessRuntimeTraceMixin:
                 turn_id=trace_context.turn_id,
                 session_id=trace_context.session_id,
                 user_id=trace_context.user_id,
-                status="completed",
+                status=trace_context.terminal_status,
                 mode=trace_context.mode,
                 started_at_ms=trace_context.started_at_ms,
                 ended_at_ms=trace_context.ended_at_ms,
                 duration_ms=max(0, trace_context.ended_at_ms - trace_context.started_at_ms),
                 user_message_preview=trace_context.user_message[:240] or None,
                 response_preview=trace_context.response_text[:240] or None,
+                error_summary=trace_context.terminal_error,
                 created_at_ms=trace_context.started_at_ms,
                 updated_at_ms=trace_context.ended_at_ms,
             ),

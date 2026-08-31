@@ -29,6 +29,7 @@ from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.chat.task_agent.session_run_decisions import TurnSupersession
 from magi.agent.task_agents.common import (
+    AgentRunExecutionResult,
     AssistantResponsePlan,
     AssistantResponseSegment,
     CapabilitySelection,
@@ -2564,6 +2565,77 @@ async def test_handle_commits_final_chat_message_before_notification(
 
 
 @pytest.mark.asyncio
+async def test_handle_persists_failed_agent_run_as_failed_terminal_outcome(
+    runtime_trace_store: RuntimeTraceStore,
+    trace_event_bus,
+    chat_store: ChatStore,
+) -> None:
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        runtime_trace_store=runtime_trace_store,
+        chat_store=chat_store,
+        max_fact_memory=10,
+        event_bus=trace_event_bus,
+        deliver_final_response=_chat_sse_seam(runtime_trace_store),
+    )
+    context, base_result = _plain_non_streamed_context_and_result(
+        turn_id="turn-failed",
+    )
+    assert isinstance(context.latest_fact, FactRecord)
+    context.latest_fact.delivery_attempt_no = 0
+    context.latest_fact.runtime_command_id = 101
+    await _create_admitted_user_turn(
+        chat_store,
+        turn_id="turn-failed",
+    )
+    result = AgentRunExecutionResult(
+        mode=base_result.mode,
+        response_text="",
+        correlation_id="corr-1",
+        turn_id="turn-failed",
+        ux_plan=base_result.ux_plan,
+        execution_outcome={
+            "status": "failed",
+            "failure_reason": "EXECUTION_ERROR",
+        },
+    )
+
+    outcome = await service.handle(context, result)
+    await trace_event_bus.drain()
+
+    turn = await chat_store.get_turn("turn-failed")
+    messages = await chat_store.list_messages(session_id="session-1")
+    delivery = await chat_store.get_user_turn_delivery(turn_id="turn-failed")
+    trace_turn = await runtime_trace_store.get_turn("turn-failed")
+    model_context = await chat_store.load_model_context(session_id="session-1")
+
+    assert outcome.emitted is True
+    assert turn is not None
+    assert turn.status == "failed"
+    assert turn.error_text == "EXECUTION_ERROR"
+    assert delivery is not None
+    assert delivery.delivery_state == "terminal"
+    assert messages[-1].content_text == "Execution failed: EXECUTION_ERROR"
+    assert await chat_store.get_assistant_memory_projection(messages[-1].message_id) is None
+    assert trace_turn is not None
+    assert trace_turn.status == "failed"
+    assert trace_turn.error_summary == "EXECUTION_ERROR"
+    assert (
+        model_context.items[-1]
+        .message["content"]
+        .startswith("[Runtime outcome] The turn ended with status 'failed'")
+    )
+    assert not any(
+        item.message.get("content") == "Execution failed: EXECUTION_ERROR"
+        for item in model_context.items
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fallback_commit_fails", [False, True])
 async def test_atomic_segment_commit_failure_falls_back_without_partial_transcript(
     runtime_trace_store: RuntimeTraceStore,
@@ -4446,6 +4518,7 @@ async def test_first_context_story_stores_chat_but_skips_relationship_memory_upd
         history_stored=False,
         user_message=None,
         memory_updated=False,
+        terminal_status="completed",
     )
 
     await service._record_chat_history_and_memory(context, result, prepared)
@@ -4479,6 +4552,7 @@ async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
         history_stored=False,
         user_message=None,
         memory_updated=False,
+        terminal_status="completed",
         segmented_messages=[
             SimpleNamespace(message_id="assistant-durable-1"),
         ],

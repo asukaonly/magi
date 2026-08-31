@@ -5,6 +5,7 @@ import {
 } from './rhythm';
 
 const TERMINAL_RUN_STATES = new Set([
+  'blocked',
   'cancelled',
   'completed',
   'failed',

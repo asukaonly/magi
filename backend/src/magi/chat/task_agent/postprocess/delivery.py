@@ -63,6 +63,7 @@ class _PreparedDeliveryStateProtocol(Protocol):
     trace_summary: dict[str, Any] | None
     trace_available: bool
     segmented_messages: list[Any]
+    terminal_status: str
 
 
 class ChatPostprocessDeliveryMixin:
@@ -181,7 +182,7 @@ class ChatPostprocessDeliveryMixin:
             session_id=context.session_id,
             turn_id=prepared.turn_id,
             run_id=context.session_run_id,
-            state="completed",
+            state=prepared.terminal_status,
             can_cancel=False,
         )
 

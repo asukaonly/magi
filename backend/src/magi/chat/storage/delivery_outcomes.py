@@ -19,6 +19,7 @@ from ..contracts import (
     ChatAssistantMemoryProjection,
     ChatMessageRecord,
 )
+from ..terminal_outcomes import model_context_terminal_outcome
 from .context_usage import (
     insert_context_usage_snapshot,
     normalize_context_usage_snapshot,
@@ -98,6 +99,8 @@ class ChatDeliveryOutcomePersistenceMixin:
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Commit visible output, turn completion, and exact delivery terminality.
 
@@ -121,6 +124,8 @@ class ChatDeliveryOutcomePersistenceMixin:
             run_disposition=run_disposition,
             delivery_attempt_no=int(delivery_attempt_no),
             command_id=int(command_id),
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     @chat_asset_mutation_guarded_if(
@@ -146,6 +151,8 @@ class ChatDeliveryOutcomePersistenceMixin:
         run_id: str | None = None,
         run_revision: int = 0,
         run_disposition: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> list[ChatMessageRecord] | None:
         """Atomically commit an assistant outcome without a delivery ledger."""
 
@@ -165,6 +172,8 @@ class ChatDeliveryOutcomePersistenceMixin:
             run_disposition=run_disposition,
             delivery_attempt_no=None,
             command_id=None,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     async def _commit_assistant_outcome(
@@ -188,6 +197,8 @@ class ChatDeliveryOutcomePersistenceMixin:
         run_disposition: str | None,
         delivery_attempt_no: int | None,
         command_id: int | None,
+        terminal_status: str,
+        terminal_error: str | None,
     ) -> list[ChatMessageRecord] | None:
         host = cast(_ChatAssistantOutcomeHost, self)
         normalized_turn_id = str(turn_id or "").strip()
@@ -199,6 +210,10 @@ class ChatDeliveryOutcomePersistenceMixin:
             raise ValueError("Runtime command ID must be positive")
         if (delivery_attempt_no is None) != (command_id is None):
             raise ValueError("Delivery attempt and command identity must be paired")
+        normalized_terminal_status = str(terminal_status or "").strip().lower()
+        if normalized_terminal_status not in {"completed", "failed", "blocked"}:
+            raise ValueError(f"Unsupported assistant outcome status: {terminal_status}")
+        normalized_terminal_error = str(terminal_error or "").strip() or None
         if any(
             message.turn_id != normalized_turn_id
             or message.role != "assistant"
@@ -299,8 +314,10 @@ class ChatDeliveryOutcomePersistenceMixin:
                 )
                 if usage_snapshot is not None:
                     await insert_context_usage_snapshot(db, usage_snapshot)
-                assistant_memory_projection = self._derive_assistant_memory_projection(
-                    committed_messages
+                assistant_memory_projection = (
+                    self._derive_assistant_memory_projection(committed_messages)
+                    if normalized_terminal_status == "completed"
+                    else None
                 )
                 if assistant_memory_projection is not None:
                     await host._insert_assistant_memory_projection(
@@ -319,18 +336,18 @@ class ChatDeliveryOutcomePersistenceMixin:
                         for message in committed_messages
                         if str(message.content_text or "").strip()
                     )
+                    outcome_text, outcome_kind = model_context_terminal_outcome(
+                        status=normalized_terminal_status,
+                        visible_text=visible_outcome_text,
+                        error_text=normalized_terminal_error,
+                    )
                     await host._promote_model_context_run_with_connection(
                         db,
                         session_id=session_id,
                         run_id=effective_run_id,
                         turn_id=normalized_turn_id,
-                        outcome_text=(
-                            visible_outcome_text
-                            or "[Runtime outcome] The turn completed without a visible assistant message."
-                        ),
-                        outcome_kind=(
-                            "assistant" if visible_outcome_text else "runtime"
-                        ),
+                        outcome_text=outcome_text,
+                        outcome_kind=outcome_kind,
                         persona_id=(
                             next(
                                 (
@@ -349,7 +366,7 @@ class ChatDeliveryOutcomePersistenceMixin:
                     """
                     UPDATE chat_turns
                     SET trace_id = COALESCE(trace_id, ?),
-                        status = 'completed',
+                        status = ?,
                         response_mode = ?,
                         execution_mode = COALESCE(?, execution_mode),
                         ux_plan_json = CASE
@@ -362,6 +379,10 @@ class ChatDeliveryOutcomePersistenceMixin:
                         END,
                         updated_at_ms = ?,
                         completed_at_ms = ?,
+                        error_text = CASE
+                            WHEN ? = 'completed' THEN error_text
+                            ELSE COALESCE(?, error_text)
+                        END,
                         run_id = COALESCE(?, run_id),
                         run_revision = CASE
                             WHEN ? IS NOT NULL THEN ?
@@ -373,6 +394,7 @@ class ChatDeliveryOutcomePersistenceMixin:
                     """,
                     (
                         trace_id,
+                        normalized_terminal_status,
                         str(response_mode or "final_only"),
                         execution_mode,
                         json.dumps(normalized_ux_plan, ensure_ascii=False),
@@ -380,6 +402,8 @@ class ChatDeliveryOutcomePersistenceMixin:
                         int(started_at_ms),
                         int(completed_at_ms),
                         int(completed_at_ms),
+                        normalized_terminal_status,
+                        normalized_terminal_error,
                         run_id,
                         run_id,
                         int(run_revision),
@@ -529,15 +553,17 @@ class ChatDeliveryOutcomePersistenceMixin:
                     return False
                 effective_run_id = str(run_id or owner["run_id"] or "").strip()
                 if effective_run_id:
+                    outcome_text, outcome_kind = model_context_terminal_outcome(
+                        status="cancelled",
+                        error_text=reason,
+                    )
                     await host._promote_model_context_run_with_connection(
                         db,
                         session_id=str(owner["session_id"]),
                         run_id=effective_run_id,
                         turn_id=normalized_turn_id,
-                        outcome_text=(
-                            "[Runtime outcome] The turn was cancelled before a final response."
-                        ),
-                        outcome_kind="runtime",
+                        outcome_text=outcome_text,
+                        outcome_kind=outcome_kind,
                         persona_id=None,
                         completed_at_ms=int(updated_at_ms),
                     )

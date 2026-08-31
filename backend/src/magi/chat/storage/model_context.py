@@ -1048,8 +1048,11 @@ def _accepted_outcome_items(
             or item is latest_runtime_world_state
         )
         and not (
-            item.kind is ModelContextItemKind.ASSISTANT_MESSAGE
-            and str(item.metadata.get("origin_turn_id") or "") == turn_id
+            str(item.metadata.get("origin_turn_id") or "") == turn_id
+            and (
+                item.kind is ModelContextItemKind.ASSISTANT_MESSAGE
+                or bool(item.metadata.get("accepted_outcome"))
+            )
         )
     )
     retained_indexes = protocol_complete_message_indexes(

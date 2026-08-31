@@ -50,6 +50,8 @@ class ChatOutcomeWriter:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> bool:
         """Atomically commit one exact admitted final outcome."""
 
@@ -69,6 +71,8 @@ class ChatOutcomeWriter:
                 run_disposition=run_disposition,
                 reply_to_message_id=reply_to_message_id,
                 persona_id=persona_id,
+                terminal_status=terminal_status,
+                terminal_error=terminal_error,
             )
             return True
         turn_write = await self._turn_state_writer.resolve_turn_completion(
@@ -110,6 +114,8 @@ class ChatOutcomeWriter:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -137,6 +143,8 @@ class ChatOutcomeWriter:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> tuple[bool, list[ChatMessageRecord]]:
         """Atomically commit one exact admitted segmented outcome."""
 
@@ -156,6 +164,8 @@ class ChatOutcomeWriter:
                 run_disposition=run_disposition,
                 reply_to_message_id=reply_to_message_id,
                 persona_id=persona_id,
+                terminal_status=terminal_status,
+                terminal_error=terminal_error,
             )
             return True, persisted_messages
         turn_write = await self._turn_state_writer.resolve_turn_completion(
@@ -200,6 +210,8 @@ class ChatOutcomeWriter:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -267,6 +279,8 @@ class ChatOutcomeWriter:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> bool:
         if self._chat_store is None:
             return True
@@ -307,6 +321,8 @@ class ChatOutcomeWriter:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
         if committed is not None:
             await self._apply_committed_reaction(
@@ -332,6 +348,8 @@ class ChatOutcomeWriter:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> list[ChatMessageRecord]:
         turn_write = await self._turn_state_writer.resolve_turn_completion(
             turn_id=turn_id,
@@ -375,6 +393,8 @@ class ChatOutcomeWriter:
             run_id=run_id,
             run_revision=run_revision,
             run_disposition=run_disposition,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
         if committed is not None:
             await self._apply_committed_reaction(

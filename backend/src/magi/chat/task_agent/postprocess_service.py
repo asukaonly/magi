@@ -44,7 +44,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_TERMINAL_TURN_STATUSES = frozenset({"cancelled", "interrupted", "merged"})
+_TERMINAL_TURN_STATUSES = frozenset(
+    {"blocked", "cancelled", "failed", "interrupted", "merged"}
+)
 
 
 class _MissingVisibleChatResponseError(RuntimeError):
@@ -71,6 +73,8 @@ class _PreparedChatPostprocess:
     response_plan: Any | None
     rhythm_started_at_ms: int
     rhythm_ended_at_ms: int
+    terminal_status: str
+    terminal_error: str | None
     now_ms: int = 0
     history_stored: bool = False
     memory_updated: bool = False
@@ -494,12 +498,17 @@ class ChatPostProcessService:
             context, latest_fact.payload if isinstance(latest_fact.payload, dict) else {}
         )
         started_at_ms = self._resolve_started_at_ms(result, latest_fact)
+        terminal_status, terminal_error = self._resolve_execution_terminal(result)
         rhythm_started_at_ms = now_wall_ms()
-        response_plan = await self._build_response_rhythm_plan(
-            context=context,
-            result=result,
-            response_text=raw_response_text,
-            ux_plan=ux_plan,
+        response_plan = (
+            await self._build_response_rhythm_plan(
+                context=context,
+                result=result,
+                response_text=raw_response_text,
+                ux_plan=ux_plan,
+            )
+            if terminal_status == "completed"
+            else None
         )
         rhythm_ended_at_ms = now_wall_ms()
         if response_plan is not None:
@@ -519,7 +528,28 @@ class ChatPostProcessService:
             response_plan=response_plan,
             rhythm_started_at_ms=rhythm_started_at_ms,
             rhythm_ended_at_ms=rhythm_ended_at_ms,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
+
+    @staticmethod
+    def _resolve_execution_terminal(
+        result: ExecutionResult,
+    ) -> tuple[str, str | None]:
+        if not isinstance(result, AgentRunExecutionResult):
+            return "completed", None
+        outcome = result.execution_outcome
+        if not isinstance(outcome, dict):
+            return "completed", None
+        status = str(outcome.get("status") or "").strip().lower()
+        if status not in {"blocked", "failed"}:
+            return "completed", None
+        error = str(
+            outcome.get("failure_reason")
+            or outcome.get("error_text")
+            or status
+        ).strip()
+        return status, error or status
 
     def _resolve_visible_response_text(self, result: ExecutionResult) -> tuple[str, str]:
         raw_response_text = str(result.response_text or "").strip()
@@ -555,6 +585,8 @@ class ChatPostProcessService:
             prepared.history_stored = True
         prepared.history_stored = True
         prepared.user_message = user_message
+        if prepared.terminal_status != "completed":
+            return
         is_first_context_story = (
             str(getattr(context.latest_payload, "interaction_kind", "") or "")
             .strip()
@@ -620,7 +652,10 @@ class ChatPostProcessService:
                     "updated_at_ms": prepared.now_ms,
                 },
             )
-        if prepared.response_plan is not None:
+        if (
+            prepared.response_plan is not None
+            and prepared.terminal_status == "completed"
+        ):
             await self._emit_response_rhythm_trace(
                 user_id=context.user_id,
                 session_id=context.session_id,
@@ -641,6 +676,8 @@ class ChatPostProcessService:
             ended_at_ms=prepared.now_ms,
             mode=self._normalize_mode(result.mode),
             user_message=context.latest_user_message,
+            terminal_status=prepared.terminal_status,
+            terminal_error=prepared.terminal_error,
         )
 
     async def _prepare_chat_delivery_state(
@@ -736,6 +773,8 @@ class ChatPostProcessService:
                         run_disposition=context.session_run_disposition,
                         reply_to_message_id=prepared.reply_anchor_message_id,
                         persona_id=context.active_persona_id,
+                        terminal_status=prepared.terminal_status,
+                        terminal_error=prepared.terminal_error,
                     )
                 )
                 accepted = True
@@ -760,6 +799,8 @@ class ChatPostProcessService:
                         run_disposition=context.session_run_disposition,
                         reply_to_message_id=prepared.reply_anchor_message_id,
                         persona_id=context.active_persona_id,
+                        terminal_status=prepared.terminal_status,
+                        terminal_error=prepared.terminal_error,
                     )
                 )
             if not accepted:
@@ -808,6 +849,8 @@ class ChatPostProcessService:
             "run_disposition": context.session_run_disposition,
             "reply_to_message_id": prepared.reply_anchor_message_id,
             "persona_id": context.active_persona_id,
+            "terminal_status": prepared.terminal_status,
+            "terminal_error": prepared.terminal_error,
         }
         if delivery_identity is None:
             return await self._persist_final_chat_outcome(**outcome_kwargs)

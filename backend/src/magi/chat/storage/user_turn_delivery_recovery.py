@@ -13,6 +13,7 @@ from ..contracts import (
     CHAT_DELIVERY_STATE_TERMINAL,
 )
 from ..rhythm_completion import complete_rhythm_payloads
+from ..terminal_outcomes import model_context_terminal_outcome
 from .user_turn_delivery_errors import ChatTurnConflictError
 from .user_turn_delivery_rows import normalize_delivery_attempt_no
 
@@ -50,6 +51,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                            turns.status,
                            turns.response_mode,
                            turns.run_disposition,
+                           turns.error_text,
                            turns.updated_at_ms,
                            turns.session_id,
                            turns.run_id
@@ -126,7 +128,8 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                 has_terminal_surface = (
                     has_visible_final
                     or has_complete_rhythm
-                    or turn_status in {"cancelled", "merged", "interrupted"}
+                    or turn_status
+                    in {"blocked", "cancelled", "failed", "merged", "interrupted"}
                     or (
                         turn_status == "completed"
                         and run_disposition != "message"
@@ -158,6 +161,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                             normalized_turn_id,
                         ),
                     )
+                    turn_status = "completed"
                 cursor = await db.execute(
                     """
                     UPDATE chat_user_turn_delivery
@@ -185,16 +189,18 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                         for row in output_rows
                         if str(row["content_text"] or "").strip()
                     )
+                    outcome_text, outcome_kind = model_context_terminal_outcome(
+                        status=turn_status,
+                        visible_text=visible_text,
+                        error_text=str(owner["error_text"] or "").strip() or None,
+                    )
                     await self._promote_model_context_run_with_connection(
                         db,
                         session_id=str(owner["session_id"]),
                         run_id=effective_run_id,
                         turn_id=normalized_turn_id,
-                        outcome_text=(
-                            visible_text
-                            or "[Runtime outcome] The recovered turn had no visible assistant message."
-                        ),
-                        outcome_kind="assistant" if visible_text else "runtime",
+                        outcome_text=outcome_text,
+                        outcome_kind=outcome_kind,
                         persona_id=next(
                             (
                                 str(row["persona_id"])

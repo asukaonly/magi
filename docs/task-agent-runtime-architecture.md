@@ -785,11 +785,22 @@ The Working Surface is never accepted merely because a model produced text.
 Visible assistant delivery and model-context promotion share one transaction.
 Promotion removes the current run's Working Context and launch-only context,
 unaccepted assistant drafts, and superseded Runtime World State snapshots, then
-appends the exact visible assistant outcome. Only the latest host-owned snapshot
-is retained; memory recall, persona steer, attachment extraction, parent launch
-snapshots, and other run-local material are not.
-Cancellation, governed failure, and delivery recovery promote an explicit
-runtime outcome instead. Terminal promotion canonicalizes the provider-neutral
+appends the exact visible assistant outcome for a successfully completed turn.
+Only the latest host-owned snapshot is retained; memory recall, persona steer,
+attachment extraction, parent launch snapshots, and other run-local material
+are not.
+
+Agent-run terminal status is preserved across the chat turn, delivery control,
+and canonical trace. A visible failure or blocked message is a presentation
+surface, not an accepted assistant answer: failed and blocked turns create no
+assistant-memory projection and promote an explicit runtime outcome instead.
+Cancellation and delivery recovery use the same canonical terminal-outcome
+mapping. Recovery may close an unfinished delivery ledger, but it must not
+reinterpret a terminal error surface as assistant history. Each turn owns at
+most one accepted outcome item, regardless of whether recovery repeats the
+promotion boundary.
+
+Terminal promotion canonicalizes the provider-neutral
 transcript at this ownership boundary: an assistant tool-call message survives
 only when the immediately following tool results answer every declared call ID
 exactly once. An incomplete assistant/tool group and any orphan tool result are

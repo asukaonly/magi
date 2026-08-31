@@ -116,10 +116,8 @@ def normalize_status(status: str) -> str:
         return "completed"
     if lowered in {"failed", "error", "errored", "timeout", "timed_out"}:
         return "failed"
-    if lowered == "interrupted":
-        return "interrupted"
-    if lowered == "merged":
-        return "merged"
+    if lowered in {"blocked", "cancelled", "interrupted", "merged"}:
+        return lowered
     if lowered in {"pending"}:
         return "pending"
     return "running"
@@ -131,15 +129,23 @@ def derive_children_status(children: list[Any]) -> str:
     statuses = {child.status for child in children}
     if "running" in statuses or "pending" in statuses:
         return "running"
+    for status in ("failed", "blocked", "cancelled", "interrupted", "merged"):
+        if status in statuses:
+            return status
     if "completed" in statuses:
         return "completed"
-    if "failed" in statuses:
-        return "failed"
     return "completed"
 
 
 def is_terminal_status(status: str) -> bool:
-    return status in {"completed", "failed", "interrupted", "merged"}
+    return status in {
+        "blocked",
+        "cancelled",
+        "completed",
+        "failed",
+        "interrupted",
+        "merged",
+    }
 
 
 def optional_text(value: Any) -> Optional[str]:

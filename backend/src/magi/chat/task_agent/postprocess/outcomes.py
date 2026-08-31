@@ -57,6 +57,8 @@ class ChatPostprocessOutcomeMixin:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> bool:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_final_chat_outcome(
@@ -74,6 +76,8 @@ class ChatPostprocessOutcomeMixin:
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
             persona_id=persona_id,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     async def _commit_final_chat_outcome(
@@ -95,6 +99,8 @@ class ChatPostprocessOutcomeMixin:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> bool:
         """Commit one exact final delivery outcome."""
 
@@ -116,6 +122,8 @@ class ChatPostprocessOutcomeMixin:
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
             persona_id=persona_id,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     async def _persist_segmented_chat_outcome(
@@ -135,6 +143,8 @@ class ChatPostprocessOutcomeMixin:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> list[ChatMessageRecord]:
         host = cast(_OutcomePostprocessHostProtocol, self)
         return await host._chat_outcome_writer.persist_segmented_chat_outcome(
@@ -152,6 +162,8 @@ class ChatPostprocessOutcomeMixin:
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
             persona_id=persona_id,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     async def _commit_segmented_chat_outcome(
@@ -173,6 +185,8 @@ class ChatPostprocessOutcomeMixin:
         run_disposition: str | None = None,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
+        terminal_status: str = "completed",
+        terminal_error: str | None = None,
     ) -> tuple[bool, list[ChatMessageRecord]]:
         """Commit one exact segmented delivery outcome."""
 
@@ -194,6 +208,8 @@ class ChatPostprocessOutcomeMixin:
             run_disposition=run_disposition,
             reply_to_message_id=reply_to_message_id,
             persona_id=persona_id,
+            terminal_status=terminal_status,
+            terminal_error=terminal_error,
         )
 
     async def _get_chat_message(

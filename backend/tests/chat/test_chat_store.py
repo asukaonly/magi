@@ -324,6 +324,7 @@ async def test_recovery_can_close_each_nonterminal_state_when_final_already_exis
             turn_id=turn_id,
             message_text=turn_id,
             created_at_ms=100,
+            run_id=f"run-{turn_id}",
             runtime_envelope={
                 "session_id": "session-final-recovery",
                 "turn_id": turn_id,
@@ -389,6 +390,103 @@ async def test_recovery_can_close_each_nonterminal_state_when_final_already_exis
         turn = await store.get_turn(turn_id)
         assert turn is not None
         assert turn.status == "completed"
+        model_context = await store.load_model_context(
+            session_id="session-final-recovery"
+        )
+        accepted_outcomes = [
+            item
+            for item in model_context.items
+            if bool(item.metadata.get("accepted_outcome"))
+            and item.metadata.get("origin_turn_id") == turn_id
+        ]
+        assert len(accepted_outcomes) == 1
+        assert accepted_outcomes[0].message == {
+            "role": "assistant",
+            "content": "done",
+        }
+
+
+@pytest.mark.asyncio
+async def test_recovery_keeps_failed_surface_out_of_assistant_model_history(
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat import ChatMessageRecord, ChatStore
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.create_user_turn_once(
+        session_id="session-failed-recovery",
+        user_id="user-1",
+        turn_id="turn-failed-recovery",
+        message_text="do work",
+        created_at_ms=100,
+        run_id="run-failed-recovery",
+        runtime_envelope={
+            "session_id": "session-failed-recovery",
+            "turn_id": "turn-failed-recovery",
+            "message": "do work",
+            "attachments": [],
+            "metadata": {},
+        },
+        request_fingerprint="fingerprint-failed-recovery",
+    )
+    await store.append_message(
+        ChatMessageRecord(
+            message_id="turn-failed-recovery-assistant",
+            session_id="session-failed-recovery",
+            turn_id="turn-failed-recovery",
+            user_id="user-1",
+            role="assistant",
+            message_kind="assistant_final",
+            content_text="Execution failed: EXECUTION_ERROR",
+            payload_json="{}",
+            is_final=True,
+            is_visible=True,
+            created_at_ms=150,
+            sequence_no=2,
+            replaces_message_id=None,
+            replaced_by_message_id=None,
+        )
+    )
+    with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as connection:
+        connection.execute(
+            """
+            UPDATE chat_turns
+            SET status = 'failed', error_text = 'EXECUTION_ERROR',
+                updated_at_ms = 160, completed_at_ms = 160
+            WHERE turn_id = 'turn-failed-recovery'
+            """
+        )
+        connection.commit()
+
+    assert await store.reconcile_user_turn_terminal_surface(
+        turn_id="turn-failed-recovery",
+        expected_attempt_no=0,
+        updated_at_ms=200,
+    )
+
+    delivery = await store.get_user_turn_delivery(turn_id="turn-failed-recovery")
+    model_context = await store.load_model_context(
+        session_id="session-failed-recovery"
+    )
+    accepted_outcomes = [
+        item
+        for item in model_context.items
+        if bool(item.metadata.get("accepted_outcome"))
+        and item.metadata.get("origin_turn_id") == "turn-failed-recovery"
+    ]
+    assert delivery is not None
+    assert delivery.delivery_state == "terminal"
+    assert len(accepted_outcomes) == 1
+    assert accepted_outcomes[0].message["role"] == "user"
+    assert (
+        accepted_outcomes[0]
+        .message["content"]
+        .startswith("[Runtime outcome] The turn ended with status 'failed'")
+    )
+    assert not any(
+        item.message.get("content") == "Execution failed: EXECUTION_ERROR"
+        for item in model_context.items
+    )
 
 
 @pytest.mark.asyncio
