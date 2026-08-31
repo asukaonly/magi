@@ -423,6 +423,45 @@ async def test_cancellation_promotes_runtime_outcome_without_draft(tmp_path) -> 
                 metadata={"origin_turn_id": "turn-1"},
             ),
             ModelContextItem.from_prompt_message(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-complete",
+                            "type": "function",
+                            "function": {"name": "inspect", "arguments": "{}"},
+                        }
+                    ],
+                },
+                source="model",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {
+                    "role": "tool",
+                    "tool_call_id": "call-complete",
+                    "content": "inspection complete",
+                },
+                source="tool",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call-pending",
+                            "type": "function",
+                            "function": {"name": "inspect", "arguments": "{}"},
+                        }
+                    ],
+                },
+                source="model",
+                metadata={"origin_turn_id": "turn-1"},
+            ),
+            ModelContextItem.from_prompt_message(
                 {"role": "assistant", "content": "partial draft"},
                 source="model",
                 metadata={"origin_turn_id": "turn-1"},
@@ -448,8 +487,16 @@ async def test_cancellation_promotes_runtime_outcome_without_draft(tmp_path) -> 
     accepted = await store.load_model_context(session_id="session-1")
     contents = [str(item.message["content"]) for item in accepted.items]
     assert contents[0] == "long task"
+    assert "inspection complete" in contents
     assert "partial draft" not in contents
     assert contents[-1].startswith("[Runtime outcome]")
+    assert not any(
+        any(
+            call.get("id") == "call-pending"
+            for call in item.message.get("tool_calls", [])
+        )
+        for item in accepted.items
+    )
 
 
 @pytest.mark.asyncio

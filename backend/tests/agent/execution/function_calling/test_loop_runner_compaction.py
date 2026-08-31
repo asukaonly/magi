@@ -194,6 +194,42 @@ async def test_context_failure_stops_before_model_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_terminal_does_not_recommit_sealed_model_context(
+    monkeypatch,
+) -> None:
+    class _ModelContextPort:
+        async def commit(self, **kwargs: object) -> None:
+            raise AssertionError("cancelled terminal must not recommit model context")
+
+    class _Host:
+        pass
+
+    runner = FunctionCallingLoopRunner(_Host())
+    state = FunctionCallingStepState(
+        messages=[{"role": "user", "content": "long task"}],
+        effective_system_prompt="system",
+        tools=[],
+        run_id="run-1",
+        model_context_port=_ModelContextPort(),  # type: ignore[arg-type]
+    )
+    outcome = ExecutionOutcome(
+        status="cancelled",
+        content="",
+        failure_reason="user_cancel",
+    )
+
+    async def _record_terminal(
+        _state: FunctionCallingStepState,
+        terminal: ExecutionOutcome,
+    ) -> ExecutionOutcome:
+        return terminal
+
+    monkeypatch.setattr(runner._journal, "record_terminal", _record_terminal)
+
+    assert await runner._record_terminal_outcome(state, outcome) is outcome
+
+
+@pytest.mark.asyncio
 async def test_plan_reader_failure_blocks_completion() -> None:
     class _FailingPlanReader:
         def current(self):  # type: ignore[no-untyped-def]

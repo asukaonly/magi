@@ -13,6 +13,7 @@ import aiosqlite
 
 from ...agent.trace import now_wall_ms
 from ...core.sqlite import sqlite_connection_async
+from ...utils.model_message_protocol import protocol_complete_message_indexes
 from ..model_context import (
     ModelContextBoundary,
     ModelContextCallSnapshot,
@@ -1051,6 +1052,10 @@ def _accepted_outcome_items(
             and str(item.metadata.get("origin_turn_id") or "") == turn_id
         )
     )
+    retained_indexes = protocol_complete_message_indexes(
+        [item.message for item in filtered]
+    )
+    filtered = tuple(filtered[index] for index in retained_indexes)
     normalized_text = str(outcome_text or "").strip()
     if not normalized_text:
         return filtered

@@ -165,6 +165,60 @@ async def test_execute_loop_returns_retracted_when_retract_fires_during_llm_call
     assert call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_execute_loop_repairs_incomplete_history_before_model_call(
+    monkeypatch,
+) -> None:
+    orchestrator = _build_orchestrator()
+    _patch_trace_and_event_helpers(monkeypatch, orchestrator)
+    captured_messages: list[dict[str, object]] = []
+
+    async def _fake_call_llm_with_tools(*, messages, **_kwargs):
+        captured_messages.extend(messages)
+        return {
+            "assistant_message": {"role": "assistant", "content": "recovered"},
+            "content": "recovered",
+            "tool_calls": [],
+            "llm_trace": {"model": "fake-model"},
+        }
+
+    monkeypatch.setattr(orchestrator, "_call_llm_with_tools", _fake_call_llm_with_tools)
+
+    outcome = await run_agent(
+        orchestrator,
+        turn=UserTurnInput(text="continue", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=[],
+        user_id="u",
+        conversation_history=[
+            {"role": "user", "content": "long task"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-pending",
+                        "type": "function",
+                        "function": {"name": "inspect", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "user", "content": "[Runtime outcome] Run cancelled."},
+        ],
+        max_iterations=2,
+        control=null_run_control(),
+    )
+
+    assert outcome.status == "completed"
+    assert not any(message.get("tool_calls") for message in captured_messages)
+    captured_contents = [message.get("content") for message in captured_messages]
+    assert captured_contents[:2] == [
+        "long task",
+        "[Runtime outcome] Run cancelled.",
+    ]
+    assert captured_contents[-1] == "continue"
+
+
 def test_step_executor_accepts_control_kwarg() -> None:
     import inspect
     from magi.agent.execution.function_calling.step_executor import (

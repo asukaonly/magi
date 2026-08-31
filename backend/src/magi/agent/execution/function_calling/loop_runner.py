@@ -16,6 +16,7 @@ from magi.control.run_control import RunControl
 from ..completion_gate import CompletionGate
 from ..context_fingerprint import stable_hash
 from magi.runtime_trace.run_events import AgentRunEventType
+from magi.utils.model_message_protocol import repair_model_message_protocol
 
 from ..contracts import (
     CompletionDecision,
@@ -58,6 +59,7 @@ class FunctionCallingLoopRunner:
             state=state,
             run_input=run_input,
         )
+        self._repair_model_message_protocol(state, phase="run_start")
         await self._sync_model_context(state)
         await self._journal.start(state, run_input)
         capability_outcome = await self._model_capability_flow.prepare(
@@ -78,6 +80,7 @@ class FunctionCallingLoopRunner:
                     state,
                     cast(ExecutionOutcome, context_failure),
                 )
+            self._repair_model_message_protocol(state, phase="model_boundary")
             await self._sync_model_context(state)
             await self._journal.record_effective_context(
                 state,
@@ -203,6 +206,24 @@ class FunctionCallingLoopRunner:
             turn_id=state.model_context_turn_id,
             run_id=state.run_id,
             step_index=state.iteration,
+        )
+
+    @staticmethod
+    def _repair_model_message_protocol(
+        state: FunctionCallingStepState,
+        *,
+        phase: str,
+    ) -> None:
+        dropped_count = repair_model_message_protocol(state.messages)
+        if dropped_count <= 0:
+            return
+        logger.warning(
+            "agent_run.model_message_protocol_repaired",
+            run_id=state.run_id,
+            step_index=state.iteration,
+            phase=phase,
+            dropped_message_count=dropped_count,
+            retained_message_count=len(state.messages),
         )
 
     async def _poll_control_boundary(
@@ -559,7 +580,8 @@ class FunctionCallingLoopRunner:
         state: FunctionCallingStepState,
         outcome: ExecutionOutcome,
     ) -> ExecutionOutcome:
-        await self._sync_model_context(state)
+        if outcome.status != "cancelled":
+            await self._sync_model_context(state)
         return await self._journal.record_terminal(state, outcome)
 
     async def _run_fallback_final_response(

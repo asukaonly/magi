@@ -783,12 +783,21 @@ appends the exact visible assistant outcome. Only the latest host-owned snapshot
 is retained; memory recall, persona steer, attachment extraction, parent launch
 snapshots, and other run-local material are not.
 Cancellation, governed failure, and delivery recovery promote an explicit
-runtime outcome instead. If any terminal chat write fails, both visible delivery
-and the Accepted Surface pointer roll back, leaving the Working Surface and its
-call boundaries available for exact retry. A recovered run loads its Working
-Surface by `run_id` and replaces the current user payload in place when richer
-attachment bytes are available; it never appends the same user turn after an
-assistant/tool tail.
+runtime outcome instead. Terminal promotion canonicalizes the provider-neutral
+transcript at this ownership boundary: an assistant tool-call message survives
+only when the immediately following tool results answer every declared call ID
+exactly once. An incomplete assistant/tool group and any orphan tool result are
+removed before the runtime outcome is appended. The model boundary enforces the
+same invariant defensively before every provider call and records only privacy-
+safe repair counts, so an interrupted historical run cannot poison a later
+turn. Cancellation persistence owns Accepted Surface promotion and closes the
+run's Working Surface; after observing cancellation, the Agent Loop may journal
+its terminal state but must not attempt a second Working Surface commit. If any
+terminal chat write fails, both visible delivery and the Accepted Surface pointer
+roll back, leaving the Working Surface and its call boundaries available for
+exact retry. A recovered run loads its Working Surface by `run_id` and replaces
+the current user payload in place when richer attachment bytes are available; it
+never appends the same user turn after an assistant/tool tail.
 
 Display-history pagination never defines model context. Under pressure, the
 runtime compactor creates a new immutable Working Surface revision while the
