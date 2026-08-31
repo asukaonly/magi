@@ -16,6 +16,7 @@ import {
   updateSessionSettings,
 } from '@/api/modules/control';
 import { personasApi } from '@/api/modules/personas';
+import { normalizeTraceSummary } from '@/domain/chat/state';
 
 defineChatPageSuite('ChatPage control cards', () => {
   it('opens a session safety popover from the composer toolbar and applies mode changes immediately', async () => {
@@ -465,6 +466,96 @@ defineChatPageSuite('ChatPage control cards', () => {
     const askText = await screen.findByText('Should I continue?');
     const executionCard = await screen.findByTestId('chat-trace-status-card-turn-tail-placeholder');
     expect(Boolean(askText.compareDocumentPosition(executionCard) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it('renders one cancelled execution card at its original turn', async () => {
+    const store = useConversationStore.getState();
+    store.hydrateSessions([
+      {
+        session_id: 'session-1',
+        title: 'New Chat',
+        last_message_preview: '',
+        last_user_message_preview: '',
+        title_overridden: false,
+        last_timestamp: 0,
+        message_count: 0,
+        workspace_path: null,
+      },
+    ], 'session-1');
+    store.upsertMessage('session-1', {
+      id: 'turn-cancelled-user',
+      role: 'user',
+      kind: 'user',
+      content: '检查仓库结构',
+      timestamp: 1000,
+      turnId: 'turn-cancelled',
+    });
+    store.upsertMessage('session-1', {
+      id: 'turn-cancelled-status',
+      role: 'assistant',
+      kind: 'status',
+      content: '正在检查仓库',
+      timestamp: 1100,
+      turnId: 'turn-cancelled',
+      messageKind: null,
+    });
+    store.upsertMessage('session-1', {
+      id: 'turn-cancelled-interim',
+      messageId: 'turn-cancelled-interim',
+      role: 'assistant',
+      kind: 'assistant',
+      content: '我先检查一下。',
+      timestamp: 1200,
+      turnId: 'turn-cancelled',
+      messageKind: 'assistant_interim',
+    });
+    store.upsertMessage('session-1', {
+      id: 'turn-later-user',
+      role: 'user',
+      kind: 'user',
+      content: '刚才完成了吗？',
+      timestamp: 2000,
+      turnId: 'turn-later',
+    });
+    store.upsertTraceSummary(
+      'session-1',
+      'turn-cancelled',
+      normalizeTraceSummary({
+        turn_id: 'turn-cancelled',
+        mode: 'orchestration',
+        status: 'cancelled',
+        headline: '已取消执行',
+        active_steps: 0,
+        completed_steps: 3,
+        failed_steps: 0,
+        duration_seconds: 2.4,
+        trace_available: true,
+      }),
+    );
+
+    render(<ChatPage />);
+
+    act(() => {
+      realtimeListener?.({
+        event: 'turn_execution_control',
+        data: {
+          session_id: 'session-1',
+          turn_id: 'turn-cancelled',
+          state: 'cancelled',
+          can_cancel: false,
+          label: 'Run cancelled',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('chat-execution-panel-turn-cancelled')).toHaveLength(1);
+    });
+    const executionCard = screen.getByTestId('chat-execution-panel-turn-cancelled');
+    const laterMessage = screen.getByText('刚才完成了吗？');
+    expect(
+      Boolean(executionCard.compareDocumentPosition(laterMessage) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
   });
 
   it('renders plan state as a chat status card', async () => {

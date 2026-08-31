@@ -647,6 +647,12 @@ not semantically classify normal text. Durable turn cancellation and active-run
 cancellation share the same ownership boundary, so cancellation can win before
 admission or stop the exact already-created run. Tools, child launches, model
 steps, and final delivery recheck the cancel token at side-effect boundaries.
+The chat projection exposes at most one execution placeholder per turn. A
+running, cancelling, or detaching placeholder may stay at the visible timeline
+tail while work is active; once terminal, the same placeholder returns to its
+own turn anchor instead of accumulating below later turns. Realtime updates with
+different message IDs still replace the single `assistant_interim` slot for that
+turn.
 
 Detach transfers eligible foreground work into the background runtime through a
 typed control/tool path. The background task receives the trigger, remaining

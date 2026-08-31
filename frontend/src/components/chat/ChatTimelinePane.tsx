@@ -17,17 +17,34 @@ import { TranscriptTimelineRow } from './TranscriptTimelineRow';
 
 type RenderableTimelineMessage = ReturnType<typeof projectChatTimelineRow>;
 
+const executionPlaceholderPriority = (projectedMessage: RenderableTimelineMessage): number => {
+  if (projectedMessage.surface === 'runtime_status') {
+    return projectedMessage.executionProgress ? 1 : 0;
+  }
+  if (
+    projectedMessage.surface === 'transcript'
+    && projectedMessage.message.messageKind === 'assistant_interim'
+    && projectedMessage.transcript.executionProgress
+  ) {
+    return 2;
+  }
+  return 0;
+};
+
 const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelineMessage): boolean => {
   const turnId = String(projectedMessage.message.turnId || '').trim();
   if (!turnId) {
     return false;
   }
-  if (projectedMessage.surface === 'runtime_status') {
-    return true;
-  }
-  return projectedMessage.surface === 'transcript'
-    && projectedMessage.message.messageKind === 'assistant_interim'
-    && Boolean(projectedMessage.transcript.executionProgress);
+  const executionProgress = projectedMessage.surface === 'runtime_status'
+    ? projectedMessage.executionProgress
+    : projectedMessage.surface === 'transcript'
+      ? projectedMessage.transcript.executionProgress
+      : null;
+  return Boolean(
+    executionProgress
+    && ['queued', 'running', 'cancelling', 'detaching'].includes(executionProgress.executionState),
+  );
 };
 
 type ChatTimelinePaneProps = {
@@ -162,21 +179,45 @@ export const ChatTimelinePane = ({
     return ids;
   }, [messages]);
   const projectedMessages = useMemo(() => {
+    const projected = messages.map((message) => projectChatTimelineRow(message, {
+      summaries,
+      executionControlByTurnId,
+      cancellingTurnIds,
+      detachingTurnIds,
+      finalizedTurnIds,
+    }));
+    const canonicalPlaceholderByTurnId = new Map<string, {
+      index: number;
+      priority: number;
+    }>();
+
+    projected.forEach((projectedMessage, index) => {
+      const priority = executionPlaceholderPriority(projectedMessage);
+      const turnId = String(projectedMessage.message.turnId || '').trim();
+      if (!turnId || priority === 0) {
+        return;
+      }
+      const current = canonicalPlaceholderByTurnId.get(turnId);
+      if (!current || priority >= current.priority) {
+        canonicalPlaceholderByTurnId.set(turnId, { index, priority });
+      }
+    });
+
     const regular: RenderableTimelineMessage[] = [];
     const tailPlaceholders: RenderableTimelineMessage[] = [];
 
-    for (const message of messages) {
-      const projectedMessage = projectChatTimelineRow(message, {
-        summaries,
-        executionControlByTurnId,
-        cancellingTurnIds,
-        detachingTurnIds,
-        finalizedTurnIds,
-      });
-
+    projected.forEach((projectedMessage, index) => {
       const projectedTurnId = String(projectedMessage.message.turnId || '').trim();
       if (projectedMessage.surface === 'runtime_status' && projectedTurnId && finalizedTurnIds.has(projectedTurnId)) {
-        continue;
+        return;
+      }
+      const placeholderPriority = executionPlaceholderPriority(projectedMessage);
+      if (
+        projectedTurnId
+        && placeholderPriority > 0
+        && canonicalPlaceholderByTurnId.get(projectedTurnId)?.index !== index
+      ) {
+        return;
       }
 
       if (shouldPinExecutionPlaceholderToTail(projectedMessage)) {
@@ -184,7 +225,7 @@ export const ChatTimelinePane = ({
       } else {
         regular.push(projectedMessage);
       }
-    }
+    });
 
     return [...regular, ...tailPlaceholders];
   }, [cancellingTurnIds, detachingTurnIds, executionControlByTurnId, finalizedTurnIds, messages, summaries]);

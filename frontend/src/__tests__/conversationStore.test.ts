@@ -779,6 +779,44 @@ describe('conversation store', () => {
     expect(messages[1].content).toBe('已取消执行');
   });
 
+  it('keeps one interim execution message per turn across changing message ids', () => {
+    const store = useConversationStore.getState();
+
+    store.upsertMessage('session-a', {
+      id: 'msg-interim-started',
+      messageId: 'msg-interim-started',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'assistant_interim',
+      content: '正在检查仓库。',
+      timestamp: 1000,
+      turnId: 'turn-interim-once',
+    });
+    store.upsertMessage('session-a', {
+      id: 'msg-interim-cancelled',
+      messageId: 'msg-interim-cancelled',
+      role: 'assistant',
+      kind: 'assistant',
+      messageKind: 'assistant_interim',
+      content: '已取消执行。',
+      timestamp: 2000,
+      turnId: 'turn-interim-once',
+    });
+
+    const interimMessages = (
+      useConversationStore.getState().messagesBySession['session-a'] || []
+    ).filter((message) => (
+      message.turnId === 'turn-interim-once'
+      && message.messageKind === 'assistant_interim'
+    ));
+
+    expect(interimMessages).toHaveLength(1);
+    expect(interimMessages[0]).toMatchObject({
+      id: 'msg-interim-cancelled',
+      content: '已取消执行。',
+    });
+  });
+
   it('preserves assistant attachments from realtime agent responses', () => {
     const store = useConversationStore.getState();
 

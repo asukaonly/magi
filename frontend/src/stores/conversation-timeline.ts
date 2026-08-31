@@ -45,14 +45,28 @@ export const canMergeTimelineMessage = (
   if (existing === incoming) {
     return true;
   }
+  const existingTurnId = String(existing.turnId || '').trim();
+  const incomingTurnId = String(incoming.turnId || '').trim();
+  const isSameAssistantTurn = Boolean(
+    existingTurnId
+    && existingTurnId === incomingTurnId
+    && existing.role === 'assistant'
+    && incoming.role === 'assistant',
+  );
+  if (
+    isSameAssistantTurn
+    && existing.messageKind === 'assistant_interim'
+    && incoming.messageKind === 'assistant_interim'
+  ) {
+    return true;
+  }
+
   const existingMessageId = String(existing.messageId || '').trim();
   const incomingMessageId = String(incoming.messageId || '').trim();
   if (existingMessageId && incomingMessageId) {
     return existingMessageId === incomingMessageId;
   }
 
-  const existingTurnId = String(existing.turnId || '').trim();
-  const incomingTurnId = String(incoming.turnId || '').trim();
   if (!existingTurnId || !incomingTurnId || existingTurnId !== incomingTurnId || existing.role !== incoming.role) {
     return false;
   }
