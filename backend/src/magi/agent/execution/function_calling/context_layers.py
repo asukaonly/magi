@@ -8,6 +8,7 @@ from typing import Any
 from magi.utils.model_context_messages import (
     is_launch_context_message,
     is_runtime_owned_context_message,
+    is_runtime_world_state_message,
     is_working_context_message,
     latest_runtime_world_state_content,
     runtime_message_provenance,
@@ -43,6 +44,17 @@ def materialize_dynamic_context_layers(
             if not (working_message is not None and is_working_context_message(message))
             and not (launch_message is not None and is_launch_context_message(message))
         ]
+    runtime_emitted = (
+        runtime_message is not None
+        and latest_runtime_world_state_content(messages)
+        != str(runtime_message["content"]).strip()
+    )
+    if runtime_emitted:
+        messages[:] = [
+            message
+            for message in messages
+            if not is_runtime_world_state_message(message)
+        ]
     current_user_index = _find_current_user_message_index(
         messages,
         current_turn_id=current_turn_id,
@@ -50,11 +62,6 @@ def materialize_dynamic_context_layers(
     )
     insert_at = current_user_index if current_user_index is not None else max(len(messages) - 1, 0)
     layers: list[dict[str, Any]] = []
-    runtime_emitted = (
-        runtime_message is not None
-        and latest_runtime_world_state_content(messages)
-        != str(runtime_message["content"]).strip()
-    )
     if runtime_emitted and runtime_message is not None:
         layers.append(runtime_message)
     if working_message is not None:

@@ -840,6 +840,10 @@ deletion. Compaction keeps complete protocol groups and tool-call identifiers.
 It excludes runtime-owned context envelopes from summary input, retains only the
 latest Runtime World State, current Working Context, and active launch-only
 context as raw typed messages, and places them after the new compaction boundary.
+Before each ordinary model boundary, a changed Runtime World State replaces all
+older snapshots in the active Working Surface; an unchanged snapshot is reused
+without another message. The model therefore never receives contradictory host
+dates, workspaces, or environment facts in one call.
 Consequently, superseded host state is dropped, launch context remains removable
 after reindexing, and run-local recall cannot leak into a durable compaction
 summary that would survive Accepted Surface promotion.

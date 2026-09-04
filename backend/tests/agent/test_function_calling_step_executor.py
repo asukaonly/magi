@@ -212,6 +212,35 @@ def test_build_step_state_emits_runtime_world_state_only_when_changed() -> None:
     assert str(step_state.messages[-2]["content"]).startswith("<working_context>")
 
 
+def test_build_step_state_replaces_changed_runtime_world_state() -> None:
+    orchestrator = _build_orchestrator()
+    old_runtime_state = build_runtime_world_state_message(
+        "date=2026-08-26 timezone=Asia/Shanghai"
+    )
+    assert old_runtime_state is not None
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        selected_tools=[],
+        runtime_world_state="date=2026-08-27 timezone=Asia/Shanghai",
+        conversation_history=[
+            old_runtime_state,
+            {"role": "user", "content": "older"},
+            {"role": "assistant", "content": "answer"},
+        ],
+    )
+
+    runtime_messages = [
+        message
+        for message in step_state.messages
+        if str(message.get("content") or "").startswith("<runtime_world_state>")
+    ]
+    assert len(runtime_messages) == 1
+    assert "date=2026-08-27" in str(runtime_messages[0]["content"])
+    assert "date=2026-08-26" not in str(step_state.messages)
+
+
 def test_prompt_history_preserves_assistant_tool_calls() -> None:
     orchestrator = _build_orchestrator()
     tool_call_message = {
