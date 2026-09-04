@@ -44,10 +44,7 @@ const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelin
       : null;
   return Boolean(
     executionProgress
-    && (
-      isPendingRunState(executionProgress.executionState)
-      || executionProgress.executionState === 'detaching'
-    ),
+    && isPendingRunState(executionProgress.executionState),
   );
 };
 

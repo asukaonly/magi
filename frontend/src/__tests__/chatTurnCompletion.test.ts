@@ -32,7 +32,7 @@ describe('chat turn completion', () => {
     },
   );
 
-  it.each(['queued', 'running', 'cancelling'])(
+  it.each(['queued', 'running', 'cancelling', 'detaching'])(
     'recognizes %s as pending',
     (state) => {
       expect(isPendingRunState(state)).toBe(true);

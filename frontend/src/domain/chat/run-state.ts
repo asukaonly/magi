@@ -11,6 +11,7 @@ export const PENDING_RUN_STATE_VALUES = [
   'queued',
   'running',
   'cancelling',
+  'detaching',
 ] as const;
 
 export type TerminalRunState = typeof TERMINAL_RUN_STATE_VALUES[number];
