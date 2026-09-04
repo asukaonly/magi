@@ -7,6 +7,10 @@ import type {
   ProjectedTraceEntryPresentation,
   TurnExecutionControlState,
 } from './presentation.types';
+import {
+  isTerminalRunState,
+  normalizeRunState,
+} from './run-state';
 
 type ExecutionActionProjectionInput = {
   executionControlByTurnId: Record<string, TurnExecutionControlState>;
@@ -92,9 +96,10 @@ export const getExecutionActionState = (
 ): ProjectedExecutionActionState => {
   const turnId = String(message.turnId || '').trim();
   const executionControl = turnId ? executionControlByTurnId[turnId] : undefined;
-  const traceStatus = String(message.traceSummary?.status || '').trim() || 'running';
-  const backendRunState = String(message.runState?.state || '').trim();
-  const terminalBackendRunState = ['blocked', 'cancelled', 'completed', 'failed'].includes(backendRunState)
+  const traceStatus = normalizeRunState(message.traceSummary?.status) || 'running';
+  const backendRunState = normalizeRunState(message.runState?.state);
+  const executionControlState = normalizeRunState(executionControl?.state);
+  const terminalBackendRunState = isTerminalRunState(backendRunState)
     ? backendRunState
     : '';
   const optimisticState = turnId && detachingTurnIds.includes(turnId)
@@ -104,11 +109,12 @@ export const getExecutionActionState = (
       : '';
   const executionState = terminalBackendRunState
     || optimisticState
-    || executionControl?.state
+    || executionControlState
     || backendRunState
     || traceStatus;
-  const isCancelling = executionState === 'cancelling' || (turnId ? cancellingTurnIds.includes(turnId) : false);
-  const isDetaching = executionState === 'detaching' || (turnId ? detachingTurnIds.includes(turnId) : false);
+  const isTerminal = isTerminalRunState(executionState);
+  const isCancelling = executionState === 'cancelling';
+  const isDetaching = executionState === 'detaching';
   const canCancel = typeof message.runState?.can_cancel === 'boolean'
     ? message.runState.can_cancel
     : executionState === 'running' || executionState === 'cancelling';
@@ -122,8 +128,8 @@ export const getExecutionActionState = (
     executionState,
     isCancelling,
     isDetaching,
-    showCancelButton: Boolean(turnId) && canCancel,
-    showDetachButton: Boolean(turnId) && canDetach,
+    showCancelButton: Boolean(turnId) && !isTerminal && canCancel,
+    showDetachButton: Boolean(turnId) && !isTerminal && canDetach,
   };
 };
 
@@ -169,6 +175,12 @@ export const projectExecutionProgressPresentation = (
         return 'chat.trace.execution.completedTitle';
       case 'failed':
         return 'chat.trace.execution.failedTitle';
+      case 'blocked':
+        return 'chat.trace.execution.blockedTitle';
+      case 'interrupted':
+        return 'chat.trace.execution.interruptedTitle';
+      case 'merged':
+        return 'chat.trace.execution.mergedTitle';
       default:
         return 'chat.trace.execution.runningTitle';
     }
@@ -185,15 +197,23 @@ export const projectExecutionProgressPresentation = (
         return createExecutionTranslationDescriptor('chat.trace.execution.completedBody');
       case 'failed':
         return createExecutionTranslationDescriptor('chat.trace.execution.failedBody');
+      case 'blocked':
+        return createExecutionTranslationDescriptor('chat.trace.execution.blockedBody');
+      case 'interrupted':
+        return createExecutionTranslationDescriptor('chat.trace.execution.interruptedBody');
+      case 'merged':
+        return createExecutionTranslationDescriptor('chat.trace.execution.mergedBody');
       default:
         return createExecutionTranslationDescriptor('chat.trace.execution.runningBody');
     }
   })();
-  const statusTitle = normalizeExecutionDisplayLabel(executionActionState.executionControl?.label)
-    || (executionState === 'running'
-      ? normalizeExecutionDisplayLabel(traceSummary?.headline || message.content || '')
-      : null)
-    || null;
+  const statusTitle = isTerminalRunState(executionState)
+    ? null
+    : normalizeExecutionDisplayLabel(executionActionState.executionControl?.label)
+      || (executionState === 'running'
+        ? normalizeExecutionDisplayLabel(traceSummary?.headline || message.content || '')
+        : null)
+      || null;
   const normalizedPlanSummary: ProjectedExecutionProgressPresentation['planSummary'] = planSummary
     ? {
       parallelMode: planSummary.parallelMode === 'parallel' ? 'parallel' : 'sequential',
@@ -248,6 +268,21 @@ export const projectExecutionProgressPresentation = (
               completed: completedSteps,
               failed: failedSteps,
             });
+        case 'blocked':
+          return createExecutionTranslationDescriptor('chat.trace.plan.stage.blocked', {
+            completed: completedPlanSteps,
+            total: totalStepsForStage,
+          });
+        case 'interrupted':
+          return createExecutionTranslationDescriptor('chat.trace.plan.stage.interrupted', {
+            completed: completedPlanSteps,
+            total: totalStepsForStage,
+          });
+        case 'merged':
+          return createExecutionTranslationDescriptor('chat.trace.plan.stage.merged', {
+            completed: completedPlanSteps,
+            total: totalStepsForStage,
+          });
         default:
           if (normalizedPlanSummary.parallelMode === 'parallel' && activeSteps > 1) {
             return createExecutionTranslationDescriptor('chat.trace.plan.stage.runningParallel', {
@@ -277,6 +312,12 @@ export const projectExecutionProgressPresentation = (
         return createExecutionTranslationDescriptor('chat.trace.execution.footerCompleted');
       case 'failed':
         return createExecutionTranslationDescriptor('chat.trace.execution.footerFailed');
+      case 'blocked':
+        return createExecutionTranslationDescriptor('chat.trace.execution.footerBlocked');
+      case 'interrupted':
+        return createExecutionTranslationDescriptor('chat.trace.execution.footerInterrupted');
+      case 'merged':
+        return createExecutionTranslationDescriptor('chat.trace.execution.footerMerged');
       default:
         return null;
     }
@@ -302,7 +343,9 @@ export const projectExecutionProgressPresentation = (
     footer,
     planStage,
     showBubbleTitle: variant === 'card' || (!runningBubbleUsesMessageText && statusTitle !== contentText),
-    indicator: executionState === 'cancelled' ? 'cancelled' : 'loader',
+    indicator: isTerminalRunState(executionState)
+      ? executionState
+      : 'progress',
     showSpinningIndicator: executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching',
     traceStats: traceSummary
       ? {

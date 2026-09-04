@@ -1,4 +1,5 @@
 import type { ChatTimelineMessage, ChatTimelineReplyPreview } from './state';
+import type { TerminalRunState } from './run-state';
 
 export type ChatPresentationSurface = 'transcript' | 'runtime_status' | 'control_status';
 
@@ -75,7 +76,7 @@ export interface ProjectedExecutionProgressPresentation {
   footer: ProjectedExecutionTranslationDescriptor | null;
   planStage: ProjectedExecutionTranslationDescriptor | null;
   showBubbleTitle: boolean;
-  indicator: 'cancelled' | 'loader';
+  indicator: 'progress' | TerminalRunState;
   showSpinningIndicator: boolean;
   traceStats: {
     activeSteps: number;

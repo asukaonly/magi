@@ -554,6 +554,57 @@ describe('chat trace state helpers', () => {
     });
   });
 
+  it.each([
+    ['blocked', 'blockedTitle', 'blockedBody', 'footerBlocked'],
+    ['cancelled', 'cancelledTitle', 'cancelledBody', 'footerCancelled'],
+    ['completed', 'completedTitle', 'completedBody', 'footerCompleted'],
+    ['failed', 'failedTitle', 'failedBody', 'footerFailed'],
+    ['interrupted', 'interruptedTitle', 'interruptedBody', 'footerInterrupted'],
+    ['merged', 'mergedTitle', 'mergedBody', 'footerMerged'],
+  ] as const)(
+    'projects terminal %s state without stale running controls',
+    (state, titleKey, bodyKey, footerKey) => {
+      const message: ChatTimelineMessage = {
+        id: `msg-${state}`,
+        role: 'assistant',
+        kind: 'status',
+        content: 'Running a previous step',
+        timestamp: 1000,
+        turnId: `turn-${state}`,
+        runState: {
+          state,
+          run_id: `run-${state}`,
+          run_revision: 2,
+          can_cancel: true,
+          can_detach: true,
+        },
+      };
+
+      expect(projectExecutionProgressPresentation(message, {
+        executionControlByTurnId: {
+          [`turn-${state}`]: {
+            state: 'running',
+            label: 'Processing files',
+          },
+        },
+        cancellingTurnIds: [`turn-${state}`],
+        detachingTurnIds: [`turn-${state}`],
+      })).toMatchObject({
+        executionState: state,
+        statusTitle: null,
+        statusTitleKey: `chat.trace.execution.${titleKey}`,
+        subtitle: { key: `chat.trace.execution.${bodyKey}` },
+        footer: { key: `chat.trace.execution.${footerKey}` },
+        indicator: state,
+        showSpinningIndicator: false,
+        isCancelling: false,
+        isDetaching: false,
+        showCancelButton: false,
+        showDetachButton: false,
+      });
+    },
+  );
+
   it('projects execution progress descriptor including trace-entry state', () => {
     const runningMessage: ChatTimelineMessage = {
       id: 'msg-running-panel',
@@ -626,7 +677,7 @@ describe('chat trace state helpers', () => {
       },
       footer: null,
       showBubbleTitle: true,
-      indicator: 'loader',
+      indicator: 'progress',
       showSpinningIndicator: true,
       traceStats: {
         activeSteps: 2,

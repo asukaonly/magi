@@ -1174,9 +1174,18 @@
         "completedBody": "The plan finished and the final answer will appear in the conversation.",
         "failedTitle": "Run failed",
         "failedBody": "This run stopped because part of the execution failed.",
+        "blockedTitle": "Run blocked",
+        "blockedBody": "This run could not continue under the current runtime constraints.",
+        "interruptedTitle": "Run interrupted",
+        "interruptedBody": "This turn was replaced before it produced a final answer.",
+        "mergedTitle": "Turn merged",
+        "mergedBody": "This turn was incorporated into the active run instead of producing a separate answer.",
         "footerCancelled": "No new final reply will be generated for this cancelled run.",
         "footerCompleted": "The finished output is available in the conversation and full trace.",
-        "footerFailed": "Open the call trace to inspect the failed step and captured error details."
+        "footerFailed": "Open the call trace to inspect the failed step and captured error details.",
+        "footerBlocked": "Open the call trace to see what prevented this run from continuing.",
+        "footerInterrupted": "No separate final reply will be generated for this interrupted turn.",
+        "footerMerged": "Continue with the active run that received this turn."
       },
       "active": "{{count}} active",
       "done": "{{count}} done",
@@ -1194,7 +1203,10 @@
           "cancelled": "Stopped at {{completed}}/{{total}} completed steps, leaving the rest unfinished.",
           "completed": "{{completed}}/{{total}} steps completed.",
           "failedStep": "Execution stopped around step {{current}}/{{total}}.",
-          "failedFallback": "Execution stopped after {{completed}} completed steps and {{failed}} failed steps."
+          "failedFallback": "Execution stopped after {{completed}} completed steps and {{failed}} failed steps.",
+          "blocked": "Blocked after {{completed}}/{{total}} completed steps.",
+          "interrupted": "Interrupted after {{completed}}/{{total}} completed steps.",
+          "merged": "Merged into the active run after {{completed}}/{{total}} completed steps."
         },
         "stepStatus": {
           "completed": "Done",

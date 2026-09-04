@@ -652,7 +652,11 @@ running, cancelling, or detaching placeholder may stay at the visible timeline
 tail while work is active; once terminal, the same placeholder returns to its
 own turn anchor instead of accumulating below later turns. Realtime updates with
 different message IDs still replace the single `assistant_interim` slot for that
-turn.
+turn. Frontend turn completion and execution presentation import one canonical
+terminal-state vocabulary (`blocked`, `cancelled`, `completed`, `failed`,
+`interrupted`, and `merged`). Every terminal state suppresses stale cancel and
+detach controls, stops the activity indicator, and renders its own terminal
+meaning instead of falling back to a running presentation.
 
 Detach transfers eligible foreground work into the background runtime through a
 typed control/tool path. The background task receives the trigger, remaining

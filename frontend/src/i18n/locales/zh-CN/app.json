@@ -1173,9 +1173,18 @@
         "completedBody": "计划已经执行完成，最终回复会显示在对话里。",
         "failedTitle": "执行失败",
         "failedBody": "本次执行因为部分步骤失败而提前结束。",
+        "blockedTitle": "执行受阻",
+        "blockedBody": "本次执行受当前运行约束影响，无法继续。",
+        "interruptedTitle": "执行已中断",
+        "interruptedBody": "本轮在生成最终回复前已被后续输入替代。",
+        "mergedTitle": "本轮已合并",
+        "mergedBody": "本轮已并入当前执行，不会单独生成回复。",
         "footerCancelled": "这次已取消的运行不会再生成新的最终回复。",
         "footerCompleted": "本次执行结果已经写入对话，也可以在调用链路里查看完整过程。",
-        "footerFailed": "可以打开调用链路查看失败步骤和对应的错误详情。"
+        "footerFailed": "可以打开调用链路查看失败步骤和对应的错误详情。",
+        "footerBlocked": "可以打开调用链路查看阻止本次执行继续的原因。",
+        "footerInterrupted": "这次已中断的运行不会再单独生成最终回复。",
+        "footerMerged": "后续结果会由接收本轮内容的当前执行返回。"
       },
       "active": "{{count}} 个进行中",
       "done": "{{count}} 个已完成",
@@ -1193,7 +1202,10 @@
           "cancelled": "已停止在 {{completed}}/{{total}} 步，其余计划未继续执行。",
           "completed": "{{completed}}/{{total}} 步已完成。",
           "failedStep": "执行在第 {{current}}/{{total}} 步附近中断。",
-          "failedFallback": "执行在 {{completed}} 个完成步骤和 {{failed}} 个失败步骤后中断。"
+          "failedFallback": "执行在 {{completed}} 个完成步骤和 {{failed}} 个失败步骤后中断。",
+          "blocked": "执行在完成 {{completed}}/{{total}} 步后受阻。",
+          "interrupted": "执行在完成 {{completed}}/{{total}} 步后中断。",
+          "merged": "本轮在完成 {{completed}}/{{total}} 步后并入当前执行。"
         },
         "stepStatus": {
           "completed": "已完成",

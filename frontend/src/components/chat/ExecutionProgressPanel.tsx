@@ -1,5 +1,12 @@
 import type { ReactNode } from 'react';
-import { Loader2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  GitMerge,
+  Loader2,
+  Pause,
+  X,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import type { ProjectedExecutionProgressPresentation } from '@/domain/chat/presentation';
@@ -46,9 +53,29 @@ export const ExecutionProgressPanel = ({
   }
 
   const statusTitle = presentation.statusTitle || t(presentation.statusTitleKey);
-  const indicator = presentation.indicator === 'cancelled'
-    ? <X className="h-4 w-4 text-muted-foreground" />
-    : <Loader2 className={`h-4 w-4 text-primary ${presentation.showSpinningIndicator ? 'animate-spin' : ''}`} />;
+  const indicator = (() => {
+    switch (presentation.indicator) {
+      case 'completed':
+        return <Check className="h-4 w-4 text-emerald-600" aria-hidden="true" />;
+      case 'failed':
+        return <X className="h-4 w-4 text-rose-600" aria-hidden="true" />;
+      case 'blocked':
+        return <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />;
+      case 'cancelled':
+        return <X className="h-4 w-4 text-muted-foreground" aria-hidden="true" />;
+      case 'interrupted':
+        return <Pause className="h-4 w-4 text-amber-600" aria-hidden="true" />;
+      case 'merged':
+        return <GitMerge className="h-4 w-4 text-primary" aria-hidden="true" />;
+      default:
+        return (
+          <Loader2
+            className={`h-4 w-4 text-primary ${presentation.showSpinningIndicator ? 'animate-spin' : ''}`}
+            aria-hidden="true"
+          />
+        );
+    }
+  })();
   const shellClassName = variant === 'card'
     ? ''
     : 'mt-3 border-t border-border/35 pt-3';

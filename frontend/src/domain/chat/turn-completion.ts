@@ -3,21 +3,9 @@ import {
   orderCompleteRhythmItems,
   readRhythmSegmentMeta,
 } from './rhythm';
+import { isPendingRunState, isTerminalRunState } from './run-state';
 
-const TERMINAL_RUN_STATES = new Set([
-  'blocked',
-  'cancelled',
-  'completed',
-  'failed',
-  'interrupted',
-  'merged',
-]);
-
-const PENDING_RUN_STATES = new Set([
-  'queued',
-  'running',
-  'cancelling',
-]);
+export { isPendingRunState, isTerminalRunState } from './run-state';
 
 export type PendingResponseTurnIdentity = {
   sessionId: string;
@@ -41,14 +29,6 @@ type RhythmPresentationState = {
   kind: 'none' | 'incomplete' | 'complete';
   presentationAtMs: number | null;
 };
-
-export const isTerminalRunState = (state: unknown): boolean => (
-  TERMINAL_RUN_STATES.has(String(state || '').trim().toLowerCase())
-);
-
-export const isPendingRunState = (state: unknown): boolean => (
-  PENDING_RUN_STATES.has(String(state || '').trim().toLowerCase())
-);
 
 const getTurnMessages = (
   messages: ChatTimelineMessage[],
