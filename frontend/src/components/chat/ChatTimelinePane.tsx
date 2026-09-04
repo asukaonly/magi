@@ -1,6 +1,7 @@
 import type { RefObject } from 'react';
 import { useMemo } from 'react';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
+import { isPendingRunState } from '@/domain/chat/run-state';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
 import type { RecallFeedbackDraftInput } from '@/domain/chat/recall-feedback';
@@ -43,7 +44,10 @@ const shouldPinExecutionPlaceholderToTail = (projectedMessage: RenderableTimelin
       : null;
   return Boolean(
     executionProgress
-    && ['queued', 'running', 'cancelling', 'detaching'].includes(executionProgress.executionState),
+    && (
+      isPendingRunState(executionProgress.executionState)
+      || executionProgress.executionState === 'detaching'
+    ),
   );
 };
 
