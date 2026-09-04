@@ -7,7 +7,10 @@ import pytest
 from agent.agent_run_helpers import run_agent
 from agent.permission_helpers import AllowAllPermissionGateway
 
+from magi.agent.execution.checkpoint import AgentRunCheckpoint
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
+from magi.agent.execution.function_calling.run_input import AgentRunRequest
+from magi.agent.execution.reasoning import ReasoningPolicy, ReasoningState
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
@@ -239,6 +242,91 @@ def test_build_step_state_replaces_changed_runtime_world_state() -> None:
     assert len(runtime_messages) == 1
     assert "date=2026-08-27" in str(runtime_messages[0]["content"])
     assert "date=2026-08-26" not in str(step_state.messages)
+
+
+def test_build_step_state_deduplicates_unchanged_runtime_world_state() -> None:
+    orchestrator = _build_orchestrator()
+    runtime_state = build_runtime_world_state_message(
+        "date=2026-08-27 timezone=Asia/Shanghai"
+    )
+    duplicate_runtime_state = build_runtime_world_state_message(
+        "date=2026-08-27 timezone=Asia/Shanghai"
+    )
+    assert runtime_state is not None
+    assert duplicate_runtime_state is not None
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        selected_tools=[],
+        runtime_world_state="date=2026-08-27 timezone=Asia/Shanghai",
+        conversation_history=[
+            runtime_state,
+            {"role": "user", "content": "older"},
+            duplicate_runtime_state,
+            {"role": "assistant", "content": "answer"},
+        ],
+    )
+
+    runtime_messages = [
+        message
+        for message in step_state.messages
+        if str(message.get("content") or "").startswith("<runtime_world_state>")
+    ]
+    assert runtime_messages == [duplicate_runtime_state]
+
+
+def test_checkpoint_resume_refreshes_dynamic_context_layers() -> None:
+    orchestrator = _build_orchestrator()
+    policy = ReasoningPolicy()
+    old_runtime_state = build_runtime_world_state_message(
+        "date=2026-08-26 timezone=Asia/Shanghai"
+    )
+    old_working_context = build_working_context_message("old recall")
+    old_launch_context = build_launch_context_message("foreground launch")
+    assert old_runtime_state is not None
+    assert old_working_context is not None
+    assert old_launch_context is not None
+    checkpoint = AgentRunCheckpoint(
+        run_id="run-resumed",
+        messages=[
+            old_runtime_state,
+            old_working_context,
+            old_launch_context,
+            {"role": "user", "content": "inspect the repository"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "call-1", "name": "read_file"}],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "done"},
+        ],
+        effective_system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        tools=[],
+        iteration=1,
+        reasoning_policy=policy,
+        reasoning_state=ReasoningState.start(policy),
+    )
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="", attachments=[], user_id=None, session_id=None),
+        system_prompt=checkpoint.effective_system_prompt,
+        selected_tools=[],
+        user_id="user-1",
+        checkpoint=checkpoint,
+        runtime_world_state="date=2026-08-27 timezone=Asia/Shanghai",
+        working_context="fresh recall",
+        ephemeral_context="background resume",
+    )
+
+    step_state = orchestrator._loop_runner._build_initial_state(run_input)
+
+    assert step_state.iteration == 1
+    assert "date=2026-08-27" in str(step_state.messages)
+    assert "date=2026-08-26" not in str(step_state.messages)
+    assert "fresh recall" in str(step_state.messages)
+    assert "old recall" not in str(step_state.messages)
+    assert not any(is_launch_context_message(message) for message in step_state.messages)
+    assert step_state.messages[-2:] == checkpoint.messages[-2:]
 
 
 def test_prompt_history_preserves_assistant_tool_calls() -> None:

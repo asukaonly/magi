@@ -55,6 +55,20 @@ def materialize_dynamic_context_layers(
             for message in messages
             if not is_runtime_world_state_message(message)
         ]
+    else:
+        runtime_indexes = [
+            index
+            for index, message in enumerate(messages)
+            if is_runtime_world_state_message(message)
+        ]
+        if len(runtime_indexes) > 1:
+            latest_runtime_index = runtime_indexes[-1]
+            messages[:] = [
+                message
+                for index, message in enumerate(messages)
+                if not is_runtime_world_state_message(message)
+                or index == latest_runtime_index
+            ]
     current_user_index = _find_current_user_message_index(
         messages,
         current_turn_id=current_turn_id,

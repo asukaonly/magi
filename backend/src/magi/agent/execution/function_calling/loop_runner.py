@@ -186,7 +186,9 @@ class FunctionCallingLoopRunner:
                     else checkpoint.selected_tool_names
                 ),
                 conversation_history=(
-                    run_input.conversation_history if checkpoint is None else None
+                    run_input.conversation_history
+                    if checkpoint is None
+                    else checkpoint.messages
                 ),
                 session_summary=run_input.session_summary,
                 session_origin=run_input.session_origin,
@@ -195,7 +197,7 @@ class FunctionCallingLoopRunner:
                 working_context=run_input.working_context,
                 ephemeral_context=run_input.ephemeral_context,
                 current_turn_in_model_context=(
-                    run_input.current_turn_in_model_context
+                    run_input.current_turn_in_model_context or checkpoint is not None
                 ),
                 current_turn_id=run_input.turn_id,
             ),
@@ -203,7 +205,6 @@ class FunctionCallingLoopRunner:
         state.run_id = run_input.run_id
         state.reasoning_policy = run_input.reasoning_policy
         if checkpoint is not None:
-            state.messages = [dict(message) for message in checkpoint.messages]
             state.effective_system_prompt = checkpoint.effective_system_prompt
             state.tools = [dict(tool) for tool in checkpoint.tools]
             state.selected_tool_names = list(checkpoint.selected_tool_names)

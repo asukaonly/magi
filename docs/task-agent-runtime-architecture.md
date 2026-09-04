@@ -522,6 +522,13 @@ provider-neutral message, survives compaction and resume, and is stripped before
 provider conversion. Context alignment must use that identity; repeated message
 text is never sufficient evidence that two context items are the same.
 
+A checkpoint resume preserves the checkpoint's stable prompt epoch, tool schema,
+protocol transcript, and governance counters, then rematerializes current
+Runtime World State and Working Context on top of that transcript. It does not
+replace the refreshed message surface with the serialized checkpoint afterward.
+Launch-only context follows its normal lifetime rule and is not revived after a
+completed tool iteration.
+
 The cacheable system head and tool declarations are stored separately as a
 deduplicated context epoch. Each model-call boundary references one surface
 revision and one epoch, plus provider-neutral call options such as requested
