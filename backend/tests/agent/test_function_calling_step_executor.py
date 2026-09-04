@@ -172,6 +172,30 @@ def test_build_step_state_replaces_dynamic_layers_without_reviving_launch_contex
     assert step_state.messages.index(working_messages[0]) < step_state.messages.index(current)
 
 
+def test_build_step_state_removes_stale_dynamic_layers_when_replacements_are_absent() -> None:
+    orchestrator = _build_orchestrator()
+    orchestrator._build_execution_guidance = lambda: ""
+    current = {"role": "user", "content": "current"}
+    set_runtime_message_provenance(current, origin_turn_id="turn-current")
+    old_working = build_working_context_message("old recall")
+    old_launch = build_launch_context_message("old launch")
+    assert old_working is not None
+    assert old_launch is not None
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current", attachments=[], user_id=None, session_id=None),
+        system_prompt=f"stable head\n{SYSTEM_PROMPT_CACHE_BOUNDARY}",
+        selected_tools=[],
+        conversation_history=[old_working, old_launch, current],
+        current_turn_in_model_context=True,
+        current_turn_id="turn-current",
+    )
+
+    assert not any(is_working_context_message(message) for message in step_state.messages)
+    assert not any(is_launch_context_message(message) for message in step_state.messages)
+    assert step_state.messages == [current]
+
+
 def test_build_step_state_rejects_dynamic_system_tail() -> None:
     orchestrator = _build_orchestrator()
 

@@ -493,8 +493,9 @@ envelope text. The actual user message remains a separate item after them. The
 runtime restores or replaces each typed layer independently. Detecting that the
 current user turn is already present only suppresses a duplicate user message;
 it never suppresses fresh Runtime World State, Working Context, or an unexpired
-launch envelope. Launch context is not restored after a completed tool
-iteration. The
+launch envelope. Rebuilding a run first removes every serialized Working Context
+and launch envelope, including when the current attempt has no replacement for
+that layer. Launch context is not restored after a completed tool iteration. The
 Stable Prompt Epoch must contain exactly one cache boundary and end there. Every
 `AgentRunRequest` rejects a missing, duplicated, or tailed boundary; headless
 drivers that do not define specialized stable rules receive the canonical

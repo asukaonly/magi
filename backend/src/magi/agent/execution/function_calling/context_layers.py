@@ -37,13 +37,12 @@ def materialize_dynamic_context_layers(
 
     if not messages:
         return DynamicContextEmission()
-    if working_message is not None or launch_message is not None:
-        messages[:] = [
-            message
-            for message in messages
-            if not (working_message is not None and is_working_context_message(message))
-            and not (launch_message is not None and is_launch_context_message(message))
-        ]
+    messages[:] = [
+        message
+        for message in messages
+        if not is_working_context_message(message)
+        and not is_launch_context_message(message)
+    ]
     runtime_emitted = (
         runtime_message is not None
         and latest_runtime_world_state_content(messages)
