@@ -321,7 +321,7 @@ def _resolve_day_range(day_value: str | None) -> tuple[date, float, float]:
             target_day = date.fromisoformat(normalized)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=core_i18n.t(
                     "sensors.errors.invalid_date",
                     fallback="Invalid date value: {value}",
