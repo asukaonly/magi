@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from magi.agent.runtime.contracts import FactRecord
 from magi.agent.task_agents.common import IncomingFactKind
 from magi.chat.task_agent.fact_classifier import ChatFactClassifier
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
-from magi.control.run_control import DetachSignal
+from magi.control.cancel import SessionRunCancelToken
+from magi.control.run_control import DetachSignal, null_run_control
 from magi.events.events import EventTypes
 
 
@@ -138,11 +141,24 @@ def test_replace_turn_cancels_active_run_without_joining_its_input_queue() -> No
     ]
 
 
-def test_cancel_completion_returns_each_unconsumed_input_once() -> None:
+@pytest.mark.asyncio
+async def test_cancel_completion_returns_each_unconsumed_input_once() -> None:
     coordinator = SessionRunCoordinator()
     root = _route_user(coordinator, "Finish the root task.", turn_id="turn-1")
     assert root.active_run is not None
     _route_user(coordinator, "Handle this too.", turn_id="turn-2")
+    control = null_run_control()
+    control.cancel_token = SessionRunCancelToken(
+        coordinator=coordinator,
+        session_id="s-chat",
+        run_id=root.active_run.run_id,
+        revision=root.active_run.revision,
+    )
+    coordinator.register_active_run_control(
+        "s-chat",
+        root.active_run.run_id,
+        control,
+    )
     cancelling = coordinator.request_cancel(
         session_id="s-chat",
         requested_by="user",
@@ -165,6 +181,7 @@ def test_cancel_completion_returns_each_unconsumed_input_once() -> None:
     assert [item.turn_id for item in first_inputs] == ["turn-2"]
     assert second_completed is True
     assert second_inputs == []
+    assert await control.cancel_token.is_cancelled()
 
 
 def test_request_detach_flags_bound_signal() -> None:

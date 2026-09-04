@@ -4,6 +4,7 @@ import sqlite3
 
 import pytest
 
+from magi.agent.execution.model_context_port import ModelContextRunClosedError
 from magi.chat.contracts import ChatSessionRecord
 from magi.chat.model_context import ModelContextItemKind
 from magi.chat.store import ChatStore
@@ -264,3 +265,34 @@ async def test_chat_model_context_port_does_not_reuse_duplicate_text_identity(tm
     assert after.items[-1].metadata["context_item_id"] == (
         before.items[-1].metadata["context_item_id"]
     )
+
+
+@pytest.mark.asyncio
+async def test_chat_model_context_port_maps_closed_run_to_runtime_signal(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+    messages = [{"role": "user", "content": "long task"}]
+    await port.commit(
+        messages=messages,
+        turn_id="turn-1",
+        run_id="run-1",
+        step_index=0,
+    )
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute(
+            """
+            UPDATE chat_model_context_run_heads
+            SET status = 'accepted'
+            WHERE session_id = 'session-1' AND run_id = 'run-1'
+            """
+        )
+        connection.commit()
+
+    with pytest.raises(ModelContextRunClosedError):
+        await port.commit(
+            messages=[*messages, {"role": "assistant", "content": "late"}],
+            turn_id="turn-1",
+            run_id="run-1",
+            step_index=1,
+        )

@@ -23,6 +23,7 @@ from ..contracts import (
     CompletionOutcome,
 )
 from ..reasoning import ReasoningState
+from ..model_context_port import ModelContextRunClosedError
 from ..task_budget import TaskBudgetExceeded, prepay_task_llm_calls
 from .model_capability_flow import FunctionCallingModelCapabilityFlow
 from .run_input import AgentRunRequest
@@ -51,6 +52,34 @@ class FunctionCallingLoopRunner:
         control: RunControl,
     ) -> ExecutionOutcome:
         state = self._build_initial_state(run_input)
+        try:
+            return await self._run_active(state, run_input=run_input, control=control)
+        except ModelContextRunClosedError:
+            if not await control.cancel_token.is_cancelled():
+                raise
+            logger.info(
+                "agent_run.model_context_closed_after_cancel",
+                run_id=run_input.run_id,
+                step_index=state.iteration,
+            )
+            return await self._record_terminal_outcome(
+                state,
+                ExecutionOutcome(
+                    status="cancelled",
+                    content="",
+                    iterations=state.iteration,
+                ),
+            )
+
+    async def _run_active(
+        self,
+        state: FunctionCallingStepState,
+        *,
+        run_input: AgentRunRequest,
+        control: RunControl,
+    ) -> ExecutionOutcome:
+        """Run until one terminal owner wins or the bounded loop completes."""
+
         state.reasoning_state = run_input.reasoning_state or ReasoningState.start(
             run_input.reasoning_policy
         )

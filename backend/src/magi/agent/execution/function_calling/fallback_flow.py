@@ -12,6 +12,7 @@ from ...cancel import CancelToken, null_cancel_token
 from magi.control.run_control import RunControl
 from magi.runtime_trace.run_events import AgentRunEventType
 from ..context_fingerprint import effective_context_fingerprint
+from ..model_context_port import ModelContextRunClosedError
 from .step_executor import FunctionCallingStepState
 from .types import ExecutionOutcome
 
@@ -141,6 +142,8 @@ async def _run_fallback_step(
 ) -> tuple[_FallbackStepResult | None, ExecutionOutcome | None]:
     try:
         return await step(), None
+    except ModelContextRunClosedError:
+        raise
     except Exception as exc:
         failure = await _record_fallback_call_failure(
             host,

@@ -22,6 +22,7 @@ from ..model_context import (
     ModelContextItem,
     ModelContextItemKind,
     ModelContextRevisionConflictError,
+    ModelContextRunClosedError,
     ModelContextScope,
     ModelContextSnapshot,
 )
@@ -548,7 +549,7 @@ class ChatModelContextPersistenceMixin:
             working_revision = head.accepted_revision
         else:
             if str(run_head["status"]) != "active":
-                raise ModelContextRevisionConflictError(
+                raise ModelContextRunClosedError(
                     f"Model-context run is no longer active: {run_id}"
                 )
             working_revision = int(run_head["working_revision"])

@@ -9,6 +9,7 @@ from magi.runtime_trace.run_events import AgentRunEventType
 from ....config.models import ThinkingDepth
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ...cancel import CancelToken, null_cancel_token
+from ..model_context_port import ModelContextRunClosedError
 from magi.control.run_control import RunControl
 from magi.skills.allowed_tools_rules import ToolRule
 from .step_models import (
@@ -222,6 +223,8 @@ class FunctionCallingStepExecutor:
                 iteration=iteration,
                 control=control,
             )
+        except ModelContextRunClosedError:
+            raise
         except (CancellationRaised, RetractRaised):
             return None, FunctionCallingStepOutcome(status="aborted", iteration=iteration)
         except Exception as exc:

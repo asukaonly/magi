@@ -130,7 +130,14 @@ class SessionRunCancelToken:
     :meth:`SessionRunCoordinator.record_result`.
     """
 
-    __slots__ = ("_coordinator", "_session_id", "_run_id", "_revision", "_reason")
+    __slots__ = (
+        "_coordinator",
+        "_session_id",
+        "_run_id",
+        "_revision",
+        "_reason",
+        "_event",
+    )
 
     _CANCEL_STATUSES: frozenset[str] = frozenset({"cancelling", "cancelled"})
 
@@ -147,15 +154,26 @@ class SessionRunCancelToken:
         self._run_id = run_id
         self._revision = int(revision)
         self._reason: CancelReason | None = None
+        self._event = asyncio.Event()
+
+    def cancel(self, reason: CancelReason = "cancelled") -> None:
+        """Latch cancellation independently of process-local run cleanup."""
+
+        if self._event.is_set():
+            return
+        self._reason = str(reason or "cancelled")
+        self._event.set()
 
     async def is_cancelled(self) -> bool:
+        if self._event.is_set():
+            return True
         status = self._coordinator.get_run_status(  # type: ignore[attr-defined]
             session_id=self._session_id,
             run_id=self._run_id,
             revision=self._revision,
         )
         if status in self._CANCEL_STATUSES:
-            self._reason = f"session_run_{status}"
+            self.cancel(f"session_run_{status}")
             return True
         return False
 
@@ -165,4 +183,7 @@ class SessionRunCancelToken:
 
     async def wait(self) -> None:
         while not await self.is_cancelled():
-            await asyncio.sleep(0.25)
+            try:
+                await asyncio.wait_for(self._event.wait(), timeout=0.25)
+            except asyncio.TimeoutError:
+                continue

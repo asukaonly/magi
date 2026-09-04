@@ -229,6 +229,10 @@ class ModelContextRevisionConflictError(RuntimeError):
     """Raised when a stale writer tries to replace the current surface."""
 
 
+class ModelContextRunClosedError(ModelContextRevisionConflictError):
+    """Raised when a writer targets a model-context run that already closed."""
+
+
 def infer_model_context_item_kind(message: Mapping[str, Any]) -> ModelContextItemKind:
     """Infer the semantic kind for ordinary provider-facing messages."""
 
@@ -251,6 +255,7 @@ __all__ = [
     "ModelContextItem",
     "ModelContextItemKind",
     "ModelContextRevisionConflictError",
+    "ModelContextRunClosedError",
     "ModelContextScope",
     "ModelContextSnapshot",
     "infer_model_context_item_kind",

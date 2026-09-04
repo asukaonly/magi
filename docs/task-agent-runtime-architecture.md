@@ -823,6 +823,16 @@ exact retry. A recovered run loads its Working Surface by `run_id` and replaces
 the current user payload in place when richer attachment bytes are available; it
 never appends the same user turn after an assistant/tool tail.
 
+Cancellation tokens latch the request before process-local run cleanup, so their
+state remains observable after the active-run record and registered control have
+been released. The chat Model Context adapter translates only the typed
+"run already closed" store condition into a runtime port signal. The unified
+loop converts that signal to `cancelled` only when its own latched cancel token
+confirms that cancellation won; unrelated revision conflicts remain failures.
+This handshake applies to every Working Surface commit boundary, including
+pre-call snapshots, attachment grounding, assistant/tool journaling, and fallback
+finalization.
+
 Display-history pagination never defines model context. Under pressure, the
 runtime compactor creates a new immutable Working Surface revision while the
 prior revision and its model-call boundary remain readable until governed

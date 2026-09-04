@@ -10,7 +10,9 @@ from magi.agent.execution.function_calling.step_models import (
 )
 from magi.agent.execution.function_calling.types import ExecutionOutcome
 from magi.agent.execution.model_capabilities import ModelCapabilityProfile
+from magi.agent.execution.model_context_port import ModelContextRunClosedError
 from magi.agent.turn_input import UserTurnInput
+from magi.control.cancel import EventCancelToken
 from magi.control.run_control import null_run_control
 from magi.context.prompt_lifecycle import DEFAULT_HEADLESS_SYSTEM_PROMPT
 
@@ -227,6 +229,73 @@ async def test_cancelled_terminal_does_not_recommit_sealed_model_context(
     monkeypatch.setattr(runner._journal, "record_terminal", _record_terminal)
 
     assert await runner._record_terminal_outcome(state, outcome) is outcome
+
+
+@pytest.mark.asyncio
+async def test_closed_model_context_becomes_cancelled_when_cancel_owner_won(
+    monkeypatch,
+) -> None:
+    class _ClosedModelContextPort:
+        async def commit(self, **kwargs: object) -> None:
+            raise ModelContextRunClosedError("run already closed")
+
+    class _Host:
+        _current_messages: list[dict[str, object]] = []
+
+        def build_step_state(self, **kwargs: object) -> FunctionCallingStepState:
+            return FunctionCallingStepState(
+                messages=[{"role": "user", "content": "long task"}],
+                effective_system_prompt="system",
+                tools=[],
+            )
+
+    runner = FunctionCallingLoopRunner(_Host())
+    control = null_run_control()
+    cancel_token = EventCancelToken()
+    cancel_token.cancel("user_cancel")
+    control.cancel_token = cancel_token
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="long task"),
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+        selected_tools=[],
+        user_id="user-1",
+        run_id="run-1",
+        model_context_port=_ClosedModelContextPort(),  # type: ignore[arg-type]
+    )
+
+    outcome = await runner.run(run_input, control=control)
+
+    assert outcome.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_closed_model_context_still_fails_without_cancellation() -> None:
+    class _ClosedModelContextPort:
+        async def commit(self, **kwargs: object) -> None:
+            raise ModelContextRunClosedError("run already closed")
+
+    class _Host:
+        _current_messages: list[dict[str, object]] = []
+
+        def build_step_state(self, **kwargs: object) -> FunctionCallingStepState:
+            return FunctionCallingStepState(
+                messages=[{"role": "user", "content": "long task"}],
+                effective_system_prompt="system",
+                tools=[],
+            )
+
+    runner = FunctionCallingLoopRunner(_Host())
+    run_input = AgentRunRequest(
+        turn=UserTurnInput(text="long task"),
+        system_prompt=DEFAULT_HEADLESS_SYSTEM_PROMPT,
+        selected_tools=[],
+        user_id="user-1",
+        run_id="run-1",
+        model_context_port=_ClosedModelContextPort(),  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ModelContextRunClosedError):
+        await runner.run(run_input, control=null_run_control())
 
 
 @pytest.mark.asyncio

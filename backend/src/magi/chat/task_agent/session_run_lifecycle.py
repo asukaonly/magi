@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from magi.agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl
+from magi.control.cancel import SessionRunCancelToken
 from magi.agent.task_agents.common import UserMessagePayload
 from .fact_classifier import ClassifiedFact
 from magi.agent.task_agents.handlers.run_contracts import (
@@ -57,12 +58,22 @@ class SessionRunLifecycleMixin:
         active_run = self._run_store.get_active_run(session_id)
         if active_run is None:
             return None
-        return self._run_store.request_cancel(
+        cancelling_run = self._run_store.request_cancel(
             session_id,
             requested_by=requested_by,
             reason=reason,
             anchor_turn_id=anchor_turn_id,
         )
+        control = self._run_store.get_active_run_control(
+            session_id,
+            cancelling_run.run_id,
+        )
+        if control is not None and isinstance(
+            control.cancel_token,
+            SessionRunCancelToken,
+        ):
+            control.cancel_token.cancel(reason)
+        return cancelling_run
 
     def record_result(
         self,

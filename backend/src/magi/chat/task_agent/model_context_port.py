@@ -11,8 +11,10 @@ from magi.chat.model_context import (
     ModelContextItem,
     ModelContextItemKind,
     ModelContextScope,
+    ModelContextRunClosedError as ChatModelContextRunClosedError,
     infer_model_context_item_kind,
 )
+from magi.agent.execution.model_context_port import ModelContextRunClosedError
 from magi.chat.store import ChatStore
 from magi.core.logger import get_logger
 from magi.utils.model_context_messages import (
@@ -80,32 +82,35 @@ class ChatModelContextPort:
         previous_revision = self._revision
         boundary_id: str | None = None
         epoch_id: str | None = None
-        if boundary_kind is not None:
-            if system_prompt is None or tools is None:
-                raise ValueError("Model boundary requires system prompt and tools")
-            snapshot, boundary = await self._store.prepare_model_context_call(
-                session_id=self._session_id,
-                items=items,
-                expected_revision=previous_revision,
-                system_prompt=system_prompt,
-                tools=tools,
-                boundary_kind=boundary_kind,
-                turn_id=turn_id,
-                run_id=run_id,
-                step_index=step_index,
-                request_options=request_options,
-            )
-            boundary_id = boundary.boundary_id
-            epoch_id = boundary.epoch_id
-        else:
-            snapshot = await self._store.sync_model_context_surface(
-                session_id=self._session_id,
-                items=items,
-                expected_revision=previous_revision,
-                turn_id=turn_id,
-                run_id=run_id,
-                step_index=step_index,
-            )
+        try:
+            if boundary_kind is not None:
+                if system_prompt is None or tools is None:
+                    raise ValueError("Model boundary requires system prompt and tools")
+                snapshot, boundary = await self._store.prepare_model_context_call(
+                    session_id=self._session_id,
+                    items=items,
+                    expected_revision=previous_revision,
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    boundary_kind=boundary_kind,
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    step_index=step_index,
+                    request_options=request_options,
+                )
+                boundary_id = boundary.boundary_id
+                epoch_id = boundary.epoch_id
+            else:
+                snapshot = await self._store.sync_model_context_surface(
+                    session_id=self._session_id,
+                    items=items,
+                    expected_revision=previous_revision,
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    step_index=step_index,
+                )
+        except ChatModelContextRunClosedError as exc:
+            raise ModelContextRunClosedError(str(exc)) from exc
         self._revision = snapshot.revision
         self._items = snapshot.items
         logger.info(

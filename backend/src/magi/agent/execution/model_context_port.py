@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol
 
 
+class ModelContextRunClosedError(RuntimeError):
+    """Signal that another terminal owner already closed this run surface."""
+
+
 class ModelContextPort(Protocol):
     """Commit provider-neutral messages before the next model boundary."""
 
@@ -22,4 +26,4 @@ class ModelContextPort(Protocol):
     ) -> None: ...
 
 
-__all__ = ["ModelContextPort"]
+__all__ = ["ModelContextPort", "ModelContextRunClosedError"]
