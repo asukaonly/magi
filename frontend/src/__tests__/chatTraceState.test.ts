@@ -571,6 +571,17 @@ describe('chat trace state helpers', () => {
         content: 'Running a previous step',
         timestamp: 1000,
         turnId: `turn-${state}`,
+        traceSummary: normalizeTraceSummary({
+          turn_id: `turn-${state}`,
+          mode: 'orchestration',
+          status: 'running',
+          headline: 'Processing files',
+          active_steps: 2,
+          completed_steps: 1,
+          failed_steps: 0,
+          duration_seconds: 1.2,
+          trace_available: true,
+        }),
         runState: {
           state,
           run_id: `run-${state}`,
@@ -601,6 +612,11 @@ describe('chat trace state helpers', () => {
         isDetaching: false,
         showCancelButton: false,
         showDetachButton: false,
+        traceStats: {
+          activeSteps: 0,
+          completedSteps: 1,
+          failedSteps: 0,
+        },
       });
     },
   );

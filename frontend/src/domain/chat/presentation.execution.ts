@@ -161,7 +161,7 @@ export const projectExecutionProgressPresentation = (
   const executionState = executionActionState.executionState;
   const terminalState = normalizeTerminalRunState(executionState);
   const completedSteps = traceSummary?.completedSteps || 0;
-  const activeSteps = traceSummary?.activeSteps || 0;
+  const activeSteps = terminalState ? 0 : traceSummary?.activeSteps || 0;
   const failedSteps = traceSummary?.failedSteps || 0;
   const statusTitleKey = (() => {
     switch (executionState) {
