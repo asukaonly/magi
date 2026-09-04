@@ -22,6 +22,7 @@ from magi.chat.contracts import (
     CHAT_DELIVERY_STATE_TERMINAL,
 )
 from magi.chat.rhythm_completion import complete_visible_rhythm_segments
+from magi.chat.terminal_outcomes import PRE_SUCCESS_TERMINAL_CHAT_STATUSES
 from magi.chat.user_turn_delivery import parse_user_turn_runtime_envelope
 from magi.delivery.contracts import DeliveryFanoutResult
 from magi.config import get_config, get_user_preference
@@ -494,7 +495,7 @@ class ChatTaskAgent(
         if turn is None:
             return
         status = str(turn.status or "").strip().lower()
-        terminal = status in {"cancelled", "interrupted", "merged"}
+        terminal = status in PRE_SUCCESS_TERMINAL_CHAT_STATUSES
         if status == "completed":
             response_mode = str(turn.response_mode or "").strip().lower()
             terminal = response_mode in {"none", "reaction_only"}

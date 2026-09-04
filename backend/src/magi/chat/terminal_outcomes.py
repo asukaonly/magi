@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 
-_PRE_SUCCESS_TERMINAL_STATUSES = frozenset(
+PRE_SUCCESS_TERMINAL_CHAT_STATUSES = frozenset(
     {"blocked", "cancelled", "failed", "interrupted", "merged"}
 )
+TERMINAL_CHAT_STATUSES = frozenset({"completed", *PRE_SUCCESS_TERMINAL_CHAT_STATUSES})
 
 
 def model_context_terminal_outcome(
@@ -31,7 +32,7 @@ def model_context_terminal_outcome(
             "[Runtime outcome] The turn was cancelled before a final response.",
             "runtime",
         )
-    if normalized_status not in _PRE_SUCCESS_TERMINAL_STATUSES:
+    if normalized_status not in PRE_SUCCESS_TERMINAL_CHAT_STATUSES:
         raise ValueError(f"Unsupported terminal chat status: {status}")
     outcome_text = (
         f"[Runtime outcome] The turn ended with status '{normalized_status}' "
@@ -42,4 +43,8 @@ def model_context_terminal_outcome(
     return outcome_text, "runtime"
 
 
-__all__ = ["model_context_terminal_outcome"]
+__all__ = [
+    "PRE_SUCCESS_TERMINAL_CHAT_STATUSES",
+    "TERMINAL_CHAT_STATUSES",
+    "model_context_terminal_outcome",
+]

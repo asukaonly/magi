@@ -168,6 +168,7 @@ async def _create_delivery(
     created_at_ms: int,
     projected: bool = True,
     run_disposition: str | None = None,
+    run_id: str | None = None,
 ) -> ChatUserTurnDeliveryRecord:
     session_id = "session-recovery"
     user_id = "user-recovery"
@@ -178,6 +179,7 @@ async def _create_delivery(
         turn_id=turn_id,
         message_text=message,
         created_at_ms=created_at_ms,
+        run_id=run_id,
         run_disposition=run_disposition,
         runtime_envelope=_runtime_envelope(
             user_id=user_id,
@@ -836,6 +838,7 @@ async def test_corrupt_delivery_isolated_without_blocking_later_turns(
         store,
         turn_id="turn-corrupt-envelope",
         created_at_ms=100,
+        run_id="run-corrupt-envelope",
     )
     valid = await _create_delivery(
         store,
@@ -886,6 +889,22 @@ async def test_corrupt_delivery_isolated_without_blocking_later_turns(
         assert corrupt_final is not None
         assert corrupt_final.is_visible is True
         assert "重新发送" in str(corrupt_final.content_text)
+        model_context = await store.load_model_context(session_id="session-recovery")
+        accepted_outcomes = [
+            item
+            for item in model_context.items
+            if bool(item.metadata.get("accepted_outcome"))
+            and item.metadata.get("origin_turn_id") == corrupt.turn_id
+        ]
+        assert len(accepted_outcomes) == 1
+        assert accepted_outcomes[0].message["role"] == "user"
+        assert str(accepted_outcomes[0].message["content"]).startswith(
+            "[Runtime outcome] The turn ended with status 'failed'"
+        )
+        assert not any(
+            item.message.get("content") == corrupt_final.content_text
+            for item in model_context.items
+        )
         assert valid_delivery is not None
         assert valid_delivery.delivery_attempt_no == 1
         assert valid_delivery.delivery_state == CHAT_DELIVERY_STATE_QUEUED

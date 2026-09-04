@@ -15,6 +15,7 @@ from magi.agent.trace import (
 from magi.chat import ChatStore
 from magi.delivery.contracts import DeliveryFanoutResult
 from magi.chat.rhythm_completion import complete_visible_rhythm_segments
+from magi.chat.terminal_outcomes import PRE_SUCCESS_TERMINAL_CHAT_STATUSES
 from magi.events.events import EventTypes
 from magi.events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from magi.i18n import t
@@ -43,10 +44,6 @@ if TYPE_CHECKING:
     from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
 
 logger = get_logger(__name__)
-
-_TERMINAL_TURN_STATUSES = frozenset(
-    {"blocked", "cancelled", "failed", "interrupted", "merged"}
-)
 
 
 class _MissingVisibleChatResponseError(RuntimeError):
@@ -1043,7 +1040,7 @@ class ChatPostProcessService:
         if turn is None:
             return False
         status = str(turn.status or "").strip().lower()
-        if status in _TERMINAL_TURN_STATUSES:
+        if status in PRE_SUCCESS_TERMINAL_CHAT_STATUSES:
             pass
         elif status == "completed":
             response_mode = str(turn.response_mode or "").strip().lower()

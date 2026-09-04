@@ -2,7 +2,11 @@
 
 import pytest
 
-from magi.chat.terminal_outcomes import model_context_terminal_outcome
+from magi.chat.terminal_outcomes import (
+    PRE_SUCCESS_TERMINAL_CHAT_STATUSES,
+    TERMINAL_CHAT_STATUSES,
+    model_context_terminal_outcome,
+)
 
 
 @pytest.mark.parametrize("status", ["blocked", "failed", "interrupted", "merged"])
@@ -23,3 +27,15 @@ def test_completed_visible_turn_becomes_assistant_outcome() -> None:
         status="completed",
         visible_text="accepted answer",
     ) == ("accepted answer", "assistant")
+
+
+def test_terminal_status_vocabulary_has_one_canonical_definition() -> None:
+    assert TERMINAL_CHAT_STATUSES == {
+        "blocked",
+        "cancelled",
+        "completed",
+        "failed",
+        "interrupted",
+        "merged",
+    }
+    assert PRE_SUCCESS_TERMINAL_CHAT_STATUSES == TERMINAL_CHAT_STATUSES - {"completed"}

@@ -15,6 +15,7 @@ from ..contracts import (
     ChatMessageRecord,
 )
 from ..rhythm_completion import complete_visible_rhythm_segments
+from ..terminal_outcomes import model_context_terminal_outcome
 from .messages import MESSAGE_SELECT_COLUMNS
 from .serialization import row_to_message
 
@@ -78,8 +79,7 @@ class ChatDeliveryFailurePersistenceMixin:
                     await db.rollback()
                     return ChatDeliveryFailureFinalization(applied=False)
                 if (
-                    int(delivery_row["delivery_attempt_no"] or 0)
-                    != normalized_attempt_no
+                    int(delivery_row["delivery_attempt_no"] or 0) != normalized_attempt_no
                     or (
                         int(delivery_row["current_command_id"])
                         if delivery_row["current_command_id"] is not None
@@ -117,9 +117,7 @@ class ChatDeliveryFailurePersistenceMixin:
                     messages,
                     turn_id=normalized_turn_id,
                 )
-                message_id = (
-                    visible_final.message_id if visible_final is not None else None
-                )
+                message_id = visible_final.message_id if visible_final is not None else None
                 wrote_failure = False
                 transcript_changed = False
                 if visible_final is None and complete_rhythm is None:
@@ -158,10 +156,19 @@ class ChatDeliveryFailurePersistenceMixin:
                     wrote_failure = inserted
                     transcript_changed = transcript_changed or inserted
 
+                has_successful_surface = visible_final is not None or complete_rhythm is not None
+                terminal_status = "completed" if has_successful_surface else "failed"
+                terminal_error = (
+                    None
+                    if has_successful_surface
+                    else (
+                        "Chat task failed during " f"{normalized_stage} ({normalized_error_type})"
+                    )
+                )
                 await db.execute(
                     """
                     UPDATE chat_turns
-                    SET status = 'completed',
+                    SET status = ?,
                         response_mode = CASE
                             WHEN ? = 1 THEN 'final_only'
                             ELSE response_mode
@@ -172,13 +179,11 @@ class ChatDeliveryFailurePersistenceMixin:
                     WHERE turn_id = ?
                     """,
                     (
+                        terminal_status,
                         1 if wrote_failure else 0,
                         now_ms,
                         now_ms,
-                        (
-                            "Chat task failed during "
-                            f"{normalized_stage} ({normalized_error_type})"
-                        ),
+                        terminal_error,
                         normalized_turn_id,
                     ),
                 )
@@ -206,18 +211,21 @@ class ChatDeliveryFailurePersistenceMixin:
                     return ChatDeliveryFailureFinalization(applied=False)
                 effective_run_id = str(delivery_row["run_id"] or "").strip()
                 if effective_run_id:
-                    accepted_message = visible_final
-                    outcome_text = (
-                        str(accepted_message.content_text or "").strip()
-                        if accepted_message is not None
+                    visible_text = (
+                        str(visible_final.content_text or "").strip()
+                        if visible_final is not None
                         else (
                             "\n".join(
                                 str(segment.content_text or "").strip()
                                 for segment in (complete_rhythm or [])
                                 if str(segment.content_text or "").strip()
                             )
-                            or normalized_user_message
                         )
+                    )
+                    outcome_text, outcome_kind = model_context_terminal_outcome(
+                        status=terminal_status,
+                        visible_text=visible_text,
+                        error_text=terminal_error,
                     )
                     await self._promote_model_context_run_with_connection(
                         db,
@@ -225,10 +233,10 @@ class ChatDeliveryFailurePersistenceMixin:
                         run_id=effective_run_id,
                         turn_id=normalized_turn_id,
                         outcome_text=outcome_text,
-                        outcome_kind="assistant",
+                        outcome_kind=outcome_kind,
                         persona_id=(
-                            accepted_message.persona_id
-                            if accepted_message is not None
+                            visible_final.persona_id
+                            if visible_final is not None
                             else next(
                                 (
                                     segment.persona_id

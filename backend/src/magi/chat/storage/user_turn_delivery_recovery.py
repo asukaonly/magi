@@ -13,7 +13,10 @@ from ..contracts import (
     CHAT_DELIVERY_STATE_TERMINAL,
 )
 from ..rhythm_completion import complete_rhythm_payloads
-from ..terminal_outcomes import model_context_terminal_outcome
+from ..terminal_outcomes import (
+    PRE_SUCCESS_TERMINAL_CHAT_STATUSES,
+    model_context_terminal_outcome,
+)
 from .user_turn_delivery_errors import ChatTurnConflictError
 from .user_turn_delivery_rows import normalize_delivery_attempt_no
 
@@ -128,8 +131,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                 has_terminal_surface = (
                     has_visible_final
                     or has_complete_rhythm
-                    or turn_status
-                    in {"blocked", "cancelled", "failed", "merged", "interrupted"}
+                    or turn_status in PRE_SUCCESS_TERMINAL_CHAT_STATUSES
                     or (
                         turn_status == "completed"
                         and run_disposition != "message"
@@ -389,13 +391,17 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                     return False
                 effective_run_id = str(turn["run_id"] or "").strip()
                 if effective_run_id:
+                    outcome_text, outcome_kind = model_context_terminal_outcome(
+                        status="failed",
+                        error_text="Accepted user turn could not be recovered",
+                    )
                     await self._promote_model_context_run_with_connection(
                         db,
                         session_id=session_id,
                         run_id=effective_run_id,
                         turn_id=normalized_turn_id,
-                        outcome_text=normalized_user_message,
-                        outcome_kind="assistant",
+                        outcome_text=outcome_text,
+                        outcome_kind=outcome_kind,
                         persona_id=None,
                         completed_at_ms=int(updated_at_ms),
                     )

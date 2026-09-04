@@ -798,7 +798,14 @@ Cancellation and delivery recovery use the same canonical terminal-outcome
 mapping. Recovery may close an unfinished delivery ledger, but it must not
 reinterpret a terminal error surface as assistant history. Each turn owns at
 most one accepted outcome item, regardless of whether recovery repeats the
-promotion boundary.
+promotion boundary. Pipeline exception finalization follows the same rule: an
+already-durable complete assistant surface may still be accepted, but a newly
+created retry/error surface closes the turn as `failed` and promotes only a
+runtime outcome. Corrupt-delivery quarantine also promotes a failed runtime
+outcome rather than replaying either the retry copy or the original user text
+as assistant history. Backend chat reconciliation imports its unsuccessful
+terminal vocabulary from this canonical outcome boundary instead of maintaining
+local status subsets.
 
 Terminal promotion canonicalizes the provider-neutral
 transcript at this ownership boundary: an assistant tool-call message survives

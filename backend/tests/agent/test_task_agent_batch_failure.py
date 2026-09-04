@@ -66,6 +66,7 @@ async def _create_admitted_turn(
     turn_id: str,
     delivery_attempt_no: int = 0,
     runtime_command_id: int = 101,
+    run_id: str | None = None,
 ) -> None:
     await store.create_user_turn(
         session_id=session_id,
@@ -73,6 +74,7 @@ async def _create_admitted_turn(
         turn_id=turn_id,
         message_text=f"message for {turn_id}",
         created_at_ms=100,
+        run_id=run_id,
         runtime_envelope={
             "source": "api",
             "user_id": "user-1",
@@ -415,10 +417,12 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     turn_id = f"turn-failure-{fail_stage}"
+    run_id = f"run-{fail_stage}"
     await _create_admitted_turn(
         store,
         session_id="session-failure",
         turn_id=turn_id,
+        run_id=run_id,
     )
     agent = _FailingPipelineChatAgent(
         fail_stage=fail_stage,
@@ -428,7 +432,7 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
         "session-failure",
         root_turn_id=turn_id,
         root_user_message=f"message for {turn_id}",
-        run_id=f"run-{fail_stage}",
+        run_id=run_id,
     )
     fact = _fact(session_id="session-failure", turn_id=turn_id)
 
@@ -454,7 +458,7 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
     assert delivery.current_command_id == 101
     assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
     assert turn is not None
-    assert turn.status == "completed"
+    assert turn.status == "failed"
     assert turn.completed_at_ms is not None
     assert final is not None
     assert final.is_visible is True
@@ -466,6 +470,21 @@ async def test_chat_pipeline_failure_writes_retryable_terminal_surface(
         "stage": recorded_stage,
         "delivery_attempt_no": 0,
         "runtime_command_id": 101,
+    }
+    model_context = await store.load_model_context(session_id="session-failure")
+    accepted_outcomes = [
+        item
+        for item in model_context.items
+        if bool(item.metadata.get("accepted_outcome"))
+        and item.metadata.get("origin_turn_id") == turn_id
+    ]
+    assert len(accepted_outcomes) == 1
+    assert accepted_outcomes[0].message["role"] == "user"
+    assert str(accepted_outcomes[0].message["content"]).startswith(
+        "[Runtime outcome] The turn ended with status 'failed'"
+    )
+    assert final.content_text not in {
+        str(item.message.get("content") or "") for item in model_context.items
     }
     assert agent.get_stats()["failed"] == 1
 
@@ -514,6 +533,9 @@ async def test_budget_failure_writes_execution_limit_terminal_surface(
     assert final is not None
     assert "execution limit" in str(final.content_text)
     assert "Send it again" not in str(final.content_text)
+    turn = await store.get_turn(turn_id)
+    assert turn is not None
+    assert turn.status == "failed"
 
 
 @pytest.mark.asyncio
@@ -744,6 +766,7 @@ async def test_pipeline_failure_preserves_already_persisted_final_response(
         store,
         session_id="session-failure",
         turn_id=turn_id,
+        run_id="run-persisted-final",
     )
     turn = await store.get_turn(turn_id)
     assert turn is not None
@@ -799,11 +822,60 @@ async def test_pipeline_failure_preserves_already_persisted_final_response(
     assert delivery is not None
     assert delivery.delivery_state == CHAT_DELIVERY_STATE_TERMINAL
     assert completed_turn is not None
+    assert completed_turn.status == "completed"
     assert completed_turn.response_mode == "interim_then_final"
     assert [message.message_id for message in visible_finals] == ["msg-existing-final"]
     assert visible_finals[0].content_text == "The answer was already saved."
     assert "delivery_failure" not in json.loads(visible_finals[0].payload_json)
+    model_context = await store.load_model_context(session_id="session-failure")
+    accepted_outcomes = [
+        item
+        for item in model_context.items
+        if bool(item.metadata.get("accepted_outcome"))
+        and item.metadata.get("origin_turn_id") == turn_id
+    ]
+    assert len(accepted_outcomes) == 1
+    assert accepted_outcomes[0].message == {
+        "role": "assistant",
+        "content": "The answer was already saved.",
+    }
     assert agent._session_run_coordinator.get_active_run("session-failure") is None
+
+
+@pytest.mark.parametrize("status", ["failed", "blocked"])
+@pytest.mark.asyncio
+async def test_reconcile_finished_active_run_clears_unsuccessful_terminal_turn(
+    runtime_paths_with_schema,
+    status: str,
+) -> None:
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.initialize()
+    session_id = f"session-reconcile-{status}"
+    turn_id = f"turn-reconcile-{status}"
+    await _create_admitted_turn(
+        store,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    turn = await store.get_turn(turn_id)
+    assert turn is not None
+    turn.status = status
+    await store.upsert_turn(turn)
+    agent = ChatTaskAgent(
+        agent_id=session_id,
+        llm_adapter=_FakeLLMAdapter(),
+        chat_store=store,
+    )
+    agent._session_run_coordinator._run_store.create_active_run(
+        session_id,
+        root_turn_id=turn_id,
+        root_user_message=f"message for {turn_id}",
+        run_id=f"run-reconcile-{status}",
+    )
+
+    await agent._reconcile_finished_active_run(session_id)
+
+    assert agent._session_run_coordinator.get_active_run(session_id) is None
 
 
 @pytest.mark.asyncio
