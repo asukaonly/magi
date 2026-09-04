@@ -60,6 +60,15 @@ def _make_memory(**stores):
     return mem
 
 
+def _make_entity_catalog():
+    """Build an entity resolver without inventing optional vector capabilities."""
+    catalog = MagicMock()
+    catalog.resolve_query_entities = AsyncMock()
+    catalog.embedding_service = None
+    catalog.edge_vector_index = None
+    return catalog
+
+
 def _make_l1_store(events=None):
     """Build a properly mocked L1 store for triple-path L1Handler."""
     import tempfile
@@ -683,7 +692,7 @@ class TestServiceLayerRouting:
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
-        entity_catalog = AsyncMock()
+        entity_catalog = _make_entity_catalog()
         entity_catalog.resolve_query_entities.return_value = [
             {
                 "entity_id": "place:shanghai",
@@ -767,7 +776,7 @@ class TestServiceLayerRouting:
             {"assertion_id": "assert-1", "entity_id": "user:u1"}
         ]
         l2.list_current_relationships.return_value = []
-        entity_catalog = AsyncMock()
+        entity_catalog = _make_entity_catalog()
         entity_catalog.resolve_query_entities.return_value = [
             {
                 "entity_id": "weather_state:rainy-hangzhou",
@@ -829,7 +838,7 @@ class TestServiceLayerRouting:
         ]
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
-        entity_catalog = AsyncMock()
+        entity_catalog = _make_entity_catalog()
         entity_catalog.resolve_query_entities.return_value = [
             {
                 "entity_id": "place:shanghai",
@@ -1047,7 +1056,7 @@ class TestServiceLayerRouting:
             {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
         ]
         l2.list_current_assertions.return_value = []
-        entity_catalog = AsyncMock()
+        entity_catalog = _make_entity_catalog()
         entity_catalog.resolve_query_entities.return_value = [
             {
                 "entity_id": "place:abc123",
@@ -1094,7 +1103,7 @@ class TestServiceLayerRouting:
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
-        entity_catalog = AsyncMock()
+        entity_catalog = _make_entity_catalog()
         entity_catalog.resolve_query_entities.return_value = [
             {
                 "entity_id": "place:abc123",
