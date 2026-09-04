@@ -120,13 +120,11 @@ class EventCancelToken:
 class SessionRunCancelToken:
     """A CancelToken bound to a single ``(session_id, run_id, revision)``.
 
-    Mirrors the semantics of the former ``_build_cancel_checker`` callable:
-    returns ``True`` only when
-    :meth:`SessionRunCoordinator.get_run_status` reports the *exact* run
-    we were bound to is ``cancelling`` or ``cancelled``. In every other
-    case (superseded revision, replaced run_id, cleared active run) it
-    returns ``False`` so the old tool-loop is allowed to finish naturally
-    and its result is later flagged stale by
+    The token latches when the coordinator reports that exact run as
+    ``cancelling`` or ``cancelled``, or when the session lifecycle explicitly
+    cancels its registered control. Once latched it remains observable after
+    process-local run cleanup. An unrelated replacement or revision mismatch
+    does not cancel an unlatched token; that stale result is still rejected by
     :meth:`SessionRunCoordinator.record_result`.
     """
 
