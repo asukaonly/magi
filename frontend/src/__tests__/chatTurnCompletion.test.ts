@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ChatTimelineMessage } from '@/domain/chat/state';
+import { normalizeTerminalRunState } from '@/domain/chat/run-state';
 import {
   findLatestPendingResponseTurn,
   getNextRhythmPresentationAt,
@@ -37,6 +38,11 @@ describe('chat turn completion', () => {
       expect(isPendingRunState(state)).toBe(true);
     },
   );
+
+  it('returns the canonical terminal state after transport normalization', () => {
+    expect(normalizeTerminalRunState('  BLOCKED ')).toBe('blocked');
+    expect(normalizeTerminalRunState('running')).toBeNull();
+  });
 
   it('recognizes a no-visible-response turn from its durable run state', () => {
     expect(isTurnDurablyTerminal([

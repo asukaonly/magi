@@ -10,6 +10,7 @@ import type {
 import {
   isTerminalRunState,
   normalizeRunState,
+  normalizeTerminalRunState,
 } from './run-state';
 
 type ExecutionActionProjectionInput = {
@@ -99,9 +100,7 @@ export const getExecutionActionState = (
   const traceStatus = normalizeRunState(message.traceSummary?.status) || 'running';
   const backendRunState = normalizeRunState(message.runState?.state);
   const executionControlState = normalizeRunState(executionControl?.state);
-  const terminalBackendRunState = isTerminalRunState(backendRunState)
-    ? backendRunState
-    : '';
+  const terminalBackendRunState = normalizeTerminalRunState(backendRunState) || '';
   const optimisticState = turnId && detachingTurnIds.includes(turnId)
     ? 'detaching'
     : turnId && cancellingTurnIds.includes(turnId)
@@ -160,6 +159,7 @@ export const projectExecutionProgressPresentation = (
   const traceSummary = message.traceSummary;
   const planSummary = traceSummary?.planSummary;
   const executionState = executionActionState.executionState;
+  const terminalState = normalizeTerminalRunState(executionState);
   const completedSteps = traceSummary?.completedSteps || 0;
   const activeSteps = traceSummary?.activeSteps || 0;
   const failedSteps = traceSummary?.failedSteps || 0;
@@ -207,7 +207,7 @@ export const projectExecutionProgressPresentation = (
         return createExecutionTranslationDescriptor('chat.trace.execution.runningBody');
     }
   })();
-  const statusTitle = isTerminalRunState(executionState)
+  const statusTitle = terminalState
     ? null
     : normalizeExecutionDisplayLabel(executionActionState.executionControl?.label)
       || (executionState === 'running'
@@ -343,9 +343,7 @@ export const projectExecutionProgressPresentation = (
     footer,
     planStage,
     showBubbleTitle: variant === 'card' || (!runningBubbleUsesMessageText && statusTitle !== contentText),
-    indicator: isTerminalRunState(executionState)
-      ? executionState
-      : 'progress',
+    indicator: terminalState || 'progress',
     showSpinningIndicator: executionState === 'running' || executionState === 'cancelling' || executionState === 'detaching',
     traceStats: traceSummary
       ? {
