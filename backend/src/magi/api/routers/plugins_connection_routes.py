@@ -16,6 +16,7 @@ from ...plugins.connection_settings import connection_fields, validate_connectio
 from ...plugins.operation_execution import run_plugin_lifecycle_operation
 from .plugins_common import _require_package
 from .plugins_core_routes import _refresh_channels_after_plugin_change
+from .plugins_schemas import PluginPackageResponse
 
 class _ConnectionRoute(APIRoute):
     """Keep write-only credential values out of request validation responses."""
@@ -65,6 +66,11 @@ class ConnectionUpdateRequest(BaseModel):
 class ConnectionRevisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0, strict=True)
+
+
+class PackageTrustRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_package_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 def _manager(plugin_id: str):
@@ -189,3 +195,16 @@ async def clear_plugin_connection_content(
     connection = await _execute(operation)
     await _refresh_channels_after_plugin_change(plugin_id, "connection_content_cleared")
     return connection
+
+
+@plugins_connection_router.post("/{plugin_id}/trust", response_model=PluginPackageResponse)
+async def authorize_plugin_package(plugin_id: str, request: PackageTrustRequest) -> PluginPackageResponse:
+    """Authorize the reviewed package without starting any connection worker."""
+    from .plugins_serialization import _serialize_package
+
+    def operation():
+        manager, _ = _require_package(plugin_id)
+        return manager.authorize_package(plugin_id, request.expected_package_sha256)
+
+    state = await _execute(operation)
+    return _serialize_package(state)

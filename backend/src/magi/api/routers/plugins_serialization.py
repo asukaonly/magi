@@ -446,6 +446,9 @@ def _serialize_activation_flow(
 
 def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPackageResponse:
     i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
+    if packages is None:
+        packages = get_config().plugins.packages
+    package_config = packages.get(state.manifest.plugin_id)
 
     return PluginPackageResponse(
         manifest=_serialize_manifest(
@@ -455,6 +458,7 @@ def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPac
         ),
         enabled=state.enabled,
         trusted=state.trusted,
+        package_sha256=getattr(package_config, "package_sha256", None),
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,
@@ -505,6 +509,7 @@ def _serialize_package_lightweight(
         ),
         enabled=state.enabled,
         trusted=state.trusted,
+        package_sha256=getattr(packages.get(manifest.plugin_id), "package_sha256", None),
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,

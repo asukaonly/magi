@@ -171,6 +171,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     },
     "plugins": {
         "/{plugin_id}/connections": {"GET", "POST"},
+        "/{plugin_id}/trust": {"POST"},
         "/{plugin_id}/connections/{connection_id}": {"GET", "PATCH", "DELETE"},
         "/{plugin_id}/connections/{connection_id}/clear": {"POST"},
         "": {"GET"},

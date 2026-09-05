@@ -7,9 +7,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ...plugins.contracts import (
+    ActivationFlowSpec,
+    ExtensionFieldSpec,
     PluginCapability,
     PluginDisplayGroupSpec,
     PluginIdentifier,
+    PluginSettingsActionSpec,
+    PluginSettingsResourceSpec,
+    SettingsUIBlockSpec,
 )
 
 
@@ -68,6 +73,7 @@ class PluginPackageResponse(BaseModel):
     manifest: PluginManifestResponse
     enabled: bool
     trusted: bool
+    package_sha256: str | None = None
     loaded: bool
     healthy: bool
     last_error: str | None = None
@@ -84,6 +90,14 @@ class PluginSettingsResourceResponse(BaseModel):
 
 
 class PluginRegistryEntryResponse(BaseModel):
+    protocol_version: Literal[2]
+    execution_mode: Literal["restricted_process", "trusted_process"]
+    min_sdk_version: str
+    settings_fields: list[ExtensionFieldSpec] = Field(default_factory=list)
+    activation_flow: ActivationFlowSpec | None = None
+    settings_actions: list[PluginSettingsActionSpec] = Field(default_factory=list)
+    settings_resources: list[PluginSettingsResourceSpec] = Field(default_factory=list)
+    settings_ui_blocks: list[SettingsUIBlockSpec] = Field(default_factory=list)
     plugin_id: str
     name: str
     name_i18n: dict[str, str] = Field(default_factory=dict)
@@ -97,7 +111,6 @@ class PluginRegistryEntryResponse(BaseModel):
     data_locality: str = ""
     contribution_types: list[str] = Field(default_factory=list)
     platforms: list[str] = Field(default_factory=list)
-    min_sdk_version: str = ""
     homepage: str = ""
     repository: str = ""
     path: str = ""

@@ -147,3 +147,19 @@ def test_legacy_package_account_routes_are_absent():
     public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
     paths = {route.path for route in public.routes}
     assert not {"/{plugin_id}/settings", "/{plugin_id}/enable", "/{plugin_id}/disable"} & paths
+
+
+def test_public_package_authorization_binds_reviewed_digest(api, monkeypatch):
+    from unittest.mock import Mock
+    from magi_plugin_sdk import PluginManifest, PluginPackageState
+
+    client, store, package = api
+    manager, _ = routes._require_package("example")
+    manager.authorize_package = Mock(return_value=PluginPackageState(
+        manifest=PluginManifest(id="example", name="Example", version="0.2.0"), trusted=True,
+    ))
+    response = client.post("/api/plugins/example/trust", json={"expected_package_sha256": "a" * 64})
+    assert response.status_code == 200
+    manager.authorize_package.assert_called_once_with("example", "a" * 64)
+    assert not store.list()
+    assert client.post("/api/plugins/example/trust", json={}).status_code == 422
