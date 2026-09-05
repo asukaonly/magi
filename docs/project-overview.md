@@ -24,6 +24,7 @@ Current release expectations are:
 - `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
+- frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and Python sidecar exactly once before producing the desktop bundle
 - release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment

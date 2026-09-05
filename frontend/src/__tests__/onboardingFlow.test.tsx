@@ -2378,7 +2378,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("prevents a timed-out seed request from activating an obsolete selection later", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    const originalSetTimeout = window.setTimeout.bind(window);
+    const originalSetTimeout = globalThis.setTimeout;
     vi.spyOn(window, "setTimeout").mockImplementation(
       (handler, timeout, ...args) =>
         originalSetTimeout(handler, timeout === 15_000 ? 0 : timeout, ...args),

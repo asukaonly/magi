@@ -23,10 +23,6 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
-      globals: {
-        ...globals.browser,
-        ...globals.node,
-      },
       parserOptions: {
         ecmaFeatures: {
           jsx: true,
@@ -47,6 +43,18 @@ export default defineConfig([
       '@typescript-eslint/ban-ts-comment': 'off',
       'no-case-declarations': 'off',
       'preserve-caught-error': 'off',
+    },
+  },
+  {
+    files: ['src/**/*.{js,ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+  },
+  {
+    files: ['*.{js,mjs,cjs,ts}', 'scripts/**/*.{js,mjs,cjs,ts}', 'src/**/__tests__/**/*.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ]);
