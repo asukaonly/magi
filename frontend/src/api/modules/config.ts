@@ -406,36 +406,6 @@ export interface TestLLMProviderConnectionResponse {
 // Re-export PersonalityConfig from personality module
 export type { PersonalityConfig };
 
-export interface WeatherToolConfig {
-  enabled: boolean;
-  provider: 'openmeteo' | 'qweather';
-  apiKey?: string;
-  apiUrl?: string;
-}
-
-export interface WebSearchToolConfig {
-  enabled: boolean;
-  provider: 'duckduckgo' | 'brave' | 'perplexity' | 'searxng' | 'tavily';
-  apiKey?: string;
-  apiUrl?: string;
-}
-
-export interface WebFetchToolConfig {
-  enabled: boolean;
-  allowRfc2544BenchmarkRange: boolean;
-  allowPrivateNetworkFetch?: boolean;
-  privateNetworkAllowlist?: string[];
-}
-
-export interface ToolsConfig {
-  builtIn: {
-    weather: WeatherToolConfig;
-    webSearch: WebSearchToolConfig;
-    webFetch: WebFetchToolConfig;
-  };
-  skills: string[];
-}
-
 export interface MemoryL0Config {
   enabled: boolean;
   checkpoint_interval_seconds: number;
@@ -565,7 +535,7 @@ export interface SystemConfig {
   diagnostics: DiagnosticsConfig;
   personality: PersonalityConfig;
   personalitySettings: PersonalitySettingsConfig;
-  tools: ToolsConfig;
+  skills: string[];
   timeline: TimelineConfig;
 }
 
@@ -835,19 +805,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
   personality: DEFAULT_PERSONALITY_CONFIG,
   personalitySettings: DEFAULT_PERSONALITY_SETTINGS_CONFIG,
-  tools: {
-    builtIn: {
-      weather: { enabled: true, provider: 'openmeteo' },
-      webSearch: { enabled: true, provider: 'duckduckgo' },
-      webFetch: {
-        enabled: true,
-        allowRfc2544BenchmarkRange: true,
-        allowPrivateNetworkFetch: false,
-        privateNetworkAllowlist: [],
-      },
-    },
-    skills: [],
-  },
+  skills: [],
   timeline: {
     sources: {
       photo_library: {

@@ -374,9 +374,6 @@ export function usePersonaGenerationController({
       await retryPersonaAfterEnablingCompatibility({
         pendingRetry,
         isActive: () => isActiveOperation(operationId),
-        unknownFailureMessage: t(
-          "personaPreview.generationFailedUnknown",
-        ),
         verifyDraft: (draft) =>
           verifyDraftReference(draft, operationId),
         runGeneration: (draft, intent) =>

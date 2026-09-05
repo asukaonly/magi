@@ -10,7 +10,7 @@ import {
   buildPreviewHistory,
   PREVIEW_HISTORY_TURN_LIMIT,
 } from '../components/onboarding/persona-preview/personaPreviewModel';
-import { configApi, DEFAULT_SYSTEM_CONFIG } from '../api/modules/config';
+import { toolsApi } from '../api/modules/tools';
 import { personasApi, type SeedPreview, type PersonalityConfig } from '../api/modules/personas';
 
 vi.mock('react-i18next', () => ({
@@ -948,17 +948,9 @@ describe('PersonaPreviewChat', () => {
         data: makeGeneratedConfig(),
         stages: [],
       } as any);
-    const configSnapshot = structuredClone(DEFAULT_SYSTEM_CONFIG);
-    configSnapshot.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = false;
-    const getConfigSpy = vi.spyOn(configApi, 'get').mockResolvedValue({
+    const updateToolSpy = vi.spyOn(toolsApi, 'updateToolConfig').mockResolvedValue({
       success: true,
       message: 'ok',
-      data: configSnapshot,
-    });
-    const updateConfigSpy = vi.spyOn(configApi, 'update').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: configSnapshot,
     });
 
     renderPersonaPreview({ previews, stayInPicker: true });
@@ -973,19 +965,9 @@ describe('PersonaPreviewChat', () => {
       name: 'settings.fakeIpCompatibilityEnableRetry',
     }));
 
-    await waitFor(() => expect(getConfigSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(updateConfigSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tools: expect.objectContaining({
-          builtIn: expect.objectContaining({
-            webFetch: expect.objectContaining({
-              allowRfc2544BenchmarkRange: true,
-              allowPrivateNetworkFetch: false,
-            }),
-          }),
-        }),
-      }),
-    ));
+    await waitFor(() => expect(updateToolSpy).toHaveBeenCalledWith('web-fetch', {
+      updates: { allow_rfc2544_benchmark_range: true },
+    }));
     await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(2));
     expect(screen.queryByTestId('persona-fake-ip-compatibility')).not.toBeInTheDocument();
   });

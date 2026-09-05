@@ -254,8 +254,7 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     updates["diagnostics"] = config.diagnostics.model_dump(mode="json")
     updates.update(_personality_update_paths(config, personality_settings))
     updates.update(_timeline_update_paths(config))
-    updates.update(_tool_update_paths(config))
-    updates.update(_tool_provider_update_paths(config))
+    updates["tools.skills"] = config.skills
     return updates
 
 
@@ -438,56 +437,6 @@ def _timeline_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     return {
         "timeline": prune_sparse_value(config.timeline.model_dump(exclude_none=True)),
     }
-
-
-def _tool_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
-    return {
-        "tools.builtIn": prune_sparse_value(config.tools.builtIn.model_dump(exclude_none=True)),
-        "tools.skills": config.tools.skills,
-        "tools.weather.enabled": config.tools.builtIn.weather.enabled,
-        "tools.weather.default_provider": config.tools.builtIn.weather.provider,
-        "tools.web_search.enabled": config.tools.builtIn.webSearch.enabled,
-        "tools.web_search.default_provider": config.tools.builtIn.webSearch.provider,
-        "tools.web_fetch.enabled": config.tools.builtIn.webFetch.enabled,
-        "tools.web_fetch.allow_rfc2544_benchmark_range": (
-            config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange
-        ),
-        "tools.web_fetch.allow_private_network": config.tools.builtIn.webFetch.allowPrivateNetworkFetch,
-        "tools.web_fetch.private_network_allowlist": config.tools.builtIn.webFetch.privateNetworkAllowlist,
-    }
-
-
-def _tool_provider_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
-    updates: Dict[str, Any] = {}
-    if (
-        config.tools.builtIn.weather.provider == "qweather"
-        and config.tools.builtIn.weather.apiKey is not None
-    ):
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.api_key"] = (
-            config.tools.builtIn.weather.apiKey
-        )
-    if (
-        config.tools.builtIn.weather.provider == "qweather"
-        and config.tools.builtIn.weather.apiUrl is not None
-    ):
-        updates[f"tools.weather.providers.{config.tools.builtIn.weather.provider}.base_url"] = (
-            config.tools.builtIn.weather.apiUrl
-        )
-    if (
-        config.tools.builtIn.webSearch.provider in {"brave", "perplexity", "tavily"}
-        and config.tools.builtIn.webSearch.apiKey is not None
-    ):
-        updates[f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.api_key"] = (
-            config.tools.builtIn.webSearch.apiKey
-        )
-    if (
-        config.tools.builtIn.webSearch.provider in {"duckduckgo", "searxng"}
-        and config.tools.builtIn.webSearch.apiUrl is not None
-    ):
-        updates[
-            f"tools.web_search.providers.{config.tools.builtIn.webSearch.provider}.base_url"
-        ] = config.tools.builtIn.webSearch.apiUrl
-    return updates
 
 
 __all__ = [

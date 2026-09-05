@@ -238,7 +238,6 @@ def test_onboarding_completion_preserves_unrelated_settings(
     payload.preferences.product_tour_completed = False
     payload.memory.retention_days = 777
     payload.network.host = "should-not-be-saved.example"
-    payload.tools.builtIn.webFetch.enabled = False
 
     monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
     monkeypatch.setattr(

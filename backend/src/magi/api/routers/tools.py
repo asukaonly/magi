@@ -187,6 +187,11 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
         current_values.update(_provider_current_values(config.tools.web_search.providers, config_specs_raw))
     elif tool_name == "web-fetch":
         tool_enabled = config.tools.web_fetch.enabled
+        current_values.update({
+            "allow_rfc2544_benchmark_range": config.tools.web_fetch.allow_rfc2544_benchmark_range,
+            "allow_private_network": config.tools.web_fetch.allow_private_network,
+            "private_network_allowlist": list(config.tools.web_fetch.private_network_allowlist),
+        })
 
     return ToolConfigResponse(
         name=tool_name,
@@ -370,7 +375,7 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
             "updated_keys": list(request.updates.keys()),
         }
 
-    return {
-        "success": False,
-        "message": core_i18n.t("tools.config.save_failed", fallback="Failed to save configuration"),
-    }
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=core_i18n.t("tools.config.save_failed", fallback="Failed to save configuration"),
+    )

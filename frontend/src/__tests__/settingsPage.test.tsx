@@ -636,6 +636,23 @@ const toolsFixture = {
       },
     },
     {
+      name: 'web-fetch',
+      display_name: 'Web Fetch',
+      description: 'Web fetch tool',
+      category: 'builtin',
+      version: '1.0.0',
+      enabled: true,
+      is_ready: true,
+      is_multi_provider: false,
+      providers: [],
+      config_specs: [],
+      current_values: {
+        allow_rfc2544_benchmark_range: true,
+        allow_private_network: false,
+        private_network_allowlist: [],
+      },
+    },
+    {
       name: 'browser-automation',
       display_name: 'Browser Automation',
       description: 'Plugin-provided browser automation tool',
@@ -649,7 +666,7 @@ const toolsFixture = {
       current_values: {},
     },
   ],
-  total: 3,
+  total: 4,
 };
 
 const skillsFixture = [
@@ -1019,33 +1036,43 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('defaults TUN fake-IP compatibility on and can disable it independently', async () => {
+  it('saves web-fetch compatibility through tools and preserves it when saving ordinary settings', async () => {
     const user = userEvent.setup();
+    const persistedTools = structuredClone(toolsFixture);
+    vi.mocked(toolsApi.listWithConfig).mockImplementation(async () => structuredClone(persistedTools) as any);
+    vi.mocked(toolsApi.updateToolConfig).mockImplementation(async (toolName, payload) => {
+      const tool = persistedTools.tools.find((item) => item.name === toolName)!;
+      Object.assign(tool.current_values, payload.updates);
+      return { success: true, message: 'ok' };
+    });
     render(<SettingsPage />);
 
-    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
-    const compatibilitySwitch = screen.getByRole('switch', {
+    const compatibilitySwitch = await screen.findByRole('switch', {
       name: 'settings.fakeIpCompatibility',
     });
+    await waitFor(() => expect(compatibilitySwitch).toBeEnabled());
     expect(compatibilitySwitch).toHaveAttribute('data-state', 'checked');
 
     await user.click(compatibilitySwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(toolsApi.updateToolConfig).toHaveBeenCalledWith('web-fetch', {
+      updates: { allow_rfc2544_benchmark_range: false },
+      enabled: undefined,
+    }));
+    await waitFor(() => expect(screen.queryByText('settings.pendingChanges')).not.toBeInTheDocument());
+    expect(configApi.update).not.toHaveBeenCalled();
 
-    await waitFor(() =>
-      expect(configApi.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tools: expect.objectContaining({
-            builtIn: expect.objectContaining({
-              webFetch: expect.objectContaining({
-                allowRfc2544BenchmarkRange: false,
-                allowPrivateNetworkFetch: false,
-              }),
-            }),
-          }),
-        })
-      )
-    );
+    await user.click(screen.getByRole('switch', { name: 'settings.closeToTrayLabel' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(configApi.update).mock.calls[0][0]).not.toHaveProperty('tools');
+    expect(toolsApi.updateToolConfig).toHaveBeenCalledTimes(1);
+    expect(compatibilitySwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(persistedTools.tools.find((item) => item.name === 'web-fetch')?.current_values).toMatchObject({
+      allow_rfc2544_benchmark_range: false,
+      allow_private_network: false,
+      private_network_allowlist: [],
+    });
   });
 
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {

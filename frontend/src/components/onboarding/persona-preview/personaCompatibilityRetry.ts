@@ -1,4 +1,4 @@
-import { configApi } from "../../../api/modules/config";
+import { toolsApi } from "../../../api/modules/tools";
 import type {
   FakeIpCompatibilityRetry,
   PersonaCreationDraft,
@@ -8,7 +8,6 @@ import { buildGenerationIntent } from "./personaPreviewModel";
 interface RetryPersonaCompatibilityOptions {
   pendingRetry: FakeIpCompatibilityRetry;
   isActive: () => boolean;
-  unknownFailureMessage: string;
   verifyDraft: (
     draft: PersonaCreationDraft,
   ) => Promise<PersonaCreationDraft | null>;
@@ -25,19 +24,14 @@ interface RetryPersonaCompatibilityOptions {
 export async function retryPersonaAfterEnablingCompatibility({
   pendingRetry,
   isActive,
-  unknownFailureMessage,
   verifyDraft,
   runGeneration,
   clearRetry,
 }: RetryPersonaCompatibilityOptions): Promise<void> {
-  const response = await configApi.get();
   if (!isActive()) return;
-  if (!response.data) {
-    throw new Error(unknownFailureMessage);
-  }
-  const nextConfig = structuredClone(response.data);
-  nextConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = true;
-  await configApi.update(nextConfig);
+  await toolsApi.updateToolConfig("web-fetch", {
+    updates: { allow_rfc2544_benchmark_range: true },
+  });
   if (!isActive()) return;
   clearRetry();
 

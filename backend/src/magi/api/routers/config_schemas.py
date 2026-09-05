@@ -301,38 +301,6 @@ class PersonalitySettingsModel(BaseModel):
         return self
 
 
-class WeatherToolConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    provider: str = Field(default="openmeteo")
-    apiKey: Optional[str] = Field(default=None)
-    apiUrl: Optional[str] = Field(default=None)
-
-
-class WebSearchToolConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    provider: str = Field(default="duckduckgo")
-    apiKey: Optional[str] = Field(default=None)
-    apiUrl: Optional[str] = Field(default=None)
-
-
-class WebFetchToolConfigModel(BaseModel):
-    enabled: bool = Field(default=True)
-    allowRfc2544BenchmarkRange: bool = Field(default=True)
-    allowPrivateNetworkFetch: bool = Field(default=False)
-    privateNetworkAllowlist: List[str] = Field(default_factory=list)
-
-
-class BuiltInToolsConfigModel(BaseModel):
-    weather: WeatherToolConfigModel = Field(default_factory=WeatherToolConfigModel)
-    webSearch: WebSearchToolConfigModel = Field(default_factory=WebSearchToolConfigModel)
-    webFetch: WebFetchToolConfigModel = Field(default_factory=WebFetchToolConfigModel)
-
-
-class ToolsConfigModel(BaseModel):
-    builtIn: BuiltInToolsConfigModel = Field(default_factory=BuiltInToolsConfigModel)
-    skills: List[str] = Field(default_factory=list)
-
-
 class TimelineSourceConfigModel(BaseModel):
     enabled: bool = Field(default=True)
     sync_mode: str = Field(default="interval")
@@ -376,7 +344,7 @@ class SystemConfigModel(BaseModel):
     diagnostics: DiagnosticsConfigModel = Field(default_factory=DiagnosticsConfigModel)
     personality: FullPersonalityConfigModel = Field(default_factory=FullPersonalityConfigModel)
     personalitySettings: PersonalitySettingsModel = Field(default_factory=PersonalitySettingsModel)
-    tools: ToolsConfigModel = Field(default_factory=ToolsConfigModel)
+    skills: List[str] = Field(default_factory=list)
     timeline: TimelineConfigModel = Field(default_factory=TimelineConfigModel)
 
     @model_validator(mode="before")
