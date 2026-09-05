@@ -1,13 +1,7 @@
-"""Trigger seam (ADR-0004 P3): build RunTriggers from source signals.
+"""Build run provenance from native or external user-message sources.
 
-Standalone home for the ``source → RunTrigger`` classification that previously
-lived as private static methods on chat's ``SessionRunCoordinator``. Keeping it
-here (agent core, not chat) lets every surface — chat, scheduler, batch, inbound
-channels — build ``RunTrigger``s without importing chat.
-
-This is the first piece of the trigger seam: a pure, side-effect-free factory.
-The lifecycle/storage side (who holds the trigger, how it travels with a
-``RunRequest``) is addressed in later steps.
+Domain drivers carry the resulting trigger alongside their own request and
+persistence contracts before constructing the engine's AgentRunRequest.
 """
 from __future__ import annotations
 

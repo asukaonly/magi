@@ -13,7 +13,7 @@ from enum import Enum
 from time import time
 from typing import Any
 
-from magi_plugin_sdk.run_trigger import RunRequest, RunTrigger
+from magi_plugin_sdk.run_trigger import RunTrigger
 from uuid import uuid4
 
 
@@ -156,31 +156,6 @@ class BackgroundTaskSpec:
         checkpoint_run_id = str(checkpoint.get("run_id") or "").strip()
         if not checkpoint_run_id or checkpoint_run_id != self.run_id:
             raise ValueError("Background checkpoint must match the spec run_id")
-
-    def as_run_request(self) -> RunRequest:
-        """Project this background spec into a unified ``RunRequest`` (ADR-0004 P3).
-
-        The seam every driver shares: a ``RunRequest`` describes *what to run
-        and for whom* (trigger + input + session + bounds), independent of the
-        background-specific *how* (retry / snapshot / pending-message wiring)
-        that stays on the spec. Falls back to a ``background_resume`` trigger
-        when the spec predates trigger propagation.
-        """
-        trigger = self.trigger or RunTrigger(
-            trigger_type="background_resume",
-            source_channel=None,
-            requester=self.user_id,
-            priority="background",
-        )
-        return RunRequest(
-            trigger=trigger,
-            input={"goal": self.goal},
-            session_id=self.session_id,
-            bounds={
-                "max_iterations": self.max_iterations,
-                "timeout_seconds": self.timeout_seconds,
-            },
-        )
 
     def to_dict(self) -> dict[str, Any]:
         return {

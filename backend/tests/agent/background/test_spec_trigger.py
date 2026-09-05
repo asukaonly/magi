@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from magi_plugin_sdk.run_trigger import RunRequest, RunTrigger
+from magi_plugin_sdk.run_trigger import RunTrigger
 
 from magi.agent.background.contracts import BackgroundTaskSpec, BackgroundTaskTriggerSource
 
@@ -52,32 +52,6 @@ def test_batch_trigger_type_is_valid() -> None:
         priority="background",
     )
     assert t.trigger_type == "batch"
-
-
-def test_as_run_request_projects_spec() -> None:
-    """ADR-0004 P3: a BackgroundTaskSpec projects into a unified RunRequest
-    (what to run / for whom), leaving the background-specific how on the spec."""
-    trigger = RunTrigger(
-        trigger_type="scheduled",
-        source_channel="scheduler",
-        requester="u1",
-        priority="background",
-    )
-    spec = BackgroundTaskSpec(
-        user_id="u1",
-        session_id="s1",
-        origin_turn_id="t1",
-        title="x",
-        goal="do the thing",
-        trigger=trigger,
-        max_iterations=7,
-        timeout_seconds=900,
-    )
-    req = spec.as_run_request()
-    assert req.trigger is trigger
-    assert req.session_id == "s1"
-    assert req.input == {"goal": "do the thing"}
-    assert req.bounds == {"max_iterations": 7, "timeout_seconds": 900}
 
 
 @pytest.mark.parametrize(
@@ -144,15 +118,3 @@ def test_from_trigger_none_defaults_to_manual() -> None:
     # A run predating trigger propagation (no trigger) keeps the legacy detach
     # default of MANUAL.
     assert BackgroundTaskTriggerSource.from_trigger(None) is BackgroundTaskTriggerSource.MANUAL
-
-
-def test_as_run_request_falls_back_to_background_resume_trigger() -> None:
-    """A spec with no trigger (predating propagation) still projects to a valid
-    RunRequest, synthesizing a background_resume trigger."""
-    spec = BackgroundTaskSpec(
-        user_id="u9", session_id="s9", origin_turn_id="t9", title="x", goal="g"
-    )
-    req = spec.as_run_request()
-    assert isinstance(req, RunRequest)
-    assert req.trigger.trigger_type == "background_resume"
-    assert req.trigger.requester == "u9"

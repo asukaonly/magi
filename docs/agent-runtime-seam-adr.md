@@ -44,7 +44,9 @@ trigger
 
 Every run carries a typed `RunTrigger`, such as `user_message`,
 `external_inbound`, `scheduled`, or `batch`. A trigger identifies why work
-started; it does not choose an execution profile.
+started; it does not choose an execution profile. The SDK exports this
+provenance contract; domain drivers construct the engine-owned
+`AgentRunRequest` directly, without an intermediate SDK request carrier.
 
 ### 2. Domain driver
 
