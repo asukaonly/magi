@@ -65,7 +65,8 @@ vi.mock('@/realtime/tauri-bridge', () => ({
       };
     }
 
-    connect() {}
+    connect() { return Promise.resolve(); }
+    subscribeStatus() { return () => {}; }
 
     disconnect() {
       bridgeListener = null;

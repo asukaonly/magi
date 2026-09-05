@@ -1,77 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { asEventHandler } from '@/utils/as-event-handler';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useTranslation } from 'react-i18next';
 import { Minus, Square, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * Custom-drawn min/maximize/close buttons used on platforms where we hide
- * native window decorations (Windows, Linux). On macOS we keep the
- * native traffic lights and this component is not rendered.
- *
- * Imports the Tauri window API lazily so the same module is safe to load
- * in a plain browser dev preview.
- */
-
-type TauriWindow = {
-  minimize(): Promise<void>;
-  toggleMaximize(): Promise<void>;
-  close(): Promise<void>;
-};
-
-async function getWindow(): Promise<TauriWindow | null> {
-  try {
-    const mod = await import('@tauri-apps/api/window');
-    return mod.getCurrentWindow() as unknown as TauriWindow;
-  } catch {
-    return null;
-  }
-}
-
+/** Native window actions used by the Windows/Linux custom title bar. */
 export const AppWindowControls = ({ className }: { className?: string }) => {
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const win = await getWindow();
-      if (!cancelled) {
-        setReady(Boolean(win));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleMinimize = useCallback(async () => {
-    const win = await getWindow();
-    await win?.minimize();
-  }, []);
-
-  const handleToggleMaximize = useCallback(async () => {
-    const win = await getWindow();
-    await win?.toggleMaximize();
-  }, []);
-
-  const handleClose = useCallback(async () => {
-    const win = await getWindow();
-    await win?.close();
-  }, []);
-
-  if (!ready) {
-    // Reserve the layout slot even before the API binds so the rest of
-    // the title bar doesn't reflow.
-    return <div className={cn('flex h-full items-stretch', className)} aria-hidden="true" />;
-  }
-
+  const { t } = useTranslation('app');
   return (
     <div className={cn('flex h-full items-stretch', className)}>
-      <WindowButton onClick={handleMinimize} aria-label="Minimize">
+      <WindowButton onClick={asEventHandler(() => getCurrentWindow().minimize())} aria-label={t('shell.windowMinimize')}>
         <Minus className="h-3.5 w-3.5" />
       </WindowButton>
-      <WindowButton onClick={handleToggleMaximize} aria-label="Maximize">
+      <WindowButton onClick={asEventHandler(() => getCurrentWindow().toggleMaximize())} aria-label={t('shell.windowMaximize')}>
         <Square className="h-3 w-3" />
       </WindowButton>
-      <WindowButton onClick={handleClose} aria-label="Close" variant="close">
+      <WindowButton onClick={asEventHandler(() => getCurrentWindow().close())} aria-label={t('shell.windowClose')} variant="close">
         <X className="h-3.5 w-3.5" />
       </WindowButton>
     </div>

@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback } from 'react';
 import { isMacPlatform } from '@/lib/platform';
 import { cn } from '@/lib/utils';
@@ -42,7 +43,7 @@ export const DesktopTitleBar = ({
       return;
     }
 
-    try {
+    {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const window = getCurrentWindow();
       if (event.detail >= 2) {
@@ -50,8 +51,6 @@ export const DesktopTitleBar = ({
       } else {
         await window.startDragging();
       }
-    } catch {
-      // Keep browser previews usable when the Tauri window API is unavailable.
     }
   }, []);
 
@@ -64,7 +63,7 @@ export const DesktopTitleBar = ({
         'bg-[hsl(var(--app-chrome-surface))]',
         className,
       )}
-      onMouseDown={handleMouseDown}
+      onMouseDown={asEventHandler(handleMouseDown)}
     >
       <div className={cn('shrink-0', isMac ? 'w-[72px]' : 'w-3')} />
       {children ?? <div className="min-w-0 flex-1" />}

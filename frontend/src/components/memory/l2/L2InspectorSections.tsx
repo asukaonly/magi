@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React from 'react';
 import { Brain, Check, GitMerge, Network, Orbit, RefreshCcw, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -139,7 +140,7 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
                       size="icon"
                       className="h-7 w-7 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30"
                       disabled={actionLoading || assertion.user_feedback === 'confirmed'}
-                      onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'confirmed')}
+                      onClick={asEventHandler(() => onSubmitAssertionFeedback(assertion.assertion_id, 'confirmed'))}
                       title={t('memory.l2.confirmAssertion')}
                     >
                       <Check className="h-4 w-4" />

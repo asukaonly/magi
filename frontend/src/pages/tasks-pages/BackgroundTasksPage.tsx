@@ -1,6 +1,8 @@
+import { asEventHandler } from '@/utils/as-event-handler';
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { ListChecks } from 'lucide-react';
 
@@ -148,7 +150,7 @@ export const BackgroundTasksPage: React.FC = () => {
       <BackgroundTaskDetailDrawer
         taskId={selectedTaskId}
         onClose={() => setSelectedTaskId(null)}
-        onMutated={refresh}
+        onMutated={asEventHandler(refresh)}
       />
     </TasksPageFrame>
   );

@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -166,7 +167,7 @@ export function DelegationCard({
             type="button"
             variant="outline"
             size="sm"
-            onClick={onCancel}
+            onClick={asEventHandler(onCancel)}
             disabled={busy !== null}
             className="h-7 px-2 text-xs"
           >
@@ -263,7 +264,7 @@ export function DelegationCard({
                 <Button
                   type="button"
                   size="sm"
-                  onClick={onApply}
+                  onClick={asEventHandler(onApply)}
                   disabled={busy !== null || filesChanged.length === 0}
                   className="h-7 px-3 text-xs"
                 >
@@ -276,7 +277,7 @@ export function DelegationCard({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={onDiscard}
+                  onClick={asEventHandler(onDiscard)}
                   disabled={busy !== null}
                   className="h-7 px-3 text-xs"
                 >

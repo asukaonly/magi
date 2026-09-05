@@ -1,8 +1,10 @@
+import { asEventHandler } from '@/utils/as-event-handler';
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
+
 
 import { memoryApi } from "@/api/modules/memory";
 import { manualEntriesApi, type ManualEntry } from "@/api/modules/manualEntries";
@@ -520,7 +522,7 @@ export const TimelinePage: React.FC = () => {
               onSelectDay={handleSelectDayFromWeek}
               manualEntries={manualEntries}
               onEditManualEntry={handleEditEntry}
-              onDeleteManualEntry={handleDeleteEntry}
+              onDeleteManualEntry={asEventHandler(handleDeleteEntry)}
               onChangeCover={handleChangeCover}
               onUploadCover={handleUploadCover}
               coverSaving={coverSaving}

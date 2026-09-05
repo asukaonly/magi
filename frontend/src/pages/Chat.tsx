@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { getErrorMessage } from '@/utils/error-handler';
 /**
  * Chat page - desktop-focused conversation workspace
@@ -942,7 +943,7 @@ export const ChatPage: React.FC = () => {
     allowCancelAction: allowInterjection && Boolean(activeCancelableTurnId),
     onPickInternal: handleInternalCommand,
     onPickTool: handleToolPicked,
-    onPickSkill: handleSkillPicked,
+    onPickSkill: asEventHandler(handleSkillPicked),
   });
 
   const handleInputChangeWithMentions = React.useCallback(
@@ -1241,18 +1242,18 @@ export const ChatPage: React.FC = () => {
         onSetReplyTarget={setReplyTarget}
         onOpenImagePreview={setHistoryImagePreview}
         onOpenTraceDrawer={openTraceDrawer}
-        onRequestRunCancel={requestRunCancel}
-        onRequestRunDetach={requestRunDetach}
+        onRequestRunCancel={asEventHandler(requestRunCancel)}
+        onRequestRunDetach={asEventHandler(requestRunDetach)}
         onCloseLabelPopover={closeLabelPopover}
         onCloseMessageContextMenu={closeMessageContextMenu}
         onOpenLabelPopover={openLabelPopover}
         onOpenMessageContextMenu={openMessageContextMenu}
-        onApplyLabelToMessage={applyLabelToMessage}
+        onApplyLabelToMessage={asEventHandler(applyLabelToMessage)}
         onLabelDraftChange={handleLabelDraftChange}
         onLabelDraftCompositionStart={handleLabelDraftCompositionStart}
         onLabelDraftCompositionEnd={handleLabelDraftCompositionEnd}
-        onCopyMessage={handleCopyMessage}
-        onDeleteMessage={handleDeleteMessage}
+        onCopyMessage={asEventHandler(handleCopyMessage)}
+        onDeleteMessage={asEventHandler(handleDeleteMessage)}
         recallFeedbackDisabled={Boolean(activePendingAsk)}
         onStartRecallFeedback={startRecallFeedback}
       />
@@ -1305,7 +1306,7 @@ export const ChatPage: React.FC = () => {
             )
           )
         )}
-        onPrimaryAction={handleComposerPrimaryAction}
+        onPrimaryAction={asEventHandler(handleComposerPrimaryAction)}
         recallFeedbackDraft={recallFeedbackDraft}
         onCancelRecallFeedback={cancelRecallFeedback}
         onConvertRecallFeedbackToNormal={convertRecallFeedbackToNormal}

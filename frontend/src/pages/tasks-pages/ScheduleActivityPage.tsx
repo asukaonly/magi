@@ -1,6 +1,8 @@
+import { asEventHandler } from '@/utils/as-event-handler';
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+
 import { toast } from 'sonner';
 import { ChevronDown } from 'lucide-react';
 
@@ -167,7 +169,7 @@ export const ScheduleActivityPage: React.FC = () => {
           schedulesById={schedulesById}
           emptyMessage={t('tasks.scheduled.empty.activity')}
           stoppingActivityId={stoppingActivityId}
-          onStop={handleStop}
+          onStop={asEventHandler(handleStop)}
           onOpenBackgroundTask={(taskId) => navigate(`/tasks/background?taskId=${encodeURIComponent(taskId)}`)}
           onSelectActivity={setSelectedActivity}
         />

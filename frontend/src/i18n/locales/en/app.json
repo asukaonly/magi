@@ -98,7 +98,9 @@
     "loading": "Loading...",
     "saving": "Saving...",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "operationFailed": "The operation could not be completed. Please try again.",
+    "retryRefresh": "Refresh again"
   },
   "notifications": {
     "bellAria": "Notifications",
@@ -182,7 +184,12 @@
     "overlayErrorDescription": "Close the dialog and continue, or reload the app if it keeps failing.",
     "routeErrorTitle": "Something went wrong",
     "dismiss": "Dismiss",
-    "reload": "Reload"
+    "reload": "Reload",
+    "realtimeUnavailable": "Realtime updates are unavailable. Reconnect to refresh task and chat status.",
+    "reconnect": "Reconnect",
+    "windowMinimize": "Minimize window",
+    "windowMaximize": "Maximize or restore window",
+    "windowClose": "Close window"
   },
   "tasks": {
     "page": {
@@ -2871,7 +2878,11 @@
         "channel": "Channel"
       },
       "consent": {
-        "title": { "install": "Install \"{{name}}\"?", "update": "Update \"{{name}}\"?", "sideload": "Install \"{{name}}\" from file?" },
+        "title": {
+          "install": "Install \"{{name}}\"?",
+          "update": "Update \"{{name}}\"?",
+          "sideload": "Install \"{{name}}\" from file?"
+        },
         "lede": "This plugin declares it will access:",
         "ledeEmpty": "This plugin declares no special system permissions or data access.",
         "sideloadWarning": "The plugin stays off after installation until you enable it. Magi checks the package structure and declared access, not what its code will actually do. Once enabled, it runs with your local user permissions.",
@@ -2879,22 +2890,58 @@
         "groupSystem": "System permissions",
         "groupData": "Data & network access",
         "optionalTag": "optional",
-        "confirm": { "install": "Install", "update": "Update" },
+        "confirm": {
+          "install": "Install",
+          "update": "Update"
+        },
         "cancel": "Cancel",
         "thirdParty": "Third-party plugin"
       },
       "capability": {
-        "screen_recording": { "label": "Screen recording", "desc": "Capture images of your screen" },
-        "accessibility": { "label": "Accessibility", "desc": "Read the active window and UI" },
-        "calendar": { "label": "Calendar", "desc": "Read your calendar and reminders" },
-        "photos": { "label": "Photos", "desc": "Access your photo library" },
-        "contacts": { "label": "Contacts", "desc": "Read your contacts" },
-        "system_media": { "label": "System media", "desc": "Read media playback info" },
-        "filesystem_read": { "label": "Read files", "desc": "Read files on your computer" },
-        "filesystem_write": { "label": "Write files", "desc": "Write files on your computer" },
-        "network": { "label": "Network", "desc": "Connect to the internet" },
-        "subprocess": { "label": "Run programs", "desc": "Run other programs on your computer" },
-        "unknown": { "label": "Other access", "desc": "An access type this version of Magi doesn't recognize" }
+        "screen_recording": {
+          "label": "Screen recording",
+          "desc": "Capture images of your screen"
+        },
+        "accessibility": {
+          "label": "Accessibility",
+          "desc": "Read the active window and UI"
+        },
+        "calendar": {
+          "label": "Calendar",
+          "desc": "Read your calendar and reminders"
+        },
+        "photos": {
+          "label": "Photos",
+          "desc": "Access your photo library"
+        },
+        "contacts": {
+          "label": "Contacts",
+          "desc": "Read your contacts"
+        },
+        "system_media": {
+          "label": "System media",
+          "desc": "Read media playback info"
+        },
+        "filesystem_read": {
+          "label": "Read files",
+          "desc": "Read files on your computer"
+        },
+        "filesystem_write": {
+          "label": "Write files",
+          "desc": "Write files on your computer"
+        },
+        "network": {
+          "label": "Network",
+          "desc": "Connect to the internet"
+        },
+        "subprocess": {
+          "label": "Run programs",
+          "desc": "Run other programs on your computer"
+        },
+        "unknown": {
+          "label": "Other access",
+          "desc": "An access type this version of Magi doesn't recognize"
+        }
       }
     },
     "pluginInstallProgress": {
@@ -3750,13 +3797,13 @@
         "removeHint": "Do not treat this as information about you in the future."
       },
       "correctValue": "Correct content",
-    "correctRelationObject": "Correct related object",
-    "correctRelationObjectHint": "Keep the subject and relationship meaning, and choose the correct object.",
-    "entitySearch": "Search related objects",
-    "entitySearchPlaceholder": "Search all objects by name",
-    "entitySearching": "Searching…",
-    "entitySearchFailed": "More objects could not be searched right now. The current options are still available.",
-    "entityOption": "{{name}} · {{type}}",
+      "correctRelationObject": "Correct related object",
+      "correctRelationObjectHint": "Keep the subject and relationship meaning, and choose the correct object.",
+      "entitySearch": "Search related objects",
+      "entitySearchPlaceholder": "Search all objects by name",
+      "entitySearching": "Searching…",
+      "entitySearchFailed": "More objects could not be searched right now. The current options are still available.",
+      "entityOption": "{{name}} · {{type}}",
       "effectiveAt": "When did this change start?",
       "scopeLabel": "Which project does this apply to?",
       "projectHint": "This memory will be used only in the project you choose. Projects come from connected workspaces.",
@@ -3797,18 +3844,18 @@
         "relation_object_unchanged": "Choose an object different from the current one.",
         "relation_object_unavailable": "That object is not available. Choose another one."
       },
-    "errors": {
-      "conflict": "This memory changed just now, so the current version will not be overwritten. Return to the latest list and open it again.",
-      "targetChanged": "This memory changed or no longer exists, so it will not be overwritten. Review the latest content and open it again.",
-      "scopeOccupied": "The selected project already has a current memory here. Choose another project and try again.",
-      "memoryForgotten": "This memory was deleted and can no longer be restored or changed. Return to the latest list.",
-      "effectiveAtBeforeTarget": "The change time cannot be earlier than when this memory began. Choose a later time.",
-      "replacementUnchanged": "The new content matches this memory. Enter what actually changed.",
-      "scopeUnchanged": "This memory is already limited to that project. Choose another project.",
-      "projectChanged": "That project can no longer be used for this memory. The project list has been refreshed; choose again.",
-      "saveFailed": "The correction could not be saved yet. Your input is still here, so you can retry."
-    },
-    "close": "Close",
+      "errors": {
+        "conflict": "This memory changed just now, so the current version will not be overwritten. Return to the latest list and open it again.",
+        "targetChanged": "This memory changed or no longer exists, so it will not be overwritten. Review the latest content and open it again.",
+        "scopeOccupied": "The selected project already has a current memory here. Choose another project and try again.",
+        "memoryForgotten": "This memory was deleted and can no longer be restored or changed. Return to the latest list.",
+        "effectiveAtBeforeTarget": "The change time cannot be earlier than when this memory began. Choose a later time.",
+        "replacementUnchanged": "The new content matches this memory. Enter what actually changed.",
+        "scopeUnchanged": "This memory is already limited to that project. Choose another project.",
+        "projectChanged": "That project can no longer be used for this memory. The project list has been refreshed; choose again.",
+        "saveFailed": "The correction could not be saved yet. Your input is still here, so you can retry."
+      },
+      "close": "Close",
       "cancel": "Cancel",
       "discard": {
         "title": "Discard unsaved changes?",
@@ -3821,26 +3868,26 @@
       "save": "Save correction",
       "success": {
         "title": "Corrected as requested",
-      "replaced": "Related answers will now use the current understanding below.",
-      "replacedInFuture": "Related answers will use the understanding below after the scheduled time.",
-      "removed": "The original content will no longer be treated as information about you.",
-      "removedPending": "This pending item is now marked inaccurate and will not be used to understand you.",
-      "currentLabel": "Current understanding",
-      "futureLabel": "Understanding from the scheduled time onward",
-      "effectiveAt": "Effective from",
-      "scope": "Applies when",
-      "backgroundUpdate": "Related summaries will keep updating in the background without delaying this correction.",
-      "backgroundUpdateFailed": "The correction is active, but related summaries could not be updated yet. Check back later.",
-      "scheduledUpdate": "Related summaries will update automatically at the scheduled time.",
-      "done": "Done"
+        "replaced": "Related answers will now use the current understanding below.",
+        "replacedInFuture": "Related answers will use the understanding below after the scheduled time.",
+        "removed": "The original content will no longer be treated as information about you.",
+        "removedPending": "This pending item is now marked inaccurate and will not be used to understand you.",
+        "currentLabel": "Current understanding",
+        "futureLabel": "Understanding from the scheduled time onward",
+        "effectiveAt": "Effective from",
+        "scope": "Applies when",
+        "backgroundUpdate": "Related summaries will keep updating in the background without delaying this correction.",
+        "backgroundUpdateFailed": "The correction is active, but related summaries could not be updated yet. Check back later.",
+        "scheduledUpdate": "Related summaries will update automatically at the scheduled time.",
+        "done": "Done"
       },
       "history": {
         "title": "Correction history",
         "count": "{{count}} change(s)",
         "loading": "Loading correction history…",
         "empty": "This memory has not been corrected yet.",
-      "loadFailed": "Correction history is temporarily unavailable.",
-      "retry": "Retry",
+        "loadFailed": "Correction history is temporarily unavailable.",
+        "retry": "Retry",
         "active": "Currently active",
         "applied": "Applied",
         "contentDeletedStatus": "Content deleted",
@@ -3865,23 +3912,23 @@
         "confirmRevertTitle": "Revert this correction?",
         "confirmRevert": "Reverting restores the understanding from before this correction.",
         "confirmRevertAction": "Confirm revert",
-      "revertConflict": "This memory changed just now. We loaded the latest history; review it before trying again.",
-      "scopeOccupied": "The original scope already has a current memory, so this correction cannot be reverted directly.",
-      "revertFailed": "This correction could not be reverted yet. Try again later.",
-      "revertSuccess": "Correction reverted",
-      "scopeEntry": "{{label}}: {{value}}",
-      "scopeNameUnavailable": "Name unavailable",
-      "scopeSeparator": ", ",
+        "revertConflict": "This memory changed just now. We loaded the latest history; review it before trying again.",
+        "scopeOccupied": "The original scope already has a current memory, so this correction cannot be reverted directly.",
+        "revertFailed": "This correction could not be reverted yet. Try again later.",
+        "revertSuccess": "Correction reverted",
+        "scopeEntry": "{{label}}: {{value}}",
+        "scopeNameUnavailable": "Name unavailable",
+        "scopeSeparator": ", ",
         "versions": "View content changes",
         "currentVersion": "Current version",
         "plannedVersion": "Scheduled",
         "pastVersion": "Past version",
         "versionPeriod": "{{status}} · {{from}} to {{to}}",
-      "versionFrom": "{{status}} · from {{from}}",
-      "versionScope": "{{meta}} · {{scope}}"
-    },
-    "refreshFailed": "The correction is active, but the list could not refresh yet.",
-    "latestRefreshFailed": "The latest content could not be loaded yet. Try again in a moment."
+        "versionFrom": "{{status}} · from {{from}}",
+        "versionScope": "{{meta}} · {{scope}}"
+      },
+      "refreshFailed": "The correction is active, but the list could not refresh yet.",
+      "latestRefreshFailed": "The latest content could not be loaded yet. Try again in a moment."
     },
     "governance": {
       "title": "Memory management",

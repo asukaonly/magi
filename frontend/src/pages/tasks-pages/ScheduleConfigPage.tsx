@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -187,9 +188,9 @@ export const ScheduleConfigPage: React.FC = () => {
             togglingScheduleId={togglingScheduleId}
             deletingScheduleId={deletingScheduleId}
             onSelectSchedule={setEditingSchedule}
-            onRunSchedule={handleRun}
-            onToggleSchedule={handleToggle}
-            onDeleteSchedule={handleDelete}
+            onRunSchedule={asEventHandler(handleRun)}
+            onToggleSchedule={asEventHandler(handleToggle)}
+            onDeleteSchedule={asEventHandler(handleDelete)}
             onOpenSettings={handleOpenSettings}
             onOpenInfo={setInfoSchedule}
           />

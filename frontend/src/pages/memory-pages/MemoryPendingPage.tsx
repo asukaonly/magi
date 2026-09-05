@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -277,15 +278,15 @@ export const MemoryPendingPage = () => {
               showMemory={showMemory}
               showExperiences={showExperiences}
               showObservations={showObservations}
-              onReview={handleReview}
+              onReview={asEventHandler(handleReview)}
               selectedPlanReviewIds={selectedPlanReviewIds}
               onPlanReviewSelection={handlePlanReviewSelection}
               onSelectAllPlanReviews={handleSelectAllPlanReviews}
-              onBatchConfirmPlans={handleBatchConfirmPlans}
-              onAssertion={handleAssertion}
-              onStory={handleStory}
-              onSeed={handleSeed}
-              onConflict={handleConflict}
+              onBatchConfirmPlans={asEventHandler(handleBatchConfirmPlans)}
+              onAssertion={asEventHandler(handleAssertion)}
+              onStory={asEventHandler(handleStory)}
+              onSeed={asEventHandler(handleSeed)}
+              onConflict={asEventHandler(handleConflict)}
             />
           </div>
         </div>
@@ -306,7 +307,7 @@ export const MemoryPendingPage = () => {
         onOpenChange={(open) => {
           if (!open && !actionId) setEditingReview(null);
         }}
-        onSubmit={handleReviewEdit}
+        onSubmit={asEventHandler(handleReviewEdit)}
       />
     </MemoryPageFrame>
   );

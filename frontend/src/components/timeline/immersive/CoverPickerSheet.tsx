@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, EyeOff, Image, RotateCcw, Upload } from "lucide-react";
@@ -115,7 +116,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               accept="image/*"
               className="sr-only"
               aria-label={t("timeline.cover.uploadInput", { defaultValue: "上传自定义图片" })}
-              onChange={handleUploadFile}
+              onChange={asEventHandler(handleUploadFile)}
             />
             <Button
               type="button"
@@ -181,7 +182,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onChangeCover({ mode: "auto" })}
+              onClick={asEventHandler(() => onChangeCover({ mode: "auto" }))}
               disabled={saving || uploading}
             >
               <RotateCcw className="h-4 w-4" />
@@ -191,7 +192,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => onChangeCover({ mode: "hidden" })}
+              onClick={asEventHandler(() => onChangeCover({ mode: "hidden" }))}
               disabled={saving || uploading}
             >
               <EyeOff className="h-4 w-4" />
@@ -201,7 +202,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
           <Button
             type="button"
             size="sm"
-            onClick={handleUseSelected}
+            onClick={asEventHandler(handleUseSelected)}
             disabled={!selectedCandidate || saving || uploading}
           >
             <Check className="h-4 w-4" />

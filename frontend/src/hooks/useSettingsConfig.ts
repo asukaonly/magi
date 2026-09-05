@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -90,30 +90,40 @@ export function useSettingsConfig({
     });
   }, []);
 
+  const configRequestId = useRef(0);
+  const controlRequestId = useRef(0);
+  useEffect(() => () => { configRequestId.current += 1; controlRequestId.current += 1; }, []);
+
   const fetchConfig = useCallback(async () => {
+    const requestId = ++configRequestId.current;
     setLoading(true);
     setConfigError(null);
     try {
       const response = await configApi.get();
       const nextConfig = requireConfiguration(response);
+      if (requestId !== configRequestId.current) return;
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
       setSavedThemeMode(themeMode);
       setDraftThemeMode(themeMode);
     } catch (error: unknown) {
+      if (requestId !== configRequestId.current) return;
       const message = getErrorMessage(error) || t('settings.errorUnknown');
       setConfigError(t('settings.loadFailed', { message }));
     } finally {
-      setLoading(false);
+      if (requestId === configRequestId.current) setLoading(false);
     }
   }, [setDraftThemeMode, setSavedThemeMode, t, themeMode]);
 
   const loadControlSettings = useCallback(async () => {
+    const requestId = ++controlRequestId.current;
     try {
       const nextSettings = await getControlSettings();
+      if (requestId !== controlRequestId.current) return;
       setSavedControlSettings(nextSettings);
       setDraftControlSettings(structuredClone(nextSettings));
     } catch (error: unknown) {
+      if (requestId !== controlRequestId.current) return;
       const message = error instanceof Error ? error.message : 'unknown';
       toast.error(t('settings.loadFailed', { message }));
     }

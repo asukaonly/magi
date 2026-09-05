@@ -10,6 +10,7 @@ interface LLMRerankerModelPanelProps {
   crossEncoderConfig?: CrossEncoderConfig;
   onCrossEncoderConfigChange?: (updater: (draft: CrossEncoderConfig) => void) => void;
   inputClassName: string;
+  onRefreshModels: () => void;
   rerankerModels: LocalRerankerModelInfo[];
   rerankerDownloadingId: string | null;
   rerankerDownloadProgress: number | null;
@@ -22,6 +23,7 @@ export function LLMRerankerModelPanel({
   crossEncoderConfig,
   onCrossEncoderConfigChange,
   inputClassName,
+  onRefreshModels,
   rerankerModels,
   rerankerDownloadingId,
   rerankerDownloadProgress,
@@ -42,6 +44,10 @@ export function LLMRerankerModelPanel({
 
   return (
     <div className="space-y-3">
+      {rerankerDownloadError ? <div role="alert" className="space-y-2 text-xs text-destructive">
+        <p className="flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{rerankerDownloadError}</p>
+        <Button type="button" variant="outline" size="sm" onClick={onRefreshModels}>{tApp('common.retryRefresh')}</Button>
+      </div> : null}
       <label className="space-y-2">
         <span className="text-sm font-medium">{tApp('settings.memory.fields.reranker_mode.label')}</span>
         <SelectField
@@ -121,12 +127,7 @@ export function LLMRerankerModelPanel({
                     </span>
                   )}
                 </div>
-                {rerankerDownloadError && !isDownloading && !selectedModel.downloaded && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    {rerankerDownloadError}
-                  </p>
-                )}
+
                 {selectedModel.description && (
                   <p className="text-xs leading-5 text-muted-foreground">{selectedModel.description}</p>
                 )}

@@ -43,6 +43,7 @@ export function useChatRealtimeEffects({
 }: UseChatRealtimeEffectsOptions) {
   const { subscribe } = useRealtime();
   const responseTrackerRef = useRef(createChatRealtimeResponseTracker());
+  const lifecycleRef = useRef(0);
   const reconciliationKeysRef = useRef(new Set<string>());
   const pendingReconciliationKeysRef = useRef(new Set<string>());
   const reconciliationTimersRef = useRef(new Map<string, number>());
@@ -60,12 +61,14 @@ export function useChatRealtimeEffects({
     if (reconciliationKeysRef.current.has(key)) {
       return { resolved: false };
     }
+    const lifecycle = lifecycleRef.current;
     reconciliationKeysRef.current.add(key);
     try {
       const resolution = await reconcilePendingResponseTurn(
         normalizedSessionId,
         normalizedTurnId,
       );
+      if (lifecycle !== lifecycleRef.current || !pendingReconciliationKeysRef.current.has(key)) return { resolved: false };
       if (resolution.terminalRunState) {
         settleTurnFromHistory?.(
           normalizedSessionId,
@@ -84,6 +87,9 @@ export function useChatRealtimeEffects({
         });
       }
       return resolution;
+    } catch (error) {
+      console.warn('Pending turn history reconciliation failed; retrying', error);
+      return { resolved: false };
     } finally {
       reconciliationKeysRef.current.delete(key);
     }
@@ -162,7 +168,7 @@ export function useChatRealtimeEffects({
       retryAttempt: number,
     ) => {
       const key = `${identity.sessionId}\u0000${identity.turnId}`;
-      const timer = window.setTimeout(async () => {
+      const reconcile = async () => {
         reconciliationTimersRef.current.delete(key);
         const resolution = await reconcileAndClearPendingTurn(
           identity.sessionId,
@@ -175,7 +181,8 @@ export function useChatRealtimeEffects({
           );
           schedule(identity, retryDelay, retryAttempt + 1);
         }
-      }, delayMs);
+      };
+      const timer = window.setTimeout(() => { void reconcile(); }, delayMs);
       reconciliationTimersRef.current.set(key, timer);
     };
 
@@ -192,6 +199,7 @@ export function useChatRealtimeEffects({
   ]);
 
   useEffect(() => () => {
+    lifecycleRef.current += 1;
     pendingReconciliationKeysRef.current.clear();
     for (const timer of reconciliationTimersRef.current.values()) {
       window.clearTimeout(timer);

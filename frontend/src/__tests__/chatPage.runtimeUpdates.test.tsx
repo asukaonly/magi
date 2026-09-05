@@ -1,3 +1,4 @@
+import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import {
   defineChatPageSuite,
   realtimeListener,
@@ -35,7 +36,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           message_id: 'msg-final-1',
           message_kind: 'assistant_final',
           content: '整理好了',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-1',
           trace_available: true,
           trace_summary: {
@@ -107,7 +108,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           message_id: 'msg-final-trace-open',
           message_kind: 'assistant_final',
           content: 'Trace refresh target',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-trace-open',
           trace_available: true,
           trace_summary: {
@@ -206,7 +207,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           message_id: 'msg-agent-response-stop-reset',
           message_kind: 'assistant_final',
           content: 'Handled',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
         },
       });
     });
@@ -355,7 +356,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           role: 'user',
           kind: 'user',
           content: 'Keep the local turn',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: pendingTurnId,
           run_state: { state: 'running' },
         },
@@ -365,7 +366,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           role: 'assistant',
           kind: 'assistant',
           content: 'Unsafe running history snapshot',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: pendingTurnId,
           run_state: { state: 'running' },
         },
@@ -456,7 +457,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           message_id: 'msg-background-session-final',
           message_kind: 'assistant_final',
           content: 'Finished in the background',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
         },
       });
       useConversationStore.getState().setCurrentSessionId('session-1');
@@ -504,7 +505,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
           message_id: 'msg-final-image-live',
           message_kind: 'assistant_final',
           content: '图片已生成。',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-image-live',
           attachments: [
             {
@@ -534,7 +535,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content: '整理好了',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-hidden',
           ux_plan: {
             assistant_surface_mode: 'final_only',
@@ -577,7 +578,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content: '你好，我在。',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-direct-visible',
           ux_plan: {
             assistant_surface_mode: 'final_only',
@@ -616,7 +617,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content: '需要你看下执行细节',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-prominent',
           ux_plan: {
             assistant_surface_mode: 'final_only',
@@ -679,7 +680,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content: '已经查好了',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-2',
           ux_plan: {
             assistant_surface_mode: 'interim_then_final',
@@ -731,7 +732,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content: '👌',
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           message_id: 'msg-reaction-only',
           message_kind: 'assistant_reaction',
           turn_id: 'turn-3',
@@ -1276,12 +1277,13 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           message: {
+            ...eventExamples.message,
             message_id: 'plan:turn-interim-todo',
             message_kind: 'plan_state',
             role: 'assistant',
             kind: 'status',
             content: '1. Search official sources',
-            timestamp: Date.now() / 1000,
+            timestamp: Date.now(),
             turn_id: 'turn-interim-todo',
             payload: {
               active: true,
@@ -1460,7 +1462,7 @@ defineChatPageSuite('ChatPage runtime updates', () => {
         data: {
           session_id: 'session-1',
           content,
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
           turn_id: 'turn-warning',
         },
       });

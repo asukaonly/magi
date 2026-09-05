@@ -11,6 +11,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type PropsWithChildren,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -66,7 +67,10 @@ class RealtimeDispatcher {
   private listeners = new Set<(message: RealtimeMessage) => void>();
 
   dispatch(message: RealtimeMessage): void {
-    this.listeners.forEach((listener) => listener(message));
+    for (const listener of this.listeners) {
+      try { listener(message); }
+      catch (error) { console.error('Realtime subscriber failed', error); }
+    }
   }
 
   subscribe(listener: (message: RealtimeMessage) => void): () => void {
@@ -77,6 +81,10 @@ class RealtimeDispatcher {
 
 export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   const { t } = useTranslation('app');
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'ready' | 'error'>('connecting');
+  const translationRef = useRef(t);
+  useEffect(() => { translationRef.current = t; }, [t]);
   const bridgeRef = useRef<TauriBridgeClient>();
   const dispatcherRef = useRef<RealtimeDispatcher>();
 
@@ -104,7 +112,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       ).trim();
       const projectionAccepted = applyRealtimeStoreProjection(
         normalizedMessage,
-        { pendingLabel: t('chat.trace.pending') },
+        { pendingLabel: translationRef.current('chat.trace.pending') },
       );
       if (isRealtimeChatContentEvent(eventName) && !projectionAccepted) {
         const now = Date.now();
@@ -148,14 +156,27 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       }
       dispatcher.dispatch(normalizedMessage);
     });
-    bridge.connect();
+    let cancelled = false;
+    setConnectionState('connecting');
+    const unsubscribeStatus = bridge.subscribeStatus((status) => {
+      if (!cancelled && status.lastError) setConnectionState('error');
+    });
+    bridge.connect().then(() => {
+      if (cancelled) return;
+      setConnectionState('ready');
+      window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+    }).catch(() => {
+      if (!cancelled) setConnectionState('error');
+    });
 
     return () => {
+      cancelled = true;
+      unsubscribeStatus();
       unsubscribeBridge();
-      bridgeRef.current?.disconnect();
+      bridge.disconnect();
       bridgeRef.current = undefined;
     };
-  }, [t]);
+  }, [connectionAttempt]);
 
   useEffect(() => {
     let lastUnreadCount = -1;
@@ -178,6 +199,12 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
 
   return (
     <RealtimeContext.Provider value={value}>
+      {connectionState === 'error' ? (
+        <div role="alert" className="fixed inset-x-4 top-12 z-[200] flex items-center justify-between gap-4 rounded-md border border-destructive bg-background px-4 py-3 text-sm text-foreground shadow-lg">
+          <span>{t('shell.realtimeUnavailable')}</span>
+          <button type="button" className="shrink-0 rounded px-2 py-1 font-medium underline focus-visible:ring-2 focus-visible:ring-primary" onClick={() => setConnectionAttempt((value) => value + 1)}>{t('shell.reconnect')}</button>
+        </div>
+      ) : null}
       {children}
     </RealtimeContext.Provider>
   );

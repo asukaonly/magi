@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -314,7 +315,7 @@ export const BackgroundTaskDetailDrawer: React.FC<BackgroundTaskDetailDrawerProp
                   variant="secondary"
                   size="sm"
                   disabled={actionPending !== null || task.status === 'cancelling'}
-                  onClick={handleCancel}
+                  onClick={asEventHandler(handleCancel)}
                 >
                   {t('tasks.actions.cancel')}
                 </Button>
@@ -324,7 +325,7 @@ export const BackgroundTaskDetailDrawer: React.FC<BackgroundTaskDetailDrawerProp
                   variant="default"
                   size="sm"
                   disabled={actionPending !== null}
-                  onClick={handleRetry}
+                  onClick={asEventHandler(handleRetry)}
                 >
                   {t('tasks.actions.retry')}
                 </Button>
@@ -334,7 +335,7 @@ export const BackgroundTaskDetailDrawer: React.FC<BackgroundTaskDetailDrawerProp
                   variant="ghost"
                   size="sm"
                   disabled={actionPending !== null}
-                  onClick={handleDismiss}
+                  onClick={asEventHandler(handleDismiss)}
                 >
                   {t('tasks.actions.dismiss')}
                 </Button>

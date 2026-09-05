@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
@@ -82,7 +83,7 @@ export const ClearMemoryDialog: React.FC<ClearMemoryDialogProps> = ({
           </Button>
           <Button
             variant="destructive"
-            onClick={onConfirm}
+            onClick={asEventHandler(onConfirm)}
             disabled={countdown > 0 || clearing}
           >
             {clearing ? (

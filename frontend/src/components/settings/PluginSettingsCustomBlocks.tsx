@@ -1,6 +1,6 @@
 import { parsePluginPermissionItems, parsePluginResourceGroups } from '@/api/plugin-contract';
 import { getErrorMessage } from '@/utils/error-handler';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
@@ -182,29 +182,25 @@ const PermissionStatusBlock: React.FC<{
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const requestIdRef = useRef(0);
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+      if (requestId !== requestIdRef.current) return;
       setItems(parsePluginPermissionItems(payload.data.items));
     } catch (fetchError) {
-      setError(getErrorMessage(fetchError) || 'unknown');
+      if (requestId === requestIdRef.current) setError(getErrorMessage(fetchError) || 'unknown');
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [block.resource_name, pluginId]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (!cancelled) {
-        await load();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void load();
+    return () => { requestIdRef.current += 1; };
   }, [load]);
 
   // Permission item labels/descriptions are pre-translated server-side from

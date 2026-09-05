@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import type { TFunction } from 'i18next';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -1198,7 +1199,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             <Button variant="ghost" size="sm" onClick={onClose} disabled={saving} className="px-4">
               {t('timeline.manualEntry.cancel', { defaultValue: '取消' })}
             </Button>
-            <Button variant="default" size="sm" disabled={!canSave} onClick={handleSave} className="px-4">
+            <Button variant="default" size="sm" disabled={!canSave} onClick={asEventHandler(handleSave)} className="px-4">
               {saving ? (
                 <LoadingSpinner className="mr-1.5 h-3.5 w-3.5" />
               ) : null}

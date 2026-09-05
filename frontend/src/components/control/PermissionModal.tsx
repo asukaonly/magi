@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 /**
  * Modal that prompts the user to allow or deny a pending tool call.
  *
@@ -201,7 +202,7 @@ export function PermissionModal({
             variant={tone.button}
             size="sm"
             className="h-9 flex-1 rounded-r-none px-3 text-sm"
-            onClick={() => submit(action, scope)}
+            onClick={asEventHandler(() => submit(action, scope))}
             disabled={submitting || expired}
             data-testid={`${action}-btn`}
           >

@@ -1,3 +1,4 @@
+import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import {
   defineChatPageSuite,
   realtimeListener,
@@ -125,7 +126,7 @@ defineChatPageSuite('ChatPage control cards', () => {
         handled_as: 'ask_response',
         ask_request_id: 'ask-1',
         message_length: 4,
-        timestamp: Date.now() / 1000,
+        timestamp: Date.now(),
       },
     });
 
@@ -304,7 +305,7 @@ defineChatPageSuite('ChatPage control cards', () => {
           handled_as: 'ask_response',
           ask_request_id: 'ask-edited-after-unknown',
           message_length: 4,
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
         },
       });
 
@@ -389,7 +390,7 @@ defineChatPageSuite('ChatPage control cards', () => {
           handled_as: 'ask_response',
           ask_request_id: 'ask-cleared',
           message_length: 4,
-          timestamp: Date.now() / 1000,
+          timestamp: Date.now(),
         },
       });
     });
@@ -445,12 +446,14 @@ defineChatPageSuite('ChatPage control cards', () => {
         data: {
           session_id: 'session-1',
           message: {
+            ...eventExamples.message,
+            turn_id: null,
             message_id: 'ask:tail-order',
             message_kind: 'ask_request',
             role: 'assistant',
             kind: 'assistant',
             content: 'Should I continue?',
-            timestamp: Date.now() / 1000 + 1,
+            timestamp: Date.now() + 1000,
             payload: {
               ask_request_id: 'tail-order',
               question: 'Should I continue?',

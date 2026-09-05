@@ -112,6 +112,13 @@ The machine-readable route ownership manifest lives at `contracts/api/gateway_ro
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
 
+Desktop event connection failures remain visible without replacing the current page;
+the reconnect action reattaches native listeners and refreshes session state. Each
+subscription/request lifetime discards stale completions. Background history
+reconciliation retries transport failures without inventing a terminal task outcome.
+Local model download polling is serialized and starts after request acceptance;
+list, download, and deletion failures remain visible in model settings.
+
 Configuration, onboarding, and tool configuration response contracts are exported by
 `python scripts/export-frontend-contracts.py` to `contracts/api/frontend-config.json`,
 with fixtures serialized from the production Pydantic models. The exporter checks

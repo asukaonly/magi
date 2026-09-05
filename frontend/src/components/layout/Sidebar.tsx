@@ -1,3 +1,4 @@
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
@@ -16,7 +17,7 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router';
+import { useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';

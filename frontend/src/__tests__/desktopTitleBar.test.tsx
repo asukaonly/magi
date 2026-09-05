@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -75,7 +76,7 @@ describe('DesktopTitleBar', () => {
     expect(screen.getByText('Startup content')).toBeInTheDocument();
     expect(screen.getByTestId('desktop-title-bar')).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('button', { name: i18n.t('shell.windowClose', { ns: 'app' }) }));
     await waitFor(() => expect(closeMock).toHaveBeenCalledTimes(1));
   });
 

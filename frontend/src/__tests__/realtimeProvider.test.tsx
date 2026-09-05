@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RealtimeProvider, useRealtime, type RealtimeMessage } from '@/realtime/provider';
 import { useChatTraceStore } from '@/stores';
@@ -10,6 +10,8 @@ vi.mock('react-i18next', () => ({
     t: (key: string) => key,
   }),
 }));
+
+const { connectMock } = vi.hoisted(() => ({ connectMock: vi.fn<() => Promise<void>>() }));
 
 let bridgeListener: ((message: Record<string, unknown>) => void) | null = null;
 
@@ -24,7 +26,9 @@ vi.mock('@/realtime/tauri-bridge', () => ({
       };
     }
 
-    connect() {}
+    connect() { return connectMock(); }
+
+    subscribeStatus() { return () => {}; }
 
     disconnect() {
       bridgeListener = null;
@@ -42,6 +46,7 @@ function RealtimeProbe({ onMessage }: { onMessage: (message: RealtimeMessage) =>
 
 describe('RealtimeProvider', () => {
   beforeEach(() => {
+    connectMock.mockReset().mockResolvedValue();
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
     useConversationStore.getState().hydrateSessions([
@@ -64,6 +69,16 @@ describe('RealtimeProvider', () => {
     useConversationStore.getState().reset();
     useChatTraceStore.getState().reset();
     vi.clearAllMocks();
+  });
+
+  it('shows a connection failure and reconnects without discarding the page', async () => {
+    connectMock.mockRejectedValueOnce(new Error('Bridge failed'));
+    render(<RealtimeProvider><div>Current draft</div></RealtimeProvider>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('shell.realtimeUnavailable');
+    expect(screen.getByText('Current draft')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'shell.reconnect' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(connectMock).toHaveBeenCalledTimes(2);
   });
 
   it('projects execution trace updates into both the conversation and trace stores', async () => {

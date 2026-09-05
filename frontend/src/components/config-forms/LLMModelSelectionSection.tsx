@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -111,6 +112,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     downloadingModelId,
     downloadProgress,
     downloadError,
+    refreshPresetModels,
     handleDownloadModel,
     handleDeleteModel,
     handlePickDirectory,
@@ -125,6 +127,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     rerankerDownloadingId,
     rerankerDownloadProgress,
     rerankerDownloadError,
+    refreshRerankerModels,
     handleRerankerDownload,
     handleRerankerDelete,
   } = useManagedRerankerModels({
@@ -290,9 +293,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             downloadingModelId={downloadingModelId}
             downloadProgress={downloadProgress}
             downloadError={downloadError}
-            onDownloadModel={handleDownloadModel}
-            onDeleteModel={handleDeleteModel}
-            onPickDirectory={handlePickDirectory}
+            onRefreshModels={asEventHandler(refreshPresetModels)}
+            onDownloadModel={asEventHandler(handleDownloadModel)}
+            onDeleteModel={asEventHandler(handleDeleteModel)}
+            onPickDirectory={asEventHandler(handlePickDirectory)}
           />
         ) : (
           <LLMRemoteEmbeddingModelSelector
@@ -408,8 +412,9 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
           rerankerDownloadingId={rerankerDownloadingId}
           rerankerDownloadProgress={rerankerDownloadProgress}
           rerankerDownloadError={rerankerDownloadError}
-          onRerankerDownload={handleRerankerDownload}
-          onRerankerDelete={handleRerankerDelete}
+          onRefreshModels={asEventHandler(refreshRerankerModels)}
+          onRerankerDownload={asEventHandler(handleRerankerDownload)}
+          onRerankerDelete={asEventHandler(handleRerankerDelete)}
         />
       );
     }

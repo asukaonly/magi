@@ -10,6 +10,7 @@ interface LLMLocalEmbeddingModelPanelProps {
   embeddingConfig: EmbeddingConfig;
   onEmbeddingConfigChange: (updater: (draft: EmbeddingConfig) => void) => void;
   inputClassName: string;
+  onRefreshModels: () => void;
   presetModels: LocalEmbeddingModelInfo[];
   downloadingModelId: string | null;
   downloadProgress: number | null;
@@ -23,6 +24,7 @@ export function LLMLocalEmbeddingModelPanel({
   embeddingConfig,
   onEmbeddingConfigChange,
   inputClassName,
+  onRefreshModels,
   presetModels,
   downloadingModelId,
   downloadProgress,
@@ -35,6 +37,10 @@ export function LLMLocalEmbeddingModelPanel({
 
   return (
     <div className="space-y-3">
+      {downloadError ? <div role="alert" className="space-y-2 text-xs text-destructive">
+        <p className="flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{downloadError}</p>
+        <Button type="button" variant="outline" size="sm" onClick={onRefreshModels}>{tApp('common.retryRefresh')}</Button>
+      </div> : null}
       <label className="space-y-2">
         <span className="text-sm font-medium">{tApp('settings.memory.fields.embedding_local_model_source.label')}</span>
         <SelectField
@@ -176,12 +182,7 @@ export function LLMLocalEmbeddingModelPanel({
                     </span>
                   )}
                 </div>
-                {downloadError && !isDownloading && !variantDownloaded && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    {downloadError}
-                  </p>
-                )}
+
               </>
             );
           })() : null}

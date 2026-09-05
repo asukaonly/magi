@@ -98,7 +98,9 @@
     "loading": "加载中...",
     "saving": "保存中...",
     "save": "保存",
-    "cancel": "取消"
+    "cancel": "取消",
+    "operationFailed": "操作未能完成，请重试。",
+    "retryRefresh": "重新刷新"
   },
   "notifications": {
     "bellAria": "通知",
@@ -182,7 +184,12 @@
     "overlayErrorDescription": "可以先关闭弹窗继续使用；如果持续失败，请重新加载应用。",
     "routeErrorTitle": "出错了",
     "dismiss": "关闭",
-    "reload": "重新加载"
+    "reload": "重新加载",
+    "realtimeUnavailable": "实时更新不可用，请重新连接以刷新任务和聊天状态。",
+    "reconnect": "重新连接",
+    "windowMinimize": "最小化窗口",
+    "windowMaximize": "最大化或还原窗口",
+    "windowClose": "关闭窗口"
   },
   "tasks": {
     "page": {
@@ -2870,7 +2877,11 @@
         "channel": "消息渠道"
       },
       "consent": {
-        "title": { "install": "安装「{{name}}」?", "update": "更新「{{name}}」?", "sideload": "从文件安装「{{name}}」?" },
+        "title": {
+          "install": "安装「{{name}}」?",
+          "update": "更新「{{name}}」?",
+          "sideload": "从文件安装「{{name}}」?"
+        },
         "lede": "此插件声明将访问:",
         "ledeEmpty": "此插件未声明需要特殊系统权限或数据访问。",
         "sideloadWarning": "安装后默认不会运行，需要你另行启用。Magi 只检查安装包结构和权限声明，不会验证代码实际行为；启用后，它会以你当前的本机权限运行。",
@@ -2878,22 +2889,58 @@
         "groupSystem": "系统权限",
         "groupData": "数据与网络访问",
         "optionalTag": "可选",
-        "confirm": { "install": "安装", "update": "更新" },
+        "confirm": {
+          "install": "安装",
+          "update": "更新"
+        },
         "cancel": "取消",
         "thirdParty": "第三方插件"
       },
       "capability": {
-        "screen_recording": { "label": "屏幕录制", "desc": "截取你的屏幕画面" },
-        "accessibility": { "label": "辅助功能", "desc": "读取活动窗口与界面" },
-        "calendar": { "label": "日历", "desc": "读取你的日历与提醒事项" },
-        "photos": { "label": "照片", "desc": "访问你的照片库" },
-        "contacts": { "label": "通讯录", "desc": "读取你的通讯录" },
-        "system_media": { "label": "系统媒体", "desc": "读取媒体播放信息" },
-        "filesystem_read": { "label": "读取文件", "desc": "读取你电脑上的文件" },
-        "filesystem_write": { "label": "写入文件", "desc": "在你电脑上写入文件" },
-        "network": { "label": "联网", "desc": "连接互联网" },
-        "subprocess": { "label": "运行程序", "desc": "在你电脑上运行其它程序" },
-        "unknown": { "label": "其它访问", "desc": "当前版本 Magi 不识别的访问类型" }
+        "screen_recording": {
+          "label": "屏幕录制",
+          "desc": "截取你的屏幕画面"
+        },
+        "accessibility": {
+          "label": "辅助功能",
+          "desc": "读取活动窗口与界面"
+        },
+        "calendar": {
+          "label": "日历",
+          "desc": "读取你的日历与提醒事项"
+        },
+        "photos": {
+          "label": "照片",
+          "desc": "访问你的照片库"
+        },
+        "contacts": {
+          "label": "通讯录",
+          "desc": "读取你的通讯录"
+        },
+        "system_media": {
+          "label": "系统媒体",
+          "desc": "读取媒体播放信息"
+        },
+        "filesystem_read": {
+          "label": "读取文件",
+          "desc": "读取你电脑上的文件"
+        },
+        "filesystem_write": {
+          "label": "写入文件",
+          "desc": "在你电脑上写入文件"
+        },
+        "network": {
+          "label": "联网",
+          "desc": "连接互联网"
+        },
+        "subprocess": {
+          "label": "运行程序",
+          "desc": "在你电脑上运行其它程序"
+        },
+        "unknown": {
+          "label": "其它访问",
+          "desc": "当前版本 Magi 不识别的访问类型"
+        }
       }
     },
     "pluginInstallProgress": {
@@ -3748,13 +3795,13 @@
         "removeHint": "以后不再把它当作你的信息。"
       },
       "correctValue": "正确内容",
-    "correctRelationObject": "正确的关系对象",
-    "correctRelationObjectHint": "主体和关系含义保持不变，只选择正确的对象。",
-    "entitySearch": "搜索关系对象",
-    "entitySearchPlaceholder": "输入名称搜索全部对象",
-    "entitySearching": "正在搜索…",
-    "entitySearchFailed": "暂时无法搜索更多对象，已保留当前选项。",
-    "entityOption": "{{name}} · {{type}}",
+      "correctRelationObject": "正确的关系对象",
+      "correctRelationObjectHint": "主体和关系含义保持不变，只选择正确的对象。",
+      "entitySearch": "搜索关系对象",
+      "entitySearchPlaceholder": "输入名称搜索全部对象",
+      "entitySearching": "正在搜索…",
+      "entitySearchFailed": "暂时无法搜索更多对象，已保留当前选项。",
+      "entityOption": "{{name}} · {{type}}",
       "effectiveAt": "从什么时候开始变化？",
       "scopeLabel": "适用于哪个项目？",
       "projectHint": "只会在你选择的项目里使用这条记忆。项目来自已连接的工作区。",
@@ -3795,19 +3842,19 @@
         "relation_object_unchanged": "请选择一个与当前不同的对象。",
         "relation_object_unavailable": "这个对象目前不可用，请重新选择。"
       },
-    "errors": {
-      "conflict": "这条记忆刚刚发生了变化，当前内容不会被覆盖。请返回最新列表后重新打开。",
-      "targetChanged": "这条记忆已经发生变化或不再存在，当前内容不会被覆盖。请查看最新内容后重新打开。",
-      "scopeOccupied": "所选项目里已经有一条当前记忆。请选择其他项目后重试。",
-      "memoryForgotten": "这条记忆已经被删除，不能再恢复或修改。请返回最新列表。",
-      "effectiveAtBeforeTarget": "变化时间不能早于这条记忆开始生效的时间，请重新选择。",
-      "replacementUnchanged": "填写的内容和当前记忆相同，请写下实际变化后的内容。",
-      "scopeUnchanged": "这条记忆已经只用于这个项目，请选择其他项目。",
-      "projectChanged": "这个项目已不可用于记忆限定。项目列表已经更新，请重新选择。",
-      "saveFailed": "暂时没能保存。你填写的内容还在，可以稍后重试。"
-    },
-    "close": "关闭",
-    "cancel": "取消",
+      "errors": {
+        "conflict": "这条记忆刚刚发生了变化，当前内容不会被覆盖。请返回最新列表后重新打开。",
+        "targetChanged": "这条记忆已经发生变化或不再存在，当前内容不会被覆盖。请查看最新内容后重新打开。",
+        "scopeOccupied": "所选项目里已经有一条当前记忆。请选择其他项目后重试。",
+        "memoryForgotten": "这条记忆已经被删除，不能再恢复或修改。请返回最新列表。",
+        "effectiveAtBeforeTarget": "变化时间不能早于这条记忆开始生效的时间，请重新选择。",
+        "replacementUnchanged": "填写的内容和当前记忆相同，请写下实际变化后的内容。",
+        "scopeUnchanged": "这条记忆已经只用于这个项目，请选择其他项目。",
+        "projectChanged": "这个项目已不可用于记忆限定。项目列表已经更新，请重新选择。",
+        "saveFailed": "暂时没能保存。你填写的内容还在，可以稍后重试。"
+      },
+      "close": "关闭",
+      "cancel": "取消",
       "discard": {
         "title": "放弃未保存的修改？",
         "description": "你刚才填写的内容还没有保存，关闭后会丢失。",
@@ -3819,26 +3866,26 @@
       "save": "保存修正",
       "success": {
         "title": "已经按你的意思修正",
-      "replaced": "之后相关的回答会使用下面这条当前理解。",
-      "replacedInFuture": "到设定时间后，相关回答会使用下面这条理解。",
-      "removed": "之后不会再把原来的内容当作你的信息。",
-      "removedPending": "已经把这条待确认内容标为不准确，之后不会用它来了解你。",
-      "currentLabel": "现在会这样理解",
-      "futureLabel": "从设定时间起会这样理解",
-      "effectiveAt": "从什么时候起",
-      "scope": "在什么情况下",
-      "backgroundUpdate": "相关总结会在后台继续更新，不影响这次修正生效。",
-      "backgroundUpdateFailed": "这次修正已经生效，但相关总结暂时没能更新；你可以稍后再查看。",
-      "scheduledUpdate": "到设定时间后，相关总结会自动更新。",
-      "done": "完成"
+        "replaced": "之后相关的回答会使用下面这条当前理解。",
+        "replacedInFuture": "到设定时间后，相关回答会使用下面这条理解。",
+        "removed": "之后不会再把原来的内容当作你的信息。",
+        "removedPending": "已经把这条待确认内容标为不准确，之后不会用它来了解你。",
+        "currentLabel": "现在会这样理解",
+        "futureLabel": "从设定时间起会这样理解",
+        "effectiveAt": "从什么时候起",
+        "scope": "在什么情况下",
+        "backgroundUpdate": "相关总结会在后台继续更新，不影响这次修正生效。",
+        "backgroundUpdateFailed": "这次修正已经生效，但相关总结暂时没能更新；你可以稍后再查看。",
+        "scheduledUpdate": "到设定时间后，相关总结会自动更新。",
+        "done": "完成"
       },
       "history": {
         "title": "修正记录",
         "count": "{{count}} 次",
         "loading": "正在读取修改记录…",
         "empty": "还没有修正过这条记忆。",
-      "loadFailed": "暂时没能读取修改记录。",
-      "retry": "重试",
+        "loadFailed": "暂时没能读取修改记录。",
+        "retry": "重试",
         "active": "当前有效",
         "applied": "已应用",
         "contentDeletedStatus": "内容已删除",
@@ -3863,23 +3910,23 @@
         "confirmRevertTitle": "确认撤销这次修正？",
         "confirmRevert": "撤销后会恢复到这次修正之前的理解。",
         "confirmRevertAction": "确认撤销",
-      "revertConflict": "这条记忆刚刚发生了变化。我们已重新读取最新记录，请再确认一次。",
-      "scopeOccupied": "原来的适用范围里已经有一条当前记忆，所以无法直接撤销。",
-      "revertFailed": "暂时没能撤销这次修正，请稍后重试。",
-      "revertSuccess": "已撤销这次修正",
-      "scopeEntry": "{{label}}：{{value}}",
-      "scopeNameUnavailable": "名称暂不可用",
-      "scopeSeparator": "，",
+        "revertConflict": "这条记忆刚刚发生了变化。我们已重新读取最新记录，请再确认一次。",
+        "scopeOccupied": "原来的适用范围里已经有一条当前记忆，所以无法直接撤销。",
+        "revertFailed": "暂时没能撤销这次修正，请稍后重试。",
+        "revertSuccess": "已撤销这次修正",
+        "scopeEntry": "{{label}}：{{value}}",
+        "scopeNameUnavailable": "名称暂不可用",
+        "scopeSeparator": "，",
         "versions": "查看内容变化",
         "currentVersion": "当前版本",
         "plannedVersion": "计划生效",
         "pastVersion": "历史版本",
         "versionPeriod": "{{status}} · {{from}} 至 {{to}}",
-      "versionFrom": "{{status}} · 从 {{from}} 开始",
-      "versionScope": "{{meta}} · {{scope}}"
-    },
-    "refreshFailed": "修正已经生效，但列表暂时没有刷新。",
-    "latestRefreshFailed": "暂时无法读取最新内容，请稍后再试。"
+        "versionFrom": "{{status}} · 从 {{from}} 开始",
+        "versionScope": "{{meta}} · {{scope}}"
+      },
+      "refreshFailed": "修正已经生效，但列表暂时没有刷新。",
+      "latestRefreshFailed": "暂时无法读取最新内容，请稍后再试。"
     },
     "governance": {
       "title": "记忆管理",

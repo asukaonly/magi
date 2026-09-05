@@ -1,8 +1,9 @@
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { getErrorMessage } from '@/utils/error-handler';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
+
 import { Check, Loader2, ShieldCheck, SlidersHorizontal, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { backgroundTasksApi } from '@/api';

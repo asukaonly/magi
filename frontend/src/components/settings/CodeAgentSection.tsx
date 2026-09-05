@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw, X } from 'lucide-react';
@@ -63,7 +64,7 @@ export function CodeAgentSection(): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       setLoading(true);
       try {
         const [probe, settingsResp] = await Promise.all([
@@ -132,7 +133,7 @@ export function CodeAgentSection(): JSX.Element {
         description={t('settings.codeAgent.enableDesc')}
         ariaLabel={t('settings.codeAgent.enableTitle')}
         checked={settings.enabled}
-        onCheckedChange={(checked) => persistUserPatch({ enabled: checked })}
+        onCheckedChange={asEventHandler((checked) => persistUserPatch({ enabled: checked }))}
       />
 
       <SettingsSwitchRow
@@ -140,7 +141,7 @@ export function CodeAgentSection(): JSX.Element {
         description={t('settings.codeAgent.autoApplyDesc')}
         ariaLabel={t('settings.codeAgent.autoApply')}
         checked={settings.auto_apply}
-        onCheckedChange={(checked) => persistUserPatch({ auto_apply: checked })}
+        onCheckedChange={asEventHandler((checked) => persistUserPatch({ auto_apply: checked }))}
       />
 
       <SettingsGroup
@@ -149,7 +150,7 @@ export function CodeAgentSection(): JSX.Element {
       >
         <SelectField
           value={settings.default_adapter}
-          onChange={(value) => persistUserPatch({ default_adapter: value as DefaultAdapterName })}
+          onChange={asEventHandler((value) => persistUserPatch({ default_adapter: value as DefaultAdapterName }))}
           options={defaultAdapterOptions}
           allowEmpty={false}
           ariaLabel={t('settings.codeAgent.defaultAdapter')}
@@ -167,7 +168,7 @@ export function CodeAgentSection(): JSX.Element {
             type="button"
             variant="outline"
             size="sm"
-            onClick={onRescan}
+            onClick={asEventHandler(onRescan)}
             disabled={rescanning}
             className="inline-flex h-9 items-center gap-1 rounded-sm border-[hsl(var(--settings-subnav-border)/0.72)] bg-transparent shadow-none hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]"
           >
@@ -202,8 +203,8 @@ export function CodeAgentSection(): JSX.Element {
           description={t('settings.codeAgent.blockGitCommitDesc')}
           ariaLabel={t('settings.codeAgent.blockGitCommit')}
           checked={settings.constraints.forbid_git_commit}
-          onCheckedChange={(checked) =>
-            persistUserPatch({ constraints: { forbid_git_commit: checked } })
+          onCheckedChange={asEventHandler((checked) =>
+            persistUserPatch({ constraints: { forbid_git_commit: checked } }))
           }
         />
         <SettingsSwitchRow
@@ -211,8 +212,8 @@ export function CodeAgentSection(): JSX.Element {
           description={t('settings.codeAgent.blockGitPushDesc')}
           ariaLabel={t('settings.codeAgent.blockGitPush')}
           checked={settings.constraints.forbid_git_push}
-          onCheckedChange={(checked) =>
-            persistUserPatch({ constraints: { forbid_git_push: checked } })
+          onCheckedChange={asEventHandler((checked) =>
+            persistUserPatch({ constraints: { forbid_git_push: checked } }))
           }
         />
 
@@ -234,14 +235,14 @@ export function CodeAgentSection(): JSX.Element {
                   type="button"
                   aria-label={t('settings.codeAgent.removePath', { path: p })}
                   className="text-muted-foreground hover:text-foreground"
-                  onClick={() =>
-                    persistUserPatch({
+                  onClick={asEventHandler(() =>
+                    void persistUserPatch({
                       constraints: {
                         forbid_paths: settings.constraints.forbid_paths.filter(
                           (item) => item !== p,
                         ),
                       },
-                    })
+                    }))
                   }
                 >
                   <X className="h-3 w-3" />
@@ -274,7 +275,7 @@ export function CodeAgentSection(): JSX.Element {
                   setForbidPathDraft('');
                   return;
                 }
-                persistUserPatch({
+                void persistUserPatch({
                   constraints: {
                     forbid_paths: [...settings.constraints.forbid_paths, value],
                   },
@@ -303,7 +304,7 @@ export function CodeAgentSection(): JSX.Element {
               onChange={(e) => {
                 const v = Number(e.target.value);
                 if (Number.isFinite(v) && v >= 60 && v <= 3600) {
-                  persistUserPatch({ constraints: { default_timeout_s: v } });
+                  void persistUserPatch({ constraints: { default_timeout_s: v } });
                 }
               }}
               className={`${SETTINGS_INPUT_CLASS} w-32`}
@@ -368,7 +369,7 @@ function ProbeCard({ name, probe, settings, onPatch, t }: ProbeCardProps): JSX.E
           </label>
           <Input
             value={binaryPathValue}
-            onChange={(e) => updateBinaryPath(e.target.value)}
+            onChange={asEventHandler((e) => updateBinaryPath(e.target.value))}
             placeholder={t('settings.codeAgent.binaryPathOverridePlaceholder')}
             className={SETTINGS_MONO_INPUT_CLASS}
           />
@@ -379,7 +380,7 @@ function ProbeCard({ name, probe, settings, onPatch, t }: ProbeCardProps): JSX.E
           </label>
           <Input
             value={adapterSettings.default_model}
-            onChange={(e) => updateModel(e.target.value)}
+            onChange={asEventHandler((e) => updateModel(e.target.value))}
             placeholder={t('settings.codeAgent.defaultModelPlaceholder')}
             className={SETTINGS_INPUT_CLASS}
           />

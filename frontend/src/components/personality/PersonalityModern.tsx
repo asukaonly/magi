@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -290,7 +291,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
               <div className="flex flex-wrap justify-end gap-2">
                 {!isNewMode && selectedId !== currentId && (
                   <Button
-                    onClick={switchPersonality}
+                    onClick={asEventHandler(switchPersonality)}
                     disabled={switching}
                     size="sm"
                     className="rounded-md"
@@ -311,7 +312,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 ) : (
                   <Button
                     variant="outline"
-                    onClick={reload}
+                    onClick={asEventHandler(reload)}
                     size="sm"
                     className="rounded-md"
                   >
@@ -320,7 +321,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   </Button>
                 )}
                 <Button
-                  onClick={save}
+                  onClick={asEventHandler(save)}
                   disabled={saving || loading}
                   size="sm"
                   className="rounded-md"
@@ -361,7 +362,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                     className="h-10 rounded-md border-0 bg-background/80 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.35)] focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0"
                   />
                   <div className="flex flex-wrap justify-end gap-2">
-                    <Button onClick={generate} disabled={generating} className="h-10 rounded-md px-4">
+                    <Button onClick={asEventHandler(generate)} disabled={generating} className="h-10 rounded-md px-4">
                       {generating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                       {t('personality.generate')}
                     </Button>

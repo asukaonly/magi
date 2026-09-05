@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
@@ -1978,10 +1979,10 @@ export const MemorySourceDetailPage = () => {
             syncing={syncing}
             backfilling={backfilling || trackingBackfill || activeBackfill}
             togglingEnabled={togglingEnabled}
-            onSync={handleSync}
+            onSync={asEventHandler(handleSync)}
             onBackfill={() => setBackfillDialogOpen(true)}
             onOpenSettings={handleOpenSettings}
-            onToggleEnabled={handleToggleEnabled}
+            onToggleEnabled={asEventHandler(handleToggleEnabled)}
           />
           <SourceDetailStats row={row} todayCount={todayCount} />
           <SourceRecentEvents

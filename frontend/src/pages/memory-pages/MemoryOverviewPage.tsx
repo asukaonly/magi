@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -175,7 +176,7 @@ export const MemoryOverviewPage = () => {
             <OverviewPendingSection
               items={pendingItems}
               actionBusyId={actionBusyId}
-              onAction={handlePendingAction}
+              onAction={asEventHandler(handlePendingAction)}
             />
           ) : null}
           {recentStories.length > 0 ? <OverviewRecentStories stories={recentStories} /> : null}
@@ -197,7 +198,7 @@ export const MemoryOverviewPage = () => {
         onOpenChange={(open) => {
           if (!open && !actionBusyId) setEditingReview(null);
         }}
-        onSubmit={handleReviewEdit}
+        onSubmit={asEventHandler(handleReviewEdit)}
       />
     </MemoryPageFrame>
   );

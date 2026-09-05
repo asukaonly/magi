@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
@@ -785,7 +786,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onDiscoverProviderModels={handleDiscoverProviderModels}
           onResolveDraftProviderPreview={handleResolveDraftProviderPreview}
           providerDiscoveryState={providerDiscoveryState}
-          onTestProviderConnection={handleTestProviderConnection}
+          onTestProviderConnection={asEventHandler(handleTestProviderConnection)}
           providerTestState={providerTestState}
         />
       ) : null}

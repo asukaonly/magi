@@ -256,6 +256,7 @@ assert "/install/upload/inspect" in {r.path for r in public.routes}
 ### Frontend type boundaries
 - Production TypeScript must pass the type-aware ESLint rules in `frontend/eslint.config.mjs`: no explicit `any` or unsafe access, calls, arguments, assignments, and returns.
 - Hook dependencies must pass `react-hooks/exhaustive-deps`. Mount-only snapshots must have an explicit state/ref owner; asynchronous effects must invalidate stale responses on cleanup.
+- Production code must pass `no-floating-promises` and `no-misused-promises`. UI operations own expected failures and pending state; use `asEventHandler` only where the caller does not await the result, to report unexpected failures. Use `useAppNavigate` for UI-only navigation; retain awaited operations when ordering matters.
 - Treat external and persisted data as `unknown`, then validate or narrow it at its owning boundary. Do not replace checks with double assertions or fabricated defaults.
 - `@ts-ignore` and `@ts-nocheck` are prohibited in production; any necessary `@ts-expect-error` must explain the exact constraint and remains compiler checked.
 - Keep generated response types and validators synchronized with production contracts. Generated code is excluded from lint, not from compilation or regeneration checks. Existing test-only typing cleanup is incremental.

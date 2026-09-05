@@ -584,7 +584,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
   useEffect(() => {
     if (selectedSessionId) {
-      loadL0Workbench(selectedSessionId);
+      void loadL0Workbench(selectedSessionId);
     }
   }, [selectedSessionId, loadL0Workbench]);
 

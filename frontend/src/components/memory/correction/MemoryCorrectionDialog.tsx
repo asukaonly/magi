@@ -200,7 +200,7 @@ export function MemoryCorrectionDialog({
   useEffect(() => {
     if (!open || target?.kind !== 'edge' || !needsRelationshipObjectOptions) return;
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
+    const searchEntities = async () => {
       setEntitySearchLoading(true);
       setEntitySearchError(false);
       try {
@@ -224,7 +224,8 @@ export function MemoryCorrectionDialog({
       } finally {
         if (!cancelled) setEntitySearchLoading(false);
       }
-    }, entitySearch.trim() ? 250 : 0);
+    };
+    const timer = window.setTimeout(() => { void searchEntities(); }, entitySearch.trim() ? 250 : 0);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

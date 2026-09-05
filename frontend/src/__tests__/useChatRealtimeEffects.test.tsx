@@ -42,6 +42,41 @@ describe('useChatRealtimeEffects', () => {
     vi.useRealTimers();
   });
 
+  it('retries rejected history reads without clearing the pending turn', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const reconcile = vi.fn().mockRejectedValueOnce(new Error('Unavailable')).mockResolvedValue(RESOLVED_RECONCILIATION);
+    const clear = vi.fn();
+    renderHook(() => useChatRealtimeEffects({
+      allowInterjection: false,
+      pendingResponseTurnsBySession: { 'session-1': 'turn-1' },
+      refreshVisibleTrace: vi.fn(), handleTurnExecutionControlEvent: vi.fn(),
+      reconcilePendingResponseTurn: reconcile, clearPendingResponseTurn: clear,
+    }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(PENDING_HISTORY_RECONCILE_DELAY_MS); });
+    expect(clear).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(clear).toHaveBeenCalledWith({ sessionId: 'session-1', turnId: 'turn-1' });
+    warning.mockRestore();
+  });
+
+  it('does not settle a response whose subscription owner unmounted', async () => {
+    vi.useFakeTimers();
+    let finish!: (value: { resolved: boolean; terminalRunState: string }) => void;
+    const reconcile = vi.fn(() => new Promise<{ resolved: boolean; terminalRunState: string }>((resolve) => { finish = resolve; }));
+    const clear = vi.fn(); const settle = vi.fn();
+    const { unmount } = renderHook(() => useChatRealtimeEffects({
+      allowInterjection: false, pendingResponseTurnsBySession: { 'session-1': 'turn-1' },
+      refreshVisibleTrace: vi.fn(), handleTurnExecutionControlEvent: vi.fn(),
+      reconcilePendingResponseTurn: reconcile, clearPendingResponseTurn: clear, settleTurnFromHistory: settle,
+    }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(PENDING_HISTORY_RECONCILE_DELAY_MS); });
+    unmount();
+    await act(async () => { finish({ resolved: true, terminalRunState: 'completed' }); });
+    expect(clear).not.toHaveBeenCalled(); expect(settle).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('keeps realtime event policy outside the subscription hook', () => {
     expect(hookSource).not.toContain('assistant_rhythm_segment');
     expect(hookSource).not.toContain('segment_index');

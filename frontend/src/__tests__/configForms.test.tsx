@@ -1380,6 +1380,7 @@ describe('config forms', () => {
           rerankerDownloadError={null}
           onRerankerDownload={vi.fn()}
           onRerankerDelete={vi.fn()}
+          onRefreshModels={vi.fn()}
         />
       );
     };

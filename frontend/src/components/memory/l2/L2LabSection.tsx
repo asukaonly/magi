@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useEffect, useMemo, useState } from 'react';
 import { DatabaseZap, GitMerge, Orbit, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -110,7 +111,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
               placeholder={t('memory.l2.lab.entityFocusPlaceholder')}
             />
           </div>
-          <Button onClick={handleManualSubmit} disabled={actionLoading || !manualEvent.text.trim()}>
+          <Button onClick={asEventHandler(handleManualSubmit)} disabled={actionLoading || !manualEvent.text.trim()}>
             <DatabaseZap className="mr-2 h-4 w-4" />
             {t('memory.l2.lab.injectEvent')}
           </Button>
@@ -138,7 +139,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
             <Button
               variant="outline"
               className="w-full rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
-              onClick={() => onReplayExtraction(selectedEventId)}
+              onClick={asEventHandler(() => onReplayExtraction(selectedEventId))}
               disabled={actionLoading || !selectedEventId}
             >
               <RefreshCcw className="mr-2 h-4 w-4" />
@@ -168,7 +169,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
               <Button
                 variant="outline"
                 className="rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
-                onClick={() => onRunReconcile(selectedEntityId ? [selectedEntityId] : [])}
+                onClick={asEventHandler(() => onRunReconcile(selectedEntityId ? [selectedEntityId] : []))}
                 disabled={actionLoading || !selectedEntityId}
               >
                 <GitMerge className="mr-2 h-4 w-4" />
@@ -177,7 +178,7 @@ export const L2LabSection: React.FC<L2LabSectionProps> = ({
               <Button
                 variant="outline"
                 className="rounded-xl border-[hsl(var(--memory-input-border))] bg-[hsl(var(--memory-input-bg))] text-[hsl(var(--memory-title))] hover:bg-[hsl(var(--memory-panel-subtle))]"
-                onClick={() => onRunSnapshotRefresh(selectedEntityId ? [selectedEntityId] : [])}
+                onClick={asEventHandler(() => onRunSnapshotRefresh(selectedEntityId ? [selectedEntityId] : []))}
                 disabled={actionLoading || !selectedEntityId}
               >
                 <Orbit className="mr-2 h-4 w-4" />

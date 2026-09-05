@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -469,7 +470,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               type="file"
               accept=".tar.gz,.tgz,.zip"
               className="hidden"
-              onChange={handleUpload}
+              onChange={asEventHandler(handleUpload)}
               disabled={!!processingIds.__upload}
             />
             <Button

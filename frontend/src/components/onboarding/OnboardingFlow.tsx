@@ -1,3 +1,5 @@
+import { asEventHandler } from '@/utils/as-event-handler';
+import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, {
   useCallback,
@@ -9,7 +11,7 @@ import React, {
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router";
+
 import {
   CHAT_SESSION_KEY,
   DEFAULT_USER_ID,
@@ -924,7 +926,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           installableCatalogMode={installableCatalogMode}
           installableLoading={installableLoading}
           installableError={installableError}
-          onRetryInstallable={loadInstallableSources}
+          onRetryInstallable={asEventHandler(loadInstallableSources)}
           connectedPluginIds={firstContextPluginIds}
           connectedCountsByPluginId={firstContextCountsByPluginId}
           onConnectDone={handleFirstContextConnectDone}
@@ -935,7 +937,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     if (current === COMPLETE_STEP) {
       return (
         <CompletionScreen
-          onFinish={handleFinish}
+          onFinish={asEventHandler(handleFinish)}
           connectedSourceCount={firstContextPluginIds.length}
           loading={saving || finishingRuntime}
           loadingLabel={
@@ -1038,7 +1040,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                         : undefined
                     }
                     className={ONBOARDING_PRIMARY_ACTION_CLASS}
-                    onClick={handleNext}
+                    onClick={asEventHandler(handleNext)}
                     disabled={nextDisabled}
                   >
                     {current === LLM_SETUP_STEP && llmConnectionTestState.loading

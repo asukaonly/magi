@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useState } from 'react';
 import { GitMerge } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -131,7 +132,7 @@ export const L2ConflictRulesSection: React.FC<L2ConflictRulesSectionProps> = ({
               </select>
             </div>
           </div>
-          <Button onClick={handleRuleSave} disabled={actionLoading || !ruleForm.predicate.trim()}>
+          <Button onClick={asEventHandler(handleRuleSave)} disabled={actionLoading || !ruleForm.predicate.trim()}>
             <GitMerge className="mr-2 h-4 w-4" />
             {t('memory.l2.lab.saveRule')}
           </Button>

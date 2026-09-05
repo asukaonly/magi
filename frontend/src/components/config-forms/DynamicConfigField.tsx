@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, File, FolderOpen, Plus, X } from 'lucide-react';
@@ -157,7 +158,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           <div className="flex min-w-0 gap-2">
             <button
               type="button"
-              onClick={handleBrowse}
+              onClick={asEventHandler(handleBrowse)}
               disabled={disabled || normalized.readOnly}
               aria-label={`${normalized.label}: ${browseLabel}`}
               className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-background px-3 text-left text-sm transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
@@ -248,7 +249,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           {!disabled && !normalized.readOnly && (
             <button
               type="button"
-              onClick={handleBrowse}
+              onClick={asEventHandler(handleBrowse)}
               className="flex items-center gap-1.5 rounded-md border border-dashed border-input px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
             >
               <Plus className="h-3.5 w-3.5" />

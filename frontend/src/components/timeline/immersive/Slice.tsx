@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -55,7 +56,7 @@ export const Slice: React.FC<SliceProps> = ({
           aria-label={t("timeline.immersive.heartLabel", { defaultValue: "想常回来" })}
           data-pinned={isPinned ? "true" : "false"}
           disabled={pendingAction === "pin"}
-          onClick={() => onTogglePinned(episodeId, !isPinned)}
+          onClick={asEventHandler(() => onTogglePinned(episodeId, !isPinned))}
           className={cn(
             "text-lg transition-opacity",
             isPinned

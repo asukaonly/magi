@@ -1,3 +1,4 @@
+import { asEventHandler } from '@/utils/as-event-handler';
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarRange, Check, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -86,10 +87,10 @@ export const SourceBackfillDialog = ({
       return;
     }
     if (scope === 'custom') {
-      onConfirm({ scope, startDate, endDate });
+      asEventHandler(onConfirm)({ scope, startDate, endDate });
       return;
     }
-    onConfirm({ scope });
+    asEventHandler(onConfirm)({ scope });
   };
 
   return (

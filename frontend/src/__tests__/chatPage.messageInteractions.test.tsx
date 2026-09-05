@@ -1,3 +1,4 @@
+import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import {
   defineChatPageSuite,
   realtimeListener,
@@ -952,6 +953,7 @@ defineChatPageSuite('ChatPage message interactions', () => {
         data: {
           session_id: 'session-1',
           message: {
+            ...eventExamples.message,
             message_id: 'msg-user-reply',
             message_kind: 'user_text',
             role: 'user',
