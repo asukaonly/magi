@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -24,8 +25,26 @@ class ToolRegistrySkillMixin:
         Args:
             skills: {name: SkillMetadata} dictionary
         """
-        self._skills = dict(skills)
+        self._skills = {**skills, **getattr(self, "_owned_skills", {})}
         logger.info(f"Registered {len(skills)} skills to registry")
+
+    def register_skill(self, metadata: "SkillMetadata", *, owner_id: object) -> Callable[[], None]:
+        """Register one contribution without allowing stale unloads to remove it."""
+        if metadata.name in self._skills:
+            raise ValueError(f"Skill is already registered: {metadata.name}")
+        if not hasattr(self, "_owned_skills"):
+            self._owned_skills: dict[str, "SkillMetadata"] = {}
+        self._owned_skills[metadata.name] = metadata
+        self._skills[metadata.name] = metadata
+
+        def dispose() -> None:
+            if self._owned_skills.get(metadata.name) is metadata:
+                del self._owned_skills[metadata.name]
+                if self._skills.get(metadata.name) is metadata:
+                    del self._skills[metadata.name]
+                self.remove_model_names(f"skill_{metadata.name}")
+
+        return dispose
 
     def bind_skill_indexer(self, skill_indexer: Any) -> None:
         """Bind the skill indexer used for refresh operations."""
@@ -73,8 +92,8 @@ class ToolRegistrySkillMixin:
         """
         if self._skill_indexer:
             skills = self._skill_indexer.refresh()
-            self._skills = skills
-            return skills
+            self.register_skill_index(skills)
+            return dict(self._skills)
         return {}
 
 

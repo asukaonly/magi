@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from .registry_execution import ToolRegistryExecutionMixin
 from .registry_formats import ToolRegistryFormatMixin
 from .registry_lookup import ToolRegistryLookupMixin
+from .registry_model_names import ToolRegistryModelNamesMixin
 from .registry_skills import ToolRegistrySkillMixin
 from .registry_stats import ToolExecutionStats
 from .schema import Tool
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 class ToolRegistry(
     ToolRegistryLookupMixin,
+    ToolRegistryModelNamesMixin,
     ToolRegistrySkillMixin,
     ToolRegistryExecutionMixin,
     ToolRegistryFormatMixin,
@@ -101,7 +103,7 @@ class ToolRegistry(
         token = object()
 
         with self._registration_lock:
-            if tool_name in self._tools:
+            if tool_name in self._tools or tool_name in self._tool_aliases:
                 raise ValueError(f"Tool already registered: {tool_name}")
             setattr(temp_instance, "_tool_registry_ref", self)
             if plugin_id is not None:
@@ -148,6 +150,7 @@ class ToolRegistry(
             del self._tool_owners[tool_name]
             del self._tool_registration_tokens[tool_name]
             del self._stats[tool_name]
+            self.remove_model_names(tool_name)
 
         logger.info(f"Unregistered tool: {tool_name}")
         return True

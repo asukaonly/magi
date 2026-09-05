@@ -184,6 +184,10 @@ def _prepare_registered_tool_execution_request(
     start_time = time.time()
     token = cancel_token if cancel_token is not None else null_cancel_token()
     tool_name = tool_call.name
+    resolver = getattr(host.tool_registry, "resolve_tool_name", None)
+    canonical = resolver(tool_name) if callable(resolver) else tool_name
+    if isinstance(canonical, str):
+        tool_name = canonical
     arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
     arguments = _inject_memory_query_context(tool_name, arguments, recent_messages)
     return _build_registered_tool_execution_request(
@@ -277,7 +281,7 @@ class FunctionCallingToolExecutionMixin:
     ) -> ToolCallResult | None:
         if not request.tool_name.startswith("skill_"):
             return None
-        skill_name = request.tool_name.replace("skill_", "")
+        skill_name = request.tool_name.removeprefix("skill_")
         return await self._execute_skill(
             skill_name=skill_name,
             arguments=request.arguments,

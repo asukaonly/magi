@@ -34,6 +34,7 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "pydantic>=2.13.0,<2.14.0",
     "pydantic-settings>=2.1.0",
+    "jsonschema>=4.23.0",
     "python-multipart>=0.0.27",
     # Pinned transitively for CVE-2026-45409 (idna domain length DoS);
     # required >=3.15 for the fix.
