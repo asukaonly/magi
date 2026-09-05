@@ -40,8 +40,6 @@ export type MemoryToggleFieldId =
 // Draft Types
 // ============================================================================
 
-export type PluginDraftMap = Record<string, Record<string, unknown>>;
-
 export type ToolDraftSnapshot = {
   enabled: boolean;
   values: Record<string, unknown>;

@@ -2752,6 +2752,7 @@
         "cancel": "取消"
       },
       "feedback": {
+        "uncertain": "结果尚不确定，请先检查连接服务中的状态再重试。",
         "succeeded": "插件操作已完成",
         "failed": "插件操作失败",
         "failedWithMessage": "插件操作失败：{{message}}",
@@ -3016,6 +3017,8 @@
       }
     },
     "sourcesPage": {
+      "chooseConnection": "请选择连接，再同步或调整这个来源。",
+      "connectionScope": "记录与数量包含此来源的所有连接；操作仅作用于所选连接。",
       "title": "来源",
       "subtitle": "看看 Magi 今天从哪里形成记忆。",
       "loading": "正在整理来源。",
@@ -5259,5 +5262,55 @@
       "japanese": "日本語"
     },
     "noAvatar": "未设置头像"
+  },
+  "plugins": {
+    "trust": {
+      "title": "允许“{{name}}”运行？",
+      "review": "审阅运行权限",
+      "confirm": "允许运行",
+      "nativeAccess": "此插件可按当前用户的权限读写本机文件、访问网络和启动进程。下方列出的是插件声明的用途。",
+      "authorized": "已允许运行。现在可以配置并启用连接。",
+      "failed": "未能授权此插件，请刷新列表后重新审阅。",
+      "reinstall": "请重新安装此插件，再授权运行。"
+    },
+    "connections": {
+      "selectConnection": "选择 {{name}}",
+      "choose": "选择一个连接",
+      "title": "连接实例",
+      "description": "分别配置每个账号或目录。",
+      "add": "添加连接",
+      "name": "连接名称",
+      "edit": "编辑",
+      "enable": "启用",
+      "disable": "停用",
+      "clear": "清除本地内容",
+      "disconnect": "断开连接",
+      "refresh": "刷新",
+      "loading": "正在加载连接…",
+      "empty": "尚未添加连接。",
+      "loadFailed": "无法加载连接，请刷新重试。",
+      "saveFailed": "未能保存此更改。",
+      "conflict": "此连接已在其他位置更改，请重新加载后重试。",
+      "authorizationRequired": "请先授权已安装的插件，再启用连接。",
+      "reloadEditor": "重新加载已保存配置",
+      "credentialsHelp": "已保存凭据不会显示。可输入新凭据替换，或单独移除已保存凭据。",
+      "credentialSaved": "已保存凭据",
+      "removeCredential": "移除凭据",
+      "credentialRemovalPending": "保存后将移除此凭据。",
+      "removalDisables": "移除此必需凭据后，保存时会同时停用连接。",
+      "cancel": "取消",
+      "save": "保存",
+      "saving": "正在保存…",
+      "clearScope": "清除此连接在本地保留的内容，保留账号配置、凭据和来源进度。已导入的记忆及远端数据不受影响。",
+      "disconnectScope": "停止此连接并移除其本地状态和凭据。保留已安装插件、已导入记忆和远端数据。",
+      "status": {
+        "disabled": "已停用",
+        "setup_required": "待配置",
+        "auth_required": "待授权",
+        "ready": "可用",
+        "degraded": "部分可用",
+        "failed": "失败"
+      }
+    }
   }
 }

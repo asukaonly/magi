@@ -114,6 +114,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           {renderLabel()}
           <input
             type="number"
+            min={normalized.minimum}
+            max={normalized.maximum}
             value={value ?? normalized.defaultValue ?? ''}
             onChange={(event) => handleChange(event.target.value === '' ? '' : Number(event.target.value))}
             placeholder={normalized.placeholder}

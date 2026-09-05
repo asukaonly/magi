@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { openExternalUrl } from '@/runtime/desktop';
 
 interface PluginSettingsCustomBlocksProps {
-  pluginId: string;
+  connectionId: string;
   blocks: PluginSettingsUiBlockSpec[];
   values: Record<string, any>;
   onChange: (key: string, value: any) => void;
@@ -37,11 +37,11 @@ const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string,
 };
 
 const CalendarListResourcePicker: React.FC<{
-  pluginId: string;
+  connectionId: string;
   block: PluginSettingsUiBlockSpec;
   values: Record<string, any>;
   onChange: (key: string, value: any) => void;
-}> = ({ pluginId, block, values, onChange }) => {
+}> = ({ connectionId, block, values, onChange }) => {
   const { t } = useTranslation('app');
   const [groups, setGroups] = useState<PluginSettingsResourceGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,7 +59,7 @@ const CalendarListResourcePicker: React.FC<{
       setLoading(true);
       setError(null);
       try {
-        const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+        const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
         if (cancelled) {
           return;
         }
@@ -81,7 +81,7 @@ const CalendarListResourcePicker: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [block.resource_name, pluginId]);
+  }, [block.resource_name, connectionId]);
 
   const toggleItem = (itemId: string, checked: boolean) => {
     const nextIds = checked
@@ -172,27 +172,33 @@ const renderPermissionIcon = (status: PluginPermissionStatus) => {
 };
 
 const PermissionStatusBlock: React.FC<{
-  pluginId: string;
+  connectionId: string;
   block: PluginSettingsUiBlockSpec;
-}> = ({ pluginId, block }) => {
+}> = ({ connectionId, block }) => {
   const { t } = useTranslation('app');
   const [items, setItems] = useState<PluginPermissionStatusItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const generation = useRef(0);
   const load = useCallback(async () => {
+    const request = ++generation.current;
     setLoading(true);
     setError(null);
     try {
-      const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+      const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
+      if (request !== generation.current) return;
       const rawItems = Array.isArray(payload.data?.items) ? payload.data.items : [];
       setItems(rawItems as PluginPermissionStatusItem[]);
     } catch (fetchError: any) {
-      setError(fetchError?.message || 'unknown');
+      if (request === generation.current) {
+        setItems([]);
+        setError(fetchError?.message || 'unknown');
+      }
     } finally {
-      setLoading(false);
+      if (request === generation.current) setLoading(false);
     }
-  }, [block.resource_name, pluginId]);
+  }, [block.resource_name, connectionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,6 +209,7 @@ const PermissionStatusBlock: React.FC<{
     })();
     return () => {
       cancelled = true;
+      generation.current += 1;
     };
   }, [load]);
 
@@ -293,7 +300,7 @@ const PermissionStatusBlock: React.FC<{
 };
 
 export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProps> = ({
-  pluginId,
+  connectionId,
   blocks,
   values,
   onChange,
@@ -311,7 +318,7 @@ export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProp
           return (
             <CalendarListResourcePicker
               key={block.block_id}
-              pluginId={pluginId}
+              connectionId={connectionId}
               block={block}
               values={values}
               onChange={onChange}
@@ -319,7 +326,7 @@ export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProp
           );
         }
         if (block.type === 'resource_picker' && block.presentation === 'permission_status') {
-          return <PermissionStatusBlock key={block.block_id} pluginId={pluginId} block={block} />;
+          return <PermissionStatusBlock key={block.block_id} connectionId={connectionId} block={block} />;
         }
         return null;
       })}

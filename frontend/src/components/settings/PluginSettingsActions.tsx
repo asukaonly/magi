@@ -15,10 +15,12 @@ import { openExternalUrl } from '@/runtime/desktop';
 
 interface PluginSettingsActionsProps {
   pluginId: string;
+  connectionId: string;
+  connectionEnabled?: boolean;
   actions: PluginSettingsActionSpec[];
   values: Record<string, any>;
   disabled?: boolean;
-  onSettingsUpdates?: (pluginId: string, updates: Record<string, any>) => void;
+  onSettingsUpdates?: (connectionId: string, updates: Record<string, any>) => void;
   onActionSettled?: () => Promise<void> | void;
 }
 
@@ -98,6 +100,8 @@ const getActionOpenUrl = (result: PluginSettingsActionRunResponse | undefined): 
 
 export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
   pluginId,
+  connectionId,
+  connectionEnabled = false,
   actions,
   values,
   disabled = false,
@@ -106,15 +110,22 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const mountedRef = useRef(true);
+  const currentConnection = useRef(connectionId);
+  currentConnection.current = connectionId;
+  const runs = useRef<Record<string, number>>({});
+  const inFlight = useRef(new Set<string>());
   const openedActionUrlsRef = useRef<Set<string>>(new Set());
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
 
   useEffect(() => {
     mountedRef.current = true;
+    setActionStates({});
+    openedActionUrlsRef.current.clear();
+    runs.current = {};
     return () => {
       mountedRef.current = false;
     };
-  }, []);
+  }, [connectionId]);
 
   const visibleActions = useMemo(
     () => [...actions].filter((action) => isActionVisible(action, values)).sort((a, b) => a.order - b.order),
@@ -128,7 +139,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
   const completeAction = async (result: PluginSettingsActionRunResponse) => {
     if (result.status === 'succeeded') {
       if (Object.keys(result.settings_updates || {}).length > 0) {
-        onSettingsUpdates?.(pluginId, result.settings_updates);
+        onSettingsUpdates?.(connectionId, result.settings_updates);
       }
       toast.success(result.message || t('settings.pluginActions.feedback.succeeded'));
       await onActionSettled?.();
@@ -140,6 +151,10 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
     }
     if (result.status === 'cancelled') {
       toast.info(result.message || t('settings.pluginActions.feedback.cancelled'));
+    }
+    if (result.status === 'uncertain') {
+      toast.warning(t('settings.pluginActions.feedback.uncertain'));
+      await onActionSettled?.();
     }
   };
 
@@ -163,28 +178,32 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
 
   const pollAction = async (
     action: PluginSettingsActionSpec,
-    initialResult: PluginSettingsActionRunResponse
+    initialResult: PluginSettingsActionRunResponse,
+    run: number,
   ) => {
+    const isCurrent = () => mountedRef.current && currentConnection.current === connectionId && runs.current[action.action_id] === run;
     let current = initialResult;
     const startedAt = Date.now();
     const timeoutMs = Math.max(action.timeout_ms || 0, 1_000);
     const pollIntervalMs = Math.max(action.poll_interval_ms || 2_000, 1_000);
 
     while (
-      mountedRef.current &&
+      isCurrent() &&
       current.status === 'pending' &&
       Date.now() - startedAt < timeoutMs
     ) {
       await delay(pollIntervalMs);
-      if (!mountedRef.current) {
+      if (!isCurrent()) {
         return;
       }
       current = await pluginsApi.pollSettingsAction(
-        pluginId,
+        connectionId,
         action.action_id,
         current.session_id,
         values
       );
+      if (!isCurrent()) return;
+      if (current.connection_id !== connectionId || current.plugin_id !== pluginId) throw new Error('Settings action returned a different connection');
       void openResultUrlIfPresent(current);
       setActionStates((prev) => ({
         ...prev,
@@ -192,7 +211,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
       }));
     }
 
-    if (!mountedRef.current) {
+    if (!isCurrent()) {
       return;
     }
     if (current.status === 'pending') {
@@ -202,61 +221,81 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
           loading: false,
           result: {
             ...current,
-            status: 'failed',
-            message: t('settings.pluginActions.feedback.timedOut'),
+            status: 'uncertain',
+            message: t('settings.pluginActions.feedback.uncertain'),
           },
         },
       }));
-      toast.error(t('settings.pluginActions.feedback.timedOut'));
+      toast.warning(t('settings.pluginActions.feedback.uncertain'));
       return;
     }
     await completeAction(current);
   };
 
   const startAction = async (action: PluginSettingsActionSpec) => {
+    const inFlightKey = `${connectionId}:${action.action_id}`;
+    if (inFlight.current.has(inFlightKey)) return;
+    inFlight.current.add(inFlightKey);
+    const run = (runs.current[action.action_id] ?? 0) + 1;
+    runs.current[action.action_id] = run;
+    const isCurrent = () => mountedRef.current && currentConnection.current === connectionId && runs.current[action.action_id] === run;
     setActionStates((prev) => ({
       ...prev,
       [action.action_id]: { loading: true },
     }));
     try {
-      const result = await pluginsApi.startSettingsAction(pluginId, action.action_id, values);
-      if (!mountedRef.current) {
+      const result = await pluginsApi.startSettingsAction(connectionId, action.action_id, values);
+      if (!isCurrent()) {
         return;
       }
+      if (result.connection_id !== connectionId || result.plugin_id !== pluginId) throw new Error('Settings action returned a different connection');
       setActionStates((prev) => ({
         ...prev,
         [action.action_id]: { loading: result.status === 'pending', result },
       }));
       void openResultUrlIfPresent(result);
       if (result.status === 'pending') {
-        void pollAction(action, result);
+        await pollAction(action, result, run);
         return;
       }
       await completeAction(result);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error || 'unknown');
+    } catch {
+      if (!isCurrent()) return;
+      const message = t('settings.pluginActions.feedback.uncertain');
       setActionStates((prev) => ({
         ...prev,
-        [action.action_id]: { loading: false, error: message },
+        [action.action_id]: { loading: false, result: {
+          connection_id: connectionId, plugin_id: pluginId, action_id: action.action_id,
+          session_id: '', status: 'uncertain', message, data: {}, settings_updates: {},
+        } },
       }));
-      toast.error(t('settings.pluginActions.feedback.failedWithMessage', { message }));
+      toast.warning(message);
+    } finally {
+      inFlight.current.delete(inFlightKey);
     }
   };
 
   const cancelAction = async (action: PluginSettingsActionSpec, sessionId: string) => {
+    runs.current[action.action_id] = (runs.current[action.action_id] ?? 0) + 1;
     try {
-      const result = await pluginsApi.cancelSettingsAction(pluginId, action.action_id, sessionId);
-      if (!mountedRef.current) {
+      const result = await pluginsApi.cancelSettingsAction(connectionId, action.action_id, sessionId);
+      if (!mountedRef.current || currentConnection.current !== connectionId) {
         return;
       }
+      if (result.connection_id !== connectionId || result.plugin_id !== pluginId) throw new Error('Settings action returned a different connection');
       setActionStates((prev) => ({
         ...prev,
         [action.action_id]: { loading: false, result },
       }));
       await completeAction(result);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error || 'unknown');
-      toast.error(t('settings.pluginActions.feedback.failedWithMessage', { message }));
+    } catch {
+      if (!mountedRef.current || currentConnection.current !== connectionId) return;
+      const message = t('settings.pluginActions.feedback.uncertain');
+      setActionStates((prev) => ({ ...prev, [action.action_id]: { loading: false, result: {
+        connection_id: connectionId, plugin_id: pluginId, action_id: action.action_id,
+        session_id: sessionId, status: 'uncertain', message, data: {}, settings_updates: {},
+      } } }));
+      toast.warning(message);
     }
   };
 
@@ -307,7 +346,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
                   type="button"
                   variant={action.destructive ? 'destructive' : 'outline'}
                   size="sm"
-                  disabled={disabled || running}
+                  disabled={disabled || running || status === 'uncertain' || (action.requires_enabled && !connectionEnabled)}
                   onClick={() => void startAction(action)}
                 >
                   {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}

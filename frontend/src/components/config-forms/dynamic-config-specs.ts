@@ -14,6 +14,8 @@ export type NormalizedDynamicConfigSpec = {
   pathKind?: 'file' | 'directory';
   defaultValue?: any;
   enumValues?: any[];
+  minimum?: number;
+  maximum?: number;
 };
 
 const isExtensionFieldSpec = (spec: DynamicConfigSpec): spec is ExtensionFieldSpec => 'key' in spec;
@@ -62,6 +64,8 @@ export const normalizeDynamicSpec = (
       pathKind: spec.path_kind ?? undefined,
       defaultValue: spec.default,
       enumValues,
+      minimum: spec.minimum ?? undefined,
+      maximum: spec.maximum ?? undefined,
     };
   }
 

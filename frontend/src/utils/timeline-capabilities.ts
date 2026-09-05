@@ -28,6 +28,7 @@ export interface TimelineAvailableEntry {
   version: string;
   official: boolean;
   capabilities: PluginRegistryEntry['capabilities'];
+  executionMode: PluginRegistryEntry['execution_mode'];
   installFingerprint: string;
 }
 
@@ -196,6 +197,7 @@ export const buildTimelineAvailableEntries = (
         version: entry.version,
         official: entry.official,
         capabilities: entry.capabilities,
+        executionMode: entry.execution_mode,
         installFingerprint,
       } satisfies TimelineAvailableEntry;
     });

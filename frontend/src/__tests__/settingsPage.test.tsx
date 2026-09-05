@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
@@ -251,13 +252,13 @@ vi.mock('@/api/modules/plugins', async () => {
       ...actual.pluginsApi,
       list: vi.fn(),
       rescan: vi.fn(),
-      enable: vi.fn(),
-      disable: vi.fn(),
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
       getRegistry: vi.fn(),
       installFromRegistryWithProgress: vi.fn(),
-      updateSettings: vi.fn(),
+      listConnections: vi.fn(),
+      getConnection: vi.fn(),
+      updateConnection: vi.fn(),
       startSettingsAction: vi.fn(),
       pollSettingsAction: vi.fn(),
       cancelSettingsAction: vi.fn(),
@@ -289,6 +290,7 @@ vi.mock('@/api/modules/skills', async () => {
 });
 
 const timelineSourceFixture = {
+  connection_id: 'photo-account', connection_display_name: 'Photo Account', connection_revision: 4,
   source_name: 'photo_library',
   plugin_id: 'photo-library',
   contribution_id: 'timeline.photo_library',
@@ -359,6 +361,7 @@ const timelineSourceFixture = {
 };
 
 const chromeTimelineSourceFixture = {
+  connection_id: 'chrome-account', connection_display_name: 'Chrome Account', connection_revision: 4,
   source_name: 'chrome_history',
   plugin_id: 'chrome-history',
   contribution_id: 'timeline.chrome_history',
@@ -483,6 +486,9 @@ const browserRegistryEntry = (
   installed = false,
 ) => ({
   plugin_id: pluginId,
+  protocol_version: 2,
+  execution_mode: 'trusted_process',
+  settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
   name,
   name_i18n: { 'zh-CN': `${memberLabel} 浏览器历史` },
   version: '0.1.0',
@@ -495,7 +501,7 @@ const browserRegistryEntry = (
   data_locality: 'local_only',
   contribution_types: ['sensor'],
   platforms: [],
-  min_sdk_version: '0.1.0',
+  min_sdk_version: '0.2.0',
   homepage: '',
   repository: '',
   path: pluginId,
@@ -509,6 +515,8 @@ const pluginsListFixture = {
   plugins: [
     {
       manifest: {
+        protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'restricted_process',
+        settings_fields: timelineSourceFixture.fields, settings_actions: [], settings_resources: [], settings_ui_blocks: [],
         plugin_id: 'photo-library',
         name: 'Photo Library',
         version: '1.0.0',
@@ -516,7 +524,7 @@ const pluginsListFixture = {
         author: 'Magi Team',
         official: true,
         contribution_types: ['sensor'],
-        source: 'builtin',
+        source: 'external',
         plugin_dir: '/tmp/plugins/photo-library',
         manifest_path: '/tmp/plugins/photo-library/plugin.toml',
       },
@@ -549,6 +557,8 @@ const pluginsListFixture = {
     },
     {
       manifest: {
+        protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'restricted_process',
+        settings_fields: chromeTimelineSourceFixture.fields, settings_actions: [], settings_resources: [], settings_ui_blocks: [],
         plugin_id: 'chrome-history',
         name: 'Chrome History',
         version: '1.0.0',
@@ -556,7 +566,7 @@ const pluginsListFixture = {
         author: 'Magi Team',
         official: true,
         contribution_types: ['sensor'],
-        source: 'builtin',
+        source: 'external',
         plugin_dir: '/tmp/plugins/chrome-history',
         manifest_path: '/tmp/plugins/chrome-history/plugin.toml',
       },
@@ -746,20 +756,18 @@ describe('settings page draft saving', () => {
     vi.mocked(pluginsApi.getRegistry).mockResolvedValue({ plugins: [], total: 0 } as any);
     vi.mocked(pluginsApi.installFromRegistryWithProgress).mockResolvedValue({} as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
-    vi.mocked(pluginsApi.enable).mockImplementation(async (pluginId: string) =>
-      (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
-    );
-    vi.mocked(pluginsApi.disable).mockImplementation(async (pluginId: string) => ({
-      ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
-      enabled: false,
-    }) as any);
     vi.mocked(pluginsApi.reload).mockImplementation(async (pluginId: string) =>
       (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
     );
-    vi.mocked(pluginsApi.updateSettings).mockImplementation(async (pluginId: string, updates: Record<string, any>) => ({
-      ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
-      current_settings: updates,
-    }) as any);
+    vi.mocked(pluginsApi.listConnections).mockResolvedValue([]);
+    vi.mocked(pluginsApi.getConnection).mockImplementation(async (pluginId, connectionId) => ({
+      plugin_id: pluginId, connection_id: connectionId, display_name: 'Account', enabled: true,
+      settings: {}, credential_refs: {}, readiness: [], revision: 4,
+    }));
+    vi.mocked(pluginsApi.updateConnection).mockImplementation(async (pluginId, connectionId, input) => ({
+      plugin_id: pluginId, connection_id: connectionId, display_name: 'Account', enabled: input.enabled ?? true,
+      settings: input.settings ?? {}, credential_refs: {}, readiness: [], revision: input.expected_revision + 1,
+    }));
     vi.mocked(pluginsApi.startSettingsAction).mockResolvedValue({
       status: 'succeeded',
       message: 'connected',
@@ -1886,34 +1894,122 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('keeps timeline source changes in draft until save', async () => {
+  it('saves source drafts to their connection independently of the global settings form', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
-
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
-    await screen.findByTestId('timeline-overview');
     await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
-
     const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
+    fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
+    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+      'photo-library', 'photo-account', {
+        expected_revision: 4,
+        settings: { sensors: { photo_library: { sync_interval_minutes: 75 } } }, credentials: {},
+      },
+    ));
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
 
-    fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), {
-      target: { value: '75' },
+  it('keeps drafts isolated between two accounts of the same package', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(await screen.findByRole('tab', { name: /Personal/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60);
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', {
+      expected_revision: 4, settings: { sensors: { photo_library: { sync_interval_minutes: 90 } } }, credentials: {},
+    }));
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
+    expect(pluginsApi.updateConnection).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
+  });
+
+  it('toggles one sensor flag while retaining sibling sources and connection enablement', async () => {
+    const user = userEvent.setup();
+    vi.mocked(pluginsApi.getConnection).mockResolvedValue({
+      plugin_id: 'photo-library', connection_id: 'photo-account', display_name: 'Photos',
+      enabled: true, revision: 8, credential_refs: {}, readiness: [],
+      settings: { sensors: { photo_library: { enabled: true }, sibling: { enabled: true } } },
     });
-    await user.click(within(photoPanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
+      expected_revision: 8, credentials: {},
+      settings: { sensors: { photo_library: { enabled: false }, sibling: { enabled: true } } },
+    }));
+  });
 
-    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+  it('requires account selection before exposing timeline controls and retains a failed draft', async () => {
+    const user = userEvent.setup();
+    const failure = vi.spyOn(toast, 'error').mockReturnValue('failure');
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    vi.mocked(pluginsApi.updateConnection).mockRejectedValueOnce(new Error('revision conflict'));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    expect(screen.queryByRole('switch', { name: 'settings.timeline.fields.enabled' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Sync Interval (minutes)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(failure).toHaveBeenCalledWith('plugins.connections.saveFailed'));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
+    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+    expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', expect.any(Object));
+  });
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+  it('does not discard an unsaved source field when toggling its sensor flag', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
+      expected_revision: 4, credentials: {}, settings: { sensors: { photo_library: { enabled: false } } },
+    }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
+    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+  });
 
-    await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'photo-library',
-        expect.objectContaining({
-          'sensors.photo_library.sync_interval_minutes': 75,
-          'sensors.photo_library.enabled': false,
-        })
-      )
-    );
+  it('does not write a source draft after switching accounts during its revision lookup', async () => {
+    const user = userEvent.setup();
+    let resolveRead!: (value: Awaited<ReturnType<typeof pluginsApi.getConnection>>) => void;
+    vi.mocked(pluginsApi.getConnection).mockReturnValueOnce(new Promise((resolve) => { resolveRead = resolve; }));
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    resolveRead({ plugin_id: 'photo-library', connection_id: 'personal', revision: 4, settings: {} } as never);
+    await waitFor(() => expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60));
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
   });
 
   it('queues a historical backfill from timeline source settings', async () => {
@@ -1943,7 +2039,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: '开始补回' }));
 
     await waitFor(() =>
-      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', {
+      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-account', {
         mode: 'backfill',
         backfillScope: 'last_30_days',
       })
@@ -2221,6 +2317,7 @@ describe('settings page draft saving', () => {
         browserWorkspace,
       ).getByTestId('timeline-marketplace-entry-safari-history').querySelector('button')!,
     );
+    expect(await screen.findByText('plugins.trust.nativeAccess')).toBeInTheDocument();
     await user.click(
       await screen.findByRole('button', {
         name: 'settings.marketplace.consent.confirm.install',
@@ -2408,14 +2505,12 @@ describe('settings page draft saving', () => {
     expect(within(photoPanel).getByText('本地照片目录')).toBeInTheDocument();
     expect(within(photoPanel).queryByText('Apple Photos 照片库')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
 
     await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'photo-library',
-        expect.objectContaining({
-          'sensors.photo_library.source_mode': 'directory',
-        })
+      expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+        'photo-library', 'photo-account',
+        expect.objectContaining({ expected_revision: 4, settings: { sensors: { photo_library: { source_mode: 'directory' } } } })
       )
     );
   });
@@ -2535,6 +2630,7 @@ describe('settings page draft saving', () => {
       plugin_id: 'github-activity',
       action_id: 'connect_github',
       session_id: 'session-1',
+      connection_id: 'github-account',
       status: 'pending',
       message: 'Open GitHub and enter ABCD-EFGH.',
       data: {
@@ -2548,6 +2644,7 @@ describe('settings page draft saving', () => {
       sources: [
         {
           ...chromeTimelineSourceFixture,
+          connection_id: 'github-account',
           source_name: 'github_activity',
           plugin_id: 'github-activity',
           contribution_id: 'timeline.github_activity',
@@ -2601,7 +2698,7 @@ describe('settings page draft saving', () => {
     await user.click(within(panel).getByRole('button', { name: 'Connect GitHub' }));
 
     expect(pluginsApi.startSettingsAction).toHaveBeenCalledWith(
-      'github-activity',
+      'github-account',
       'connect_github',
       expect.objectContaining({
         'sensors.github_activity.repositories': ['acme/app'],
@@ -2681,32 +2778,23 @@ describe('settings page draft saving', () => {
     expect(beta.compareDocumentPosition(gamma) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps activation flow results local until save', async () => {
+  it('persists activation directly to the selected connection', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
-
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
-
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
     await user.click(within(chromePanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
-
     expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Enable source' }));
-
-    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
-
-    await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'chrome-history',
-        expect.objectContaining({
-          'sensors.chrome_history.enabled': true,
-          'sensors.chrome_history.initial_sync_configured': true,
-        })
-      )
-    );
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+      'chrome-history', 'chrome-account', expect.objectContaining({
+        expected_revision: 4,
+        settings: { sensors: { chrome_history: expect.objectContaining({ enabled: true, initial_sync_configured: true }) } },
+      }),
+    ));
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
   });
 
   it('keeps an unconfigured source non-operational even if enabled was set directly', async () => {
@@ -2916,7 +3004,7 @@ describe('settings page draft saving', () => {
     const panel = await screen.findByTestId('timeline-source-detail-screen_time');
     await user.click(within(panel).getByRole('button', { name: 'settings.timeline.actions.flushStateNow' }));
 
-    await waitFor(() => expect(sensorsApi.requestStateFlush).toHaveBeenCalledWith('screen_time'));
+    await waitFor(() => expect(sensorsApi.requestStateFlush).toHaveBeenCalledWith('screen_time', 'photo-account'));
   });
 
   it('prompts before closing when there are unsaved changes', async () => {

@@ -1,674 +1,478 @@
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { sensorsApi } from '@/api/modules/sensors';
-import { pluginsApi } from '@/api/modules/plugins';
+import { StrictMode, type PropsWithChildren } from 'react';
+import { renderHook, act, cleanup } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import {
+  sensorsApi,
+  type MemoryReadinessResponse,
+  type SensorSourceStatusItem,
+  type SensorSourceStatusResponse,
+} from '@/api/modules/sensors';
+import {
+  pluginsApi,
+  type ActivationFlowSpec,
+  type ExtensionFieldSpec,
+  type PluginConnection,
+  type PluginInstallJobSnapshot,
+  type PluginPackageState,
+} from '@/api/modules/plugins';
 import { usePluginInstallFlow } from '@/hooks/usePluginInstallFlow';
 
-const FLOW = (fields: any[] = []) => ({
-  title: 't',
-  description: 'd',
-  confirm_label: 'c',
-  cancel_label: 'x',
-  authorize_on_confirm: false,
-  enabled_key: 'sensors.s.enabled',
-  configured_key: 'sensors.s.configured',
-  fields,
-});
+const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
 
-const source = (over: any = {}) => ({
-  source_name: 's',
-  plugin_id: 'p',
-  activation_flow: FLOW(),
-  enabled: false,
-  running: false,
-  last_result_count: 0,
-  last_success: null,
-  ...over,
+const field = (key: string, overrides: Partial<ExtensionFieldSpec> = {}): ExtensionFieldSpec => ({
+  key, type: 'input', label: key, description: '', required: false, options: [],
+  section: 'general', surface: 'timeline', order: 0, ...overrides,
+});
+const FLOW = (fields: ExtensionFieldSpec[] = []): ActivationFlowSpec => ({
+  title: 'Connect', description: 'Description', confirm_label: 'Connect', cancel_label: 'Cancel',
+  authorize_on_confirm: false, enabled_key: 'sensors.s.enabled', configured_key: 'sensors.s.configured', fields,
+});
+const installed = (
+  activation: ActivationFlowSpec | null = FLOW(),
+  settingsFields: ExtensionFieldSpec[] = activation?.fields ?? [],
+  pluginId = 'p',
+): PluginPackageState => ({
+  manifest: {
+    plugin_id: pluginId, name: `Plugin ${pluginId}`, version: '1.0.0', description: 'Plugin description',
+    author: '', official: false, contribution_types: ['sensor'], source: 'installed',
+    plugin_dir: '', manifest_path: '', capabilities: [], protocol_version: 2,
+    min_sdk_version: '0.2.0', execution_mode: 'restricted_process', settings_actions: [],
+    settings_resources: [], settings_ui_blocks: [], activation_flow: activation,
+    settings_fields: [
+      field('sensors.s.enabled', { type: 'switch', default: false }),
+      field('sensors.s.configured', { type: 'switch', default: false }),
+      ...settingsFields,
+    ],
+  },
+  enabled: false, trusted: true, loaded: false, healthy: false, contributions: [], current_settings: {},
+});
+const connection = (pluginId = 'p', overrides: Partial<PluginConnection> = {}): PluginConnection => ({
+  plugin_id: pluginId, connection_id: `connection-${pluginId}`, display_name: `Account ${pluginId}`,
+  enabled: true, settings: {}, credential_refs: {}, revision: 1, readiness: [], ...overrides,
+});
+const source = (overrides: Partial<SensorSourceStatusItem> = {}): SensorSourceStatusItem => ({
+  source_name: 's', connection_id: 'connection-p', connection_display_name: 'Account p',
+  connection_revision: 1, plugin_id: 'p', contribution_id: 's', display_name: 'Source', description: '',
+  fields: [], current_settings: {}, enabled: true, sync_mode: 'interval', sync_interval_minutes: 10,
+  storage_mode: 'events', fetch_page_content: false, edge_whitelist: [], supports_pull_sync: true,
+  running: false, last_result_count: 12, last_raw_result_count: 15, last_success: null, ...overrides,
+});
+const readiness = (overrides: Partial<MemoryReadinessResponse> = {}): MemoryReadinessResponse => ({
+  source_name: 's', connection_id: 'connection-p', l1_event_count: 12, l2_ready: true,
+  l2_total_count: 12, l2_processed_count: 12, l2_remaining_count: 0, ...overrides,
+});
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+const advance = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+const mockPackages = (...packages: PluginPackageState[]) => {
+  vi.mocked(pluginsApi.list).mockResolvedValue({ plugins: packages, total: packages.length });
+};
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  const syncCounts = new Map<string, number>();
+  vi.spyOn(pluginsApi, 'list').mockResolvedValue({ plugins: [installed()], total: 1 });
+  vi.spyOn(pluginsApi, 'createConnection').mockImplementation(async (pluginId) => connection(pluginId));
+  vi.spyOn(pluginsApi, 'getConnection').mockImplementation(async (pluginId, id) => connection(pluginId, { connection_id: id }));
+  vi.spyOn(pluginsApi, 'updateConnection').mockImplementation(async (pluginId, id, input) =>
+    connection(pluginId, { connection_id: id, revision: input.expected_revision + 1 }));
+  vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockResolvedValue(installed());
+  vi.spyOn(sensorsApi, 'getStatus').mockImplementation(async () => ({
+    sources: [
+      source({ connection_id: 'other-account', last_success: '2026-01-02T00:00:00Z', last_result_count: 999 }),
+      ...['p', 'q'].map((id) => {
+        const count = syncCounts.get(`connection-${id}`) ?? 0;
+        return source({ plugin_id: id, connection_id: `connection-${id}`,
+          last_success: count ? `2026-01-01T00:00:0${count}Z` : null });
+      }),
+    ],
+  }));
+  vi.spyOn(sensorsApi, 'requestSync').mockImplementation(async (name, id) => {
+    syncCounts.set(id, (syncCounts.get(id) ?? 0) + 1);
+    return { source_name: name, connection_id: id, queued: true };
+  });
+  vi.spyOn(sensorsApi, 'requestAuthorization').mockResolvedValue({
+    authorized: true, requested_types: [], granted_types: [], denied_types: [],
+  });
+  vi.spyOn(sensorsApi, 'getMemoryReadiness').mockImplementation(async (name, id) =>
+    readiness({ source_name: name, connection_id: id }));
+});
+afterEach(() => {
+  cleanup();
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('usePluginInstallFlow', () => {
-  beforeEach(() => vi.restoreAllMocks());
-
-  it('zero-config installed: enable → sync → memory → done', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({ sources: [source()] } as any) // initial flow fetch
-      .mockResolvedValue({
-        sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 12 })],
-      } as any); // sync poll: advanced
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 's',
-      l1_event_count: 12,
-      l2_ready: true,
-      l2_total_count: 12,
-      l2_processed_count: 12,
-      l2_remaining_count: 0,
-    } as any);
-
+  it('uses installed manifest metadata and scopes creation, sync and readiness to one new account', async () => {
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-      'p',
-      expect.objectContaining({
-        'sensors.s.enabled': true,
-        'sensors.s.configured': true,
-      }),
-    );
-    expect(result.current.syncedCount).toBe(12);
-    expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
-    expect(result.current.memoryReady).toBe(true);
-    expect(result.current.memoryTotalCount).toBe(12);
-    expect(result.current.memoryProcessedCount).toBe(12);
-    expect(result.current.memoryRemainingCount).toBe(0);
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
+    expect(pluginsApi.createConnection).toHaveBeenCalledExactlyOnceWith('p', {
+      display_name: 'Plugin p', enabled: true,
+      settings: { sensors: { s: { enabled: true, configured: true } } }, credentials: {},
+    });
+    expect(sensorsApi.requestSync).toHaveBeenCalledWith('s', 'connection-p', undefined);
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledWith('s', 'connection-p', { maxWaitMs: 1500 });
+    expect(result.current).toMatchObject({
+      connectionId: 'connection-p', sourceName: 's', syncedCount: 12, syncedRawCount: 15,
+      memoryReady: true, memoryTotalCount: 12, memoryProcessedCount: 12, memoryRemainingCount: 0,
+    });
+    expect(result.current.steps.every((step) => step.status === 'done')).toBe(true);
   });
 
-  it('finishes zero memory input without a background organizing note', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({ sources: [source()] } as any)
-      .mockResolvedValue({
-        sources: [
-          source({
-            last_success: '2026-01-01T00:00:01Z',
-            last_result_count: 0,
-            last_raw_result_count: 7,
-          }),
-        ],
-      } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 's',
-      l1_event_count: 0,
-      l2_ready: false,
-      l2_total_count: 0,
-      l2_processed_count: 0,
-      l2_remaining_count: 0,
-    } as any);
-
+  it('collects canonical required fields before any connection, authorization or status lookup', async () => {
+    const path = field('directory', { type: 'path', required: true });
+    const token = field('account.token', { type: 'secret', required: true });
+    mockPackages(installed({ ...FLOW([field('directory')]), authorize_on_confirm: true }, [path, token]));
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledTimes(1);
-    expect(result.current.syncedCount).toBe(0);
-    expect(result.current.syncedRawCount).toBe(7);
+    await advance();
+    expect(result.current.phase).toBe('awaiting_fields');
+    expect(result.current.flow?.fields).toEqual([path, token]);
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    expect(sensorsApi.getStatus).not.toHaveBeenCalled();
+    expect(sensorsApi.requestAuthorization).not.toHaveBeenCalled();
+    act(() => result.current.submitFields({ directory: '/accounts/work', 'account.token': 'private-token' }));
+    await advance(1500);
+    expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', {
+      display_name: 'Plugin p', enabled: true,
+      settings: { directory: '/accounts/work', sensors: { s: { enabled: true, configured: true } } },
+      credentials: { 'account.token': 'private-token' },
+    });
+    expect(sensorsApi.requestAuthorization).toHaveBeenCalledWith('s', 'connection-p', expect.objectContaining({ directory: '/accounts/work' }));
+    expect(result.current.phase).toBe('done');
+  });
+
+  it('first context applies manifest defaults and caps without asking for optional default fields', async () => {
+    const fields = [
+      field('sensors.s.lookback_days', { type: 'number', default: 7 }),
+      field('sensors.s.max_items_per_sync', { type: 'number', default: 500 }),
+    ];
+    mockPackages(installed(FLOW(fields)));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance(1500);
+    expect(result.current.flow?.fields).toEqual([]);
+    expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', expect.objectContaining({
+      settings: { sensors: { s: { enabled: true, configured: true, lookback_days: 7, max_items_per_sync: 200 } } },
+    }));
+    expect(sensorsApi.requestSync).toHaveBeenCalledWith('s', 'connection-p', { firstContext: true });
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledWith('s', 'connection-p', { maxWaitMs: 0 });
+  });
+
+  it('first context applies declared overrides and still asks for required directories', async () => {
+    const fields = [
+      field('sensors.s.paths', { type: 'tags', required: true }),
+      field('sensors.s.lookback_days', { type: 'number', default: 90 }),
+      field('sensors.s.max_items_per_sync', { type: 'number', default: 500 }),
+    ];
+    mockPackages(installed({ ...FLOW(fields), first_context: {
+      max_items_per_sync: 75, settings_overrides: { 'sensors.s.lookback_days': 14 },
+    } }));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance();
+    expect(result.current.flow?.fields.map((item) => item.key)).toEqual(['sensors.s.paths']);
+    act(() => result.current.submitFields({ 'sensors.s.paths': ['/history'] }));
+    await advance(1500);
+    expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', expect.objectContaining({
+      settings: { sensors: { s: { enabled: true, configured: true, paths: ['/history'], lookback_days: 14, max_items_per_sync: 75 } } },
+    }));
+    expect(result.current.phase).toBe('done');
+  });
+
+  it('first context completes when L1 input is known without waiting for L2', async () => {
+    vi.mocked(sensorsApi.getMemoryReadiness).mockResolvedValue(readiness({ l2_ready: false, l2_processed_count: 0, l2_remaining_count: 12 }));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'first_context'));
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
     expect(result.current.memoryReady).toBe(false);
-    expect(result.current.memoryTotalCount).toBe(0);
-    expect(result.current.memoryProcessedCount).toBe(0);
+    expect(result.current.steps.find((step) => step.id === 'memory')?.status).toBe('done');
     expect(result.current.backfillNote).toBe(false);
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledOnce();
   });
 
-  it('does not check memory when sync has not completed yet', async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(sensorsApi, 'getStatus')
-        .mockResolvedValueOnce({ sources: [source()] } as any)
-        .mockResolvedValue({ sources: [source({ last_success: null })] } as any);
-      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-        queued: true,
-        source_name: 's',
-      } as any);
-      const readinessSpy = vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-        source_name: 's',
-        l1_event_count: 0,
-        l2_ready: false,
-      } as any);
-
-      const { result } = renderHook(() => usePluginInstallFlow('p', false));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(95_000);
-      });
-
-      expect(result.current.phase).toBe('done');
-      expect(result.current.syncDeferred).toBe(true);
-      expect(result.current.backfillNote).toBe(true);
-      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('skipped');
-      expect(readinessSpy).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('with fields: waits for submit before enabling', async () => {
-    const withFields = (over: any = {}) =>
-      source({
-        activation_flow: FLOW([
-          { key: 'sensors.s.source_paths', type: 'path', label: 'dirs', required: true, default: [] },
-        ]),
-        ...over,
-      });
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({ sources: [withFields()] } as any) // initial flow fetch (last_success: null)
-      .mockResolvedValue({
-        sources: [withFields({ last_success: '2026-01-01T00:00:01Z', last_result_count: 1 })],
-      } as any); // sync poll: advanced
-    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 's',
-      l1_event_count: 1,
-      l2_ready: true,
-      l2_total_count: 1,
-      l2_processed_count: 1,
-      l2_remaining_count: 0,
-    } as any);
-
+  it('finishes empty memory input without a background organizing note', async () => {
+    vi.mocked(sensorsApi.getStatus)
+      .mockResolvedValueOnce({ sources: [source()] })
+      .mockResolvedValue({ sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 0, last_raw_result_count: 7 })] });
+    vi.mocked(sensorsApi.getMemoryReadiness).mockResolvedValue(readiness({ l1_event_count: 0, l2_ready: false, l2_total_count: 0, l2_processed_count: 0 }));
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
-    await waitFor(() => expect(result.current.phase).toBe('awaiting_fields'));
-    expect(upd).not.toHaveBeenCalled();
-    await act(async () => {
-      result.current.submitFields({ 'sensors.s.source_paths': ['/x'] });
-    });
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(upd).toHaveBeenCalledWith('p', expect.objectContaining({ 'sensors.s.source_paths': ['/x'] }));
+    await advance(1500);
+    expect(result.current).toMatchObject({ phase: 'done', syncedCount: 0, syncedRawCount: 7, memoryReady: false, memoryTotalCount: 0, backfillNote: false });
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledOnce();
   });
 
-  it('uses optional field defaults in first-context mode when a plugin declares no overrides', async () => {
-    const chromeFlow = () => ({
-      title: 't',
-      description: 'd',
-      confirm_label: 'c',
-      cancel_label: 'x',
-      authorize_on_confirm: false,
-      enabled_key: 'sensors.chrome_history.enabled',
-      configured_key: 'sensors.chrome_history.initial_sync_configured',
-      fields: [
-        {
-          key: 'sensors.chrome_history.initial_sync_policy',
-          type: 'select',
-          label: 'scope',
-          required: false,
-          default: 'lookback_days',
-        },
-        {
-          key: 'sensors.chrome_history.initial_sync_lookback_days',
-          type: 'number',
-          label: 'days',
-          required: false,
-          default: 7,
-        },
-      ],
-    });
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({
-        sources: [
-          source({
-            plugin_id: 'chrome-history',
-            source_name: 'chrome_history',
-            activation_flow: chromeFlow(),
-          }),
-        ],
-      } as any)
-      .mockResolvedValue({
-        sources: [
-          source({
-            plugin_id: 'chrome-history',
-            source_name: 'chrome_history',
-            activation_flow: chromeFlow(),
-            last_success: '2026-01-01T00:00:01Z',
-            last_result_count: 2,
-          }),
-        ],
-    } as any);
-    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    const requestSync = vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
-      source_name: 'chrome_history',
-    } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 'chrome_history',
-      l1_event_count: 2,
-      l2_ready: true,
-      l2_total_count: 2,
-      l2_processed_count: 2,
-      l2_remaining_count: 0,
-    } as any);
-
-    const { result } = renderHook(() =>
-      usePluginInstallFlow('chrome-history', false, 'first_context'),
-    );
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(result.current.flow?.fields).toEqual([]);
-
-    expect(upd).toHaveBeenCalledWith(
-      'chrome-history',
-      expect.objectContaining({
-        'sensors.chrome_history.enabled': true,
-        'sensors.chrome_history.initial_sync_configured': true,
-        'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-        'sensors.chrome_history.initial_sync_lookback_days': 7,
-        'sensors.chrome_history.max_items_per_sync': 200,
-      }),
-    );
-    expect(requestSync).toHaveBeenCalledWith('chrome_history', { firstContext: true });
-  });
-
-  it('skips fields covered by plugin-declared first-context overrides', async () => {
-    const firstContextFlow = () => ({
-      title: 't',
-      description: 'd',
-      confirm_label: 'c',
-      cancel_label: 'x',
-      authorize_on_confirm: false,
-      enabled_key: 'sensors.agent_history.enabled',
-      configured_key: 'sensors.agent_history.configured',
-      first_context: {
-        max_items_per_sync: 75,
-        settings_overrides: {
-          'sensors.agent_history.initial_sync_policy': 'lookback_days',
-          'sensors.agent_history.initial_sync_lookback_days': 14,
-        },
-      },
-      fields: [
-        {
-          key: 'sensors.agent_history.initial_sync_policy',
-          type: 'select',
-          label: 'scope',
-          required: false,
-          default: 'lookback_days',
-        },
-        {
-          key: 'sensors.agent_history.initial_sync_lookback_days',
-          type: 'number',
-          label: 'days',
-          required: false,
-          default: 30,
-        },
-      ],
-    });
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({
-        sources: [
-          source({
-            plugin_id: 'agent-history',
-            source_name: 'agent_history',
-            activation_flow: firstContextFlow(),
-          }),
-        ],
-      } as any)
-      .mockResolvedValue({
-        sources: [
-          source({
-            plugin_id: 'agent-history',
-            source_name: 'agent_history',
-            activation_flow: firstContextFlow(),
-            last_success: '2026-01-01T00:00:01Z',
-            last_result_count: 3,
-          }),
-        ],
-      } as any);
-    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
-      source_name: 'agent_history',
-    } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 'agent_history',
-      l1_event_count: 3,
-      l2_ready: true,
-      l2_total_count: 3,
-      l2_processed_count: 3,
-      l2_remaining_count: 0,
-    } as any);
-
-    const { result } = renderHook(() =>
-      usePluginInstallFlow('agent-history', false, 'first_context'),
-    );
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(result.current.flow?.fields).toEqual([]);
-
-    expect(upd).toHaveBeenCalledWith(
-      'agent-history',
-      expect.objectContaining({
-        'sensors.agent_history.enabled': true,
-        'sensors.agent_history.configured': true,
-        'sensors.agent_history.initial_sync_policy': 'lookback_days',
-        'sensors.agent_history.initial_sync_lookback_days': 14,
-        'sensors.agent_history.max_items_per_sync': 75,
-      }),
-    );
-  });
-
-  it('finishes first-context once raw context is available without waiting for full memory organizing', async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(sensorsApi, 'getStatus')
-        .mockResolvedValueOnce({
-          sources: [
-            source({
-              plugin_id: 'chrome-history',
-              source_name: 'chrome_history',
-            }),
-          ],
-        } as any)
-        .mockResolvedValue({
-          sources: [
-            source({
-              plugin_id: 'chrome-history',
-              source_name: 'chrome_history',
-              last_success: '2026-01-01T00:00:01Z',
-              last_result_count: 125,
-            }),
-          ],
-        } as any);
-      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-        queued: true,
-        source_name: 'chrome_history',
-      } as any);
-      const readinessSpy = vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-        source_name: 'chrome_history',
-        l1_event_count: 125,
-        l2_ready: false,
-        l2_total_count: 125,
-        l2_processed_count: 101,
-        l2_remaining_count: 24,
-      } as any);
-
-      const { result } = renderHook(() =>
-        usePluginInstallFlow('chrome-history', false, 'first_context'),
-      );
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2_000);
-      });
-
-      expect(result.current.phase).toBe('done');
-      expect(result.current.memoryReady).toBe(false);
-      expect(result.current.backfillNote).toBe(false);
-      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
-      expect(readinessSpy).toHaveBeenCalledTimes(1);
-      expect(readinessSpy).toHaveBeenCalledWith('chrome_history', { maxWaitMs: 0 });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('still asks for first-context fields that are not covered by overrides', async () => {
-    const partialOverrideFlow = () => ({
-      title: 't',
-      description: 'd',
-      confirm_label: 'c',
-      cancel_label: 'x',
-      authorize_on_confirm: false,
-      enabled_key: 'sensors.agent_history.enabled',
-      configured_key: 'sensors.agent_history.configured',
-      first_context: {
-        settings_overrides: {
-          'sensors.agent_history.initial_sync_lookback_days': 14,
-        },
-      },
-      fields: [
-        {
-          key: 'sensors.agent_history.source_paths',
-          type: 'path',
-          label: 'folders',
-          required: true,
-          default: [],
-        },
-        {
-          key: 'sensors.agent_history.initial_sync_lookback_days',
-          type: 'number',
-          label: 'days',
-          required: false,
-          default: 30,
-        },
-      ],
-    });
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({
-        sources: [
-          source({
-            plugin_id: 'agent-history',
-            source_name: 'agent_history',
-            activation_flow: partialOverrideFlow(),
-          }),
-        ],
-      } as any)
-      .mockResolvedValue({
-        sources: [
-          source({
-            plugin_id: 'agent-history',
-            source_name: 'agent_history',
-            activation_flow: partialOverrideFlow(),
-            last_success: '2026-01-01T00:00:01Z',
-            last_result_count: 3,
-          }),
-        ],
-      } as any);
-    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
-      source_name: 'agent_history',
-    } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 'agent_history',
-      l1_event_count: 3,
-      l2_ready: true,
-      l2_total_count: 3,
-      l2_processed_count: 3,
-      l2_remaining_count: 0,
-    } as any);
-
-    const { result } = renderHook(() =>
-      usePluginInstallFlow('agent-history', false, 'first_context'),
-    );
-    await waitFor(() => expect(result.current.phase).toBe('awaiting_fields'));
-    expect(result.current.flow?.fields.map((field) => field.key)).toEqual([
-      'sensors.agent_history.source_paths',
-    ]);
-    await act(async () => {
-      result.current.submitFields({ 'sensors.agent_history.source_paths': ['/x'] });
-    });
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-
-    expect(upd).toHaveBeenCalledWith(
-      'agent-history',
-      expect.objectContaining({
-        'sensors.agent_history.enabled': true,
-        'sensors.agent_history.configured': true,
-        'sensors.agent_history.source_paths': ['/x'],
-        'sensors.agent_history.initial_sync_lookback_days': 14,
-      }),
-    );
-  });
-
-  it('no activation_flow → unsupported (no silent no-op)', async () => {
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
-      sources: [source({ activation_flow: null })],
-    } as any);
+  it('keeps sync pending for this account despite another account completing and skips memory on timeout', async () => {
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [
+      source({ connection_id: 'other-account', last_success: '2026-01-01T00:00:01Z' }), source(),
+    ] });
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
-    await waitFor(() => expect(result.current.phase).toBe('unsupported'));
+    await advance(95_000);
+    expect(result.current).toMatchObject({ phase: 'done', syncDeferred: true, backfillNote: true });
+    expect(result.current.steps.find((step) => step.id === 'memory')?.status).toBe('skipped');
+    expect(sensorsApi.getMemoryReadiness).not.toHaveBeenCalled();
   });
 
-  it('memory not ready in bounded time → done with backfill note (no fake ✓)', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({ sources: [source()] } as any)
-      .mockResolvedValue({
-        sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 3 })],
-      } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness')
-      .mockResolvedValueOnce({
-        source_name: 's',
-        l1_event_count: 3,
-        l2_ready: false,
-        l2_total_count: 3,
-        l2_processed_count: 1,
-        l2_remaining_count: 2,
-      } as any)
-      .mockResolvedValue({
-        source_name: 's',
-        l1_event_count: 3,
-        l2_ready: true,
-        l2_total_count: 3,
-        l2_processed_count: 3,
-        l2_remaining_count: 0,
-      } as any);
-
+  it('polls bounded memory progress and refreshes completion in the background', async () => {
+    vi.mocked(sensorsApi.getMemoryReadiness).mockResolvedValue(readiness({ l1_event_count: 3, l2_ready: false, l2_total_count: 3, l2_processed_count: 1, l2_remaining_count: 2 }));
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledTimes(2);
+    await advance(22_000);
+    expect(result.current).toMatchObject({ phase: 'done', memoryProcessedCount: 1, memoryTotalCount: 3, backfillNote: true });
+    expect(result.current.steps.find((step) => step.id === 'memory')?.status).toBe('background');
+    vi.mocked(sensorsApi.getMemoryReadiness).mockResolvedValue(readiness({ l1_event_count: 3, l2_total_count: 3, l2_processed_count: 3 }));
+    await advance(3000);
     expect(result.current.memoryReady).toBe(true);
-    expect(result.current.memoryTotalCount).toBe(3);
-    expect(result.current.memoryProcessedCount).toBe(3);
-    expect(result.current.memoryRemainingCount).toBe(0);
     expect(result.current.backfillNote).toBe(false);
-    expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done'); // soft-done, labelled "整理中"
+    expect(result.current.steps.find((step) => step.id === 'memory')?.status).toBe('done');
   });
 
-  it('memory not ready by the deadline → done with latest progress and backfill note', async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(sensorsApi, 'getStatus')
-        .mockResolvedValueOnce({ sources: [source()] } as any)
-        .mockResolvedValue({
-          sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 3 })],
-        } as any);
-      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-      vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-        source_name: 's',
-        l1_event_count: 3,
-        l2_ready: false,
-        l2_total_count: 3,
-        l2_processed_count: 1,
-        l2_remaining_count: 2,
-      } as any);
-
-      const { result } = renderHook(() => usePluginInstallFlow('p', false));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
-      });
-      expect(result.current.phase).toBe('done');
-      expect(result.current.memoryReady).toBe(false);
-      expect(result.current.memoryProcessedCount).toBe(1);
-      expect(result.current.memoryRemainingCount).toBe(2);
-      expect(result.current.backfillNote).toBe(true);
-      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('background');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('rejects readiness for a different connection without showing its counts', async () => {
+    vi.mocked(sensorsApi.getMemoryReadiness).mockResolvedValue(readiness({ connection_id: 'other-account', l1_event_count: 999 }));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance(1500);
+    expect(result.current.phase).toBe('error');
+    expect(result.current.memoryCount).toBeNull();
   });
 
-  it('keeps refreshing background memory progress while the panel remains open', async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(sensorsApi, 'getStatus')
-        .mockResolvedValueOnce({ sources: [source()] } as any)
-        .mockResolvedValue({
-          sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 3 })],
-        } as any);
-      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-      let ready = false;
-      vi.spyOn(sensorsApi, 'getMemoryReadiness').mockImplementation(async () => ({
-        source_name: 's',
-        l1_event_count: 3,
-        l2_ready: ready,
-        l2_total_count: 3,
-        l2_processed_count: ready ? 3 : 1,
-        l2_remaining_count: ready ? 0 : 2,
-      }) as any);
-
-      const { result } = renderHook(() => usePluginInstallFlow('p', false));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
-      });
-      expect(result.current.phase).toBe('done');
-      expect(result.current.memoryReady).toBe(false);
-      expect(result.current.backfillNote).toBe(true);
-      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('background');
-
-      ready = true;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
-      });
-
-      expect(result.current.memoryReady).toBe(true);
-      expect(result.current.memoryProcessedCount).toBe(3);
-      expect(result.current.memoryRemainingCount).toBe(0);
-      expect(result.current.backfillNote).toBe(false);
-      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('rejects a mismatched sync receipt instead of polling another account', async () => {
+    vi.mocked(sensorsApi.requestSync).mockResolvedValue({ source_name: 's', connection_id: 'other-account', queued: true });
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    expect(result.current.phase).toBe('error');
+    expect(sensorsApi.getStatus).toHaveBeenCalledOnce();
+    expect(sensorsApi.getMemoryReadiness).not.toHaveBeenCalled();
   });
 
-  it('install-mode runs install first, then fetches the flow', async () => {
-    const inst = vi
-      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockImplementation(async (_id, _expectedFingerprint, onP) => {
-        onP?.({
-          stage: 'downloading',
-          progress_pct: 50,
-          status: 'running',
-          message: '',
-          job_id: 'j',
-          operation: 'install',
-        } as any);
-        return {} as any;
-      });
-    vi.spyOn(sensorsApi, 'getStatus')
-      .mockResolvedValueOnce({ sources: [source()] } as any)
-      .mockResolvedValue({
-        sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 4 })],
-      } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 's',
-      l1_event_count: 4,
-      l2_ready: true,
-      l2_total_count: 4,
-      l2_processed_count: 4,
-      l2_remaining_count: 0,
-    } as any);
-
-    const { result } = renderHook(() =>
-      usePluginInstallFlow('p', true, 'default', 'fingerprint-1'),
-    );
-    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(inst).toHaveBeenCalledWith('p', 'fingerprint-1', expect.any(Function));
-    expect(result.current.steps.find((s) => s.id === 'install')?.status).toBe('done');
+  it('does not create a connection for an absent package or use live sensor activation metadata', async () => {
+    mockPackages();
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    expect(result.current.phase).toBe('error');
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    expect(sensorsApi.getStatus).not.toHaveBeenCalled();
   });
 
-  it('waits for a confirmed registry fingerprint before starting install mode', async () => {
-    const install = vi
-      .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockResolvedValue({} as any);
+  it('reports missing activation metadata as unsupported without enabling', async () => {
+    mockPackages(installed(null));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    expect(result.current.phase).toBe('unsupported');
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+  });
 
-    const { result } = renderHook(() =>
-      usePluginInstallFlow('p', true, 'default', null),
-    );
+  it('history import creates and returns an explicit connection without invoking sensor APIs', async () => {
+    // Import-only packages can declare no sensor settings at all.
+    const importer = installed(null, []);
+    importer.manifest.settings_fields = [];
+    mockPackages(importer);
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'history_import'));
+    await advance();
+    expect(result.current).toMatchObject({ phase: 'done', connectionId: 'connection-p', sourceName: null });
+    expect(result.current.steps).toEqual([{ id: 'enable', status: 'done' }]);
+    expect(pluginsApi.createConnection).toHaveBeenCalledExactlyOnceWith('p', {
+      display_name: 'Plugin p', enabled: true, settings: {}, credentials: {},
+    });
+    expect(sensorsApi.getStatus).not.toHaveBeenCalled();
+    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+    expect(sensorsApi.getMemoryReadiness).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() => expect(result.current.phase).toBe('loading'));
-    expect(install).not.toHaveBeenCalled();
-    expect(result.current.error).toBeNull();
+  it('history import collects required manifest configuration and scoped credentials before creation', async () => {
+    const importer = installed(null);
+    importer.manifest.settings_fields = [field('directory', { type: 'path', required: true }), field('token', { type: 'secret', required: true })];
+    mockPackages(importer);
+    const { result } = renderHook(() => usePluginInstallFlow('p', false, 'history_import'));
+    await advance();
+    expect(result.current.phase).toBe('awaiting_fields');
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
+    act(() => result.current.submitFields({ directory: '/history', token: 'secret' }));
+    await advance();
+    expect(result.current.connectionId).toBe('connection-p');
+    expect(pluginsApi.createConnection).toHaveBeenCalledWith('p', {
+      display_name: 'Plugin p', enabled: true, settings: { directory: '/history' }, credentials: { token: 'secret' },
+    });
+    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+  });
+
+  it('installs with the confirmed fingerprint and retries sync without another install, account, or credential write', async () => {
+    const token = field('token', { type: 'secret', required: true });
+    mockPackages(installed(FLOW([token])));
+    vi.mocked(sensorsApi.requestSync).mockRejectedValueOnce(new Error('Temporary sync failure'));
+    const { result } = renderHook(() => usePluginInstallFlow('p', true, 'default', 'fingerprint-1'));
+    await advance();
+    act(() => result.current.submitFields({ token: 'private-token' }));
+    await advance();
+    expect(result.current.phase).toBe('error');
+    act(() => { result.current.retry(); result.current.retry(); });
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
+    expect(pluginsApi.installFromRegistryWithProgress).toHaveBeenCalledExactlyOnceWith('p', 'fingerprint-1', expect.any(Function));
+    expect(pluginsApi.createConnection).toHaveBeenCalledOnce();
+    expect(pluginsApi.getConnection).toHaveBeenCalledExactlyOnceWith('p', 'connection-p');
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    expect(sensorsApi.requestSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('resumes a disabled connection with its current revision while retaining its settings', async () => {
+    vi.mocked(sensorsApi.requestSync).mockRejectedValueOnce(new Error('Temporary sync failure'));
+    vi.mocked(pluginsApi.getConnection).mockResolvedValue(connection('p', { enabled: false, revision: 9, settings: { changedDuringSetup: true } }));
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    act(() => result.current.retry());
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
+    expect(pluginsApi.updateConnection).toHaveBeenCalledExactlyOnceWith('p', 'connection-p', { enabled: true, expected_revision: 9 });
+    expect(pluginsApi.createConnection).toHaveBeenCalledOnce();
+  });
+
+  it('ignores retry while connection creation is still pending', async () => {
+    const pending = deferred<PluginConnection>();
+    vi.mocked(pluginsApi.createConnection).mockReturnValue(pending.promise);
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    act(() => result.current.retry());
+    await advance();
+    expect(pluginsApi.createConnection).toHaveBeenCalledOnce();
+    await act(async () => pending.resolve(connection()));
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
+  });
+
+  it('isolates a late old create result from the next account, including its retry target', async () => {
+    const oldCreate = deferred<PluginConnection>();
+    vi.mocked(pluginsApi.createConnection).mockReturnValueOnce(oldCreate.promise);
+    mockPackages(installed(), installed(FLOW(), [], 'q'));
+    vi.mocked(sensorsApi.requestSync).mockRejectedValueOnce(new Error('Retry q'));
+    const { result, rerender } = renderHook(({ id }) => usePluginInstallFlow(id, false), { initialProps: { id: 'p' } });
+    await advance();
+    rerender({ id: 'q' });
+    await advance();
+    expect(result.current).toMatchObject({ phase: 'error', connectionId: 'connection-q' });
+    await act(async () => oldCreate.resolve(connection('p')));
+    act(() => result.current.retry());
+    await advance(1500);
+    expect(pluginsApi.getConnection).toHaveBeenCalledExactlyOnceWith('q', 'connection-q');
+    expect(result.current).toMatchObject({ phase: 'done', connectionId: 'connection-q', syncedCount: 12 });
+    expect(vi.mocked(sensorsApi.requestSync).mock.calls.every((call) => call[1] === 'connection-q')).toBe(true);
+  });
+
+  it('does not update the previous account after a retry read finishes during a switch', async () => {
+    const oldRead = deferred<PluginConnection>();
+    mockPackages(installed(), installed(FLOW(), [], 'q'));
+    vi.mocked(sensorsApi.requestSync).mockRejectedValueOnce(new Error('Retry p'));
+    vi.mocked(pluginsApi.getConnection).mockReturnValueOnce(oldRead.promise);
+    const { result, rerender } = renderHook(({ id }) => usePluginInstallFlow(id, false), { initialProps: { id: 'p' } });
+    await advance();
+    act(() => result.current.retry());
+    await advance();
+    rerender({ id: 'q' });
+    await advance(1500);
+    await act(async () => oldRead.resolve(connection('p', { enabled: false, revision: 7 })));
+    expect(result.current).toMatchObject({ phase: 'done', connectionId: 'connection-q' });
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+  });
+
+  it('does not authorize or sync an account after its delayed source lookup becomes stale', async () => {
+    const oldStatus = deferred<SensorSourceStatusResponse>();
+    mockPackages(installed({ ...FLOW(), authorize_on_confirm: true }), installed(FLOW(), [], 'q'));
+    vi.mocked(sensorsApi.getStatus).mockReturnValueOnce(oldStatus.promise);
+    const { result, rerender } = renderHook(({ id }) => usePluginInstallFlow(id, false), { initialProps: { id: 'p' } });
+    await advance();
+    rerender({ id: 'q' });
+    await advance(1500);
+    await act(async () => oldStatus.resolve({ sources: [source()] }));
+    expect(result.current.connectionId).toBe('connection-q');
+    expect(sensorsApi.requestAuthorization).not.toHaveBeenCalled();
+    expect(sensorsApi.requestSync).toHaveBeenCalledExactlyOnceWith('s', 'connection-q', undefined);
+  });
+
+  it('keeps stale readiness and field submissions out of the new account', async () => {
+    const oldReadiness = deferred<MemoryReadinessResponse>();
+    const required = field('directory', { required: true });
+    mockPackages(installed(), installed(FLOW([required]), [required], 'q'));
+    vi.mocked(sensorsApi.getMemoryReadiness).mockReturnValueOnce(oldReadiness.promise);
+    const { result, rerender } = renderHook(({ id }) => usePluginInstallFlow(id, false), { initialProps: { id: 'p' } });
+    await advance(1500);
+    const oldSubmit = result.current.submitFields;
+    rerender({ id: 'q' });
+    await advance();
+    act(() => oldSubmit({ directory: '/old' }));
+    await act(async () => oldReadiness.resolve(readiness({ l1_event_count: 999 })));
+    expect(result.current).toMatchObject({ phase: 'awaiting_fields', memoryCount: null, connectionId: null });
+    expect(pluginsApi.createConnection).toHaveBeenCalledOnce();
+    act(() => result.current.submitFields({ directory: '/new' }));
+    await advance(1500);
+    expect(result.current).toMatchObject({ phase: 'done', connectionId: 'connection-q', memoryCount: 12 });
+  });
+
+  it('isolates a late create when the same package is closed and reopened for a different account', async () => {
+    const oldCreate = deferred<PluginConnection>();
+    vi.mocked(pluginsApi.createConnection).mockReturnValueOnce(oldCreate.promise);
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => usePluginInstallFlow(id, false), { initialProps: { id: 'p' as string | null } });
+    await advance();
+    rerender({ id: null });
+    rerender({ id: 'p' });
+    await advance(1500);
+    await act(async () => oldCreate.resolve(connection('p', { connection_id: 'closed-account' })));
+    expect(result.current).toMatchObject({ phase: 'done', connectionId: 'connection-p' });
+    expect(sensorsApi.requestSync).toHaveBeenCalledExactlyOnceWith('s', 'connection-p', undefined);
+  });
+
+  it('stops after unmount even if account creation completes later', async () => {
+    const pending = deferred<PluginConnection>();
+    vi.mocked(pluginsApi.createConnection).mockReturnValueOnce(pending.promise);
+    const { unmount } = renderHook(() => usePluginInstallFlow('p', false));
+    await advance();
+    unmount();
+    await act(async () => pending.resolve(connection()));
+    expect(sensorsApi.getStatus).not.toHaveBeenCalled();
+    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+  });
+
+  it('does not create duplicate connections under strict effect replay', async () => {
+    const wrapper = ({ children }: PropsWithChildren) => <StrictMode>{children}</StrictMode>;
+    const { result } = renderHook(() => usePluginInstallFlow('p', false), { wrapper });
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
+    expect(pluginsApi.createConnection).toHaveBeenCalledOnce();
+  });
+
+  it('waits for registry consent and reports progress from the actual install', async () => {
+    const snapshot: PluginInstallJobSnapshot = {
+      job_id: 'install-1', operation: 'install', plugin_id: 'p', filename: null, status: 'running',
+      stage: 'download', progress_pct: 25, message: 'Downloading', logs: [], created_at_ms: 1, updated_at_ms: 2,
+    };
+    const pending = deferred<PluginPackageState>();
+    vi.mocked(pluginsApi.installFromRegistryWithProgress).mockImplementation((_id, _fingerprint, onProgress) => {
+      onProgress?.(snapshot);
+      return pending.promise;
+    });
+    const { result, rerender } = renderHook(({ fingerprint }: { fingerprint: string | null }) =>
+      usePluginInstallFlow('p', true, 'default', fingerprint), { initialProps: { fingerprint: null as string | null } });
+    await advance();
+    expect(pluginsApi.installFromRegistryWithProgress).not.toHaveBeenCalled();
+    expect(pluginsApi.list).not.toHaveBeenCalled();
+    rerender({ fingerprint: 'confirmed' });
+    await advance();
+    expect(result.current.installProgress).toEqual(snapshot);
+    expect(pluginsApi.list).not.toHaveBeenCalled();
+    await act(async () => pending.resolve(installed()));
+    await advance(1500);
+    expect(result.current.phase).toBe('done');
   });
 
   it('clears running state before requesting new consent for a changed registry', async () => {
     const onRegistryChanged = vi.fn();
-    vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockRejectedValue({
-      code: 'PLUGIN_REGISTRY_CHANGED',
-      message: 'Registry changed',
-    });
-
-    const { result } = renderHook(() =>
-      usePluginInstallFlow(
-        'p',
-        true,
-        'default',
-        'fingerprint-old',
-        onRegistryChanged,
-      ),
-    );
-
-    await waitFor(() => expect(onRegistryChanged).toHaveBeenCalledOnce());
-    expect(result.current.phase).toBe('loading');
-    expect(result.current.steps).toEqual([]);
-    expect(result.current.installProgress).toBeNull();
-    expect(result.current.error).toBeNull();
+    vi.mocked(pluginsApi.installFromRegistryWithProgress).mockRejectedValue({ code: 'PLUGIN_REGISTRY_CHANGED', message: 'Registry changed' });
+    const { result } = renderHook(() => usePluginInstallFlow('p', true, 'default', 'old', onRegistryChanged));
+    await advance();
+    expect(onRegistryChanged).toHaveBeenCalledOnce();
+    expect(result.current).toMatchObject({ phase: 'loading', steps: [], installProgress: null, error: null, connectionId: null });
+    expect(pluginsApi.createConnection).not.toHaveBeenCalled();
   });
 });

@@ -4,10 +4,8 @@
 
 import i18n from '@/i18n';
 import type { LanguageCode, SystemConfig } from '@/api/modules/config';
-import { buildPluginFieldValueMap, type PluginPackageState } from '@/api/modules/plugins';
-import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import type { ToolConfig } from '@/api/modules/tools';
-import type { MemoryToggleFieldId, PluginDraftMap, ToolDraftMap } from '@/types/settings';
+import type { MemoryToggleFieldId, ToolDraftMap } from '@/types/settings';
 import { LANGUAGE_STORAGE_KEY } from '@/constants/settings';
 
 // ============================================================================
@@ -33,71 +31,6 @@ export const previewLanguageSelection = async (language: LanguageCode): Promise<
   const nextLanguage = toI18nLanguage(language);
   document.documentElement.lang = nextLanguage;
   await i18n.changeLanguage(nextLanguage);
-};
-
-// ============================================================================
-// Plugin Draft Helpers
-// ============================================================================
-
-const collectPluginSurfaceFields = (
-  plugin: PluginPackageState,
-  surfaces: string[]
-) =>
-  plugin.contributions
-    .flatMap((contribution) => contribution.fields)
-    .filter((field) => surfaces.includes(field.surface));
-
-export const buildPluginDraftSnapshotFromPackages = (
-  plugins: PluginPackageState[]
-): PluginDraftMap =>
-  Object.fromEntries(
-    plugins.map((plugin) => [
-      plugin.manifest.plugin_id,
-      buildPluginFieldValueMap(
-        collectPluginSurfaceFields(plugin, ['extensions']),
-        plugin.current_settings
-      ),
-    ])
-  );
-
-export const buildPluginDraftSnapshotFromSensors = (
-  statuses: SensorSourceStatusItem[]
-): PluginDraftMap =>
-  statuses.reduce<PluginDraftMap>((acc, source) => {
-    const current = acc[source.plugin_id] || {};
-    for (const field of source.fields) {
-      current[field.key] = source.current_settings[field.key] ?? field.default;
-    }
-    const activationFlow = source.activation_flow;
-    if (activationFlow) {
-      current[activationFlow.enabled_key] =
-        source.current_settings[activationFlow.enabled_key] ?? source.enabled;
-      current[activationFlow.configured_key] =
-        source.current_settings[activationFlow.configured_key] ?? false;
-      for (const field of activationFlow.fields) {
-        current[field.key] = source.current_settings[field.key] ?? field.default;
-      }
-    }
-    acc[source.plugin_id] = current;
-    return acc;
-  }, {});
-
-export const mergeDraftMaps = (
-  current: PluginDraftMap,
-  incoming: PluginDraftMap,
-  options: { preserveExisting: boolean }
-): PluginDraftMap => {
-  const next = structuredClone(current);
-  for (const [pluginId, values] of Object.entries(incoming)) {
-    next[pluginId] = next[pluginId] || {};
-    for (const [key, value] of Object.entries(values)) {
-      if (options.preserveExisting && key in next[pluginId]) {
-        continue;
-      }
-      next[pluginId][key] = value;
-    }
-  }
-  return next;
 };
 
 // ============================================================================

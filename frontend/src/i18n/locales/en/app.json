@@ -2753,6 +2753,7 @@
         "cancel": "Cancel"
       },
       "feedback": {
+        "uncertain": "The outcome is not yet known. Check the connected service before trying again.",
         "succeeded": "Plugin action completed",
         "failed": "Plugin action failed",
         "failedWithMessage": "Plugin action failed: {{message}}",
@@ -3017,6 +3018,8 @@
       }
     },
     "sourcesPage": {
+      "chooseConnection": "Choose a connection before syncing or changing this source.",
+      "connectionScope": "Records and totals include all connections for this source. Actions apply only to the selected connection.",
       "title": "Sources",
       "subtitle": "See where Magi is forming memories today.",
       "loading": "Preparing sources.",
@@ -5261,5 +5264,55 @@
       "japanese": "Japanese"
     },
     "noAvatar": "No avatar selected"
+  },
+  "plugins": {
+    "trust": {
+      "title": "Allow \"{{name}}\" to run?",
+      "review": "Review execution access",
+      "confirm": "Allow execution",
+      "nativeAccess": "This plugin can read and write local files, access the network and start processes with your user permissions. The list below describes its declared purposes.",
+      "authorized": "Plugin execution authorized. You can now configure and enable connections.",
+      "failed": "Could not authorize this package. Refresh the list and review it again.",
+      "reinstall": "Reinstall this package before authorizing it."
+    },
+    "connections": {
+      "selectConnection": "Select {{name}}",
+      "choose": "Choose a connection",
+      "title": "Connections",
+      "description": "Configure each account or folder independently.",
+      "add": "Add connection",
+      "name": "Connection name",
+      "edit": "Edit",
+      "enable": "Enable",
+      "disable": "Disable",
+      "clear": "Clear local content",
+      "disconnect": "Disconnect",
+      "refresh": "Refresh",
+      "loading": "Loading connections…",
+      "empty": "No connections yet.",
+      "loadFailed": "Could not load connections. Try refreshing.",
+      "saveFailed": "Could not save this change.",
+      "conflict": "This connection changed elsewhere. Reload before retrying.",
+      "authorizationRequired": "Authorize the installed package before enabling connections.",
+      "reloadEditor": "Reload saved settings",
+      "credentialsHelp": "Saved credentials are never shown. Enter a replacement or explicitly remove a saved credential.",
+      "credentialSaved": "Credential saved",
+      "removeCredential": "Remove credential",
+      "credentialRemovalPending": "Credential will be removed when you save.",
+      "removalDisables": "Removing this required credential will disable the connection when you save.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "clearScope": "Clear locally retained content for this connection. Keep account settings, credentials and source progress. Previously imported memory and remote data remain.",
+      "disconnectScope": "Stop this connection and remove its local state and credentials. Keep the installed plugin, previously imported memory and remote data.",
+      "status": {
+        "disabled": "Disabled",
+        "setup_required": "Setup required",
+        "auth_required": "Authorization required",
+        "ready": "Ready",
+        "degraded": "Degraded",
+        "failed": "Failed"
+      }
+    }
   }
 }

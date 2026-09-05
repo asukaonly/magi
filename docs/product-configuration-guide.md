@@ -297,6 +297,15 @@ Expected behavior:
 
 The LLM configuration layer defines how Magi talks to language models.
 
+Enabled plugin connections may contribute a model provider. The chat model
+selector reads live provider metadata and saves its connection-qualified provider
+ID plus an explicit model ID. The plugin connection owns its credentials; no
+duplicate native provider configuration is created. The SDK does not enumerate
+remote model catalogs, so model IDs are entered by the user. Unavailable plugin
+providers remain visibly unavailable instead of silently switching providers.
+Plugin model slots are for chat generation; embedding and image-generation
+slots require their corresponding native service contracts.
+
 Current product expectations:
 
 - providers are explicit configured instances; a fresh config starts with no providers
@@ -644,8 +653,18 @@ Tool management covers:
 Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
-- users can enable, disable, reload, and rescan plugin packages
-- users must see a plugin's declared system and data access before installing it
+- users can install, inspect, reload, rescan and uninstall packages
+- users create named connections and enable or disable each connection separately;
+  multiple accounts of the same package never share settings, credentials or progress
+- connection settings save directly with revision checks and do not participate
+  in the global Settings draft; source switches control that source within its
+  connection, while connection switches control all its contributions
+- built-in tool settings remain in Tools; packages do not own account settings
+- users must see a plugin's declared system and data access before installing it;
+  trusted process execution also discloses access under the local user's OS permissions
+- uploaded/local packages require an explicit digest-bound execution review in
+  Installed Plugins before connection setup or enablement; authorizing a package
+  does not create or enable any connection
 - an update must ask again only when it adds a new access type or broadens an existing scope
 - uploaded plugin archives must be uploaded once, inspected from a backend-owned
   temporary copy, and installed only by confirming the same short-lived
@@ -657,12 +676,11 @@ Expected product behavior:
   installation; archive inspection and installation must use a bounded,
   dedicated work queue
 - archive inspection reviews structure and declared access, not the code's
-  actual behavior; file-installed plugins must remain disabled and untrusted
-  until the user separately enables them
+  actual behavior; package trust must be granted before running any setup or
+  active worker, and installing alone never enables a connection
 - file installation must reject an id that is already installed instead of
-  silently replacing or inheriting the existing package's enabled state or
-  settings; the disabled state must be durable before the package becomes
-  visible to startup scanning
+  silently replacing code or inheriting an existing account; the package
+  remains inactive until an explicit connection is enabled
 - official badges must come from the maintainer-controlled registry rather than a plugin's own claim
 - plugins with third-party Python dependencies must pass exact-version,
   hash-verified, prebuilt-package installation before they are enabled; source

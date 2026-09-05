@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { PluginPackageState } from '@/api/modules/plugins';
+import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import PluginsSection from '@/components/settings/PluginsSection';
 
 vi.mock('react-i18next', () => ({
@@ -13,6 +14,7 @@ vi.mock('react-i18next', () => ({
 
 const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
   manifest: {
+        protocol_version: 2 as const, min_sdk_version: '0.2.0', execution_mode: 'restricted_process' as const, settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
     plugin_id: pluginId,
     name,
     version: '1.0.0',
@@ -62,7 +64,30 @@ const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
   ],
 });
 
+beforeEach(() => vi.spyOn(pluginsApi, 'listConnections').mockResolvedValue([]));
+afterEach(() => vi.restoreAllMocks());
+
 describe('PluginsSection', () => {
+  it('retains builtin display and reload without a package settings editor', async () => {
+    const user = userEvent.setup();
+    const builtin = pluginPackage('core-tools', 'Core Tools');
+    builtin.manifest.source = 'builtin';
+    const reload = vi.fn();
+    render(<PluginsSection plugins={[builtin]} onRescan={vi.fn()} onPluginAction={reload} processingIds={{}} />);
+    expect(screen.getByTestId('installed-plugin-core-tools')).toHaveTextContent('Core Tools');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'plugins.connections.add' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.pluginPackages.actions.reload' }));
+    expect(reload).toHaveBeenCalledWith('core-tools', 'reload');
+    expect(pluginsApi.listConnections).not.toHaveBeenCalled();
+  });
+
+  it('loads external accounts through the connection panel', async () => {
+    render(<PluginsSection plugins={[pluginPackage('calendar', 'Calendar')]} onRescan={vi.fn()} onPluginAction={vi.fn()} processingIds={{}} />);
+    await waitFor(() => expect(pluginsApi.listConnections).toHaveBeenCalledWith('calendar'));
+    expect(screen.getByRole('button', { name: 'plugins.connections.add' })).toBeInTheDocument();
+  });
+
   it('groups browser implementations under one installed plugin card', () => {
     render(
       <PluginsSection
@@ -72,8 +97,6 @@ describe('PluginsSection', () => {
           pluginPackage('brave-history', 'Brave History'),
           pluginPackage('photo-library', 'Photo Library'),
         ]}
-        drafts={{}}
-        onFieldChange={vi.fn()}
         onRescan={vi.fn()}
         onPluginAction={vi.fn()}
         processingIds={{}}
@@ -89,4 +112,21 @@ describe('PluginsSection', () => {
     expect(screen.queryByTestId('installed-plugin-brave-history')).not.toBeInTheDocument();
     expect(screen.getByTestId('installed-plugin-photo-library')).toHaveTextContent('Photo Library');
   });
+});
+
+it('reviews exact package execution access without enabling a connection', async () => {
+  const user = userEvent.setup();
+  const pkg = { ...pluginPackage('local-source', 'Local source'), trusted: false, package_sha256: 'a'.repeat(64) };
+  pkg.manifest.execution_mode = 'trusted_process';
+  const authorize = vi.spyOn(pluginsApi, 'authorizePackage').mockResolvedValue({ ...pkg, trusted: true });
+  const enable = vi.spyOn(pluginsApi, 'updateConnection');
+  const refresh = vi.fn().mockResolvedValue(undefined);
+  render(<PluginsSection plugins={[pkg]} onRescan={refresh} onPluginAction={vi.fn()} processingIds={{}} />);
+  await user.click(screen.getByRole('button', { name: 'plugins.trust.review' }));
+  expect(screen.getByText('plugins.trust.nativeAccess')).toBeVisible();
+  expect(authorize).not.toHaveBeenCalled();
+  await user.click(screen.getByRole('button', { name: 'plugins.trust.confirm' }));
+  await waitFor(() => expect(authorize).toHaveBeenCalledWith('local-source', 'a'.repeat(64)));
+  expect(refresh).toHaveBeenCalledOnce();
+  expect(enable).not.toHaveBeenCalled();
 });

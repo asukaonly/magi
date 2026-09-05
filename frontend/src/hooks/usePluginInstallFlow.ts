@@ -10,9 +10,11 @@ import {
   isPluginRegistryChangedError,
   pluginsApi,
   type ActivationFlowSpec,
+  type PluginConnection,
   type PluginInstallJobSnapshot,
 } from '../api/modules/plugins';
 import type { PluginInstallPanelContext } from '../stores/pluginInstallPanel';
+import { connectionInput } from '@/utils/plugin-connection-settings';
 
 export type InstallStepId = 'install' | 'enable' | 'sync' | 'memory';
 export type StepStatus = 'pending' | 'running' | 'background' | 'done' | 'error' | 'skipped';
@@ -133,6 +135,7 @@ export interface UsePluginInstallFlowResult {
   steps: InstallStep[];
   flow: ActivationFlowSpec | null;
   sourceName: string | null;
+  connectionId: string | null;
   description: string | null;
   installProgress: PluginInstallJobSnapshot | null;
   syncedCount: number | null;
@@ -158,12 +161,9 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   loading → [awaiting_fields] → running(enable→sync→memory)
  *           → done | unsupported | error
  *
- * Reuses the existing sensors/plugins API surface plus Phase-B's
- * getMemoryReadiness/installProgress.
- *
  * Honest signals:
  *   - ① install: real installFromRegistryWithProgress onProgress (install mode only).
- *   - ② enable: optional authorize, then updateSettings (instant).
+ *   - ② enable: collect manifest fields, create an explicit connection, authorize.
  *   - ③ sync: trigger requestSync, then poll /sensors/status until the source's
  *     last_success advances beyond the baseline; "soft-done" on timeout (work
  *     continues in the background, the bell surfaces it) + backfillNote.
@@ -186,6 +186,7 @@ export function usePluginInstallFlow(
   const [phase, setPhase] = useState<FlowPhase>('loading');
   const [flow, setFlow] = useState<ActivationFlowSpec | null>(null);
   const [sourceName, setSourceName] = useState<string | null>(null);
+  const [connectionId, setConnectionId] = useState<string | null>(null);
   const [description, setDescription] = useState<string | null>(null);
   const [installProgress, setInstallProgress] = useState<PluginInstallJobSnapshot | null>(null);
   const [syncedCount, setSyncedCount] = useState<number | null>(null);
@@ -206,12 +207,16 @@ export function usePluginInstallFlow(
   const startedRef = useRef(false);
   const runTokenRef = useRef(0);
   const installCompletedRef = useRef(false);
+  const connectionIdRef = useRef<string | null>(null);
+  const connectionValuesRef = useRef<Record<string, unknown>>({});
+  const retryableRef = useRef(false);
   const fieldsResolveRef = useRef<((v: Record<string, unknown>) => void) | null>(null);
 
   const resetTransientState = useCallback(() => {
     setPhase('loading');
     setFlow(null);
     setSourceName(null);
+    setConnectionId(null);
     setDescription(null);
     setInstallProgress(null);
     setSyncedCount(null);
@@ -232,11 +237,12 @@ export function usePluginInstallFlow(
   }, []);
 
   const findSource = useCallback(
-    async (pid: string): Promise<SensorSourceStatusItem | undefined> => {
+    async (connectionId: string, sourceName?: string): Promise<SensorSourceStatusItem | undefined> => {
       const status = await sensorsApi.getStatus();
-      return status.sources.find((s) => s.plugin_id === pid);
+      return status.sources.find((s) => s.plugin_id === pluginId && s.connection_id === connectionId
+        && (sourceName === undefined || s.source_name === sourceName));
     },
-    [],
+    [pluginId],
   );
 
   const applyMemoryReadiness = useCallback((readiness: MemoryReadinessResponse) => {
@@ -261,15 +267,25 @@ export function usePluginInstallFlow(
   useEffect(() => {
     runTokenRef.current += 1;
     installCompletedRef.current = false;
+    connectionIdRef.current = null;
+    connectionValuesRef.current = {};
+    retryableRef.current = false;
     fieldsResolveRef.current = null;
     startedRef.current = false;
     setStateKey(flowKey);
     resetTransientState();
+    return () => {
+      runTokenRef.current += 1;
+      retryableRef.current = false;
+      fieldsResolveRef.current?.({});
+      fieldsResolveRef.current = null;
+    };
   }, [flowKey, resetTransientState]);
 
   const run = useCallback(async (runToken: number) => {
     if (!pluginId || (installMode && !expectedRegistryFingerprint)) return;
     const isActive = () => runTokenRef.current === runToken;
+    retryableRef.current = false;
     setError(null);
     setFlow(null);
     setSourceName(null);
@@ -320,30 +336,36 @@ export function usePluginInstallFlow(
         setStep('install', 'done');
       }
 
-      if (panelContext === 'history_import') {
-        setStep('enable', 'running');
-        await pluginsApi.enable(pluginId);
-        if (!isActive()) return;
-        setStep('enable', 'done');
-        setPhase('done');
-        return;
-      }
-
-      // fetch the activation flow
-      const src = await findSource(pluginId);
+      const installed = (await pluginsApi.list()).plugins.find((item) => item.manifest.plugin_id === pluginId);
+      if (!installed) throw new Error('Installed plugin is unavailable');
       if (!isActive()) return;
-      if (!src || !src.activation_flow) {
+
+      const manifest = installed.manifest;
+      const activationFlow = manifest.activation_flow ?? (panelContext === 'history_import' ? {
+        title: manifest.name, description: manifest.description,
+        confirm_label: t('pluginInstallPanel.connect'), cancel_label: t('pluginInstallPanel.close'),
+        enabled_key: '', configured_key: '', fields: manifest.settings_fields,
+      } : null);
+      if (!activationFlow) {
         setPhase('unsupported');
         return;
       }
-      const visibleFlow = visibleFlowForPanelContext(src.activation_flow, panelContext);
+      // The manifest schema owns field types/defaults, including required fields
+      // omitted from the onboarding presentation metadata.
+      const fieldKeys = new Set(activationFlow.fields.map((field) => field.key));
+      const canonicalFlow = {
+        ...activationFlow,
+        fields: manifest.settings_fields.filter((field) =>
+          field.key !== activationFlow.enabled_key && field.key !== activationFlow.configured_key
+          && (fieldKeys.has(field.key) || field.required)),
+      };
+      const visibleFlow = visibleFlowForPanelContext(canonicalFlow, panelContext);
       setFlow(visibleFlow);
-      setSourceName(src.source_name);
-      setDescription(src.description_translated || src.description || null);
+      setDescription(installed.manifest.description);
 
       // fields gate
-      let values: Record<string, unknown> = {};
-      if ((visibleFlow.fields?.length ?? 0) > 0) {
+      let values: Record<string, unknown> = connectionValuesRef.current;
+      if (!connectionIdRef.current && visibleFlow.fields.length > 0) {
         setPhase('awaiting_fields');
         values = await new Promise<Record<string, unknown>>((resolve) => {
           fieldsResolveRef.current = resolve;
@@ -351,42 +373,87 @@ export function usePluginInstallFlow(
         if (!isActive()) return;
       }
       if (panelContext === 'first_context') {
-        values = applyFirstContextDefaults(src.activation_flow, values);
+        values = applyFirstContextDefaults(canonicalFlow, values);
       }
       setPhase('running');
 
-      // ② enable (authorize + config write)
+      // ② create once; retries resume the same connection without replaying
+      // stale settings or credential writes over changes made during setup.
       setStep('enable', 'running');
-      if (src.activation_flow.authorize_on_confirm) {
+      let activeConnectionId = connectionIdRef.current;
+      const checkConnection = (connection: PluginConnection, expectedId?: string) => {
+        if (connection.plugin_id !== pluginId || !connection.connection_id
+          || (expectedId && connection.connection_id !== expectedId)) {
+          throw new Error('Connection response identity mismatch');
+        }
+      };
+      if (!activeConnectionId) {
+        const input = connectionInput(manifest.settings_fields, {
+          ...values,
+          ...(activationFlow.enabled_key ? { [activationFlow.enabled_key]: true } : {}),
+          ...(activationFlow.configured_key ? { [activationFlow.configured_key]: true } : {}),
+        });
+        const connection = await pluginsApi.createConnection(pluginId, {
+          display_name: manifest.name, enabled: true, ...input,
+        });
+        if (!isActive()) return;
+        checkConnection(connection);
+        activeConnectionId = connection.connection_id;
+        connectionIdRef.current = activeConnectionId;
+        connectionValuesRef.current = values;
+      } else {
+        const connection = await pluginsApi.getConnection(pluginId, activeConnectionId);
+        if (!isActive()) return;
+        checkConnection(connection, activeConnectionId);
+        if (!connection.enabled) {
+          const updated = await pluginsApi.updateConnection(pluginId, activeConnectionId, {
+            expected_revision: connection.revision, enabled: true,
+          });
+          if (!isActive()) return;
+          checkConnection(updated, activeConnectionId);
+        }
+      }
+      if (!isActive()) return;
+      setConnectionId(activeConnectionId);
+      if (panelContext === 'history_import') {
+        setStep('enable', 'done');
+        setPhase('done');
+        return;
+      }
+      const src = await findSource(activeConnectionId);
+      if (!isActive()) return;
+      if (!src) throw new Error('Connection source is unavailable');
+      setSourceName(src.source_name);
+      if (activationFlow.authorize_on_confirm) {
         const auth = await sensorsApi.requestAuthorization(
           src.source_name,
+          src.connection_id,
           values as Record<string, any>,
         );
         if (!isActive()) return;
         if (!auth.authorized) throw new Error(auth.message || 'authorization_denied');
       }
-      await pluginsApi.updateSettings(pluginId, {
-        ...values,
-        [src.activation_flow.enabled_key]: true,
-        [src.activation_flow.configured_key]: true,
-      });
       if (!isActive()) return;
       setStep('enable', 'done');
 
       // ③ sync (trigger + poll status until last_success advances, or timeout)
       setStep('sync', 'running');
       const baseSuccess = src.last_success ?? null;
-      await sensorsApi.requestSync(
+      const sync = await sensorsApi.requestSync(
         src.source_name,
+        src.connection_id,
         panelContext === 'first_context' ? { firstContext: true } : undefined,
       );
       if (!isActive()) return;
+      if (sync.connection_id !== src.connection_id || sync.source_name !== src.source_name) {
+        throw new Error('Sync response identity mismatch');
+      }
       const deadline = Date.now() + SYNC_TIMEOUT_MS;
       let synced = false;
       while (Date.now() < deadline) {
         await sleep(SYNC_POLL_MS);
         if (!isActive()) return;
-        const cur = await findSource(pluginId);
+        const cur = await findSource(src.connection_id, src.source_name);
         if (!isActive()) return;
         if (cur && cur.last_success && cur.last_success !== baseSuccess) {
           setSyncedCount(typeof cur.last_result_count === 'number' ? cur.last_result_count : null);
@@ -415,10 +482,13 @@ export function usePluginInstallFlow(
       let pollingMemory = true;
       while (pollingMemory) {
         const remainingWait = Math.max(0, memoryDeadline - Date.now());
-        const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
+        const readiness = await sensorsApi.getMemoryReadiness(src.source_name, src.connection_id, {
           maxWaitMs: isFirstContext ? 0 : Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
         });
         if (!isActive()) return;
+        if (readiness.connection_id !== src.connection_id || readiness.source_name !== src.source_name) {
+          throw new Error('Memory readiness response identity mismatch');
+        }
         latestReadiness = readiness;
         applyMemoryReadiness(readiness);
         const inputCount = readinessInputCount(readiness);
@@ -447,10 +517,11 @@ export function usePluginInstallFlow(
         await sleep(MEMORY_BACKGROUND_POLL_MS);
         if (!isActive()) return;
         try {
-          const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
+          const readiness = await sensorsApi.getMemoryReadiness(src.source_name, src.connection_id, {
             maxWaitMs: MEMORY_POLL_WAIT_MS,
           });
           if (!isActive()) return;
+          if (readiness.connection_id !== src.connection_id || readiness.source_name !== src.source_name) return;
           applyMemoryReadiness(readiness);
           if (memoryReadinessComplete(readiness)) {
             setBackfillNote(false);
@@ -476,6 +547,7 @@ export function usePluginInstallFlow(
           : e?.message || String(e),
       );
       setSteps((prev) => prev.map((s) => (s.status === 'running' ? { ...s, status: 'error' } : s)));
+      retryableRef.current = true;
       setPhase('error');
     }
   }, [
@@ -510,12 +582,16 @@ export function usePluginInstallFlow(
     run,
   ]);
 
+  const renderedRunToken = runTokenRef.current;
   const submitFields = useCallback((values: Record<string, unknown>) => {
+    if (runTokenRef.current !== renderedRunToken) return;
     fieldsResolveRef.current?.(values);
     fieldsResolveRef.current = null;
-  }, []);
+  }, [renderedRunToken]);
 
   const retry = useCallback(() => {
+    if (!retryableRef.current || runTokenRef.current !== renderedRunToken) return;
+    retryableRef.current = false;
     setInstallProgress(null);
     setSyncedCount(null);
     setSyncedRawCount(null);
@@ -529,7 +605,7 @@ export function usePluginInstallFlow(
     startedRef.current = true;
     runTokenRef.current += 1;
     void run(runTokenRef.current);
-  }, [run]);
+  }, [run, renderedRunToken]);
 
   const stateMatchesRequest = stateKey === flowKey;
 
@@ -538,6 +614,7 @@ export function usePluginInstallFlow(
     steps: stateMatchesRequest ? steps : [],
     flow: stateMatchesRequest ? flow : null,
     sourceName: stateMatchesRequest ? sourceName : null,
+    connectionId: stateMatchesRequest ? connectionId : null,
     description: stateMatchesRequest ? description : null,
     installProgress: stateMatchesRequest ? installProgress : null,
     syncedCount: stateMatchesRequest ? syncedCount : null,

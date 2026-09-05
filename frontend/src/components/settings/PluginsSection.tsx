@@ -1,14 +1,14 @@
 import React, { useMemo } from 'react';
-import { Blocks, CheckCircle2, RefreshCw, ShieldCheck, ShieldX, TriangleAlert } from 'lucide-react';
+import { Blocks, RefreshCw, ShieldCheck, ShieldX, TriangleAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
-  type ExtensionFieldSpec,
   type PluginContribution,
   type PluginPackageState,
 } from '@/api/modules/plugins';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
-import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
+import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
+import { PluginPackageTrust } from '@/components/plugins/PluginPackageTrust';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -30,14 +30,6 @@ const activePillClass =
 
 const softAccentPillClass =
   'rounded-md border-transparent bg-[hsl(var(--primary)/0.12)] px-2.5 py-1 text-xs font-semibold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]';
-
-const collectSurfaceFields = (
-  plugin: PluginPackageState,
-  surface: ExtensionFieldSpec['surface']
-): ExtensionFieldSpec[] =>
-  plugin.contributions
-    .flatMap((contribution) => contribution.fields)
-    .filter((field) => field.surface === surface);
 
 const collectContributionEntries = (
   item: InstalledPluginDisplayItem,
@@ -63,20 +55,16 @@ const getPluginTranslation = (
 interface PluginsSectionProps {
   plugins: PluginPackageState[];
   loading?: boolean;
-  drafts: Record<string, Record<string, any>>;
   dirty?: boolean;
-  onFieldChange: (pluginId: string, key: string, value: any) => void;
   onRescan: () => Promise<void>;
-  onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
+  onPluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   processingIds: Record<string, string>;
 }
 
 export const PluginsSection: React.FC<PluginsSectionProps> = ({
   plugins,
   loading = false,
-  drafts,
   dirty = false,
-  onFieldChange,
   onRescan,
   onPluginAction,
   processingIds,
@@ -88,7 +76,7 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
 
   const handleItemAction = async (
     item: InstalledPluginDisplayItem,
-    action: 'enable' | 'disable' | 'reload',
+    action: 'reload',
   ) => {
     for (const plugin of item.plugins) {
       await onPluginAction(plugin.manifest.plugin_id, action);
@@ -128,7 +116,6 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
         <div className="grid gap-3">
           {displayItems.map((item) => {
             const itemEnabled = item.plugins.some((plugin) => plugin.enabled);
-            const allEnabled = item.plugins.every((plugin) => plugin.enabled);
             const itemHealthy = item.plugins.every((plugin) => plugin.healthy);
             const itemTrusted = item.plugins.every((plugin) => plugin.trusted);
             const operation = item.plugins
@@ -211,18 +198,6 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <Button
                         type="button"
-                        variant={allEnabled ? 'outline' : 'default'}
-                        size="sm"
-                        disabled={dirty || operation === 'enable' || operation === 'disable'}
-                        onClick={() => void handleItemAction(item, allEnabled ? 'disable' : 'enable')}
-                        className={cn('h-9 px-3.5', allEnabled && 'bg-[hsl(var(--settings-shell)/0.72)]')}
-                      >
-                        {allEnabled
-                          ? t('settings.pluginPackages.actions.disable')
-                          : t('settings.pluginPackages.actions.enable')}
-                      </Button>
-                      <Button
-                        type="button"
                         variant="outline"
                         size="sm"
                         disabled={dirty || operation === 'reload'}
@@ -280,31 +255,19 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                     </div>
                   ) : null}
 
-                  {item.plugins.some((plugin) => collectSurfaceFields(plugin, 'extensions').length > 0) ? (
-                    <div className="space-y-4">
-                      {item.plugins.map((plugin) => {
-                        const pluginPackageFields = collectSurfaceFields(plugin, 'extensions');
-                        if (pluginPackageFields.length === 0) return null;
-                        return (
-                          <PluginSettingsFields
-                            key={plugin.manifest.plugin_id}
-                            fields={pluginPackageFields}
-                            values={drafts[plugin.manifest.plugin_id] || {}}
-                            onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
-                            disabled={!plugin.enabled}
-                            pluginId={plugin.manifest.plugin_id}
-                          />
-                        );
-                      })}
+                  {item.plugins.filter((plugin) => plugin.manifest.source !== 'builtin').map((plugin) => (
+                    <div key={plugin.manifest.plugin_id} className="space-y-3">
+                    <PluginPackageTrust plugin={plugin} onAuthorized={onRescan} />
+                    <PluginConnectionsPanel
+                      pluginId={plugin.manifest.plugin_id}
+                      fields={plugin.manifest.settings_fields}
+                      actions={plugin.manifest.settings_actions}
+                      blocks={plugin.manifest.settings_ui_blocks}
+                      canEnable={plugin.trusted}
+                    />
                     </div>
-                  ) : (
-                    <div className="rounded-lg bg-[hsl(var(--settings-shell)/0.5)] p-3 text-sm text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.26)]">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-primary" />
-                        {t('settings.pluginPackages.emptySettings')}
-                      </div>
-                    </div>
-                  )}
+                  ))}
+
                 </div>
               </section>
             );

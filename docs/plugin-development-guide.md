@@ -98,7 +98,7 @@ icon = "lucide:package"
 entry_module = "plugin"
 entry_class = "ExamplePlugin"
 official = false
-contribution_types = ["tool", "sensor"]
+contribution_types = []
 ```
 
 Declare exactly the contribution types you actually expose. A mismatch is a

@@ -3,7 +3,40 @@ import type { ApiResponse } from '../client';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
 export type ExtensionFieldType = 'switch' | 'select' | 'input' | 'number' | 'secret' | 'path' | 'tags';
-export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'cancelled';
+export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'cancelled' | 'uncertain';
+
+export type PluginConnectionStatus = 'disabled' | 'setup_required' | 'auth_required' | 'ready' | 'degraded' | 'failed';
+export interface PluginConnectionReadiness {
+  capability_id: string;
+  connection_id: string;
+  status: PluginConnectionStatus;
+  reason_code?: string | null;
+  message?: string | null;
+}
+export interface PluginConnection {
+  connection_id: string;
+  plugin_id: string;
+  display_name: string;
+  enabled: boolean;
+  settings: Record<string, unknown>;
+  credential_refs: Record<string, string>;
+  revision: number;
+  readiness: PluginConnectionReadiness[];
+}
+export interface PluginConnectionCreate {
+  display_name: string;
+  enabled?: boolean;
+  settings?: Record<string, unknown>;
+  credentials?: Record<string, string>;
+}
+export interface PluginConnectionUpdate {
+  expected_revision: number;
+  display_name?: string;
+  enabled?: boolean;
+  settings?: Record<string, unknown>;
+  credential_refs?: Record<string, string>;
+  credentials?: Record<string, string | null>;
+}
 
 export interface PluginCapability {
   capability: string;
@@ -51,6 +84,8 @@ export interface ExtensionFieldSpec {
   description_translated?: string | null;
   default?: any;
   required: boolean;
+  minimum?: number | null;
+  maximum?: number | null;
   options: ExtensionFieldOption[];
   section: string;
   /** Plugin-i18n-sourced section label (only set when the plugin overrides it). */
@@ -171,6 +206,7 @@ export interface PluginSettingsActionSpec {
 }
 
 export interface PluginSettingsActionRunResponse {
+  connection_id: string;
   plugin_id: string;
   action_id: string;
   session_id: string;
@@ -194,6 +230,7 @@ export interface PluginSettingsResourceGroup {
 }
 
 export interface PluginSettingsResourcePayload {
+  connection_id: string;
   plugin_id: string;
   resource_name: string;
   resource_type: string;
@@ -201,6 +238,13 @@ export interface PluginSettingsResourcePayload {
     groups?: PluginSettingsResourceGroup[];
     [key: string]: any;
   };
+}
+
+export interface PluginSettingsResourceSpec {
+  resource_name: string;
+  resource_type: 'collection' | 'channel_status';
+  description: string;
+  metadata: Record<string, unknown>;
 }
 
 export interface PluginChannelStatusData {
@@ -218,6 +262,14 @@ export interface PluginChannelStatusData {
 }
 
 export interface PluginManifest {
+  settings_actions: PluginSettingsActionSpec[];
+  settings_resources: PluginSettingsResourceSpec[];
+  settings_ui_blocks: PluginSettingsUiBlockSpec[];
+  activation_flow?: ActivationFlowSpec | null;
+  settings_fields: ExtensionFieldSpec[];
+  protocol_version: 2;
+  min_sdk_version: string;
+  execution_mode: 'restricted_process' | 'trusted_process';
   plugin_id: string;
   name: string;
   version: string;
@@ -249,6 +301,7 @@ export interface PluginPackageState {
   manifest: PluginManifest;
   enabled: boolean;
   trusted: boolean;
+  package_sha256?: string | null;
   loaded: boolean;
   healthy: boolean;
   last_error?: string | null;
@@ -295,10 +348,6 @@ export interface PluginInstallJobSnapshot {
 export interface PluginsListResponse {
   plugins: PluginPackageState[];
   total: number;
-}
-
-export interface PluginSettingsUpdateRequest {
-  updates: Record<string, any>;
 }
 
 const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
@@ -353,31 +402,18 @@ const waitForInstallJob = async (
   throw error;
 };
 
-export const getNestedPluginSetting = (
-  settings: Record<string, any>,
-  path: string,
-  fallback?: any
-): any => {
-  const value = path.split('.').reduce<any>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
-      return current[part];
-    }
-    return undefined;
-  }, settings);
-  return value === undefined ? fallback : value;
-};
-
-export const buildPluginFieldValueMap = (
-  fields: ExtensionFieldSpec[],
-  settings: Record<string, any>
-): Record<string, any> =>
-  Object.fromEntries(fields.map((field) => [field.key, getNestedPluginSetting(settings, field.key, field.default)]));
-
 // ---------------------------------------------------------------------------
 // Registry / Marketplace types
 // ---------------------------------------------------------------------------
 
 export interface PluginRegistryEntry {
+  protocol_version: 2;
+  execution_mode: 'restricted_process' | 'trusted_process';
+  settings_actions: PluginSettingsActionSpec[];
+  settings_resources: PluginSettingsResourceSpec[];
+  settings_ui_blocks: PluginSettingsUiBlockSpec[];
+  activation_flow?: ActivationFlowSpec | null;
+  settings_fields: ExtensionFieldSpec[];
   plugin_id: string;
   name: string;
   name_i18n: Record<string, string>;
@@ -434,6 +470,45 @@ export interface PluginUpdateCheck {
 }
 
 export const pluginsApi = {
+  listConnections: async (pluginId: string): Promise<PluginConnection[]> => {
+    const response = await api.get<{ connections: PluginConnection[]; total: number }>(
+      `/plugins/${encodeURIComponent(pluginId)}/connections`
+    );
+    return unwrapPayload(response).connections;
+  },
+
+  createConnection: async (pluginId: string, input: PluginConnectionCreate): Promise<PluginConnection> => {
+    const response = await api.post<PluginConnection>(`/plugins/${encodeURIComponent(pluginId)}/connections`, input);
+    return unwrapPayload(response);
+  },
+
+  getConnection: async (pluginId: string, connectionId: string): Promise<PluginConnection> => {
+    const response = await api.get<PluginConnection>(
+      `/plugins/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`
+    );
+    return unwrapPayload(response);
+  },
+
+  updateConnection: async (pluginId: string, connectionId: string, input: PluginConnectionUpdate): Promise<PluginConnection> => {
+    const response = await api.patch<PluginConnection>(
+      `/plugins/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`, input
+    );
+    return unwrapPayload(response);
+  },
+
+  clearConnectionContent: async (pluginId: string, connectionId: string, expectedRevision: number): Promise<PluginConnection> => {
+    const response = await api.post<PluginConnection>(
+      `/plugins/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}/clear`,
+      { expected_revision: expectedRevision }
+    );
+    return unwrapPayload(response);
+  },
+
+  disconnectConnection: async (pluginId: string, connectionId: string, expectedRevision: number): Promise<void> => {
+    await api.delete(`/plugins/${encodeURIComponent(pluginId)}/connections/${encodeURIComponent(connectionId)}`, {
+      params: { expected_revision: expectedRevision },
+    });
+  },
   list: async (): Promise<PluginsListResponse> => {
     const response = await api.get<PluginsListResponse>('/plugins');
     return unwrapPayload(response as PluginsListResponse | ApiResponse<PluginsListResponse>);
@@ -444,43 +519,25 @@ export const pluginsApi = {
     return unwrapPayload(response as PluginsListResponse | ApiResponse<PluginsListResponse>);
   },
 
-  enable: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/enable`, {});
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
-  },
-
-  disable: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/disable`, {});
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
-  },
-
   reload: async (pluginId: string): Promise<PluginPackageState> => {
     const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/reload`, {});
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 
-  getSettings: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.get<PluginPackageState>(`/plugins/${pluginId}/settings`);
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
-  },
-
-  updateSettings: async (
-    pluginId: string,
-    updates: Record<string, any>
-  ): Promise<PluginPackageState> => {
-    const response = await api.put<PluginPackageState>(`/plugins/${pluginId}/settings`, {
-      updates,
-    } satisfies PluginSettingsUpdateRequest);
+  authorizePackage: async (pluginId: string, expectedPackageSha256: string): Promise<PluginPackageState> => {
+    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/trust`, {
+      expected_package_sha256: expectedPackageSha256,
+    });
     return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
   },
 
   startSettingsAction: async (
-    pluginId: string,
+    connectionId: string,
     actionId: string,
     fieldValues: Record<string, any>
   ): Promise<PluginSettingsActionRunResponse> => {
     const response = await api.post<PluginSettingsActionRunResponse>(
-      `/plugins/${pluginId}/settings/actions/${actionId}/start`,
+      `/plugins/connections/${encodeURIComponent(connectionId)}/settings/actions/${encodeURIComponent(actionId)}/start`,
       { field_values: fieldValues }
     );
     return unwrapPayload(
@@ -489,13 +546,13 @@ export const pluginsApi = {
   },
 
   pollSettingsAction: async (
-    pluginId: string,
+    connectionId: string,
     actionId: string,
     sessionId: string,
     fieldValues: Record<string, any>
   ): Promise<PluginSettingsActionRunResponse> => {
     const response = await api.post<PluginSettingsActionRunResponse>(
-      `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/poll`,
+      `/plugins/connections/${encodeURIComponent(connectionId)}/settings/actions/${encodeURIComponent(actionId)}/sessions/${encodeURIComponent(sessionId)}/poll`,
       { field_values: fieldValues }
     );
     return unwrapPayload(
@@ -504,12 +561,12 @@ export const pluginsApi = {
   },
 
   cancelSettingsAction: async (
-    pluginId: string,
+    connectionId: string,
     actionId: string,
     sessionId: string
   ): Promise<PluginSettingsActionRunResponse> => {
     const response = await api.post<PluginSettingsActionRunResponse>(
-      `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/cancel`,
+      `/plugins/connections/${encodeURIComponent(connectionId)}/settings/actions/${encodeURIComponent(actionId)}/sessions/${encodeURIComponent(sessionId)}/cancel`,
       {}
     );
     return unwrapPayload(
@@ -518,11 +575,11 @@ export const pluginsApi = {
   },
 
   getSettingsResource: async (
-    pluginId: string,
+    connectionId: string,
     resourceName: string
   ): Promise<PluginSettingsResourcePayload> => {
     const response = await api.get<PluginSettingsResourcePayload>(
-      `/plugins/${pluginId}/settings/resources/${resourceName}`
+      `/plugins/connections/${encodeURIComponent(connectionId)}/settings/resources/${encodeURIComponent(resourceName)}`
     );
     return unwrapPayload(
       response as PluginSettingsResourcePayload | ApiResponse<PluginSettingsResourcePayload>

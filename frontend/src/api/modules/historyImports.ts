@@ -61,6 +61,7 @@ export interface HistoryImportWarningSummary {
 }
 
 export interface HistoryImportJob {
+  connection_id: string | null;
   job_id: string;
   source_type: string;
   importer_plugin_id: string | null;
@@ -91,6 +92,8 @@ export interface HistoryImportJob {
 }
 
 export interface HistoryImporterSpec {
+  connection_display_name: string | null;
+  connection_id: string;
   importer_id: string;
   plugin_id: string;
   display_name: string;
@@ -103,6 +106,7 @@ export interface HistoryImporterSpec {
 }
 
 export interface HistoryImporterPreviewInput {
+  connectionId: string;
   pluginId: string;
   importerId: string;
   paths: string[];
@@ -141,7 +145,7 @@ export const historyImportsApi = {
   async previewWithImporter(input: HistoryImporterPreviewInput): Promise<HistoryImportJob> {
     const response = await api.post<HistoryImportJob>(
       `/memory/history-imports/importers/${encodeURIComponent(input.pluginId)}/${encodeURIComponent(input.importerId)}/preview`,
-      { paths: input.paths },
+      { paths: input.paths, connection_id: input.connectionId },
       { timeout: HISTORY_IMPORTER_PREVIEW_TIMEOUT_MS },
     );
     return unwrapGatewayPayload(response);

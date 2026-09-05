@@ -15,27 +15,27 @@ describe('sensors api - getMemoryReadiness', () => {
       l2_remaining_count: 0,
     } as any);
 
-    const res = await sensorsApi.getMemoryReadiness('photo_library', { maxWaitMs: 3000 });
+    const res = await sensorsApi.getMemoryReadiness('photo_library', 'photos-a', { maxWaitMs: 3000 });
 
     expect(get).toHaveBeenCalledWith(
-      expect.stringContaining('/sensors/photo_library/memory-readiness'),
+      '/sensors/photo_library/memory-readiness',
+      { params: { connection_id: 'photos-a', max_wait_ms: 3000 } },
     );
-    expect(get).toHaveBeenCalledWith(expect.stringContaining('max_wait_ms=3000'));
     expect(res.l2_ready).toBe(true);
     expect(res.l1_event_count).toBe(5);
     expect(res.l2_remaining_count).toBe(0);
   });
 
-  it('omits the query string when maxWaitMs is not provided', async () => {
+  it('keeps the connection selector when maxWaitMs is not provided', async () => {
     const get = vi.spyOn(api, 'get').mockResolvedValue({
       source_name: 'photo_library',
       l1_event_count: 0,
       l2_ready: false,
     } as any);
 
-    await sensorsApi.getMemoryReadiness('photo_library');
+    await sensorsApi.getMemoryReadiness('photo_library', 'photos-b');
 
-    expect(get).toHaveBeenCalledWith('/sensors/photo_library/memory-readiness');
+    expect(get).toHaveBeenCalledWith('/sensors/photo_library/memory-readiness', { params: { connection_id: 'photos-b' } });
   });
 
   it('url-encodes the source name', async () => {
@@ -45,10 +45,11 @@ describe('sensors api - getMemoryReadiness', () => {
       l2_ready: false,
     } as any);
 
-    await sensorsApi.getMemoryReadiness('odd/name', { maxWaitMs: 100 });
+    await sensorsApi.getMemoryReadiness('odd/name', 'photos-c', { maxWaitMs: 100 });
 
     expect(get).toHaveBeenCalledWith(
-      expect.stringContaining('/sensors/odd%2Fname/memory-readiness'),
+      '/sensors/odd%2Fname/memory-readiness',
+      { params: { connection_id: 'photos-c', max_wait_ms: 100 } },
     );
   });
 });

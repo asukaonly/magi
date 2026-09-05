@@ -95,13 +95,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     pluginRegistryEntries,
     pluginRegistryFingerprint,
     pluginProcessingIds,
-    reloadingActionPlugins,
-    draftPluginDrafts,
-    handlePluginDraftChange,
-    handlePluginDraftChanges,
-    applyPersistedPluginSettings,
     handlePluginAction,
-    handleReloadActionPlugin,
     loadPlugins,
     loadPluginsAndSensors,
     tools,
@@ -320,13 +314,10 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             availableEntries={timelineAvailableEntries}
             loadingStatus={timelineStatusesLoading}
             selectedSourceName={timelineSelection}
-            pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
             onPluginInstalled={loadPluginsAndSensors}
             onBrowseMarketplace={browsePluginMarketplace}
-            onPluginFieldChange={handlePluginDraftChange}
-            onPluginFieldsChange={handlePluginDraftChanges}
           />
         );
 
@@ -369,16 +360,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             section={effectiveActiveSection as SettingsIntegrationsSectionId}
             plugins={plugins}
             pluginsLoading={pluginsLoading}
-            draftPluginDrafts={draftPluginDrafts}
             dirty={dirty}
             pluginProcessingIds={pluginProcessingIds}
-            reloadingActionPlugins={reloadingActionPlugins}
             channelsSelection={channelsSelection}
             setChannelsSelection={setChannelsSelection}
-            handlePluginDraftChange={handlePluginDraftChange}
-            applyPersistedPluginSettings={applyPersistedPluginSettings}
             handlePluginAction={handlePluginAction}
-            handleReloadActionPlugin={handleReloadActionPlugin}
             loadPlugins={loadPlugins}
             loadPluginsAndSensors={loadPluginsAndSensors}
             onBrowseMarketplace={browsePluginMarketplace}

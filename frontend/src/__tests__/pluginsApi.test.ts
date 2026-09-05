@@ -89,10 +89,10 @@ describe('pluginsApi.getSettingsResource', () => {
       settings_updates: {},
     } as any);
 
-    const payload = await pluginsApi.startSettingsAction('weixin', 'qr_login', { state_dir: '/tmp/magi' });
+    const payload = await pluginsApi.startSettingsAction('weixin', 'qr_login', { display_name: 'Work' });
 
-    expect(api.post).toHaveBeenCalledWith('/plugins/weixin/settings/actions/qr_login/start', {
-      field_values: { state_dir: '/tmp/magi' },
+    expect(api.post).toHaveBeenCalledWith('/plugins/connections/weixin/settings/actions/qr_login/start', {
+      field_values: { display_name: 'Work' },
     });
     expect(payload.status).toBe('pending');
     expect(payload.data.qr_code_url).toContain('data:image/png');
@@ -115,7 +115,7 @@ describe('pluginsApi.getSettingsResource', () => {
     const payload = await pluginsApi.pollSettingsAction('weixin', 'qr_login', 'session-1', {});
 
     expect(api.post).toHaveBeenCalledWith(
-      '/plugins/weixin/settings/actions/qr_login/sessions/session-1/poll',
+      '/plugins/connections/weixin/settings/actions/qr_login/sessions/session-1/poll',
       { field_values: {} }
     );
     expect(payload.settings_updates).toEqual({ account_id: 'account-1' });
@@ -135,7 +135,7 @@ describe('pluginsApi.getSettingsResource', () => {
     const payload = await pluginsApi.cancelSettingsAction('weixin', 'qr_login', 'session-1');
 
     expect(api.post).toHaveBeenCalledWith(
-      '/plugins/weixin/settings/actions/qr_login/sessions/session-1/cancel',
+      '/plugins/connections/weixin/settings/actions/qr_login/sessions/session-1/cancel',
       {}
     );
     expect(payload.status).toBe('cancelled');

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, Radio, RefreshCw } from 'lucide-react';
+import { Activity, AlertCircle, Radio } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -7,14 +7,10 @@ import {
   type PluginChannelStatusData,
   type PluginContribution,
   type PluginPackageState,
-  type PluginSettingsActionSpec,
 } from '@/api/modules/plugins';
-import PluginSettingsActions from '@/components/settings/PluginSettingsActions';
-import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
+import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
 import { SettingsEmptyState } from '@/components/settings/SettingsSectionPrimitives';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 
 type ChannelContributionEntry = {
   plugin: PluginPackageState;
@@ -28,11 +24,6 @@ const listChannelEntries = (plugins: PluginPackageState[]): ChannelContributionE
       .map((contribution) => ({ plugin, contribution }))
   );
 
-const getContributionSettingsActions = (contribution: PluginContribution): PluginSettingsActionSpec[] => {
-  const actions = contribution.metadata?.settings_actions;
-  return Array.isArray(actions) ? (actions as PluginSettingsActionSpec[]) : [];
-};
-
 const formatStatusTime = (value: unknown): string => {
   const millis = Number(value || 0);
   if (!Number.isFinite(millis) || millis <= 0) {
@@ -41,7 +32,7 @@ const formatStatusTime = (value: unknown): string => {
   return new Date(millis).toLocaleString();
 };
 
-const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ pluginId, enabled }) => {
+const ChannelStatusPanel: React.FC<{ connectionId: string; enabled: boolean }> = ({ connectionId, enabled }) => {
   const { t } = useTranslation('app');
   const [status, setStatus] = useState<PluginChannelStatusData | null>(null);
   const [available, setAvailable] = useState(false);
@@ -56,7 +47,7 @@ const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ 
         return;
       }
       try {
-        const payload = await pluginsApi.getSettingsResource(pluginId, 'channel_status');
+        const payload = await pluginsApi.getSettingsResource(connectionId, 'channel_status');
         if (cancelled) {
           return;
         }
@@ -76,7 +67,7 @@ const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ 
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [enabled, pluginId]);
+  }, [enabled, connectionId]);
 
   if (!available || !status) {
     return null;
@@ -117,32 +108,18 @@ const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ 
 
 interface ChannelsSectionProps {
   plugins: PluginPackageState[];
-  drafts: Record<string, Record<string, any>>;
-  dirty?: boolean;
   selectedContributionId: string | null;
   onSelectContribution: (id: string | null) => void;
-  onFieldChange: (pluginId: string, key: string, value: any) => void;
-  onSettingsActionUpdates: (pluginId: string, updates: Record<string, unknown>) => void;
   onRefreshPlugins: () => Promise<void>;
   onBrowseMarketplace?: () => void;
-  onReloadPlugin: (pluginId: string) => Promise<void>;
-  onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
-  reloading: Record<string, boolean>;
 }
 
 export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
   plugins,
-  drafts,
-  dirty = false,
   selectedContributionId,
   onSelectContribution,
-  onFieldChange,
-  onSettingsActionUpdates,
   onRefreshPlugins,
   onBrowseMarketplace,
-  onReloadPlugin,
-  onPluginAction,
-  reloading,
 }) => {
   const { t } = useTranslation('app');
   const channelEntries = useMemo(() => listChannelEntries(plugins), [plugins]);
@@ -188,11 +165,6 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
                 <div className="text-xs text-muted-foreground sm:text-right">
                   <Badge variant="outline">{plugin.manifest.name}</Badge>
                 </div>
-                <div className="sm:justify-self-end">
-                  <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
-                    {plugin.enabled ? 'ON' : 'OFF'}
-                  </Badge>
-                </div>
               </button>
             ))}
           </div>
@@ -203,68 +175,26 @@ export const ChannelsSection: React.FC<ChannelsSectionProps> = ({
 
   // Detail mode
   const { plugin, contribution } = selectedEntry;
-  const settingsActions = getContributionSettingsActions(contribution);
-  const pluginValues = drafts[plugin.manifest.plugin_id] || {};
 
   return (
     <div className="space-y-8">
       <header className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={plugin.enabled ? 'default' : 'secondary'} className="rounded-md">
-              {plugin.enabled ? t('settings.pluginPackages.status.enabled') : t('settings.pluginPackages.status.disabled')}
-            </Badge>
-            <span className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{plugin.manifest.plugin_id}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch
-              checked={plugin.enabled}
-              onCheckedChange={(checked) => void onPluginAction(plugin.manifest.plugin_id, checked ? 'enable' : 'disable')}
-            />
-          </div>
-        </div>
+        <h3 className="text-sm font-semibold">{plugin.manifest.name}</h3>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
           {contribution.description || contribution.contribution_id}
         </p>
       </header>
 
-      <ChannelStatusPanel pluginId={plugin.manifest.plugin_id} enabled={plugin.enabled} />
-
-      {contribution.fields.length > 0 ? (
-        <PluginSettingsFields
-          fields={contribution.fields}
-          values={pluginValues}
-          onChange={(key, value) => onFieldChange(plugin.manifest.plugin_id, key, value)}
-          disabled={!plugin.enabled}
-          pluginId={plugin.manifest.plugin_id}
-        />
-      ) : (
-        <div className="border-b border-dashed border-[hsl(var(--settings-subnav-border)/0.72)] py-3 text-sm text-muted-foreground">
-          {t('settings.actionsConfig.emptySettings')}
-        </div>
-      )}
-
-      <PluginSettingsActions
+      <PluginConnectionsPanel
         pluginId={plugin.manifest.plugin_id}
-        actions={settingsActions}
-        values={pluginValues}
-        disabled={!plugin.enabled}
-        onSettingsUpdates={onSettingsActionUpdates}
-        onActionSettled={onRefreshPlugins}
+        fields={plugin.manifest.settings_fields}
+        actions={plugin.manifest.settings_actions}
+        blocks={plugin.manifest.settings_ui_blocks}
+        canEnable={plugin.trusted}
+        onChanged={() => void onRefreshPlugins()}
+        renderConnection={(connection) => <ChannelStatusPanel key={connection.connection_id}
+          connectionId={connection.connection_id} enabled={connection.enabled} />}
       />
-
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={dirty || !!reloading[plugin.manifest.plugin_id]}
-          onClick={() => void onReloadPlugin(plugin.manifest.plugin_id)}
-        >
-          <RefreshCw className={reloading[plugin.manifest.plugin_id] ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-          {t('settings.pluginPackages.actions.reload')}
-        </Button>
-      </div>
     </div>
   );
 };

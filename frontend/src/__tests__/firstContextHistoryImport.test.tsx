@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -96,6 +96,7 @@ function documentPreview(): HistoryImportJob {
   return {
     job_id: "him-1",
     source_type: "markdown",
+    connection_id: null,
     importer_plugin_id: null,
     importer_id: null,
     source_ids: ["notes.md"],
@@ -177,6 +178,7 @@ function conversationPreview(): HistoryImportJob {
     job_id: "him-chatgpt",
     source_type: "chatgpt_export",
     importer_plugin_id: "chatgpt-history",
+    connection_id: "archive-connection",
     importer_id: "chatgpt_export",
     source_ids: ["conversation-1"],
     included_source_ids: ["conversation-1"],
@@ -344,6 +346,7 @@ describe("FirstContextHistoryImport", () => {
     listImportersMock.mockResolvedValue([
       {
         plugin_id: "chatgpt-history",
+        connection_id: "archive-connection",
         importer_id: "chatgpt_export",
         display_name: "ChatGPT",
         display_name_i18n: { "zh-CN": "ChatGPT 历史" },
@@ -381,6 +384,7 @@ describe("FirstContextHistoryImport", () => {
     );
     expect(previewImporterMock).toHaveBeenCalledWith({
       pluginId: "chatgpt-history",
+      connectionId: "archive-connection",
       importerId: "chatgpt_export",
       paths: ["/tmp/chatgpt-export.zip"],
     });
@@ -408,6 +412,7 @@ describe("FirstContextHistoryImport", () => {
     listImportersMock.mockResolvedValue([
       {
         plugin_id: "chatgpt-history",
+        connection_id: "archive-connection",
         importer_id: "chatgpt_export",
         display_name: "ChatGPT",
         display_name_i18n: {},
@@ -448,6 +453,7 @@ describe("FirstContextHistoryImport", () => {
     listImportersMock.mockResolvedValue([
       {
         plugin_id: "chatgpt-history",
+        connection_id: "archive-connection",
         importer_id: "chatgpt_export",
         display_name: "ChatGPT",
         display_name_i18n: {},
@@ -518,6 +524,7 @@ describe("FirstContextHistoryImport", () => {
       listImportersMock.mockResolvedValue([
         {
           plugin_id: "chatgpt-history",
+          connection_id: "archive-connection",
           importer_id: "chatgpt_export",
           display_name: "ChatGPT",
           display_name_i18n: {},
@@ -1197,6 +1204,7 @@ describe("FirstContextHistoryImport", () => {
     listImportersMock.mockResolvedValue([
       {
         plugin_id: "platform-history",
+        connection_id: "archive-connection",
         importer_id: "account-export",
         display_name: "Platform history",
         display_name_i18n: {},
@@ -1284,4 +1292,27 @@ describe("FirstContextHistoryImport", () => {
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     rerender(<div />);
   });
+it("previews the selected account when one package has two import connections", async () => {
+  const user = userEvent.setup();
+  listImportersMock.mockResolvedValue([
+    ["personal", "Personal archive"], ["work", "Work archive"],
+  ].map(([connectionId, name]) => ({
+    plugin_id: "chatgpt-history", importer_id: "chatgpt_export", connection_id: connectionId,
+    connection_display_name: name, display_name: "ChatGPT", display_name_i18n: {},
+    description: "Import an export", description_i18n: {}, accepted_extensions: ["zip"],
+    participant_identity_scope: "source", export_help_url: null,
+  })));
+  getRegistryMock.mockResolvedValue({ plugins: [] });
+  pickHistoryImportFilesMock.mockResolvedValue(["/tmp/work-export.zip"]);
+  previewImporterMock.mockResolvedValue(conversationPreview());
+  render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
+  const label = await screen.findByText("Work archive");
+  const row = label.closest('[data-connection-id="work"]') as HTMLElement;
+  await user.click(within(row).getByRole("button", { name: "firstContext.history.platform.choose" }));
+  expect(previewImporterMock).toHaveBeenCalledWith({
+    pluginId: "chatgpt-history", importerId: "chatgpt_export", connectionId: "work",
+    paths: ["/tmp/work-export.zip"],
+  });
+});
+
 });

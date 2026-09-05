@@ -93,6 +93,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     name: string;
     name_i18n: Record<string, string>;
     capabilities: PluginCapability[];
+    executionMode?: "restricted_process" | "trusted_process";
     version: string;
     official: boolean;
     icon: string | null;
@@ -163,6 +164,7 @@ export function PluginInstallPanel(): JSX.Element | null {
           name: e.name,
           name_i18n: e.name_i18n ?? {},
           capabilities: e.capabilities ?? [],
+          executionMode: e.execution_mode,
           version: e.version,
           official: e.official ?? false,
           icon: e.icon ?? null,
@@ -203,6 +205,7 @@ export function PluginInstallPanel(): JSX.Element | null {
       dispatchAppEvent.pluginsChanged();
       onDone?.({
         pluginId: pluginId ?? '',
+        connectionId: flow.connectionId,
         sourceName: flow.sourceName ?? undefined,
         firstContextCount: isFirstContext
           ? flow.syncedCount ?? flow.memoryCount ?? flow.memoryTotalCount ?? null
@@ -212,6 +215,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   }, [
     open,
     flow.phase,
+    flow.connectionId,
     flow.memoryCount,
     flow.memoryTotalCount,
     flow.sourceName,
@@ -407,6 +411,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         version={entryMeta?.version ?? ''}
         official={entryMeta?.official}
         capabilities={entryMeta?.capabilities ?? []}
+        executionMode={entryMeta?.executionMode}
         confirmDisabled={registryState !== 'ready' || !entryMeta?.installFingerprint}
         statusMessage={registryStatusMessage}
         onConfirm={() => {

@@ -494,7 +494,7 @@ export const HistoryImportFlow = forwardRef<
     if (actionRef.current !== null) {
       return;
     }
-    const importerKey = `${importer.plugin_id}:${importer.importer_id}`;
+    const importerKey = `${importer.plugin_id}:${importer.connection_id}:${importer.importer_id}`;
     setCurrentAction("preview");
     setPreviewTarget(importerKey);
     setError(null);
@@ -529,6 +529,7 @@ export const HistoryImportFlow = forwardRef<
       applyJob(
         await historyImportsApi.previewWithImporter({
           pluginId: importer.plugin_id,
+          connectionId: importer.connection_id,
           importerId: importer.importer_id,
           paths,
         }),
@@ -1058,7 +1059,8 @@ export const HistoryImportFlow = forwardRef<
               <div className="divide-y divide-border/45">
                 {importers.map((importer) => (
                   <div
-                    key={`${importer.plugin_id}:${importer.importer_id}`}
+                    key={`${importer.plugin_id}:${importer.connection_id}:${importer.importer_id}`}
+                    data-connection-id={importer.connection_id}
                     className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="flex min-w-0 items-start gap-3.5">
@@ -1067,7 +1069,7 @@ export const HistoryImportFlow = forwardRef<
                       </span>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold leading-6 text-foreground">
-                          {localizedPluginText(
+                          {importer.connection_display_name || localizedPluginText(
                             importer.display_name,
                             importer.display_name_i18n,
                             i18n.resolvedLanguage ?? i18n.language,
@@ -1109,7 +1111,7 @@ export const HistoryImportFlow = forwardRef<
                       disabled={action !== null}
                     >
                       {action === "preview" &&
-                      previewTarget === `${importer.plugin_id}:${importer.importer_id}` ? (
+                      previewTarget === `${importer.plugin_id}:${importer.connection_id}:${importer.importer_id}` ? (
                         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                       ) : (
                         <FileArchive className="h-4 w-4" aria-hidden="true" />
