@@ -394,6 +394,10 @@ async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_pat
             "newer-occurrence": 300.0,
             "older-occurrence": 100.0,
         }
+        records = await store.get_evidence_records(["older-occurrence", "missing"])
+        assert set(records) == {"older-occurrence"}
+        assert records["older-occurrence"]["content"] == "Older imported event"
+        assert records["older-occurrence"]["source"] == "chrome_history"
     finally:
         await store.shutdown()
 
