@@ -279,6 +279,7 @@ class UnifiedMemoryStore(
     def _build_l2_stack(self, context: _MemoryStoreBuildContext) -> None:
         self.l2 = L2CognitionStore(
             db_path=context.paths.shared_memory_db_path,
+            evidence_record_resolver=self.l1.get_evidence_records if self.l1 is not None else None,
             evidence_timestamp_resolver=(
                 self.l1.get_event_timestamps if self.l1 is not None else None
             ),

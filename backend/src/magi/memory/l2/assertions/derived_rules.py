@@ -16,6 +16,8 @@ from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICA
 from ..phase1_models import L2TemporalCue
 from .occurrence_stats import summarize_occurrence_times
 from .profile_worthiness import profile_evidence_reason
+from ...evidence.independence import independent_evidence_key
+from .state_machine import compute_confidence
 from .promotion import (
     AssertionPromotionInput,
     PromotionHorizon,
@@ -332,7 +334,7 @@ async def _load_edge_evidence_stats(
                 logger.debug("Profile evidence excluded", event_id=event_id, reason_code=reason)
                 continue
             eligible_times[str(event_id)] = float(record["timestamp"])
-        stats[_edge_key(edge)] = _evidence_stats_for_edge(edge, timestamps=eligible_times, now=now)
+        stats[_edge_key(edge)] = _evidence_stats_for_edge(edge, timestamps=eligible_times, now=now, independent_keys={identity: independent_evidence_key(records[identity]) for identity in eligible_times})
     return stats
 
 
@@ -354,6 +356,7 @@ def _evidence_stats_for_edge(
     *,
     timestamps: Mapping[str, float],
     now: float,
+    independent_keys: Mapping[str, str],
 ) -> _EdgeEvidenceStats:
     timeline = summarize_occurrence_times(
         [
@@ -379,7 +382,7 @@ def _evidence_stats_for_edge(
     return _EdgeEvidenceStats(
         event_ids=timeline.trusted_event_ids,
         observation_count=int(edge.get("observation_count", 0) or 0),
-        evidence_count=len(timeline.trusted_event_ids),
+        evidence_count=len({independent_keys[event_id] for event_id in timeline.trusted_event_ids}),
         distinct_days=timeline.distinct_days,
         first_observed_at=timeline.first_observed_at,
         last_observed_at=timeline.last_observed_at,
@@ -571,11 +574,8 @@ def _trait_name_for_edge(
 
 
 def _confidence_for_edge(edge: dict[str, Any], *, evidence_count: int) -> float:
-    return min(
-        0.9,
-        float(edge.get("confidence", 0.5) or 0.5)
-        * (1 + 0.1 * min(evidence_count, 5)),
-    )
+    """Use independent support, not repeated exposure, on the shared heuristic curve."""
+    return min(float(edge.get("confidence", 0.5) or 0.5), compute_confidence(evidence_count))
 
 
 def _build_derived_assertion_candidate(
