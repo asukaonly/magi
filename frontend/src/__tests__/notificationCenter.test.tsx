@@ -20,7 +20,7 @@ describe('NotificationCenter', () => {
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
         payload: { plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: { 'zh-CN': 'Chrome 浏览器历史' }, icon: 'brand:googlechrome', installed: true }] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
-      unread_count: 1,
+      total: 1, unread_count: 1,
     });
     vi.spyOn(api, 'markRead').mockResolvedValue();
     vi.spyOn(api, 'markAllRead').mockResolvedValue();
@@ -133,7 +133,7 @@ describe('NotificationCenter — profile_conflict branch', () => {
     useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [CONFLICT_NOTIFICATION],
-      unread_count: 1,
+      total: 1, unread_count: 1,
     });
     vi.spyOn(api, 'markRead').mockResolvedValue();
     vi.spyOn(api, 'markAllRead').mockResolvedValue();
@@ -179,7 +179,7 @@ describe('NotificationCenter — profile_conflict branch', () => {
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
         payload: { plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: {}, icon: 'brand:googlechrome', installed: true }] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
-      unread_count: 1,
+      total: 1, unread_count: 1,
     });
     render(<NotificationCenter />);
     const row = await screen.findByTestId('notification-row');

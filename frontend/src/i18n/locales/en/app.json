@@ -3254,6 +3254,7 @@
       }
     },
     "pending": {
+      "loadMore": "Load more {{section}}",
       "loadFailed": "Could not load {{section}}. Other loaded items remain available.",
       "actionFailed": "The action did not finish. Your content and selection are saved; please retry.",
       "retry": "Retry",
@@ -3316,7 +3317,7 @@
       "planBatch": {
         "title": "Which plans are still current?",
         "body": "Select the plans that still apply. Unselected plans stay here for later and are not treated as rejected.",
-        "selectAll": "Select all",
+        "selectAll": "Select loaded plans",
         "clearSelection": "Clear selection",
         "confirmSelected": "Confirm {{count}} selected",
         "selectLabel": "Select plan: {{value}}",

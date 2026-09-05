@@ -8,7 +8,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k, 
 describe('NotificationBell', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(api, 'listNotifications').mockResolvedValue({ items: [], unread_count: 3 });
+    vi.spyOn(api, 'listNotifications').mockResolvedValue({ items: [], total: 3, unread_count: 3 });
   });
   it('renders the bell with an unread badge', async () => {
     render(<NotificationBell />);

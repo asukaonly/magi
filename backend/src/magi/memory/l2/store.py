@@ -353,7 +353,7 @@ class L2CognitionStore(
         *,
         subject_id: str | None = None,
         status: str = "pending",
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[dict[str, Any]]:
         """List governed pending-memory review records."""
 

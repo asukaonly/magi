@@ -358,7 +358,7 @@ class L3SummaryPersistenceMixin:
         summary_categories: List[str],
         period_start: Optional[float] = None,
         period_end: Optional[float] = None,
-        limit: int = 20,
+        limit: int | None = 20,
     ) -> List[Dict[str, Any]]:
         """List summaries scoped to one or more summary_category values within a window."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
@@ -379,8 +379,8 @@ class L3SummaryPersistenceMixin:
         if period_end is not None:
             sql += " AND period_start <= ?"
             args.append(float(period_end))
-        sql += " ORDER BY period_end DESC, updated_at DESC LIMIT ?"
-        args.append(int(limit))
+        sql += " ORDER BY period_end DESC, updated_at DESC, summary_id LIMIT ?"
+        args.append(-1 if limit is None else int(limit))
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:

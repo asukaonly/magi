@@ -84,7 +84,8 @@ export const memoryStoriesApi = {
     limit?: number;
     offset?: number;
     surface?: StoryFeedSurface;
-    group?: Exclude<StoryFeedGroup, 'memory_update'>;
+    group?: StoryFeedGroup;
+    review_state?: 'pending_confirmation' | 'confirmed' | 'neutral' | 'archived';
   }): Promise<StoryFeedPayload> => {
     const response = await api.get<StoryFeedPayload>('/memory/stories', { params });
     return unwrapGatewayPayload(response);

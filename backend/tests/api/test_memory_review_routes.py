@@ -52,7 +52,7 @@ def test_list_reviews_uses_canonical_self_subject(monkeypatch) -> None:
     store.list_pending_reviews.assert_awaited_once_with(
         subject_id="user:local_user",
         status="pending",
-        limit=100,
+        limit=None,
     )
 
 
@@ -108,3 +108,13 @@ def test_stale_review_version_returns_conflict(monkeypatch) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "pending review version is stale"
+
+
+def test_pending_reviews_count_and_page_through_public_router(monkeypatch):
+    rows = [{"review_id": f"rev_{i}", "status": "pending", "version": 1} for i in range(123)]
+    store = SimpleNamespace(list_pending_reviews=AsyncMock(return_value=rows))
+    client = _client(monkeypatch, store)
+    page = client.get("/api/memory/l2/reviews?limit=25&offset=100").json()
+    assert page["total"] == 123
+    assert len(page["items"]) == 23
+    assert page["items"][0]["review_id"] == "rev_100"

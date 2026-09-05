@@ -3022,3 +3022,7 @@ section-specific retry and cannot masquerade as an empty inbox or discard other
 loaded sections. Failed single-item and edit actions preserve the item, current
 selection, and unsaved edit, with a visible error. Batch actions retain failed
 selections and report partial success.
+
+### Pending review pagination
+
+The pending inbox uses server-side review-state and conflict-kind filters before pagination. Every lane returns a complete visible total; page length is never presented as a total. The client loads 25 records per page, retains loaded pages on failure, and reloads the loaded window after successful review so remaining records fill the gap. Batch selection covers loaded plans only. Summary deduplication, expiration and readability checks run on the complete active projection before slicing. This favors correct visibility and totals; a persisted feed index can replace this read model if measured collection size/latency requires it, without changing the API contract.

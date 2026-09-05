@@ -1019,10 +1019,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
   getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
-  listPendingReviews: async (limit = 100): Promise<{ items: L2PendingReview[]; total: number }> =>
+  listPendingReviews: async (limit = 100, offset = 0): Promise<{ items: L2PendingReview[]; total: number }> =>
     unwrapMemoryResponse(await api.get<{ items: L2PendingReview[]; total: number }>(
       '/memory/l2/reviews',
-      { params: { status: 'pending', limit } },
+      { params: { status: 'pending', limit, offset } },
     )),
   resolvePendingReview: async (
     reviewId: string,
@@ -1170,7 +1170,7 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search
-  getDashboard: async (params?: { pending_limit?: number }): Promise<MemoryDashboard> =>
+  getDashboard: async (params?: { pending_limit?: number; pending_offset?: number }): Promise<MemoryDashboard> =>
     unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params })),
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),

@@ -3252,6 +3252,7 @@
       }
     },
     "pending": {
+      "loadMore": "继续加载{{section}}",
       "loadFailed": "{{section}}加载失败，已加载的内容仍可查看。",
       "actionFailed": "操作未完成，内容和选择已保留，请重试。",
       "retry": "重试",
@@ -3314,7 +3315,7 @@
       "planBatch": {
         "title": "哪些计划现在仍然有效？",
         "body": "选择仍然有效的计划。未选择的会继续保留在这里，不会被当作否定。",
-        "selectAll": "全选",
+        "selectAll": "选择已加载的计划",
         "clearSelection": "取消全选",
         "confirmSelected": "确认选中的 {{count}} 项",
         "selectLabel": "选择计划：{{value}}",
