@@ -1,0 +1,1083 @@
+{
+  "components": {
+    "schemas": {
+      "ClearHistoryResponse": {
+        "description": "Confirmed immutable transcript snapshot removed by a history clear.",
+        "properties": {
+          "cleanup_pending": {
+            "default": false,
+            "title": "Cleanup Pending",
+            "type": "boolean"
+          },
+          "cleared_message_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cleared Message Ids",
+            "type": "array"
+          },
+          "cleared_turn_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cleared Turn Ids",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "user_id",
+          "session_id",
+          "cleared_message_ids",
+          "cleared_turn_ids",
+          "cleanup_pending"
+        ],
+        "title": "ClearHistoryResponse",
+        "type": "object"
+      },
+      "ClearMemoryResponseModel": {
+        "description": "Confirmed full-memory clear with any deferred recovery warnings.",
+        "properties": {
+          "results": {
+            "$ref": "#/components/schemas/ClearResultsModel"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "success",
+          "results",
+          "warnings"
+        ],
+        "title": "ClearMemoryResponseModel",
+        "type": "object"
+      },
+      "ClearResultModel": {
+        "description": "Count returned for one cleared product area.",
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "boolean"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cleared",
+          "count"
+        ],
+        "title": "ClearResultModel",
+        "type": "object"
+      },
+      "ClearResultsModel": {
+        "description": "Every memory and conversation area covered by a full clear.",
+        "properties": {
+          "chat_context": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          },
+          "l0": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          },
+          "l1": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          },
+          "l2": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          },
+          "l3": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          },
+          "l4": {
+            "$ref": "#/components/schemas/ClearResultModel"
+          }
+        },
+        "required": [
+          "l0",
+          "l1",
+          "l2",
+          "l3",
+          "l4",
+          "chat_context"
+        ],
+        "title": "ClearResultsModel",
+        "type": "object"
+      },
+      "DeleteL1EventResponse": {
+        "description": "Confirmed source-event deletion and its product scope.",
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "deletion_scope": {
+            "enum": [
+              "projected_memory_only",
+              "source_event"
+            ],
+            "title": "Deletion Scope",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "deleted",
+          "deletion_scope"
+        ],
+        "title": "DeleteL1EventResponse",
+        "type": "object"
+      },
+      "DeleteMessageResponse": {
+        "description": "Confirmed message removal and its remaining cleanup state.",
+        "properties": {
+          "cleanup_pending": {
+            "default": false,
+            "title": "Cleanup Pending",
+            "type": "boolean"
+          },
+          "deleted_message_id": {
+            "title": "Deleted Message Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "user_id",
+          "session_id",
+          "deleted_message_id",
+          "cleanup_pending"
+        ],
+        "title": "DeleteMessageResponse",
+        "type": "object"
+      },
+      "DeleteSessionResponse": {
+        "description": "Confirmed session removal and its remaining cleanup state.",
+        "properties": {
+          "cleanup_pending": {
+            "default": false,
+            "title": "Cleanup Pending",
+            "type": "boolean"
+          },
+          "deleted_session_id": {
+            "title": "Deleted Session Id",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "user_id",
+          "deleted_session_id",
+          "cleanup_pending"
+        ],
+        "title": "DeleteSessionResponse",
+        "type": "object"
+      },
+      "ForgetEntityResponse": {
+        "description": "Confirmed cascade deletion counts for an entity or time range.",
+        "properties": {
+          "l1_events_deleted": {
+            "minimum": 0,
+            "title": "L1 Events Deleted",
+            "type": "integer"
+          },
+          "l2_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "L2 Counts",
+            "type": "object"
+          }
+        },
+        "required": [
+          "l2_counts",
+          "l1_events_deleted"
+        ],
+        "title": "ForgetEntityResponse",
+        "type": "object"
+      },
+      "ForgetEpisodeResponse": {
+        "description": "Confirmed episode deletion and the affected source events.",
+        "properties": {
+          "episode_id": {
+            "title": "Episode Id",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "l1_events_deleted": {
+            "minimum": 0,
+            "title": "L1 Events Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "episode_id",
+          "event_ids",
+          "l1_events_deleted"
+        ],
+        "title": "ForgetEpisodeResponse",
+        "type": "object"
+      },
+      "HistoryImportAppendResponse": {
+        "properties": {
+          "added_source_count": {
+            "title": "Added Source Count",
+            "type": "integer"
+          },
+          "duplicate_source_count": {
+            "title": "Duplicate Source Count",
+            "type": "integer"
+          },
+          "job": {
+            "$ref": "#/components/schemas/HistoryImportJobResponse"
+          }
+        },
+        "required": [
+          "job",
+          "added_source_count",
+          "duplicate_source_count"
+        ],
+        "title": "HistoryImportAppendResponse",
+        "type": "object"
+      },
+      "HistoryImportJobResponse": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "detected_kind": {
+            "enum": [
+              "document",
+              "chat",
+              "mixed"
+            ],
+            "title": "Detected Kind",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "imported_count": {
+            "title": "Imported Count",
+            "type": "integer"
+          },
+          "importer_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Importer Id"
+          },
+          "importer_plugin_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Importer Plugin Id"
+          },
+          "included_source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Included Source Ids",
+            "type": "array"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "meaningful_records": {
+            "title": "Meaningful Records",
+            "type": "integer"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryImportParticipantResponse"
+            },
+            "title": "Participants",
+            "type": "array"
+          },
+          "preview_records": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryImportRecordPreviewResponse"
+            },
+            "title": "Preview Records",
+            "type": "array"
+          },
+          "projected_count": {
+            "title": "Projected Count",
+            "type": "integer"
+          },
+          "quick_imported_count": {
+            "title": "Quick Imported Count",
+            "type": "integer"
+          },
+          "quick_max_records": {
+            "title": "Quick Max Records",
+            "type": "integer"
+          },
+          "quick_ready": {
+            "title": "Quick Ready",
+            "type": "boolean"
+          },
+          "quick_target_records": {
+            "title": "Quick Target Records",
+            "type": "integer"
+          },
+          "self_participant_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Self Participant Ids",
+            "type": "array"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryImportSourceSummaryResponse"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "preview_ready",
+              "running",
+              "ready",
+              "completed",
+              "failed",
+              "deleted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_records": {
+            "title": "Total Records",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "warning_summary": {
+            "$ref": "#/components/schemas/HistoryImportWarningSummaryResponse"
+          }
+        },
+        "required": [
+          "job_id",
+          "source_type",
+          "source_ids",
+          "included_source_ids",
+          "detected_kind",
+          "status",
+          "total_records",
+          "meaningful_records",
+          "quick_target_records",
+          "quick_max_records",
+          "quick_imported_count",
+          "imported_count",
+          "projected_count",
+          "self_participant_ids",
+          "importer_plugin_id",
+          "importer_id",
+          "warning_summary",
+          "quick_ready",
+          "error_code",
+          "created_at",
+          "updated_at",
+          "participants",
+          "sources",
+          "preview_records"
+        ],
+        "title": "HistoryImportJobResponse",
+        "type": "object"
+      },
+      "HistoryImportParticipantResponse": {
+        "properties": {
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "is_document_author": {
+            "title": "Is Document Author",
+            "type": "boolean"
+          },
+          "meaningful_count": {
+            "title": "Meaningful Count",
+            "type": "integer"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "participant_id": {
+            "title": "Participant Id",
+            "type": "string"
+          },
+          "sample": {
+            "title": "Sample",
+            "type": "string"
+          }
+        },
+        "required": [
+          "participant_id",
+          "display_name",
+          "is_document_author",
+          "message_count",
+          "meaningful_count",
+          "sample"
+        ],
+        "title": "HistoryImportParticipantResponse",
+        "type": "object"
+      },
+      "HistoryImportRecordPreviewResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "event_at": {
+            "title": "Event At",
+            "type": "number"
+          },
+          "is_document_author": {
+            "title": "Is Document Author",
+            "type": "boolean"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_seq": {
+            "title": "Session Seq",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "speaker_id": {
+            "title": "Speaker Id",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "timestamp_confidence": {
+            "title": "Timestamp Confidence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "session_id",
+          "session_seq",
+          "speaker_id",
+          "speaker_name",
+          "is_document_author",
+          "content",
+          "event_at",
+          "timestamp_confidence"
+        ],
+        "title": "HistoryImportRecordPreviewResponse",
+        "type": "object"
+      },
+      "HistoryImportSourcePreviewResponse": {
+        "properties": {
+          "detected_kind": {
+            "enum": [
+              "document",
+              "chat",
+              "mixed"
+            ],
+            "title": "Detected Kind",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryImportRecordPreviewResponse"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "detected_kind",
+          "records",
+          "truncated"
+        ],
+        "title": "HistoryImportSourcePreviewResponse",
+        "type": "object"
+      },
+      "HistoryImportSourceSummaryResponse": {
+        "properties": {
+          "detected_kind": {
+            "enum": [
+              "document",
+              "chat",
+              "mixed"
+            ],
+            "title": "Detected Kind",
+            "type": "string"
+          },
+          "first_event_at": {
+            "title": "First Event At",
+            "type": "number"
+          },
+          "included": {
+            "title": "Included",
+            "type": "boolean"
+          },
+          "last_event_at": {
+            "title": "Last Event At",
+            "type": "number"
+          },
+          "meaningful_count": {
+            "title": "Meaningful Count",
+            "type": "integer"
+          },
+          "record_count": {
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "sample": {
+            "title": "Sample",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          },
+          "timestamp_confidence": {
+            "title": "Timestamp Confidence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "detected_kind",
+          "record_count",
+          "meaningful_count",
+          "first_event_at",
+          "last_event_at",
+          "timestamp_confidence",
+          "sample",
+          "included"
+        ],
+        "title": "HistoryImportSourceSummaryResponse",
+        "type": "object"
+      },
+      "HistoryImportWarningSummaryResponse": {
+        "properties": {
+          "codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Codes",
+            "type": "array"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "total_count",
+          "codes",
+          "truncated"
+        ],
+        "title": "HistoryImportWarningSummaryResponse",
+        "type": "object"
+      },
+      "HistoryImporterResponse": {
+        "properties": {
+          "accepted_extensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Extensions",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "description_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Description I18N",
+            "type": "object"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "display_name_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Display Name I18N",
+            "type": "object"
+          },
+          "export_help_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Help Url"
+          },
+          "importer_id": {
+            "title": "Importer Id",
+            "type": "string"
+          },
+          "participant_identity_scope": {
+            "enum": [
+              "source",
+              "export"
+            ],
+            "title": "Participant Identity Scope",
+            "type": "string"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "importer_id",
+          "display_name",
+          "display_name_i18n",
+          "description",
+          "description_i18n",
+          "accepted_extensions",
+          "participant_identity_scope",
+          "export_help_url"
+        ],
+        "title": "HistoryImporterResponse",
+        "type": "object"
+      },
+      "MemoryPortabilityOperation": {
+        "additionalProperties": false,
+        "description": "User-facing snapshot of one memory portability job.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Message"
+          },
+          "file_size_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "File Size Bytes"
+          },
+          "index_rebuild_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Index Rebuild Status"
+          },
+          "inspection": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "password_required": "#/components/schemas/PasswordRequiredMemoryRestoreInspection",
+                    "ready": "#/components/schemas/ReadyMemoryRestoreInspection"
+                  },
+                  "propertyName": "state"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PasswordRequiredMemoryRestoreInspection"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ReadyMemoryRestoreInspection"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Inspection"
+          },
+          "kind": {
+            "enum": [
+              "backup",
+              "export",
+              "inspect",
+              "restore"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "output_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Path"
+          },
+          "phase": {
+            "default": "queued",
+            "title": "Phase",
+            "type": "string"
+          },
+          "progress_percent": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Percent",
+            "type": "number"
+          },
+          "record_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Record Counts",
+            "type": "object"
+          },
+          "rollback_performed": {
+            "default": false,
+            "title": "Rollback Performed",
+            "type": "boolean"
+          },
+          "safety_backup_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Safety Backup Path"
+          },
+          "status": {
+            "default": "pending",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "status",
+          "phase",
+          "progress_percent",
+          "record_counts",
+          "output_path",
+          "file_size_bytes",
+          "created_at",
+          "completed_at",
+          "error_code",
+          "error_message",
+          "rollback_performed",
+          "safety_backup_path",
+          "index_rebuild_status",
+          "inspection"
+        ],
+        "title": "MemoryPortabilityOperation",
+        "type": "object"
+      },
+      "PasswordRequiredMemoryRestoreInspection": {
+        "additionalProperties": false,
+        "description": "Secret-free result for an encrypted package awaiting a password.",
+        "properties": {
+          "encrypted": {
+            "const": true,
+            "title": "Encrypted",
+            "type": "boolean"
+          },
+          "state": {
+            "const": "password_required",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "encrypted"
+        ],
+        "title": "PasswordRequiredMemoryRestoreInspection",
+        "type": "object"
+      },
+      "ReadyMemoryRestoreInspection": {
+        "additionalProperties": false,
+        "description": "Validated metadata for one private restore candidate.",
+        "properties": {
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "compatibility": {
+            "enum": [
+              "compatible",
+              "upgrade_required",
+              "unsupported"
+            ],
+            "title": "Compatibility",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "encrypted": {
+            "title": "Encrypted",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "format_version": {
+            "minimum": 1,
+            "title": "Format Version",
+            "type": "integer"
+          },
+          "magi_version": {
+            "title": "Magi Version",
+            "type": "string"
+          },
+          "record_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Record Counts",
+            "type": "object"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          },
+          "source_fingerprint": {
+            "title": "Source Fingerprint",
+            "type": "string"
+          },
+          "state": {
+            "const": "ready",
+            "title": "State",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "state",
+          "candidate_id",
+          "encrypted",
+          "format_version",
+          "magi_version",
+          "created_at",
+          "scope",
+          "record_counts",
+          "compatibility",
+          "warnings",
+          "expires_at",
+          "source_fingerprint"
+        ],
+        "title": "ReadyMemoryRestoreInspection",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi data lifecycle response contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

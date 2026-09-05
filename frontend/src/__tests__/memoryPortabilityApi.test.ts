@@ -1,149 +1,60 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { api, apiClient } from '@/api/client';
+import { memoryPortabilityApi, type MemoryPortabilityOperation } from '@/api/modules/memoryPortability';
+import examples from '../../../contracts/api/frontend-lifecycle-examples.json';
 
-import { api } from '@/api/client';
-import {
-  memoryPortabilityApi,
-  type MemoryPortabilityOperation,
-} from '@/api/modules/memoryPortability';
-
-const operation: MemoryPortabilityOperation = {
-  operation_id: 'operation-1',
-  kind: 'backup',
-  status: 'pending',
-  phase: 'queued',
-  progress_percent: 0,
-  record_counts: {},
-  output_path: null,
-  file_size_bytes: null,
-  created_at: '2026-08-18T09:00:00Z',
-  completed_at: null,
-  error_code: null,
-  error_message: null,
-  rollback_performed: false,
-  safety_backup_path: null,
-  index_rebuild_status: null,
-  inspection: null,
-};
+const operation: MemoryPortabilityOperation = { ...examples.operation, kind: 'backup', status: 'pending' };
 
 describe('memoryPortabilityApi contract', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  afterEach(() => { vi.restoreAllMocks(); });
 
-  it('sends backup and readable export requests with exact disk-path payloads', async () => {
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: operation,
-    } as any);
-
-    await memoryPortabilityApi.createBackup({
-      destinationDirectory: '/private/backup folder',
-      encryption: 'password',
-      password: 'a private password',
-    });
-    await memoryPortabilityApi.createBackup({
-      destinationDirectory: '/private/plain backup',
-      encryption: 'none',
-    });
-    await memoryPortabilityApi.createExport({
-      destinationDirectory: '/private/readable export',
-    });
-
-    expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/backups', {
-      destination_directory: '/private/backup folder',
-      encryption: 'password',
-      password: 'a private password',
-    });
-    expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/backups', {
-      destination_directory: '/private/plain backup',
-      encryption: 'none',
-    });
-    expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/exports', {
-      destination_directory: '/private/readable export',
-      include_l0: false,
-    });
-    await memoryPortabilityApi.createExport({
-      destinationDirectory: '/private/with attention',
-      includeL0: true,
-    });
-    expect(postSpy).toHaveBeenLastCalledWith('/memory/portability/exports', {
-      destination_directory: '/private/with attention',
-      include_l0: true,
-    });
-  });
-
-  it('starts pollable inspection and restore operations without sending file contents', async () => {
-    const inspectionOperation = {
-      ...operation,
-      operation_id: 'inspection-1',
-      kind: 'inspect' as const,
-    };
+  it('sends exact backup/export payloads and accepts only the requested operation kind', async () => {
     const postSpy = vi.spyOn(api, 'post')
-      .mockResolvedValueOnce({
-        success: true,
-        message: 'accepted',
-        data: inspectionOperation,
-      } as any)
-      .mockResolvedValueOnce({
-        success: true,
-        message: 'accepted',
-        data: { ...inspectionOperation, operation_id: 'inspection-2' },
-      } as any)
-      .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any);
-    const deleteSpy = vi.spyOn(api, 'delete').mockResolvedValue({} as any);
+      .mockResolvedValueOnce(operation as never)
+      .mockResolvedValueOnce(operation as never)
+      .mockResolvedValue({ ...operation, kind: 'export' } as never);
+    await memoryPortabilityApi.createBackup({ destinationDirectory: '/private/backup folder', encryption: 'password', password: 'a private password' });
+    await memoryPortabilityApi.createBackup({ destinationDirectory: '/private/plain backup', encryption: 'none' });
+    await memoryPortabilityApi.createExport({ destinationDirectory: '/private/readable export' });
+    expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/backups', { destination_directory: '/private/backup folder', encryption: 'password', password: 'a private password' });
+    expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/backups', { destination_directory: '/private/plain backup', encryption: 'none' });
+    expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/exports', { destination_directory: '/private/readable export', include_l0: false });
+    await memoryPortabilityApi.createExport({ destinationDirectory: '/private/with attention', includeL0: true });
+    expect(postSpy).toHaveBeenLastCalledWith('/memory/portability/exports', { destination_directory: '/private/with attention', include_l0: true });
+    await expect(memoryPortabilityApi.createBackup({ destinationDirectory: '/private/plain backup', encryption: 'none' })).rejects.toThrow('Invalid memory portability operation');
+  });
 
-    const lockedInspection = await memoryPortabilityApi.inspectRestore({
-      sourcePath: '/tmp/private.magibackup',
-    });
-    const unlockedInspection = await memoryPortabilityApi.inspectRestore({
-      sourcePath: '/tmp/private.magibackup',
-      password: 'secret',
-    });
+  it('starts inspection and restore operations and requires confirmed candidate deletion', async () => {
+    const inspection = { ...operation, kind: 'inspect' };
+    const postSpy = vi.spyOn(api, 'post')
+      .mockResolvedValueOnce(inspection as never)
+      .mockResolvedValueOnce({ ...inspection, operation_id: 'inspection-2' } as never)
+      .mockResolvedValueOnce({ ...operation, kind: 'restore' } as never);
+    const deleteSpy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ status: 204 });
+    expect((await memoryPortabilityApi.inspectRestore({ sourcePath: '/tmp/private.magibackup' })).kind).toBe('inspect');
+    expect((await memoryPortabilityApi.inspectRestore({ sourcePath: '/tmp/private.magibackup', password: 'secret' })).operation_id).toBe('inspection-2');
     await memoryPortabilityApi.confirmRestore('candidate/with slash');
     await memoryPortabilityApi.discardRestoreCandidate('candidate/with slash');
-
-    expect(lockedInspection.kind).toBe('inspect');
-    expect(unlockedInspection.operation_id).toBe('inspection-2');
-
-    expect(postSpy).toHaveBeenNthCalledWith(
-      1,
-      '/memory/portability/restores/inspect',
-      { source_path: '/tmp/private.magibackup' },
-    );
-    expect(postSpy).toHaveBeenNthCalledWith(
-      2,
-      '/memory/portability/restores/inspect',
-      { source_path: '/tmp/private.magibackup', password: 'secret' },
-    );
-    expect(postSpy).toHaveBeenNthCalledWith(
-      3,
-      '/memory/portability/restores/candidate%2Fwith%20slash/confirm',
-      {},
-    );
-    expect(deleteSpy).toHaveBeenCalledWith(
-      '/memory/portability/restores/candidate%2Fwith%20slash',
-    );
+    expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/restores/inspect', { source_path: '/tmp/private.magibackup' });
+    expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/restores/inspect', { source_path: '/tmp/private.magibackup', password: 'secret' });
+    expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/restores/candidate%2Fwith%20slash/confirm', {});
+    expect(deleteSpy).toHaveBeenCalledWith('/memory/portability/restores/candidate%2Fwith%20slash');
+    deleteSpy.mockResolvedValue({ status: 200, data: { success: false } });
+    await expect(memoryPortabilityApi.discardRestoreCandidate('candidate/with slash')).rejects.toThrow('not confirmed');
   });
 
-  it('loads active and latest operations and polls a specific encoded operation id', async () => {
+  it('distinguishes no active job from malformed responses and checks the requested identity', async () => {
     const getSpy = vi.spyOn(api, 'get')
-      .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any)
-      .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any)
-      .mockResolvedValueOnce({ success: true, message: 'ok', data: operation } as any);
-
-    await expect(memoryPortabilityApi.getActiveOperation()).resolves.toEqual(operation);
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(operation as never)
+      .mockResolvedValueOnce({ ...operation, operation_id: 'operation/1' } as never);
+    await expect(memoryPortabilityApi.getActiveOperation()).resolves.toBeNull();
     await expect(memoryPortabilityApi.getLatestOperation()).resolves.toEqual(operation);
-    await expect(memoryPortabilityApi.getOperation('operation/1')).resolves.toEqual(operation);
-
-    expect(getSpy).toHaveBeenNthCalledWith(1, '/memory/portability/operations/active');
-    expect(getSpy).toHaveBeenNthCalledWith(
-      2,
-      '/memory/portability/operations/latest',
-    );
-    expect(getSpy).toHaveBeenNthCalledWith(
-      3,
-      '/memory/portability/operations/operation%2F1',
-    );
+    expect((await memoryPortabilityApi.getOperation('operation/1')).operation_id).toBe('operation/1');
+    expect(getSpy).toHaveBeenLastCalledWith('/memory/portability/operations/operation%2F1');
+    getSpy.mockResolvedValue(operation as never);
+    await expect(memoryPortabilityApi.getOperation('another-job')).rejects.toThrow('Invalid memory portability operation');
+    getSpy.mockResolvedValue({ success: false, data: null } as never);
+    await expect(memoryPortabilityApi.getActiveOperation()).rejects.toThrow('Invalid memory portability operation');
   });
 });

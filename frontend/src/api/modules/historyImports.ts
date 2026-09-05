@@ -1,106 +1,19 @@
-import { api, unwrapGatewayPayload } from '../client';
+import { api, apiClient } from '../client';
+import { type LifecycleWire, parseHistoryImportJob, parseHistoryImportAppend, parseHistoryImporters, parseHistoryImportList, parseHistorySourcePreview } from '../lifecycle-contract';
+import { ApiContractError } from '../config-contract';
 
 const HISTORY_IMPORTER_PREVIEW_TIMEOUT_MS = 75_000;
 
-export type HistoryImportDetectedKind = 'document' | 'chat' | 'mixed';
-export type HistoryImportStatus =
-  | 'preview_ready'
-  | 'running'
-  | 'ready'
-  | 'completed'
-  | 'failed'
-  | 'deleted';
-
-export interface HistoryImportParticipant {
-  participant_id: string;
-  display_name: string;
-  is_document_author: boolean;
-  message_count: number;
-  meaningful_count: number;
-  sample: string;
-}
-
-export interface HistoryImportRecordPreview {
-  source_id: string;
-  source_name: string;
-  session_id: string;
-  session_seq: number;
-  speaker_name: string;
-  speaker_id: string;
-  is_document_author: boolean;
-  content: string;
-  event_at: number;
-  timestamp_confidence: string;
-}
-
-export interface HistoryImportSourceSummary {
-  source_id: string;
-  source_name: string;
-  detected_kind: HistoryImportDetectedKind;
-  record_count: number;
-  meaningful_count: number;
-  first_event_at: number;
-  last_event_at: number;
-  timestamp_confidence: string;
-  sample: string;
-  included: boolean;
-}
-
-export interface HistoryImportSourcePreview {
-  source_id: string;
-  source_name: string;
-  detected_kind: HistoryImportDetectedKind;
-  records: HistoryImportRecordPreview[];
-  truncated: boolean;
-}
-
-export interface HistoryImportWarningSummary {
-  total_count: number;
-  codes: string[];
-  truncated: boolean;
-}
-
-export interface HistoryImportJob {
-  job_id: string;
-  source_type: string;
-  importer_plugin_id: string | null;
-  importer_id: string | null;
-  source_ids: string[];
-  included_source_ids: string[];
-  detected_kind: HistoryImportDetectedKind;
-  status: HistoryImportStatus;
-  total_records: number;
-  meaningful_records: number;
-  quick_target_records: number;
-  quick_max_records: number;
-  /** Number of source records saved during the bounded first-contact pass. */
-  quick_imported_count: number;
-  /** Number of selected source records durably saved as original L1 events. */
-  imported_count: number;
-  /** Number of saved records accepted by the durable L2 queue, not L2 completion. */
-  projected_count: number;
-  self_participant_ids: string[];
-  warning_summary: HistoryImportWarningSummary;
-  quick_ready: boolean;
-  error_code: string | null;
-  created_at: number;
-  updated_at: number;
-  participants: HistoryImportParticipant[];
-  sources: HistoryImportSourceSummary[];
-  preview_records: HistoryImportRecordPreview[];
-}
-
-export interface HistoryImporterSpec {
-  importer_id: string;
-  plugin_id: string;
-  display_name: string;
-  display_name_i18n: Record<string, string>;
-  description: string;
-  description_i18n: Record<string, string>;
-  accepted_extensions: string[];
-  participant_identity_scope: 'source' | 'export';
-  export_help_url: string | null;
-}
+export type HistoryImportJob = LifecycleWire<'HistoryImportJobResponse'>;
+export type HistoryImportParticipant = LifecycleWire<'HistoryImportParticipantResponse'>;
+export type HistoryImportRecordPreview = LifecycleWire<'HistoryImportRecordPreviewResponse'>;
+export type HistoryImportSourceSummary = LifecycleWire<'HistoryImportSourceSummaryResponse'>;
+export type HistoryImportSourcePreview = LifecycleWire<'HistoryImportSourcePreviewResponse'>;
+export type HistoryImportWarningSummary = LifecycleWire<'HistoryImportWarningSummaryResponse'>;
+export type HistoryImporterSpec = LifecycleWire<'HistoryImporterResponse'>;
+export type HistoryImportAppendResult = LifecycleWire<'HistoryImportAppendResponse'>;
+export type HistoryImportDetectedKind = HistoryImportJob['detected_kind'];
+export type HistoryImportStatus = HistoryImportJob['status'];
 
 export interface HistoryImporterPreviewInput {
   pluginId: string;
@@ -108,57 +21,51 @@ export interface HistoryImporterPreviewInput {
   paths: string[];
 }
 
-export interface HistoryImportAppendResult {
-  job: HistoryImportJob;
-  added_source_count: number;
-  duplicate_source_count: number;
-}
-
 export const historyImportsApi = {
   async previewMarkdown(paths: string[]): Promise<HistoryImportJob> {
-    const response = await api.post<HistoryImportJob>(
+    const response = await api.post<unknown>(
       '/memory/history-imports/markdown/preview',
       { paths },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response);
   },
 
   async appendMarkdown(jobId: string, paths: string[]): Promise<HistoryImportAppendResult> {
-    const response = await api.post<HistoryImportAppendResult>(
+    const response = await api.post<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/markdown/append`,
       { paths },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportAppend(response, jobId);
   },
 
   async listImporters(): Promise<HistoryImporterSpec[]> {
-    const response = await api.get<HistoryImporterSpec[]>(
+    const response = await api.get<unknown>(
       '/memory/history-imports/importers',
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImporters(response);
   },
 
   async previewWithImporter(input: HistoryImporterPreviewInput): Promise<HistoryImportJob> {
-    const response = await api.post<HistoryImportJob>(
+    const response = await api.post<unknown>(
       `/memory/history-imports/importers/${encodeURIComponent(input.pluginId)}/${encodeURIComponent(input.importerId)}/preview`,
       { paths: input.paths },
       { timeout: HISTORY_IMPORTER_PREVIEW_TIMEOUT_MS },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response);
   },
 
   async get(jobId: string): Promise<HistoryImportJob> {
-    const response = await api.get<HistoryImportJob>(
+    const response = await api.get<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}`,
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response, jobId);
   },
 
   async list(): Promise<HistoryImportJob[]> {
-    const response = await api.get<HistoryImportJob[]>(
+    const response = await api.get<unknown>(
       '/memory/history-imports',
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportList(response);
   },
 
   async getSourcePreview(
@@ -166,22 +73,22 @@ export const historyImportsApi = {
     sourceId: string,
     signal?: AbortSignal,
   ): Promise<HistoryImportSourcePreview> {
-    const response = await api.get<HistoryImportSourcePreview>(
+    const response = await api.get<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/source-preview`,
       { params: { source_id: sourceId }, signal },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistorySourcePreview(response, sourceId);
   },
 
   async updateSelection(
     jobId: string,
     includedSourceIds: string[],
   ): Promise<HistoryImportJob> {
-    const response = await api.patch<HistoryImportJob>(
+    const response = await api.patch<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/selection`,
       { included_source_ids: includedSourceIds },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response, jobId);
   },
 
   async confirm(
@@ -192,7 +99,7 @@ export const historyImportsApi = {
       selfParticipantIds?: string[];
     },
   ): Promise<HistoryImportJob> {
-    const response = await api.post<HistoryImportJob>(
+    const response = await api.post<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/confirm`,
       {
         confirm_personal_writing: input.confirmPersonalWriting,
@@ -200,19 +107,20 @@ export const historyImportsApi = {
         self_participant_ids: input.selfParticipantIds ?? [],
       },
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response, jobId);
   },
 
   async resume(jobId: string): Promise<HistoryImportJob> {
-    const response = await api.post<HistoryImportJob>(
+    const response = await api.post<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/resume`,
     );
-    return unwrapGatewayPayload(response);
+    return parseHistoryImportJob(response, jobId);
   },
 
   async delete(jobId: string): Promise<void> {
-    await api.delete(
+    const response = await apiClient.delete<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}`,
     );
+    if (response.status !== 204) throw new ApiContractError('Import deletion was not confirmed');
   },
 };

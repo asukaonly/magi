@@ -1,3 +1,4 @@
+import examples from '../../../contracts/api/frontend-lifecycle-examples.json';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '@/api/client';
@@ -9,7 +10,7 @@ describe('historyImportsApi contract', () => {
   });
 
   it('discovers plugin importers through the stable collection route', async () => {
-    const getSpy = vi.spyOn(api, 'get').mockResolvedValue([] as any);
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValue([] as never);
 
     await historyImportsApi.listImporters();
 
@@ -17,7 +18,7 @@ describe('historyImportsApi contract', () => {
   });
 
   it('previews an export through its plugin and importer identifiers', async () => {
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({} as any);
+    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ ...examples.importJob, job_id: 'him-1' } as never);
 
     await historyImportsApi.previewWithImporter({
       pluginId: 'platform-history',
@@ -33,9 +34,9 @@ describe('historyImportsApi contract', () => {
   });
 
   it('uses source and participant ids for review and confirmation', async () => {
-    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({} as any);
-    const patchSpy = vi.spyOn(api, 'patch').mockResolvedValue({} as any);
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({} as any);
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({ ...examples.sourcePreview, source_id: 'conversation:stable-id' } as never);
+    const patchSpy = vi.spyOn(api, 'patch').mockResolvedValue({ ...examples.importJob, job_id: 'him-1' } as never);
+    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({ ...examples.importJob, job_id: 'him-1' } as never);
 
     const controller = new AbortController();
     await historyImportsApi.getSourcePreview(

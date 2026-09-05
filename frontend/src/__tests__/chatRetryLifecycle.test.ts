@@ -142,6 +142,7 @@ const seedRetryState = () => {
 
 const successfulClearResponse = (): ClearMemoryResponse => ({
   success: true,
+  warnings: [],
   results: {
     l0: { cleared: true, count: 1 },
     l1: { cleared: true, count: 2 },

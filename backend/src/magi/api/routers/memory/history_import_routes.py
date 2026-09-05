@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import HTTPException, Response, status
 from magi_plugin_sdk.history_imports import MAX_HISTORY_IMPORT_SOURCES
 from pydantic import BaseModel, Field
 
 from ....memory.history_imports.markdown_parser import DOCUMENT_AUTHOR
+from ....memory.history_imports.models import HistoryImportDetectedKind, HistoryImportStatus
 from ....memory.history_imports.service import (
     HistoryImportNotFoundError,
     HistoryImportValidationError,
@@ -66,7 +67,7 @@ class HistoryImportRecordPreviewResponse(BaseModel):
 class HistoryImportSourceSummaryResponse(BaseModel):
     source_id: str
     source_name: str
-    detected_kind: str
+    detected_kind: HistoryImportDetectedKind
     record_count: int
     meaningful_count: int
     first_event_at: float
@@ -79,7 +80,7 @@ class HistoryImportSourceSummaryResponse(BaseModel):
 class HistoryImportSourcePreviewResponse(BaseModel):
     source_id: str
     source_name: str
-    detected_kind: str
+    detected_kind: HistoryImportDetectedKind
     records: list[HistoryImportRecordPreviewResponse]
     truncated: bool
 
@@ -95,8 +96,8 @@ class HistoryImportJobResponse(BaseModel):
     source_type: str
     source_ids: list[str]
     included_source_ids: list[str]
-    detected_kind: str
-    status: str
+    detected_kind: HistoryImportDetectedKind
+    status: HistoryImportStatus
     total_records: int
     meaningful_records: int
     quick_target_records: int
@@ -131,7 +132,7 @@ class HistoryImporterResponse(BaseModel):
     description: str
     description_i18n: dict[str, str]
     accepted_extensions: list[str]
-    participant_identity_scope: str
+    participant_identity_scope: Literal["source", "export"]
     export_help_url: str | None
 
 

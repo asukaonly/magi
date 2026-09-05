@@ -464,3 +464,26 @@ class ForgetTimeRangeRequest(BaseModel):
 class ForgetEpisodeRequest(BaseModel):
     episode_id: str = Field(..., min_length=1, max_length=500)
     delete_events: bool = Field(default=False, description="Also soft-delete member L1 events")
+
+
+class DeleteL1EventResponse(BaseModel):
+    """Confirmed source-event deletion and its product scope."""
+
+    event_id: str
+    deleted: bool
+    deletion_scope: Literal["projected_memory_only", "source_event"]
+
+
+class ForgetEntityResponse(BaseModel):
+    """Confirmed cascade deletion counts for an entity or time range."""
+
+    l2_counts: dict[str, int]
+    l1_events_deleted: int = Field(ge=0)
+
+
+class ForgetEpisodeResponse(BaseModel):
+    """Confirmed episode deletion and the affected source events."""
+
+    episode_id: str
+    event_ids: list[str]
+    l1_events_deleted: int = Field(ge=0)

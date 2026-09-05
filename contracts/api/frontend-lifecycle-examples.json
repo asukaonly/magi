@@ -1,0 +1,283 @@
+{
+  "clearHistory": {
+    "cleanup_pending": false,
+    "cleared_message_ids": [
+      "fixture-message"
+    ],
+    "cleared_turn_ids": [
+      "fixture-turn"
+    ],
+    "message": "Cleared",
+    "session_id": "fixture-session",
+    "success": true,
+    "user_id": "fixture-user"
+  },
+  "clearMemory": {
+    "results": {
+      "chat_context": {
+        "cleared": true,
+        "count": 1
+      },
+      "l0": {
+        "cleared": true,
+        "count": 1
+      },
+      "l1": {
+        "cleared": true,
+        "count": 2
+      },
+      "l2": {
+        "cleared": true,
+        "count": 3
+      },
+      "l3": {
+        "cleared": true,
+        "count": 0
+      },
+      "l4": {
+        "cleared": true,
+        "count": 0
+      }
+    },
+    "success": true,
+    "warnings": []
+  },
+  "completedExport": {
+    "completed_at": "2026-09-05T00:01:00Z",
+    "created_at": "2026-09-05T00:00:00Z",
+    "error_code": null,
+    "error_message": null,
+    "file_size_bytes": 42,
+    "index_rebuild_status": null,
+    "inspection": null,
+    "kind": "export",
+    "operation_id": "fixture-export",
+    "output_path": "/fixture/export.zip",
+    "phase": "completed",
+    "progress_percent": 100.0,
+    "record_counts": {},
+    "rollback_performed": false,
+    "safety_backup_path": null,
+    "status": "succeeded"
+  },
+  "deleteEvent": {
+    "deleted": true,
+    "deletion_scope": "source_event",
+    "event_id": "fixture-event"
+  },
+  "deleteMessage": {
+    "cleanup_pending": false,
+    "deleted_message_id": "fixture-message",
+    "session_id": "fixture-session",
+    "success": true,
+    "user_id": "fixture-user"
+  },
+  "deleteSession": {
+    "cleanup_pending": false,
+    "deleted_session_id": "fixture-session",
+    "success": true,
+    "user_id": "fixture-user"
+  },
+  "forgetEntity": {
+    "l1_events_deleted": 1,
+    "l2_counts": {
+      "entities": 1
+    }
+  },
+  "forgetEpisode": {
+    "episode_id": "fixture-episode",
+    "event_ids": [
+      "fixture-event"
+    ],
+    "l1_events_deleted": 1
+  },
+  "importAppend": {
+    "added_source_count": 1,
+    "duplicate_source_count": 0,
+    "job": {
+      "created_at": 1.0,
+      "detected_kind": "document",
+      "error_code": null,
+      "imported_count": 0,
+      "importer_id": null,
+      "importer_plugin_id": null,
+      "included_source_ids": [
+        "fixture-source"
+      ],
+      "job_id": "fixture-import",
+      "meaningful_records": 1,
+      "participants": [
+        {
+          "display_name": "Author",
+          "is_document_author": false,
+          "meaningful_count": 1,
+          "message_count": 1,
+          "participant_id": "document_author",
+          "sample": "A note"
+        }
+      ],
+      "preview_records": [],
+      "projected_count": 0,
+      "quick_imported_count": 0,
+      "quick_max_records": 10,
+      "quick_ready": false,
+      "quick_target_records": 1,
+      "self_participant_ids": [],
+      "source_ids": [
+        "fixture-source"
+      ],
+      "source_type": "markdown",
+      "sources": [
+        {
+          "detected_kind": "document",
+          "first_event_at": 1.0,
+          "included": true,
+          "last_event_at": 1.0,
+          "meaningful_count": 1,
+          "record_count": 1,
+          "sample": "A note",
+          "source_id": "fixture-source",
+          "source_name": "note.md",
+          "timestamp_confidence": "exact"
+        }
+      ],
+      "status": "preview_ready",
+      "total_records": 1,
+      "updated_at": 1.0,
+      "warning_summary": {
+        "codes": [],
+        "total_count": 0,
+        "truncated": false
+      }
+    }
+  },
+  "importJob": {
+    "created_at": 1.0,
+    "detected_kind": "document",
+    "error_code": null,
+    "imported_count": 0,
+    "importer_id": null,
+    "importer_plugin_id": null,
+    "included_source_ids": [
+      "fixture-source"
+    ],
+    "job_id": "fixture-import",
+    "meaningful_records": 1,
+    "participants": [
+      {
+        "display_name": "Author",
+        "is_document_author": false,
+        "meaningful_count": 1,
+        "message_count": 1,
+        "participant_id": "document_author",
+        "sample": "A note"
+      }
+    ],
+    "preview_records": [],
+    "projected_count": 0,
+    "quick_imported_count": 0,
+    "quick_max_records": 10,
+    "quick_ready": false,
+    "quick_target_records": 1,
+    "self_participant_ids": [],
+    "source_ids": [
+      "fixture-source"
+    ],
+    "source_type": "markdown",
+    "sources": [
+      {
+        "detected_kind": "document",
+        "first_event_at": 1.0,
+        "included": true,
+        "last_event_at": 1.0,
+        "meaningful_count": 1,
+        "record_count": 1,
+        "sample": "A note",
+        "source_id": "fixture-source",
+        "source_name": "note.md",
+        "timestamp_confidence": "exact"
+      }
+    ],
+    "status": "preview_ready",
+    "total_records": 1,
+    "updated_at": 1.0,
+    "warning_summary": {
+      "codes": [],
+      "total_count": 0,
+      "truncated": false
+    }
+  },
+  "importer": {
+    "accepted_extensions": [
+      ".json"
+    ],
+    "description": "Import history",
+    "description_i18n": {},
+    "display_name": "History",
+    "display_name_i18n": {},
+    "export_help_url": null,
+    "importer_id": "history",
+    "participant_identity_scope": "source",
+    "plugin_id": "fixture-plugin"
+  },
+  "inspection": {
+    "completed_at": null,
+    "created_at": "2026-09-05T00:00:00Z",
+    "error_code": null,
+    "error_message": null,
+    "file_size_bytes": null,
+    "index_rebuild_status": null,
+    "inspection": {
+      "candidate_id": "fixture-candidate",
+      "compatibility": "compatible",
+      "created_at": "2026-09-05T00:00:00Z",
+      "encrypted": false,
+      "expires_at": "2026-09-05T01:00:00Z",
+      "format_version": 1,
+      "magi_version": "0.1.29",
+      "record_counts": {
+        "l1": 1
+      },
+      "scope": [
+        "l1"
+      ],
+      "source_fingerprint": "fixture-fingerprint",
+      "state": "ready",
+      "warnings": []
+    },
+    "kind": "inspect",
+    "operation_id": "fixture-inspect",
+    "output_path": null,
+    "phase": "queued",
+    "progress_percent": 0.0,
+    "record_counts": {},
+    "rollback_performed": false,
+    "safety_backup_path": null,
+    "status": "succeeded"
+  },
+  "operation": {
+    "completed_at": null,
+    "created_at": "2026-09-05T00:00:00Z",
+    "error_code": null,
+    "error_message": null,
+    "file_size_bytes": null,
+    "index_rebuild_status": null,
+    "inspection": null,
+    "kind": "export",
+    "operation_id": "fixture-export",
+    "output_path": null,
+    "phase": "queued",
+    "progress_percent": 0.0,
+    "record_counts": {},
+    "rollback_performed": false,
+    "safety_backup_path": null,
+    "status": "pending"
+  },
+  "sourcePreview": {
+    "detected_kind": "document",
+    "records": [],
+    "source_id": "fixture-source",
+    "source_name": "note.md",
+    "truncated": false
+  }
+}

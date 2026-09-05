@@ -769,7 +769,7 @@ describe('MemoryGovernancePage', () => {
   });
 
   it('enables supported maintenance actions from the drawer', async () => {
-    vi.mocked(memoryApi.deleteL1Event).mockResolvedValue({ event_id: 'evt_1', deleted: true });
+    vi.mocked(memoryApi.deleteL1Event).mockResolvedValue({ event_id: 'evt_1', deleted: true, deletion_scope: 'projected_memory_only' });
     vi.mocked(memoryApi.forgetEntity).mockResolvedValue({ l2_counts: { entities: 1 }, l1_events_deleted: 0 });
     const user = userEvent.setup();
 
@@ -876,7 +876,7 @@ describe('MemoryGovernancePage', () => {
   it('keeps a failed destructive action open and supports a safe retry', async () => {
     vi.mocked(memoryApi.deleteL1Event)
       .mockRejectedValueOnce(new Error('offline'))
-      .mockResolvedValue({ event_id: 'evt_1', deleted: true });
+      .mockResolvedValue({ event_id: 'evt_1', deleted: true, deletion_scope: 'projected_memory_only' });
     const user = userEvent.setup();
 
     renderPage();
@@ -903,7 +903,7 @@ describe('MemoryGovernancePage', () => {
   });
 
   it('submits a destructive action only once while it is running', async () => {
-    let resolveDelete: ((value: { event_id: string; deleted: boolean }) => void) | undefined;
+    let resolveDelete: ((value: Awaited<ReturnType<typeof memoryApi.deleteL1Event>>) => void) | undefined;
     vi.mocked(memoryApi.deleteL1Event).mockImplementation(
       () => new Promise((resolve) => {
         resolveDelete = resolve;
@@ -926,7 +926,7 @@ describe('MemoryGovernancePage', () => {
     expect(memoryApi.deleteL1Event).toHaveBeenCalledTimes(1);
     expect(confirmButton).toBeDisabled();
 
-    resolveDelete?.({ event_id: 'evt_1', deleted: true });
+    resolveDelete?.({ event_id: 'evt_1', deleted: true, deletion_scope: 'projected_memory_only' });
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' })).not.toBeInTheDocument();
     });

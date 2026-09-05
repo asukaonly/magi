@@ -1,3 +1,4 @@
+import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode, parseClearMemory } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
 import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
@@ -701,22 +702,11 @@ export interface EpisodeAnnotationPayload {
 
 export type ExperienceAnnotationPayload = EpisodeAnnotationPayload;
 
-export interface ForgetEpisodeResponse {
-  episode_id: string;
-  event_ids: string[];
-  l1_events_deleted: number;
-}
+export type ForgetEpisodeResponse = LifecycleWire<'ForgetEpisodeResponse'>;
 
-export interface DeleteL1EventResponse {
-  event_id: string;
-  deleted: boolean;
-  deletion_scope?: 'projected_memory_only' | 'source_event';
-}
+export type DeleteL1EventResponse = LifecycleWire<'DeleteL1EventResponse'>;
 
-export interface ForgetEntityResponse {
-  l2_counts: Record<string, number>;
-  l1_events_deleted: number;
-}
+export type ForgetEntityResponse = LifecycleWire<'ForgetEntityResponse'>;
 
 export interface L2GraphConflictRule {
   predicate: string;
@@ -894,23 +884,9 @@ export interface MemoryDashboard {
   pending_assertions: PaginatedResponse<L2Assertion>;
 }
 
-export interface ClearMemoryResult {
-  cleared: boolean;
-  count: number;
-}
+export type ClearMemoryResult = LifecycleWire<'ClearResultModel'>;
 
-export interface ClearMemoryResponse {
-  success: boolean;
-  results: {
-    l0: ClearMemoryResult;
-    l1: ClearMemoryResult;
-    l2: ClearMemoryResult;
-    l3: ClearMemoryResult;
-    l4: ClearMemoryResult;
-    chat_context: ClearMemoryResult;
-  };
-  warnings?: string[];
-}
+export type ClearMemoryResponse = LifecycleWire<'ClearMemoryResponseModel'>;
 
 export type EmbeddingRebuildJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -1008,7 +984,7 @@ export const memoryApi = {
   getL1Events: async (params?: L1EventQueryParams): Promise<PaginatedResponse<L1Event>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L1Event>>('/memory/l1/events', { params })),
   deleteL1Event: async (eventId: string): Promise<DeleteL1EventResponse> =>
-    unwrapMemoryResponse(await api.delete<DeleteL1EventResponse>(`/memory/l1/events/${eventId}`)),
+    parseDeletedEvent(await api.delete<unknown>(`/memory/l1/events/${encodeURIComponent(eventId)}`), eventId),
 
   // L2 Cognition
   getL2Statistics: async (): Promise<L2Statistics> =>
@@ -1143,12 +1119,12 @@ export const memoryApi = {
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
-    unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
+    parseForgottenEpisode(await api.post<unknown>('/memory/forget/episode', {
       episode_id: episodeId,
       delete_events: deleteEvents,
-    })),
+    }), episodeId),
   forgetEntity: async (entityId: string, deleteL1Events = false): Promise<ForgetEntityResponse> =>
-    unwrapMemoryResponse(await api.post<ForgetEntityResponse>('/memory/forget/entity', {
+    parseForgottenEntity(await api.post<unknown>('/memory/forget/entity', {
       entity_id: entityId,
       delete_l1_events: deleteL1Events,
     })),
@@ -1195,7 +1171,7 @@ export const memoryApi = {
 
   // Clear
   clearAll: async (transactionId: string): Promise<ClearMemoryResponse> =>
-    unwrapMemoryResponse(await api.delete<ClearMemoryResponse>('/memory/clear', {
+    parseClearMemory(await api.delete<unknown>('/memory/clear', {
       headers: {
         'X-Magi-Full-Clear-Transaction': transactionId,
       },

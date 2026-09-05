@@ -601,7 +601,7 @@ describe('MemoryDataManagementSection', () => {
       await Promise.resolve();
     });
     expect(screen.getByText(
-      'settings.memory.dataManagement.operation.checking',
+      'settings.memory.dataManagement.operation.discoveryFailed',
     )).toBeInTheDocument();
 
     await act(async () => {
@@ -678,10 +678,21 @@ describe('MemoryDataManagementSection', () => {
     }));
 
     render(<MemoryDataManagementSection />);
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'settings.memory.dataManagement.errors.operationInterrupted',
-    );
+    expect(await screen.findByText('settings.memory.dataManagement.errors.operationInterrupted')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.memory.dataManagement.backup.action' })).toBeDisabled();
     expect(getOperationMock).toHaveBeenCalledWith('tracked-across-restart');
+  });
+
+  it('keeps new operations disabled after an invalid active response even when latest is empty', async () => {
+    vi.useFakeTimers();
+    getActiveOperationMock.mockRejectedValueOnce(new Error('Invalid operation contract')).mockResolvedValue(null);
+    render(<MemoryDataManagementSection />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByRole('alert')).toHaveTextContent('settings.memory.dataManagement.operation.discoveryFailed');
+    expect(screen.getByRole('button', { name: 'settings.memory.dataManagement.backup.action' })).toBeDisabled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'settings.memory.dataManagement.backup.action' })).toBeEnabled();
   });
 
   it('recovers the latest successful operation after a remount', async () => {

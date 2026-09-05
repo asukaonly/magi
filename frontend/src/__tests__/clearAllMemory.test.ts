@@ -56,6 +56,7 @@ describe('clearAllMemory', () => {
   it('acknowledges the desktop marker only after every clear step succeeds', async () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 1 },
         l1: { cleared: true, count: 2 },
@@ -68,7 +69,7 @@ describe('clearAllMemory', () => {
 
     const result = await clearAllMemory();
 
-    expect(result.warnings).toBeUndefined();
+    expect(result.warnings).toEqual([]);
     expect(memoryApi.clearAll).toHaveBeenCalledWith('clear-transaction-1234');
     expect(clearDesktopLogHistory).toHaveBeenCalledOnce();
     expect(completeMemoryClear).toHaveBeenCalledOnce();
@@ -121,6 +122,7 @@ describe('clearAllMemory', () => {
     window.addEventListener(APP_EVENTS.MEMORY_CLEARED, clearCompleted);
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: false,
+      warnings: [],
       results: {
         l0: { cleared: false, count: 0 },
         l1: { cleared: false, count: 0 },
@@ -146,6 +148,7 @@ describe('clearAllMemory', () => {
   it('keeps the transaction pending when desktop logs remain', async () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },
@@ -171,6 +174,7 @@ describe('clearAllMemory', () => {
   it('replays the same clear after backend success when desktop log cleanup failed', async () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },
@@ -204,6 +208,7 @@ describe('clearAllMemory', () => {
   it('keeps the transaction pending when no desktop owner confirms log erasure', async () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },
@@ -226,6 +231,7 @@ describe('clearAllMemory', () => {
   it('keeps the transaction pending when browser content remains', async () => {
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },
@@ -276,6 +282,7 @@ describe('clearAllMemory', () => {
     });
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },
@@ -315,6 +322,7 @@ describe('clearAllMemory', () => {
     window.addEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
     vi.mocked(memoryApi.clearAll).mockResolvedValue({
       success: true,
+      warnings: [],
       results: {
         l0: { cleared: true, count: 0 },
         l1: { cleared: true, count: 0 },

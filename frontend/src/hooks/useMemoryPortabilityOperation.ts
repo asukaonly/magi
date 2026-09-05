@@ -20,7 +20,6 @@ interface OperationDiscovery {
   active: MemoryPortabilityOperation | null | undefined;
   latest: MemoryPortabilityOperation | null | undefined;
   tracked: MemoryPortabilityOperation | null | undefined;
-  transientFailure: boolean;
 }
 
 const isActiveOperation = (operation: MemoryPortabilityOperation | null): boolean =>
@@ -80,9 +79,6 @@ async function discoverOperations(trackedOperationId: string | null): Promise<Op
     active: settledValue(results[0]),
     latest: settledValue(results[1]),
     tracked: settledValue(results[2]),
-    transientFailure: results.some(
-      (result) => result.status === 'rejected' && isTransientPortabilityError(result.reason),
-    ),
   };
 }
 
@@ -155,17 +151,19 @@ export function useMemoryPortabilityOperation({
       }
       const recovered = recoveredOperation(discovery, dismissedOperationIdRef.current);
       if (recovered !== undefined) {
-        setLoadingActiveOperation(false);
-        setPollingInterrupted(false);
         if (recovered) {
           rememberOperation(recovered);
         } else {
           operationRef.current = null;
           setOperation(null);
         }
+      }
+      const discoveryComplete = discovery.active !== undefined && discovery.latest !== undefined;
+      setLoadingActiveOperation(!discoveryComplete);
+      setPollingInterrupted(!discoveryComplete);
+      if (discoveryComplete) {
         return;
       }
-      setPollingInterrupted(discovery.transientFailure);
       retryTimer = window.setTimeout(() => void recover(), OPERATION_POLL_INTERVAL_MS);
     };
 

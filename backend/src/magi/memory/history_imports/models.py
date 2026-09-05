@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Literal
+
+
+HistoryImportDetectedKind = Literal["document", "chat", "mixed"]
+HistoryImportStatus = Literal["preview_ready", "running", "ready", "completed", "failed", "deleted"]
 
 
 @dataclass(slots=True)
@@ -61,7 +65,7 @@ class HistoryImportSourceSummary:
 
     source_id: str
     source_name: str
-    detected_kind: str
+    detected_kind: HistoryImportDetectedKind
     record_count: int
     meaningful_count: int
     first_event_at: float
@@ -80,7 +84,7 @@ class HistoryImportSourcePreview:
 
     source_id: str
     source_name: str
-    detected_kind: str
+    detected_kind: HistoryImportDetectedKind
     records: list[HistoryImportRecord]
     truncated: bool
 
@@ -99,8 +103,8 @@ class HistoryImportJob:
     source_fingerprint: str
     source_ids: list[str]
     included_source_ids: list[str]
-    detected_kind: str
-    status: str
+    detected_kind: HistoryImportDetectedKind
+    status: HistoryImportStatus
     total_records: int
     meaningful_records: int
     quick_target_records: int
@@ -146,7 +150,7 @@ class ParsedHistorySource:
     source_id: str
     source_name: str
     session_key: str
-    detected_kind: str
+    detected_kind: HistoryImportDetectedKind
     records: list[dict[str, Any]]
     warnings: list[str] = field(default_factory=list)
 

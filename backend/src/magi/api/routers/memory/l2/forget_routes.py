@@ -7,10 +7,11 @@ from fastapi import HTTPException, status
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest
+from ..schemas import (ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest,
+                       ForgetEntityResponse, ForgetEpisodeResponse)
 
 
-@memory_router.post("/forget/entity")
+@memory_router.post("/forget/entity", response_model=ForgetEntityResponse)
 async def forget_entity(body: ForgetEntityRequest):
     """Cascade forget: invalidate all L2 records derived from an entity."""
     unified_memory = _resolve_unified_memory()
@@ -31,7 +32,7 @@ async def forget_entity(body: ForgetEntityRequest):
     )
 
 
-@memory_router.post("/forget/time-range")
+@memory_router.post("/forget/time-range", response_model=ForgetEntityResponse)
 async def forget_time_range(body: ForgetTimeRangeRequest):
     """Cascade forget: invalidate L2 records inferred during a time range."""
     if body.end <= body.start:
@@ -61,7 +62,7 @@ async def forget_time_range(body: ForgetTimeRangeRequest):
     )
 
 
-@memory_router.post("/forget/episode")
+@memory_router.post("/forget/episode", response_model=ForgetEpisodeResponse)
 async def forget_episode(body: ForgetEpisodeRequest):
     """Invalidate a specific episode and optionally its member events."""
     unified_memory = _resolve_unified_memory()

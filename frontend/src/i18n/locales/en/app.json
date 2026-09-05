@@ -1963,6 +1963,7 @@
         },
         "operation": {
           "checking": "Checking for an active memory data operation…",
+          "discoveryFailed": "Unable to confirm existing operations. Retrying automatically; new operations remain unavailable.",
           "dismiss": "Dismiss",
           "progressLabel": "Memory data operation progress",
           "reconnecting": "Magi is restarting or temporarily unavailable. Progress will resume automatically.",

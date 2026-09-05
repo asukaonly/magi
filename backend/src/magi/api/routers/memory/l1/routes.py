@@ -11,6 +11,7 @@ from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..forget_workflow import delete_user_event
 from ..router import memory_router
+from ..schemas import DeleteL1EventResponse
 from .events import build_l1_event_query_args, build_l1_events_response
 
 
@@ -66,7 +67,7 @@ async def get_l1_events(
     )
 
 
-@memory_router.delete("/l1/events/{event_id}")
+@memory_router.delete("/l1/events/{event_id}", response_model=DeleteL1EventResponse)
 async def delete_l1_event(event_id: str):
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l1:

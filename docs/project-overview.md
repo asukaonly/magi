@@ -148,6 +148,15 @@ reconciliation instead of inserting partial messages. Task statuses are derived
 from the runtime enum, including `suspended_waiting_user`, which remains active
 and cancellable. Streaming consumes structured events and their final boundary.
 
+History import jobs and source previews, memory backup/restore/export operations,
+and memory/chat deletion acknowledgements use `contracts/api/frontend-lifecycle.json`.
+The exporter verifies their public Python response models and emits production-model
+fixtures. Clients validate resource identity and confirmed success before removing
+UI data. A completed backup/export requires its output artifact; incomplete clear
+results remain errors. Import/candidate deletion requires HTTP 204. Discovery errors
+keep new portability operations disabled and retry visibly until active/latest task
+state is known. Chat deletion remains Python-owned through the gateway proxy.
+
 Rust session-list and notification serialization samples live in
 `contracts/api/frontend-native-sessions.json` and
 `contracts/api/frontend-native-notification.json`. Gateway tests compare actual

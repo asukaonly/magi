@@ -257,6 +257,121 @@ def build_event_examples() -> dict:
         }
 
 
+def lifecycle_models_and_routes():
+    from magi.api.routers.memory import memory_router
+    from magi.api.routers.memory.clear import ClearMemoryResponseModel
+    from magi.api.routers.memory.history_import_routes import (
+        HistoryImportAppendResponse, HistoryImportJobResponse,
+        HistoryImporterResponse, HistoryImportSourcePreviewResponse,
+    )
+    from magi.api.routers.memory.schemas import DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse
+    from magi.api.routers.messages import user_messages_router
+    from magi.api.routers.messages_models import ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse
+    from magi.memory.portability.operations import MemoryPortabilityOperation
+
+    memory_routes = {
+        ("POST", "/history-imports/markdown/preview"): HistoryImportJobResponse,
+        ("POST", "/history-imports/{job_id}/markdown/append"): HistoryImportAppendResponse,
+        ("GET", "/history-imports/importers"): list[HistoryImporterResponse],
+        ("GET", "/history-imports/{job_id}/source-preview"): HistoryImportSourcePreviewResponse,
+        ("GET", "/history-imports"): list[HistoryImportJobResponse],
+        ("GET", "/history-imports/{job_id}"): HistoryImportJobResponse,
+        ("PATCH", "/history-imports/{job_id}/selection"): HistoryImportJobResponse,
+        ("POST", "/history-imports/{job_id}/confirm"): HistoryImportJobResponse,
+        ("POST", "/history-imports/{job_id}/resume"): HistoryImportJobResponse,
+        ("POST", "/portability/backups"): MemoryPortabilityOperation,
+        ("POST", "/portability/exports"): MemoryPortabilityOperation,
+        ("POST", "/portability/restores/inspect"): MemoryPortabilityOperation,
+        ("POST", "/portability/restores/{candidate_id}/confirm"): MemoryPortabilityOperation,
+        ("GET", "/portability/operations/{operation_id}"): MemoryPortabilityOperation,
+        ("GET", "/portability/operations/active"): MemoryPortabilityOperation | None,
+        ("GET", "/portability/operations/latest"): MemoryPortabilityOperation | None,
+        ("DELETE", "/clear"): ClearMemoryResponseModel,
+        ("DELETE", "/l1/events/{event_id}"): DeleteL1EventResponse,
+        ("POST", "/forget/entity"): ForgetEntityResponse,
+        ("POST", "/forget/time-range"): ForgetEntityResponse,
+        ("POST", "/forget/episode"): ForgetEpisodeResponse,
+    }
+    message_routes = {
+        ("POST", "/history/clear"): ClearHistoryResponse,
+        ("DELETE", "/session/{session_id}/message/{message_id}"): DeleteMessageResponse,
+        ("DELETE", "/session/{session_id}"): DeleteSessionResponse,
+    }
+    models = [HistoryImportAppendResponse, HistoryImportJobResponse, HistoryImporterResponse,
+              HistoryImportSourcePreviewResponse, MemoryPortabilityOperation, ClearMemoryResponseModel,
+              DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse,
+              ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse]
+    return models, [("memory", memory_router, memory_routes), ("messages", user_messages_router, message_routes)]
+
+
+def build_lifecycle_contract() -> dict:
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    models, groups = lifecycle_models_and_routes()
+    for group, router, contracts in groups:
+        public = _build_public_router(router, _PUBLIC_ROUTE_METHODS[group])
+        for (method, path), model in contracts.items():
+            route = next((route for route in public.routes if route.path == path and method in route.methods), None)
+            if route is None or route.response_model != model:
+                raise RuntimeError(f"Lifecycle response contract is not exposed: {method} {group}{path}")
+            if route.response_model_exclude_none or route.response_model_exclude_unset or route.response_model_exclude_defaults:
+                raise RuntimeError(f"Lifecycle response must serialize complete fields: {group}{path}")
+    _, document = models_json_schema(
+        [(model, "serialization") for model in models], schema_generator=ResponseJsonSchema,
+        ref_template="#/components/schemas/{model}",
+    )
+    return {"openapi": "3.1.0", "info": {"title": "Magi data lifecycle response contracts", "version": "1"},
+            "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
+def build_lifecycle_examples() -> dict:
+    from magi.api.routers.memory.clear import ClearMemoryResponseModel, build_clear_memory_response
+    from magi.api.routers.memory.history_import_routes import _response, HistoryImportAppendResponse, HistoryImporterResponse, HistoryImportSourcePreviewResponse
+    from magi.api.routers.memory.schemas import DeleteL1EventResponse, ForgetEntityResponse, ForgetEpisodeResponse
+    from magi.api.routers.messages_models import ClearHistoryResponse, DeleteMessageResponse, DeleteSessionResponse
+    from magi.memory.history_imports.models import HistoryImportJob, HistoryImportParticipant, HistoryImportSourceSummary
+    from magi.memory.portability.operations import MemoryPortabilityOperation, ReadyMemoryRestoreInspection
+
+    job = _response(HistoryImportJob(
+        job_id="fixture-import", source_type="markdown", source_fingerprint="fixture-fingerprint",
+        source_ids=["fixture-source"], included_source_ids=["fixture-source"], detected_kind="document",
+        status="preview_ready", total_records=1, meaningful_records=1, quick_target_records=1, quick_max_records=10,
+        quick_imported_count=0, imported_count=0, projected_count=0, self_participant_ids=[], warnings=[],
+        quick_ready=False, created_at=1.0, updated_at=1.0,
+        participants=[HistoryImportParticipant("document_author", "Author", 1, 1, "A note")],
+        sources=[HistoryImportSourceSummary("fixture-source", "note.md", "document", 1, 1, 1.0, 1.0, "exact", "A note", True)],
+    ))
+    operation = MemoryPortabilityOperation(operation_id="fixture-export", kind="export", created_at="2026-09-05T00:00:00Z")
+    inspection = ReadyMemoryRestoreInspection(
+        state="ready", candidate_id="fixture-candidate", encrypted=False, format_version=1, magi_version="0.1.29",
+        created_at="2026-09-05T00:00:00Z", scope=["l1"], record_counts={"l1": 1}, compatibility="compatible",
+        warnings=[], expires_at="2026-09-05T01:00:00Z", source_fingerprint="fixture-fingerprint",
+    )
+    return {
+        "importJob": job.model_dump(mode="json"),
+        "sourcePreview": HistoryImportSourcePreviewResponse(source_id="fixture-source", source_name="note.md", detected_kind="document", records=[], truncated=False).model_dump(mode="json"),
+        "importAppend": HistoryImportAppendResponse(job=job, added_source_count=1, duplicate_source_count=0).model_dump(mode="json"),
+        "importer": HistoryImporterResponse(plugin_id="fixture-plugin", importer_id="history", display_name="History",
+            display_name_i18n={}, description="Import history", description_i18n={}, accepted_extensions=[".json"],
+            participant_identity_scope="source", export_help_url=None).model_dump(mode="json"),
+        "operation": operation.model_dump(mode="json"),
+        "completedExport": operation.model_copy(update={"status": "succeeded", "phase": "completed", "progress_percent": 100.0,
+            "output_path": "/fixture/export.zip", "file_size_bytes": 42, "completed_at": "2026-09-05T00:01:00Z"}).model_dump(mode="json"),
+        "inspection": MemoryPortabilityOperation(operation_id="fixture-inspect", kind="inspect", status="succeeded",
+            created_at="2026-09-05T00:00:00Z", inspection=inspection).model_dump(mode="json"),
+        "clearMemory": ClearMemoryResponseModel.model_validate(build_clear_memory_response(
+            l0_count=1, l1_count=2, l2_count=3, l3_count=0, l4_count=0, chat_context_count=1)).model_dump(mode="json"),
+        "deleteEvent": DeleteL1EventResponse(event_id="fixture-event", deleted=True, deletion_scope="source_event").model_dump(mode="json"),
+        "forgetEntity": ForgetEntityResponse(l2_counts={"entities": 1}, l1_events_deleted=1).model_dump(mode="json"),
+        "forgetEpisode": ForgetEpisodeResponse(episode_id="fixture-episode", event_ids=["fixture-event"], l1_events_deleted=1).model_dump(mode="json"),
+        "clearHistory": ClearHistoryResponse(success=True, message="Cleared", user_id="fixture-user", session_id="fixture-session",
+            cleared_message_ids=["fixture-message"], cleared_turn_ids=["fixture-turn"]).model_dump(mode="json"),
+        "deleteMessage": DeleteMessageResponse(success=True, user_id="fixture-user", session_id="fixture-session",
+            deleted_message_id="fixture-message").model_dump(mode="json"),
+        "deleteSession": DeleteSessionResponse(success=True, user_id="fixture-user", deleted_session_id="fixture-session").model_dump(mode="json"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -267,6 +382,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "frontend-lifecycle.json": build_lifecycle_contract(), "frontend-lifecycle-examples.json": build_lifecycle_examples(),
             "frontend-config.json": build_contract(), "frontend-config-examples.json": build_examples(),
             "frontend-plugins.json": build_plugin_contract(), "frontend-plugins-examples.json": build_plugin_examples(),
             "frontend-events.json": build_event_contract(), "frontend-events-examples.json": build_event_examples(),

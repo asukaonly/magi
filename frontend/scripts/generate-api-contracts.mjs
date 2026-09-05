@@ -39,3 +39,5 @@ await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'Onboard
 await generate('plugins', ['PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent']);
+
+await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);

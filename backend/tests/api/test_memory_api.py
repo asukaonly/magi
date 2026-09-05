@@ -733,7 +733,7 @@ class _FakeUnifiedMemory:
                 ),
                 reason="user_forget_entity",
             )
-        return {"entity_id": entity_id, "l1_events_deleted": deleted}
+        return {"l2_counts": await self.l2.forget_entity(entity_id=entity_id), "l1_events_deleted": deleted}
 
     async def forget_time_range_memory(
         self,
@@ -753,7 +753,7 @@ class _FakeUnifiedMemory:
                 ),
                 reason="user_forget_time_range",
             )
-        return {"start": start, "end": end, "l1_events_deleted": deleted}
+        return {"l2_counts": await self.l2.forget_time_range(start=start, end=end), "l1_events_deleted": deleted}
 
     async def forget_source_events_by_pages(self, *, load_page, reason: str):
         after_event_id = ""
@@ -4649,7 +4649,7 @@ def test_memory_governance_action_routes_are_publicly_allowlisted():
 
 def test_forget_entity_uses_complete_l1_deletion_interface(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr(
         "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",
@@ -4668,7 +4668,7 @@ def test_forget_entity_uses_complete_l1_deletion_interface(monkeypatch):
 
 def test_forget_time_range_uses_complete_l1_deletion_interface(monkeypatch):
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     memory = _FakeUnifiedMemory()
     monkeypatch.setattr(
         "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",

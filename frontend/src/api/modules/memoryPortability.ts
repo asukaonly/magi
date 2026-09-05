@@ -1,64 +1,16 @@
-import { api, unwrapGatewayPayload } from '../client';
+import { api, apiClient } from '../client';
+import { type LifecycleWire, parseMemoryOperation } from '../lifecycle-contract';
+import { ApiContractError } from '../config-contract';
 
-export type MemoryPortabilityOperationKind = 'backup' | 'export' | 'inspect' | 'restore';
-
-export type MemoryPortabilityOperationStatus =
-  | 'pending'
-  | 'running'
-  | 'succeeded'
-  | 'failed';
-
-export type MemoryRestoreInspectionState = 'password_required' | 'ready';
-
-export type MemoryRestoreCompatibility =
-  | 'compatible'
-  | 'upgrade_required'
-  | 'unsupported';
-
+export type MemoryPortabilityOperation = LifecycleWire<'MemoryPortabilityOperation'>;
+export type PasswordRequiredMemoryRestoreInspection = LifecycleWire<'PasswordRequiredMemoryRestoreInspection'>;
+export type ReadyMemoryRestoreInspection = LifecycleWire<'ReadyMemoryRestoreInspection'>;
+export type MemoryPortabilityOperationKind = MemoryPortabilityOperation['kind'];
+export type MemoryPortabilityOperationStatus = MemoryPortabilityOperation['status'];
+export type MemoryRestoreInspection = NonNullable<MemoryPortabilityOperation['inspection']>;
+export type MemoryRestoreInspectionState = MemoryRestoreInspection['state'];
+export type MemoryRestoreCompatibility = ReadyMemoryRestoreInspection['compatibility'];
 export type MemoryPortabilityTimestamp = string;
-
-export interface MemoryPortabilityOperation {
-  operation_id: string;
-  kind: MemoryPortabilityOperationKind;
-  status: MemoryPortabilityOperationStatus;
-  phase: string;
-  progress_percent: number;
-  record_counts: Record<string, number>;
-  output_path: string | null;
-  file_size_bytes: number | null;
-  created_at: MemoryPortabilityTimestamp;
-  completed_at: MemoryPortabilityTimestamp | null;
-  error_code: string | null;
-  error_message: string | null;
-  rollback_performed: boolean;
-  safety_backup_path: string | null;
-  index_rebuild_status: string | null;
-  inspection: MemoryRestoreInspection | null;
-}
-
-export interface PasswordRequiredMemoryRestoreInspection {
-  state: 'password_required';
-  encrypted: true;
-}
-
-export interface ReadyMemoryRestoreInspection {
-  state: 'ready';
-  candidate_id: string;
-  encrypted: boolean;
-  format_version: number;
-  magi_version: string;
-  created_at: MemoryPortabilityTimestamp;
-  scope: string[];
-  record_counts: Record<string, number>;
-  compatibility: MemoryRestoreCompatibility;
-  warnings: string[];
-  expires_at: MemoryPortabilityTimestamp;
-  source_fingerprint: string;
-}
-
-export type MemoryRestoreInspection =
-  | PasswordRequiredMemoryRestoreInspection
-  | ReadyMemoryRestoreInspection;
 
 export interface CreateMemoryBackupInput {
   destinationDirectory: string;
@@ -78,7 +30,7 @@ export interface InspectMemoryRestoreInput {
 
 export const memoryPortabilityApi = {
   async createBackup(input: CreateMemoryBackupInput): Promise<MemoryPortabilityOperation> {
-    const response = await api.post<MemoryPortabilityOperation>(
+    const response = await api.post<unknown>(
       '/memory/portability/backups',
       {
         destination_directory: input.destinationDirectory,
@@ -86,63 +38,64 @@ export const memoryPortabilityApi = {
         ...(input.password === undefined ? {} : { password: input.password }),
       },
     );
-    return unwrapGatewayPayload(response);
+    return parseMemoryOperation(response, { kind: 'backup' });
   },
 
   async createExport(input: CreateMemoryExportInput): Promise<MemoryPortabilityOperation> {
-    const response = await api.post<MemoryPortabilityOperation>(
+    const response = await api.post<unknown>(
       '/memory/portability/exports',
       {
         destination_directory: input.destinationDirectory,
         include_l0: input.includeL0 ?? false,
       },
     );
-    return unwrapGatewayPayload(response);
+    return parseMemoryOperation(response, { kind: 'export' });
   },
 
   async inspectRestore(input: InspectMemoryRestoreInput): Promise<MemoryPortabilityOperation> {
-    const response = await api.post<MemoryPortabilityOperation>(
+    const response = await api.post<unknown>(
       '/memory/portability/restores/inspect',
       {
         source_path: input.sourcePath,
         ...(input.password === undefined ? {} : { password: input.password }),
       },
     );
-    return unwrapGatewayPayload(response);
+    return parseMemoryOperation(response, { kind: 'inspect' });
   },
 
   async confirmRestore(candidateId: string): Promise<MemoryPortabilityOperation> {
-    const response = await api.post<MemoryPortabilityOperation>(
+    const response = await api.post<unknown>(
       `/memory/portability/restores/${encodeURIComponent(candidateId)}/confirm`,
       {},
     );
-    return unwrapGatewayPayload(response);
+    return parseMemoryOperation(response, { kind: 'restore' });
   },
 
   async discardRestoreCandidate(candidateId: string): Promise<void> {
-    await api.delete(
+    const response = await apiClient.delete<unknown>(
       `/memory/portability/restores/${encodeURIComponent(candidateId)}`,
     );
+    if (response.status !== 204) throw new ApiContractError('Restore candidate deletion was not confirmed');
   },
 
   async getActiveOperation(): Promise<MemoryPortabilityOperation | null> {
-    const response = await api.get<MemoryPortabilityOperation | null>(
+    const response = await api.get<unknown>(
       '/memory/portability/operations/active',
     );
-    return unwrapGatewayPayload(response);
+    return response === null ? null : parseMemoryOperation(response);
   },
 
   async getLatestOperation(): Promise<MemoryPortabilityOperation | null> {
-    const response = await api.get<MemoryPortabilityOperation | null>(
+    const response = await api.get<unknown>(
       '/memory/portability/operations/latest',
     );
-    return unwrapGatewayPayload(response);
+    return response === null ? null : parseMemoryOperation(response);
   },
 
   async getOperation(operationId: string): Promise<MemoryPortabilityOperation> {
-    const response = await api.get<MemoryPortabilityOperation>(
+    const response = await api.get<unknown>(
       `/memory/portability/operations/${encodeURIComponent(operationId)}`,
     );
-    return unwrapGatewayPayload(response);
+    return parseMemoryOperation(response, { operationId });
   },
 };

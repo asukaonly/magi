@@ -1962,6 +1962,7 @@
         },
         "operation": {
           "checking": "正在检查是否有进行中的记忆数据操作…",
+          "discoveryFailed": "暂时无法确认已有任务，正在自动重试。确认前无法启动新任务。",
           "dismiss": "收起",
           "progressLabel": "记忆数据操作进度",
           "reconnecting": "Magi 正在重启或暂时不可用，连接恢复后会自动继续显示进度。",

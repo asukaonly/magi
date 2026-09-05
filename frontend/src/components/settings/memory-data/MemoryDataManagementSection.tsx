@@ -133,8 +133,10 @@ export function MemoryDataManagementSection({
       </div>
 
       {loadingActiveOperation ? (
-        <p role="status" className="mt-3 text-xs leading-5 text-muted-foreground">
-          {t('settings.memory.dataManagement.operation.checking')}
+        <p role={pollingInterrupted ? 'alert' : 'status'} className="mt-3 text-xs leading-5 text-muted-foreground">
+          {t(pollingInterrupted
+            ? 'settings.memory.dataManagement.operation.discoveryFailed'
+            : 'settings.memory.dataManagement.operation.checking')}
         </p>
       ) : null}
 

@@ -1,3 +1,5 @@
+import { type LifecycleWire, parseConfirmed } from '../lifecycle-contract';
+import { validateClearHistoryResponse, validateDeleteMessageResponse, validateDeleteSessionResponse } from '../generated/lifecycle-validators';
 import { parseConversationHistory, parseSessionList } from '../event-contract';
 /**
  * Messages API.
@@ -244,15 +246,7 @@ export interface ExecutionTraceSnapshot {
   root: ExecutionTraceNode;
 }
 
-type ClearHistoryResponse = {
-  success: boolean;
-  message: string;
-  user_id: string;
-  session_id: string;
-  cleared_message_ids: string[];
-  cleared_turn_ids: string[];
-  cleanup_pending: boolean;
-};
+type ClearHistoryResponse = LifecycleWire<'ClearHistoryResponse'>;
 type CreateSessionResponse = {
   success: boolean;
   user_id: string;
@@ -262,19 +256,8 @@ type CreateSessionResponse = {
 type RenameSessionResponse = { success: boolean; user_id: string; session: { session_id: string; title: string } };
 type UpdateSessionWorkspaceResponse = { success: boolean; user_id: string; session: ChatSessionListItem };
 type RecentWorkspacesResponse = { paths: string[] };
-type DeleteMessageResponse = {
-  success: boolean;
-  user_id: string;
-  session_id: string;
-  deleted_message_id: string;
-  cleanup_pending: boolean;
-};
-type DeleteSessionResponse = {
-  success: boolean;
-  user_id: string;
-  deleted_session_id: string;
-  cleanup_pending: boolean;
-};
+type DeleteMessageResponse = LifecycleWire<'DeleteMessageResponse'>;
+type DeleteSessionResponse = LifecycleWire<'DeleteSessionResponse'>;
 type TraceResponse = {
   success: boolean;
   user_id: string;
@@ -303,10 +286,10 @@ export const messagesApi = {
     userId: string = DEFAULT_USER_ID,
     sessionId: string
   ): Promise<ClearHistoryResponse> => {
-    const response = await api.post<ClearHistoryResponse>('/messages/history/clear', null, {
+    const response = await api.post<unknown>('/messages/history/clear', null, {
       params: { user_id: userId, session_id: sessionId },
     });
-    return unwrapGatewayPayload<ClearHistoryResponse>(response);
+    return parseConfirmed(response, validateClearHistoryResponse, { user_id: userId, session_id: sessionId });
   },
 
   createNewSession: async (
@@ -425,13 +408,13 @@ export const messagesApi = {
     sessionId: string,
     messageId: string,
   ): Promise<DeleteMessageResponse> => {
-    const response = await api.delete<DeleteMessageResponse>(
+    const response = await api.delete<unknown>(
       `/messages/session/${encodeURIComponent(sessionId)}/message/${encodeURIComponent(messageId)}`,
       {
         params: { user_id: userId },
       }
     );
-    return unwrapGatewayPayload(response);
+    return parseConfirmed(response, validateDeleteMessageResponse, { user_id: userId, session_id: sessionId, deleted_message_id: messageId });
   },
 
   uploadAttachment: async (
@@ -458,13 +441,13 @@ export const messagesApi = {
     userId: string = DEFAULT_USER_ID,
     sessionId: string
   ): Promise<DeleteSessionResponse> => {
-    const response = await api.delete<DeleteSessionResponse>(
+    const response = await api.delete<unknown>(
       `/messages/session/${encodeURIComponent(sessionId)}`,
       {
         params: { user_id: userId },
       }
     );
-    return unwrapGatewayPayload(response);
+    return parseConfirmed(response, validateDeleteSessionResponse, { user_id: userId, deleted_session_id: sessionId });
   },
 
   listSessions: async (
