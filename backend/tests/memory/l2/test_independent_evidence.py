@@ -1,10 +1,7 @@
 """Repeated ingestion and exposure retain lineage without becoming independent support."""
 
-import json
-
 import pytest
 
-from magi.core.sqlite import sqlite_connection_async
 from magi.memory.evidence.independence import independent_evidence_key
 from magi.memory.l2.assertions.derived_rules import _load_edge_evidence_stats
 

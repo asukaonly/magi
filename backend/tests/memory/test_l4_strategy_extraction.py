@@ -9,12 +9,10 @@ import pytest
 
 from magi.memory.l4.strategy_extraction import (
     ExtractedStrategy,
-    L4StrategyExtractor,
     _build_extraction_prompt,
     _parse_strategy_response,
 )
 from magi.memory.l4.procedural_memory import (
-    DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     L4ProceduralMemoryStore,
 )
 from magi.memory.event_contracts import (
@@ -148,7 +146,7 @@ class TestBuildExtractionPrompt:
         assert "(SLOW)" in prompt
         # Only the first trace should be slow
         lines = prompt.split("\n")
-        slow_lines = [l for l in lines if "(SLOW)" in l]
+        slow_lines = [line for line in lines if "(SLOW)" in line]
         assert len(slow_lines) == 1
         assert "500ms" in slow_lines[0]
 
