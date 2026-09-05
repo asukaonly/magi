@@ -354,10 +354,7 @@ class L2Phase2FlowMixin:
         relation_count, _facet_count, assertion_count = await self._persist_extraction_outputs(
             graph_candidates=graph_candidates,
             direct_write_candidates=batch.direct_write_candidates,
-            facet_candidates=self._build_structured_facet_candidates(
-                event=batch.stored_event,
-                evidence_event_ids=batch.batch_event_ids,
-            ),
+            facet_candidates=[],
             assertion_candidates=assertion_candidates,
             contradiction_hints=[],
             attempt_key=batch.attempt_key,
