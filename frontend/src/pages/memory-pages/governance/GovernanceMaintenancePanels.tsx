@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
-import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, Play } from 'lucide-react';
-import { type EpisodeReconsolidateResult } from '@/api/modules/memory';
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, Play, RefreshCw } from 'lucide-react';
+import { memoryApi, type MemoryMaintenanceTask, type EpisodeReconsolidateResult } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -9,37 +10,104 @@ export function TaskMaintenancePanel({
 }: {
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
+  const [tasks, setTasks] = useState<MemoryMaintenanceTask[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const result = await memoryApi.getMaintenanceTasks();
+        if (!active) return;
+        setTasks(result.tasks);
+        setLoadFailed(false);
+      } catch {
+        if (!active) return;
+        setTasks(null);
+        setLoadFailed(true);
+      } finally {
+        if (active) {
+          setLoading(false);
+          timer = setTimeout(() => void load(), 30_000);
+        }
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [refreshVersion]);
+
   const rows = [
-    [label('tasks.eventsTitle', '原始事件清理'), label('tasks.eventsBody', '压缩可清理事件、清除过期负载'), label('tasks.eventsScope', '事件维护'), label('statuses.enabled', '已启用')],
-    [label('tasks.structureTitle', '结构抽取'), label('tasks.structureBody', '处理实体、断言和关系派生任务'), label('tasks.structureScope', '知识维护'), label('statuses.enabled', '已启用')],
-    [label('tasks.chapterTitle', '章节整理'), label('tasks.chapterBody', '升级章节、经历和缺失总结'), label('tasks.chapterScope', '经历维护'), label('statuses.enabled', '已启用')],
-    [label('tasks.summaryTitle', '总结生成'), label('tasks.summaryBody', '生成时段总结并清理过期内容'), label('tasks.summaryScope', '总结维护'), label('statuses.enabled', '已启用')],
-    [label('tasks.skillsTitle', '工具记忆维护'), label('tasks.skillsBody', '维护工具技能和失败保护状态'), label('tasks.skillsScope', '技能维护'), label('statuses.enabled', '已启用')],
+    ['events', label('tasks.eventsTitle', '原始事件清理'), label('tasks.eventsBody', '压缩可清理事件、清除过期负载')],
+    ['structure', label('tasks.structureTitle', '结构维护'), label('tasks.structureBody', '维护实体、断言、关系和纠错派生任务')],
+    ['chapter', label('tasks.chapterTitle', '章节整理'), label('tasks.chapterBody', '升级章节、经历和缺失总结')],
+    ['summary', label('tasks.summaryTitle', '总结维护'), label('tasks.summaryBody', '生成时段总结并清理过期内容')],
+    ['skills', label('tasks.skillsTitle', '工具记忆维护'), label('tasks.skillsBody', '维护工具技能和失败保护状态')],
   ];
+  const statuses: Record<string, string> = {
+    enabled: label('tasks.availability.enabled', '已启用'),
+    disabled: label('tasks.availability.disabled', '已停用'),
+    paused: label('tasks.availability.paused', '已暂停'),
+    partial: label('tasks.availability.partial', '部分可用'),
+    unavailable: label('tasks.availability.unavailable', '不可用'),
+    unknown: label('tasks.availability.unknown', '状态未知'),
+    loading: label('tasks.availability.loading', '正在读取'),
+  };
+  const results: Record<string, string> = {
+    success: label('tasks.results.success', '最近执行成功'),
+    failed: label('tasks.results.failed', '最近执行失败'),
+    running: label('tasks.results.running', '正在执行'),
+    cancelled: label('tasks.results.cancelled', '最近执行已取消'),
+    skipped: label('tasks.results.skipped', '最近执行已跳过'),
+    pending: label('tasks.results.pending', '等待执行'),
+  };
   return (
     <section className="rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
       <div className="flex flex-col gap-3 px-3 pb-4 pt-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold tracking-[-0.02em] text-[hsl(var(--memory-title))]">{label('tasks.title', '记忆维护任务')}</h2>
-          <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{label('tasks.subtitle', '这里只聚合记忆相关任务；完整编辑仍在调度配置里。')}</p>
+          <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{label('tasks.subtitle', '状态来自当前功能开关和调度运行情况，每 30 秒刷新。')}</p>
         </div>
-        <Link to="/tasks/schedules" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-[hsl(var(--memory-accent))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.46)] hover:text-[hsl(var(--memory-title))]">
-          {label('tasks.openSchedules', '打开调度配置')}
-          <ArrowUpRight className="h-4 w-4" />
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={loading} onClick={() => setRefreshVersion((value) => value + 1)}>
+            <RefreshCw aria-hidden="true" className={cn('mr-1.5 h-4 w-4', loading && 'animate-spin')} />
+            {label('tasks.refresh', '刷新状态')}
+          </Button>
+          <Link to="/tasks/schedules" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-[hsl(var(--memory-accent))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.46)] hover:text-[hsl(var(--memory-title))]">
+            {label('tasks.openSchedules', '打开调度配置')}
+            <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
-      <div className="space-y-1">
-        {rows.map(([name, description, scope, status]) => (
-          <div key={name} className="grid gap-2 rounded-lg px-3 py-3 text-sm transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.54)] md:grid-cols-[170px_minmax(0,1fr)_140px_92px] md:items-center">
-            <div className="font-semibold text-[hsl(var(--memory-title))]">{name}</div>
-            <div className="leading-6 text-[hsl(var(--memory-body))]">{description}</div>
-            <div className="truncate text-xs text-[hsl(var(--memory-muted))]">{scope}</div>
-            <div className="inline-flex items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              {status}
+      {loadFailed ? <p role="alert" className="px-3 pb-3 text-sm text-destructive">{label('tasks.loadFailed', '无法读取维护任务状态，请重试。')}</p> : null}
+      <div className="space-y-1" aria-busy={loading}>
+        {rows.map(([id, name, description]) => {
+          const task = tasks?.find((item) => item.id === id);
+          const status = loading ? 'loading' : task?.status ?? 'unknown';
+          return (
+            <div key={id} role="group" aria-label={name} className="grid gap-2 rounded-lg px-3 py-3 text-sm transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.54)] md:grid-cols-[140px_minmax(0,1fr)_110px_170px] md:items-center">
+              <div className="font-semibold text-[hsl(var(--memory-title))]">{name}</div>
+              <div className="leading-6 text-[hsl(var(--memory-body))]">{description}</div>
+              <div className="text-xs text-[hsl(var(--memory-muted))]">
+                <span className="inline-flex items-center gap-2">
+                  <span aria-hidden="true" className={cn('h-1.5 w-1.5 rounded-full', status === 'enabled' ? 'bg-emerald-500' : status === 'partial' ? 'bg-amber-500' : 'bg-muted-foreground/50')} />
+                  {statuses[status] ?? statuses.unknown}
+                </span>
+                {task && !loading ? <p className="mt-1">{label('tasks.availableCount', '{{enabled}} / {{total}} 项可运行', { enabled: task.enabled_count, total: task.schedule_count })}</p> : null}
+              </div>
+              <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                {loading || !task ? statuses[status] : task.last_result ? results[task.last_result] ?? statuses.unknown : label('tasks.neverRun', '暂无执行记录')}
+                {task?.last_run_at && !loading ? <p>{label('tasks.lastRunAt', '最近执行：{{time}}', { time: new Date(task.last_run_at * 1000).toLocaleString(document.documentElement.lang || undefined) })}</p> : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

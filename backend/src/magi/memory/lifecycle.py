@@ -191,7 +191,6 @@ class MemoryStoreModule(LifecycleModule):
             enable_l2=memory_config.l2.enabled,
             enable_l3=memory_config.l3.enabled,
             enable_l4=memory_config.l4.enabled,
-            summary_interval_minutes=memory_config.l3.summary_interval_minutes,
         )
         unified_memory = require_initialized(
             self._context.memory.unified_memory,

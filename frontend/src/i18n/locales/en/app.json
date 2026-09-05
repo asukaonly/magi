@@ -4179,13 +4179,45 @@
       "skillSummary": "{{success}} succeeded / {{failure}} failed",
       "tasks": {
         "title": "Memory maintenance jobs",
-        "subtitle": "Memory-related jobs are grouped here. Full editing still lives in Schedule config.",
+        "subtitle": "Live feature settings and scheduler availability, refreshed every 30 seconds.",
         "openSchedules": "Open schedule config",
         "l1": "Compress cleanup-ready events and prune expired payloads",
         "l2Derive": "Process structured-knowledge derivation work",
         "l2Consolidate": "Promote chapters, experiences, and missing summaries",
         "l3": "Generate period summaries and prune old records",
-        "l4": "Maintain procedural memory and breaker state"
+        "l4": "Maintain procedural memory and breaker state",
+        "eventsTitle": "Event cleanup",
+        "eventsBody": "Compact eligible events and remove expired payloads.",
+        "structureTitle": "Knowledge maintenance",
+        "structureBody": "Maintain entities, assertions, relationships, and correction derivations.",
+        "chapterTitle": "Chapter consolidation",
+        "chapterBody": "Consolidate chapters and experiences and fill missing summaries.",
+        "summaryTitle": "Summary maintenance",
+        "summaryBody": "Generate period summaries and remove expired content.",
+        "skillsTitle": "Tool memory maintenance",
+        "skillsBody": "Maintain learned skills and failure protection.",
+        "refresh": "Refresh status",
+        "loadFailed": "Could not load maintenance status. Please retry.",
+        "availableCount": "{{enabled}} / {{total}} ready to run",
+        "neverRun": "No execution history",
+        "lastRunAt": "Last run: {{time}}",
+        "availability": {
+          "enabled": "Enabled",
+          "disabled": "Disabled",
+          "paused": "Paused",
+          "partial": "Partially available",
+          "unavailable": "Unavailable",
+          "unknown": "Status unknown",
+          "loading": "Loading status"
+        },
+        "results": {
+          "success": "Last run succeeded",
+          "failed": "Last run failed",
+          "running": "Running",
+          "cancelled": "Last run cancelled",
+          "skipped": "Last run skipped",
+          "pending": "Waiting to run"
+        }
       },
       "sections": {
         "forget": "Forget",

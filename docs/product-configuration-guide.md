@@ -435,6 +435,14 @@ Product expectations:
 - changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
 - general memory settings should expose vector ready counts and a rebuild action backed by a persisted background job. Same-model rebuilds keep previous searchable material available while each current item is refreshed, let newer normal writes win over older rebuild work, and report cancellation or an embedding-identity change instead of claiming a partial mixed rebuild succeeded. Saving a vector-affecting configuration change must first stop and await the current rebuild and briefly prevent a new one from starting until the runtime has refreshed; ordinary embedding requests that started under the previous configuration must be discarded if they return after that boundary. The selected local embedding variant is part of this identity-affecting configuration and must round-trip through Settings. After switching to an incompatible embedding model, search coverage becomes complete progressively during rebuild; zero-gap atomic switching would require a separate shadow-index workflow and is not part of the current product contract
 - the Knowledge Memory workspace should let operators manually claim and run currently pending durable L2 projection jobs
+- the memory maintenance panel reads current layer switches, registered schedule
+  availability, and recent execution records from `/memory/maintenance/tasks`.
+  Enabled, disabled, paused, partially available, and unavailable states are
+  distinct; failed requests show unknown rather than retaining a healthy state.
+  The panel refreshes every 30 seconds while open and supports manual retry.
+  Availability and the latest execution outcome are separate: handler-declared
+  failures are persisted as failures even when no exception is raised, and
+  explicit memory-handler skips are displayed as skipped runs.
 - L1 event memory should default to a 30-day hot retention window
 - graph-spreading recall should default to enabled for relation-assisted memory retrieval
 

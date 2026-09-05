@@ -86,9 +86,7 @@ Status: active
 
 Current failure mode:
 
-- L3 `summary_interval_minutes`, `digest_enabled`, and
-  `digest_interval_hours` do not control the registered summary schedules
-- `MemoryIntegrationConfig` mirrors layer switches and summary interval values
+- `MemoryIntegrationConfig` mirrors layer switches
   that do not govern ingestion behavior in that module
 - `UnifiedMemoryStore.store_event()` and `add_event()` are compatibility wrappers
   around `ingest_event()`
@@ -97,8 +95,6 @@ Current failure mode:
 
 Required outcome:
 
-- delete unused settings from backend schemas, API response/update paths,
-  frontend types/defaults, and tests
 - remove passive integration-config mirrors that do not own behavior
 - migrate remaining test callers to `ingest_event()` and delete the wrapper APIs
 - remove retired-store cleanup code and its call sites rather than preserving a

@@ -7,7 +7,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, Awaitable, Callable, Literal, TypeVar
 from zoneinfo import ZoneInfo
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -172,6 +172,21 @@ class SchedulerService:
 
     def register_handler(self, target_type: ScheduledTargetType, handler: ScheduleHandler) -> None:
         self._handlers[target_type] = handler
+
+    def get_schedule_availability(
+        self, schedule: ScheduleDefinition,
+    ) -> Literal["enabled", "paused", "unavailable"]:
+        """Report whether a persisted schedule can run in this runtime."""
+        if not schedule.enabled:
+            return "paused"
+        if not self._running or schedule.target_type not in self._handlers:
+            return "unavailable"
+        job = self._scheduler.get_job(schedule.job_id or schedule.schedule_id)
+        if job is None:
+            return "unavailable"
+        if not self._active or job.next_run_time is None:
+            return "paused"
+        return "enabled"
 
     async def schedule(self, definition: ScheduleDefinition) -> ScheduleDefinition:
         async with self._data_clear_lock:
@@ -683,18 +698,33 @@ class SchedulerService:
                     schedule,
                     data_generation,
                 )
-                await self._repository.record_target_success(
-                    schedule.target_type,
-                    schedule.target_key,
-                    result=result,
-                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                )
-                await self._repository.complete_execution_success(
-                    execution_id,
-                    result=result,
-                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                    finished_at=time.time(),
-                )
+                if result.success:
+                    await self._repository.record_target_success(
+                        schedule.target_type,
+                        schedule.target_key,
+                        result=result,
+                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                    )
+                    await self._repository.complete_execution_success(
+                        execution_id,
+                        result=result,
+                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                        finished_at=time.time(),
+                    )
+                else:
+                    error = str(result.stats.get("error") or result.message or "Scheduled execution failed")
+                    await self._repository.record_target_failure(
+                        schedule.target_type,
+                        schedule.target_key,
+                        error=error,
+                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                    )
+                    await self._repository.complete_execution_failure(
+                        execution_id,
+                        error=error,
+                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                        finished_at=time.time(),
+                    )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._consume_once_schedule(schedule)
             return result

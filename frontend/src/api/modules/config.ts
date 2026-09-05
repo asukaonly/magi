@@ -436,7 +436,6 @@ export interface MemoryL3Config {
   llm_summary_enabled: boolean;
   temporal_llm_timeout_seconds: number;
   temporal_llm_min_event_count: number;
-  summary_interval_minutes: number;
 }
 
 export interface MemoryL4Config {
@@ -762,7 +761,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       llm_summary_enabled: true,
       temporal_llm_timeout_seconds: 3.0,
       temporal_llm_min_event_count: 2,
-      summary_interval_minutes: 60,
     },
     l4: {
       enabled: true,

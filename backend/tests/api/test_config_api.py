@@ -53,6 +53,30 @@ from magi.i18n import language_context
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 
 
+@pytest.mark.parametrize("field,value", [
+    ("summary_interval_minutes", 15),
+    ("digest_enabled", False),
+    ("digest_interval_hours", 12),
+])
+def test_public_config_rejects_ineffective_l3_fields_before_saving(monkeypatch, field, value):
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    def reject_save(_updates):
+        pytest.fail("Invalid L3 configuration must not reach persistence")
+
+    monkeypatch.setattr(config_module, "save_config", reject_save)
+    app = FastAPI()
+    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/api/config")
+    payload = SystemConfigModel().model_dump(mode="json")
+    payload["memory"]["l3"][field] = value
+    response = TestClient(app).put("/api/config/", json=payload)
+    assert response.status_code == 422
+    assert any(
+        error["loc"] == ["body", "memory", "l3", field] and error["type"] == "extra_forbidden"
+        for error in response.json()["detail"]
+    )
+
+
 def _provider_settings(
     provider_type: str = "openai",
     *,

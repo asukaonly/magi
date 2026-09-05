@@ -63,6 +63,10 @@ async def test_l3_summary_schedule_registers_month_period(monkeypatch: pytest.Mo
     assert month["target_key"] == summary_schedule.TARGET_KEY_L3_SUMMARY
     assert month["seconds"] == 30 * 24 * 60 * 60
     assert month["target_payload"] == {"period_type": "month"}
+    assert {
+        item["target_payload"]["period_type"]: item["seconds"]
+        for item in scheduler.intervals
+    } == {"hour": 3600, "day": 86400, "week": 604800, "month": 2592000}
 
 
 @pytest.mark.asyncio

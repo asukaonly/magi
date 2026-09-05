@@ -985,7 +985,19 @@ type L3SummariesParams = MemoryListQueryParams & { summary_type?: string; summar
 const unwrapMemoryResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
 // Memory API client
+export interface MemoryMaintenanceTask {
+  id: 'events' | 'structure' | 'chapter' | 'summary' | 'skills';
+  status: 'enabled' | 'disabled' | 'paused' | 'partial' | 'unavailable';
+  schedule_count: number;
+  enabled_count: number;
+  last_run_at: number | null;
+  last_result: string | null;
+}
+
 export const memoryApi = {
+  async getMaintenanceTasks(): Promise<{ tasks: MemoryMaintenanceTask[] }> {
+    return unwrapGatewayPayload(await api.get<{ tasks: MemoryMaintenanceTask[] }>('/memory/maintenance/tasks'));
+  },
   // L0 Working Memory
   getL0Sessions: async (params?: PaginationParams & { status?: string; query?: string }): Promise<L0SessionsResponse> =>
     unwrapMemoryResponse(await api.get<L0SessionsResponse>('/memory/l0/sessions', { params })),

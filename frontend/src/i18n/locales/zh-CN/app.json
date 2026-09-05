@@ -4177,13 +4177,45 @@
       "skillSummary": "成功 {{success}} / 失败 {{failure}}",
       "tasks": {
         "title": "记忆维护任务",
-        "subtitle": "这里只聚合记忆相关任务；完整编辑仍在调度配置里。",
+        "subtitle": "状态来自当前功能开关和调度运行情况，每 30 秒刷新。",
         "openSchedules": "打开调度配置",
         "l1": "压缩可清理事件、清除过期负载",
         "l2Derive": "处理结构知识派生任务",
         "l2Consolidate": "升级章节、经历和缺失总结",
         "l3": "生成时段总结并清理过期内容",
-        "l4": "维护工具记忆和熔断状态"
+        "l4": "维护工具记忆和熔断状态",
+        "eventsTitle": "原始事件清理",
+        "eventsBody": "压缩可清理事件、清除过期负载",
+        "structureTitle": "结构维护",
+        "structureBody": "维护实体、断言、关系和纠错派生任务",
+        "chapterTitle": "章节整理",
+        "chapterBody": "升级章节、经历和缺失总结",
+        "summaryTitle": "总结维护",
+        "summaryBody": "生成时段总结并清理过期内容",
+        "skillsTitle": "工具记忆维护",
+        "skillsBody": "维护工具技能和失败保护状态",
+        "refresh": "刷新状态",
+        "loadFailed": "无法读取维护任务状态，请重试。",
+        "availableCount": "{{enabled}} / {{total}} 项可运行",
+        "neverRun": "暂无执行记录",
+        "lastRunAt": "最近执行：{{time}}",
+        "availability": {
+          "enabled": "已启用",
+          "disabled": "已停用",
+          "paused": "已暂停",
+          "partial": "部分可用",
+          "unavailable": "不可用",
+          "unknown": "状态未知",
+          "loading": "正在读取"
+        },
+        "results": {
+          "success": "最近执行成功",
+          "failed": "最近执行失败",
+          "running": "正在执行",
+          "cancelled": "最近执行已取消",
+          "skipped": "最近执行已跳过",
+          "pending": "等待执行"
+        }
       },
       "sections": {
         "forget": "遗忘",
