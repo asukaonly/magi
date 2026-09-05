@@ -176,3 +176,44 @@ pub async fn run_notification_bridge(
         }
     }
 }
+
+#[cfg(test)]
+mod frontend_contract_tests {
+    use super::*;
+
+    #[test]
+    fn native_notification_matches_frontend_fixture() {
+        let input: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../contracts/api/frontend-events-examples.json"
+        ))
+        .unwrap();
+        let payload = NotificationPayload {
+            channel: "chat_message_upserted".to_string(),
+            user_id: "fixture-user".to_string(),
+            session_id: "fixture-session".to_string(),
+            turn_id: None,
+            data: input["upsert"].clone(),
+        };
+        let serialized = serde_json::to_value(payload).unwrap();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contracts/api/frontend-native-notification.json");
+        if std::env::var("UPDATE_FRONTEND_NATIVE_CONTRACTS").as_deref() == Ok("1") {
+            std::fs::write(
+                &path,
+                format!("{}\n", serde_json::to_string_pretty(&serialized).unwrap()),
+            )
+            .unwrap();
+        }
+        let expected: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(serialized, expected);
+        assert_eq!(
+            event_name_for_channel("execution_control"),
+            "turn_execution_control"
+        );
+        assert_eq!(
+            event_name_for_channel("control.ask.requested"),
+            "control:ask:requested"
+        );
+    }
+}

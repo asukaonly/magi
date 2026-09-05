@@ -206,15 +206,8 @@ async def get_conversation_history(
                 context_usage.to_dict() if context_usage is not None else None
             ),
         }
-    except RuntimeError:
-        return {
-            "user_id": user_id,
-            "session_id": session_id,
-            "messages": [],
-            "count": 0,
-            "history_version": 0,
-            "context_usage": None,
-        }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Conversation history unavailable") from exc
 
 
 @message_content_router.get("/trace", response_model=Dict[str, Any])

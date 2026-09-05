@@ -1,0 +1,41 @@
+{
+  "channel": "chat_message_upserted",
+  "data": {
+    "message": {
+      "allow_trace_collapse": false,
+      "attachments": [],
+      "content": "Hello",
+      "kind": "assistant",
+      "label": null,
+      "message_id": "fixture-message",
+      "message_kind": "assistant_final",
+      "payload": null,
+      "persona_id": null,
+      "reply_to": null,
+      "role": "assistant",
+      "run_state": null,
+      "timestamp": 1000,
+      "trace_available": false,
+      "trace_display_mode": null,
+      "trace_summary": null,
+      "turn_id": "fixture-turn"
+    },
+    "message_id": "fixture-message",
+    "session_id": "fixture-session",
+    "session_summary": {
+      "history_version": 0,
+      "last_message_preview": "Hello",
+      "last_timestamp": 1000,
+      "last_user_message_preview": "Hi",
+      "message_count": 2,
+      "session_id": "fixture-session",
+      "title": "Chat",
+      "title_overridden": false,
+      "workspace_path": null
+    },
+    "user_id": "fixture-user"
+  },
+  "session_id": "fixture-session",
+  "turn_id": null,
+  "user_id": "fixture-user"
+}

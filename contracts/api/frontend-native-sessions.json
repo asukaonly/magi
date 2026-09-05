@@ -1,0 +1,17 @@
+{
+  "count": 1,
+  "sessions": [
+    {
+      "history_version": 7,
+      "last_message_preview": "assistant preview",
+      "last_timestamp": 2000,
+      "last_user_message_preview": "hello",
+      "message_count": 1,
+      "session_id": "s-history",
+      "title": "History Session",
+      "title_overridden": false,
+      "workspace_path": null
+    }
+  ],
+  "user_id": "u1"
+}

@@ -141,6 +141,16 @@ reconciliation instead of inserting partial messages. Task statuses are derived
 from the runtime enum, including `suspended_waiting_user`, which remains active
 and cancellable. Streaming consumes structured events and their final boundary.
 
+Rust session-list and notification serialization samples live in
+`contracts/api/frontend-native-sessions.json` and
+`contracts/api/frontend-native-notification.json`. Gateway tests compare actual
+serialized responses with these samples; frontend tests consume the same files.
+Regenerate intentional changes with
+`UPDATE_FRONTEND_NATIVE_CONTRACTS=1 cargo test -p magi-gateway native_` and review
+the resulting diff. Missing or unreadable chat storage returns an unavailable
+response, while a successful query with no sessions returns an empty list.
+Python history reads also propagate unavailable state instead of empty history.
+
 When adding or moving a product API route, update the route implementation, the manifest, and the relevant contract tests in the same task. FastAPI OpenAPI is useful for Python-proxied routes only; it is not sufficient as the complete desktop API contract because Rust-native routes are registered outside Python.
 
 The Rust gateway's direct SQLite write surface is tracked separately in `contracts/sqlite/gateway_writes.json`. `scripts/check-sqlite-ownership.py` scans production Rust gateway SQL and fails when a write or gateway-created index is not declared in that ownership contract.

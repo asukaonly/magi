@@ -1,3 +1,4 @@
+import { parseConversationHistory, parseSessionList } from '../event-contract';
 /**
  * Messages API.
  */
@@ -291,10 +292,10 @@ export const messagesApi = {
 
   /** Get conversation history */
   getHistory: async (userId: string = DEFAULT_USER_ID, sessionId: string): Promise<ConversationHistory> => {
-    const response = await api.get<ConversationHistory>('/messages/history', {
+    const response = await api.get<unknown>('/messages/history', {
       params: { user_id: userId, session_id: sessionId },
     });
-    return unwrapGatewayPayload(response);
+    return parseConversationHistory(response);
   },
 
   /** Clear conversation history */
@@ -470,10 +471,10 @@ export const messagesApi = {
     userId: string = DEFAULT_USER_ID,
     limit: number = 30
   ): Promise<SessionListResponse> => {
-    const response = await api.get<SessionListResponse>('/messages/sessions', {
+    const response = await api.get<unknown>('/messages/sessions', {
       params: { user_id: userId, limit },
     });
-    return unwrapGatewayPayload(response);
+    return parseSessionList(response);
   },
 
   getTrace: async (

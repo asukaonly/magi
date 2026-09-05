@@ -1256,3 +1256,21 @@ async def test_detach_session_run_route_delegates_to_chat_agent(
     assert captured["requested_by"] == "user"
     assert captured["reason"] == "user_detach"
     assert captured["anchor_turn_id"] == "turn-detach"
+
+
+def test_public_history_route_reports_unavailable_instead_of_empty(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    def unavailable():
+        raise RuntimeError("Storage is unavailable")
+
+    monkeypatch.setattr(messages_content, "require_chat_read_service", unavailable)
+    app = FastAPI()
+    app.include_router(_build_public_router(
+        messages_router.user_messages_router, _PUBLIC_ROUTE_METHODS["messages"],
+    ), prefix="/api/messages")
+    response = TestClient(app).get("/api/messages/history", params={"user_id": "u", "session_id": "s"})
+    assert response.status_code == 503
+    assert "messages" not in response.json()

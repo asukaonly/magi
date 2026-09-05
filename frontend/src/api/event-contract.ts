@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ApiContractError } from './config-contract';
-import type { ChatHistoryMessage, ChatSessionListItem, ChatAttachment } from './modules/messages';
+import type { ChatHistoryMessage, ChatSessionListItem, ChatAttachment, ConversationHistory, SessionListResponse } from './modules/messages';
 import type { BackgroundTaskDTO } from './modules/backgroundTasks';
 import {
   validateChatDisplayMessage, validateChatSessionSummary,
@@ -80,3 +80,22 @@ export const contextUsageSchema = z.object({
   measurement: z.enum(['actual', 'estimated']), model_provider: nullableText, model_id: nullableText,
   updated_at_ms: z.number().finite().nullish(), timestamp: z.number().finite().optional(),
 });
+
+const sessionSchema = z.unknown().transform(parseChatSession);
+const historyMessageSchema = z.unknown().transform(parseChatMessage);
+const historyContextUsageSchema = contextUsageSchema.extend({
+  turn_id: text, input_capacity: z.number().int().nonnegative(), updated_at_ms: z.number().finite(),
+});
+export function parseSessionList(value: unknown): SessionListResponse {
+  const parsed = z.object({ user_id: text, sessions: z.array(sessionSchema), count: z.number().int().nonnegative() }).safeParse(value);
+  if (!parsed.success || parsed.data.count !== parsed.data.sessions.length) throw new ApiContractError('Invalid session list response');
+  return parsed.data;
+}
+export function parseConversationHistory(value: unknown): ConversationHistory {
+  const parsed = z.object({
+    user_id: text, session_id: text, messages: z.array(historyMessageSchema), count: z.number().int().nonnegative(),
+    history_version: z.number().int().nonnegative(), context_usage: historyContextUsageSchema.nullable(),
+  }).safeParse(value);
+  if (!parsed.success || parsed.data.count !== parsed.data.messages.length) throw new ApiContractError('Invalid conversation history response');
+  return parsed.data;
+}

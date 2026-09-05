@@ -1,3 +1,7 @@
+import nativeSessions from '../../../contracts/api/frontend-native-sessions.json';
+import nativeNotification from '../../../contracts/api/frontend-native-notification.json';
+import { bridgePayloadSchema } from '@/realtime/tauri-bridge';
+import { messagesApi } from '@/api/modules/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import examples from '../../../contracts/api/frontend-events-examples.json';
 import { parseChatMessage, parseChatSession, parseBackgroundTask, validateRunEvent, executionControlSchema } from '@/api/event-contract';
@@ -40,6 +44,24 @@ describe('production chat and task serialization contracts', () => {
     expect(() => parseChatMessage(message)).toThrow();
     expect(applyRealtimeStoreProjection({ event: 'chat_message_upserted', data: { ...examples.upsert, message } })).toBe(false);
     expect(useConversationStore.getState().messagesBySession).toEqual({});
+  });
+
+  it('reads Rust-serialized session and notification fixtures through the real clients', async () => {
+    expect(bridgePayloadSchema.safeParse(nativeNotification).success).toBe(true);
+    get.mockResolvedValueOnce(nativeSessions);
+    await expect(messagesApi.listSessions()).resolves.toEqual(nativeSessions);
+    get.mockResolvedValueOnce({ ...nativeSessions, sessions: [{ ...nativeSessions.sessions[0], history_version: '7' }] });
+    await expect(messagesApi.listSessions()).rejects.toThrow();
+  });
+
+  it('checks history data before accepting empty or complete transcripts', async () => {
+    const history = { user_id: 'fixture-user', session_id: 'fixture-session', messages: [examples.message], count: 1, history_version: 1, context_usage: null };
+    get.mockResolvedValueOnce(history);
+    await expect(messagesApi.getHistory('fixture-user', 'fixture-session')).resolves.toEqual(history);
+    get.mockResolvedValueOnce({ ...history, messages: [] });
+    await expect(messagesApi.getHistory('fixture-user', 'fixture-session')).rejects.toThrow();
+    get.mockResolvedValueOnce({ ...history, messages: [], count: 0 });
+    await expect(messagesApi.getHistory('fixture-user', 'fixture-session')).resolves.toMatchObject({ messages: [], count: 0 });
   });
 
   it('rejects mismatched session summaries before writing a message or deleting it', () => {

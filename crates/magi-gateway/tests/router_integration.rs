@@ -1752,6 +1752,26 @@ async fn native_session_routes_return_history_versions() {
         request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
     assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
     assert_eq!(sessions["sessions"][0]["history_version"], 7);
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts/api/frontend-native-sessions.json");
+    if std::env::var("UPDATE_FRONTEND_NATIVE_CONTRACTS").as_deref() == Ok("1") {
+        std::fs::write(
+            &fixture,
+            format!("{}\n", serde_json::to_string_pretty(&sessions).unwrap()),
+        )
+        .unwrap();
+    }
+    let expected: Value = serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+    assert_eq!(sessions, expected);
+    let connection = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
+    connection.execute("DELETE FROM chat_sessions", []).unwrap();
+    let router = api::build_router(test_state().await);
+    let (status, empty) =
+        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(empty["sessions"], serde_json::json!([]));
+    assert_eq!(empty["count"], 0);
+
     drop(home);
 }
 
@@ -2165,4 +2185,24 @@ async fn native_task_create_persists_owned_product_fields() {
     assert_eq!(fetched["task"]["task_id"], task_id);
     assert_eq!(fetched["task"]["user_id"], "u1");
     drop(home);
+}
+
+#[tokio::test]
+async fn native_session_list_rejects_unavailable_or_invalid_storage() {
+    let home = isolated_home("session-list-unavailable");
+    let router = api::build_router(test_state().await);
+    let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
+    assert_eq!(status, 503);
+    assert!(body.get("sessions").is_none());
+
+    let directory = home.path().join(".magi/data/chat");
+    std::fs::create_dir_all(&directory).unwrap();
+    let connection = rusqlite::Connection::open(directory.join("chat.db")).unwrap();
+    connection
+        .execute_batch("CREATE TABLE unrelated (id INTEGER)")
+        .unwrap();
+    let router = api::build_router(test_state().await);
+    let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
+    assert_eq!(status, 503);
+    assert!(body.get("sessions").is_none());
 }
