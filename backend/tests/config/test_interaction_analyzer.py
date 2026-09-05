@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from magi.config.models import LLMScenario
-from magi.personality.behavior_evolution import SatisfactionLevel
+from magi.personality.models import SatisfactionLevel
 from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 from magi.personality.interaction_analyzer import (
     DEFAULT_ANALYSIS,

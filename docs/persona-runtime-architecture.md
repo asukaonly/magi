@@ -48,7 +48,7 @@ The Agent Runtime owns execution coordination. It provides typed admission,
 resolved capabilities, execution preset, conversation history, and the current
 user message; it does not know persona-specific trigger semantics.
 
-Post-processing owns future-state updates after a response is emitted. It updates relationship, milestones, satisfaction, and dynamic state; it does not decide what persona state the already emitted response should have used.
+Post-processing owns future-state updates after a response is emitted. It updates relationship, milestones, and dynamic state; it does not decide what persona state the already emitted response should have used. Satisfaction remains a shared analysis signal, but it is not collected into a separate behavior-profile store. Prompt behavior uses the persona turn plan and governed L4 task preferences; it does not consume inferred task-interaction statistics.
 The post-turn observer should stay on this post-processing path: it may submit
 profile, task-preference, and persona-relationship candidates through narrow
 tool calls, but those candidates must be validated by host code and routed to

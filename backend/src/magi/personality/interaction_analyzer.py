@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from ..config.models import LLMScenario
 from ..llm.provider import get_scenario_llm_pool
 from ..llm.provider_bridge import LLMProviderBridge
-from .behavior_evolution import SatisfactionLevel
+from .models import SatisfactionLevel
 from .emotional_state import EngagementLevel, InteractionOutcome
 
 _ENGAGEMENT_MAP = {

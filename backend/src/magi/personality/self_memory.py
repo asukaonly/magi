@@ -1,6 +1,5 @@
-"""SelfMemory facade — owns persona-scoped behavior/emotional/growth engines."""
+"""SelfMemory facade for persona-scoped emotion, relationships, and milestones."""
 import logging
-import time
 from typing import Dict, Optional, List
 from dataclasses import asdict
 
@@ -8,7 +7,7 @@ from .models import (
     EmotionalState,
 )
 from .loader import PersonalityConfig
-from .behavior_evolution import BehaviorEvolutionEngine, SatisfactionLevel
+from .historical_behavior import clear_historical_behavior_data
 from .emotional_state import EmotionalStateEngine, InteractionOutcome, EngagementLevel
 from .growth_memory import GrowthMemoryEngine, InteractionType, MilestoneType
 from .interaction_analyzer import InteractionAnalysis
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 # ===== Unified Management Class =====
 
 class SelfMemory:
-    """Persona-scoped self-memory: behavior evolution, emotional state, and growth/milestones."""
+    """Persona-scoped emotional state, relationships, and growth milestones."""
 
     def __init__(
         self,
@@ -38,7 +37,7 @@ class SelfMemory:
         self.db_path = db_path or str(runtime_paths.self_memory_db_path)
         self.enable_evolution = enable_evolution
 
-        self._behavior_engine: Optional[BehaviorEvolutionEngine] = None
+        self._historical_behavior_db_path = str(runtime_paths.behavior_db_path)
         self._emotion_engine: Optional[EmotionalStateEngine] = None
         self._growth_engine: Optional[GrowthMemoryEngine] = None
 
@@ -52,15 +51,12 @@ class SelfMemory:
 
         if self.enable_evolution:
             runtime_paths = get_runtime_paths()
-            behavior_db = str(runtime_paths.behavior_db_path)
             emotion_db = str(runtime_paths.emotional_db_path)
             growth_db = str(runtime_paths.growth_db_path)
 
-            self._behavior_engine = BehaviorEvolutionEngine(behavior_db, persona_id=self.persona_id)
             self._emotion_engine = EmotionalStateEngine(emotion_db, persona_id=self.persona_id)
             self._growth_engine = GrowthMemoryEngine(growth_db, persona_id=self.persona_id)
 
-            await self._behavior_engine.init()
             await self._emotion_engine.init()
             await self._growth_engine.init()
 
@@ -137,13 +133,12 @@ class SelfMemory:
         return self._personality_config or PersonalityConfig()
 
     async def clear_learned_state(self) -> int:
-        """Clear learned behavior, emotion, and growth without deleting persona config."""
+        """Clear historical behavior, emotion, and growth while preserving persona config."""
         if not self.enable_evolution:
             return 0
 
-        deleted = 0
+        deleted = await clear_historical_behavior_data(self._historical_behavior_db_path)
         for engine in (
-            self._behavior_engine,
             self._emotion_engine,
             self._growth_engine,
         ):
@@ -151,32 +146,6 @@ class SelfMemory:
                 deleted += int(await engine.clear_all())
         return deleted
 
-
-    async def record_task_outcome(
-        self,
-        task_id: str,
-        task_category: str,
-        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
-        clarification_count: int = 0,
-        confirmation_count: int = 0,
-        correction_count: int = 0,
-        task_complexity: float = 0.5,
-        task_duration: float = 0.0,
-        accepted: bool = True,
-    ):
-        """Record task interaction result"""
-        if self.enable_evolution and self._behavior_engine:
-            await self._behavior_engine.record_task_outcome(
-                task_id=task_id,
-                task_category=task_category,
-                user_satisfaction=user_satisfaction,
-                clarification_count=clarification_count,
-                confirmation_count=confirmation_count,
-                correction_count=correction_count,
-                task_complexity=task_complexity,
-                task_duration=task_duration,
-                accepted=accepted,
-            )
 
     async def get_emotional_state(self) -> EmotionalState:
         """Get current emotional state"""
@@ -295,8 +264,7 @@ class SelfMemory:
     ) -> bool:
         """Consolidate all per-turn personality updates behind the facade.
 
-        Performs: record_interaction, update_after_interaction,
-        record_task_outcome, and milestone recording.
+        Records relationship, emotional-state, and milestone updates.
         Returns True if any update succeeded.
         """
         updated = False
@@ -312,14 +280,6 @@ class SelfMemory:
                 outcome=analysis.outcome,
                 user_engagement=analysis.engagement,
                 complexity=analysis.complexity,
-            )
-            await self.record_task_outcome(
-                task_id=f"chat_{int(time.time())}_{user_id}",
-                task_category="chat",
-                user_satisfaction=analysis.satisfaction,
-                accepted=analysis.outcome != InteractionOutcome.FAILURE,
-                task_complexity=analysis.complexity,
-                task_duration=0.0,
             )
             updated = True
         except Exception as exc:
