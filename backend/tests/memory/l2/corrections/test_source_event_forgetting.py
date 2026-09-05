@@ -742,6 +742,7 @@ async def test_source_event_forget_removes_public_entity_evidence(
         canonical_name="Public retained alias",
         entity_type="person",
         entity_id="person:two",
+        allow_rename=True,
         source_event_ids=["evt-keep"],
     )
     await catalog.add_alias(
@@ -886,6 +887,7 @@ async def test_source_event_forget_restores_retained_canonical_candidate(
         canonical_name="Deleted canonical",
         entity_type="topic",
         entity_id="topic:shared",
+        allow_rename=True,
         source_event_ids=["evt-deleted"],
     )
     await catalog.add_alias(
