@@ -183,3 +183,30 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
     assert outcomes[0].outcome == "rejected"
     assert outcomes[0].reason_code == "missing_grounded_support"
     assert outcomes[0].claim_id == "claim:diiv"
+
+
+def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
+    for predicate in ("LIKES", "DISLIKES", "LIVES_IN"):
+        claim = L2Phase1FactClaim.from_dict({
+            "claim_id": "claim:negative",
+            "subject_ref": "user:u1",
+            "predicate": predicate,
+            "object_ref": "group:target",
+            "object_type": "group",
+            "polarity": "negative",
+            "supporting_event_ids": ["evt-negative"],
+            "evidence_text": "我并不喜欢这个乐队",
+            "temporal_cue": "recent",
+        })
+        claim.claim_id = "claim:negative"
+        candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
+            phase1_result=L2Phase1Result(fact_claims=[claim]),
+            event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
+            evidence_event_ids=["evt-negative"],
+            resolved_mentions=[],
+            profile=_profile(),
+        )
+        assert candidates == []
+        assert outcomes[0].reason_code == "negative_claim_requires_scoped_exclusion"
+        assert claim.polarity == "negative"
+        assert claim.temporal_cue == "recent"

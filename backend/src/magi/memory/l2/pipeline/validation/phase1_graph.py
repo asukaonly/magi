@@ -48,7 +48,7 @@ class L2Phase1GraphProjectionMixin:
             if candidate is None:
                 outcome = (
                     "skipped"
-                    if reason_code in {"goal_assertion_only", "one_off_preference_event_only"}
+                    if reason_code in {"goal_assertion_only", "one_off_preference_event_only", "negative_claim_requires_scoped_exclusion"}
                     else (
                         "unresolved_entity"
                         if reason_code in {"unresolved_object", "unresolved_subject"}
@@ -90,6 +90,8 @@ class L2Phase1GraphProjectionMixin:
         )
         if not supporting_event_ids:
             return None, "missing_grounded_support"
+        if claim.polarity != "positive":
+            return None, "negative_claim_requires_scoped_exclusion"
         predicate = self._normalize_predicate(claim.predicate)  # type: ignore[attr-defined]
         fact_kind = self._non_empty_text(claim.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
         if predicate == "PLANS_TO" and fact_kind == "future_intent":

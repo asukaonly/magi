@@ -2948,3 +2948,11 @@ The identity model must always be clear:
 - `event_id` — Stable external reference
 - `source_item_id` — Source-side identity
 - `idempotency_key` — Business idempotency key
+
+Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
+positive polarity means an explicit dislike; negative `LIKES` never becomes
+`DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. Route contract v7
+retains negative Claims, evidence, and temporal scope in the ledger with reason
+`negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
+is supported, these Claims have no graph or portrait/assertion target. Initial
+projection, optional wording, and route replay share this boundary.

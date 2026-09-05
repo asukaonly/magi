@@ -298,6 +298,7 @@ class L2ClaimPersistenceMixin:
                     subject_type=str(claim.subject_type or "user"),
                     canonical_predicate=canonical_predicate,
                     fact_kind=str(claim.fact_kind or "explicit_fact"),
+                    polarity=claim.polarity,
                     object_type=(
                         object_ref[1]
                         if object_ref is not None

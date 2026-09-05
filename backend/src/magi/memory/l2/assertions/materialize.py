@@ -83,6 +83,8 @@ def materialize_assertion(material: MaterializationInput) -> MaterializationDeci
 
     route = material.route
     base = _decision_base(material)
+    if any(claim.polarity != "positive" for claim in material.claims):
+        return _terminal(base, action="event_only", reason_code="negative_claim_requires_scoped_exclusion")
     if not route.can_project_assertion:
         return _terminal(base, action="event_only", reason_code="route_has_no_assertion_target")
     if not route.family or not route.trait_code or not route.slot_key:

@@ -520,3 +520,12 @@ def test_unknown_predicate_remains_visible_as_unrouted() -> None:
     assert decision.reason_code == "unsupported_route"
     assert decision.slot_key is None
     assert not decision.can_project_assertion
+
+
+@pytest.mark.parametrize("predicate", ["LIKES", "DISLIKES", "LIVES_IN", "REAL_NAME"])
+def test_negative_claim_has_no_positive_projection(predicate: str) -> None:
+    decision = derive_semantic_route(_route_input(predicate, polarity="negative"))
+    assert decision.disposition is RouteDisposition.DEFERRED
+    assert decision.reason_code == "negative_claim_requires_scoped_exclusion"
+    assert not decision.can_project_assertion
+    assert not decision.can_project_graph

@@ -144,6 +144,12 @@ Return JSON only:
 }
 ```
 
+### Polarity
+Polarity negates the predicate; it does not label negative sentiment.
+"我讨厌鱼" = DISLIKES + positive; "我并不讨厌鱼" = DISLIKES + negative.
+"我不住在杭州" = LIVES_IN + negative. Never invent an opposite predicate.
+Preserve any temporal qualifier on a negative claim.
+
 ### Example — correct extraction:
 Input: [USER] 我特别喜欢吃螺蛳粉
 Output entities: [{"surface": "螺蛳粉", "entity_type": "food", "specificity": "concrete", ...}]
