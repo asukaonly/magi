@@ -43,3 +43,39 @@ async def test_name_change_requires_explicit_identity_authority(tmp_path):
     )
     rows = await catalog.list_entities(limit=10)
     assert [(r["entity_id"], r["canonical_name"]) for r in rows] == [(entity_id, "StarCraft II")]
+
+
+@pytest.mark.asyncio
+async def test_namespaced_source_keys_and_homonyms_are_distinct(tmp_path):
+    from magi.memory.l2.entities.identity import entity_hint_id
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+    hint = {"mention_text": "张伟", "entity_type": "person", "source_entity_key": "42"}
+    a = entity_hint_id(hint, source="contacts", event_id="one")
+    assert a == entity_hint_id(hint, source="contacts", event_id="two")
+    b = entity_hint_id(hint, source="calendar", event_id="one")
+    c = entity_hint_id({**hint, "source_entity_key": "43"}, source="contacts", event_id="one")
+    assert len({a, b, c}) == 3
+    catalog = L2EntityCatalog(db_path=str(tmp_path / "entities.db"))
+    for identity in (a, b, c):
+        await catalog.upsert_entity(entity_id=identity, canonical_name="张伟", entity_type="person")
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    pipeline._entity_catalog = catalog
+    index = await pipeline._build_catalog_name_index()
+    assert "张伟" not in index
+    assert index[a] == a
+    assert await pipeline._try_alias_resolution("张伟", "person") is None
+
+
+@pytest.mark.asyncio
+async def test_unresolved_homonyms_do_not_share_identity_or_replay_count(tmp_path):
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    pipeline._entity_catalog = L2EntityCatalog(db_path=str(tmp_path / "entities.db"))
+    args = dict(mention={}, entity_type="person", mention_text="王伟", mention_confidence=0.95)
+    first = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event1"])
+    second = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event2"])
+    replay = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event1"])
+    assert first == replay
+    assert first[0] != second[0]

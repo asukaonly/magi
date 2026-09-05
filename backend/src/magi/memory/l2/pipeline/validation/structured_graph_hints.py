@@ -8,6 +8,7 @@ from typing import Any
 from ....event_contracts import MemoryEvent
 from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
+from ...entities.identity import entity_hint_id, normalized_entity_name
 from ...models import StructuredGraphHint
 from ...ontology import validate_graph_candidate
 from ...storage.utils import normalize_event_ids
@@ -172,6 +173,11 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
         )
         if not subject_id:
             return None
+        for hint in (event.metadata_json or {}).get("structured_entity_hints", []):
+            if not isinstance(hint, dict) or not hint.get("source_entity_key"):
+                continue
+            if hint.get("entity_type") == shape.object_type and normalized_entity_name(shape.hint.object_ref) in {normalized_entity_name(str(hint.get("mention_text") or "")), normalized_entity_name(str(hint.get("canonical_name_hint") or ""))}:
+                return _StructuredGraphHintEndpoints(subject_id, entity_hint_id(hint, source=event.source, event_id=event.event_id))
         object_id = host._resolve_phase2_object_id(
             raw_object_ref=shape.hint.object_ref,
             object_type=shape.object_type,

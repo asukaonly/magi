@@ -3512,7 +3512,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
 
 
 @pytest.mark.asyncio
-async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_id():
+async def test_structured_graph_ref_preserves_its_explicit_identity():
     """Graph refs should reuse same-event entity hints instead of creating ID fragments."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
@@ -3552,24 +3552,18 @@ async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_i
             if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
         assert len(ipad_entities) == 1
-        expected_entity_id = pipeline._build_canonical_entity_id(
-            entity_type="hardware", canonical_name="apple-ipad-pro-(11-inch)-(3rd-generation)"
-        )
-        assert ipad_entities[0]["entity_id"] == expected_entity_id
-
         catalog_name_index = await pipeline._build_catalog_name_index()
         object_id = pipeline._resolve_phase2_object_id(
             raw_object_ref="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
-            object_type="hardware",
-            resolved_mentions=[],
-            catalog_name_index=catalog_name_index,
+            object_type="hardware", resolved_mentions=[], catalog_name_index=catalog_name_index,
         )
-        assert object_id == expected_entity_id
+        assert object_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
+
 
 
 @pytest.mark.asyncio
-async def test_phase1_resolved_id_reuses_existing_same_name_entity():
-    """Phase 1 resolved IDs should not create a second entity for the same canonical name."""
+async def test_phase1_resolved_id_preserves_same_name_identities():
+    """Same-name catalog rows must not override explicit resolved IDs."""
     from magi.memory.l2.models import L2Phase1Entity, L2Phase1Result
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3606,14 +3600,14 @@ async def test_phase1_resolved_id_reuses_existing_same_name_entity():
             allowed_entity_types=frozenset({"hardware"}),
         )
 
-        assert resolved_mentions[0].resolved_entity_id == canonical_id
+        assert resolved_mentions[0].resolved_entity_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
         entities = await pipeline._entity_catalog.list_entities(limit=10)
         ipad_entities = [
             entity
             for entity in entities
             if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [canonical_id]
+        assert {entity["entity_id"] for entity in ipad_entities} == {canonical_id, "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"}
 
 
 def test_inject_structured_entity_hints_noop_without_metadata():
@@ -4950,7 +4944,7 @@ class TestEntityResolutionCache:
 
             cache = getattr(pipeline, "_entity_resolution_cache", {})
             assert ("magi", "software") in cache
-            assert ("magi", "person") in cache
+            assert ("evt-ct-2:magi", "person") in cache
 
 
 class TestPhase2CatalogNameIndex:

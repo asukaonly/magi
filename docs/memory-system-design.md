@@ -3026,3 +3026,9 @@ selections and report partial success.
 ### Pending review pagination
 
 The pending inbox uses server-side review-state and conflict-kind filters before pagination. Every lane returns a complete visible total; page length is never presented as a total. The client loads 25 records per page, retains loaded pages on failure, and reloads the loaded window after successful review so remaining records fill the gap. Batch selection covers loaded plans only. Summary deduplication, expiration and readability checks run on the complete active projection before slicing. This favors correct visibility and totals; a persisted feed index can replace this read model if measured collection size/latency requires it, without changing the API contract.
+
+### Entity identity and ambiguous names
+
+An explicit resolved entity ID is not replaced merely because a catalog row shares its name. Source-owned `structured_entity_hints` may supply `source_entity_key`; the host namespaces it by source and entity type and preserves it across renamed labels and repeated events. Raw event item IDs are not treated as entity IDs. People, places, works, hardware and projects without an identity key receive replay-stable mention-scoped IDs. Concept types (topics, concepts, software/technology, food, language and skills) retain normalized concept lookup. Cross-event memoization and automatic alias matching are limited to those concept types. Versioned resolved context references remain the path for intentional reuse of concrete identities.
+
+Name and alias indexes omit ambiguous labels instead of selecting the first row. Maintenance never chooses among ambiguous ghost targets by popularity, and does not merge mention/source-scoped identities by name. This intentionally prefers separate or unresolved concrete entities over false identity merges; new source integrations should provide stable object keys. No existing catalog data is rewritten by this change.

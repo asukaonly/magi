@@ -231,6 +231,7 @@ class L2GraphEndpointResolutionMixin:
     ) -> str | None:
         host = self._graph_validation_host()
         candidate_casefold = candidate.casefold()
+        matches: set[str] = set()
         for mention in resolved_mentions:
             resolved_entity_id = host._non_empty_text(mention.resolved_entity_id)
             if not resolved_entity_id:
@@ -241,8 +242,8 @@ class L2GraphEndpointResolutionMixin:
                 resolved_entity_id.casefold(),
             }
             if candidate_casefold in surfaces:
-                return resolved_entity_id
-        return None
+                matches.add(resolved_entity_id)
+        return next(iter(matches)) if len(matches) == 1 else None
 
     def _lookup_catalog_index(
         self,

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
-from ...entities.identity import normalized_entity_name
+from ...entities.identity import CONCEPT_ENTITY_TYPES, entity_hint_id, normalized_entity_name
 from ...llm_json_client import L2LLMJsonError
 from ...models import (
     L2BatchEntityResolutionItem,
@@ -46,7 +46,10 @@ class _PendingPhase1EntityResolution:
 
     @property
     def cache_key(self) -> tuple[str, str | None]:
-        return (self.mention_text.strip().casefold(), self.entity_type)
+        surface = self.mention_text.strip().casefold()
+        if self.entity_type not in CONCEPT_ENTITY_TYPES:
+            surface = ":".join(self.source_event_ids) + ":" + surface
+        return (surface, self.entity_type)
 
     @property
     def unresolved(self) -> bool:
@@ -325,6 +328,11 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         llm_batch_items: list[L2BatchEntityResolutionItem],
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
+        for hint in (event.metadata_json or {}).get("structured_entity_hints", []):
+            if isinstance(hint, dict) and hint.get("source_entity_key") and normalized_entity_name(str(hint.get("mention_text") or "")) == normalized_entity_name(pending_item.mention_text) and hint.get("entity_type") == pending_item.entity_type:
+                pending_item.resolved_entity_id = entity_hint_id(hint, source=event.source, event_id=event.event_id)
+                pending_item.resolved_confidence = pending_item.mention_confidence
+                return
         if pending_item.entity.resolved_id:
             pending_item.resolved_entity_id = await self._prefer_existing_same_name_entity(
                 proposed_entity_id=pending_item.entity.resolved_id,
@@ -460,7 +468,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     ) -> None:
         llm_resolution = llm_results.get(pending_item.llm_mention_key)
         if (
-            llm_resolution is not None
+            pending_item.entity_type in CONCEPT_ENTITY_TYPES
+            and llm_resolution is not None
             and llm_resolution.decision == "match"
             and llm_resolution.matched_entity_id
         ):

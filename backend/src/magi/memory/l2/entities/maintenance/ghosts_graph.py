@@ -98,7 +98,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
             return evidence_match
         if not matches:
             return None
-        return await self._pick_entity_by_mention_count(matches)
+        return None
 
     async def _resolve_ghost_by_evidence_text(
         self,
@@ -153,7 +153,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
         ]
         if len(best_matches) == 1:
             return best_matches[0]
-        return await self._pick_entity_by_mention_count(best_matches)
+        return None
 
     async def _pick_entity_by_mention_count(self, entity_ids: list[str]) -> str:
         host = self._catalog_maintenance_host()
