@@ -33,6 +33,8 @@ import { useSettingsTools } from './useSettingsTools';
 export interface UseSettingsReturn {
   // Loading states
   loading: boolean;
+  configError: string | null;
+  fetchConfig: () => Promise<void>;
   saving: boolean;
 
   // Navigation
@@ -131,6 +133,7 @@ export function useSettings(): UseSettingsReturn {
 
   const {
     loading,
+    configError,
     savedConfig,
     setSavedConfig,
     draftConfig,
@@ -330,6 +333,8 @@ export function useSettings(): UseSettingsReturn {
   return {
     // Loading states
     loading,
+    configError,
+    fetchConfig,
     saving,
 
     // Navigation

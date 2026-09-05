@@ -20,6 +20,12 @@ export class ApiContractError extends Error {
   }
 }
 
+export function requireConfiguration(response: ApiResponse<SystemConfig>): SystemConfig {
+  if (!response.success) throw new Error(response.message || 'Configuration request failed');
+  if (!response.data) throw new ApiContractError('configuration');
+  return response.data;
+}
+
 const layerModifiers = z.strictObject({
   behavior_shifts: z.array(z.string()).optional(),
   memory_behavior: z.string().optional(),

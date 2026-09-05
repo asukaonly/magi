@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { configApi, type SystemConfig } from '@/api/modules/config';
+import { requireConfiguration } from '@/api/config-contract';
 import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/control';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
@@ -217,7 +218,7 @@ export function useSettingsPersistence({
           }));
         }
         const response = await configApi.update(draftConfig);
-        persistedConfig = structuredClone(response.data || draftConfig);
+        persistedConfig = structuredClone(requireConfiguration(response));
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
         await syncAutoStartPreference(persistedConfig.preferences.auto_start_enabled);
         await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);

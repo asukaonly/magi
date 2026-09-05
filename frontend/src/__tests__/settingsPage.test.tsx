@@ -699,6 +699,8 @@ describe('settings page draft saving', () => {
     openExternalUrlMock.mockResolvedValue(undefined);
 
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
     } as any);
     vi.mocked(configApi.update).mockImplementation(async (nextConfig: any) => ({
@@ -817,6 +819,34 @@ describe('settings page draft saving', () => {
     expect(screen.getByTestId('settings-main-header')).not.toHaveClass('px-10');
     expect(screen.getByTestId('settings-main-footer')).toHaveClass('px-5');
     expect(screen.getByTestId('settings-main-footer')).not.toHaveClass('px-10');
+  });
+
+  it('shows a retryable error instead of editable defaults when configuration cannot load', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockRejectedValueOnce(new Error('Sidecar unavailable'));
+    render(<SettingsPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('settings.loadFailed');
+    expect(screen.queryByRole('button', { name: 'settings.actions.save' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.retry' }));
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('preserves changes after an explicit save rejection and permits retry', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.update).mockResolvedValueOnce({ success: false, message: 'Rejected' });
+    render(<SettingsPage />);
+    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
+    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
+    await user.click(await screen.findByRole('button', { name: 'language.en' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+    expect(changeLanguageMock).not.toHaveBeenCalled();
+    expect(syncCloseToTrayPreferenceMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText('settings.pendingChanges')).not.toBeInTheDocument());
   });
 
   it('keeps regular config changes local until save', async () => {
@@ -989,6 +1019,8 @@ describe('settings page draft saving', () => {
 
   it('restores the saved diagnostic logging preference', async () => {
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         diagnostics: {
@@ -1078,6 +1110,8 @@ describe('settings page draft saving', () => {
   it('does not mark provider settings dirty when llm form normalizes mounted values', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         llm: {
@@ -1226,6 +1260,8 @@ describe('settings page draft saving', () => {
   it('restores the default chat workspace path before saving', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
@@ -1260,6 +1296,8 @@ describe('settings page draft saving', () => {
   it('saves the conversation rhythm switch in conversation settings', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
@@ -1296,6 +1334,8 @@ describe('settings page draft saving', () => {
 
   it('shows conversation rhythm off when the enabled flag is false', async () => {
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
@@ -1331,6 +1371,8 @@ describe('settings page draft saving', () => {
   it('still lets users turn off media grounding after switching to a non-vision core model', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         llm: {
@@ -1418,6 +1460,8 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/portable memory backups');
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
@@ -1456,6 +1500,8 @@ describe('settings page draft saving', () => {
   it('keeps memory data management visible in Quick mode', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         preferences: {
@@ -1659,6 +1705,8 @@ describe('settings page draft saving', () => {
   it('enables the cross-encoder toggle when a cross-encoder model is configured', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         memory: {
@@ -1706,6 +1754,8 @@ describe('settings page draft saving', () => {
   it('does not render the reranker top_k field in the general memory section', async () => {
     const user = userEvent.setup();
     vi.mocked(configApi.get).mockResolvedValue({
+      success: true,
+      message: 'OK',
       data: {
         ...structuredClone(DEFAULT_SYSTEM_CONFIG),
         memory: {

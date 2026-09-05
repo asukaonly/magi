@@ -75,6 +75,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
   const {
     loading,
+    configError,
+    fetchConfig,
     saving,
     activeSection,
     getGroupExpanded,
@@ -222,6 +224,18 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         <div className="flex items-center gap-2 text-muted-foreground">
           <LoadingSpinner />
           <span className="text-sm">{t('settings.loadingConfig')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (configError) {
+    return (
+      <div className="flex flex-col items-center gap-4 px-6 py-24">
+        <p role="alert" className="text-sm text-destructive">{configError}</p>
+        <div className="flex gap-2">
+          <Button onClick={() => { void fetchConfig(); }}>{t('settings.actions.retry')}</Button>
+          <Button variant="ghost" onClick={() => { void onRequestClose?.(); }}>{t('settings.actions.close')}</Button>
         </div>
       </div>
     );

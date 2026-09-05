@@ -1740,6 +1740,7 @@
       "chooseDirectory": "选择目录",
       "clearDirectory": "清空目录",
       "restoreDefaultDirectory": "还原默认",
+      "retry": "重试",
       "discard": "放弃更改",
       "save": "保存"
     },

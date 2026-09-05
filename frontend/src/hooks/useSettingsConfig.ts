@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LanguageCode, type SystemConfig } from '@/api/modules/config';
+import { requireConfiguration } from '@/api/config-contract';
+import { getErrorMessage } from '@/utils/error-handler';
 import { type ControlSettingsDTO, getControlSettings } from '@/api/modules/control';
 import type { ThemeMode } from '@/stores/theme';
 import type { MemoryToggleFieldId } from '@/types/settings';
@@ -19,6 +21,7 @@ interface UseSettingsConfigOptions {
 
 interface UseSettingsConfigReturn {
   loading: boolean;
+  configError: string | null;
   savedConfig: SystemConfig;
   setSavedConfig: Dispatch<SetStateAction<SystemConfig>>;
   draftConfig: SystemConfig;
@@ -45,6 +48,7 @@ export function useSettingsConfig({
   const [loading, setLoading] = useState(true);
   const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [configError, setConfigError] = useState<string | null>(null);
   const [savedControlSettings, setSavedControlSettings] = useState<ControlSettingsDTO | null>(null);
   const [draftControlSettings, setDraftControlSettings] = useState<ControlSettingsDTO | null>(null);
 
@@ -88,16 +92,17 @@ export function useSettingsConfig({
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
+    setConfigError(null);
     try {
       const response = await configApi.get();
-      const nextConfig = response.data || DEFAULT_SYSTEM_CONFIG;
+      const nextConfig = requireConfiguration(response);
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
       setSavedThemeMode(themeMode);
       setDraftThemeMode(themeMode);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.loadFailed', { message }));
+      const message = getErrorMessage(error) || t('settings.errorUnknown');
+      setConfigError(t('settings.loadFailed', { message }));
     } finally {
       setLoading(false);
     }
@@ -128,6 +133,7 @@ export function useSettingsConfig({
   }, [patchDraftConfig]);
 
   return {
+    configError,
     loading,
     savedConfig,
     setSavedConfig,

@@ -2,7 +2,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useProductTourFlag } from '@/hooks/useProductTourFlag';
 import { useProductTourStore } from '@/stores/productTour';
-import { configApi } from '@/api/modules/config';
+import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 
 describe('useProductTourFlag', () => {
   beforeEach(() => {
@@ -12,20 +12,20 @@ describe('useProductTourFlag', () => {
   });
 
   it('reads completed=false then marks it true via GET→clone→PUT', async () => {
-    vi.spyOn(configApi, 'get').mockResolvedValue({ data: { preferences: { product_tour_completed: false } } } as any);
-    const update = vi.spyOn(configApi, 'update').mockResolvedValue({} as any);
+    vi.spyOn(configApi, 'get').mockResolvedValue({ success: true, message: 'OK', data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
+    const update = vi.spyOn(configApi, 'update').mockResolvedValue({ success: true, message: 'OK', data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
     const { result } = renderHook(() => useProductTourFlag());
     await waitFor(() => expect(result.current.completed).toBe(false));
     await act(async () => { await result.current.markCompleted(); });
     expect(result.current.completed).toBe(true);
     await waitFor(() => expect(update).toHaveBeenCalled());
-    const arg = (update.mock.calls[0][0] as any);
-    expect(arg.preferences.product_tour_completed).toBe(true);
+    const arg = update.mock.calls[0][0];
+    expect(arg.preferences?.product_tour_completed).toBe(true);
   });
 
   it('shares state across consumers: marking in one instance flips the other (regression: deferred opening must fire)', async () => {
-    vi.spyOn(configApi, 'get').mockResolvedValue({ data: { preferences: { product_tour_completed: false } } } as any);
-    vi.spyOn(configApi, 'update').mockResolvedValue({} as any);
+    vi.spyOn(configApi, 'get').mockResolvedValue({ success: true, message: 'OK', data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
+    vi.spyOn(configApi, 'update').mockResolvedValue({ success: true, message: 'OK', data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
     // Two independent consumers (e.g. MainLayout + useChatSessionLifecycle).
     const a = renderHook(() => useProductTourFlag());
     const b = renderHook(() => useProductTourFlag());

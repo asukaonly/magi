@@ -1741,6 +1741,7 @@
       "chooseDirectory": "Choose Directory",
       "clearDirectory": "Clear Directory",
       "restoreDefaultDirectory": "Restore Default",
+      "retry": "Retry",
       "discard": "Discard Changes",
       "save": "Save"
     },

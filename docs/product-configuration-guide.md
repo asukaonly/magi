@@ -193,6 +193,7 @@ Expected behavior:
 - language switching remains available from settings
 - desktop conversation settings can include a default chat workspace directory used when creating new conversations
 - persisted editable values should continue to load through the main configuration document instead of ad-hoc menu-specific payloads
+- settings must wait for a successful configuration read before exposing editable values. Read failures show retry and close actions. A save is acknowledged only after a successful response containing the normalized configuration; explicit rejection preserves the draft and cannot update the saved baseline or desktop preferences.
 - read-only registries, templates, and runtime status payloads should stay on dedicated domain endpoints rather than being embedded into the main configuration document
 
 ## Preferences

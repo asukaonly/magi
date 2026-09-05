@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { configApi } from '@/api/modules/config';
+import { requireConfiguration } from '@/api/config-contract';
 
 /**
  * Shared one-time first-run context prompt gate.
@@ -25,7 +26,7 @@ export const useProductTourStore = create<ProductTourState>((set) => ({
   refresh: async () => {
     try {
       const response = await configApi.get();
-      const done = Boolean((response as any)?.data?.preferences?.product_tour_completed);
+      const done = requireConfiguration(response).preferences.product_tour_completed;
       set({ completed: done, loaded: true });
     } catch {
       set({ completed: true, loaded: true }); // on error, don't nag
@@ -35,12 +36,10 @@ export const useProductTourStore = create<ProductTourState>((set) => ({
     set({ completed: true }); // optimistic: propagates to ALL consumers and releases the opening
     try {
       const response = await configApi.get();
-      const current = (response as any)?.data;
-      if (!current) return;
+      const current = requireConfiguration(response);
       const next = structuredClone(current);
-      if (!next.preferences) next.preferences = {};
       next.preferences.product_tour_completed = true;
-      await configApi.update(next);
+      requireConfiguration(await configApi.update(next));
     } catch (err) {
       console.warn('failed to persist product_tour_completed', err);
     }
