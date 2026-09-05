@@ -36,6 +36,7 @@ from .strategy_operations import (
     stratified_traces,
 )
 from .traces.store import insert_execution_trace
+from .table_names import SKILL_EVENT_LINKS_TABLE
 
 
 class L4ProceduralRecordingMixin:
@@ -98,6 +99,15 @@ class L4ProceduralRecordingMixin:
                     skill_category=identity["skill_category"],
                 )
 
+                if existing is not None:
+                    async with db.execute(
+                        f"SELECT 1 FROM {SKILL_EVENT_LINKS_TABLE} WHERE skill_id = ? AND event_id = ?",
+                        (existing["skill_id"], event.event_id),
+                    ) as cursor:
+                        duplicate = await cursor.fetchone()
+                    if duplicate is not None:
+                        await db.commit()
+                        return str(existing["skill_id"])
                 if existing is None:
                     return await self._record_new_skill_event(
                         db,
@@ -178,6 +188,7 @@ class L4ProceduralRecordingMixin:
                 event_id=event.turn_id,
                 created_at=now,
             )
+        await insert_execution_trace(db, skill_id=skill_id, event=event, identity=identity)
         await db.commit()
         await self._sync_skill_indexes(
             db,
@@ -187,7 +198,6 @@ class L4ProceduralRecordingMixin:
             optimized_prompt=optimized_prompt,
             replace_existing=False,
         )
-        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
         return skill_id
 
     async def _record_existing_skill_event(
@@ -235,6 +245,7 @@ class L4ProceduralRecordingMixin:
                 event_id=event.turn_id,
                 created_at=now,
             )
+        await insert_execution_trace(db, skill_id=skill_id, event=event, identity=identity)
         await db.commit()
         await self._sync_skill_indexes(
             db,
@@ -244,7 +255,6 @@ class L4ProceduralRecordingMixin:
             optimized_prompt=effective_prompt,
             replace_existing=True,
         )
-        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
         await self._maybe_extract_updated_strategy(
             skill_id=skill_id,
             skill_name=skill_name,
@@ -278,20 +288,6 @@ class L4ProceduralRecordingMixin:
             skill_name=skill_name,
             skill_category=skill_category,
             optimized_prompt=optimized_prompt,
-        )
-
-    async def _insert_execution_trace(
-        self,
-        *,
-        skill_id: str,
-        event: MemoryEvent,
-        identity: Dict[str, Any],
-    ) -> None:
-        await insert_execution_trace(
-            db_path=self.db_path,
-            skill_id=skill_id,
-            event=event,
-            identity=identity,
         )
 
     async def _maybe_extract_updated_strategy(

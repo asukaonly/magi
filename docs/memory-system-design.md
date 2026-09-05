@@ -2996,3 +2996,9 @@ serialized transaction. Only admitted events enter the LLM window; a promoted
 key never admits unrelated keys or forced structured-only events in its batch.
 The durable batch descriptor and leases still cover the original batch. Direct
 structured graph and facet writes retain each event's own evidence IDs.
+
+L4 records each execution event once, independently of its owning turn. Its
+complete source-event link is the durable replay guard even after trace pruning.
+Statistics, breaker transitions, evidence links, and the execution trace commit
+atomically; a trace write failure rolls the learning update back. Separate tool
+executions in one turn remain distinct observations.

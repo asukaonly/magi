@@ -451,3 +451,40 @@ async def test_l4_rebuild_keyset_does_not_skip_after_first_skill_is_deleted(tmp_
 
     assert processed == 2
     assert seen == skill_ids
+
+
+@pytest.mark.asyncio
+async def test_execution_replay_does_not_change_counts_or_breaker(tmp_path):
+    import asyncio
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    event = _tool_event(event_id="execution:1", success=False, timestamp=1710000000.0)
+    event.turn_id = "turn:one"
+    await store.record_memory_event(event)
+    await asyncio.gather(*[store.record_memory_event(event) for _ in range(5)])
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts, failure_count, circuit_breaker_failure_count FROM procedural_skills").fetchone() == (1, 1, 1)
+        assert db.execute("SELECT COUNT(*) FROM l4_execution_traces").fetchone() == (1,)
+    second = _tool_event(event_id="execution:2", success=True, timestamp=1710000001.0)
+    second.turn_id = event.turn_id
+    await store.record_memory_event(second)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts, success_count FROM procedural_skills").fetchone() == (2, 1)
+        assert db.execute("SELECT COUNT(*) FROM l4_execution_traces").fetchone() == (2,)
+
+
+@pytest.mark.asyncio
+async def test_trace_failure_rolls_back_learning(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    event = _tool_event(event_id="execution:rollback", success=True, timestamp=1710000000.0)
+    with monkeypatch.context() as scoped:
+        scoped.setattr("magi.memory.l4.recording.insert_execution_trace", AsyncMock(side_effect=RuntimeError("trace unavailable")))
+        with pytest.raises(RuntimeError, match="trace unavailable"):
+            await store.record_memory_event(event)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM procedural_skills").fetchone() == (0,)
+    await store.record_memory_event(event)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts FROM procedural_skills").fetchone() == (1,)
