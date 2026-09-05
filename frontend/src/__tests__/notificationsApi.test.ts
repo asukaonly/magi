@@ -12,7 +12,7 @@ describe('notifications api', () => {
     expect(r.total).toBe(26);
   });
   it('forwards pending conflict pagination before unwrapping', async () => {
-    vi.spyOn(api, 'get').mockResolvedValue({ success: true, data: { items: [], unread_count: 0, total: 26 } });
+    vi.spyOn(api, 'get').mockResolvedValue({ success: true, message: '', data: { items: [], unread_count: 0, total: 26 } });
     const params = { limit: 25, offset: 25, profile_conflicts_only: true };
     const result = await notif.listNotifications(params);
     expect(api.get).toHaveBeenCalledWith('/notifications', { params });
