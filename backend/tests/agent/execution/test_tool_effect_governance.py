@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -16,6 +18,7 @@ from magi.agent.execution.tool_invocation_service import (
 )
 from magi.events.domain_payloads import TaskContext
 from magi.tools.schema import ToolExecutionContext, ToolResult
+from magi.hooks.contracts import HookDecision
 
 
 class _Tool:
@@ -73,6 +76,35 @@ def _context(*, with_identity: bool = True) -> InvocationContext:
 @pytest.fixture
 def ledger(runtime_paths_with_schema) -> BackgroundTaskStore:
     return BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [False, True])
+async def test_effect_ledger_only_admits_final_authorized_hook_arguments(
+    ledger: BackgroundTaskStore, monkeypatch: pytest.MonkeyPatch, allowed: bool,
+) -> None:
+    registry = _Registry(policy="non_idempotent", results=[ToolResult(success=True)])
+    service = ToolInvocationService(registry, effect_ledger=ledger, require_effect_ledger=True)
+    final_arguments = {"path": "final-target"}
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments=final_arguments),
+    ))
+    ctx = _context()
+    ctx.authorize_call = AsyncMock(return_value=(
+        None if allowed else ToolResult(success=False, error="Permission denied")
+    ))
+    result = await service.invoke(ToolCall("effect_tool", {"path": "original-target"}), ctx)
+    assert ctx.authorize_call.await_args.args[0].args == final_arguments
+    assert result.success is allowed
+    with sqlite3.connect(ledger.db_path) as connection:
+        rows = connection.execute("SELECT arguments_digest FROM tool_effect_attempts").fetchall()
+    if allowed:
+        digest = hashlib.sha256(json.dumps(final_arguments, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        assert rows == [(digest,)]
+        assert registry.execute.await_args.args[1] == final_arguments
+    else:
+        assert rows == []
+        registry.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio

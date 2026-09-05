@@ -15,6 +15,8 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
@@ -65,6 +67,7 @@ class InvocationContext:
     tool_category: str
     task_context: TaskContext
     execution_context: Any
+    authorize_call: Callable[[ToolCall], Awaitable[Any | None]] | None = None
 
 
 @dataclass(slots=True)
@@ -132,7 +135,18 @@ class ToolInvocationService:
         if hook_result.denied_result is not None:
             return hook_result.denied_result
         if hook_result.modified_call is not None:
+            if ctx.authorize_call is None and hook_result.modified_call.args != call.args:
+                return _effect_denied_result(
+                    call,
+                    error_code="HOOK_ARGUMENTS_NOT_AUTHORIZED",
+                    message="Hook-modified arguments require a final authorization boundary.",
+                )
             call = hook_result.modified_call
+
+        if ctx.authorize_call is not None:
+            denial = await ctx.authorize_call(call)
+            if denial is not None:
+                return denial
 
         effect_attempt, effect_denial = await self._begin_effect_attempt(
             call=call,
@@ -329,19 +343,19 @@ async def _apply_pre_tool_hook(
         user_id=runtime.user_id,
         workspace=runtime.workspace,
         tool_name=call.name,
-        arguments=dict(call.args),
+        arguments=deepcopy(dict(call.args)),
     )
     if decision.outcome == HookOutcome.DENY:
         return _PreToolHookResult(
             denied_result=_hook_denied_result(call, decision),
             modified_call=None,
         )
-    if decision.outcome == HookOutcome.MODIFY and decision.modified_arguments is not None:
+    if decision.modified_arguments is not None:
         return _PreToolHookResult(
             denied_result=None,
             modified_call=ToolCall(
                 name=call.name,
-                args=dict(decision.modified_arguments),
+                args=deepcopy(dict(decision.modified_arguments)),
             ),
         )
     return _PreToolHookResult(denied_result=None, modified_call=None)

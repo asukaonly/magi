@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,6 +23,7 @@ from magi.agent.execution.function_calling import (
 from magi.tools.schema import ToolErrorCode, ToolResult
 from magi.skills.active_restrictions import skill_preapproval
 from magi.skills.allowed_tools_rules import parse_allowed_tools
+from magi.hooks.contracts import HookDecision, HookOutcome
 
 
 class _FakeToolRegistry:
@@ -71,6 +73,54 @@ def _orchestrator(
         permission_gateway=gateway,
         permission_gateway_provider=gateway_provider,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allow", [False, True])
+@pytest.mark.parametrize("outcome", [HookOutcome.MODIFY, HookOutcome.INJECT_CONTEXT])
+async def test_hook_parameters_are_authorized_before_execution(
+    monkeypatch: pytest.MonkeyPatch, allow: bool, outcome: HookOutcome,
+) -> None:
+    captured = []
+
+    async def prompt(request, *, timeout_seconds):
+        captured.append(request)
+        return UserPromptResponse(allow=allow)
+
+    registry = _FakeToolRegistry()
+    gateway = await _make_gateway(mode=PermissionMode.HIGH_ONLY, prompter=prompt)
+    orch = _orchestrator(registry=registry, gateway=gateway)
+    changed = {"command": "npm install example-package"}
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(return_value=HookDecision(
+        outcome=outcome, modified_arguments=changed, additional_context="Hook context",
+    )))
+    result = await orch._execute_tool_call(
+        tool_call=ToolCall(id="c1", name="bash", arguments={"command": "ls"}),
+        user_id="u", session_id="s", turn_id="t", execution_preset="chat",
+        execution_agent_id="a", execution_workspace=None, run_id="run-1",
+    )
+    assert len(captured) == 1
+    assert captured[0].arguments == changed
+    assert result.success is allow
+    assert registry.executed == ([("bash", changed)] if allow else [])
+
+
+@pytest.mark.asyncio
+async def test_hook_cannot_bypass_workspace_guardrails(monkeypatch, tmp_path) -> None:
+    registry = _FakeToolRegistry()
+    gateway = await _make_gateway(mode=PermissionMode.OFF)
+    orch = _orchestrator(registry=registry, gateway=gateway)
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", AsyncMock(
+        return_value=HookDecision.modify(arguments={"path": str(tmp_path.parent), "pattern": "*"}),
+    ))
+    result = await orch._execute_tool_call(
+        tool_call=ToolCall(id="c1", name="glob", arguments={"path": str(tmp_path), "pattern": "*"}),
+        user_id="u", session_id="s", turn_id="t", execution_preset="chat",
+        execution_agent_id="a", execution_workspace=str(tmp_path), run_id="run-1",
+    )
+    assert not result.success
+    assert "guardrail" in result.error
+    assert registry.executed == []
 
 
 @pytest.mark.asyncio

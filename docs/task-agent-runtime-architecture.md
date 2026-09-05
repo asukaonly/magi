@@ -384,6 +384,14 @@ fallback.
 Tool results become `ToolExecutionEvidence`. The completion gate consumes this
 normalized evidence instead of trusting a model claim that work succeeded.
 
+`PreToolUse` hooks run before final invocation authorization. Registry-backed
+agent calls reapply worker guardrails and argument normalization to the hook's
+final parameters, then pass those parameters through the permission gateway.
+Only that authorized call may enter the effect ledger and tool registry. Hook
+decisions that also inject context must still apply their argument changes.
+Callers without a final authorization callback reject hook argument rewrites;
+an earlier approval for different parameters cannot authorize the new effect.
+
 ## Completion Gate And Repair
 
 `CompletionGate` is deterministic. It evaluates a proposed final response using

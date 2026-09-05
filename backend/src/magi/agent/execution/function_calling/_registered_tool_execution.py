@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import json
 import time
+from dataclasses import replace
 from typing import Any
 
 from magi.tools.capabilities import build_tool_capabilities
@@ -34,22 +35,9 @@ class _RegisteredToolExecutor:
         self._host = host
 
     async def execute(self, request: _RegisteredToolExecutionRequest) -> ToolCallResult:
-        guarded_arguments = self._apply_worker_guardrails(request)
-        if isinstance(guarded_arguments, ToolCallResult):
-            return guarded_arguments
-
         context = self._build_execution_context(request)
-        arguments = self._normalize_launch_arguments(request, guarded_arguments)
+        arguments = dict(request.arguments)
 
-        denied_result = await self._check_permission_gateway(
-            request=request,
-            arguments=arguments,
-            workspace=context.workspace,
-        )
-        if denied_result is not None:
-            return denied_result
-
-        self._log_tool_start(request, arguments)
         invocation_result = await self._invoke_tool(request, arguments, context)
         return self._to_tool_call_result(request, arguments, invocation_result)
 
@@ -226,6 +214,25 @@ class _RegisteredToolExecutor:
             service = get_tool_invocation_service(self._host.tool_registry)
             self._host._tool_invocation_service = service
 
+        async def authorize_final_call(call: _ServiceToolCall) -> ToolCallResult | None:
+            final_request = replace(request, arguments=dict(call.args))
+            guarded = self._apply_worker_guardrails(final_request)
+            if isinstance(guarded, ToolCallResult):
+                return guarded
+            final_arguments = self._normalize_launch_arguments(final_request, guarded)
+            denied = await self._check_permission_gateway(
+                request=final_request,
+                arguments=final_arguments,
+                workspace=context.workspace,
+            )
+            if denied is not None:
+                return denied
+            call.args = dict(final_arguments)
+            arguments.clear()
+            arguments.update(call.args)
+            self._log_tool_start(request, arguments)
+            return None
+
         return await service.invoke(
             _ServiceToolCall(name=request.tool_name, args=arguments),
             InvocationContext(
@@ -237,6 +244,7 @@ class _RegisteredToolExecutor:
                     user_id=request.user_id,
                 ),
                 execution_context=context,
+                authorize_call=authorize_final_call,
             ),
         )
 

@@ -127,6 +127,7 @@ async def test_pre_tool_hook_denial_skips_execution(fake_registry, ctx):
 async def test_pre_tool_hook_modification_updates_arguments(fake_registry, ctx):
     fake_result = MagicMock(success=True, error=None, error_code=None, data="ok")
     fake_registry.execute = AsyncMock(return_value=fake_result)
+    ctx.authorize_call = AsyncMock(return_value=None)
 
     svc = ToolInvocationService(fake_registry)
     with patch(
@@ -136,4 +137,16 @@ async def test_pre_tool_hook_modification_updates_arguments(fake_registry, ctx):
         result = await svc.invoke(ToolCall(name="x", args={"a": 1}), ctx)
 
     assert result is fake_result
+    assert ctx.authorize_call.await_args.args[0].args == {"a": 2}
     fake_registry.execute.assert_awaited_once_with("x", {"a": 2}, ctx.execution_context)
+
+
+@pytest.mark.asyncio
+async def test_modified_hook_without_authorizer_cannot_execute(fake_registry, ctx):
+    fake_registry.execute = AsyncMock()
+    with patch("magi.hooks.dispatch.dispatch_hook", new=AsyncMock(
+        return_value=HookDecision.modify(arguments={"a": 2}),
+    )):
+        result = await ToolInvocationService(fake_registry).invoke(ToolCall("x", {"a": 1}), ctx)
+    assert result.error_code == "HOOK_ARGUMENTS_NOT_AUTHORIZED"
+    fake_registry.execute.assert_not_awaited()
