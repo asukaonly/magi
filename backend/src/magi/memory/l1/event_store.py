@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -45,7 +46,7 @@ class L1EventStore(
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memory/l1_events.db",
+        db_path: str = str(get_magi_home() / "data/memory/l1_events.db"),
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,

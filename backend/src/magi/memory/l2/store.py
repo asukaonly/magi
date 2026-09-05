@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 import json
 import time
@@ -105,7 +106,7 @@ class L2CognitionStore(
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memory/memory.db",
+        db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         graph_conflict_rules: Mapping[str, GraphConflictRule | Mapping[str, Any]] | None = None,
         evidence_timestamp_resolver: (
             Callable[[List[str]], Awaitable[Mapping[str, float]]] | None

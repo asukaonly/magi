@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Any, Dict
 
 from ... import i18n as core_i18n
@@ -424,7 +425,7 @@ def _personality_update_paths(
 ) -> Dict[str, Any]:
     return {
         "agent.personality.name": config.personality.name if config.personality.name else "default",
-        "agent.personality.path": "~/.magi/personalities",
+        "agent.personality.path": str(get_magi_home() / "personalities"),
         "agent.personality.enable_evolution": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_memory": personality_settings.state_memory_enabled,
         "agent.personality.enable_state_transition": personality_settings.state_transition_enabled,

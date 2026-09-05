@@ -5,6 +5,7 @@ These models match the structure in backend/configs/config.example.yaml.
 """
 
 from typing import Optional, Dict, Any, List
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 from urllib.parse import quote
@@ -357,7 +358,7 @@ class PersonalitySettings(BaseModel):
     """Personality configuration."""
 
     name: str = Field(default="default")
-    path: str = Field(default="~/.magi/personalities")
+    path: str = Field(default_factory=lambda: str(get_magi_home() / "personalities"))
     enable_evolution: bool = Field(default=True)
     enable_state_memory: bool = Field(default=True)
     enable_state_transition: bool = Field(default=True)

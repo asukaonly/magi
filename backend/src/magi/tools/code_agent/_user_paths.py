@@ -1,17 +1,16 @@
 """User-level magi config root for code_agent.
 
 Mirrors ``magi.utils.runtime.get_default_chat_workspace_path``: ``~/.magi/``.
-Override via env ``MAGI_HOME`` for tests.
+The desktop host, gateway, backend and SDK share ``MAGI_HOME``.
 """
 from __future__ import annotations
 
-import os
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from pathlib import Path
 
 
 def magi_user_root() -> Path:
-    override = os.environ.get("MAGI_HOME")
-    base = Path(override).expanduser() if override else Path.home() / ".magi"
+    base = get_magi_home()
     base.mkdir(parents=True, exist_ok=True)
     return base
 

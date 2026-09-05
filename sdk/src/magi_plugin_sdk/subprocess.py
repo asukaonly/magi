@@ -47,11 +47,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import IO, Any, BinaryIO
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REGISTRY_PATH = Path.home() / ".magi" / "runtime" / "child_processes.json"
+DEFAULT_REGISTRY_PATH = get_magi_home() / "runtime" / "child_processes.json"
 DEFAULT_OUTPUT_TAIL_BYTES = 64 * 1024
 DEFAULT_OUTPUT_SPILL_BYTES = 64 * 1024 * 1024
 _READ_CHUNK_BYTES = 64 * 1024

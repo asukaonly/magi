@@ -9,6 +9,7 @@ import io
 import logging
 import os
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import shutil
 import stat
 import struct
@@ -178,7 +179,7 @@ class _ArchivePlan:
 
 
 def user_plugins_root() -> Path:
-    return Path("~/.magi/plugins").expanduser()
+    return get_magi_home() / "plugins"
 
 
 def managed_plugin_directory(plugin_id: str) -> Path:

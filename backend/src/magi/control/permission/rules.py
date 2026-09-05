@@ -11,6 +11,7 @@ rules win over persistent ones when both match.
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 import json
 import time
@@ -30,7 +31,7 @@ __all__ = ["PermissionRuleStore"]
 logger = get_logger(__name__)
 
 
-_DEFAULT_DB_PATH = "~/.magi/runtime/permission_rules.db"
+_DEFAULT_DB_PATH = str(get_magi_home() / "runtime/permission_rules.db")
 
 
 class PermissionRuleStore:

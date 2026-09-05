@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FolderOpen, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { DEFAULT_SYSTEM_CONFIG, type SystemConfig } from '@/api/modules/config';
+import { configApi, type SystemConfig } from '@/api/modules/config';
+import { requireConfiguration } from '@/api/config-contract';
 import type { ControlSettingsDTO } from '@/api/modules/control';
 import { ControlSettingsPanel } from '@/components/control';
 import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from '@/components/settings/SettingsSectionPrimitives';
@@ -26,16 +27,38 @@ export function SettingsConversationSection({
 }: SettingsConversationSectionProps) {
   const { t } = useTranslation('app');
   const [pickingWorkspace, setPickingWorkspace] = useState(false);
-  const defaultChatWorkspaceFallback = DEFAULT_SYSTEM_CONFIG.preferences.default_chat_workspace_path;
+  const [restoringWorkspace, setRestoringWorkspace] = useState(false);
+  const workspaceRequest = useRef(0);
+  const restorePending = useRef(false);
+  useEffect(() => () => { workspaceRequest.current += 1; }, []);
   const coreModelSupportsVision = Boolean(draftConfig.llm?.selections?.core?.capabilities?.vision);
   const mediaGroundingEnabled = Boolean(draftConfig.preferences.allow_media_grounding_for_conversation);
   const mediaGroundingSwitchDisabled = !coreModelSupportsVision && !mediaGroundingEnabled;
   const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
-  const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? defaultChatWorkspaceFallback ?? '';
-  const canRestoreDefaultChatWorkspace = defaultChatWorkspacePath !== defaultChatWorkspaceFallback;
+  const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? '';
+  const canRestoreDefaultChatWorkspace = Boolean(defaultChatWorkspacePath);
   const rhythmMode = draftConfig.preferences.conversation_rhythm_mode ?? 'off';
   const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled)
     && (rhythmMode === 'natural' || rhythmMode === 'expressive');
+
+  const restoreDefaultWorkspace = async () => {
+    if (restorePending.current) return;
+    restorePending.current = true;
+    const request = ++workspaceRequest.current;
+    setRestoringWorkspace(true);
+    try {
+      const defaults = requireConfiguration(await configApi.getTemplate());
+      if (request !== workspaceRequest.current) return;
+      patchDraftConfig((draft) => {
+        draft.preferences.default_chat_workspace_path = defaults.preferences.default_chat_workspace_path;
+      });
+    } catch {
+      if (request === workspaceRequest.current) toast.error(t('settings.defaultChatWorkspaceRestoreFailed'));
+    } finally {
+      restorePending.current = false;
+      if (request === workspaceRequest.current) setRestoringWorkspace(false);
+    }
+  };
 
   const handlePickWorkspace = async () => {
     setPickingWorkspace(true);
@@ -79,7 +102,7 @@ export function SettingsConversationSection({
               onClick={() => {
                 void handlePickWorkspace();
               }}
-              disabled={pickingWorkspace}
+              disabled={pickingWorkspace || restoringWorkspace}
             >
               <FolderOpen className="mr-2 h-4 w-4" />
               {t('settings.actions.chooseDirectory')}
@@ -87,10 +110,8 @@ export function SettingsConversationSection({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => patchDraftConfig((draft) => {
-                draft.preferences.default_chat_workspace_path = defaultChatWorkspaceFallback;
-              })}
-              disabled={!canRestoreDefaultChatWorkspace}
+              onClick={() => { void restoreDefaultWorkspace(); }}
+              disabled={!canRestoreDefaultChatWorkspace || restoringWorkspace || pickingWorkspace}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
               {t('settings.actions.restoreDefaultDirectory')}

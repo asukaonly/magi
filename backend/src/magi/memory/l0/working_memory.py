@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ class L0WorkingMemoryStore(
     def __init__(
         self,
         *,
-        checkpoint_db_path: str = "~/.magi/data/memory/memory.db",
+        checkpoint_db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         checkpoint_interval_seconds: int = 30,
         session_timeout_seconds: int = 3600,
         restore_on_restart: bool = True,

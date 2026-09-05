@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 import hashlib
 import json
@@ -96,7 +97,7 @@ class SQLiteRuntimeCommandQueue:
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/runtime/message_queue.db",
+        db_path: str = str(get_magi_home() / "runtime/message_queue.db"),
         poll_interval_seconds: float = 0.1,
         claim_lease_seconds: float = DEFAULT_CLAIM_LEASE_SECONDS,
     ) -> None:

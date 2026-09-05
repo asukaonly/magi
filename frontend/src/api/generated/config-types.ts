@@ -709,15 +709,9 @@ export interface components {
         };
         /** MemoryConfigModel */
         MemoryConfigModel: {
-            /**
-             * Archive Path
-             * @default ~/.magi/data/memory/archive
-             */
+            /** Archive Path */
             archive_path: string | null;
-            /**
-             * Db Path
-             * @default ~/.magi/data/memory
-             */
+            /** Db Path */
             db_path: string | null;
             embedding: components["schemas"]["EmbeddingConfigModel"];
             entity_semantic_edges: components["schemas"]["EntitySemanticEdgeConfigModel"];
@@ -1427,10 +1421,7 @@ export interface components {
              * @default natural
              */
             conversation_rhythm_mode: string;
-            /**
-             * Default Chat Workspace Path
-             * @default ~/.magi/chat-workspace
-             */
+            /** Default Chat Workspace Path */
             default_chat_workspace_path: string | null;
             /**
              * Desktop Notification Previews Enabled

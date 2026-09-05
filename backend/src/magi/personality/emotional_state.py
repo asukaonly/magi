@@ -1,3 +1,4 @@
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import time
 import logging
 from typing import Optional, List
@@ -89,7 +90,7 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
     def __init__(
         self,
-        db_path: str = "~/.magi/data/memory/emotional_state.db",
+        db_path: str = str(get_magi_home() / "data/memory/emotional_state.db"),
         config: EmotionalConfig = None,
         *,
         persona_id: str = "",

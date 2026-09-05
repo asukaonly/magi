@@ -1564,7 +1564,6 @@
                 "type": "null"
               }
             ],
-            "default": "~/.magi/data/memory/archive",
             "title": "Archive Path"
           },
           "db_path": {
@@ -1576,7 +1575,6 @@
                 "type": "null"
               }
             ],
-            "default": "~/.magi/data/memory",
             "title": "Db Path"
           },
           "embedding": {
@@ -2878,7 +2876,6 @@
                 "type": "null"
               }
             ],
-            "default": "~/.magi/chat-workspace",
             "title": "Default Chat Workspace Path"
           },
           "desktop_notification_previews_enabled": {

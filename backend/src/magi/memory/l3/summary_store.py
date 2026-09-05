@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import logging
 import asyncio
 import re
@@ -379,7 +380,7 @@ class L3SummaryStore(
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/memory/memory.db",
+        db_path: str = str(get_magi_home() / "data/memory/memory.db"),
         embedding_service: MemoryEmbeddingService | None = None,
         memory_config_getter: Callable[[], Any] | None = None,
         vector_enabled: bool = True,

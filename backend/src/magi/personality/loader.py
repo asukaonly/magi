@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -314,7 +315,7 @@ class PersonalityLoader:
             return direct_path
 
         alternatives = [
-            Path.home() / ".magi" / "personalities" / f"{name}.json",
+            get_magi_home() / "personalities" / f"{name}.json",
             Path(f"./personalities/{name}.json"),
             Path(__file__).resolve().parents[3] / "personalities" / f"{name}.json",
             Path(f"./backend/personalities/{name}.json"),

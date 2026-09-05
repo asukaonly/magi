@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -58,7 +59,7 @@ class PluginSettings(BaseModel):
 class PluginsSettings(BaseModel):
     """Unified plugin runtime configuration."""
 
-    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", "~/.magi/plugins"])
+    scan_paths: List[str] = Field(default_factory=lambda: ["plugins", str(get_magi_home() / "plugins")])
     registry_url: Optional[str] = Field(default=None)
     packages: Dict[str, PluginSettings] = Field(
         default_factory=lambda: {

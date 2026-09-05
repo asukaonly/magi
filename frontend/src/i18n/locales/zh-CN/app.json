@@ -3006,7 +3006,8 @@
         "settingsSaveFailed": "执行器设置保存失败：{{message}}",
         "reloadFailed": "执行器重载失败：{{message}}"
       }
-    }
+    },
+    "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。"
   },
   "memory": {
     "title": "记忆查看",

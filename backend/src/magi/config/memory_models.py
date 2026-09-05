@@ -5,6 +5,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -615,10 +616,10 @@ class EntitySemanticEdgeSettings(BaseModel):
 class MemorySettings(BaseModel):
     """Memory configuration."""
 
-    db_path: str = Field(default="~/.magi/data/memory")
+    db_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory"))
     retention_days: int = Field(default=90, ge=1)
     history_behavior: MemoryHistoryBehavior = Field(default=MemoryHistoryBehavior.DELETE)
-    archive_path: str = Field(default="~/.magi/data/memory/archive")
+    archive_path: str = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
     async_embeddings: bool = Field(default=True)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: MemoryRerankerSettings = Field(default_factory=MemoryRerankerSettings)

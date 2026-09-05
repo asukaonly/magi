@@ -98,6 +98,22 @@ On confirmed desktop quit, the Tauri shell hides the main window first and then 
 
 External links are opened only after the desktop host validates their protocol. Web and email links are allowed on every platform; macOS and Windows additionally allow only their own system-settings protocol. Empty, malformed, credential-bearing, control-character, and all other protocol forms are rejected. Windows sends approved links directly to the native system handler and must never route them through a command interpreter.
 
+### Process data directory
+
+The desktop host, Rust gateway, Python worker and plugin SDK resolve the same
+process-wide `MAGI_HOME` directory. The default is `~/.magi`. An override must be
+a dedicated absolute directory, set before launch; it cannot be empty, a filesystem
+root, the OS home itself, or contain parent traversal. Changing it requires a full
+exit and relaunch. It does not change the operating-system home or discover data
+from another profile. Existing explicit configuration paths remain explicit.
+
+Runtime sockets/readiness files, diagnostics, avatars, plugin installs, child
+process tracking, managed workspace and default stores follow this root. The
+frontend consumes host-provided paths instead of inventing a user-home layout.
+Fresh example configuration leaves managed paths to the host defaults. Desktop
+candidate verification uses a new empty root and a distinct application identifier
+so both app data and WebView preferences are isolated from a regular installation.
+
 ### Gateway-visible API contract
 
 The frontend talks to the Rust gateway, not directly to the Python FastAPI app. The gateway-visible contract is therefore the union of Rust-native routes, Rust static mounts, and Python routes that are reached through the IPC proxy fallback.

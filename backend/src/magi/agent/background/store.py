@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from pathlib import Path
 
 from .store_budgets import BackgroundTaskBudgetStoreMixin
@@ -13,7 +14,7 @@ from .store_schema import BackgroundTaskSchemaMixin
 from .store_tasks import BackgroundTaskRowStoreMixin
 
 
-_DEFAULT_DB_PATH = "~/.magi/runtime/background_tasks.db"
+_DEFAULT_DB_PATH = str(get_magi_home() / "runtime/background_tasks.db")
 
 
 class BackgroundTaskStore(

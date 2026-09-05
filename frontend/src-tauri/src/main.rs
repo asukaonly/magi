@@ -212,22 +212,16 @@ fn wait_for_health(config: &ExternalBackendConfig, timeout: Duration) -> bool {
 
 /// Remove stale worker ready file.
 fn remove_ready_file() {
-    if let Ok(home) = env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .map(PathBuf::from)
-    {
-        let runtime_dir = home.join(".magi").join("runtime");
+    if let Ok(root) = magi_gateway::db::configured_magi_base_dir() {
+        let runtime_dir = root.join("runtime");
         let _ = fs::remove_file(runtime_dir.join("worker.ready"));
         let _ = fs::remove_file(runtime_dir.join("gateway.port"));
     }
 }
 
 fn write_gateway_port_file(port: u16) {
-    if let Ok(home) = env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .map(PathBuf::from)
-    {
-        let runtime_dir = home.join(".magi").join("runtime");
+    if let Ok(root) = magi_gateway::db::configured_magi_base_dir() {
+        let runtime_dir = root.join("runtime");
         let _ = fs::create_dir_all(&runtime_dir);
         let _ = fs::write(runtime_dir.join("gateway.port"), port.to_string());
     }
@@ -607,11 +601,10 @@ fn resolve_builtin_avatar_dir(app: &AppHandle) -> Option<PathBuf> {
 
 /// Resolve the user avatar directory (~/.magi/personalities/avatar).
 fn resolve_user_avatar_dir() -> Option<PathBuf> {
-    let home = env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .ok()
-        .map(PathBuf::from)?;
-    let dir = home.join(".magi").join("personalities").join("avatar");
+    let dir = magi_gateway::db::configured_magi_base_dir()
+        .ok()?
+        .join("personalities")
+        .join("avatar");
     let _ = fs::create_dir_all(&dir);
     Some(dir)
 }
@@ -691,25 +684,12 @@ fn resolve_plugin_python_path(app: &AppHandle) -> Result<PathBuf, String> {
     ))
 }
 
-fn home_dir() -> Result<PathBuf, String> {
-    env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .map_err(|_| "Neither HOME nor USERPROFILE is set".to_string())
-}
-
 fn desktop_log_dir() -> Result<PathBuf, String> {
-    match home_dir() {
-        Ok(home) => Ok(home.join(".magi").join("logs")),
-        Err(_) => env::current_dir()
-            .map(|current| current.join(".magi").join("logs"))
-            .map_err(|err| format!("Failed to resolve desktop log directory: {err}")),
-    }
+    Ok(magi_gateway::db::configured_magi_base_dir()?.join("logs"))
 }
 
 fn full_data_clear_marker_path() -> Result<PathBuf, String> {
-    Ok(home_dir()?
-        .join(".magi")
+    Ok(magi_gateway::db::configured_magi_base_dir()?
         .join("runtime")
         .join("full-data-clear.pending.json"))
 }
@@ -1147,10 +1127,7 @@ fn start_backend(
         let ipc_port = pick_open_port().map_err(|e| format!("Failed to pick IPC port: {e}"))?;
         format!("127.0.0.1:{}", ipc_port)
     } else {
-        let home = env::var("HOME")
-            .map(PathBuf::from)
-            .map_err(|_| "HOME is not set".to_string())?;
-        let runtime_dir = home.join(".magi").join("runtime");
+        let runtime_dir = magi_gateway::db::configured_magi_base_dir()?.join("runtime");
         fs::create_dir_all(&runtime_dir)
             .map_err(|e| format!("Failed to create runtime dir: {e}"))?;
         // Clean up stale ipc-*.sock files left by previous crashed sessions
@@ -1264,16 +1241,10 @@ fn poll_backend_startup(
     }
 
     // Check whether the Python worker has written its ready file.
-    let ready_file_exists = {
-        let home = env::var("HOME")
-            .or_else(|_| env::var("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_default();
-        home.join(".magi")
-            .join("runtime")
-            .join("worker.ready")
-            .exists()
-    };
+    let ready_file_exists = magi_gateway::db::configured_magi_base_dir()?
+        .join("runtime")
+        .join("worker.ready")
+        .exists();
 
     if !ready_file_exists {
         return Ok(PollStartupResponse {
@@ -1669,9 +1640,8 @@ fn disable_native_window_decorations(app: &AppHandle) {
 }
 
 fn main() {
-    let magi_data_root = home_dir()
-        .expect("failed to resolve Magi data directory")
-        .join(".magi");
+    let magi_data_root = magi_gateway::db::configured_magi_base_dir()
+        .expect("failed to resolve Magi data directory");
     private_data::protect_magi_data_root(&magi_data_root)
         .expect("failed to protect Magi private data");
 

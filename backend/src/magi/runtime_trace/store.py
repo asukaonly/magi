@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import asyncio
 from dataclasses import fields
 from pathlib import Path
@@ -45,7 +46,7 @@ class RuntimeTraceStore(
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/runtime/runtime_trace.db",
+        db_path: str = str(get_magi_home() / "runtime/runtime_trace.db"),
         plugin_ingress_clear_state_reader: PluginIngressClearStateReader | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())

@@ -3007,7 +3007,8 @@
         "settingsSaveFailed": "Failed to save action settings: {{message}}",
         "reloadFailed": "Failed to reload action plugin: {{message}}"
       }
-    }
+    },
+    "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again."
   },
   "memory": {
     "title": "Memory Viewer",

@@ -35,6 +35,7 @@ First Run:
 """
 import logging
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from threading import RLock
 from typing import Optional, Dict, Any, Tuple
 
@@ -52,9 +53,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Paths
 # =============================================================================
-def get_magi_home() -> Path:
-    """Get Magi home directory (~/.magi)"""
-    return Path.home() / ".magi"
 
 
 def get_config_dir() -> Path:

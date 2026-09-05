@@ -112,6 +112,9 @@ def build_examples() -> dict:
     from magi.tools.code_agent.contracts import ProbeResult
 
     config = SystemConfigModel()
+    config.memory.db_path = "/fixture/magi/data/memory"
+    config.memory.archive_path = "/fixture/magi/data/memory/archive"
+    config.preferences.default_chat_workspace_path = "/fixture/magi/chat-workspace"
     config.llm.providers["openai"] = LLMProviderConfigModel()
     for selection in config.llm.selections.values():
         selection.provider_id = "openai"

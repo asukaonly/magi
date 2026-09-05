@@ -644,7 +644,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     model_runtime_overrides: {},
   },
   memory: {
-    db_path: '~/.magi/data/memories',
     embedding: {
       mode: 'off',
       local: {
@@ -672,7 +671,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     retention_days: 90,
     history_behavior: 'delete',
-    archive_path: '~/.magi/data/memory/archive',
     l0: {
       enabled: true,
       checkpoint_interval_seconds: 30,
@@ -721,7 +719,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     auto_start_enabled: false,
     start_minimized: false,
     skip_quit_confirmation: false,
-    default_chat_workspace_path: '~/.magi/chat-workspace',
+    default_chat_workspace_path: null,
     streaming_chat_enabled: false,
     conversation_rhythm_enabled: true,
     conversation_rhythm_mode: 'natural',

@@ -186,6 +186,7 @@ vi.mock('@/api/modules/config', async () => {
     configApi: {
       ...actual.configApi,
       get: vi.fn(),
+      getTemplate: vi.fn(),
       update: vi.fn(),
       embeddingPreflight: vi.fn(),
     },
@@ -700,6 +701,7 @@ describe('settings page draft saving', () => {
       message: 'OK',
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
     } as any);
+    vi.mocked(configApi.getTemplate).mockReset();
     vi.mocked(configApi.update).mockImplementation(async (nextConfig: any) => ({
       success: true,
       data: structuredClone(nextConfig),
@@ -1251,14 +1253,14 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
     const workspaceInput = await screen.findByLabelText('settings.fields.defaultChatWorkspace');
     const planApprovalSwitch = await screen.findByTestId('plan-approval-switch');
-    expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
+    expect(workspaceInput).toHaveValue('');
     expect(planApprovalSwitch).toHaveAttribute('data-state', 'unchecked');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.chooseDirectory' }));
     await user.click(planApprovalSwitch);
 
     await waitFor(() => expect(pickDirectoryMock).toHaveBeenCalledTimes(1));
-    expect(pickDirectoryMock).toHaveBeenCalledWith('~/.magi/chat-workspace');
+    expect(pickDirectoryMock).toHaveBeenCalledWith('');
     expect(workspaceInput).toHaveValue('/tmp/magi-workspace');
     expect(planApprovalSwitch).toHaveAttribute('data-state', 'checked');
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
@@ -1294,6 +1296,11 @@ describe('settings page draft saving', () => {
       },
     } as any);
 
+    vi.mocked(configApi.getTemplate).mockResolvedValue({ success: true, message: 'OK', data: {
+      ...structuredClone(DEFAULT_SYSTEM_CONFIG), preferences: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences), default_chat_workspace_path: '/candidate/chat-workspace',
+      },
+    } });
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
@@ -1301,7 +1308,7 @@ describe('settings page draft saving', () => {
     expect(workspaceInput).toHaveValue('/tmp/magi-workspace');
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' }));
-    expect(workspaceInput).toHaveValue('~/.magi/chat-workspace');
+    await waitFor(() => expect(workspaceInput).toHaveValue('/candidate/chat-workspace'));
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -1309,11 +1316,30 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           preferences: expect.objectContaining({
-            default_chat_workspace_path: '~/.magi/chat-workspace',
+            default_chat_workspace_path: '/candidate/chat-workspace',
           }),
         })
       )
     );
+  });
+
+  it('keeps the workspace draft when default directory lookup fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(configApi.get).mockResolvedValue({
+      success: true, message: 'OK', data: {
+        ...structuredClone(DEFAULT_SYSTEM_CONFIG), preferences: {
+          ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences), default_chat_workspace_path: '/chosen/workspace',
+        },
+      },
+    });
+    vi.mocked(configApi.getTemplate).mockRejectedValue(new Error('Worker unavailable'));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    await user.click(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.restoreDefaultDirectory' })).toBeEnabled());
+    expect(screen.getByLabelText('settings.fields.defaultChatWorkspace')).toHaveValue('/chosen/workspace');
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
   });
 
   it('saves the conversation rhythm switch in conversation settings', async () => {

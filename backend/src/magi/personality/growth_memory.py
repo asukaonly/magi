@@ -1,4 +1,5 @@
 """Growth memory engine: milestones, relationships, and personality evolution events."""
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import hashlib
 import json
 import time
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class GrowthMemoryEngine(GrowthRelationshipMixin):
     """Persona-scoped milestone log, relationship profiles, and evolution tracking."""
 
-    def __init__(self, db_path: str = "~/.magi/data/memory/growth_memory.db", *, persona_id: str = ""):
+    def __init__(self, db_path: str = str(get_magi_home() / "data/memory/growth_memory.db"), *, persona_id: str = ""):
         self.db_path = db_path
         self.persona_id = persona_id
         self._relationship_cache: Dict[str, RelationshipProfile] = {}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import logging
 from pathlib import Path
 from typing import Callable
@@ -51,7 +52,7 @@ class ChatStore(
     def __init__(
         self,
         *,
-        db_path: str = "~/.magi/data/chat/chat.db",
+        db_path: str = str(get_magi_home() / "data/chat/chat.db"),
         runtime_paths: RuntimePaths | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())

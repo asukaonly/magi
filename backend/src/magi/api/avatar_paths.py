@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from urllib.parse import quote
 
 BUILTIN_AVATAR_PREFIX = "/static/avatars"
@@ -10,7 +11,7 @@ USER_AVATAR_PREFIX = "/static/user-avatars"
 
 
 def user_avatar_dir() -> Path:
-    return Path.home() / ".magi" / "personalities" / "avatar"
+    return get_magi_home() / "personalities" / "avatar"
 
 
 def builtin_avatar_dir() -> Path:

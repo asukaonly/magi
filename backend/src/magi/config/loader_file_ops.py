@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 import logging
 import os
 import shutil
@@ -120,7 +121,7 @@ class ConfigLoaderFileOpsMixin:
                 "web_search": {"enabled": True, "api_key": ""},
             },
             "plugins": {
-                "scan_paths": ["plugins", "~/.magi/plugins"],
+                "scan_paths": ["plugins", str(get_magi_home() / "plugins")],
             },
             "debug": False,
             "log_level": "INFO",

@@ -3,6 +3,7 @@
 import logging
 import os
 from pathlib import Path
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Optional
 
 from .private_data import protect_private_data_tree
@@ -22,9 +23,7 @@ class RuntimePaths:
             base_dir: Base directory, defaults to ~/.magi
         """
         if base_dir is None:
-            # Use .magi folder under user home directory.
-            home = Path.home()
-            base_dir = home / ".magi"
+            base_dir = get_magi_home()
 
         self.base_dir = Path(base_dir)
         protect_private_data_tree(self.base_dir)
@@ -361,7 +360,7 @@ DEFAULT_CHAT_WORKSPACE_DIRNAME = "chat-workspace"
 
 def get_default_chat_workspace_path() -> str:
     """Return the managed default workspace path for desktop chat sessions."""
-    workspace_path = (Path.home() / ".magi" / DEFAULT_CHAT_WORKSPACE_DIRNAME).expanduser()
+    workspace_path = (get_magi_home() / DEFAULT_CHAT_WORKSPACE_DIRNAME).expanduser()
     workspace_path.mkdir(parents=True, exist_ok=True)
     return str(workspace_path.resolve())
 

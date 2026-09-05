@@ -16,10 +16,8 @@ agent:
   enable_monitoring: true
 
   memory:
-    db_path: "~/.magi/data/memory"
     retention_days: 90
     history_behavior: "delete" # "delete" or "archive"
-    archive_path: "~/.magi/data/memory/archive"
     embedding:
       mode: "remote" # "remote" or "local"
       local:
@@ -159,7 +157,6 @@ agent:
 
   personality:
     name: "default"
-    path: "~/.magi/personalities"
     enable_evolution: true
 
   message_bus:
@@ -231,9 +228,6 @@ tools:
 # Plugins
 # =============================================================================
 plugins:
-  scan_paths:
-    - "plugins"
-    - "~/.magi/plugins"
   packages:
     core-tools:
       enabled: true
@@ -244,7 +238,6 @@ plugins:
 # Global Settings
 # =============================================================================
 preferences:
-  default_chat_workspace_path: "~/.magi/chat-workspace"
   desktop_notifications_enabled: true
   desktop_notification_previews_enabled: true
   conversation_rhythm_enabled: true

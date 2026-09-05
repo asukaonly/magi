@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
+from magi_plugin_sdk.runtime_paths import get_magi_home
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ...config.models import (
@@ -196,10 +197,10 @@ class EntitySemanticEdgeConfigModel(BaseModel):
 
 
 class MemoryConfigModel(BaseModel):
-    db_path: Optional[str] = Field(default="~/.magi/data/memory")
+    db_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory"))
     retention_days: int = Field(default=90, ge=1)
     history_behavior: str = Field(default="delete")
-    archive_path: Optional[str] = Field(default="~/.magi/data/memory/archive")
+    archive_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "data/memory/archive"))
     embedding: EmbeddingConfigModel = Field(default_factory=EmbeddingConfigModel)
     reranker: MemoryRerankerConfigModel = Field(default_factory=MemoryRerankerConfigModel)
     query_expansion: QueryExpansionConfigModel = Field(default_factory=QueryExpansionConfigModel)
@@ -247,7 +248,7 @@ class UserPreferencesModel(BaseModel):
     auto_start_enabled: bool = Field(default=False)
     start_minimized: bool = Field(default=False)
     skip_quit_confirmation: bool = Field(default=False)
-    default_chat_workspace_path: Optional[str] = Field(default="~/.magi/chat-workspace")
+    default_chat_workspace_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "chat-workspace"))
     streaming_chat_enabled: bool = Field(default=False)
     conversation_rhythm_enabled: bool = Field(default=True)
     conversation_rhythm_mode: str = Field(default="natural")
