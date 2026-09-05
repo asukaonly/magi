@@ -68,12 +68,12 @@ export const L4Tab: React.FC<L4TabProps> = ({ stats, skills }) => {
                     <Badge
                       variant={skill.circuit_breaker_state === 'closed' ? 'default' : 'destructive'}
                     >
-                      {skill.circuit_breaker_state}
+                      {t(`memory.l4.breakerStates.${['closed', 'open', 'half_open'].includes(skill.circuit_breaker_state) ? skill.circuit_breaker_state : 'unknown'}`)}
                     </Badge>
                   </div>
                   <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span>Success: {(skill.success_rate * 100).toFixed(1)}%</span>
-                    <span>Attempts: {skill.total_attempts}</span>
+                    <span>{t('memory.l4.successRate', { rate: (skill.success_rate * 100).toFixed(1) })}</span>
+                    <span>{t('memory.l4.attempts', { count: skill.total_attempts })}</span>
                   </div>
                 </div>
               ))}

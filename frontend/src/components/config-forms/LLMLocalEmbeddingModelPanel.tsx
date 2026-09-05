@@ -203,6 +203,7 @@ export function LLMLocalEmbeddingModelPanel({
               type="button"
               variant="outline"
               className="h-11 shrink-0"
+              aria-label={tApp('settings.browseFolder')}
               onClick={onPickDirectory}
             >
               <FolderOpen className="h-4 w-4" />

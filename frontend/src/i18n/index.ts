@@ -9,6 +9,12 @@ import zhControl from './locales/zh-CN/control.json';
 import { resolveInitialLanguage, toI18nLanguage } from '@/utils/language';
 
 const defaultLanguage = toI18nLanguage(resolveInitialLanguage());
+i18n.on('languageChanged', (language: string) => {
+  if (!i18n.isInitialized) return;
+  const normalized = language.startsWith('zh') ? 'zh' : 'en';
+  localStorage.setItem('magi_language', normalized);
+  document.documentElement.lang = toI18nLanguage(normalized);
+});
 
 void i18n.use(initReactI18next).init({
   resources: {

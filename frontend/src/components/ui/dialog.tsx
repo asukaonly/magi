@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -32,7 +33,9 @@ const DialogContent = React.forwardRef<
     overlayClassName?: string;
     closeLabel?: string;
   }
->(({ className, children, hideClose = false, disableOutsidePointerEvents, overlayClassName, closeLabel = 'Close', ...props }, ref) => (
+>(({ className, children, hideClose = false, disableOutsidePointerEvents, overlayClassName, closeLabel, ...props }, ref) => {
+  const { t } = useTranslation('app');
+  return (
   <DialogPortal>
     <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
@@ -52,12 +55,13 @@ const DialogContent = React.forwardRef<
           className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:right-4 sm:top-4"
         >
           <X className="h-4 w-4" />
-          <span className="sr-only">{closeLabel}</span>
+          <span className="sr-only">{closeLabel ?? t('common.close')}</span>
         </DialogPrimitive.Close>
       ) : null}
     </DialogPrimitive.Content>
   </DialogPortal>
-));
+);
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

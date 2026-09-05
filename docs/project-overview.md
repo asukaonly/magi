@@ -24,7 +24,7 @@ Current release expectations are:
 - `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
-- frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
+- frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and Python sidecar exactly once before producing the desktop bundle
 - release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
@@ -109,6 +109,16 @@ The gateway must not serve L0 sessions, workbenches, or aggregate memory
 statistics from a separate checkpoint-only view.
 
 The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, native routes that still have Python parity implementations, and the public/private resource exceptions to the default authenticated access policy. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
+
+The frontend's scoped accessibility lint covers shared primitives, configuration,
+onboarding, plugin and memory-data controls. It checks ARIA attributes, labels,
+images and tab order with `eslint-plugin-jsx-a11y-x`, which supports the current
+ESLint major. Native inputs with real HTML labels are tested through rendered
+controls instead of duplicated ARIA labels just to satisfy static inference.
+Keyboard regressions cover selection, disabled choices, Enter/Escape and focus
+return from nested dialogs. These checks complement actual desktop WebView smoke
+validation. Translation checking permits locale-specific plural forms while
+requiring matching semantic keys and interpolation arguments.
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
 

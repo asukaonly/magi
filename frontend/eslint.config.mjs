@@ -1,4 +1,5 @@
 import js from '@eslint/js';
+import jsxA11y from 'eslint-plugin-jsx-a11y-x';
 import { defineConfig } from 'eslint/config';
 import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
@@ -78,6 +79,26 @@ export default defineConfig([
         'ts-ignore': true, 'ts-nocheck': true,
         'ts-expect-error': 'allow-with-description', minimumDescriptionLength: 10,
       }],
+    },
+  },
+  {
+    files: [
+      'src/components/ui/**/*.tsx', 'src/components/config-forms/**/*.tsx',
+      'src/components/onboarding/**/*.tsx', 'src/components/settings/memory-data/**/*.tsx',
+      'src/components/plugins/**/*.tsx', 'src/components/AppWindowControls.tsx',
+      'src/pages/tasks-pages/components/ScheduleRunButton.tsx',
+    ],
+    plugins: { 'jsx-a11y-x': jsxA11y },
+    settings: { 'jsx-a11y-x': { components: { Input: 'input', Textarea: 'textarea', Button: 'button' } } },
+    rules: {
+      'jsx-a11y-x/alt-text': 'error',
+      'jsx-a11y-x/aria-props': 'error',
+      'jsx-a11y-x/aria-proptypes': 'error',
+      'jsx-a11y-x/aria-role': 'error',
+      'jsx-a11y-x/role-supports-aria-props': 'error',
+      'jsx-a11y-x/tabindex-no-positive': 'error',
+      'jsx-a11y-x/control-has-associated-label': ['error', { depth: 4, ignoreElements: ['input', 'textarea'] }],
+      'jsx-a11y-x/label-has-associated-control': ['error', { depth: 4, controlComponents: ['Input', 'Textarea', 'Switch', 'SelectField'] }],
     },
   },
 ]);

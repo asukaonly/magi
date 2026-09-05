@@ -1,5 +1,5 @@
 import { asEventHandler } from '@/utils/as-event-handler';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, File, FolderOpen, Plus, X } from 'lucide-react';
 
@@ -28,6 +28,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   selectOptions,
 }) => {
   const { t } = useTranslation('app');
+  const fieldId = useId();
   const [showPassword, setShowPassword] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [pickerFailed, setPickerFailed] = useState(false);
@@ -45,7 +46,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   );
 
   const renderLabel = () => (
-    <span className="text-sm font-medium">
+    <span id={`${fieldId}-label`} className="text-sm font-medium">
       {normalized.label}
       {normalized.required ? <span className="ml-1 text-destructive">*</span> : null}
     </span>
@@ -57,6 +58,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="flex items-center justify-between">
           {renderLabel()}
           <Switch
+            aria-label={normalized.label}
             checked={value === true}
             onCheckedChange={handleChange}
             disabled={disabled || normalized.readOnly}
@@ -75,6 +77,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="space-y-2">
           {renderLabel()}
           <SelectField
+            ariaLabel={normalized.label}
             value={String(value ?? normalized.defaultValue ?? '')}
             onChange={handleChange}
             options={options}
@@ -93,6 +96,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           {renderLabel()}
           <div className="relative">
             <Input
+              aria-labelledby={`${fieldId}-label`}
+              aria-invalid={Boolean(validationIssue)}
+              aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
               type={showPassword ? 'text' : 'password'}
               value={typeof value === 'string' ? value : ''}
               onChange={(event) => handleChange(event.target.value)}
@@ -118,6 +124,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="space-y-2">
           {renderLabel()}
           <input
+            aria-labelledby={`${fieldId}-label`}
+            aria-invalid={Boolean(validationIssue)}
+            aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
             type="number"
             value={typeof effectiveValue === 'number' || typeof effectiveValue === 'string' ? effectiveValue : ''}
             onChange={(event) => handleChange(event.target.value === '' ? '' : Number(event.target.value))}
@@ -194,6 +203,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="space-y-2">
           {renderLabel()}
           <Input
+              aria-labelledby={`${fieldId}-label`}
+              aria-invalid={Boolean(validationIssue)}
+              aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
             value={typeof value === 'string' ? value : ''}
             onChange={(event) => handleChange(event.target.value)}
             placeholder={normalized.placeholder}
@@ -236,6 +248,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
                   {!disabled && !normalized.readOnly && (
                     <button
                       type="button"
+                      aria-label={t('settings.removeArrayItem', { item: path })}
                       onClick={() => handleRemove(index)}
                       className="shrink-0 text-muted-foreground hover:text-destructive"
                     >
@@ -326,6 +339,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
                   {!disabled && !normalized.readOnly && (
                     <button
                       type="button"
+                      aria-label={t('settings.removeArrayItem', { item: tag })}
                       onClick={() => handleRemoveTag(index)}
                       className="text-muted-foreground hover:text-destructive"
                     >
@@ -339,6 +353,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           {!disabled && !normalized.readOnly && (
             <div className="flex gap-2">
               <Input
+              aria-labelledby={`${fieldId}-label`}
+              aria-invalid={Boolean(validationIssue)}
+              aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
                 value={tagInput}
                 onChange={(event) => setTagInput(event.target.value)}
                 onKeyDown={handleKeyDown}
@@ -347,6 +364,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
               />
               <button
                 type="button"
+                aria-label={t('settings.addArrayItem', { field: normalized.label })}
                 onClick={handleAdd}
                 disabled={!tagInput.trim()}
                 className="flex items-center gap-1 rounded-md border border-input px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
@@ -363,6 +381,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       <label className="space-y-2">
         {renderLabel()}
         <textarea
+          aria-labelledby={`${fieldId}-label`}
+          aria-invalid={Boolean(validationIssue)}
+          aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
           value={typeof value === 'string' ? value : typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : ''}
           onChange={(event) => {
             try {
@@ -385,7 +406,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   return (
     <div className="space-y-1.5">
       {renderField()}
-      {validationIssue ? <p role="alert" className="text-xs text-destructive">{t(`settings.dynamicValidation.${validationIssue}`)}</p> : null}
+      {validationIssue ? <p id={`${fieldId}-error`} role="alert" className="text-xs text-destructive">{t(`settings.dynamicValidation.${validationIssue}`)}</p> : null}
       {pickerFailed ? <p role="alert" className="text-xs text-destructive">{t('settings.dynamicValidation.pickerFailed')}</p> : null}
       {normalized.description ? (
         <p className="text-xs leading-5 text-muted-foreground">

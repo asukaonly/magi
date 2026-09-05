@@ -95,6 +95,10 @@
     }
   },
   "common": {
+    "retry": "Retry",
+    "close": "Close",
+    "search": "Search",
+    "noResults": "No results",
     "loading": "Loading...",
     "saving": "Saving...",
     "save": "Save",
@@ -257,6 +261,16 @@
       "loadFailed": "Failed to load background tasks."
     },
     "scheduled": {
+      "runParameters": {
+        "open": "Run with parameters…",
+        "title": "Run with parameters",
+        "hint": "Only affects this run. Scheduled runs keep the saved parameters.",
+        "label": "Parameters (JSON object)",
+        "invalidJson": "Enter valid JSON.",
+        "objectRequired": "Parameters must be a JSON object.",
+        "diaryHint": "Example: {\"days\": 7} backfills the last 7 days (default: 1).",
+        "assetHint": "Example: {\"days\": 7} fills representative images for the last 7 days."
+      },
       "pageTitle": "Schedule config",
       "pageSubtitle": "Manage recurring jobs, sensor syncs, and system maintenance tasks.",
       "defaultDisplayName": "Untitled schedule",
@@ -1339,6 +1353,8 @@
     }
   },
   "settings": {
+    "removeArrayItem": "Remove {{item}}",
+    "addArrayItem": "Add to {{field}}",
     "loadFailed": "Failed to load config: {{message}}",
     "saveSuccess": "Configuration saved",
     "saveFailed": "Failed to save config: {{message}}",
@@ -5067,7 +5083,15 @@
       "openBreakers": "Open Circuit Breakers",
       "highSuccess": "High Success Skills",
       "noSkills": "No procedural skills yet",
-      "skills": "Procedural Memory"
+      "skills": "Procedural Memory",
+      "successRate": "Success: {{rate}}%",
+      "attempts": "Attempts: {{count}}",
+      "breakerStates": {
+        "closed": "Available",
+        "open": "Paused after failures",
+        "half_open": "Trial run",
+        "unknown": "Unknown state"
+      }
     },
     "clearConfirm": {
       "title": "Clear All Data",

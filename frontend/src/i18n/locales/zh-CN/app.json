@@ -95,6 +95,10 @@
     }
   },
   "common": {
+    "retry": "重试",
+    "close": "关闭",
+    "search": "搜索",
+    "noResults": "没有匹配结果",
     "loading": "加载中...",
     "saving": "保存中...",
     "save": "保存",
@@ -257,6 +261,16 @@
       "loadFailed": "后台任务加载失败。"
     },
     "scheduled": {
+      "runParameters": {
+        "open": "带参数运行…",
+        "title": "带参数运行",
+        "hint": "只影响本次执行；下次定时触发时仍使用已保存的参数。",
+        "label": "运行参数（JSON 对象）",
+        "invalidJson": "请输入有效的 JSON。",
+        "objectRequired": "运行参数必须是 JSON 对象。",
+        "diaryHint": "示例：{\"days\": 7} 回填过去 7 天的日记（默认 1 天）。",
+        "assetHint": "示例：{\"days\": 7} 为最近 7 天补充代表图片。"
+      },
       "pageTitle": "调度配置",
       "pageSubtitle": "管理周期性运行的任务、传感器同步与系统作业。",
       "defaultDisplayName": "未命名调度",
@@ -1338,6 +1352,8 @@
     }
   },
   "settings": {
+    "removeArrayItem": "移除 {{item}}",
+    "addArrayItem": "添加到{{field}}",
     "loadFailed": "加载配置失败: {{message}}",
     "saveSuccess": "配置保存成功",
     "saveFailed": "保存配置失败: {{message}}",
@@ -5065,7 +5081,15 @@
       "openBreakers": "熔断器开启",
       "highSuccess": "高成功率技能",
       "noSkills": "暂无程序性技能",
-      "skills": "程序性记忆"
+      "skills": "程序性记忆",
+      "successRate": "成功率：{{rate}}%",
+      "attempts": "尝试次数：{{count}}",
+      "breakerStates": {
+        "closed": "可用",
+        "open": "失败后暂停",
+        "half_open": "试运行",
+        "unknown": "未知状态"
+      }
     },
     "clearConfirm": {
       "title": "清空全部数据",

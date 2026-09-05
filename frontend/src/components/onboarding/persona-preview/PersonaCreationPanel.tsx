@@ -134,6 +134,7 @@ export function PersonaCreationPanel({
                 </>
               ) : null}
               <textarea
+                aria-label={t("personaPreview.createCustomTitle")}
                 data-testid="persona-custom-description"
                 value={creationDraft?.description || ""}
                 onChange={(event) =>

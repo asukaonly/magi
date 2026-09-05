@@ -301,6 +301,7 @@ export function PersonaPreviewDetail({
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <input
+                  aria-label={t("personaPreview.adjustment.placeholder")}
                   data-testid="persona-adjustment-input"
                   value={adjustmentDraft}
                   disabled={adjusting}

@@ -55,6 +55,7 @@ export const PluginInstallProgressPanel = ({
       <div
         className="mt-3 h-2 overflow-hidden rounded-full bg-background"
         role="progressbar"
+        aria-label={title}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={progress}

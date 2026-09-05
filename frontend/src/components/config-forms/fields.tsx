@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown } from 'lucide-react';
-import { useState, useRef, useEffect, useLayoutEffect, type CSSProperties } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 interface OptionItem {
@@ -13,7 +14,7 @@ export function SelectField({
   value,
   onChange,
   options,
-  placeholder = 'Select...',
+  placeholder: placeholderProp,
   disabled = false,
   allowEmpty = true,
   className,
@@ -22,8 +23,8 @@ export function SelectField({
   ariaLabel,
   searchable = false,
   searchThreshold = 10,
-  searchPlaceholder = 'Search...',
-  noResultsText = 'No results',
+  searchPlaceholder: searchPlaceholderProp,
+  noResultsText: noResultsTextProp,
 }: {
   value?: string;
   onChange?: (value: string) => void;
@@ -40,6 +41,11 @@ export function SelectField({
   searchPlaceholder?: string;
   noResultsText?: string;
 }): JSX.Element {
+  const { t } = useTranslation('app');
+  const placeholder = placeholderProp ?? t('settings.selectPlaceholder');
+  const searchPlaceholder = searchPlaceholderProp ?? t('common.search');
+  const noResultsText = noResultsTextProp ?? t('common.noResults');
+  const menuId = useId();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,7 +74,7 @@ export function SelectField({
   }, [open, searchQuery]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: Event) => {
       const target = event.target as Node;
       const clickedTrigger = rootRef.current?.contains(target);
       const clickedMenu = menuRef.current?.contains(target);
@@ -77,7 +83,11 @@ export function SelectField({
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('focusin', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('focusin', handleClickOutside);
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -128,10 +138,39 @@ export function SelectField({
     };
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    const initial = showSearch ? menu?.querySelector<HTMLInputElement>('input')
+      : menu?.querySelector<HTMLButtonElement>('[data-select-option][aria-pressed="true"]:not(:disabled)')
+        ?? menu?.querySelector<HTMLButtonElement>('[data-select-option]:not(:disabled)');
+    initial?.focus();
+  }, [open, showSearch]);
+
+  const closeAndReturnFocus = () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  const handleMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAndReturnFocus(); return; }
+    if (event.key === 'Tab') { closeAndReturnFocus(); return; }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (event.target instanceof HTMLInputElement && ['Home', 'End'].includes(event.key)) return;
+    const choices = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-select-option]:not(:disabled)') ?? [])];
+    if (!choices.length) return;
+    event.preventDefault();
+    const current = choices.findIndex((choice) => choice === document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1
+      : event.key === 'ArrowUp' ? (current <= 0 ? choices.length - 1 : current - 1)
+      : (current + 1) % choices.length;
+    choices[next]?.focus();
+  };
+
   const handleSelect = (optValue: string) => {
     onChange?.(optValue);
     setSearchQuery('');
-    setOpen(false);
+    closeAndReturnFocus();
   };
 
   return (
@@ -140,7 +179,13 @@ export function SelectField({
         ref={triggerRef}
         type="button"
         onClick={() => !disabled && setOpen(!open)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!disabled) setOpen(true); }
+        }}
         disabled={disabled}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
         aria-label={ariaLabel}
         className={cn(
           'flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
@@ -159,6 +204,10 @@ export function SelectField({
           <div
             ref={menuRef}
             data-select-field-menu=""
+            id={menuId}
+            role="dialog"
+            aria-label={ariaLabel ?? placeholder}
+            onKeyDown={handleMenuKeyDown}
             style={menuStyle}
             className={cn(
               'overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
@@ -170,6 +219,7 @@ export function SelectField({
               <div className="sticky top-0 z-[1] border-b border-border bg-background p-2">
                 <input
                   type="text"
+                  aria-label={searchPlaceholder}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder={searchPlaceholder}
@@ -180,6 +230,8 @@ export function SelectField({
             {allowEmpty && (
               <button
                 type="button"
+                data-select-option=""
+                aria-pressed={!value}
                 onClick={() => handleSelect('')}
                 className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-muted/50"
               >
@@ -191,6 +243,8 @@ export function SelectField({
               <button
                 type="button"
                 key={opt.value}
+                data-select-option=""
+                aria-pressed={selectedOption?.value === opt.value}
                 onClick={() => {
                   if (!opt.disabled) {
                     handleSelect(opt.value);

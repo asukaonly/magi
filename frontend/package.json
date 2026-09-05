@@ -32,10 +32,11 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "check": "npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check",
+    "check": "npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check && npm run check:i18n",
     "check:full": "npm run check && npm run test:ci && npm run build",
     "contracts:generate": "node scripts/generate-api-contracts.mjs",
-    "contracts:check": "node scripts/generate-api-contracts.mjs --check"
+    "contracts:check": "node scripts/generate-api-contracts.mjs --check",
+    "check:i18n": "node --test scripts/check-i18n.test.mjs && node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -99,6 +100,7 @@
     "ajv": "^8.20.0",
     "autoprefixer": "^10.4.16",
     "eslint": "^10.8.0",
+    "eslint-plugin-jsx-a11y-x": "^0.2.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^16.5.0",
