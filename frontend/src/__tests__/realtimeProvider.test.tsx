@@ -366,7 +366,7 @@ describe('RealtimeProvider', () => {
     });
   });
 
-  it('keeps the legacy content-delta fallback for streaming text chunks', async () => {
+  it('projects structured text chunks and flushes on the final boundary', async () => {
     render(
       <RealtimeProvider>
         <div />
@@ -379,7 +379,7 @@ describe('RealtimeProvider', () => {
         data: {
           session_id: 'sid-1',
           turn_id: 'turn-legacy-stream',
-          content_delta: 'Hello',
+          event: { kind: 'text_delta', text: 'Hello' },
           is_final: false,
         },
       });
@@ -388,7 +388,7 @@ describe('RealtimeProvider', () => {
         data: {
           session_id: 'sid-1',
           turn_id: 'turn-legacy-stream',
-          content_delta: '',
+          event: { kind: 'done' },
           is_final: true,
         },
       });

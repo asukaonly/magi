@@ -30,6 +30,7 @@ const ACTIVE_STATUSES: ReadonlyArray<BackgroundTaskStatus> = [
   'pending',
   'running',
   'cancelling',
+  'suspended_waiting_user',
 ];
 
 const isTaskAllowedAfterClear = (

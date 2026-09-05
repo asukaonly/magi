@@ -1,0 +1,789 @@
+{
+  "components": {
+    "schemas": {
+      "BackgroundTask": {
+        "description": "Mutable runtime state for one background task.\n\n``task_id`` is stable across retries; each retry bumps ``attempt_index``\nand clears ``started_at`` / ``finished_at`` / ``error`` / ``summary`` /\n``result_payload`` before transitioning back to\n``pending``.",
+        "properties": {
+          "attempt_index": {
+            "default": 0,
+            "title": "Attempt Index",
+            "type": "integer"
+          },
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cancel Reason"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finished At"
+          },
+          "result_payload": {
+            "additionalProperties": true,
+            "title": "Result Payload",
+            "type": "object"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/BackgroundTaskSpec"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BackgroundTaskStatus",
+            "default": "pending"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Summary"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "user_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Task Id"
+          }
+        },
+        "required": [
+          "task_id",
+          "spec",
+          "status",
+          "attempt_index",
+          "user_task_id",
+          "summary",
+          "result_payload",
+          "error",
+          "cancel_reason",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "updated_at"
+        ],
+        "title": "BackgroundTask",
+        "type": "object"
+      },
+      "BackgroundTaskEvent": {
+        "description": "An append-only entry in the task's event log.\n\nEvents are recorded for every state transition plus ad-hoc progress\nnotes. The store guarantees insertion order but does not enforce any\ntransition validity; the manager is the authority on legal transitions.",
+        "properties": {
+          "attempt_index": {
+            "title": "Attempt Index",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundTaskStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "to_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundTaskStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "event_id",
+          "task_id",
+          "attempt_index",
+          "event_type",
+          "from_status",
+          "to_status",
+          "message",
+          "payload",
+          "created_at"
+        ],
+        "title": "BackgroundTaskEvent",
+        "type": "object"
+      },
+      "BackgroundTaskSpec": {
+        "description": "Immutable input used to (re-)launch a background task.\n\nA spec is created once at dispatch time and is preserved verbatim across\nretries; the mutable state lives on :class:`BackgroundTask`.",
+        "properties": {
+          "agent_run_checkpoint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Agent Run Checkpoint"
+          },
+          "context_sources": {
+            "default": [],
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Context Sources",
+            "type": "array"
+          },
+          "ephemeral_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ephemeral Context"
+          },
+          "execution_preset": {
+            "default": "background",
+            "title": "Execution Preset",
+            "type": "string"
+          },
+          "final_response_json_mode": {
+            "default": false,
+            "title": "Final Response Json Mode",
+            "type": "boolean"
+          },
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "max_iterations": {
+            "default": 50,
+            "title": "Max Iterations",
+            "type": "integer"
+          },
+          "origin_turn_id": {
+            "title": "Origin Turn Id",
+            "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Parent Run Id"
+          },
+          "pending_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Pending Message Id"
+          },
+          "priority": {
+            "default": 0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "reasoning_policy": {
+            "additionalProperties": true,
+            "title": "Reasoning Policy",
+            "type": "object"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "selected_tools": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Tools",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "skill_preapproval_rules": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Skill Preapproval Rules",
+            "type": "array"
+          },
+          "system_prompt": {
+            "default": "",
+            "title": "System Prompt",
+            "type": "string"
+          },
+          "task_budget_root_turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Budget Root Turn Id"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 1800,
+            "title": "Timeout Seconds"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunTrigger"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "trigger_source": {
+            "$ref": "#/components/schemas/BackgroundTaskTriggerSource",
+            "default": "rule"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "working_context": {
+            "default": "",
+            "title": "Working Context",
+            "type": "string"
+          },
+          "workspace_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Workspace Path"
+          }
+        },
+        "required": [
+          "user_id",
+          "session_id",
+          "origin_turn_id",
+          "title",
+          "goal",
+          "run_id",
+          "selected_tools",
+          "skill_preapproval_rules",
+          "system_prompt",
+          "working_context",
+          "ephemeral_context",
+          "execution_preset",
+          "reasoning_policy",
+          "parent_run_id",
+          "final_response_json_mode",
+          "context_sources",
+          "workspace_path",
+          "trigger_source",
+          "trigger",
+          "priority",
+          "max_iterations",
+          "timeout_seconds",
+          "task_budget_root_turn_id",
+          "agent_run_checkpoint",
+          "pending_message_id"
+        ],
+        "title": "BackgroundTaskSpec",
+        "type": "object"
+      },
+      "BackgroundTaskStatus": {
+        "description": "Lifecycle states for a background task.\n\nThe valid transitions are:\n\n* ``pending`` → ``running`` (slot acquired) | ``cancelled``\n* ``running`` → ``cancelling`` | ``succeeded`` | ``failed``\n  | ``suspended_waiting_user``\n* ``suspended_waiting_user`` → ``running`` (user answered the prompt)\n  | ``cancelling``\n* ``cancelling`` → ``cancelled``\n* ``failed`` / ``cancelled`` → ``pending`` on retry (new ``attempt_index``)\n\nSucceeded tasks are terminal.",
+        "enum": [
+          "pending",
+          "running",
+          "cancelling",
+          "cancelled",
+          "succeeded",
+          "failed",
+          "suspended_waiting_user"
+        ],
+        "title": "BackgroundTaskStatus",
+        "type": "string"
+      },
+      "BackgroundTaskTriggerSource": {
+        "description": "How a task was launched. Used for auditing and dispatcher metrics.",
+        "enum": [
+          "planner",
+          "classifier",
+          "user",
+          "manual",
+          "rule",
+          "schedule"
+        ],
+        "title": "BackgroundTaskTriggerSource",
+        "type": "string"
+      },
+      "ChatDisplayMessage": {
+        "description": "Typed read model for chat history and display timeline messages.",
+        "properties": {
+          "allow_trace_collapse": {
+            "default": false,
+            "title": "Allow Trace Collapse",
+            "type": "boolean"
+          },
+          "attachments": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Attachments"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Id"
+          },
+          "message_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message Kind"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Payload"
+          },
+          "persona_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Persona Id"
+          },
+          "reply_to": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reply To"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "run_state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Run State"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "integer"
+          },
+          "trace_available": {
+            "default": false,
+            "title": "Trace Available",
+            "type": "boolean"
+          },
+          "trace_display_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Trace Display Mode"
+          },
+          "trace_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Trace Summary"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Turn Id"
+          }
+        },
+        "required": [
+          "role",
+          "content",
+          "timestamp",
+          "kind",
+          "attachments",
+          "message_id",
+          "message_kind",
+          "persona_id",
+          "turn_id",
+          "trace_display_mode",
+          "allow_trace_collapse",
+          "trace_summary",
+          "trace_available",
+          "run_state",
+          "reply_to",
+          "label",
+          "payload"
+        ],
+        "title": "ChatDisplayMessage",
+        "type": "object"
+      },
+      "ChatSessionSummary": {
+        "description": "Typed session summary returned by the chat read model.",
+        "properties": {
+          "history_version": {
+            "default": 0,
+            "title": "History Version",
+            "type": "integer"
+          },
+          "last_message_preview": {
+            "title": "Last Message Preview",
+            "type": "string"
+          },
+          "last_timestamp": {
+            "title": "Last Timestamp",
+            "type": "integer"
+          },
+          "last_user_message_preview": {
+            "title": "Last User Message Preview",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "title_overridden": {
+            "title": "Title Overridden",
+            "type": "boolean"
+          },
+          "workspace_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Workspace Path"
+          }
+        },
+        "required": [
+          "session_id",
+          "title",
+          "last_message_preview",
+          "last_user_message_preview",
+          "title_overridden",
+          "last_timestamp",
+          "message_count",
+          "workspace_path",
+          "history_version"
+        ],
+        "title": "ChatSessionSummary",
+        "type": "object"
+      },
+      "RunEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "stdout",
+              "stderr",
+              "tool_call",
+              "tool_result",
+              "assistant_text",
+              "thinking",
+              "status",
+              "error"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "ts_ms": {
+            "minimum": 0,
+            "title": "Ts Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "ts_ms",
+          "payload"
+        ],
+        "title": "RunEvent",
+        "type": "object"
+      },
+      "RunTrigger": {
+        "description": "Describes how / why a run was started.\n\nCarried on ``AgentRun.trigger`` so observability, delivery, and retract\npropagation can preserve provenance.",
+        "properties": {
+          "correlation": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Correlation",
+            "type": "array"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester": {
+            "title": "Requester",
+            "type": "string"
+          },
+          "source_channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Channel"
+          },
+          "trigger_type": {
+            "title": "Trigger Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trigger_type",
+          "source_channel",
+          "requester",
+          "priority",
+          "correlation",
+          "payload"
+        ],
+        "title": "RunTrigger",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi chat and task serialization contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

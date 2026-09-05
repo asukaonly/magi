@@ -1,3 +1,4 @@
+import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +9,7 @@ import type { BackgroundTaskDTO, BackgroundTaskSpecDTO } from '@/api';
 import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
 
 const DEFAULT_SPEC: BackgroundTaskSpecDTO = {
+  ...eventExamples.task.spec,
   user_id: 'local_user',
   session_id: 'session-1',
   origin_turn_id: 'turn-1',
@@ -72,6 +74,15 @@ describe('useBackgroundTaskStore', () => {
 
     useBackgroundTaskStore.getState().upsert({ ...running, status: 'succeeded' });
 
+    expect(useBackgroundTaskStore.getState().activeCount).toBe(0);
+  });
+
+  it('keeps waiting tasks active until they reach a terminal state', () => {
+    const running = buildTask();
+    useBackgroundTaskStore.getState().hydrate([running], 1);
+    useBackgroundTaskStore.getState().upsert({ ...running, status: 'suspended_waiting_user' });
+    expect(useBackgroundTaskStore.getState().activeCount).toBe(1);
+    useBackgroundTaskStore.getState().upsert({ ...running, status: 'cancelled' });
     expect(useBackgroundTaskStore.getState().activeCount).toBe(0);
   });
 

@@ -9,11 +9,13 @@ import sys
 import tempfile
 from pathlib import Path
 
+from pydantic import TypeAdapter
 from pydantic.json_schema import GenerateJsonSchema, models_json_schema
 from pydantic_core import core_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend" / "src"))
+sys.path.insert(0, str(ROOT / "sdk" / "src"))
 
 
 class ResponseJsonSchema(GenerateJsonSchema):
@@ -24,7 +26,7 @@ class ResponseJsonSchema(GenerateJsonSchema):
         field: core_schema.ModelField | core_schema.DataclassField | core_schema.TypedDictField,
         total: bool,
     ) -> bool:
-        if self.mode == "serialization" and field["type"] == "model-field":
+        if self.mode == "serialization" and field["type"] in {"model-field", "dataclass-field"}:
             return field.get("serialization_exclude_if") is None
         return super().field_is_required(field, total)
 
@@ -170,6 +172,75 @@ def build_plugin_examples() -> dict:
     }
 
 
+def build_event_contract() -> dict:
+    from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent
+    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.tools.code_agent.contracts import RunEvent
+
+    models = [ChatDisplayMessage, ChatSessionSummary, BackgroundTask, BackgroundTaskEvent, RunEvent]
+    _, definitions = ResponseJsonSchema(ref_template="#/components/schemas/{model}").generate_definitions([
+        (model.__name__, "serialization", TypeAdapter(model).core_schema) for model in models
+    ])
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Magi chat and task serialization contracts", "version": "1"},
+        "paths": {}, "components": {"schemas": definitions},
+    }
+
+
+def build_event_examples() -> dict:
+    from unittest.mock import patch
+
+    from magi.agent.background.contracts import (
+        BackgroundTask,
+        BackgroundTaskSpec,
+        BackgroundTaskStatus,
+    )
+    from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
+    from magi.runtime_trace import notification_payloads as notifications
+    from magi.tools.code_agent.contracts import RunEvent
+
+    message = ChatDisplayMessage(
+        role="assistant", content="Hello", timestamp=1000, kind="assistant",
+        message_id="fixture-message", message_kind="assistant_final", turn_id="fixture-turn",
+    )
+    session = ChatSessionSummary(
+        session_id="fixture-session", title="Chat", last_message_preview="Hello",
+        last_user_message_preview="Hi", title_overridden=False, last_timestamp=1000, message_count=2,
+    )
+    task = BackgroundTask(
+        task_id="fixture-task", spec=BackgroundTaskSpec(
+            user_id="fixture-user", session_id="fixture-session", origin_turn_id="fixture-turn",
+            title="Task", goal="Inspect workspace", run_id="fixture-run",
+        ), status=BackgroundTaskStatus.SUSPENDED_WAITING_USER, created_at=1.0, updated_at=1.0,
+    )
+    with patch.object(notifications.time, "time", return_value=1.0):
+        return {
+            "message": message.to_dict(), "session": session.to_dict(), "task": task.to_dict(),
+            "runEvent": RunEvent(kind="status", ts_ms=1000, payload={"text": "Working"}).model_dump(mode="json"),
+            "upsert": notifications.chat_message_upsert_payload(
+                user_id="fixture-user", session_id=session.session_id, message_id=message.message_id,
+                message=message, session_summary=session,
+            ),
+            "hidden": notifications.chat_message_hidden_payload(
+                user_id="fixture-user", session_id=session.session_id, message_id=message.message_id,
+                session_summary=session,
+            ),
+            "response": notifications.agent_response_payload(
+                user_id="fixture-user", session_id=session.session_id, content="Hello",
+                extra_fields={"turn_id": "fixture-turn", "message_id": message.message_id},
+            ),
+            "chunk": notifications.agent_response_chunk_payload(
+                user_id="fixture-user", session_id=session.session_id, turn_id="fixture-turn",
+                event={"kind": "text_delta", "text": "Hello"}, is_final=False, seq=1,
+            ),
+            "control": notifications.execution_control_payload(
+                user_id="fixture-user", session_id=session.session_id, turn_id="fixture-turn",
+                run_id="fixture-run", state="cancelling", can_cancel=False, label=None,
+            ),
+        }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -182,6 +253,7 @@ def main() -> int:
         outputs = {
             "frontend-config.json": build_contract(), "frontend-config-examples.json": build_examples(),
             "frontend-plugins.json": build_plugin_contract(), "frontend-plugins-examples.json": build_plugin_examples(),
+            "frontend-events.json": build_event_contract(), "frontend-events-examples.json": build_event_examples(),
         }
     for name, payload in outputs.items():
         target = ROOT / "contracts" / "api" / name

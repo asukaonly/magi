@@ -31,7 +31,7 @@ import { TauriBridgeClient } from './tauri-bridge';
 
 export interface RealtimeMessage {
   type?: string;
-  data?: any;
+  data?: unknown;
   event?: string;
   channel?: string;
   sid?: string;

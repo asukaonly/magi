@@ -1,3 +1,4 @@
+import { executionControlSchema } from '@/api/event-contract';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -164,8 +165,11 @@ export function useChatExecutionControls({
     }
   }, [currentSessionId, detachingTurns, t]);
 
-  const handleTurnExecutionControlEvent = useCallback((payload: any) => {
-    const sessionId = String(payload?.session_id || currentSessionId || '').trim();
+  const handleTurnExecutionControlEvent = useCallback((input: unknown) => {
+    const parsed = executionControlSchema.safeParse(input);
+    if (!parsed.success) return;
+    const payload = parsed.data;
+    const sessionId = payload.session_id;
     const turnId = String(payload?.turn_id || '').trim();
     const state = String(payload?.state || '').trim().toLowerCase();
     if (!sessionId || !turnId || !state) return;
@@ -208,7 +212,7 @@ export function useChatExecutionControls({
         current.filter((item) => runControlKey(item) !== key)
       ));
     }
-  }, [currentSessionId, releaseCancelling]);
+  }, [releaseCancelling]);
 
   return {
     cancellingTurnIds,

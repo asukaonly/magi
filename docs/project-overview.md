@@ -132,6 +132,15 @@ resource widgets validate their supported collection/permission shapes before
 rendering. A completed install without its package result is a contract failure,
 not proof of installation or runtime activation.
 
+Chat display messages, session summaries, background tasks, and code-agent run
+messages are exported from their production Python serializers to
+`contracts/api/frontend-events.json`. Notification fixtures are built by the
+production notification builders. Desktop projections validate these boundaries
+before updating stores; invalid or mismatched chat data requests history
+reconciliation instead of inserting partial messages. Task statuses are derived
+from the runtime enum, including `suspended_waiting_user`, which remains active
+and cancellable. Streaming consumes structured events and their final boundary.
+
 When adding or moving a product API route, update the route implementation, the manifest, and the relevant contract tests in the same task. FastAPI OpenAPI is useful for Python-proxied routes only; it is not sufficient as the complete desktop API contract because Rust-native routes are registered outside Python.
 
 The Rust gateway's direct SQLite write surface is tracked separately in `contracts/sqlite/gateway_writes.json`. `scripts/check-sqlite-ownership.py` scans production Rust gateway SQL and fails when a write or gateway-created index is not declared in that ownership contract.

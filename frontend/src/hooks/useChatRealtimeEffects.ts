@@ -19,7 +19,7 @@ type UseChatRealtimeEffectsOptions = {
   allowInterjection: boolean;
   pendingResponseTurnsBySession: PendingResponseTurnsBySession;
   refreshVisibleTrace: (turnId: string) => void;
-  handleTurnExecutionControlEvent: (payload: any) => void;
+  handleTurnExecutionControlEvent: (payload: unknown) => void;
   reconcilePendingResponseTurn: (
     sessionId: string,
     turnId: string,

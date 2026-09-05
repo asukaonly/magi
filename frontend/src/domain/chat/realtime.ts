@@ -1,3 +1,5 @@
+import { isRecord } from '@/utils/value-guards';
+import { executionControlSchema, type ExecutionControlPayload } from '@/api/event-contract';
 import {
   readRhythmSegmentMeta,
 } from '@/domain/chat/rhythm';
@@ -10,7 +12,7 @@ import {
 type ChatRealtimeEnvelope = {
   event?: string | null;
   type?: string | null;
-  data?: any;
+  data?: unknown;
 };
 
 type PendingTurnState = {
@@ -20,7 +22,7 @@ type PendingTurnState = {
 
 export type ChatRealtimeEffectPlan = {
   refreshTraceTurnId?: string;
-  turnExecutionControlPayload?: any;
+  turnExecutionControlPayload?: ExecutionControlPayload;
   syncSession: boolean;
   clearPendingResponseTurn?: PendingResponseTurnIdentity;
   reconcilePendingResponseTurn?: PendingResponseTurnIdentity;
@@ -30,28 +32,21 @@ const EMPTY_PLAN: ChatRealtimeEffectPlan = {
   syncSession: false,
 };
 
+const readText = (value: unknown): string => typeof value === 'string' ? value.trim() : '';
+
 const readPayloadTurnIdentity = (
-  payload: any,
+  payload: unknown,
 ): PendingResponseTurnIdentity | null => {
-  const sessionId = String(
-    payload?.session_id
-    ?? payload?.sessionId
-    ?? payload?.message?.session_id
-    ?? payload?.message?.sessionId
-    ?? '',
-  ).trim();
-  const turnId = String(
-    payload?.turn_id
-    ?? payload?.turnId
-    ?? payload?.message?.turn_id
-    ?? payload?.message?.turnId
-    ?? '',
-  ).trim();
+  if (!isRecord(payload)) return null;
+  const nested = isRecord(payload.message) ? payload.message : {};
+  const sessionId = readText(payload.session_id ?? payload.sessionId ?? nested.session_id ?? nested.sessionId);
+  const turnId = readText(payload.turn_id ?? payload.turnId ?? nested.turn_id ?? nested.turnId);
   return sessionId && turnId ? { sessionId, turnId } : null;
 };
 
+
 const matchesPendingTurn = (
-  payload: any,
+  payload: unknown,
   pendingTurnState: PendingTurnState,
 ): PendingResponseTurnIdentity | null => {
   if (pendingTurnState.allowInterjection) {
@@ -70,14 +65,11 @@ const matchesPendingTurn = (
   return identity;
 };
 
-const getRhythmPayload = (payload: any): Record<string, unknown> | null => {
-  const candidates = [
-    payload?.message_payload?.rhythm,
-    payload?.payload?.rhythm,
-    payload?.rhythm,
-  ];
-  const match = candidates.find((candidate) => candidate && typeof candidate === 'object');
-  return match ? match as Record<string, unknown> : null;
+const getRhythmPayload = (payload: unknown): Record<string, unknown> | null => {
+  if (!isRecord(payload)) return null;
+  const messagePayload = isRecord(payload.message_payload) ? payload.message_payload : {};
+  const innerPayload = isRecord(payload.payload) ? payload.payload : {};
+  return [messagePayload.rhythm, innerPayload.rhythm, payload.rhythm].find(isRecord) ?? null;
 };
 
 type TrackedRhythmTurn = {
@@ -88,7 +80,7 @@ type TrackedRhythmTurn = {
 };
 
 export type ChatRealtimeResponseTracker = {
-  observeRhythm: (payload: any) => boolean;
+  observeRhythm: (payload: unknown) => boolean;
   reset: (identity?: PendingResponseTurnIdentity) => void;
 };
 
@@ -105,12 +97,17 @@ export const createChatRealtimeResponseTracker = (): ChatRealtimeResponseTracker
     turns.clear();
   };
 
-  const observeRhythm = (payload: any): boolean => {
+  const observeRhythm = (payload: unknown): boolean => {
     const identity = readPayloadTurnIdentity(payload);
     if (!identity) {
       return false;
     }
+    if (!isRecord(payload)) return false;
     const turnKey = `${identity.sessionId}\u0000${identity.turnId}`;
+    if (!turns.has(turnKey) && turns.size >= MAX_TRACKED_RHYTHM_TURNS) {
+      const oldestKey = turns.keys().next().value;
+      if (oldestKey !== undefined) turns.delete(oldestKey);
+    }
     const meta = readRhythmSegmentMeta(getRhythmPayload(payload));
     if (!meta) {
       const existing = turns.get(turnKey);
@@ -129,12 +126,6 @@ export const createChatRealtimeResponseTracker = (): ChatRealtimeResponseTracker
 
     let state = turns.get(turnKey);
     if (!state) {
-      if (turns.size >= MAX_TRACKED_RHYTHM_TURNS) {
-        const oldestTurnId = turns.keys().next().value;
-        if (typeof oldestTurnId === 'string') {
-          turns.delete(oldestTurnId);
-        }
-      }
       state = {
         segmentCount: meta.segmentCount,
         segmentIds: new Map(),
@@ -151,7 +142,7 @@ export const createChatRealtimeResponseTracker = (): ChatRealtimeResponseTracker
       return false;
     }
 
-    const messageId = String(payload?.message_id ?? payload?.messageId ?? '').trim();
+    const messageId = readText(payload.message_id ?? payload.messageId);
     const previousMessageId = state.segmentIds.get(meta.segmentIndex);
     if (
       previousMessageId !== undefined
@@ -183,13 +174,15 @@ export const createChatRealtimeResponseTracker = (): ChatRealtimeResponseTracker
 };
 
 export const isTerminalAgentResponse = (
-  payload: any,
+  payload: unknown,
   responseTracker?: ChatRealtimeResponseTracker,
 ): boolean => {
+  if (!isRecord(payload)) return false;
+  if (payload.is_final !== undefined && typeof payload.is_final !== 'boolean') return false;
   if (payload?.is_final === false || payload?.isFinal === false) {
     return false;
   }
-  const messageKind = String(payload?.message_kind || '').trim();
+  const messageKind = readText(payload.message_kind);
   if (messageKind !== 'assistant_rhythm_segment') {
     const identity = readPayloadTurnIdentity(payload);
     if (identity) {
@@ -206,21 +199,25 @@ export const projectChatRealtimeEffectPlan = (
   responseTracker?: ChatRealtimeResponseTracker,
 ): ChatRealtimeEffectPlan => {
   const eventName = envelope.event || envelope.type;
+  const payload = envelope.data;
+  if (!isRecord(payload)) return EMPTY_PLAN;
 
-  if (eventName === 'execution_trace_update' && envelope.data) {
+  if (eventName === 'execution_trace_update' && payload) {
     return {
       ...EMPTY_PLAN,
-      refreshTraceTurnId: String(envelope.data?.turn_id || ''),
+      refreshTraceTurnId: readText(payload.turn_id),
     };
   }
 
-  if (eventName === 'turn_execution_control' && envelope.data) {
-    const state = String(envelope.data?.state || '').trim().toLowerCase();
-    const matchesPending = matchesPendingTurn(envelope.data, pendingTurnState);
+  if (eventName === 'turn_execution_control' && payload) {
+    const parsed = executionControlSchema.safeParse(payload);
+    if (!parsed.success) return EMPTY_PLAN;
+    const state = parsed.data.state.toLowerCase();
+    const matchesPending = matchesPendingTurn(parsed.data, pendingTurnState);
     const terminal = isTerminalRunState(state);
     return {
       ...EMPTY_PLAN,
-      turnExecutionControlPayload: envelope.data,
+      turnExecutionControlPayload: parsed.data,
       reconcilePendingResponseTurn: (
         matchesPending && terminal
           ? matchesPending
@@ -229,29 +226,28 @@ export const projectChatRealtimeEffectPlan = (
     };
   }
 
-  if (eventName === 'chat_message_upserted' && envelope.data) {
-    const message = envelope.data?.message;
-    const messageKind = String(message?.message_kind ?? message?.messageKind ?? '').trim();
-    const role = String(message?.role || '').trim();
+  if (eventName === 'chat_message_upserted' && payload) {
+    const message = isRecord(payload.message) ? payload.message : {};
+    const messageKind = readText(message.message_kind ?? message.messageKind);
+    const role = readText(message.role);
     return {
       ...EMPTY_PLAN,
       clearPendingResponseTurn: (
         role === 'assistant' && messageKind === 'assistant_final'
-          ? matchesPendingTurn(envelope.data, pendingTurnState) || undefined
+          ? matchesPendingTurn(payload, pendingTurnState) || undefined
           : undefined
       ),
     };
   }
 
-  if (eventName !== 'agent_response' || !envelope.data) {
+  if (eventName !== 'agent_response' || !payload) {
     return EMPTY_PLAN;
   }
 
-  const payload = envelope.data;
-  const messageKind = String(payload?.message_kind || '').trim();
+  const messageKind = readText(payload.message_kind);
   const matchesPending = matchesPendingTurn(payload, pendingTurnState);
   return {
-    refreshTraceTurnId: String(payload?.turn_id || ''),
+    refreshTraceTurnId: readText(payload.turn_id),
     syncSession: messageKind !== 'assistant_rhythm_segment',
     clearPendingResponseTurn: (
       matchesPending

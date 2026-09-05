@@ -10,6 +10,7 @@ export const statusToneClass = (status: BackgroundTaskStatus): string => {
   switch (status) {
     case 'running':
       return 'bg-emerald-500/15 text-emerald-500';
+    case 'suspended_waiting_user':
     case 'pending':
       return 'bg-amber-500/15 text-amber-500';
     case 'cancelling':

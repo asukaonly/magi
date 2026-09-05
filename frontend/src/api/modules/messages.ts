@@ -16,7 +16,7 @@ export interface ChatAttachment {
   parse_status?: string;
   derived_text_excerpt?: string;
   derived_text_path?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface UserMessageRequest {
@@ -39,7 +39,7 @@ export interface UserMessageRequest {
     name: string;
     arguments: string[];
   };
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChatReplyPreview {
@@ -92,7 +92,7 @@ export interface ChatHistoryMessage {
   kind?: 'user' | 'assistant' | 'status' | null;
   trace_display_mode?: string | null;
   allow_trace_collapse?: boolean;
-  trace_summary?: Record<string, any> | null;
+  trace_summary?: Record<string, unknown> | null;
   trace_available?: boolean;
   run_state?: ChatRunState | null;
   attachments?: ChatAttachment[];
@@ -223,7 +223,7 @@ export interface ExecutionTraceNode {
   ended_at?: number | null;
   result_preview?: string;
   error?: string | null;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   children: ExecutionTraceNode[];
 }
 

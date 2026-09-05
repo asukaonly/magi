@@ -1,3 +1,4 @@
+import type { components as EventComponents } from '../generated/events-types';
 /**
  * REST client for /api/code_agent endpoints.
  *
@@ -185,21 +186,8 @@ export type DelegationLifecycle =
   | 'discarded'
   | 'applied';
 
-export type RunEventKind =
-  | 'stdout'
-  | 'stderr'
-  | 'tool_call'
-  | 'tool_result'
-  | 'assistant_text'
-  | 'thinking'
-  | 'status'
-  | 'error';
-
-export interface RunEvent {
-  kind: RunEventKind;
-  ts_ms: number;
-  payload: Record<string, unknown>;
-}
+export type RunEvent = EventComponents['schemas']['RunEvent'];
+export type RunEventKind = RunEvent['kind'];
 
 export interface DiffStats {
   files_changed: number;

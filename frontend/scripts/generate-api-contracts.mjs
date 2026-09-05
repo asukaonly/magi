@@ -37,3 +37,5 @@ async function generate(domain, names) {
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse']);
 await generate('plugins', ['PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
+
+await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent']);

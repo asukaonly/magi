@@ -210,6 +210,7 @@
       "description": "当规划器判断某个回合应该放到后台执行时，任务会出现在这里。"
     },
     "status": {
+      "suspended_waiting_user": "等待你的回答",
       "pending": "排队中",
       "running": "运行中",
       "cancelling": "取消中",

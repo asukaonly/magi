@@ -1,0 +1,162 @@
+{
+  "chunk": {
+    "event": {
+      "kind": "text_delta",
+      "text": "Hello"
+    },
+    "is_final": false,
+    "seq": 1,
+    "session_id": "fixture-session",
+    "timestamp": 1.0,
+    "turn_id": "fixture-turn",
+    "user_id": "fixture-user"
+  },
+  "control": {
+    "can_cancel": false,
+    "label": null,
+    "run_id": "fixture-run",
+    "session_id": "fixture-session",
+    "state": "cancelling",
+    "timestamp": 1.0,
+    "turn_id": "fixture-turn",
+    "user_id": "fixture-user"
+  },
+  "hidden": {
+    "message_id": "fixture-message",
+    "session_id": "fixture-session",
+    "session_summary": {
+      "history_version": 0,
+      "last_message_preview": "Hello",
+      "last_timestamp": 1000,
+      "last_user_message_preview": "Hi",
+      "message_count": 2,
+      "session_id": "fixture-session",
+      "title": "Chat",
+      "title_overridden": false,
+      "workspace_path": null
+    },
+    "user_id": "fixture-user"
+  },
+  "message": {
+    "allow_trace_collapse": false,
+    "attachments": [],
+    "content": "Hello",
+    "kind": "assistant",
+    "label": null,
+    "message_id": "fixture-message",
+    "message_kind": "assistant_final",
+    "payload": null,
+    "persona_id": null,
+    "reply_to": null,
+    "role": "assistant",
+    "run_state": null,
+    "timestamp": 1000,
+    "trace_available": false,
+    "trace_display_mode": null,
+    "trace_summary": null,
+    "turn_id": "fixture-turn"
+  },
+  "response": {
+    "content": "Hello",
+    "is_final": true,
+    "message_id": "fixture-message",
+    "session_id": "fixture-session",
+    "timestamp": 1.0,
+    "turn_id": "fixture-turn",
+    "user_id": "fixture-user"
+  },
+  "runEvent": {
+    "kind": "status",
+    "payload": {
+      "text": "Working"
+    },
+    "ts_ms": 1000
+  },
+  "session": {
+    "history_version": 0,
+    "last_message_preview": "Hello",
+    "last_timestamp": 1000,
+    "last_user_message_preview": "Hi",
+    "message_count": 2,
+    "session_id": "fixture-session",
+    "title": "Chat",
+    "title_overridden": false,
+    "workspace_path": null
+  },
+  "task": {
+    "attempt_index": 0,
+    "cancel_reason": null,
+    "created_at": 1.0,
+    "error": null,
+    "finished_at": null,
+    "result_payload": {},
+    "spec": {
+      "agent_run_checkpoint": null,
+      "context_sources": [],
+      "ephemeral_context": null,
+      "execution_preset": "background",
+      "final_response_json_mode": false,
+      "goal": "Inspect workspace",
+      "max_iterations": 50,
+      "origin_turn_id": "fixture-turn",
+      "parent_run_id": null,
+      "pending_message_id": null,
+      "priority": 0,
+      "reasoning_policy": {},
+      "run_id": "fixture-run",
+      "selected_tools": [],
+      "session_id": "fixture-session",
+      "skill_preapproval_rules": [],
+      "system_prompt": "",
+      "task_budget_root_turn_id": null,
+      "timeout_seconds": 1800,
+      "title": "Task",
+      "trigger": null,
+      "trigger_source": "rule",
+      "user_id": "fixture-user",
+      "working_context": "",
+      "workspace_path": null
+    },
+    "started_at": null,
+    "status": "suspended_waiting_user",
+    "summary": null,
+    "task_id": "fixture-task",
+    "updated_at": 1.0,
+    "user_task_id": null
+  },
+  "upsert": {
+    "message": {
+      "allow_trace_collapse": false,
+      "attachments": [],
+      "content": "Hello",
+      "kind": "assistant",
+      "label": null,
+      "message_id": "fixture-message",
+      "message_kind": "assistant_final",
+      "payload": null,
+      "persona_id": null,
+      "reply_to": null,
+      "role": "assistant",
+      "run_state": null,
+      "timestamp": 1000,
+      "trace_available": false,
+      "trace_display_mode": null,
+      "trace_summary": null,
+      "turn_id": "fixture-turn"
+    },
+    "message_id": "fixture-message",
+    "session_id": "fixture-session",
+    "session_summary": {
+      "history_version": 0,
+      "last_message_preview": "Hello",
+      "last_timestamp": 1000,
+      "last_user_message_preview": "Hi",
+      "message_count": 2,
+      "session_id": "fixture-session",
+      "title": "Chat",
+      "title_overridden": false,
+      "workspace_path": null
+    },
+    "user_id": "fixture-user"
+  }
+}
