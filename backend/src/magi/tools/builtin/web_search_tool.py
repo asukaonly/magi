@@ -187,6 +187,10 @@ class WebSearchTool(MultiProviderTool):
         self, parameters: Dict[str, Any], context: ToolExecutionContext
     ) -> ToolResult:
         """Execute web search query."""
+        revision = self.provider_revision
+        if getattr(self, "_cached_provider_revision", None) != revision:
+            await self.clear_user_content()
+            self._cached_provider_revision = revision
         return await self._handle_query(parameters, context)
 
     async def clear_user_content(self) -> None:
@@ -222,7 +226,9 @@ class WebSearchTool(MultiProviderTool):
         ]
         return specs
 
-    async def get_config_value(self, path: str, context: ToolExecutionContext) -> ToolResult:
+    async def get_config_value(
+        self, path: str, context: ToolExecutionContext
+    ) -> ToolResult:
         """Read non-sensitive tool-scoped config values."""
         config = get_config().tools.web_search
         if path == "default_provider":
@@ -236,7 +242,9 @@ class WebSearchTool(MultiProviderTool):
                     error=f"Unknown provider: {provider_name}",
                     error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
-            return ToolResult(success=True, data=config.get_provider_config(provider_name).base_url)
+            return ToolResult(
+                success=True, data=config.get_provider_config(provider_name).base_url
+            )
 
         return ToolResult(
             success=False,
@@ -257,7 +265,9 @@ class WebSearchTool(MultiProviderTool):
                     error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
             if save_config({"tools.web_search.default_provider": provider_name}):
-                return ToolResult(success=True, data={"path": path, "value": provider_name})
+                return ToolResult(
+                    success=True, data={"path": path, "value": provider_name}
+                )
             return ToolResult(
                 success=False,
                 error="Failed to save configuration",
@@ -272,7 +282,9 @@ class WebSearchTool(MultiProviderTool):
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
                     error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
-            if save_config({f"tools.web_search.providers.{provider_name}.api_key": str(value)}):
+            if save_config(
+                {f"tools.web_search.providers.{provider_name}.api_key": str(value)}
+            ):
                 info = PROVIDER_INFO.get(provider_name, {"name": provider_name})
                 return ToolResult(
                     success=True,
@@ -296,9 +308,12 @@ class WebSearchTool(MultiProviderTool):
                     error=f"Unknown provider: {provider_name}. Supported: {', '.join(self.get_all_provider_names())}",
                     error_code=ToolErrorCode.INVALID_PROVIDER.value,
                 )
-            if save_config({f"tools.web_search.providers.{provider_name}.base_url": str(value)}):
+            if save_config(
+                {f"tools.web_search.providers.{provider_name}.base_url": str(value)}
+            ):
                 return ToolResult(
-                    success=True, data={"provider": provider_name, "base_url": str(value)}
+                    success=True,
+                    data={"provider": provider_name, "base_url": str(value)},
                 )
             return ToolResult(
                 success=False,
@@ -346,7 +361,9 @@ class WebSearchTool(MultiProviderTool):
             primary_provider=primary_provider,
         )
 
-    def _prepare_search_request(self, parameters: Dict[str, Any]) -> _SearchRequest | ToolResult:
+    def _prepare_search_request(
+        self, parameters: Dict[str, Any]
+    ) -> _SearchRequest | ToolResult:
         query = parameters.get("query")
 
         if not query:
@@ -414,6 +431,7 @@ class WebSearchTool(MultiProviderTool):
         ordered = [configured_provider] + [
             p for p in _FALLBACK_PRIORITY if p != configured_provider
         ]
+        ordered.extend(p for p in available_providers if p not in ordered)
         candidates = [p for p in ordered if p in available_providers]
         if not candidates:
             candidates = list(available_providers)
@@ -470,7 +488,10 @@ class WebSearchTool(MultiProviderTool):
                     "proxy_url": request.proxy_url,
                 },
             )
-            if result.error_code == ToolErrorCode.RATE_LIMITED.value and limiter is not None:
+            if (
+                result.error_code == ToolErrorCode.RATE_LIMITED.value
+                and limiter is not None
+            ):
                 retry_after_seconds = (
                     result.data.get("retry_after_seconds")
                     if isinstance(result.data, dict)
@@ -551,7 +572,9 @@ class WebSearchTool(MultiProviderTool):
             provider_name=primary_provider,
             executed_query=request.executed_query,
             num_results=request.num_results,
-            result_count=int(result.data.get("result_count") or result.data.get("total") or 0),
+            result_count=int(
+                result.data.get("result_count") or result.data.get("total") or 0
+            ),
         )
 
     @staticmethod
@@ -564,7 +587,10 @@ class WebSearchTool(MultiProviderTool):
             "error_code": result.error_code,
             "error": str(result.error or ""),
         }
-        if isinstance(result.data, dict) and result.data.get("retry_after_seconds") is not None:
+        if (
+            isinstance(result.data, dict)
+            and result.data.get("retry_after_seconds") is not None
+        ):
             attempt["retry_after_seconds"] = result.data["retry_after_seconds"]
         return attempt
 
@@ -672,7 +698,9 @@ class WebSearchTool(MultiProviderTool):
 
     def _prune_result_cache(self) -> None:
         cutoff = time.time() - _RESULT_CACHE_TTL_SECONDS
-        stale_keys = [key for key, (seen_at, _) in self._result_cache.items() if seen_at < cutoff]
+        stale_keys = [
+            key for key, (seen_at, _) in self._result_cache.items() if seen_at < cutoff
+        ]
         for key in stale_keys:
             self._result_cache.pop(key, None)
 
@@ -702,7 +730,9 @@ class WebSearchTool(MultiProviderTool):
         cutoff = time.time() - _DEDUP_CACHE_TTL_SECONDS
         stale_turns: list[str] = []
         for turn_key, queries in self._turn_query_cache.items():
-            stale_queries = [key for key, seen_at in queries.items() if seen_at < cutoff]
+            stale_queries = [
+                key for key, seen_at in queries.items() if seen_at < cutoff
+            ]
             for key in stale_queries:
                 queries.pop(key, None)
             if not queries:
@@ -710,7 +740,9 @@ class WebSearchTool(MultiProviderTool):
         for turn_key in stale_turns:
             self._turn_query_cache.pop(turn_key, None)
         stale_result_keys = [
-            key for key, (seen_at, _) in self._query_result_counts.items() if seen_at < cutoff
+            key
+            for key, (seen_at, _) in self._query_result_counts.items()
+            if seen_at < cutoff
         ]
         for key in stale_result_keys:
             self._query_result_counts.pop(key, None)
@@ -729,7 +761,11 @@ class WebSearchTool(MultiProviderTool):
         provider_name: str, executed_query: str, num_results: int
     ) -> tuple[str, str, int]:
         normalized_query = " ".join(str(executed_query or "").lower().split())
-        return (str(provider_name or "").strip().lower(), normalized_query, int(num_results))
+        return (
+            str(provider_name or "").strip().lower(),
+            normalized_query,
+            int(num_results),
+        )
 
     def _build_all_providers_failed_guidance(
         self,
@@ -780,7 +816,9 @@ class WebSearchTool(MultiProviderTool):
             data=data,
         )
 
-    def _is_duckduckgo_challenge_error(self, provider_name: str, result: ToolResult) -> bool:
+    def _is_duckduckgo_challenge_error(
+        self, provider_name: str, result: ToolResult
+    ) -> bool:
         if provider_name != "duckduckgo":
             return False
         if result.error_code not in {
@@ -832,7 +870,9 @@ class WebSearchTool(MultiProviderTool):
             ),
             "query": query,
             "supported_providers": alternative_providers,
-            "config_examples": self._build_provider_config_examples(alternative_providers),
+            "config_examples": self._build_provider_config_examples(
+                alternative_providers
+            ),
         }
         if date_range_applied is not None:
             guidance_data["date_range_applied"] = date_range_applied
@@ -846,7 +886,9 @@ class WebSearchTool(MultiProviderTool):
             data=guidance_data,
         )
 
-    def _build_provider_config_examples(self, providers: List[str]) -> List[Dict[str, str]]:
+    def _build_provider_config_examples(
+        self, providers: List[str]
+    ) -> List[Dict[str, str]]:
         examples: List[Dict[str, str]] = []
         for provider in providers:
             if provider == "duckduckgo":
@@ -900,7 +942,11 @@ class WebSearchTool(MultiProviderTool):
             "end_date": normalized_end.isoformat(),
         }
 
-    def _apply_date_range_to_query(self, query: str, date_range: Dict[str, str] | None) -> str:
+    def _apply_date_range_to_query(
+        self, query: str, date_range: Dict[str, str] | None
+    ) -> str:
         if not date_range:
             return query
-        return f"{query} after:{date_range['start_date']} before:{date_range['end_date']}"
+        return (
+            f"{query} after:{date_range['start_date']} before:{date_range['end_date']}"
+        )

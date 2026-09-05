@@ -63,6 +63,17 @@ class ProviderBridgeToolStreamingMixin:
     ) -> ToolStreamResult:
         """Stream an LLM call with tools."""
         host = cast(_ToolStreamingHostProtocol, self)
+        if getattr(host.llm, "is_plugin_provider", False) is True:
+            return await host.llm.stream_tool_response(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                options={"thinking_depth": thinking_depth.value},
+            )
         if host.is_anthropic():
             return await self._stream_anthropic_with_tools(
                 system_prompt=system_prompt,
@@ -181,7 +192,9 @@ class ProviderBridgeToolStreamingMixin:
         elif block_type == "thinking":
             self._start_anthropic_thinking_block(state)
         elif block_type == "redacted_thinking":
-            self._start_anthropic_thinking_block(state, redacted_data=getattr(block, "data", None))
+            self._start_anthropic_thinking_block(
+                state, redacted_data=getattr(block, "data", None)
+            )
 
     @staticmethod
     def _start_anthropic_thinking_block(
@@ -203,9 +216,13 @@ class ProviderBridgeToolStreamingMixin:
         if delta_type == "thinking_delta":
             await self._record_anthropic_thinking_delta(delta, state)
         elif delta_type == "signature_delta":
-            state.thinking_signature = getattr(delta, "signature", None) or state.thinking_signature
+            state.thinking_signature = (
+                getattr(delta, "signature", None) or state.thinking_signature
+            )
         elif state.in_thinking and getattr(delta, "text", None):
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=delta.text))
+            await emit_stream_event(
+                LLMStreamEvent(kind="reasoning_delta", text=delta.text)
+            )
         elif hasattr(delta, "text"):
             await self._record_anthropic_text_delta(delta.text, state)
         elif delta_type == "input_json_delta":
@@ -304,7 +321,9 @@ class ProviderBridgeToolStreamingMixin:
         state: _AnthropicToolStreamState,
     ) -> None:
         if state.redacted_data is not None:
-            state.thinking_blocks.append({"type": "redacted_thinking", "data": state.redacted_data})
+            state.thinking_blocks.append(
+                {"type": "redacted_thinking", "data": state.redacted_data}
+            )
         elif state.thinking_text_parts or state.thinking_signature is not None:
             state.thinking_blocks.append(
                 {
@@ -520,7 +539,9 @@ class ProviderBridgeToolStreamingMixin:
             delta, "reasoning", None
         )
         if reasoning_text:
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=reasoning_text))
+            await emit_stream_event(
+                LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)
+            )
 
     @staticmethod
     async def _handle_openai_content_delta(
@@ -534,7 +555,9 @@ class ProviderBridgeToolStreamingMixin:
             return
         visible, reasoning_leak = state.scrubber.feed(delta.content)
         if reasoning_leak:
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak))
+            await emit_stream_event(
+                LLMStreamEvent(kind="reasoning_delta", text=reasoning_leak)
+            )
         if visible:
             state.content_parts.append(visible)
             await emit_stream_event(LLMStreamEvent(kind="text_delta", text=visible))
@@ -544,10 +567,14 @@ class ProviderBridgeToolStreamingMixin:
     async def _flush_openai_tool_scrubber(state: _OpenAIToolStreamState) -> None:
         tail_visible, tail_reasoning = state.scrubber.flush()
         if tail_reasoning:
-            await emit_stream_event(LLMStreamEvent(kind="reasoning_delta", text=tail_reasoning))
+            await emit_stream_event(
+                LLMStreamEvent(kind="reasoning_delta", text=tail_reasoning)
+            )
         if tail_visible and not state.has_tool_calls:
             state.content_parts.append(tail_visible)
-            await emit_stream_event(LLMStreamEvent(kind="text_delta", text=tail_visible))
+            await emit_stream_event(
+                LLMStreamEvent(kind="text_delta", text=tail_visible)
+            )
             state.chunks_emitted += 1
 
     async def _build_openai_tool_stream_result(

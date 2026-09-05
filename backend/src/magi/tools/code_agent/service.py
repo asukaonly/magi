@@ -136,9 +136,12 @@ class _DelegationRunContext:
 class CodeAgentService:
     """Orchestrate a delegation end-to-end."""
 
-    adapters_factory: Callable[[], dict[AdapterName, CodeAgentAdapter]] = _default_adapters_factory
+    adapters_factory: Callable[[], dict[AdapterName, CodeAgentAdapter]] = (
+        _default_adapters_factory
+    )
     binary_paths: Optional[dict[AdapterName, Optional[str]]] = None
     cleanup_worktree: bool = False
+    provider_registry: Any = None
 
     _ACTIVE_CANCEL_TOKENS: ClassVar[dict[str, CancelToken]] = {}
 
@@ -187,9 +190,7 @@ class CodeAgentService:
             )
         paths.validate_existing_scopes()
         if artifact_registry is None:
-            raise RuntimeError(
-                "code-agent artifact registry is required"
-            )
+            raise RuntimeError("code-agent artifact registry is required")
         await artifact_registry.register(
             session_id=paths.session_id,
             turn_id=req.turn_id,
@@ -225,9 +226,7 @@ class CodeAgentService:
         adapter, binary_path, error = self._resolve_adapter(req)
         if error is not None:
             self._cleanup_worktree_if_needed(req, worktree)
-            return await context.finalize(
-                self._fail(req, context, error)
-            )
+            return await context.finalize(self._fail(req, context, error))
         assert adapter is not None and binary_path is not None
 
         outcome = await self._run_adapter(
@@ -338,11 +337,29 @@ class CodeAgentService:
         req: DelegateRequest,
     ) -> tuple[CodeAgentAdapter | None, str | None, str | None]:
         adapter = self.adapters_factory().get(req.adapter)
+        if self.provider_registry is not None:
+            replacement = self.provider_registry.get("external_agent", req.adapter)
+            if replacement is not None:
+                from .adapters.plugin import PluginExternalAgentAdapter
+
+                adapter = PluginExternalAgentAdapter(
+                    replacement,
+                    connection=self.provider_registry.connection_for(
+                        "external_agent", req.adapter
+                    ),
+                    valid=lambda: self.provider_registry.get(
+                        "external_agent", req.adapter
+                    )
+                    is replacement,
+                )
+                return adapter, "plugin", None
         if adapter is None:
             return None, None, f"adapter not configured: {req.adapter}"
 
         binary_paths = (
-            self.binary_paths if self.binary_paths is not None else _default_binary_paths()
+            self.binary_paths
+            if self.binary_paths is not None
+            else _default_binary_paths()
         )
         binary_path = binary_paths.get(req.adapter)
         if not binary_path:
@@ -491,7 +508,9 @@ class CodeAgentService:
 
     def _cleanup_worktree_if_needed(self, req: DelegateRequest, worktree: Path) -> None:
         if self.cleanup_worktree:
-            remove_worktree(workspace_root=Path(req.workspace_root), worktree_path=worktree)
+            remove_worktree(
+                workspace_root=Path(req.workspace_root), worktree_path=worktree
+            )
 
     @staticmethod
     def _duration_ms(start: float) -> int:

@@ -38,7 +38,9 @@ class _ProviderBridgeRequestHostProtocol(Protocol):
         thinking_depth: ThinkingDepth,
     ) -> Dict[str, Any]: ...
 
-    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any: ...
+    def _cache_marked_system(
+        self, system_prompt: str, *, cache_whole: bool = False
+    ) -> Any: ...
 
     def _mark_message_cache_breakpoints(
         self,
@@ -190,6 +192,19 @@ class ProviderBridgeRequestMixin:
         cache_system: bool = False,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        if getattr(host.llm, "is_plugin_provider", False) is True:
+            return await host.llm.invoke_response(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                options={
+                    "json_mode": json_mode,
+                    "thinking_depth": thinking_depth.value,
+                },
+            )
         request = _ChatResponseRequest(
             system_prompt=system_prompt,
             messages=messages,
@@ -321,7 +336,9 @@ class ProviderBridgeRequestMixin:
         request: _ChatResponseRequest,
     ) -> Dict[str, Any]:
         api_messages = host._convert_messages_to_anthropic(request.messages)
-        api_messages = host._mark_message_cache_breakpoints(request.messages, api_messages)
+        api_messages = host._mark_message_cache_breakpoints(
+            request.messages, api_messages
+        )
         anthropic_kwargs: Dict[str, Any] = {
             "model": host.llm.model_name,
             "max_tokens": request.max_tokens,
@@ -378,6 +395,17 @@ class ProviderBridgeRequestMixin:
         event_context: Optional[Dict[str, Any]] = None,
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
+        if getattr(host.llm, "is_plugin_provider", False) is True:
+            return await host.llm.invoke_response(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                options={"thinking_depth": thinking_depth.value},
+            )
         if host.is_anthropic():
             api_messages = host._convert_messages_to_anthropic(messages)
             api_messages = host._mark_message_cache_breakpoints(messages, api_messages)
@@ -390,7 +418,9 @@ class ProviderBridgeRequestMixin:
                 "tools": tools if tools else None,
                 "timeout": timeout_seconds,
             }
-            anthropic_kwargs = host._apply_provider_options(anthropic_kwargs, thinking_depth)
+            anthropic_kwargs = host._apply_provider_options(
+                anthropic_kwargs, thinking_depth
+            )
             response = await host.llm._client.messages.create(**anthropic_kwargs)
             return host._parse_anthropic_response(response)
 

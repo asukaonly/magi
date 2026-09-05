@@ -40,7 +40,9 @@ class LLMRuntimeModule(LifecycleModule):
             return
         config = require_initialized(self._context.core.config, "runtime config")
         try:
-            self._context.llm.scenario_llm_pool = create_scenario_llm_pool(config)
+            self._context.llm.scenario_llm_pool = create_scenario_llm_pool(
+                config, provider_registry=self._context.plugins.provider_registry,
+            )
             self._context.llm.llm_adapter = create_core_llm_adapter(
                 self._context.llm.scenario_llm_pool
             )

@@ -37,13 +37,27 @@ def _load_provider_registry() -> LLMProviderRegistryModel:
 class ScenarioLLMPool:
     """Resolves and caches LLM adapters by runtime scenario."""
 
-    def __init__(self, *, config: AppConfig, adapter_factory: AdapterFactory) -> None:
+    def __init__(
+        self,
+        *,
+        config: AppConfig,
+        adapter_factory: AdapterFactory,
+        provider_revision: Callable[[], object] | None = None,
+        plugin_provider_available: Callable[[str], bool] | None = None,
+    ) -> None:
         self._config = config
         self._adapter_factory = adapter_factory
         self._cache: dict[LLMScenario, object] = {}
         self._adapter_configurators: list[Callable[[object], None]] = []
+        self._provider_revision = provider_revision
+        self._last_provider_revision: object = None
+        self._plugin_provider_available = plugin_provider_available
 
     def get(self, scenario: LLMScenario) -> object:
+        revision = self._provider_revision() if self._provider_revision else None
+        if revision != self._last_provider_revision:
+            self._cache.clear()
+            self._last_provider_revision = revision
         if scenario not in self._cache:
             self._cache[scenario] = self._build_adapter(scenario)
         return self._cache[scenario]
@@ -75,7 +89,9 @@ class ScenarioLLMPool:
                     getattr(getattr(selection, "capabilities", None), "vision", False)
                 ),
                 supports_tool_calls=bool(
-                    getattr(getattr(selection, "capabilities", None), "tool_calling", True)
+                    getattr(
+                        getattr(selection, "capabilities", None), "tool_calling", True
+                    )
                 ),
                 supports_images_with_tools=bool(
                     getattr(getattr(selection, "capabilities", None), "vision", False)
@@ -115,6 +131,23 @@ class ScenarioLLMPool:
         if selection is None:
             raise ValueError(f"Missing LLM selection for scenario '{scenario.value}'")
 
+        if (
+            self._plugin_provider_available is not None
+            and self._plugin_provider_available(selection.provider_id)
+        ):
+            if scenario == LLMScenario.EMBEDDING:
+                raise ValueError("Plugin model providers do not implement embeddings")
+            adapter = self._adapter_factory(
+                provider_type=selection.provider_id,
+                api_key="",
+                model=selection.model,
+                timeout=self._config.llm.timeout,
+            )
+            setattr(adapter, "_provider_instance_id", selection.provider_id)
+            for configurator in self._adapter_configurators:
+                configurator(adapter)
+            return adapter
+
         provider = self._config.llm.providers.get(selection.provider_id)
         if provider is None:
             raise ValueError(
@@ -138,16 +171,32 @@ class ScenarioLLMPool:
         provider_type = self._resolve_runtime_provider_type(provider, selection.model)
         api_key = str(service.api_key or provider.api_key or "").strip()
         base_url = str(service.base_url or provider.base_url or "").strip()
-        if not api_key and provider_type != LLMProvider.CUSTOM.value:
+        plugin_provider = (
+            self._plugin_provider_available is not None
+            and self._plugin_provider_available(provider_type)
+        )
+        if (
+            not api_key
+            and provider_type != LLMProvider.CUSTOM.value
+            and not plugin_provider
+        ):
             raise ValueError(
                 f"LLM provider '{selection.provider_id}' is missing an API key for scenario '{scenario.value}'"
             )
-        if provider_type == LLMProvider.CUSTOM.value and not base_url:
+        if (
+            provider_type == LLMProvider.CUSTOM.value
+            and not base_url
+            and not plugin_provider
+        ):
             raise ValueError(
                 f"LLM provider '{selection.provider_id}' is missing a base URL for scenario '{scenario.value}'"
             )
 
-        proxy_url = self._config.network.proxy_url() if hasattr(self._config, "network") else None
+        proxy_url = (
+            self._config.network.proxy_url()
+            if hasattr(self._config, "network")
+            else None
+        )
         adapter_kwargs = {
             "provider_type": provider_type,
             "api_key": api_key,
@@ -155,11 +204,15 @@ class ScenarioLLMPool:
             "base_url": base_url,
             "timeout": self._config.llm.timeout,
             "embedding_dimension": (
-                selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None
+                selection.embedding_dimension
+                if scenario == LLMScenario.EMBEDDING
+                else None
             ),
             "proxy_url": proxy_url,
         }
-        provider_plan = str(getattr(provider, "provider_plan", "") or "").strip() or None
+        provider_plan = (
+            str(getattr(provider, "provider_plan", "") or "").strip() or None
+        )
         if provider_plan:
             adapter_kwargs["provider_plan"] = provider_plan
         adapter = self._adapter_factory(**adapter_kwargs)
@@ -169,7 +222,9 @@ class ScenarioLLMPool:
         return adapter
 
     @staticmethod
-    def _validate_provider_plan_scenario(provider: object, scenario: LLMScenario) -> None:
+    def _validate_provider_plan_scenario(
+        provider: object, scenario: LLMScenario
+    ) -> None:
         provider_plan = str(getattr(provider, "provider_plan", "") or "").strip()
         if not provider_plan:
             return
@@ -183,7 +238,11 @@ class ScenarioLLMPool:
             or ""
         ).strip()
         provider_meta = find_provider_meta(_load_provider_registry(), provider_type)
-        plan = find_provider_plan(provider_meta, provider_plan) if provider_meta is not None else None
+        plan = (
+            find_provider_plan(provider_meta, provider_plan)
+            if provider_meta is not None
+            else None
+        )
         if plan is None:
             raise ValueError(
                 f"Unknown LLM provider plan '{provider_plan}' for provider '{provider_type}'"
@@ -205,7 +264,9 @@ class ScenarioLLMPool:
         return self._config.llm.selections.get(fallback.value)
 
     @staticmethod
-    def _resolve_runtime_provider_type(provider: object, selected_model: str | None = None) -> str:
+    def _resolve_runtime_provider_type(
+        provider: object, selected_model: str | None = None
+    ) -> str:
         """Pick the adapter ``provider_type`` for ``create_llm_adapter``.
 
         For non-custom providers this is just the declared ``provider_type``.
@@ -227,7 +288,9 @@ class ScenarioLLMPool:
         if provider_type != LLMProvider.CUSTOM.value:
             return provider_type
 
-        api_format = str(getattr(provider, "api_format", "") or "openai").strip().lower()
+        api_format = (
+            str(getattr(provider, "api_format", "") or "openai").strip().lower()
+        )
         if api_format == "anthropic":
             return LLMProvider.ANTHROPIC.value
         if api_format == "openai":

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
+from typing import Any
 
 from ..config import AppConfig
 from ..config.models import LLMProvider
@@ -25,7 +27,9 @@ _ANTHROPIC_ADAPTER_PROVIDERS = frozenset({LLMProvider.ANTHROPIC.value})
 # Custom providers are accepted because their transport is OpenAI-shape
 # regardless of which vendor's models they proxy.
 _OPENAI_COMPATIBLE_PROVIDERS = frozenset(
-    member.value for member in LLMProvider if member.value not in _ANTHROPIC_ADAPTER_PROVIDERS
+    member.value
+    for member in LLMProvider
+    if member.value not in _ANTHROPIC_ADAPTER_PROVIDERS
 )
 
 
@@ -40,9 +44,26 @@ def create_llm_adapter(
     timeout: int = 60,
     embedding_dimension: int | None = None,
     proxy_url: str | None = None,
+    provider_registry: Any = None,
 ) -> LLMAdapter:
     """Create an adapter from explicit provider settings."""
     provider = provider_type.lower().strip()
+
+    replacement = (
+        provider_registry.get("model", provider)
+        if provider_registry is not None
+        else None
+    )
+    if replacement is not None:
+        from .plugin_adapter import PluginModelAdapter
+
+        return PluginModelAdapter(
+            replacement,
+            connection=provider_registry.connection_for("model", provider),
+            model=model,
+            timeout=timeout,
+            valid=lambda: provider_registry.get("model", provider) is replacement,
+        )
 
     if not api_key and provider != LLMProvider.CUSTOM.value:
         raise ValueError("LLM API key not configured")
@@ -76,9 +97,26 @@ def create_llm_adapter(
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
-def create_scenario_llm_pool(config: AppConfig) -> ScenarioLLMPool:
+def create_scenario_llm_pool(
+    config: AppConfig, *, provider_registry: Any = None
+) -> ScenarioLLMPool:
     """Create a scenario-based LLM pool from application config."""
-    return ScenarioLLMPool(config=config, adapter_factory=create_llm_adapter)
+    return ScenarioLLMPool(
+        config=config,
+        adapter_factory=partial(
+            create_llm_adapter, provider_registry=provider_registry
+        ),
+        provider_revision=(
+            (lambda: provider_registry.revision)
+            if provider_registry is not None
+            else None
+        ),
+        plugin_provider_available=(
+            (lambda name: provider_registry.get("model", name) is not None)
+            if provider_registry is not None
+            else None
+        ),
+    )
 
 
 def create_core_llm_adapter(llm_pool: ScenarioLLMPool) -> LLMAdapter:
@@ -92,9 +130,7 @@ def create_core_llm_adapter(llm_pool: ScenarioLLMPool) -> LLMAdapter:
     return llm_adapter
 
 
-REQUIRED_RUNTIME_LLM_SCENARIOS = (
-    LLMScenario.CORE.value,
-)
+REQUIRED_RUNTIME_LLM_SCENARIOS = (LLMScenario.CORE.value,)
 
 
 def is_llm_selection_pending(config: AppConfig) -> bool:
