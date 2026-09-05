@@ -19,6 +19,7 @@ from ..schema import (
 )
 from ._edit_journal import record_edit_after, snapshot_before_edit
 from ._read_constraint import require_prior_read
+from ._file_validation import file_validation_target
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -366,6 +367,7 @@ class FileEditTool(Tool):
             "matched_lines": matched_lines,
             "old_text_preview": self._truncate_text(request.old_string, 100),
             "new_text_preview": self._truncate_text(request.new_string, 100),
+            "validation_targets": [file_validation_target(request.file_path)],
         }
 
     def _normalize_line_endings(self, text: str) -> str:

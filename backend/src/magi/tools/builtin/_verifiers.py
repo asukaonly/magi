@@ -37,6 +37,7 @@ class VerifyOutcome:
     stderr: str
     reason: Optional[str]
     duration_ms: int
+    content_sha256: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -403,11 +403,24 @@ It enforces these current invariants:
 - every required plan item must be terminal and completed items must cite
   successful, task-substantive evidence from the current run; permission,
   discovery, ask, and plan-maintenance calls cannot prove task completion;
-- failed validation must be followed by a successful validation after repair;
+- failed validation must be followed by successful checks of the same targets
+  using the same verifier after repair; an unrelated success cannot clear a
+  failure, and skipped targets with no available verifier require a real check
+  of that target;
 - canonical `verify` outcomes treat `fail` as failed validation; `timeout` and
   `skipped` are inconclusive, cannot satisfy validation, and do not by
   themselves justify deeper reasoning;
+- empty or malformed validation results are inconclusive. A successful file
+  check identifies its path, verifier, and SHA-256 content version; a file
+  changed during verification cannot produce passing evidence;
+- `verify` explicitly declares read-only effect and replay metadata, so the
+  validation call itself does not introduce another effect requiring validation;
 - local-write and unknown-effect work must have current validation evidence;
+- file write, edit, and rollback results declare their affected paths and
+  content versions. Each latest declared version needs matching verification
+  after its mutation. Capabilities without declared file targets still require
+  a non-empty verification after the effect; this establishes a verification
+  step, not semantic proof of an arbitrary shell command's outcome;
 - repair cannot exceed the configured budget.
 
 Every rejected proposal produces a stable completion reason. A repairable

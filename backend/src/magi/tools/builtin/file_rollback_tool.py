@@ -23,6 +23,7 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
+from ._file_validation import file_validation_target
 
 logger = get_logger(__name__)
 
@@ -150,6 +151,13 @@ class FileRollbackTool(Tool):
                 "mode": mode,
                 "dry_run": dry_run,
                 "restored": restored,
+                "validation_targets": (
+                    [
+                        file_validation_target(sc.root.workspace_root / path)
+                        for path in dict.fromkeys(entry["path"] for entry in restored if entry["ok"])
+                    ]
+                    if not dry_run else []
+                ),
             },
         )
 

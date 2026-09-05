@@ -1,6 +1,7 @@
 """verify - run file-type-aware sanity checks and record results."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict
 
@@ -16,6 +17,7 @@ from ..schema import (
     ToolResult,
     ToolSchema,
 )
+from ._file_validation import file_content_digest
 from ._verifiers import VerifyOutcome, verify_file
 
 logger = get_logger(__name__)
@@ -45,6 +47,8 @@ class VerifyTool(Tool):
             timeout=180,
             retry_on_failure=False,
             dangerous=False,
+            effect_class="read_only",
+            effect_replay_policy="read_only",
             tags=["file", "verify"],
             metadata=self._schema_metadata(),
         )
@@ -125,6 +129,7 @@ class VerifyTool(Tool):
                 "mode": mode,
                 "results": [o.to_dict() for o in outcomes],
                 "summary": self._summary(outcomes),
+                "validation_status": "inconclusive" if not outcomes else "checked",
             },
         )
 
@@ -159,7 +164,19 @@ class VerifyTool(Tool):
             if absolute is None:
                 outcomes.append(self._outside_workspace_outcome(raw))
                 continue
-            outcomes.append(await verify_file(absolute, timeout_s=timeout_s))
+            before_digest = file_content_digest(absolute)
+            outcome = await verify_file(absolute, timeout_s=timeout_s)
+            after_digest = file_content_digest(absolute)
+            if before_digest is None or before_digest != after_digest:
+                if outcome.status == "pass":
+                    outcome = replace(
+                        outcome,
+                        status="skipped",
+                        reason="File content changed or could not be identified during verification",
+                    )
+            else:
+                outcome = replace(outcome, content_sha256=after_digest)
+            outcomes.append(outcome)
         return outcomes
 
     @staticmethod

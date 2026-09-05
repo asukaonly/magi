@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -162,7 +163,9 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
     """Return whether structured validation completed without checking every target."""
 
     if not isinstance(value, dict):
-        return False
+        return True
+    if value.get("validation_status") == "inconclusive":
+        return True
     summary = value.get("summary")
     if isinstance(summary, dict):
         for key in ("skipped", "timeout"):
@@ -170,10 +173,70 @@ def _result_reports_validation_inconclusive(value: Any) -> bool:
             if isinstance(count, (int, float)) and count > 0:
                 return True
     results = value.get("results")
-    return isinstance(results, list) and any(
-        isinstance(item, dict) and str(item.get("status") or "").lower() in {"skipped", "timeout"}
+    if not isinstance(results, list) or not results:
+        return True
+    return any(
+        not isinstance(item, dict)
+        or str(item.get("status") or "") not in {"pass", "fail", "error", "invalid"}
+        or (item.get("status") == "pass" and not _has_check_identity(item))
         for item in results
     )
+
+
+def _has_check_identity(row: dict[str, Any]) -> bool:
+    path, verifier, digest = (row.get(key) for key in ("path", "verifier", "content_sha256"))
+    return (
+        isinstance(path, str)
+        and bool(path.strip())
+        and isinstance(verifier, str)
+        and verifier.strip() not in {"", "(none)"}
+        and isinstance(digest, str)
+        and re.fullmatch(r"[0-9a-f]{64}", digest) is not None
+    )
+
+
+def validation_checks(item: ToolExecutionEvidence) -> list[dict[str, Any]]:
+    """Return structured per-target checks, without interpreting summary prose."""
+    if not isinstance(item.result, dict) or not isinstance(item.result.get("results"), list):
+        return []
+    return [row for row in item.result["results"] if isinstance(row, dict)]
+
+
+def unresolved_validations(
+    candidates: list[ToolExecutionEvidence],
+    evidence: list[ToolExecutionEvidence],
+    successful: list[ToolExecutionEvidence],
+) -> list[ToolExecutionEvidence]:
+    """Keep failed or inconclusive checks until the same targets pass later."""
+    unresolved = []
+    for index, item in enumerate(evidence):
+        if item not in candidates:
+            continue
+        later = [
+            other
+            for other in evidence[index + 1 :]
+            if other in successful and other.tool_name == item.tool_name
+        ]
+        required = [
+            row
+            for row in validation_checks(item)
+            if row.get("status") != "pass" or not _has_check_identity(row)
+        ]
+        passed = [row for other in later for row in validation_checks(other)]
+        if not later or any(
+            not row.get("path")
+            or not any(
+                check.get("path") == row["path"]
+                and (
+                    row.get("verifier") in (None, "", "(none)")
+                    or check.get("verifier") == row["verifier"]
+                )
+                for check in passed
+            )
+            for row in required
+        ):
+            unresolved.append(item)
+    return unresolved
 
 
 __all__ = [
@@ -181,4 +244,6 @@ __all__ = [
     "failed_validation_evidence",
     "inconclusive_validation_evidence",
     "successful_validation_evidence",
+    "unresolved_validations",
+    "validation_checks",
 ]

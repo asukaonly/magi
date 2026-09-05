@@ -9,6 +9,8 @@ from .evidence import (
     failed_validation_evidence,
     inconclusive_validation_evidence,
     successful_validation_evidence,
+    unresolved_validations,
+    validation_checks,
 )
 from magi.control.run_plan import PlanStatus, RunPlan, TodoStatus
 
@@ -57,22 +59,7 @@ class CompletionGate:
             evidence,
             validation_tool_names=policy.validation_tool_names,
         )
-        latest_failed_validation_index = max(
-            (index for index, item in enumerate(evidence) if item in failed_validation),
-            default=-1,
-        )
-        latest_successful_validation_index = max(
-            (index for index, item in enumerate(evidence) if item in successful_validation),
-            default=-1,
-        )
-        latest_inconclusive_validation_index = max(
-            (index for index, item in enumerate(evidence) if item in inconclusive_validation),
-            default=-1,
-        )
-        if latest_failed_validation_index > max(
-            latest_successful_validation_index,
-            latest_inconclusive_validation_index,
-        ):
+        if unresolved_validations(failed_validation, evidence, successful_validation):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -90,10 +77,7 @@ class CompletionGate:
                 repairable=True,
                 reasoning_helpful=True,
             )
-        if latest_inconclusive_validation_index > max(
-            latest_successful_validation_index,
-            latest_failed_validation_index,
-        ):
+        if unresolved_validations(inconclusive_validation, evidence, successful_validation):
             if repair_iterations >= policy.max_repair_iterations:
                 return CompletionDecision(
                     outcome=CompletionOutcome.BLOCKED,
@@ -107,7 +91,7 @@ class CompletionGate:
                 outcome=CompletionOutcome.CONTINUE,
                 reason_code="validation_inconclusive",
                 observations=(
-                    "Validation timed out or skipped a target. Retry it or use a validation method that can check every target.",
+                    "Validation checked no targets, skipped a target, timed out, or lacked content identity. Verify every affected target with a supported check.",
                 ),
                 evidence_refs=refs,
                 repairable=True,
@@ -128,9 +112,10 @@ class CompletionGate:
             (index for index, item in enumerate(evidence) if item in guarded_effects),
             default=-1,
         )
-        validation_is_current = any(
-            index > last_guarded_effect_index and item in successful_validation
-            for index, item in enumerate(evidence)
+        validation_is_current = _effects_have_current_validation(
+            evidence,
+            guarded_effects,
+            successful_validation,
         )
         if last_guarded_effect_index >= 0 and not validation_is_current:
             if repair_iterations >= policy.max_repair_iterations:
@@ -161,6 +146,45 @@ class CompletionGate:
 
 
 __all__ = ["CompletionGate"]
+
+
+def _effects_have_current_validation(
+    evidence: list[ToolExecutionEvidence],
+    guarded_effects: list[ToolExecutionEvidence],
+    successful_validation: list[ToolExecutionEvidence],
+) -> bool:
+    targets: dict[str, tuple[int, str | None]] = {}
+    unscoped_effects: list[int] = []
+    for index, item in enumerate(evidence):
+        if item not in guarded_effects:
+            continue
+        declared = item.result.get("validation_targets") if isinstance(item.result, dict) else None
+        if not isinstance(declared, list) or not declared:
+            unscoped_effects.append(index)
+            continue
+        for target in declared:
+            if not isinstance(target, dict) or not target.get("path"):
+                return False
+            targets[str(target["path"])] = (index, target.get("content_sha256"))
+    checks = [
+        (index, row)
+        for index, item in enumerate(evidence)
+        if item in successful_validation
+        for row in validation_checks(item)
+    ]
+    last_unscoped_effect = max(unscoped_effects, default=-1)
+    return all(
+        any(index > effect_index for index, _ in checks) for effect_index in unscoped_effects
+    ) and all(
+        digest is not None
+        and any(
+            index > max(effect_index, last_unscoped_effect)
+            and row.get("path") == path
+            and row.get("content_sha256") == digest
+            for index, row in checks
+        )
+        for path, (effect_index, digest) in targets.items()
+    )
 
 
 def _evaluate_required_plan(

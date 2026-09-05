@@ -17,6 +17,7 @@ from ..schema import (
 )
 from ._edit_journal import record_edit_after, snapshot_before_edit
 from ._read_constraint import require_prior_read
+from ._file_validation import file_validation_target
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,7 @@ def _success_result(request: _FileWriteRequest, bytes_written: int) -> ToolResul
             "file_size": os.path.getsize(request.path),
             "mode": request.mode,
             "encoding": request.encoding,
+            "validation_targets": [file_validation_target(request.path)],
         },
     )
 
