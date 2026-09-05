@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { SimpleForm as Form } from "./simple-form";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -115,7 +114,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 }) => {
   const { t, i18n } = useTranslation("onboarding");
   const shouldReduceMotion = useReducedMotion();
-  const [form] = Form.useForm();
   const navigate = useNavigate();
   const {
     state: onboardingProgress,
@@ -272,16 +270,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   const isLastStep = current === steps.length - 1;
   const onboardingLanguage = renderLanguage.startsWith("zh") ? "zh" : "en";
-  const onboardingInitialValues = useMemo<SystemConfig>(
-    () => ({
-      ...onboardingProgress.values,
-      preferences: {
-        ...onboardingProgress.values.preferences,
-        language: onboardingLanguage,
-      },
-    }),
-    [onboardingLanguage, onboardingProgress.values],
-  );
+  const readConfig = (): SystemConfig => ({
+    ...onboardingProgressRef.current.values,
+    preferences: {
+      ...onboardingProgressRef.current.values.preferences,
+      language: onboardingLanguage,
+    },
+  });
 
   // Seed locale folder ("zh" / "en"). Drives both which previews we load and
   // which preset folder the preview chat resolves a seed_slug against — they
@@ -380,7 +375,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         ? update(currentProgress)
         : { ...currentProgress, ...update };
     saveProgress(
-      form.getFieldsValue(true),
+      readConfig(),
       onboardingProgressRef.current.seedSlug,
       onboardingProgressRef.current.customPersonas,
       onboardingProgressRef.current.current,
@@ -391,27 +386,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     return nextProgress;
   };
 
-  const onValuesChange = (_: unknown, allValues: SystemConfig) => {
-    const nextLanguage = allValues?.preferences?.language;
-    if (nextLanguage) {
-      const normalizedLanguage = normalizeLanguageCode(nextLanguage);
-      const mapped = toI18nLanguage(normalizedLanguage);
-      localStorage.setItem("magi_language", normalizedLanguage);
-      document.documentElement.lang = mapped;
-      persistOnboardingLanguagePreference(normalizedLanguage);
-      if (debugI18n) {
-        console.info("[onboarding:i18n] onValuesChange", {
-          raw: normalizedLanguage,
-          mapped,
-          current: i18n.language,
-        });
-      }
-      if (i18n.language !== mapped) {
-        void i18n.changeLanguage(mapped);
-      }
-    }
-    saveProgress(allValues);
-  };
 
   useEffect(() => {
     if (!debugI18n) return;
@@ -436,27 +410,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   const handleLlmChange = (next: LLMConfig) => {
     llmSetup.change(next);
-    form.setFieldValue(["llm"], next);
-    saveProgress(form.getFieldsValue(true));
+    saveProgress({ ...readConfig(), llm: next });
   };
 
   const invalidatePersonaConfirmation = personaConfirmation.invalidate;
   const confirmPersonaSelection = (): Promise<boolean> =>
     personaConfirmation.confirm(() => {
       saveProgress(
-        form.getFieldsValue(true),
+        readConfig(),
         seedSlug,
         onboardingProgressRef.current.customPersonas,
       );
     });
 
   const markFirstContextHandled = () => {
-    const values = form.getFieldsValue(true) as SystemConfig;
+    const values = readConfig();
     if (!values.preferences) {
       values.preferences = { ...initialConfig.preferences };
     }
     values.preferences.product_tour_completed = true;
-    form.setFieldsValue(values);
     saveProgress(
       values,
       seedSlug,
@@ -497,7 +469,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     pluginId: string,
     info?: PluginInstallDoneInfo,
   ) => {
-    const values = form.getFieldsValue(true) as SystemConfig;
+    const values = readConfig();
     const count =
       typeof info?.firstContextCount === "number" &&
       Number.isFinite(info.firstContextCount)
@@ -523,7 +495,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   const persistOnboardingDraft = async (): Promise<boolean> => {
-    const values = form.getFieldsValue(true) as SystemConfig;
+    const values = readConfig();
     if (!values.preferences) {
       values.preferences = { ...initialConfig.preferences };
     }
@@ -599,7 +571,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       if (response.data?.completed !== true) {
         return false;
       }
-      const values = form.getFieldsValue(true) as SystemConfig;
+      const values = readConfig();
       enterAppAfterCompletion(
         values.preferences?.language,
         options.destination,
@@ -621,7 +593,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setSaving(true);
 
     try {
-      const values = form.getFieldsValue(true) as SystemConfig;
+      const values = readConfig();
       values.preferences.onboarding_completed = true;
       values.preferences.product_tour_completed = true;
       // Ensure the latest LLM state and selected persona slug land in the payload.
@@ -683,7 +655,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   /** Handle language change from welcome screen. */
   const handleWelcomeLanguageChange = (lang: "zh" | "en") => {
-    form.setFieldValue(["preferences", "language"], lang);
+    const values = readConfig();
+    saveProgress({ ...values, preferences: { ...values.preferences, language: lang } });
     localStorage.setItem("magi_language", lang);
     const mapped = toI18nLanguage(lang);
     document.documentElement.lang = mapped;
@@ -737,7 +710,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
 
     const next = Math.min(steps.length - 1, current + 1);
-    saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, next);
+    saveProgress(readConfig(), seedSlug, customPersonas, next);
   };
 
   const handlePrev = () => {
@@ -749,7 +722,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       return;
     }
     const prev = Math.max(0, current - 1);
-    saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, prev);
+    saveProgress(readConfig(), seedSlug, customPersonas, prev);
   };
 
   // The persona preview step uses the standard Previous/Next footer (the
@@ -868,7 +841,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             }
             invalidatePersonaConfirmation();
             saveProgress(
-              form.getFieldsValue(true),
+              readConfig(),
               slug,
               saved.customPersonas,
             );
@@ -877,7 +850,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             invalidatePersonaConfirmation();
             const saved = onboardingProgressRef.current;
             saveProgress(
-              form.getFieldsValue(true),
+              readConfig(),
               saved.seedSlug,
               drafts,
             );
@@ -885,7 +858,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           onCreationDraftChange={(draft) => {
             const saved = onboardingProgressRef.current;
             saveProgress(
-              form.getFieldsValue(true),
+              readConfig(),
               saved.seedSlug,
               saved.customPersonas,
               saved.current,
@@ -898,7 +871,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           onRouteChange={(route) => {
             const saved = onboardingProgressRef.current;
             saveProgress(
-              form.getFieldsValue(true),
+              readConfig(),
               saved.seedSlug,
               saved.customPersonas,
               saved.current,
@@ -980,23 +953,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   // Step 0: full-screen welcome
   if (current === 0) {
     const currentLang =
-      (form.getFieldValue(["preferences", "language"]) as "zh" | "en") ||
+      readConfig().preferences.language ||
       (onboardingProgress.values.preferences?.language as "zh" | "en") ||
       "zh";
 
     return (
-      <Form
-        form={form}
-        layout="vertical"
-        initialValues={onboardingInitialValues}
-        onValuesChange={onValuesChange}
-      >
+      <>
         <WelcomeScreen
           language={currentLang}
           onLanguageChange={handleWelcomeLanguageChange}
           onContinue={() => {
             saveProgress(
-              form.getFieldsValue(true),
+              readConfig(),
               seedSlug,
               customPersonas,
               LLM_SETUP_STEP,
@@ -1004,7 +972,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             );
           }}
         />
-      </Form>
+      </>
     );
   }
 
@@ -1089,12 +1057,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             )
           }
         >
-          <Form
-            form={form}
-            layout="vertical"
-            initialValues={onboardingInitialValues}
-            onValuesChange={onValuesChange}
-          >
+          <>
             <AnimatePresence mode="wait">
               <motion.div
                 className="flex h-full min-h-0 flex-1 flex-col"
@@ -1117,7 +1080,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 {renderStepContent()}
               </motion.div>
             </AnimatePresence>
-          </Form>
+          </>
         </GuidedConfigFrame>
       </div>
     </div>

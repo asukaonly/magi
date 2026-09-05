@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,7 +13,6 @@ import {
 } from '@/api/modules/config';
 import { cn } from '@/lib/utils';
 
-import { FormContext } from '../onboarding/simple-form';
 import {
   applySelectionDefaults,
   buildRegistryFromCatalog,
@@ -39,8 +38,8 @@ import { LLMProviderConfigurationSection } from './LLMProviderConfigurationSecti
 interface LLMFormProps {
   quickMode?: boolean;
   view?: 'all' | 'providers' | 'models';
-  value?: LLMConfig;
-  onChange?: (nextValue: LLMConfig) => void;
+  value: LLMConfig;
+  onChange: (nextValue: LLMConfig) => void;
   onAutoNormalize?: (nextValue: LLMConfig) => void;
   showAdvancedByDefault?: boolean;
   surface?: 'onboarding' | 'settings';
@@ -99,8 +98,6 @@ const LLMForm: React.FC<LLMFormProps> = ({
   onValidationChange,
 }) => {
   const { t } = useTranslation('onboarding');
-  const formCtx = useContext(FormContext);
-  const controlled = value !== undefined && typeof onChange === 'function';
   const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
   const [customProviderTemplate, setCustomProviderTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
   const [customProviderDefaults, setCustomProviderDefaults] = useState<LLMProviderConfig | null>(null);
@@ -117,12 +114,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const pendingEmbeddingDialogTimerRef = useRef<number | null>(null);
   const registryPreviewRequestRef = useRef(0);
 
-  const currentValue = useMemo(() => {
-    if (controlled) {
-      return cloneLLMConfig(value);
-    }
-    return cloneLLMConfig(formCtx?.values?.llm as LLMConfig | undefined);
-  }, [controlled, formCtx?.values?.llm, value]);
+  const currentValue = useMemo(() => cloneLLMConfig(value), [value]);
   const initialProvidersRef = useRef(currentValue.providers);
   const fillAvailableHeight = view === 'providers';
   const memorySummarizerCanUseCore = Boolean(
@@ -162,11 +154,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const updateValue = (updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);
     updater(next);
-    if (controlled) {
-      onChange?.(next);
-      return;
-    }
-    formCtx?.instance?.setFieldValue?.(['llm'], next);
+    onChange(next);
   };
 
   useEffect(() => {
@@ -239,7 +227,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     }
     const normalized = normalizeLLMConfig(currentValue, registry);
     if (llmSignature(normalized) !== llmSignature(currentValue)) {
-      if (controlled && onAutoNormalize) {
+      if (onAutoNormalize) {
         onAutoNormalize(normalized);
         return;
       }
@@ -248,7 +236,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     if (!normalized.providers[activeProviderId]) {
       setActiveProviderId(Object.keys(normalized.providers)[0] || '');
     }
-  }, [activeProviderId, controlled, currentValue, onAutoNormalize, registry]);
+  }, [activeProviderId, currentValue, onAutoNormalize, registry]);
 
   useEffect(() => {
     if (!memorySummarizerUsesCore) {

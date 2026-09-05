@@ -4,10 +4,14 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { configApi, type LLMConfig } from '../api/modules/config';
-import { SimpleForm as Form } from '../components/onboarding/simple-form';
 import LLMForm from '../components/config-forms/LLMForm';
 import { buildRegistryFromCatalog, normalizeLLMConfig } from '../components/config-forms/llm-form-state';
 import { LLMRerankerModelPanel } from '../components/config-forms/LLMRerankerModelPanel';
+
+function LLMFormHarness({ initialValue, ...props }: Omit<React.ComponentProps<typeof LLMForm>, 'value' | 'onChange'> & { initialValue: LLMConfig }) {
+  const [value, setValue] = React.useState(initialValue);
+  return <LLMForm {...props} value={value} onChange={setValue} />;
+}
 
 vi.mock('../api/modules/config', async () => {
   const actual = await vi.importActual<typeof import('../api/modules/config')>('../api/modules/config');
@@ -787,7 +791,7 @@ describe('config forms', () => {
     vi.clearAllMocks();
   });
 
-  const llmValue = {
+  const llmValue: LLMConfig = {
     providers: {
       openai: {
         enabled: true,
@@ -934,9 +938,7 @@ describe('config forms', () => {
 
   it('renders the configured builtin providers with local icons in the provider list', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
@@ -954,9 +956,7 @@ describe('config forms', () => {
 
   it('does not show provider type subtitles in the settings provider list', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
@@ -968,7 +968,7 @@ describe('config forms', () => {
 
   it('normalizes custom providers when custom provider metadata is absent', () => {
     const registry = buildRegistryFromCatalog({ providers: [] }, {} as any);
-    const customValue = structuredClone(llmValue) as LLMConfig;
+    const customValue = structuredClone(llmValue);
     customValue.providers = {
       custom_proxy: {
         ...structuredClone(llmValue.providers.openai),
@@ -1003,7 +1003,7 @@ describe('config forms', () => {
   });
 
   it('keeps chat plans out of background model assignments', async () => {
-    const planValue = structuredClone(llmValue) as LLMConfig;
+    const planValue = structuredClone(llmValue);
     planValue.providers.glm.provider_plan = 'codeplan';
     planValue.selections.core = {
       ...structuredClone(planValue.selections.core),
@@ -1026,9 +1026,7 @@ describe('config forms', () => {
 
   it('pins enabled providers above disabled providers in the settings provider list', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
@@ -1049,9 +1047,7 @@ describe('config forms', () => {
 
   it('uses a switch control for provider enablement in the provider list', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-openai');
@@ -1079,9 +1075,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: valueWithoutAnthropicBaseUrl }}>
-        <LLMForm quickMode />
-      </Form>
+      <LLMFormHarness initialValue={valueWithoutAnthropicBaseUrl} quickMode />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-anthropic');
@@ -1096,9 +1090,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-openai');
@@ -1131,9 +1123,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: valueWithDisabledEmbedding }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={valueWithDisabledEmbedding} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-openai');
@@ -1169,9 +1159,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: inheritedConnectionValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={inheritedConnectionValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-openai');
@@ -1215,9 +1203,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
@@ -1242,9 +1228,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
@@ -1260,9 +1244,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
@@ -1280,9 +1262,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('button', { name: 'llm.providerConfiguration.addProvider' }));
@@ -1302,9 +1282,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode />
     );
 
     const coreCard = await screen.findByTestId('llm-scenario-core');
@@ -1324,9 +1302,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.memory_summarizer.title' }));
@@ -1347,9 +1323,7 @@ describe('config forms', () => {
 
   it('shows a memory summarizer tab for expert onboarding model selection', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} view="models" showSectionIntro={false} />
     );
 
     expect(
@@ -1359,9 +1333,7 @@ describe('config forms', () => {
 
   it('keeps the memory summarizer tab hidden for quick onboarding model selection', async () => {
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode view="models" showSectionIntro={false} />
     );
 
     await screen.findByTestId('llm-scenario-core');
@@ -1427,9 +1399,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
     );
 
     const coreCard = await screen.findByTestId('llm-scenario-core');
@@ -1450,7 +1420,7 @@ describe('config forms', () => {
   });
 
   it('hides the core vision warning for custom models with vision metadata overrides', async () => {
-    const customValue = {
+    const customValue: LLMConfig = {
       ...structuredClone(llmValue),
       providers: {
         ...structuredClone(llmValue.providers),
@@ -1491,9 +1461,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: customValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={customValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
     );
 
     await screen.findByTestId('llm-scenario-core');
@@ -1504,7 +1472,7 @@ describe('config forms', () => {
   });
 
   it('respects vision overrides for custom models whose ids include provider prefixes', async () => {
-    const customValue = {
+    const customValue: LLMConfig = {
       ...structuredClone(llmValue),
       providers: {
         ...structuredClone(llmValue.providers),
@@ -1545,9 +1513,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: customValue }}>
-        <LLMForm quickMode={false} surface="settings" view="all" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={customValue} quickMode={false} surface="settings" view="all" showSectionIntro={false} />
     );
 
     const coreCard = await screen.findByTestId('llm-scenario-core');
@@ -1561,9 +1527,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
     );
 
     const coreCard = await screen.findByTestId('llm-scenario-core');
@@ -1683,7 +1647,7 @@ describe('config forms', () => {
       },
     }) as any);
 
-    const manyModelValue = {
+    const manyModelValue: LLMConfig = {
       providers: {
         openai: {
           enabled: true,
@@ -1738,9 +1702,7 @@ describe('config forms', () => {
 
     try {
       render(
-        <Form initialValues={{ llm: manyModelValue }}>
-          <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-        </Form>
+        <LLMFormHarness initialValue={manyModelValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
       );
 
       const coreCard = await screen.findByTestId('llm-scenario-core');
@@ -2210,9 +2172,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="models" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="models" showSectionIntro={false} />
     );
 
     await user.click(await screen.findByRole('tab', { name: 'llm.scenarios.image_generation.title' }));
@@ -2226,9 +2186,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-openai');
@@ -2286,9 +2244,7 @@ describe('config forms', () => {
     };
 
     render(
-      <Form initialValues={{ llm: glmWithoutBaseUrl }}>
-        <LLMForm quickMode />
-      </Form>
+      <LLMFormHarness initialValue={glmWithoutBaseUrl} quickMode />
     );
 
     const providerList = await screen.findByTestId('llm-provider-list-pane');
@@ -2307,9 +2263,7 @@ describe('config forms', () => {
     const user = userEvent.setup();
 
     render(
-      <Form initialValues={{ llm: llmValue }}>
-        <LLMForm quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
-      </Form>
+      <LLMFormHarness initialValue={llmValue} quickMode={false} surface="settings" view="providers" showSectionIntro={false} />
     );
 
     const providerRow = await screen.findByTestId('llm-provider-row-glm');
