@@ -226,6 +226,11 @@ def build_package_states(
 def load_plugin_manifest(manifest_path: Path, *, source: str) -> PluginManifest:
     raw = _load_manifest_document(manifest_path)
     plugin_block = raw.get("plugin", raw)
+    if not isinstance(plugin_block, Mapping):
+        raise ValueError("Plugin manifest must contain a plugin table")
+    for required_field in ("protocol_version", "min_sdk_version"):
+        if required_field not in plugin_block:
+            raise ValueError(f"Plugin manifest must declare {required_field}")
     manifest = PluginManifest.model_validate(
         {
             **plugin_block,

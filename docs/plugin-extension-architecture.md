@@ -102,6 +102,14 @@ do not expose database paths, store instances, or unused session/control/subagen
 handles. Canonical entity name lookup is a host operation; plugins cannot choose
 its database. Tool reranking consumes advisory data through that same boundary.
 
+Connection registration is transactional. A registration must match the
+manifest's declared contribution types; duplicate identifiers fail without
+replacing another owner. Disposers are tied to an exact registration, so stale
+cleanup cannot remove a replacement. Each connection owns its loaded instance
+and contribution identifiers. Reload, package replacement, and shutdown drain
+the previous instance before publishing a replacement. Package removal requires
+disconnecting its connections first.
+
 The public SDK is version `0.2.0`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its

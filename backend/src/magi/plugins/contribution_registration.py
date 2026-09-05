@@ -1,25 +1,22 @@
-"""Registration of plugin contributions into host registries."""
+"""Transactional registration of connection-owned plugin contributions."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
-import logging
+from dataclasses import replace
+import threading
 from typing import Any
 
 from .base import Plugin
 from .contracts import ContributionType, PluginContribution, PluginManifest
 from .history_importers import HistoryImporterRegistry
 from .sensors import SensorRegistry
-from .settings_service import (
-    collect_plugin_settings_actions,
-    settings_actions_for_contribution,
-)
-
-logger = logging.getLogger(__name__)
+from .settings_service import collect_plugin_settings_actions, settings_actions_for_contribution
 
 
 class PluginContributionRegistrar:
-    """Register and unregister loaded plugin contributions."""
+    """Publish a complete declaration or roll back only that registration's entries."""
 
     def __init__(
         self,
@@ -28,14 +25,19 @@ class PluginContributionRegistrar:
         sensor_registry: SensorRegistry,
         history_importer_registry: HistoryImporterRegistry | None = None,
         hook_registry_provider: Callable[[], Any | None] | None = None,
+        skill_registrar: Any | None = None,
+        operation_registrar: Any | None = None,
+        provider_registrar: Any | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._sensor_registry = sensor_registry
         self._history_importer_registry = history_importer_registry or HistoryImporterRegistry()
         self._hook_registry_provider = hook_registry_provider or _resolve_hook_registry
-        self._registered_tools: dict[str, list[str]] = {}
-        self._registered_sensors: dict[str, list[str]] = {}
-        self._registered_hooks: dict[str, list[tuple[Any, Any]]] = {}
+        self._skill_registrar = skill_registrar
+        self._operation_registrar = operation_registrar
+        self._provider_registrar = provider_registrar
+        self._registrations: dict[str, list[Callable[[], None]]] = {}
+        self._lock = threading.RLock()
 
     @property
     def history_importer_registry(self) -> HistoryImporterRegistry:
@@ -45,320 +47,329 @@ class PluginContributionRegistrar:
         self,
         *,
         plugin_id: str,
+        connection_id: str,
         manifest: PluginManifest,
         plugin_instance: Plugin,
     ) -> list[PluginContribution]:
-        """Register a loaded plugin's host-facing contributions."""
+        """Validate actual contribution kinds before publishing any host entries."""
+        with self._lock:
+            if manifest.plugin_id != plugin_id or plugin_instance.plugin_id != plugin_id:
+                raise ValueError("Plugin registration identity does not match its manifest")
+            if plugin_instance.connection_id != connection_id:
+                raise ValueError("Plugin registration identity does not match its connection")
+            if connection_id in self._registrations:
+                raise ValueError(f"Connection contributions already registered: {connection_id}")
+            tools = list(plugin_instance.get_tools())
+            sensors = list(plugin_instance.get_sensors())
+            importers = list(plugin_instance.get_history_importers())
+            channel = plugin_instance.get_channel()
+            hooks = list(plugin_instance.get_hooks())
+            skills = list(plugin_instance.get_skills())
+            operations = list(plugin_instance.get_operations())
+            providers = list(plugin_instance.get_providers())
+            actual = {
+                kind
+                for kind, values in (
+                    (ContributionType.TOOL, tools),
+                    (ContributionType.OPERATION, operations),
+                    (ContributionType.PROVIDER, providers),
+                    (ContributionType.SENSOR, sensors),
+                    (ContributionType.HISTORY_IMPORTER, importers),
+                    (ContributionType.CHANNEL, channel is not None),
+                    (ContributionType.HOOK, hooks),
+                    (ContributionType.SKILL, skills),
+                )
+                if values
+            }
+            declared = set(manifest.contribution_types)
+            if declared != actual:
+                missing = sorted(item.value for item in declared - actual)
+                undeclared = sorted(item.value for item in actual - declared)
+                raise ValueError(
+                    f"Plugin contribution declaration mismatch: missing={missing}, "
+                    f"undeclared={undeclared}"
+                )
+            settings_actions = collect_plugin_settings_actions(plugin_instance)
+            contributions: list[PluginContribution] = []
+            disposers: list[Callable[[], None]] = []
+            seen: set[tuple[ContributionType, str]] = set()
 
-        settings_actions = collect_plugin_settings_actions(plugin_instance)
-        registered_contributions: list[PluginContribution] = []
+            def host_id(local_id: str) -> str:
+                if not local_id:
+                    raise ValueError("Contribution id must not be empty")
+                return local_id if manifest.source == "builtin" else f"{connection_id}:{local_id}"
 
-        self._register_tools(
-            plugin_id=plugin_id,
-            plugin_instance=plugin_instance,
-            settings_actions=settings_actions,
-            registered_contributions=registered_contributions,
-        )
-        self._register_sensors(
-            plugin_id=plugin_id,
-            manifest=manifest,
-            plugin_instance=plugin_instance,
-            settings_actions=settings_actions,
-            registered_contributions=registered_contributions,
-        )
-        self._register_history_importers(
-            plugin_id=plugin_id,
-            plugin_instance=plugin_instance,
-            registered_contributions=registered_contributions,
-        )
-        self._register_channel(
-            plugin_id=plugin_id,
-            manifest=manifest,
-            plugin_instance=plugin_instance,
-            settings_actions=settings_actions,
-            registered_contributions=registered_contributions,
-        )
-        self._register_hooks(
-            plugin_id=plugin_id,
-            plugin_instance=plugin_instance,
-            registered_contributions=registered_contributions,
-        )
-        return registered_contributions
+            def record(kind: ContributionType, local_id: str, **kwargs: Any) -> None:
+                key = (kind, local_id)
+                if key in seen:
+                    raise ValueError(f"Duplicate contribution: {kind.value}/{local_id}")
+                seen.add(key)
+                metadata = dict(kwargs.pop("metadata", {}))
+                metadata.update(connection_id=connection_id, local_id=local_id)
+                actions = settings_actions_for_contribution(
+                    settings_actions,
+                    contribution_id=local_id,
+                    contribution_type=kind,
+                    surface=kwargs.get("surface", "extensions"),
+                )
+                if actions:
+                    metadata["settings_actions"] = actions
+                contributions.append(
+                    PluginContribution(
+                        plugin_id=plugin_id,
+                        contribution_id=host_id(local_id),
+                        contribution_type=kind,
+                        metadata=metadata,
+                        **kwargs,
+                    )
+                )
 
-    def unregister(self, plugin_id: str) -> None:
-        """Unregister contributions previously registered for a plugin."""
-
-        for tool_name in self._registered_tools.pop(plugin_id, []):
-            self._tool_registry.unregister(tool_name)
-        for sensor_id in self._registered_sensors.pop(plugin_id, []):
-            self._sensor_registry.unregister(sensor_id)
-        self._history_importer_registry.unregister_plugin(plugin_id)
-
-        hook_entries = self._registered_hooks.pop(plugin_id, [])
-        if not hook_entries:
-            return
-        registry = self._hook_registry_provider()
-        if registry is None:
-            return
-        for event_type, handler in hook_entries:
+            self._registrations[connection_id] = disposers
             try:
-                registry.unregister(event_type, handler)
-            except Exception:
-                logger.debug(
-                    "Plugin hook unregister failed",
-                    extra={"plugin_id": plugin_id, "event_type": str(event_type)},
-                    exc_info=True,
-                )
+                for tool_class in tools:
+                    tool = tool_class()
+                    schema = tool.get_schema()
+                    record(
+                        ContributionType.TOOL,
+                        schema.name,
+                        display_name=schema.name,
+                        description=schema.description,
+                        surface="tools",
+                    )
+                    if self._operation_registrar is None:
+                        raise RuntimeError("Plugin operation registry is unavailable")
+                    if self._provider_registrar is not None:
+                        disposers.append(self._provider_registrar.bind_tool(tool))
+                    disposers.append(
+                        self._operation_registrar.register_tool(
+                            plugin_id=plugin_id,
+                            connection_id=connection_id,
+                            tool_class=tool_class,
+                            tool_instance=tool,
+                            registered_name=host_id(schema.name),
+                        )
+                    )
+                for operation in operations:
+                    record(
+                        ContributionType.OPERATION,
+                        operation.operation_id,
+                        display_name=operation.operation_id,
+                        description=operation.description,
+                        surface="tools",
+                    )
+                    if self._operation_registrar is None:
+                        raise RuntimeError("Plugin operation registry is unavailable")
 
-    def _register_tools(
-        self,
-        *,
-        plugin_id: str,
-        plugin_instance: Plugin,
-        settings_actions: list[Any],
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        tool_names: list[str] = []
-        self._registered_tools[plugin_id] = tool_names
-        for tool_class in plugin_instance.get_tools():
-            tool_instance = tool_class()
-            tool_schema = tool_instance.get_schema()
-            tool_name = tool_schema.name
-            setattr(tool_class, "_plugin_package_id", plugin_id)
-            self._tool_registry.register(tool_class)
-            tool_names.append(tool_name)
-            tool_action_metadata = settings_actions_for_contribution(
-                settings_actions,
-                contribution_id=tool_name,
-                contribution_type=ContributionType.TOOL,
-                surface="tools",
-            )
-            registered_contributions.append(
-                PluginContribution(
-                    plugin_id=plugin_id,
-                    contribution_id=tool_name,
-                    contribution_type=ContributionType.TOOL,
-                    display_name=tool_schema.name,
-                    description=tool_schema.description,
-                    surface="tools",
-                    metadata={"settings_actions": tool_action_metadata}
-                    if tool_action_metadata
-                    else {},
-                )
-            )
+                    async def invoke(arguments: Any, context: Any, _spec: Any = operation) -> Any:
+                        return await plugin_instance.invoke_operation(
+                            _spec.operation_id,
+                            arguments,
+                            context.invocation,
+                        )
 
-    def _register_sensors(
-        self,
-        *,
-        plugin_id: str,
-        manifest: PluginManifest,
-        plugin_instance: Plugin,
-        settings_actions: list[Any],
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        sensor_ids: list[str] = []
-        self._registered_sensors[plugin_id] = sensor_ids
-        for sensor_id, sensor, spec in plugin_instance.get_sensors():
-            bind_plugin_context = getattr(sensor, "bind_plugin_context", None)
-            if callable(bind_plugin_context):
-                bind_plugin_context(plugin_id=plugin_id, plugin_dir=manifest.plugin_dir)
-            self._sensor_registry.register(plugin_id, sensor_id, sensor, spec)
-            sensor_ids.append(sensor_id)
-            sensor_metadata = {"domain": spec.domain, **dict(spec.metadata)}
-            sensor_surface = _normalized_sensor_surface(spec.surface)
-            sensor_action_metadata = settings_actions_for_contribution(
-                settings_actions,
-                contribution_id=sensor_id,
-                contribution_type=ContributionType.SENSOR,
-                surface=sensor_surface,
-            )
-            if sensor_action_metadata:
-                sensor_metadata["settings_actions"] = sensor_action_metadata
-            registered_contributions.append(
-                PluginContribution(
-                    plugin_id=plugin_id,
-                    contribution_id=sensor_id,
-                    contribution_type=ContributionType.SENSOR,
-                    display_name=spec.display_name,
-                    description=spec.description,
-                    surface=sensor_surface,
-                    fields=list(spec.fields),
-                    metadata=sensor_metadata,
-                )
-            )
+                    disposers.append(
+                        self._operation_registrar.register(
+                            plugin_id=plugin_id,
+                            connection_id=connection_id,
+                            spec=operation,
+                            handler=invoke,
+                            registered_name=host_id(operation.operation_id),
+                        )
+                    )
+                for kind, provider_id, implementation in providers:
+                    record(
+                        ContributionType.PROVIDER,
+                        provider_id,
+                        display_name=provider_id,
+                        description="",
+                        surface="extensions",
+                        metadata={"kind": kind},
+                    )
+                    if self._provider_registrar is None:
+                        raise RuntimeError("Plugin provider registry is unavailable")
+                    disposers.append(
+                        self._provider_registrar.register(
+                            plugin_id=plugin_id,
+                            connection_id=connection_id,
+                            kind=kind,
+                            provider_id=host_id(provider_id),
+                            implementation=implementation,
+                        )
+                    )
+                for sensor_id, sensor, spec in sensors:
+                    if sensor_id != spec.sensor_id:
+                        raise ValueError("Sensor tuple id must match its spec")
+                    surface = (
+                        spec.surface
+                        if spec.surface in {"extensions", "tools", "timeline"}
+                        else "extensions"
+                    )
+                    record(
+                        ContributionType.SENSOR,
+                        sensor_id,
+                        display_name=spec.display_name,
+                        description=spec.description,
+                        surface=surface,
+                        fields=list(spec.fields),
+                        metadata={"domain": spec.domain, **dict(spec.metadata)},
+                    )
+                    bind = getattr(sensor, "bind_plugin_context", None)
+                    if callable(bind):
+                        bind(
+                            plugin_id=plugin_id,
+                            plugin_dir=manifest.plugin_dir,
+                            connection=plugin_instance.connection,
+                            context=plugin_instance.context,
+                        )
+                    registered_id = host_id(sensor_id)
+                    disposers.append(
+                        self._sensor_registry.register(
+                            plugin_id,
+                            registered_id,
+                            sensor,
+                            replace(
+                                spec,
+                                sensor_id=registered_id,
+                                metadata={
+                                    **spec.metadata,
+                                    "connection_id": connection_id,
+                                    "local_sensor_id": sensor_id,
+                                },
+                            ),
+                        )
+                    )
+                for importer_id, importer, spec in importers:
+                    if importer_id != spec.importer_id:
+                        raise ValueError("History importer tuple id must match its spec")
+                    record(
+                        ContributionType.HISTORY_IMPORTER,
+                        importer_id,
+                        display_name=spec.display_name,
+                        description=spec.description,
+                        surface="extensions",
+                        metadata={
+                            "accepted_extensions": list(spec.accepted_extensions),
+                            "format_version": spec.format_version,
+                            "participant_identity_scope": spec.participant_identity_scope,
+                            "export_help_url": spec.export_help_url,
+                        },
+                    )
+                    disposers.append(
+                        self._history_importer_registry.register(
+                            plugin_id=plugin_id,
+                            importer_id=importer_id,
+                            importer=importer,
+                            spec=spec,
+                            connection_id=connection_id,
+                        )
+                    )
+                if channel is not None:
+                    record(
+                        ContributionType.CHANNEL,
+                        f"{plugin_id}:channel",
+                        display_name=manifest.name,
+                        description=manifest.description,
+                        surface="extensions",
+                        fields=list(plugin_instance.get_channel_fields()),
+                    )
+                for skill_id, path in skills:
+                    if self._skill_registrar is None:
+                        raise RuntimeError("Plugin skill registry is unavailable")
+                    record(
+                        ContributionType.SKILL,
+                        skill_id,
+                        display_name=skill_id,
+                        description="",
+                        surface="tools",
+                    )
+                    disposers.append(
+                        self._skill_registrar.register(
+                            plugin_id,
+                            skill_id,
+                            path,
+                            plugin_dir=manifest.plugin_dir,
+                            connection_id=connection_id,
+                        )
+                    )
+                if hooks:
+                    from ..hooks.contracts import HookEventType
 
-    def _register_channel(
-        self,
-        *,
-        plugin_id: str,
-        manifest: PluginManifest,
-        plugin_instance: Plugin,
-        settings_actions: list[Any],
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        channel = plugin_instance.get_channel()
-        if channel is None:
-            return
-        channel_contribution_id = f"{plugin_id}:channel"
-        channel_action_metadata = settings_actions_for_contribution(
-            settings_actions,
-            contribution_id=channel_contribution_id,
-            contribution_type=ContributionType.CHANNEL,
-            surface="extensions",
-        )
-        registered_contributions.append(
-            PluginContribution(
-                plugin_id=plugin_id,
-                contribution_id=channel_contribution_id,
-                contribution_type=ContributionType.CHANNEL,
-                display_name=manifest.name,
-                description=manifest.description,
-                surface="extensions",
-                fields=list(plugin_instance.get_channel_fields()),
-                metadata={"settings_actions": channel_action_metadata}
-                if channel_action_metadata
-                else {},
-            )
-        )
+                    registry = self._hook_registry_provider()
+                    if registry is None:
+                        raise RuntimeError("Plugin hook registry is unavailable")
+                    seen_hooks: set[tuple[Any, int]] = set()
+                    for index, raw in enumerate(hooks):
+                        event_type, handler, matcher = _parse_hook_spec(
+                            raw, event_type_cls=HookEventType
+                        )
+                        key = (event_type, id(handler))
+                        if key in seen_hooks:
+                            raise ValueError(f"Duplicate hook handler: {event_type.value}")
+                        seen_hooks.add(key)
 
-    def _register_history_importers(
-        self,
-        *,
-        plugin_id: str,
-        plugin_instance: Plugin,
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        for importer_id, importer, spec in plugin_instance.get_history_importers():
-            self._history_importer_registry.register(
-                plugin_id=plugin_id,
-                importer_id=importer_id,
-                importer=importer,
-                spec=spec,
-            )
-            registered_contributions.append(
-                PluginContribution(
-                    plugin_id=plugin_id,
-                    contribution_id=importer_id,
-                    contribution_type=ContributionType.HISTORY_IMPORTER,
-                    display_name=spec.display_name,
-                    description=spec.description,
-                    surface="extensions",
-                    metadata={
-                        "accepted_extensions": list(spec.accepted_extensions),
-                        "format_version": spec.format_version,
-                        "participant_identity_scope": spec.participant_identity_scope,
-                        "export_help_url": spec.export_help_url,
-                    },
-                )
-            )
+                        # A distinct wrapper prevents one owner's registration from changing
+                        # another owner's matcher/source metadata for the same callable.
+                        async def owned_handler(context: Any, _handler: Any = handler) -> Any:
+                            return await _handler(context)
 
-    def _register_hooks(
-        self,
-        *,
-        plugin_id: str,
-        plugin_instance: Plugin,
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        try:
-            hook_specs = list(plugin_instance.get_hooks() or [])
-        except AttributeError:
-            hook_specs = []
-        except Exception:
-            hook_specs = []
-        if hook_specs:
-            self._register_plugin_hooks(plugin_id, hook_specs, registered_contributions)
+                        registry.register(
+                            event_type,
+                            owned_handler,
+                            matcher=matcher,
+                            source=f"plugin:{plugin_id}:{connection_id}",
+                        )
+                        disposers.append(
+                            lambda r=registry, e=event_type, h=owned_handler: r.unregister(e, h)
+                        )
+                        record(
+                            ContributionType.HOOK,
+                            f"hook:{event_type.value}:{index}",
+                            display_name=f"{event_type.value} hook",
+                            description="",
+                            surface="extensions",
+                            metadata={"event_type": event_type.value, "matcher": matcher},
+                        )
+                return contributions
+            except BaseException:
+                self.unregister(connection_id)
+                raise
 
-    def _register_plugin_hooks(
-        self,
-        plugin_id: str,
-        hook_specs: list[tuple[Any, ...]],
-        registered_contributions: list[PluginContribution],
-    ) -> None:
-        registry = self._hook_registry_provider()
-        if registry is None:
-            return
-        try:
-            from ..hooks.contracts import HookEventType
-        except Exception:
-            return
-
-        recorded: list[tuple[Any, Any]] = []
-        for raw_index, spec in enumerate(hook_specs):
-            parsed = _parse_hook_spec(spec, event_type_cls=HookEventType)
-            if parsed is None:
-                continue
-            event_type, handler, matcher = parsed
-            try:
-                registry.register(
-                    event_type,
-                    handler,
-                    matcher=str(matcher) if matcher else None,
-                    source=f"plugin:{plugin_id}",
-                )
-            except TypeError:
-                continue
-            recorded.append((event_type, handler))
-            registered_contributions.append(
-                _build_hook_contribution(
-                    plugin_id=plugin_id,
-                    event_type=event_type,
-                    matcher=matcher,
-                    raw_index=raw_index,
-                )
-            )
-        if recorded:
-            self._registered_hooks[plugin_id] = recorded
+    def unregister(self, connection_id: str) -> None:
+        """Dispose exact entries in reverse order, retaining failed cleanup for retry."""
+        with self._lock:
+            disposers = self._registrations.get(connection_id)
+            if disposers is None:
+                return
+            failures: list[Exception] = []
+            for dispose in tuple(reversed(disposers)):
+                try:
+                    dispose()
+                except Exception as exc:
+                    failures.append(exc)
+                else:
+                    disposers.remove(dispose)
+            if failures:
+                raise RuntimeError(
+                    f"Contribution cleanup failed for {connection_id}: {failures}"
+                ) from failures[0]
+            self._registrations.pop(connection_id, None)
 
 
-def _normalized_sensor_surface(surface: str) -> str:
-    return surface if surface in {"extensions", "tools", "timeline"} else "extensions"
-
-
-def _parse_hook_spec(
-    spec: Any,
-    *,
-    event_type_cls: Any,
-) -> tuple[Any, Any, Any] | None:
-    if not isinstance(spec, tuple) or len(spec) < 2:
-        return None
-    try:
-        event_type = event_type_cls(spec[0])
-    except ValueError:
-        return None
+def _parse_hook_spec(spec: Any, *, event_type_cls: Any) -> tuple[Any, Any, str | None]:
+    if not isinstance(spec, tuple) or len(spec) not in {2, 3}:
+        raise ValueError("Hook contribution must be an event, handler, and optional matcher tuple")
+    event_type = event_type_cls(spec[0])
     handler = spec[1]
-    matcher = spec[2] if len(spec) >= 3 else None
+    if not asyncio.iscoroutinefunction(handler):
+        raise TypeError(f"Hook handler for {event_type.value} must be async")
+    matcher = spec[2] if len(spec) == 3 else None
+    if matcher is not None and not isinstance(matcher, str):
+        raise TypeError("Hook matcher must be a string or None")
     return event_type, handler, matcher
 
 
-def _build_hook_contribution(
-    *,
-    plugin_id: str,
-    event_type: Any,
-    matcher: Any,
-    raw_index: int,
-) -> PluginContribution:
-    return PluginContribution(
-        plugin_id=plugin_id,
-        contribution_id=f"{plugin_id}:hook:{event_type.value}:{raw_index}",
-        contribution_type=ContributionType.HOOK,
-        display_name=f"{event_type.value} hook",
-        description=f"Hook contributed by {plugin_id}",
-        surface="extensions",
-        metadata={
-            "event_type": event_type.value,
-            "matcher": matcher,
-        },
-    )
-
-
 def _resolve_hook_registry() -> Any | None:
-    """Best-effort resolve of the shared HookRegistry."""
-    try:
-        from ..core.container import get_container
+    from ..core.container import get_container
 
-        registry = get_container().hook_registry()
-    except Exception:
-        return None
-    if registry is None or type(registry).__name__ == "object":
-        return None
-    return registry
+    registry = get_container().hook_registry()
+    return None if registry is None or type(registry).__name__ == "object" else registry

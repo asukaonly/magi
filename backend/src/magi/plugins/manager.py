@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from concurrent.futures import Future
+import inspect
 from functools import wraps
 import importlib
 import importlib.util
@@ -14,6 +16,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
+
+from magi_plugin_sdk.context import PluginContext
+from magi_plugin_sdk.runtime import (
+    CapabilityReadiness,
+    InvocationIdentity,
+    PluginConnection,
+    PLUGIN_PROTOCOL_VERSION,
+    SDK_VERSION,
+)
+from magi_plugin_sdk.versioning import parse_plugin_version
 
 from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
@@ -66,6 +78,7 @@ class PluginUserContentTargetPreparationFailure:
 
     plugin_id: str
     error: Exception
+    connection_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +88,7 @@ class PluginUserContentChannelTarget:
     plugin_id: str
     channel_type: str
     channel: Any
+    connection_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +108,14 @@ def build_plugin_runtime(
     request_sensor_schedule_refresh: Callable[[], None],
     sensor_registry: SensorRegistry | None = None,
     activate_enabled: bool = True,
+    connection_store: Any | None = None,
+    instance_factory: Callable[[PluginManifest, PluginConnection, PluginContext], Plugin]
+    | None = None,
+    skill_registrar: Any | None = None,
+    operation_registrar: Any | None = None,
+    provider_registrar: Any | None = None,
+    content_clearer: Callable[..., Any] | None = None,
+    connection_disconnector: Callable[[PluginConnection], Any] | None = None,
 ) -> PluginRuntimeBindings:
     """Build plugin runtime services for the current runtime instance.
 
@@ -107,6 +129,13 @@ def build_plugin_runtime(
     history_importer_registry = HistoryImporterRegistry()
     plugin_manager = PluginManager(
         tool_registry=tool_registry,
+        connection_store=connection_store,
+        instance_factory=instance_factory,
+        skill_registrar=skill_registrar,
+        operation_registrar=operation_registrar,
+        provider_registrar=provider_registrar,
+        content_clearer=content_clearer,
+        connection_disconnector=connection_disconnector,
         sensor_registry=resolved_sensor_registry,
         history_importer_registry=history_importer_registry,
         search_paths=_resolve_search_paths(),
@@ -137,6 +166,14 @@ class PluginManager(PluginInstallationMixin):
         search_paths: list[Path],
         request_sensor_schedule_refresh: Callable[[], None],
         history_importer_registry: HistoryImporterRegistry | None = None,
+        connection_store: Any | None = None,
+        instance_factory: Callable[[PluginManifest, PluginConnection, PluginContext], Plugin]
+        | None = None,
+        skill_registrar: Any | None = None,
+        operation_registrar: Any | None = None,
+        provider_registrar: Any | None = None,
+        content_clearer: Callable[..., Any] | None = None,
+        connection_disconnector: Callable[[PluginConnection], Any] | None = None,
     ) -> None:
         self._search_paths = list(search_paths)
         self._sensor_registry = sensor_registry
@@ -144,21 +181,66 @@ class PluginManager(PluginInstallationMixin):
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
         self._lifecycle_write_lock = threading.RLock()
+        self._async_lifecycle_lock = asyncio.Lock()
+        self._instance_factory = instance_factory
+        self._content_clearer = content_clearer
+        self._connection_disconnector = connection_disconnector
+        self._temporary_clear_instances: dict[str, Plugin] = {}
+        self._instance_packages: dict[str, str] = {}
+        self._connection_contributions: dict[str, list[Any]] = {}
+        self._pending_plugin_shutdowns: dict[str, Future[None]] = {}
+        self._shutdown_owners: dict[str, str] = {}
+        self._shutdown_tasks: set[asyncio.Task[Any]] = set()
+        try:
+            self._runtime_loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._runtime_loop = None
+        if connection_store is None:
+            from .connections import PluginConnectionStore
+            from .connection_settings import connection_fields, validate_connection_settings
+
+            connection_store = PluginConnectionStore(
+                require_package=self._require_connection_package,
+                authorize_enable=self._authorize_connection,
+                validate_settings=lambda connection: validate_connection_settings(
+                    connection,
+                    connection_fields(self._require_package(connection.plugin_id)),
+                ),
+            )
+        self.connection_store = connection_store
+        if operation_registrar is None:
+            from .operations import PluginOperationRegistry
+
+            operation_registrar = PluginOperationRegistry(
+                tool_registry,
+                get_connection=self.connection_store.get,
+            )
+        self.operation_registry = operation_registrar
+        if provider_registrar is None:
+            from .providers import PluginProviderRegistry
+
+            provider_registrar = PluginProviderRegistry(get_connection=self.connection_store.get)
+        self.provider_registry = provider_registrar
         self._contribution_registrar = PluginContributionRegistrar(
             tool_registry=tool_registry,
             sensor_registry=sensor_registry,
             history_importer_registry=history_importer_registry,
+            skill_registrar=skill_registrar,
+            operation_registrar=operation_registrar,
+            provider_registrar=provider_registrar,
         )
         self._settings_service = PluginSettingsService(
-            get_package=self.get_package,
-            load_plugin=self.load_plugin,
-            get_loaded_plugin=self.get_loaded_plugin,
-            update_plugin_settings=self.update_plugin_settings,
+            get_connection=self.connection_store.get,
+            get_connection_plugin=self.get_connection_plugin,
+            operation_registry=self.operation_registry,
+            update_connection_settings=lambda connection_id,
+            settings,
+            revision: self.update_connection(
+                connection_id,
+                expected_revision=revision,
+                settings=settings,
+            ),
         )
-        # Tasks spawned by unload_plugin to run plugins' shutdown coroutines.
-        # We hold strong refs so they're not GC'd while pending; entries
-        # remove themselves via a done callback.
-        self._pending_plugin_shutdowns: set[asyncio.Task] = set()
 
     @property
     def search_paths(self) -> list[Path]:
@@ -197,15 +279,28 @@ class PluginManager(PluginInstallationMixin):
 
         return super()._capture_plugin_install_target(*args, **kwargs)
 
-    @_serialized_lifecycle_mutation
     def _commit_staged_plugin_package(
         self,
-        *args: Any,
+        plan: Any,
         **kwargs: Any,
     ) -> tuple[PluginDirectoryInstallOutcome, Path | None]:
         """Commit one prepared package without interleaving lifecycle writes."""
 
-        return super()._commit_staged_plugin_package(*args, **kwargs)
+        had_loaded_connections = plan.plugin_id in self._instance_packages.values()
+        self.unload_plugin(plan.plugin_id)
+        self._drain_shutdowns_sync(plan.plugin_id)
+        try:
+            with self._lifecycle_write_lock:
+                result = super()._commit_staged_plugin_package(plan, **kwargs)
+                state = self.get_package(plan.plugin_id)
+                if state is not None and state.trusted:
+                    self.load_plugin(plan.plugin_id)
+                return result
+        except BaseException:
+            self._drain_shutdowns_sync(plan.plugin_id)
+            if had_loaded_connections:
+                self.load_plugin(plan.plugin_id)
+            raise
 
     @_serialized_lifecycle_mutation
     def remove_provisional_registry_library(
@@ -219,7 +314,9 @@ class PluginManager(PluginInstallationMixin):
     @_serialized_lifecycle_mutation
     def uninstall_plugin(self, plugin_id: str) -> list[str]:
         """Uninstall one package without interleaving lifecycle writes."""
-
+        if self.connection_store.list(plugin_id):
+            raise ValueError("Disconnect plugin connections before uninstalling their package")
+        self._require_no_pending_shutdown(plugin_id)
         return super().uninstall_plugin(plugin_id)
 
     @_serialized_lifecycle_mutation
@@ -254,7 +351,14 @@ class PluginManager(PluginInstallationMixin):
         """
 
         for state in self.list_packages():
-            if not state.enabled:
+            enabled_connections = any(
+                connection.enabled
+                for connection in self.connection_store.list(state.manifest.plugin_id)
+            )
+            if not enabled_connections and not (
+                state.enabled
+                and (state.manifest.kind == "library" or state.manifest.source == "builtin")
+            ):
                 continue
             try:
                 self.load_plugin(state.manifest.plugin_id)
@@ -273,8 +377,9 @@ class PluginManager(PluginInstallationMixin):
     def rescan_runtime(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         """Rescan plugin manifests and reload enabled plugins in the current runtime."""
 
-        for plugin_id in list(self._plugin_instances.keys()):
+        for plugin_id in set(self._instance_packages.values()):
             self.unload_plugin(plugin_id)
+        self._require_no_pending_shutdown()
         self.scan(persist_discovery=persist_discovery)
         self.activate_enabled_plugins()
         self._request_sensor_schedule_refresh()
@@ -296,8 +401,20 @@ class PluginManager(PluginInstallationMixin):
             return set(self._package_states.keys())
 
     def get_loaded_plugin(self, plugin_id: str) -> Plugin | None:
+        """Resolve a package only when it has one loaded connection."""
         with self._lifecycle_write_lock:
-            return self._plugin_instances.get(plugin_id)
+            matches = [
+                instance
+                for connection_id, instance in self._plugin_instances.items()
+                if self._instance_packages[connection_id] == plugin_id
+            ]
+            if len(matches) > 1:
+                raise ValueError(f"Plugin {plugin_id} requires an explicit connection id")
+            return matches[0] if matches else None
+
+    def get_connection_plugin(self, connection_id: str) -> Plugin | None:
+        with self._lifecycle_write_lock:
+            return self._plugin_instances.get(connection_id)
 
     def iter_loaded_plugins(self) -> list[Plugin]:
         """Return currently loaded plugin instances."""
@@ -305,247 +422,442 @@ class PluginManager(PluginInstallationMixin):
             return list(self._plugin_instances.values())
 
     def snapshot_user_content_clear_targets(self) -> PluginUserContentTargetSnapshot:
-        """Capture every installed non-library plugin without registering it."""
-
+        """Capture explicit connections, including disabled connections, for host deletion."""
         with self._lifecycle_write_lock:
+            self._require_no_pending_shutdown()
             plugins: list[tuple[str, Plugin, dict[str, Any]]] = []
             sensors = list(self._sensor_registry.snapshot_user_content_clear_targets())
             channels: list[PluginUserContentChannelTarget] = []
-            temporary_plugin_ids: set[str] = set()
-            preparation_failures: list[PluginUserContentTargetPreparationFailure] = []
-            for plugin_id, state in sorted(self._package_states.items()):
-                if state.manifest.kind == "library":
-                    continue
-                settings = deepcopy(state.current_settings)
-                plugin = self._plugin_instances.get(plugin_id)
-                if plugin is None:
-                    if not state.trusted and state.manifest.source != "builtin":
-                        preparation_failures.append(
-                            PluginUserContentTargetPreparationFailure(
-                                plugin_id=plugin_id,
-                                error=RuntimeError(
-                                    f"Plugin {plugin_id} is not trusted for clear execution"
-                                ),
-                            )
-                        )
-                        continue
+            temporary_ids: set[str] = set()
+            failures: list[PluginUserContentTargetPreparationFailure] = []
+            for connection in self.connection_store.list():
+                connection_id = connection.connection_id
+                state = self._require_package(connection.plugin_id)
+                instance = self._plugin_instances.get(connection_id)
+                if instance is None:
                     try:
-                        plugin = self._instantiate_plugin(state.manifest, settings)
-                    except Exception as exc:
-                        self._purge_plugin_modules(plugin_id)
-                        preparation_failures.append(
-                            PluginUserContentTargetPreparationFailure(
-                                plugin_id=plugin_id,
-                                error=exc,
-                            )
+                        self._authorize_connection(connection)
+                        instance = self._instantiate_plugin(
+                            state.manifest,
+                            connection,
+                            self.connection_store.context(connection_id),
                         )
-                        continue
-                    temporary_plugin_ids.add(plugin_id)
-                    try:
-                        sensor_contributions = list(plugin.get_sensors())
-                        for sensor_id, sensor, _spec in sensor_contributions:
-                            bind_plugin_context = getattr(
-                                sensor,
-                                "bind_plugin_context",
-                                None,
-                            )
-                            if callable(bind_plugin_context):
-                                bind_plugin_context(
-                                    plugin_id=plugin_id,
-                                    plugin_dir=state.manifest.plugin_dir,
-                                )
+                        self._temporary_clear_instances[connection_id] = instance
+                        temporary_ids.add(connection_id)
+                        for sensor_id, sensor, _spec in instance.get_sensors():
                             sensors.append(
                                 RegisteredSensorSnapshot(
-                                    plugin_id=plugin_id,
-                                    sensor_id=sensor_id,
+                                    plugin_id=connection.plugin_id,
+                                    sensor_id=f"{connection_id}:{sensor_id}",
                                     sensor=sensor,
+                                    connection_id=connection_id,
                                 )
                             )
-                    except Exception as exc:
-                        preparation_failures.append(
-                            PluginUserContentTargetPreparationFailure(
-                                plugin_id=plugin_id,
-                                error=exc,
-                            )
-                        )
-                    try:
-                        channel = plugin.get_channel()
+                        channel = instance.get_channel()
                         if channel is not None:
                             channels.append(
                                 PluginUserContentChannelTarget(
-                                    plugin_id=plugin_id,
+                                    plugin_id=connection.plugin_id,
                                     channel_type=str(channel.channel_type),
                                     channel=channel,
+                                    connection_id=connection_id,
                                 )
                             )
                     except Exception as exc:
-                        preparation_failures.append(
+                        failures.append(
                             PluginUserContentTargetPreparationFailure(
-                                plugin_id=plugin_id,
+                                plugin_id=connection.plugin_id,
                                 error=exc,
+                                connection_id=connection_id,
                             )
                         )
-                plugins.append((plugin_id, plugin, settings))
+                        if instance is None:
+                            continue
+                plugins.append((connection_id, instance, deepcopy(connection.settings)))
             return PluginUserContentTargetSnapshot(
                 plugins=tuple(plugins),
-                sensors=tuple(
-                    sorted(
-                        sensors,
-                        key=lambda item: (item.plugin_id, item.sensor_id),
-                    )
-                ),
-                channels=tuple(
-                    sorted(
-                        channels,
-                        key=lambda item: (item.plugin_id, item.channel_type),
-                    )
-                ),
-                temporary_plugin_ids=frozenset(temporary_plugin_ids),
-                preparation_failures=tuple(preparation_failures),
+                sensors=tuple(sensors),
+                channels=tuple(channels),
+                temporary_plugin_ids=frozenset(temporary_ids),
+                preparation_failures=tuple(failures),
             )
 
-    def release_temporary_user_content_clear_target(self, plugin_id: str) -> None:
-        """Remove modules imported only to clear one disabled plugin."""
-
+    def release_temporary_user_content_clear_target(self, connection_id: str) -> None:
+        """Release modules after the coordinator drained a temporary connection instance."""
         with self._lifecycle_write_lock:
-            if plugin_id in self._plugin_instances:
+            if connection_id in self._plugin_instances:
+                raise RuntimeError(f"Loaded connection {connection_id} is not a temporary target")
+            instance = self._temporary_clear_instances.pop(connection_id, None)
+            if instance is not None and instance.plugin_id not in self._instance_packages.values():
+                self._purge_plugin_modules(instance.plugin_id)
+
+    def _require_connection_package(self, plugin_id: str) -> PluginPackageState:
+        state = self._require_package(plugin_id)
+        self._reject_library(state, "create a connection for")
+        return state
+
+    def _drain_shutdowns_sync(self, plugin_id: str) -> None:
+        """Worker callers may wait; loop callers must use the async lifecycle API."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            with self._lifecycle_write_lock:
+                completions = [
+                    future
+                    for key, future in self._pending_plugin_shutdowns.items()
+                    if self._shutdown_owners[key] == plugin_id
+                ]
+            for completion in completions:
+                completion.result()
+        with self._lifecycle_write_lock:
+            self._require_no_pending_shutdown(plugin_id)
+
+    def create_connection(self, plugin_id: str, **kwargs: Any) -> PluginConnection:
+        connection = self.connection_store.create(plugin_id, **kwargs)
+        if connection.enabled:
+            self.load_connection(connection.connection_id)
+        return self.connection_store.get(connection.connection_id)
+
+    def update_connection(
+        self, connection_id: str, *, expected_revision: int, **updates: Any
+    ) -> PluginConnection:
+        connection = self._check_connection_revision(connection_id, expected_revision)
+        self.unload_connection(connection_id)
+        self._drain_shutdowns_sync(connection.plugin_id)
+        updated = self.connection_store.update(
+            connection_id,
+            expected_revision=expected_revision,
+            **updates,
+        )
+        if updated.enabled:
+            self.load_connection(connection_id)
+        return self.connection_store.get(connection_id)
+
+    def disconnect_connection(self, connection_id: str, *, expected_revision: int) -> None:
+        connection = self._check_connection_revision(connection_id, expected_revision)
+        if self._connection_disconnector is None:
+            raise RuntimeError("Connection disconnect coordinator is unavailable")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Connection disconnect must run in the lifecycle worker")
+        result = self._connection_disconnector(connection)
+        if inspect.isawaitable(result):
+            asyncio.run(result)
+        self.unload_connection(connection_id)
+        self._drain_shutdowns_sync(connection.plugin_id)
+        self.connection_store.disconnect(connection_id, expected_revision=expected_revision)
+
+    def clear_connection_content(
+        self, connection_id: str, *, expected_revision: int
+    ) -> PluginConnection:
+        connection = self._check_connection_revision(connection_id, expected_revision)
+        if self._content_clearer is None:
+            raise RuntimeError("Connection content clear coordinator is unavailable")
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("Connection content clear must run in the lifecycle worker")
+        self.unload_connection(connection_id)
+        self._drain_shutdowns_sync(connection.plugin_id)
+        context = self.connection_store.context(connection_id)
+        self._authorize_connection(connection)
+        instance = self._instantiate_plugin(
+            self._require_package(connection.plugin_id).manifest, connection, context
+        )
+        try:
+            result = self._content_clearer(connection, instance, context)
+            if inspect.isawaitable(result):
+                asyncio.run(result)
+        finally:
+            self._fire_plugin_shutdown(connection.plugin_id, connection_id, instance)
+            self._drain_shutdowns_sync(connection.plugin_id)
+        result = self.connection_store.clear_content(
+            connection_id, expected_revision=expected_revision
+        )
+        if result.enabled:
+            self.load_connection(connection_id)
+        return self.connection_store.get(connection_id)
+
+    def connection_readiness(self, connection_id: str) -> list[CapabilityReadiness]:
+        return self.connection_store.get_readiness(connection_id)
+
+    def _check_connection_revision(
+        self, connection_id: str, expected_revision: int
+    ) -> PluginConnection:
+        from .connections import ConnectionRevisionError
+
+        connection = self.connection_store.get(connection_id)
+        if connection.revision != expected_revision:
+            raise ConnectionRevisionError(connection.revision)
+        return connection
+
+    def _validate_runtime_version(self, manifest: PluginManifest) -> None:
+        if manifest.protocol_version != PLUGIN_PROTOCOL_VERSION:
+            raise ValueError(f"Unsupported plugin protocol: {manifest.protocol_version}")
+        if parse_plugin_version(manifest.min_sdk_version) > parse_plugin_version(SDK_VERSION):
+            raise ValueError(
+                f"Plugin requires SDK {manifest.min_sdk_version}; host SDK is {SDK_VERSION}"
+            )
+
+    def _authorize_connection(self, connection: PluginConnection) -> None:
+        state = self._require_connection_package(connection.plugin_id)
+        self._validate_runtime_version(state.manifest)
+        configured = get_config().plugins.packages.get(connection.plugin_id)
+        identity_error = package_identity_error(state.manifest, configured)
+        if identity_error:
+            raise RuntimeError(identity_error)
+        if state.manifest.source != "builtin" and not state.trusted:
+            raise RuntimeError(f"Plugin {connection.plugin_id} must be trusted before loading")
+
+    def _require_no_pending_shutdown(self, plugin_id: str | None = None) -> None:
+        """Never replace an instance until its previous shutdown completed successfully."""
+        for connection_id, completion in tuple(self._pending_plugin_shutdowns.items()):
+            owner = self._shutdown_owners[connection_id]
+            if plugin_id is not None and owner != plugin_id:
+                continue
+            if not completion.done():
                 raise RuntimeError(
-                    f"Loaded plugin {plugin_id} cannot be released as a temporary target"
+                    f"Plugin shutdown is pending for {connection_id}; await drain_shutdowns()"
                 )
-            self._purge_plugin_modules(plugin_id)
+            completion.result()
+            self._pending_plugin_shutdowns.pop(connection_id)
+            self._shutdown_owners.pop(connection_id)
+            if owner not in self._instance_packages.values():
+                self._purge_plugin_modules(owner)
 
     @_serialized_lifecycle_mutation
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
-        """Load a plugin and register all of its contributions.
-
-        Library packages (``kind == "library"``) are not instantiated — they
-        only ship Python modules consumed by other plugins. We mark them as
-        loaded once their directory is present on disk.
-        """
-
+        """Load enabled explicit connections; external packages never gain a default account."""
         state = self._require_package(plugin_id)
-        configured = get_config().plugins.packages.get(plugin_id)
-        identity_error = package_identity_error(state.manifest, configured)
-        if identity_error is not None:
-            if state.loaded:
-                self.unload_plugin(plugin_id)
-            state.enabled = False
-            state.trusted = False
-            state.loaded = False
-            state.healthy = False
-            state.last_error = identity_error
-            raise RuntimeError(identity_error)
-        if state.loaded:
-            return state
-        if not state.trusted and state.manifest.source != "builtin":
-            raise RuntimeError(f"Plugin {plugin_id} must be trusted before loading")
-
+        self._validate_runtime_version(state.manifest)
+        self._require_no_pending_shutdown(plugin_id)
         if state.manifest.kind == "library":
-            state.loaded = True
-            state.healthy = True
-            state.last_error = None
-            return state
-
-        self._purge_plugin_modules(plugin_id)
-        try:
-            # _instantiate_plugin can raise (missing dep, syntax error in
-            # plugin code, etc.). Keep it inside the try so any failure
-            # marks the state unhealthy with a clear last_error — without
-            # this guard, import-time errors would bypass error recording
-            # entirely and propagate as a bare exception.
-            plugin_instance = self._instantiate_plugin(state.manifest, state.current_settings)
-            registered_contributions = self._contribution_registrar.register(
-                plugin_id=plugin_id,
-                manifest=state.manifest,
-                plugin_instance=plugin_instance,
+            identity_error = package_identity_error(
+                state.manifest, get_config().plugins.packages.get(plugin_id)
             )
+            if identity_error:
+                raise RuntimeError(identity_error)
             state.loaded = True
-            state.healthy = True
-            state.last_error = None
-            state.contributions = registered_contributions
-            self._plugin_instances[plugin_id] = plugin_instance
-            self._request_sensor_schedule_refresh()
             return state
+        connections = list(self.connection_store.list(plugin_id))
+        if state.manifest.source == "builtin" and not connections:
+            connections = [
+                self.connection_store.create(
+                    plugin_id,
+                    display_name=state.manifest.name,
+                    enabled=True,
+                )
+            ]
+        loaded_now: list[str] = []
+        try:
+            for connection in connections:
+                if connection.enabled and connection.connection_id not in self._plugin_instances:
+                    self.load_connection(connection.connection_id)
+                    loaded_now.append(connection.connection_id)
+        except BaseException:
+            for connection_id in reversed(loaded_now):
+                self.unload_connection(connection_id)
+            raise
+        self._refresh_package_contributions(plugin_id)
+        return state
+
+    @_serialized_lifecycle_mutation
+    def load_connection(self, connection_id: str) -> Plugin:
+        connection = self.connection_store.get(connection_id)
+        if connection is None:
+            raise KeyError(f"Unknown plugin connection: {connection_id}")
+        plugin_id = connection.plugin_id
+        state = self._require_package(plugin_id)
+        self._require_no_pending_shutdown(plugin_id)
+        try:
+            self._authorize_connection(connection)
         except Exception as exc:
-            state.loaded = False
             state.healthy = False
             state.last_error = str(exc)
-            self.unload_plugin(plugin_id)
             raise
+        if not connection.enabled:
+            raise ValueError(f"Plugin connection is disabled: {connection_id}")
+        existing = self._plugin_instances.get(connection_id)
+        if existing is not None:
+            return existing
+        if plugin_id not in self._instance_packages.values():
+            self._purge_plugin_modules(plugin_id)
+        instance: Plugin | None = None
+        try:
+            context = self.connection_store.context(connection_id)
+            instance = self._instantiate_plugin(state.manifest, connection, context)
+            self._plugin_instances[connection_id] = instance
+            self._instance_packages[connection_id] = plugin_id
+            contributions = self._contribution_registrar.register(
+                plugin_id=plugin_id,
+                connection_id=connection_id,
+                manifest=state.manifest,
+                plugin_instance=instance,
+            )
+            self._connection_contributions[connection_id] = contributions
+            state.healthy = True
+            state.last_error = None
+            self._refresh_package_contributions(plugin_id)
+            self._request_sensor_schedule_refresh()
+            return instance
+        except BaseException as exc:
+            state.healthy = False
+            state.last_error = str(exc)
+            if instance is not None:
+                self.unload_connection(connection_id)
+            elif (
+                plugin_id not in self._instance_packages.values()
+                and plugin_id not in self._shutdown_owners.values()
+            ):
+                self._purge_plugin_modules(plugin_id)
+            raise
+
+    def _refresh_package_contributions(self, plugin_id: str) -> None:
+        state = self._package_states.get(plugin_id)
+        if state is None:
+            return
+        loaded_ids = [key for key, owner in self._instance_packages.items() if owner == plugin_id]
+        state.loaded = bool(loaded_ids)
+        state.contributions = [
+            contribution
+            for key in loaded_ids
+            for contribution in self._connection_contributions.get(key, [])
+        ]
+        if not loaded_ids:
+            state.contributions = placeholder_contributions(state.manifest)
+
+    @_serialized_lifecycle_mutation
+    def unload_connection(self, connection_id: str) -> None:
+        instance = self._plugin_instances.get(connection_id)
+        if instance is None:
+            return
+        plugin_id = self._instance_packages[connection_id]
+        try:
+            self._settings_service.unregister_connection(connection_id)
+            self._contribution_registrar.unregister(connection_id)
+        finally:
+            self._plugin_instances.pop(connection_id, None)
+            self._instance_packages.pop(connection_id, None)
+            self._connection_contributions.pop(connection_id, None)
+            self._fire_plugin_shutdown(plugin_id, connection_id, instance)
+            self._refresh_package_contributions(plugin_id)
+            self._request_sensor_schedule_refresh()
 
     @_serialized_lifecycle_mutation
     def unload_plugin(self, plugin_id: str) -> None:
-        """Unload a plugin and unregister its contributions.
+        """Detach all package connections and retain every pending shutdown for draining."""
+        failures: list[Exception] = []
+        for connection_id, owner in tuple(self._instance_packages.items()):
+            if owner == plugin_id:
+                try:
+                    self.unload_connection(connection_id)
+                except Exception as exc:
+                    failures.append(exc)
+        self._refresh_package_contributions(plugin_id)
+        if failures:
+            raise RuntimeError(f"Plugin unload failed: {failures}") from failures[0]
 
-        Invokes the plugin's ``shutdown()`` hook to give it a chance to
-        tear down sensors / subprocesses / timers before its instance is
-        discarded. Without this, every reload (settings update, disable,
-        upgrade) leaks the previous instance's resources — the visible
-        symptom being multiple sensor timers and helper subprocesses
-        stacking up after each reload.
-        """
+    def _fire_plugin_shutdown(self, plugin_id: str, connection_id: str, instance: Plugin) -> None:
+        completion: Future[None] = Future()
+        self._pending_plugin_shutdowns[connection_id] = completion
+        self._shutdown_owners[connection_id] = plugin_id
 
-        self._contribution_registrar.unregister(plugin_id)
-        plugin_instance = self._plugin_instances.pop(plugin_id, None)
-        if plugin_instance is not None:
-            self._fire_plugin_shutdown(plugin_id, plugin_instance)
-        state = self._package_states.get(plugin_id)
-        if state is not None:
-            state.loaded = False
-            state.contributions = placeholder_contributions(state.manifest)
-        self._purge_plugin_modules(plugin_id)
-        self._request_sensor_schedule_refresh()
-
-    def _fire_plugin_shutdown(self, plugin_id: str, instance: Any) -> None:
-        """Invoke ``plugin.shutdown()`` regardless of caller sync/async context.
-
-        - In an async context: schedules the shutdown coroutine on the running
-          loop and returns immediately. The new plugin instance can start
-          loading concurrently with the old one tearing down. This brief
-          overlap is benign because (a) the old sensor is already
-          unregistered from SensorRegistry above so the host won't pull
-          from it, and (b) the SDK's ManagedSubprocess registry catches
-          any subprocess we didn't get to in time.
-        - Without a running loop: starts a daemon thread with its own event
-          loop. Lifecycle callers must never wait for plugin-controlled async
-          shutdown code while holding the manager write lock.
-        """
-        shutdown = getattr(instance, "shutdown", None)
-        if shutdown is None:
-            return
-
-        async def _run() -> None:
+        async def run_shutdown() -> None:
             try:
-                result = shutdown()
-                if asyncio.iscoroutine(result):
-                    await asyncio.wait_for(result, timeout=5.0)
-            except Exception:
-                logger.exception("plugin.shutdown_failed plugin_id=%s", plugin_id)
+                result = instance.shutdown()
+                if inspect.isawaitable(result):
+                    await result
+            except BaseException as exc:
+                completion.set_exception(exc)
+            else:
+                completion.set_result(None)
 
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-
-            def run_in_background() -> None:
-                try:
-                    asyncio.run(_run())
-                except Exception:
-                    logger.exception(
-                        "plugin.shutdown_sync_runner_failed plugin_id=%s",
-                        plugin_id,
-                    )
-
+            if self._runtime_loop is not None and self._runtime_loop.is_running():
+                asyncio.run_coroutine_threadsafe(run_shutdown(), self._runtime_loop)
+                return
+            # Track the thread through its completion future just like loop-owned tasks.
             threading.Thread(
-                target=run_in_background,
-                name=f"plugin-shutdown-{plugin_id}",
+                target=lambda: asyncio.run(run_shutdown()),
+                name=f"plugin-shutdown-{connection_id}",
                 daemon=True,
             ).start()
-            return
+        else:
+            task = loop.create_task(run_shutdown())
+            self._shutdown_tasks.add(task)
+            task.add_done_callback(self._shutdown_tasks.discard)
 
-        task = loop.create_task(_run())
-        # Keep a strong ref so the task isn't GC'd mid-flight.
-        self._pending_plugin_shutdowns.add(task)
-        task.add_done_callback(self._pending_plugin_shutdowns.discard)
+    async def drain_shutdowns(self, plugin_id: str | None = None) -> None:
+        """Await shutdown without the write lock; cancellation cannot abandon cleanup."""
+        with self._lifecycle_write_lock:
+            completions = [
+                future
+                for key, future in self._pending_plugin_shutdowns.items()
+                if plugin_id is None or self._shutdown_owners[key] == plugin_id
+            ]
+        results = await asyncio.gather(
+            *(asyncio.shield(asyncio.wrap_future(future)) for future in completions),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise RuntimeError("Plugin shutdown failed; replacement is blocked") from result
+        with self._lifecycle_write_lock:
+            self._require_no_pending_shutdown(plugin_id)
+
+    async def unload_plugin_async(self, plugin_id: str) -> None:
+        async with self._async_lifecycle_lock:
+            try:
+                self.unload_plugin(plugin_id)
+            finally:
+                await self.drain_shutdowns(plugin_id)
+
+    async def reload_plugin_async(self, plugin_id: str) -> PluginPackageState:
+        async with self._async_lifecycle_lock:
+            try:
+                self.unload_plugin(plugin_id)
+            finally:
+                await self.drain_shutdowns(plugin_id)
+            self._require_package(plugin_id)
+            return self.load_plugin(plugin_id)
+
+    async def unload_connection_async(self, connection_id: str) -> None:
+        async with self._async_lifecycle_lock:
+            connection = self.connection_store.get(connection_id)
+            try:
+                self.unload_connection(connection_id)
+            finally:
+                await self.drain_shutdowns(connection.plugin_id)
+
+    async def reload_connection_async(self, connection_id: str) -> Plugin:
+        async with self._async_lifecycle_lock:
+            connection = self.connection_store.get(connection_id)
+            try:
+                self.unload_connection(connection_id)
+            finally:
+                await self.drain_shutdowns(connection.plugin_id)
+            return self.load_connection(connection_id)
+
+    async def shutdown(self) -> None:
+        async with self._async_lifecycle_lock:
+            failures: list[Exception] = []
+            try:
+                for plugin_id in set(self._instance_packages.values()):
+                    try:
+                        self.unload_plugin(plugin_id)
+                    except Exception as exc:
+                        failures.append(exc)
+            finally:
+                await self.drain_shutdowns()
+            if failures:
+                raise RuntimeError(f"Plugin shutdown cleanup failed: {failures}") from failures[0]
 
     def iter_consumers(self, library_id: str) -> list[str]:
         """Return plugin_ids that declare ``library_id`` in their ``depends_on``.
@@ -574,117 +886,81 @@ class PluginManager(PluginInstallationMixin):
                 f"libraries are managed automatically as dependencies."
             )
 
-    @_serialized_lifecycle_mutation
     def enable_plugin(self, plugin_id: str) -> PluginPackageState:
-        """Persist enable/trust state and load the plugin."""
+        raise ValueError("Enable an explicit plugin connection instead of a package")
 
-        state = self._require_package(plugin_id)
-        self._reject_library(state, "enable")
-        configured = get_config().plugins.packages.get(plugin_id)
-        identity_error = package_identity_error(state.manifest, configured)
-        if identity_error is not None:
-            raise ValueError(identity_error)
-        if not save_config(
-            {
-                f"plugins.packages.{plugin_id}.enabled": True,
-                f"plugins.packages.{plugin_id}.trusted": True,
-                f"plugins.packages.{plugin_id}.source": state.manifest.source,
-                f"plugins.packages.{plugin_id}.manifest_path": state.manifest.manifest_path,
-            }
-        ):
-            raise RuntimeError(f"Failed to persist plugin enable state: {plugin_id}")
-        self.scan(persist_discovery=False)
-        state = self.load_plugin(plugin_id)
-        self._request_sensor_schedule_refresh()
-        return state
-
-    @_serialized_lifecycle_mutation
     def disable_plugin(self, plugin_id: str) -> PluginPackageState:
-        """Persist disabled state and unregister plugin contributions."""
+        raise ValueError("Disable explicit plugin connections instead of a package")
 
-        state = self._require_package(plugin_id)
-        self._reject_library(state, "disable")
-        self.unload_plugin(plugin_id)
-        save_config({f"plugins.packages.{plugin_id}.enabled": False})
-        self.scan(persist_discovery=False)
-        state = self._require_package(plugin_id)
-        self._request_sensor_schedule_refresh()
-        return state
-
-    @_serialized_lifecycle_mutation
     def reload_plugin(self, plugin_id: str) -> PluginPackageState:
-        """Reload a single plugin package."""
-
-        state = self._require_package(plugin_id)
-        self.unload_plugin(plugin_id)
-        if state.enabled:
-            state = self.load_plugin(plugin_id)
-        self._request_sensor_schedule_refresh()
-        return state
-
-    @_serialized_lifecycle_mutation
-    def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
-        """Persist plugin settings using dot-notated keys relative to plugin settings root."""
-
+        """Reload all enabled connections after the old instances finish shutdown."""
         self._require_package(plugin_id)
-        save_payload = {
-            f"plugins.packages.{plugin_id}.settings.{path}": value
-            for path, value in updates.items()
-        }
-        if save_payload:
-            save_config(save_payload)
-        self.scan(persist_discovery=False)
-        state = self._require_package(plugin_id)
-        if state.enabled:
-            state = self.reload_plugin(plugin_id)
-        self._request_sensor_schedule_refresh()
-        return state
+        self.unload_plugin(plugin_id)
+        self._drain_shutdowns_sync(plugin_id)
+        return self.load_plugin(plugin_id)
 
-    def read_plugin_settings_resource(self, plugin_id: str, resource_name: str):
-        return self._settings_service.read_plugin_settings_resource(plugin_id, resource_name)
+    def update_plugin_settings(self, plugin_id: str, updates: dict[str, Any]) -> PluginPackageState:
+        raise ValueError("Update explicit plugin connection settings instead of package settings")
+
+    def read_plugin_settings_resource(self, connection_id: str, resource_name: str):
+        return self._settings_service.read_plugin_settings_resource(connection_id, resource_name)
 
     async def start_plugin_settings_action(
         self,
-        plugin_id: str,
+        connection_id: str,
         action_id: str,
         *,
+        identity: InvocationIdentity,
         field_values: dict[str, Any] | None = None,
     ) -> PluginSettingsActionRun:
         return await self._settings_service.start_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=identity,
             field_values=field_values,
         )
 
     async def poll_plugin_settings_action(
         self,
-        plugin_id: str,
+        connection_id: str,
         action_id: str,
         *,
+        identity: InvocationIdentity,
         session_id: str,
         field_values: dict[str, Any] | None = None,
     ) -> PluginSettingsActionRun:
         return await self._settings_service.poll_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=identity,
             session_id=session_id,
             field_values=field_values,
         )
 
     async def cancel_plugin_settings_action(
         self,
-        plugin_id: str,
+        connection_id: str,
         action_id: str,
         *,
+        identity: InvocationIdentity,
         session_id: str,
     ) -> PluginSettingsActionRun:
         return await self._settings_service.cancel_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=identity,
             session_id=session_id,
         )
 
-    def _instantiate_plugin(self, manifest: PluginManifest, settings: dict[str, Any]) -> Plugin:
+    def _instantiate_plugin(
+        self, manifest: PluginManifest, connection: PluginConnection, context: PluginContext
+    ) -> Plugin:
+        if self._instance_factory is not None:
+            return self._instance_factory(manifest, connection, context)
+        if manifest.source != "builtin":
+            from .process_runtime import ProcessPluginProxy
+
+            return ProcessPluginProxy(manifest, connection, context)
         module_path = Path(manifest.plugin_dir) / f"{manifest.entry_module}.py"
 
         # Add plugin-local .deps/ to sys.path so private dependencies resolve.
@@ -732,7 +1008,13 @@ class PluginManager(PluginInstallationMixin):
         plugin_instance = plugin_class()
         if not isinstance(plugin_instance, Plugin):
             raise TypeError(f"Plugin entrypoint {manifest.entry_class} must inherit Plugin")
-        plugin_instance.configure(manifest=manifest, settings=settings)
+        try:
+            plugin_instance.configure(manifest=manifest, connection=connection, context=context)
+        except BaseException:
+            self._fire_plugin_shutdown(
+                manifest.plugin_id, connection.connection_id, plugin_instance
+            )
+            raise
         return plugin_instance
 
     def _require_package(self, plugin_id: str) -> PluginPackageState:
