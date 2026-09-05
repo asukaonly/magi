@@ -1113,6 +1113,22 @@ Useful existing references:
 - Backend plugin API tests under [backend/tests/api](../backend/tests/api)
 - [settingsPage.test.tsx](../frontend/src/__tests__/settingsPage.test.tsx)
 
+Validate companion packages against the real host registrars from a paired
+checkout after the companion's SDK-only dependencies are installed:
+
+```bash
+python scripts/check-plugin-runtime.py \
+  --plugins-repo ../magi-plugins \
+  --python ../magi-plugins/.venv/bin/python \
+  --report /tmp/plugin-runtime.json
+```
+
+The check starts two separate workers per executable package, validates actual
+contribution registration and tool policies, and verifies independent cleanup.
+It never invokes collection, channel startup, tools or settings actions. Worker
+dependencies must be installed explicitly; the script does not fall back to an
+unrelated system Python. Use `--package <id>` for a focused rerun.
+
 ## Built-In Examples
 
 Use these as the primary templates:
