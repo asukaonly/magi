@@ -88,7 +88,10 @@ def _delegate_parameters() -> list[ToolParameter]:
         ToolParameter(
             name="adapter",
             type=ParameterType.STRING,
-            description="Which CLI to use. 'auto' picks the configured default.",
+            description=(
+                "Which built-in CLI or connected external-agent provider to use. "
+                "'auto' picks the configured default."
+            ),
             required=False,
             default="auto",
         ),
@@ -161,8 +164,11 @@ def _delegate_input(
         return _missing_value_result("prompt is required")
 
     adapter_param = str(parameters.get("adapter") or "auto").strip()
-    if adapter_param not in (*_VALID_ADAPTERS, *plugin_adapters):
-        return _invalid_parameters_result(f"adapter must be one of {_VALID_ADAPTERS}")
+    available_adapters = tuple(dict.fromkeys((*_VALID_ADAPTERS, *plugin_adapters)))
+    if adapter_param not in available_adapters:
+        return _invalid_parameters_result(
+            f"adapter must be one of {available_adapters}"
+        )
 
     sid = str((context.env_vars or {}).get("session_id") or "").strip()
     if not sid:
@@ -192,6 +198,25 @@ def _files_hint(parameters: Dict[str, Any]) -> list[str] | ToolResult:
 
 
 class DelegateToExternalCoderTool(Tool):
+    """Delegate coding tasks to built-in CLIs or live external-agent providers."""
+
+    @property
+    def schema(self) -> ToolSchema | None:
+        """Give every exporter and validator an independent, current schema."""
+        if self._schema is None:
+            return None
+        schema = self._schema.model_copy(deep=True)
+        providers = getattr(self, "_provider_registry", None)
+        names = providers.names("external_agent") if providers is not None else ()
+        for parameter in schema.parameters:
+            if parameter.name == "adapter":
+                parameter.enum = list(dict.fromkeys((*_VALID_ADAPTERS, *names)))
+        return schema
+
+    @schema.setter
+    def schema(self, value: ToolSchema | None) -> None:
+        self._schema = value
+
     def bind_provider_registry(self, registry: Any, *, kind: str) -> Callable[[], None]:
         """Bind external adapter selection to the shared provider registry."""
         token = object()
@@ -204,14 +229,12 @@ class DelegateToExternalCoderTool(Tool):
 
         return dispose
 
-    """Delegate a coding task to an external CLI (Claude Code or Codex)."""
-
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="delegate_to_external_coder",
             description=(
-                "Delegate a coding task to an external coding CLI (Claude Code "
-                "or Codex). Use for: multi-file refactors, new features, bug "
+                "Delegate a coding task to Claude Code, Codex, or a connected "
+                "external-agent provider. Use for: multi-file refactors, new features, bug "
                 "fixes that need iterative typecheck/test cycles. The external "
                 "tool runs in an isolated git worktree under "
                 ".magi/sessions/<sid>/worktrees/<delegation_id>/; the result "
