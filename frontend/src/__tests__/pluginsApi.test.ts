@@ -1,393 +1,147 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import examples from '../../../contracts/api/frontend-plugins-examples.json';
 
-vi.mock('@/api/client', () => ({
-  api: {
-    delete: vi.fn(),
-    get: vi.fn(),
-    post: vi.fn(),
-  },
+const transport = vi.hoisted(() => ({
+  delete: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  get: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  post: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  put: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
 }));
+vi.mock('@/api/client', () => ({ api: transport, unwrapGatewayPayload: (value: unknown) => value }));
 
-import { api } from '@/api/client';
 import { pluginsApi } from '@/api/modules/plugins';
+import { ApiContractError } from '@/api/config-contract';
+import { parsePluginPermissionItems, parsePluginResourceGroups } from '@/api/plugin-contract';
 
-describe('pluginsApi.getSettingsResource', () => {
+const fingerprint = 'f'.repeat(64);
+const resource = {
+  plugin_id: 'fixture-source', resource_name: 'calendar_lists', resource_type: 'collection',
+  data: { groups: [{ group_id: 'icloud', label: 'iCloud', items: [{ item_id: 'personal', label: '个人' }] }] },
+};
+
+describe('plugin transport contracts', () => {
   beforeEach(() => {
-    vi.mocked(api.get).mockReset();
-    vi.mocked(api.post).mockReset();
-    vi.mocked(api.delete).mockReset();
+    vi.restoreAllMocks();
+    Object.values(transport).forEach(mock => mock.mockReset());
   });
 
-  it('keeps plain settings resource payloads intact when they contain business data fields', async () => {
-    vi.mocked(api.get).mockResolvedValue({
-      plugin_id: 'calendar',
-      resource_name: 'calendar_lists',
-      resource_type: 'collection',
-      data: {
-        groups: [
-          {
-            group_id: 'icloud',
-            label: 'iCloud',
-            items: [{ item_id: 'personal', label: '个人' }],
-          },
-        ],
-      },
-    } as any);
-
-    const payload = await pluginsApi.getSettingsResource('calendar', 'calendar_lists');
-
-    expect(payload).toEqual({
-      plugin_id: 'calendar',
-      resource_name: 'calendar_lists',
-      resource_type: 'collection',
-      data: {
-        groups: [
-          {
-            group_id: 'icloud',
-            label: 'iCloud',
-            items: [{ item_id: 'personal', label: '个人' }],
-          },
-        ],
-      },
-    });
+  it('reads the direct resource response without unwrapping its business data', async () => {
+    transport.get.mockResolvedValue(resource);
+    expect(await pluginsApi.getSettingsResource('fixture-source', 'calendar_lists')).toEqual(resource);
+    expect(parsePluginResourceGroups(resource.data.groups)[0].items[0].label).toBe('个人');
   });
 
-  it('still unwraps legacy success envelopes', async () => {
-    vi.mocked(api.get).mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: {
-        plugin_id: 'calendar',
-        resource_name: 'calendar_lists',
-        resource_type: 'collection',
-        data: {
-          groups: [],
-        },
-      },
-    } as any);
-
-    const payload = await pluginsApi.getSettingsResource('calendar', 'calendar_lists');
-
-    expect(payload).toEqual({
-      plugin_id: 'calendar',
-      resource_name: 'calendar_lists',
-      resource_type: 'collection',
-      data: {
-        groups: [],
-      },
-    });
+  it('rejects an obsolete success envelope', async () => {
+    transport.get.mockResolvedValue({ success: true, message: 'OK', data: resource });
+    await expect(pluginsApi.getSettingsResource('fixture-source', 'calendar_lists')).rejects.toBeInstanceOf(ApiContractError);
   });
 
-  it('starts plugin settings action sessions', async () => {
-    vi.mocked(api.post).mockResolvedValue({
-      plugin_id: 'weixin',
-      action_id: 'qr_login',
-      session_id: 'session-1',
-      status: 'pending',
-      message: 'scan',
-      data: { qr_code_url: 'data:image/png;base64,abc' },
-      settings_updates: {},
-    } as any);
-
-    const payload = await pluginsApi.startSettingsAction('weixin', 'qr_login', { state_dir: '/tmp/magi' });
-
-    expect(api.post).toHaveBeenCalledWith('/plugins/weixin/settings/actions/qr_login/start', {
-      field_values: { state_dir: '/tmp/magi' },
-    });
-    expect(payload.status).toBe('pending');
-    expect(payload.data.qr_code_url).toContain('data:image/png');
+  it('reads actual production package serialization', async () => {
+    transport.get.mockResolvedValue(examples.list);
+    expect(await pluginsApi.list()).toEqual(examples.list);
+    transport.get.mockResolvedValue(examples.package);
+    expect(await pluginsApi.getSettings('fixture-source')).toEqual(examples.package);
   });
 
-  it('polls plugin settings action sessions', async () => {
-    vi.mocked(api.post).mockResolvedValue({
-      success: true,
-      data: {
-        plugin_id: 'weixin',
-        action_id: 'qr_login',
-        session_id: 'session-1',
-        status: 'succeeded',
-        message: 'connected',
-        data: {},
-        settings_updates: { account_id: 'account-1' },
-      },
-    } as any);
-
-    const payload = await pluginsApi.pollSettingsAction('weixin', 'qr_login', 'session-1', {});
-
-    expect(api.post).toHaveBeenCalledWith(
-      '/plugins/weixin/settings/actions/qr_login/sessions/session-1/poll',
-      { field_values: {} }
-    );
-    expect(payload.settings_updates).toEqual({ account_id: 'account-1' });
+  it('validates a settings save result before returning it', async () => {
+    transport.put.mockResolvedValueOnce(examples.package).mockResolvedValueOnce({ success: false, message: 'Rejected' });
+    await expect(pluginsApi.updateSettings('fixture-source', { enabled: true })).resolves.toEqual(examples.package);
+    await expect(pluginsApi.updateSettings('fixture-source', { enabled: true })).rejects.toBeInstanceOf(ApiContractError);
   });
 
-  it('cancels plugin settings action sessions', async () => {
-    vi.mocked(api.post).mockResolvedValue({
-      plugin_id: 'weixin',
-      action_id: 'qr_login',
-      session_id: 'session-1',
-      status: 'cancelled',
-      message: 'cancelled',
-      data: {},
-      settings_updates: {},
-    } as any);
-
-    const payload = await pluginsApi.cancelSettingsAction('weixin', 'qr_login', 'session-1');
-
-    expect(api.post).toHaveBeenCalledWith(
-      '/plugins/weixin/settings/actions/qr_login/sessions/session-1/cancel',
-      {}
-    );
-    expect(payload.status).toBe('cancelled');
+  it.each([
+    { ...examples.package, healthy: 'yes' },
+    { ...examples.package, contributions: [{ ...examples.package.contributions[0], fields: [{ key: 'test' }] }] },
+    { ...examples.package, enabled: undefined },
+  ])('rejects invalid package fields', async value => {
+    transport.post.mockResolvedValue(value);
+    await expect(pluginsApi.enable('fixture-source')).rejects.toBeInstanceOf(ApiContractError);
   });
 
-  it('starts and polls registry install jobs with progress callbacks', async () => {
-    const progressSnapshots: string[] = [];
-    vi.mocked(api.post).mockResolvedValue({
-      job_id: 'job-1',
-      operation: 'install',
-      plugin_id: 'calendar',
-      filename: null,
-      status: 'running',
-      stage: 'download',
-      progress_pct: 20,
-      message: 'Downloading plugin source',
-      error: null,
-      logs: [],
-      result: null,
-      created_at_ms: 1,
-      updated_at_ms: 1,
-      finished_at_ms: null,
-    } as any);
-    vi.mocked(api.get).mockResolvedValue({
-      job_id: 'job-1',
-      operation: 'install',
-      plugin_id: 'calendar',
-      filename: null,
-      status: 'completed',
-      stage: 'completed',
-      progress_pct: 100,
-      message: 'Plugin installation completed',
-      error: null,
-      logs: [],
-      result: {
-        manifest: {
-          plugin_id: 'calendar',
-          name: 'Calendar',
-          version: '1.0.0',
-          description: '',
-          author: 'Magi',
-          official: true,
-          contribution_types: ['sensor'],
-          source: 'external',
-          plugin_dir: '/tmp/calendar',
-          manifest_path: '/tmp/calendar/plugin.toml',
-        },
-        enabled: true,
-        trusted: false,
-        loaded: true,
-        healthy: true,
-        last_error: null,
-        contributions: [],
-        current_settings: {},
-      },
-      created_at_ms: 1,
-      updated_at_ms: 2,
-      finished_at_ms: 2,
-    } as any);
-
-    const result = await pluginsApi.installFromRegistryWithProgress(
-      'calendar',
-      'fingerprint-1',
-      (snapshot) => {
-        progressSnapshots.push(snapshot.status);
-      },
-    );
-
-    expect(api.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', {
-      plugin_id: 'calendar',
-      expected_fingerprint: 'fingerprint-1',
-    });
-    expect(api.get).toHaveBeenCalledWith('/plugins/install/jobs/job-1');
-    expect(progressSnapshots).toEqual(['running', 'completed']);
-    expect(result.manifest.plugin_id).toBe('calendar');
+  it('starts, polls, and cancels action sessions using the serialized action contract', async () => {
+    transport.post.mockResolvedValue(examples.action);
+    await pluginsApi.startSettingsAction('fixture-source', 'connect', { state_dir: '/fixture' });
+    await pluginsApi.pollSettingsAction('fixture-source', 'connect', 'fixture-action', {});
+    await pluginsApi.cancelSettingsAction('fixture-source', 'connect', 'fixture-action');
+    expect(transport.post.mock.calls).toEqual([
+      ['/plugins/fixture-source/settings/actions/connect/start', { field_values: { state_dir: '/fixture' } }],
+      ['/plugins/fixture-source/settings/actions/connect/sessions/fixture-action/poll', { field_values: {} }],
+      ['/plugins/fixture-source/settings/actions/connect/sessions/fixture-action/cancel', {}],
+    ]);
   });
 
-  it('preserves a registry-change code reported by a failed install job', async () => {
-    vi.mocked(api.post).mockResolvedValue({
-      job_id: 'job-stale',
-      operation: 'install',
-      plugin_id: 'calendar',
-      filename: null,
-      status: 'failed',
-      stage: 'validate',
-      progress_pct: 40,
-      message: 'Registry changed',
-      error: 'Registry changed',
-      error_code: 'PLUGIN_REGISTRY_CHANGED',
-      logs: [],
-      result: null,
-      created_at_ms: 1,
-      updated_at_ms: 2,
-      finished_at_ms: 2,
-    } as any);
-
-    await expect(
-      pluginsApi.installFromRegistryWithProgress(
-        'calendar',
-        'fingerprint-old',
-      ),
-    ).rejects.toMatchObject({
-      code: 'PLUGIN_REGISTRY_CHANGED',
-      message: 'Registry changed',
-    });
+  it('rejects an unknown action state instead of treating it as a terminal success', async () => {
+    transport.post.mockResolvedValue({ ...examples.action, status: 'almost-done' });
+    await expect(pluginsApi.startSettingsAction('fixture-source', 'connect', {})).rejects.toBeInstanceOf(ApiContractError);
   });
 
-  it('reports the local polling deadline with a stable code', async () => {
-    const now = vi
-      .spyOn(Date, 'now')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(10 * 60 * 1000 + 1);
-    vi.mocked(api.post).mockResolvedValue({
-      job_id: 'job-timeout',
-      operation: 'install',
-      plugin_id: 'calendar',
-      filename: null,
-      status: 'running',
-      stage: 'download',
-      progress_pct: 20,
-      message: 'Downloading plugin source',
-      error: null,
-      logs: [],
-      result: null,
-      created_at_ms: 1,
-      updated_at_ms: 1,
-      finished_at_ms: null,
-    } as any);
-
-    await expect(
-      pluginsApi.installFromRegistryWithProgress(
-        'calendar',
-        'fingerprint-current',
-      ),
-    ).rejects.toMatchObject({
-      code: 'PLUGIN_INSTALL_TIMEOUT',
-    });
-
-    now.mockRestore();
+  it('starts and polls install jobs with progress callbacks', async () => {
+    const progress: string[] = [];
+    transport.post.mockResolvedValue({ ...examples.job, status: 'running', result: null });
+    transport.get.mockResolvedValue(examples.job);
+    const result = await pluginsApi.installFromRegistryWithProgress('fixture-source', fingerprint, snapshot => { progress.push(snapshot.status); });
+    expect(progress).toEqual(['running', 'completed']);
+    expect(result).toEqual(examples.package);
+    expect(transport.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', { plugin_id: 'fixture-source', expected_fingerprint: fingerprint });
+    expect(transport.get).toHaveBeenCalledWith('/plugins/install/jobs/fixture-job');
   });
 
-  it('uploads once and starts installation with the returned candidate digest', async () => {
-    const candidate = {
-      candidate_id: 'candidate-1',
-      archive_sha256: 'a'.repeat(64),
-      package_sha256: 'b'.repeat(64),
-      expires_at_ms: 123,
-      manifest: {
-        plugin_id: 'demo-plugin',
-        name: 'Demo Plugin',
-        version: '1.0.0',
-        description: '',
-        author: 'Demo',
-        official: false,
-        contribution_types: [],
-        source: 'external',
-        plugin_dir: '',
-        manifest_path: '',
-        capabilities: [],
-      },
-    };
-    vi.mocked(api.post)
-      .mockResolvedValueOnce(candidate as any)
-      .mockResolvedValueOnce({
-        job_id: 'job-1',
-        operation: 'upload',
-        plugin_id: 'demo-plugin',
-        filename: 'demo.zip',
-        status: 'queued',
-        stage: 'queued',
-        progress_pct: 0,
-        message: 'Queued plugin installation',
-        logs: [],
-        created_at_ms: 1,
-        updated_at_ms: 1,
-      } as any);
-    const file = new File(['archive'], 'demo.zip', { type: 'application/zip' });
+  it('rejects a completed install that has no package result', async () => {
+    transport.post.mockResolvedValue({ ...examples.job, result: null });
+    await expect(pluginsApi.startInstallFromRegistry('fixture-source', fingerprint)).rejects.toBeInstanceOf(ApiContractError);
+  });
 
-    const created = await pluginsApi.createInstallCandidate(file);
+  it('preserves the registry-change code from a failed job', async () => {
+    transport.post.mockResolvedValue({ ...examples.job, status: 'failed', result: null, error: 'Registry changed', error_code: 'PLUGIN_REGISTRY_CHANGED' });
+    await expect(pluginsApi.installFromRegistryWithProgress('fixture-source', fingerprint)).rejects.toMatchObject({ code: 'PLUGIN_REGISTRY_CHANGED', message: 'Registry changed' });
+  });
+
+  it('reports the polling deadline with a stable code', async () => {
+    vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(10 * 60 * 1000 + 1);
+    transport.post.mockResolvedValue({ ...examples.job, status: 'running', result: null });
+    await expect(pluginsApi.installFromRegistryWithProgress('fixture-source', fingerprint)).rejects.toMatchObject({ code: 'PLUGIN_INSTALL_TIMEOUT' });
+  });
+
+  it('uploads once and submits the confirmed archive digest', async () => {
+    const candidate = { candidate_id: 'candidate-1', archive_sha256: 'a'.repeat(64), package_sha256: 'b'.repeat(64), expires_at_ms: 123, manifest: examples.package.manifest };
+    transport.post.mockResolvedValueOnce(candidate).mockResolvedValueOnce({ ...examples.job, status: 'queued', result: null });
+    const created = await pluginsApi.createInstallCandidate(new File(['archive'], 'demo.zip', { type: 'application/zip' }));
     await pluginsApi.startInstallCandidate(created.candidate_id, created.archive_sha256);
-
-    expect(api.post).toHaveBeenNthCalledWith(
-      1,
-      '/plugins/install/candidates',
-      expect.any(FormData),
-      {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 120000,
-      },
-    );
-    const formData = vi.mocked(api.post).mock.calls[0][1] as FormData;
-    expect(formData.get('file')).toBe(file);
-    expect(api.post).toHaveBeenNthCalledWith(
-      2,
-      '/plugins/install/candidates/candidate-1/jobs',
-      { expected_sha256: 'a'.repeat(64) },
-    );
+    expect(transport.post).toHaveBeenNthCalledWith(1, '/plugins/install/candidates', expect.any(FormData), { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 });
+    expect(transport.post).toHaveBeenNthCalledWith(2, '/plugins/install/candidates/candidate-1/jobs', { expected_sha256: candidate.archive_sha256 });
   });
 
-  it('discards an unused install candidate', async () => {
-    vi.mocked(api.delete).mockResolvedValue({} as any);
-
+  it('discards an unused candidate', async () => {
+    transport.delete.mockResolvedValue(undefined);
     await pluginsApi.discardInstallCandidate('candidate-1');
-
-    expect(api.delete).toHaveBeenCalledWith('/plugins/install/candidates/candidate-1');
+    expect(transport.delete).toHaveBeenCalledWith('/plugins/install/candidates/candidate-1');
   });
 
-  it('sends the confirmed registry fingerprint on direct install and update requests', async () => {
-    vi.mocked(api.post).mockResolvedValue({} as any);
-
-    await pluginsApi.installFromRegistry('calendar', 'fingerprint-confirmed');
-    await pluginsApi.updatePlugin('calendar', 'fingerprint-confirmed');
-
-    expect(api.post).toHaveBeenNthCalledWith(
-      1,
-      '/plugins/install/registry',
-      {
-        plugin_id: 'calendar',
-        expected_fingerprint: 'fingerprint-confirmed',
-      },
-    );
-    expect(api.post).toHaveBeenNthCalledWith(
-      2,
-      '/plugins/calendar/update',
-      { expected_fingerprint: 'fingerprint-confirmed' },
-    );
+  it('sends approved fingerprints on direct install, update, and update-job requests', async () => {
+    transport.post.mockResolvedValueOnce(examples.package).mockResolvedValueOnce(examples.package).mockResolvedValueOnce(examples.job);
+    await pluginsApi.installFromRegistry('fixture-source', fingerprint);
+    await pluginsApi.updatePlugin('fixture-source', fingerprint);
+    await pluginsApi.startUpdatePlugin('fixture-source', fingerprint);
+    expect(transport.post.mock.calls).toEqual([
+      ['/plugins/install/registry', { plugin_id: 'fixture-source', expected_fingerprint: fingerprint }],
+      ['/plugins/fixture-source/update', { expected_fingerprint: fingerprint }],
+      ['/plugins/fixture-source/update/jobs', { expected_fingerprint: fingerprint }],
+    ]);
   });
 
-  it('sends the confirmed registry fingerprint when starting an update job', async () => {
-    vi.mocked(api.post).mockResolvedValue({} as any);
-
-    await pluginsApi.startUpdatePlugin('calendar', 'fingerprint-confirmed');
-
-    expect(api.post).toHaveBeenCalledWith(
-      '/plugins/calendar/update/jobs',
-      { expected_fingerprint: 'fingerprint-confirmed' },
-    );
-  });
-
-  it('fetches the registry without cache-bypass params by default', async () => {
-    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: '4' } as any);
-
+  it('fetches a valid registry and only bypasses its cache when requested', async () => {
+    transport.get.mockResolvedValue({ plugins: [], registry_version: '4', install_fingerprint: fingerprint });
     await pluginsApi.getRegistry();
-
-    expect(api.get).toHaveBeenCalledWith('/plugins/registry');
+    await pluginsApi.getRegistry({ force: true });
+    expect(transport.get.mock.calls).toEqual([['/plugins/registry'], ['/plugins/registry', { refresh: true }]]);
+    transport.get.mockResolvedValue({ plugins: [], registry_version: '4' });
+    await expect(pluginsApi.getRegistry()).rejects.toBeInstanceOf(ApiContractError);
   });
 
-  it('passes refresh=true to bypass the registry cache when forced', async () => {
-    vi.mocked(api.get).mockResolvedValue({ plugins: [], registry_version: '4' } as any);
-
-    await pluginsApi.getRegistry({ force: true });
-
-    expect(api.get).toHaveBeenCalledWith('/plugins/registry', { refresh: true });
+  it('rejects malformed dynamic resources instead of displaying empty lists', () => {
+    expect(() => parsePluginResourceGroups(undefined)).toThrow(ApiContractError);
+    expect(() => parsePluginResourceGroups([{ group_id: 'test', label: 'Test', items: [{ item_id: 7 }] }])).toThrow(ApiContractError);
+    expect(() => parsePluginPermissionItems([{ id: 'calendar', label: 'Calendar', status: true }])).toThrow(ApiContractError);
+    expect(parsePluginPermissionItems([{ id: 'calendar', label: 'Calendar', status: 'denied', settings_url: 'x-apple.systempreferences:fixture' }])[0].settings_url).toBe('x-apple.systempreferences:fixture');
   });
 });

@@ -20,6 +20,7 @@ from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import is_official_registry_source
 from ..services.plugin_secrets import mask_plugin_settings
 from .plugins_schemas import (
+    ExtensionFieldResponse,
     PluginContributionResponse,
     PluginManifestResponse,
     PluginPackageResponse,
@@ -193,7 +194,9 @@ def _serialize_contribution(
     display_name_key = f"contributions.{contribution_id}.display_name"
     description_key = f"contributions.{contribution_id}.description"
     serialized_fields = [
-        _serialize_field(field, i18n, contribution_id, plugin_id=contribution.plugin_id)
+        ExtensionFieldResponse.model_validate(
+            _serialize_field(field, i18n, contribution_id, plugin_id=contribution.plugin_id)
+        )
         for field in contribution.fields
     ]
     metadata = dict(contribution.metadata)

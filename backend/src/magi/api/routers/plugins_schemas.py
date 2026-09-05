@@ -7,10 +7,26 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ...plugins.contracts import (
+    ExtensionFieldOption,
+    ExtensionFieldSpec,
     PluginCapability,
     PluginDisplayGroupSpec,
     PluginIdentifier,
 )
+
+
+class ExtensionFieldOptionResponse(ExtensionFieldOption):
+    label_translated: str | None = None
+
+
+class ExtensionFieldResponse(ExtensionFieldSpec):
+    """Host-rendered plugin field, including translated presentation metadata."""
+
+    options: list[ExtensionFieldOptionResponse] = Field(default_factory=list)
+    label_translated: str | None = None
+    description_translated: str | None = None
+    section_translated: str | None = None
+    section_note_translated: str | None = None
 
 
 class PluginSettingsUpdateRequest(BaseModel):
@@ -54,8 +70,8 @@ class PluginContributionResponse(BaseModel):
     contribution_type: str
     display_name: str
     description: str
-    surface: str
-    fields: list[dict[str, Any]] = Field(default_factory=list)
+    surface: Literal["extensions", "tools", "timeline"]
+    fields: list[ExtensionFieldResponse] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

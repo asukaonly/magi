@@ -99,6 +99,77 @@ def build_examples() -> dict:
     }
 
 
+def build_plugin_contract() -> dict:
+    from magi.api.routers.plugins import plugins_router
+    from magi.api.routers.plugins_schemas import (
+        PluginInstallCandidateResponse,
+        PluginInstallJobSnapshot,
+        PluginPackageResponse,
+        PluginRegistryResponse,
+        PluginSettingsActionRunResponse,
+        PluginSettingsResourceResponse,
+        PluginsListResponse,
+    )
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    models = [PluginPackageResponse, PluginInstallCandidateResponse, PluginInstallJobSnapshot,
+              PluginRegistryResponse, PluginSettingsActionRunResponse, PluginSettingsResourceResponse,
+              PluginsListResponse]
+    public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
+    for model in models:
+        if not any(route.response_model is model for route in public.routes):
+            raise RuntimeError(f"Plugin contract is not exposed by the public router: {model.__name__}")
+    _, document = models_json_schema(
+        [(model, "serialization") for model in models],
+        schema_generator=ResponseJsonSchema,
+        ref_template="#/components/schemas/{model}",
+    )
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Magi plugin response contracts", "version": "1"},
+        "paths": {},
+        "components": {"schemas": document["$defs"]},
+    }
+
+
+def build_plugin_examples() -> dict:
+    from magi.api.routers.plugins_schemas import (
+        ExtensionFieldResponse,
+        PluginContributionResponse,
+        PluginInstallJobSnapshot,
+        PluginManifestResponse,
+        PluginPackageResponse,
+        PluginSettingsActionRunResponse,
+        PluginsListResponse,
+    )
+
+    package = PluginPackageResponse(
+        manifest=PluginManifestResponse(
+            plugin_id="fixture-source", name="Fixture source", version="1.0.0",
+            description="Contract fixture", author="Magi", official=False,
+            contribution_types=["sensor"], source="local", plugin_dir="/fixture", manifest_path="/fixture/plugin.toml",
+        ), enabled=True, trusted=True, loaded=True, healthy=True,
+        contributions=[PluginContributionResponse(
+            plugin_id="fixture-source", contribution_id="sensor", contribution_type="sensor",
+            display_name="Source", description="", surface="timeline",
+            fields=[ExtensionFieldResponse(key="enabled", type="switch", label="Enabled", default=True)],
+        )], current_settings={"enabled": True},
+    )
+    return {
+        "package": package.model_dump(mode="json"),
+        "list": PluginsListResponse(plugins=[package], total=1).model_dump(mode="json"),
+        "job": PluginInstallJobSnapshot(
+            job_id="fixture-job", operation="install", plugin_id="fixture-source", status="completed",
+            stage="completed", message="Installed", progress_pct=100, result=package,
+            created_at_ms=1000, updated_at_ms=2000, finished_at_ms=2000,
+        ).model_dump(mode="json"),
+        "action": PluginSettingsActionRunResponse(
+            plugin_id="fixture-source", action_id="connect", session_id="fixture-action", status="succeeded",
+            message="Connected", settings_updates={"configured": True},
+        ).model_dump(mode="json"),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -108,7 +179,10 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
-        outputs = {"frontend-config.json": build_contract(), "frontend-config-examples.json": build_examples()}
+        outputs = {
+            "frontend-config.json": build_contract(), "frontend-config-examples.json": build_examples(),
+            "frontend-plugins.json": build_plugin_contract(), "frontend-plugins-examples.json": build_plugin_examples(),
+        }
     for name, payload in outputs.items():
         target = ROOT / "contracts" / "api" / name
         content = json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"

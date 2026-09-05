@@ -125,7 +125,7 @@ jobs:
       - name: Check SQLite ownership contract
         run: python scripts/check-sqlite-ownership.py
 
-      - name: Check frontend configuration contracts
+      - name: Check frontend response contracts
         run: python scripts/export-frontend-contracts.py --check
 
       - name: Export Python OpenAPI contract

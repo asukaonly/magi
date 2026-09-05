@@ -1,0 +1,1058 @@
+{
+  "components": {
+    "schemas": {
+      "ExtensionFieldOptionResponse": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label Translated"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "label_translated"
+        ],
+        "title": "ExtensionFieldOptionResponse",
+        "type": "object"
+      },
+      "ExtensionFieldResponse": {
+        "description": "Host-rendered plugin field, including translated presentation metadata.",
+        "properties": {
+          "default": {
+            "default": null,
+            "title": "Default"
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description Translated"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label Translated"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldOptionResponse"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "order": {
+            "default": 0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "path_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "file",
+                  "directory"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Path Kind"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Placeholder"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "section": {
+            "default": "general",
+            "title": "Section",
+            "type": "string"
+          },
+          "section_note_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Section Note Translated"
+          },
+          "section_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Section Translated"
+          },
+          "surface": {
+            "default": "extensions",
+            "enum": [
+              "extensions",
+              "tools",
+              "timeline"
+            ],
+            "title": "Surface",
+            "type": "string"
+          },
+          "type": {
+            "default": "input",
+            "enum": [
+              "switch",
+              "select",
+              "input",
+              "number",
+              "secret",
+              "path",
+              "tags"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "path_kind",
+          "label",
+          "description",
+          "default",
+          "required",
+          "options",
+          "section",
+          "surface",
+          "order",
+          "placeholder",
+          "depends_on_key",
+          "depends_on_values",
+          "label_translated",
+          "description_translated",
+          "section_translated",
+          "section_note_translated"
+        ],
+        "title": "ExtensionFieldResponse",
+        "type": "object"
+      },
+      "PluginCapability": {
+        "description": "A single self-declared capability shown to the user for install-time\nconsent. NOT enforced at runtime (no sandbox this iteration).\n\n``capability`` is a permissive ``str`` for forward-compat: a newer\nregistry may declare a capability an older app doesn't know, and that must\nnot break parsing. The authoritative known set is enforced at build time in\nmagi-plugins ``scripts/build-registry.py`` and rendered with a known map +\ngraceful fallback in the frontend. Known values: screen_recording,\naccessibility, calendar, photos, contacts, system_media, filesystem_read,\nfilesystem_write, network, subprocess.",
+        "properties": {
+          "capability": {
+            "title": "Capability",
+            "type": "string"
+          },
+          "optional": {
+            "default": false,
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Reason I18N",
+            "type": "object"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "capability",
+          "scope",
+          "optional",
+          "reason",
+          "reason_i18n"
+        ],
+        "title": "PluginCapability",
+        "type": "object"
+      },
+      "PluginContributionResponse": {
+        "properties": {
+          "contribution_id": {
+            "title": "Contribution Id",
+            "type": "string"
+          },
+          "contribution_type": {
+            "title": "Contribution Type",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldResponse"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "surface": {
+            "enum": [
+              "extensions",
+              "tools",
+              "timeline"
+            ],
+            "title": "Surface",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "contribution_id",
+          "contribution_type",
+          "display_name",
+          "description",
+          "surface",
+          "fields",
+          "metadata"
+        ],
+        "title": "PluginContributionResponse",
+        "type": "object"
+      },
+      "PluginDisplayGroupSpec": {
+        "description": "User-facing grouping metadata for marketplace and installed plugin UIs.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Description I18N",
+            "type": "object"
+          },
+          "icon": {
+            "default": "",
+            "title": "Icon",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "member_label": {
+            "default": "",
+            "title": "Member Label",
+            "type": "string"
+          },
+          "member_label_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Member Label I18N",
+            "type": "object"
+          },
+          "member_order": {
+            "default": 100,
+            "title": "Member Order",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Name I18N",
+            "type": "object"
+          },
+          "order": {
+            "default": 100,
+            "title": "Order",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "name_i18n",
+          "description",
+          "description_i18n",
+          "icon",
+          "order",
+          "member_label",
+          "member_label_i18n",
+          "member_order"
+        ],
+        "title": "PluginDisplayGroupSpec",
+        "type": "object"
+      },
+      "PluginInstallCandidateResponse": {
+        "properties": {
+          "archive_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Archive Sha256",
+            "type": "string"
+          },
+          "candidate_id": {
+            "title": "Candidate Id",
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "title": "Expires At Ms",
+            "type": "integer"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/PluginManifestResponse"
+          },
+          "package_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Package Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id",
+          "archive_sha256",
+          "package_sha256",
+          "expires_at_ms",
+          "manifest"
+        ],
+        "title": "PluginInstallCandidateResponse",
+        "type": "object"
+      },
+      "PluginInstallJobSnapshot": {
+        "properties": {
+          "created_at_ms": {
+            "title": "Created At Ms",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Code"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Filename"
+          },
+          "finished_at_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finished At Ms"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/PluginInstallLogEntry"
+            },
+            "title": "Logs",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "install",
+              "update",
+              "upload"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Plugin Id"
+          },
+          "progress_pct": {
+            "default": 0.0,
+            "title": "Progress Pct",
+            "type": "number"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginPackageResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at_ms": {
+            "title": "Updated At Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id",
+          "operation",
+          "plugin_id",
+          "filename",
+          "status",
+          "stage",
+          "progress_pct",
+          "message",
+          "error",
+          "error_code",
+          "logs",
+          "result",
+          "created_at_ms",
+          "updated_at_ms",
+          "finished_at_ms"
+        ],
+        "title": "PluginInstallJobSnapshot",
+        "type": "object"
+      },
+      "PluginInstallLogEntry": {
+        "properties": {
+          "level": {
+            "default": "info",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "ts_ms": {
+            "title": "Ts Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ts_ms",
+          "level",
+          "stage",
+          "message"
+        ],
+        "title": "PluginInstallLogEntry",
+        "type": "object"
+      },
+      "PluginManifestResponse": {
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/PluginCapability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "consented_capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PluginCapability"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Consented Capabilities"
+          },
+          "contribution_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contribution Types",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginDisplayGroupSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "icon": {
+            "default": "",
+            "title": "Icon",
+            "type": "string"
+          },
+          "manifest_path": {
+            "title": "Manifest Path",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "official": {
+            "title": "Official",
+            "type": "boolean"
+          },
+          "plugin_dir": {
+            "title": "Plugin Dir",
+            "type": "string"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "name",
+          "version",
+          "description",
+          "author",
+          "icon",
+          "display_group",
+          "official",
+          "contribution_types",
+          "source",
+          "plugin_dir",
+          "manifest_path",
+          "capabilities",
+          "consented_capabilities"
+        ],
+        "title": "PluginManifestResponse",
+        "type": "object"
+      },
+      "PluginPackageResponse": {
+        "properties": {
+          "contributions": {
+            "items": {
+              "$ref": "#/components/schemas/PluginContributionResponse"
+            },
+            "title": "Contributions",
+            "type": "array"
+          },
+          "current_settings": {
+            "additionalProperties": true,
+            "title": "Current Settings",
+            "type": "object"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Error"
+          },
+          "loaded": {
+            "title": "Loaded",
+            "type": "boolean"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/PluginManifestResponse"
+          },
+          "trusted": {
+            "title": "Trusted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "manifest",
+          "enabled",
+          "trusted",
+          "loaded",
+          "healthy",
+          "last_error",
+          "contributions",
+          "current_settings"
+        ],
+        "title": "PluginPackageResponse",
+        "type": "object"
+      },
+      "PluginRegistryEntryResponse": {
+        "properties": {
+          "author": {
+            "default": "",
+            "title": "Author",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/PluginCapability"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "contribution_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contribution Types",
+            "type": "array"
+          },
+          "data_locality": {
+            "default": "",
+            "title": "Data Locality",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Description I18N",
+            "type": "object"
+          },
+          "display_group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginDisplayGroupSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "homepage": {
+            "default": "",
+            "title": "Homepage",
+            "type": "string"
+          },
+          "icon": {
+            "default": "",
+            "title": "Icon",
+            "type": "string"
+          },
+          "installed": {
+            "default": false,
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Installed Version"
+          },
+          "min_sdk_version": {
+            "default": "",
+            "title": "Min Sdk Version",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_i18n": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Name I18N",
+            "type": "object"
+          },
+          "official": {
+            "default": false,
+            "title": "Official",
+            "type": "boolean"
+          },
+          "path": {
+            "default": "",
+            "title": "Path",
+            "type": "string"
+          },
+          "platforms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "repository": {
+            "default": "",
+            "title": "Repository",
+            "type": "string"
+          },
+          "update_available": {
+            "default": false,
+            "title": "Update Available",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "name",
+          "name_i18n",
+          "version",
+          "description",
+          "description_i18n",
+          "author",
+          "icon",
+          "display_group",
+          "official",
+          "data_locality",
+          "contribution_types",
+          "platforms",
+          "min_sdk_version",
+          "homepage",
+          "repository",
+          "path",
+          "installed",
+          "installed_version",
+          "update_available",
+          "capabilities"
+        ],
+        "title": "PluginRegistryEntryResponse",
+        "type": "object"
+      },
+      "PluginRegistryResponse": {
+        "properties": {
+          "install_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Install Fingerprint",
+            "type": "string"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginRegistryEntryResponse"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "registry_version": {
+            "const": "4",
+            "title": "Registry Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugins",
+          "registry_version",
+          "install_fingerprint"
+        ],
+        "title": "PluginRegistryResponse",
+        "type": "object"
+      },
+      "PluginSettingsActionRunResponse": {
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "settings_updates": {
+            "additionalProperties": true,
+            "title": "Settings Updates",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "action_id",
+          "session_id",
+          "status",
+          "message",
+          "data",
+          "settings_updates"
+        ],
+        "title": "PluginSettingsActionRunResponse",
+        "type": "object"
+      },
+      "PluginSettingsResourceResponse": {
+        "properties": {
+          "data": {
+            "default": null,
+            "title": "Data"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "resource_name": {
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "resource_type": {
+            "title": "Resource Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "resource_name",
+          "resource_type",
+          "data"
+        ],
+        "title": "PluginSettingsResourceResponse",
+        "type": "object"
+      },
+      "PluginsListResponse": {
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginPackageResponse"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plugins",
+          "total"
+        ],
+        "title": "PluginsListResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi plugin response contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

@@ -1,3 +1,4 @@
+import { parsePluginPermissionItems, parsePluginResourceGroups } from '@/api/plugin-contract';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -64,7 +65,7 @@ const CalendarListResourcePicker: React.FC<{
         if (cancelled) {
           return;
         }
-        setGroups(Array.isArray(payload.data?.groups) ? payload.data.groups : []);
+        setGroups(parsePluginResourceGroups(payload.data.groups));
       } catch (fetchError) {
         if (cancelled) {
           return;
@@ -186,8 +187,7 @@ const PermissionStatusBlock: React.FC<{
     setError(null);
     try {
       const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
-      const rawItems = Array.isArray(payload.data?.items) ? payload.data.items : [];
-      setItems(rawItems as PluginPermissionStatusItem[]);
+      setItems(parsePluginPermissionItems(payload.data.items));
     } catch (fetchError) {
       setError(getErrorMessage(fetchError) || 'unknown');
     } finally {

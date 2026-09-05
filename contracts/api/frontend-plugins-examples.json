@@ -1,0 +1,217 @@
+{
+  "action": {
+    "action_id": "connect",
+    "data": {},
+    "message": "Connected",
+    "plugin_id": "fixture-source",
+    "session_id": "fixture-action",
+    "settings_updates": {
+      "configured": true
+    },
+    "status": "succeeded"
+  },
+  "job": {
+    "created_at_ms": 1000,
+    "error": null,
+    "error_code": null,
+    "filename": null,
+    "finished_at_ms": 2000,
+    "job_id": "fixture-job",
+    "logs": [],
+    "message": "Installed",
+    "operation": "install",
+    "plugin_id": "fixture-source",
+    "progress_pct": 100.0,
+    "result": {
+      "contributions": [
+        {
+          "contribution_id": "sensor",
+          "contribution_type": "sensor",
+          "description": "",
+          "display_name": "Source",
+          "fields": [
+            {
+              "default": true,
+              "depends_on_key": null,
+              "depends_on_values": [],
+              "description": "",
+              "description_translated": null,
+              "key": "enabled",
+              "label": "Enabled",
+              "label_translated": null,
+              "options": [],
+              "order": 0,
+              "path_kind": null,
+              "placeholder": null,
+              "required": false,
+              "section": "general",
+              "section_note_translated": null,
+              "section_translated": null,
+              "surface": "extensions",
+              "type": "switch"
+            }
+          ],
+          "metadata": {},
+          "plugin_id": "fixture-source",
+          "surface": "timeline"
+        }
+      ],
+      "current_settings": {
+        "enabled": true
+      },
+      "enabled": true,
+      "healthy": true,
+      "last_error": null,
+      "loaded": true,
+      "manifest": {
+        "author": "Magi",
+        "capabilities": [],
+        "consented_capabilities": null,
+        "contribution_types": [
+          "sensor"
+        ],
+        "description": "Contract fixture",
+        "display_group": null,
+        "icon": "",
+        "manifest_path": "/fixture/plugin.toml",
+        "name": "Fixture source",
+        "official": false,
+        "plugin_dir": "/fixture",
+        "plugin_id": "fixture-source",
+        "source": "local",
+        "version": "1.0.0"
+      },
+      "trusted": true
+    },
+    "stage": "completed",
+    "status": "completed",
+    "updated_at_ms": 2000
+  },
+  "list": {
+    "plugins": [
+      {
+        "contributions": [
+          {
+            "contribution_id": "sensor",
+            "contribution_type": "sensor",
+            "description": "",
+            "display_name": "Source",
+            "fields": [
+              {
+                "default": true,
+                "depends_on_key": null,
+                "depends_on_values": [],
+                "description": "",
+                "description_translated": null,
+                "key": "enabled",
+                "label": "Enabled",
+                "label_translated": null,
+                "options": [],
+                "order": 0,
+                "path_kind": null,
+                "placeholder": null,
+                "required": false,
+                "section": "general",
+                "section_note_translated": null,
+                "section_translated": null,
+                "surface": "extensions",
+                "type": "switch"
+              }
+            ],
+            "metadata": {},
+            "plugin_id": "fixture-source",
+            "surface": "timeline"
+          }
+        ],
+        "current_settings": {
+          "enabled": true
+        },
+        "enabled": true,
+        "healthy": true,
+        "last_error": null,
+        "loaded": true,
+        "manifest": {
+          "author": "Magi",
+          "capabilities": [],
+          "consented_capabilities": null,
+          "contribution_types": [
+            "sensor"
+          ],
+          "description": "Contract fixture",
+          "display_group": null,
+          "icon": "",
+          "manifest_path": "/fixture/plugin.toml",
+          "name": "Fixture source",
+          "official": false,
+          "plugin_dir": "/fixture",
+          "plugin_id": "fixture-source",
+          "source": "local",
+          "version": "1.0.0"
+        },
+        "trusted": true
+      }
+    ],
+    "total": 1
+  },
+  "package": {
+    "contributions": [
+      {
+        "contribution_id": "sensor",
+        "contribution_type": "sensor",
+        "description": "",
+        "display_name": "Source",
+        "fields": [
+          {
+            "default": true,
+            "depends_on_key": null,
+            "depends_on_values": [],
+            "description": "",
+            "description_translated": null,
+            "key": "enabled",
+            "label": "Enabled",
+            "label_translated": null,
+            "options": [],
+            "order": 0,
+            "path_kind": null,
+            "placeholder": null,
+            "required": false,
+            "section": "general",
+            "section_note_translated": null,
+            "section_translated": null,
+            "surface": "extensions",
+            "type": "switch"
+          }
+        ],
+        "metadata": {},
+        "plugin_id": "fixture-source",
+        "surface": "timeline"
+      }
+    ],
+    "current_settings": {
+      "enabled": true
+    },
+    "enabled": true,
+    "healthy": true,
+    "last_error": null,
+    "loaded": true,
+    "manifest": {
+      "author": "Magi",
+      "capabilities": [],
+      "consented_capabilities": null,
+      "contribution_types": [
+        "sensor"
+      ],
+      "description": "Contract fixture",
+      "display_group": null,
+      "icon": "",
+      "manifest_path": "/fixture/plugin.toml",
+      "name": "Fixture source",
+      "official": false,
+      "plugin_dir": "/fixture",
+      "plugin_id": "fixture-source",
+      "source": "local",
+      "version": "1.0.0"
+    },
+    "trusted": true
+  }
+}

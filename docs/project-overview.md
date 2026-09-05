@@ -124,6 +124,14 @@ a contract error; they must not become empty/default configuration. The validato
 do not evaluate code or compile schemas inside the desktop WebView. Python model
 validators remain authoritative for cross-field business rules.
 
+The same export/generation commands cover installed plugin packages, translated
+field specifications, registry fingerprints, install candidates/jobs, and settings
+actions in `contracts/api/frontend-plugins.json`. These endpoints return direct
+payloads; the client does not accept the removed success-envelope format. Dynamic
+resource widgets validate their supported collection/permission shapes before
+rendering. A completed install without its package result is a contract failure,
+not proof of installation or runtime activation.
+
 When adding or moving a product API route, update the route implementation, the manifest, and the relevant contract tests in the same task. FastAPI OpenAPI is useful for Python-proxied routes only; it is not sufficient as the complete desktop API contract because Rust-native routes are registered outside Python.
 
 The Rust gateway's direct SQLite write surface is tracked separately in `contracts/sqlite/gateway_writes.json`. `scripts/check-sqlite-ownership.py` scans production Rust gateway SQL and fails when a write or gateway-created index is not declared in that ownership contract.

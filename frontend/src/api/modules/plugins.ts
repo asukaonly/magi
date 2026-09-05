@@ -1,18 +1,14 @@
 import { api } from '../client';
 import { isRecord } from '@/utils/value-guards';
-import type { ApiResponse } from '../client';
+import { unwrapGatewayPayload } from '../client';
+import { parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginAction, parsePluginJob, parsePluginResource } from '../plugin-contract';
+import type { PluginWireTypes } from '../plugin-contract';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
 export type ExtensionFieldType = 'switch' | 'select' | 'input' | 'number' | 'secret' | 'path' | 'tags';
 export type PluginSettingsActionStatus = 'pending' | 'succeeded' | 'failed' | 'cancelled';
 
-export interface PluginCapability {
-  capability: string;
-  scope: string[];
-  optional: boolean;
-  reason: string;
-  reason_i18n: Record<string, string>;
-}
+export type PluginCapability = PluginWireTypes['PluginCapability'];
 
 export interface PluginDisplayGroupSpec {
   id: string;
@@ -171,15 +167,7 @@ export interface PluginSettingsActionSpec {
   depends_on_values?: string[];
 }
 
-export interface PluginSettingsActionRunResponse {
-  plugin_id: string;
-  action_id: string;
-  session_id: string;
-  status: PluginSettingsActionStatus;
-  message: string;
-  data: Record<string, unknown>;
-  settings_updates: Record<string, unknown>;
-}
+export type PluginSettingsActionRunResponse = PluginWireTypes['PluginSettingsActionRunResponse'];
 
 export interface PluginSettingsResourceItem {
   item_id: string;
@@ -268,12 +256,7 @@ export interface PluginInstallCandidate {
 export type PluginInstallJobStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type PluginInstallOperation = 'install' | 'update' | 'upload';
 
-export interface PluginInstallLogEntry {
-  ts_ms: number;
-  level: 'info' | 'warning' | 'error';
-  stage: string;
-  message: string;
-}
+export type PluginInstallLogEntry = PluginWireTypes['PluginInstallLogEntry'];
 
 export interface PluginInstallJobSnapshot {
   job_id: string;
@@ -302,17 +285,6 @@ export interface PluginSettingsUpdateRequest {
   updates: Record<string, unknown>;
 }
 
-const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
-  if (
-    payload &&
-    typeof payload === 'object' &&
-    'success' in (payload as ApiResponse<T>) &&
-    typeof (payload as ApiResponse<T>).success === 'boolean'
-  ) {
-    return ((payload as ApiResponse<T>).data ?? payload) as T;
-  }
-  return payload as T;
-};
 
 const INSTALL_JOB_POLL_MS = 1000;
 const INSTALL_JOB_TIMEOUT_MS = 10 * 60 * 1000;
@@ -436,43 +408,43 @@ export interface PluginUpdateCheck {
 
 export const pluginsApi = {
   list: async (): Promise<PluginsListResponse> => {
-    const response = await api.get<PluginsListResponse>('/plugins');
-    return unwrapPayload(response as PluginsListResponse | ApiResponse<PluginsListResponse>);
+    const response = await api.get<unknown>('/plugins');
+    return parsePluginsList(response);
   },
 
   rescan: async (): Promise<PluginsListResponse> => {
-    const response = await api.post<PluginsListResponse>('/plugins/rescan', {});
-    return unwrapPayload(response as PluginsListResponse | ApiResponse<PluginsListResponse>);
+    const response = await api.post<unknown>('/plugins/rescan', {});
+    return parsePluginsList(response);
   },
 
   enable: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/enable`, {});
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    const response = await api.post<unknown>(`/plugins/${pluginId}/enable`, {});
+    return parsePluginPackage(response);
   },
 
   disable: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/disable`, {});
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    const response = await api.post<unknown>(`/plugins/${pluginId}/disable`, {});
+    return parsePluginPackage(response);
   },
 
   reload: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/reload`, {});
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    const response = await api.post<unknown>(`/plugins/${pluginId}/reload`, {});
+    return parsePluginPackage(response);
   },
 
   getSettings: async (pluginId: string): Promise<PluginPackageState> => {
-    const response = await api.get<PluginPackageState>(`/plugins/${pluginId}/settings`);
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    const response = await api.get<unknown>(`/plugins/${pluginId}/settings`);
+    return parsePluginPackage(response);
   },
 
   updateSettings: async (
     pluginId: string,
     updates: Record<string, unknown>
   ): Promise<PluginPackageState> => {
-    const response = await api.put<PluginPackageState>(`/plugins/${pluginId}/settings`, {
+    const response = await api.put<unknown>(`/plugins/${pluginId}/settings`, {
       updates,
     } satisfies PluginSettingsUpdateRequest);
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    return parsePluginPackage(response);
   },
 
   startSettingsAction: async (
@@ -480,13 +452,11 @@ export const pluginsApi = {
     actionId: string,
     fieldValues: Record<string, unknown>
   ): Promise<PluginSettingsActionRunResponse> => {
-    const response = await api.post<PluginSettingsActionRunResponse>(
+    const response = await api.post<unknown>(
       `/plugins/${pluginId}/settings/actions/${actionId}/start`,
       { field_values: fieldValues }
     );
-    return unwrapPayload(
-      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
-    );
+    return parsePluginAction(response);
   },
 
   pollSettingsAction: async (
@@ -495,13 +465,11 @@ export const pluginsApi = {
     sessionId: string,
     fieldValues: Record<string, unknown>
   ): Promise<PluginSettingsActionRunResponse> => {
-    const response = await api.post<PluginSettingsActionRunResponse>(
+    const response = await api.post<unknown>(
       `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/poll`,
       { field_values: fieldValues }
     );
-    return unwrapPayload(
-      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
-    );
+    return parsePluginAction(response);
   },
 
   cancelSettingsAction: async (
@@ -509,25 +477,21 @@ export const pluginsApi = {
     actionId: string,
     sessionId: string
   ): Promise<PluginSettingsActionRunResponse> => {
-    const response = await api.post<PluginSettingsActionRunResponse>(
+    const response = await api.post<unknown>(
       `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/cancel`,
       {}
     );
-    return unwrapPayload(
-      response as PluginSettingsActionRunResponse | ApiResponse<PluginSettingsActionRunResponse>
-    );
+    return parsePluginAction(response);
   },
 
   getSettingsResource: async (
     pluginId: string,
     resourceName: string
   ): Promise<PluginSettingsResourcePayload> => {
-    const response = await api.get<PluginSettingsResourcePayload>(
+    const response = await api.get<unknown>(
       `/plugins/${pluginId}/settings/resources/${resourceName}`
     );
-    return unwrapPayload(
-      response as PluginSettingsResourcePayload | ApiResponse<PluginSettingsResourcePayload>
-    );
+    return parsePluginResource(response);
   },
 
   // -----------------------------------------------------------------------
@@ -538,27 +502,27 @@ export const pluginsApi = {
     pluginId: string,
     expectedFingerprint: string,
   ): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>('/plugins/install/registry', {
+    const response = await api.post<unknown>('/plugins/install/registry', {
       plugin_id: pluginId,
       expected_fingerprint: expectedFingerprint,
     });
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    return parsePluginPackage(response);
   },
 
   startInstallFromRegistry: async (
     pluginId: string,
     expectedFingerprint: string,
   ): Promise<PluginInstallJobSnapshot> => {
-    const response = await api.post<PluginInstallJobSnapshot>('/plugins/install/registry/jobs', {
+    const response = await api.post<unknown>('/plugins/install/registry/jobs', {
       plugin_id: pluginId,
       expected_fingerprint: expectedFingerprint,
     });
-    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+    return parsePluginJob(response);
   },
 
   getInstallJob: async (jobId: string): Promise<PluginInstallJobSnapshot> => {
-    const response = await api.get<PluginInstallJobSnapshot>(`/plugins/install/jobs/${jobId}`);
-    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+    const response = await api.get<unknown>(`/plugins/install/jobs/${jobId}`);
+    return parsePluginJob(response);
   },
 
   installFromRegistryWithProgress: async (
@@ -573,26 +537,22 @@ export const pluginsApi = {
   createInstallCandidate: async (file: File): Promise<PluginInstallCandidate> => {
     const formData = new FormData();
     formData.append('file', file);
-    const response = await api.post<PluginInstallCandidate>('/plugins/install/candidates', formData, {
+    const response = await api.post<unknown>('/plugins/install/candidates', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     });
-    return unwrapPayload(
-      response as PluginInstallCandidate | ApiResponse<PluginInstallCandidate>
-    );
+    return parsePluginCandidate(response);
   },
 
   startInstallCandidate: async (
     candidateId: string,
     expectedSha256: string,
   ): Promise<PluginInstallJobSnapshot> => {
-    const response = await api.post<PluginInstallJobSnapshot>(
+    const response = await api.post<unknown>(
       `/plugins/install/candidates/${candidateId}/jobs`,
       { expected_sha256: expectedSha256 },
     );
-    return unwrapPayload(
-      response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>
-    );
+    return parsePluginJob(response);
   },
 
   installCandidateWithProgress: async (
@@ -621,34 +581,34 @@ export const pluginsApi = {
     // freshly published plugin version shows up immediately (wired to the
     // marketplace refresh button).
     const response = options?.force
-      ? await api.get<PluginRegistryResponse>('/plugins/registry', { refresh: true })
-      : await api.get<PluginRegistryResponse>('/plugins/registry');
-    return unwrapPayload(response as PluginRegistryResponse | ApiResponse<PluginRegistryResponse>);
+      ? await api.get<unknown>('/plugins/registry', { refresh: true })
+      : await api.get<unknown>('/plugins/registry');
+    return parsePluginRegistry(response);
   },
 
   checkUpdates: async (): Promise<PluginUpdateCheck[]> => {
     const response = await api.get<PluginUpdateCheck[]>('/plugins/updates');
-    return unwrapPayload(response as PluginUpdateCheck[] | ApiResponse<PluginUpdateCheck[]>);
+    return unwrapGatewayPayload(response);
   },
 
   updatePlugin: async (
     pluginId: string,
     expectedFingerprint: string,
   ): Promise<PluginPackageState> => {
-    const response = await api.post<PluginPackageState>(`/plugins/${pluginId}/update`, {
+    const response = await api.post<unknown>(`/plugins/${pluginId}/update`, {
       expected_fingerprint: expectedFingerprint,
     });
-    return unwrapPayload(response as PluginPackageState | ApiResponse<PluginPackageState>);
+    return parsePluginPackage(response);
   },
 
   startUpdatePlugin: async (
     pluginId: string,
     expectedFingerprint: string,
   ): Promise<PluginInstallJobSnapshot> => {
-    const response = await api.post<PluginInstallJobSnapshot>(`/plugins/${pluginId}/update/jobs`, {
+    const response = await api.post<unknown>(`/plugins/${pluginId}/update/jobs`, {
       expected_fingerprint: expectedFingerprint,
     });
-    return unwrapPayload(response as PluginInstallJobSnapshot | ApiResponse<PluginInstallJobSnapshot>);
+    return parsePluginJob(response);
   },
 
   updatePluginWithProgress: async (

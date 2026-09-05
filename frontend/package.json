@@ -34,8 +34,8 @@
     "tauri:build": "tauri build",
     "check": "npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check",
     "check:full": "npm run check && npm run test:ci && npm run build",
-    "contracts:generate": "node scripts/generate-config-contracts.mjs",
-    "contracts:check": "node scripts/generate-config-contracts.mjs --check"
+    "contracts:generate": "node scripts/generate-api-contracts.mjs",
+    "contracts:check": "node scripts/generate-api-contracts.mjs --check"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
