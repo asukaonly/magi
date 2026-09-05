@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
+from ...entities.identity import normalized_entity_name
 from ...llm_json_client import L2LLMJsonError
 from ...models import (
     L2BatchEntityResolutionItem,
@@ -515,13 +516,19 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
         if pending_item.resolved_entity_id:
             pending_item.entity.resolved_id = pending_item.resolved_entity_id
-            await self._entity_catalog.upsert_entity(
-                canonical_name=pending_item.normalized_surface,
-                entity_type=pending_item.entity_type,
-                entity_id=pending_item.resolved_entity_id,
-                source_event_ids=pending_item.source_event_ids,
-                projection_leases=projection_leases,
+            existing_entities = await self._entity_catalog.list_entities(
+                entity_ids=[pending_item.resolved_entity_id], limit=1
             )
+            if not existing_entities or normalized_entity_name(
+                str(existing_entities[0]["canonical_name"])
+            ) == normalized_entity_name(pending_item.normalized_surface):
+                await self._entity_catalog.upsert_entity(
+                    canonical_name=pending_item.normalized_surface,
+                    entity_type=pending_item.entity_type,
+                    entity_id=pending_item.resolved_entity_id,
+                    source_event_ids=pending_item.source_event_ids,
+                    projection_leases=projection_leases,
+                )
             await self._entity_catalog.add_alias(
                 entity_id=pending_item.resolved_entity_id,
                 alias_text=pending_item.mention_text,

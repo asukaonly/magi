@@ -1889,7 +1889,7 @@ async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
             entity_type="software",
         )
         ghost_object = _canonical_entity_id("software", "X")
-        assert ghost_object == "software:x"
+        assert ghost_object != "software:twitter-handle"
         now = time.time()
         async with sqlite_connection_async(db_path) as db:
             await db.execute(

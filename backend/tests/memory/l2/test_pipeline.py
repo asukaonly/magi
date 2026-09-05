@@ -3549,11 +3549,13 @@ async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_i
         ipad_entities = [
             entity
             for entity in entities
-            if "apple-ipad-pro" in str(entity.get("entity_id") or "")
+            if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [
-            "hardware:apple-ipad-pro-11-inch-3rd-generation"
-        ]
+        assert len(ipad_entities) == 1
+        expected_entity_id = pipeline._build_canonical_entity_id(
+            entity_type="hardware", canonical_name="apple-ipad-pro-(11-inch)-(3rd-generation)"
+        )
+        assert ipad_entities[0]["entity_id"] == expected_entity_id
 
         catalog_name_index = await pipeline._build_catalog_name_index()
         object_id = pipeline._resolve_phase2_object_id(
@@ -3562,7 +3564,7 @@ async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_i
             resolved_mentions=[],
             catalog_name_index=catalog_name_index,
         )
-        assert object_id == "hardware:apple-ipad-pro-11-inch-3rd-generation"
+        assert object_id == expected_entity_id
 
 
 @pytest.mark.asyncio
@@ -4520,8 +4522,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()
@@ -4608,8 +4613,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()

@@ -17,7 +17,6 @@ from .ghosts import (
     _CatalogMaintenanceStatsProtocol,
     _canonical_entity_id,
     _merge_evidence_json,
-    _slugify_entity_id_suffix,
 )
 from .ghosts_tom import _refresh_tom_snapshot_after_rekey
 
@@ -444,5 +443,4 @@ __all__ = [
     "_CatalogMaintenanceStatsProtocol",
     "_canonical_entity_id",
     "_merge_evidence_json",
-    "_slugify_entity_id_suffix",
 ]

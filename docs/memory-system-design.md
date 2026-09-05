@@ -807,6 +807,12 @@ type; unfamiliarity alone is not a reason to use it. The host still validates th
 type against the registry, but it does not guess a replacement type from an entity
 name when the evidence cannot support that semantic decision.
 
+New named entity IDs use a stable fingerprint of the complete Unicode-normalized
+name and entity type. Display slugs never determine identity. Replay keeps the
+same identity; changing a catalog name requires explicit rename authority and
+must preserve that identity. Ingestion cannot overwrite an existing identity
+with an unrelated name.
+
 Knowledge graph endpoints must resolve through the entity catalog before they are
 persisted. The LLM is not an authority for inventing `entity_id` values. Every
 semantic route declares its projection targets explicitly: graph, assertion, or
