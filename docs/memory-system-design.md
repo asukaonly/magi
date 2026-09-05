@@ -3002,3 +3002,9 @@ complete source-event link is the durable replay guard even after trace pruning.
 Statistics, breaker transitions, evidence links, and the execution trace commit
 atomically; a trace write failure rolls the learning update back. Separate tool
 executions in one turn remain distinct observations.
+
+L4 inactivity retirement keeps the skill identity available for a later,
+independent execution: recording can find the inactive row and revive it without
+violating name/category uniqueness. Replaying an already linked old event leaves
+it inactive. This lookup still enforces source tombstones and projection blocks;
+user-forgotten evidence cannot revive a retired skill.

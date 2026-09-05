@@ -488,3 +488,21 @@ async def test_trace_failure_rolls_back_learning(tmp_path, monkeypatch):
     await store.record_memory_event(event)
     with sqlite3.connect(store.db_path) as db:
         assert db.execute("SELECT total_attempts FROM procedural_skills").fetchone() == (1,)
+
+
+@pytest.mark.asyncio
+async def test_inactive_skill_relearns_but_replay_and_forgetting_do_not_revive(tmp_path):
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.storage.records import soft_delete_skill
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    first = _tool_event(event_id="execution:first", success=True, timestamp=1710000000.0)
+    skill_id = await store.record_memory_event(first)
+    await soft_delete_skill(db_path=store.db_path, skill_id=skill_id, now=1710000001.0)
+    assert await store.record_memory_event(first) is None
+    assert await store.count_skills() == 0
+    second = _tool_event(event_id="execution:second", success=True, timestamp=1710000002.0)
+    assert await store.record_memory_event(second) == skill_id
+    assert await store.count_skills() == 1
+    await store.forget_source_events([first.event_id])
+    assert await store.record_memory_event(first) is None
+    assert await store.count_skills() == 0

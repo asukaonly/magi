@@ -107,7 +107,7 @@ class L4ProceduralRecordingMixin:
                         duplicate = await cursor.fetchone()
                     if duplicate is not None:
                         await db.commit()
-                        return str(existing["skill_id"])
+                        return None if existing["deleted_at"] is not None else str(existing["skill_id"])
                 if existing is None:
                     return await self._record_new_skill_event(
                         db,
@@ -139,7 +139,7 @@ class L4ProceduralRecordingMixin:
             SELECT *
             FROM procedural_skills AS skills
             WHERE skills.skill_name = ? AND skills.skill_category = ?
-              AND {active_skill_predicate("skills")}
+              AND {active_skill_predicate("skills", include_inactive=True)}
             """,
             (skill_name, skill_category),
         ) as cursor:

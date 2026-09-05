@@ -89,7 +89,8 @@ async def update_skill_record(
             circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
             circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
             source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?,
-            pending_trace_count = COALESCE(pending_trace_count, 0) + 1
+            pending_trace_count = COALESCE(pending_trace_count, 0) + 1,
+            deleted_at = NULL
         WHERE skill_id = ?
         """,
         (
