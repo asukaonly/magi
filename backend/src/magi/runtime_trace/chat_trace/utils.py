@@ -60,23 +60,6 @@ def compact_value(value: Any) -> str:
     return text[:240]
 
 
-def trace_span_result_preview(payload: dict[str, Any]) -> str:
-    output = payload.get("output")
-    if isinstance(output, dict):
-        for key in ("response_preview", "result_preview", "intent", "result"):
-            preview = compact_value(output.get(key))
-            if preview:
-                return preview
-    return ""
-
-
-def trace_span_error(payload: dict[str, Any]) -> Optional[str]:
-    error = payload.get("error")
-    if isinstance(error, dict):
-        return str(error.get("message") or error.get("failure_reason") or "").strip() or None
-    return str(error or "").strip() or None
-
-
 def ms_to_seconds(value: Any) -> Optional[float]:
     if value is None:
         return None
