@@ -126,6 +126,10 @@ def build_packaged_data_entries(
     if migrations_path.exists():
         entries.append((migrations_path, "magi/db/migrations"))
 
+    project_checker = resolved_backend_root / "src" / "magi" / "tools" / "builtin" / "_typescript_check.cjs"
+    if project_checker.exists():
+        entries.append((project_checker, "magi/tools/builtin"))
+
     # Include only core plugins as individual directories.
     plugins_root = resolved_repo_root / "plugins"
     for plugin_id in CORE_PLUGIN_IDS:

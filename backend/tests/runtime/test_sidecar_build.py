@@ -88,6 +88,14 @@ def test_build_packaged_data_entries_uses_repo_and_backend_roots(tmp_path: Path)
     assert (repo_root / "skills", "skills") in entries
 
 
+def test_project_checker_is_included_in_desktop_resources() -> None:
+    entries = build_packaged_data_entries()
+    assert any(
+        source.name == "_typescript_check.cjs" and destination == "magi/tools/builtin"
+        for source, destination in entries
+    )
+
+
 def test_build_packaged_binary_entries_includes_vendored_ripgrep(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     executable_name = "rg.exe" if os.name == "nt" else "rg"

@@ -18,7 +18,7 @@ from ..schema import (
     ToolSchema,
 )
 from ._file_validation import file_content_digest
-from ._verifiers import VerifyOutcome, verify_file
+from ._verifiers import VerifyOutcome, verify_file, verify_typescript_projects
 
 logger = get_logger(__name__)
 
@@ -34,8 +34,10 @@ class VerifyTool(Tool):
         self.schema = ToolSchema(
             name="verify",
             description=(
-                "Run a fast file-type-aware sanity check (compile / parse / "
-                "typecheck) on one or more files. Use after a file_edit or "
+                "Run a file or project sanity check (compile / parse / "
+                "typecheck) on one or more files. TypeScript and JSX use the "
+                "project configuration and installed local compiler. This "
+                "does not run package scripts, builds, tests, or visual checks. Use after a file_edit or "
                 "file_write to confirm the change still parses before "
                 "claiming the task is done. mode=changed verifies every file "
                 "edited in this session; mode=paths verifies an explicit list."
@@ -73,7 +75,7 @@ class VerifyTool(Tool):
             ToolParameter(
                 name="timeout_s",
                 type=ParameterType.INTEGER,
-                description="Per-file subprocess timeout in seconds. Default 30.",
+                description="Timeout per check batch in seconds. Default 30.",
                 required=False,
                 default=30,
                 min_value=1,
@@ -159,13 +161,24 @@ class VerifyTool(Tool):
         timeout_s: int,
     ) -> list[VerifyOutcome]:
         outcomes: list[VerifyOutcome] = []
-        for raw in paths:
-            absolute = self._resolve_absolute(raw, workspace_root)
+        resolved = [(raw, self._resolve_absolute(raw, workspace_root)) for raw in paths]
+        project_paths = list(dict.fromkeys(
+            absolute for _, absolute in resolved
+            if absolute is not None and absolute.is_file() and absolute.suffix.lower() in {".ts", ".tsx", ".jsx"}
+        ))
+        project_digests = {path: file_content_digest(path) for path in project_paths}
+        project_results = await verify_typescript_projects(
+            project_paths, workspace_root=workspace_root, timeout_s=timeout_s,
+        ) if project_paths else []
+        projects = dict(zip(project_paths, project_results))
+        for raw, absolute in resolved:
             if absolute is None:
                 outcomes.append(self._outside_workspace_outcome(raw))
                 continue
-            before_digest = file_content_digest(absolute)
-            outcome = await verify_file(absolute, timeout_s=timeout_s)
+            before_digest = project_digests.get(absolute) if absolute in projects else file_content_digest(absolute)
+            outcome = projects.get(absolute)
+            if outcome is None:
+                outcome = await verify_file(absolute, timeout_s=timeout_s)
             after_digest = file_content_digest(absolute)
             if before_digest is None or before_digest != after_digest:
                 if outcome.status == "pass":

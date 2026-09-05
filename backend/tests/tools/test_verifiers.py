@@ -18,7 +18,8 @@ async def test_python_valid_file_passes(tmp_path: Path) -> None:
     target.write_text("x = 1\n")
     result = await verify_file(target, timeout_s=10)
     assert result.status == "pass"
-    assert result.verifier == "py_compile"
+    assert result.verifier == "python.compile"
+    assert not (tmp_path / "__pycache__").exists()
 
 
 @pytest.mark.asyncio

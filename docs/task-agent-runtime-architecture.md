@@ -415,6 +415,15 @@ It enforces these current invariants:
   changed during verification cannot produce passing evidence;
 - `verify` explicitly declares read-only effect and replay metadata, so the
   validation call itself does not introduce another effect requiring validation;
+- TypeScript and JSX verification uses the installed project compiler, its
+  actual configuration and source project references. A batch checks each
+  selected project once without emitting build outputs or running package
+  scripts; a successful result must include the target in the compiler program.
+  The packaged sidecar carries the checker, but Node and TypeScript belong to
+  the user's development environment and missing dependencies are inconclusive.
+  Read inputs and project membership are checked for changes before producing
+  passing evidence. Python syntax checks compile in-process without execution
+  or bytecode writes, so they also work in the frozen desktop sidecar.
 - local-write and unknown-effect work must have current validation evidence;
 - file write, edit, and rollback results declare their affected paths and
   content versions. Each latest declared version needs matching verification

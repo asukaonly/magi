@@ -5,9 +5,9 @@ returns a ``VerifyOutcome``. The dispatch table maps file extensions to
 verifiers; ``get_verifier_for(path)`` returns ``None`` for unsupported
 extensions so the caller can record a ``skipped`` outcome.
 
-Subprocess verifiers (``py_compile``, ``tsc``, ``node``) honour a per-call
-timeout. Pure-Python verifiers (``json.loads``, ``tomllib.loads``) skip the
-subprocess entirely and parse in-process for speed.
+Subprocess verifiers honour a per-call timeout. TypeScript and JSX use the
+installed project compiler without emitting files or executing package scripts.
+Python, JSON and TOML are parsed in-process, including in a frozen sidecar.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import json
 import shutil
 import sys
 import time
+import traceback
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Optional
@@ -38,6 +39,10 @@ class VerifyOutcome:
     reason: Optional[str]
     duration_ms: int
     content_sha256: str | None = None
+    project_path: str | None = None
+    check_kind: str = "syntax"
+    input_digest: str | None = None
+    command: list[str] | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -52,14 +57,18 @@ async def _run_subprocess(
     *,
     rel_path: str,
     timeout_s: int,
+    cwd: Path | None = None,
+    input_text: str | None = None,
 ) -> VerifyOutcome:
     start = time.monotonic()
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
+            stdin=asyncio.subprocess.PIPE if input_text is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_build_subprocess_env(),
+            cwd=cwd,
             **hidden_process_kwargs(),
         )
     except FileNotFoundError:
@@ -75,7 +84,15 @@ async def _run_subprocess(
         )
 
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_s)
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(input_text.encode() if input_text is not None else None),
+            timeout=timeout_s,
+        )
+    except asyncio.CancelledError:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
@@ -102,36 +119,61 @@ async def _run_subprocess(
         stderr=err_text,
         reason=None,
         duration_ms=int((time.monotonic() - start) * 1000),
+        command=argv,
     )
 
 
 async def _verify_python(path: Path, timeout_s: int) -> VerifyOutcome:
-    return await _run_subprocess(
-        "py_compile",
-        [sys.executable, "-m", "py_compile", str(path)],
-        rel_path=str(path),
-        timeout_s=timeout_s,
+    """Compile without execution, subprocess assumptions, or bytecode writes."""
+    _ = timeout_s
+    start = time.monotonic()
+    error = None
+    try:
+        compile(path.read_bytes(), str(path), "exec")
+    except (SyntaxError, ValueError, OSError) as exc:
+        error = "".join(traceback.format_exception_only(exc))
+    return VerifyOutcome(
+        path=str(path), verifier="python.compile", status="fail" if error else "pass",
+        exit_code=1 if error else 0, stdout="", stderr=error or "", reason=None,
+        duration_ms=int((time.monotonic() - start) * 1000),
     )
 
 
 async def _verify_typescript(path: Path, timeout_s: int) -> VerifyOutcome:
-    if shutil.which("tsc") is None:
-        return VerifyOutcome(
-            path=str(path),
-            verifier="tsc",
-            status="skipped",
-            exit_code=-1,
-            stdout="",
-            stderr="",
-            reason="tsc not on PATH",
-            duration_ms=0,
-        )
-    return await _run_subprocess(
-        "tsc",
-        ["tsc", "--noEmit", "--pretty", "false", str(path)],
-        rel_path=str(path),
-        timeout_s=timeout_s,
+    outcomes = await verify_typescript_projects([path], workspace_root=Path(path.anchor), timeout_s=timeout_s)
+    return outcomes[0]
+
+
+async def verify_typescript_projects(
+    paths: list[Path], *, workspace_root: Path, timeout_s: int,
+) -> list[VerifyOutcome]:
+    """Check project-owned files once per project using local TypeScript."""
+    from dataclasses import replace
+
+    node = shutil.which("node", path=_build_subprocess_env().get("PATH"))
+    if node is None:
+        return [VerifyOutcome(
+            path=str(path), verifier="(none)", status="skipped", exit_code=-1,
+            stdout="", stderr="", reason="Node runtime is not installed", duration_ms=0,
+        ) for path in paths]
+    command = [node, str(Path(__file__).with_name("_typescript_check.cjs"))]
+    batch = await _run_subprocess(
+        "typescript-project", command, rel_path=str(workspace_root), timeout_s=timeout_s,
+        cwd=workspace_root,
+        input_text=json.dumps({"workspace": str(workspace_root), "paths": [str(path) for path in paths]}),
     )
+    if batch.status != "pass":
+        return [replace(batch, path=str(path), verifier="(none)",
+                        status="timeout" if batch.status == "timeout" else "skipped",
+                        reason=batch.reason or "Project checker could not complete") for path in paths]
+    try:
+        rows = json.loads(batch.stdout)["results"]
+        if not isinstance(rows, list) or [row["path"] for row in rows] != [str(path) for path in paths]:
+            raise ValueError("Project checker returned unexpected targets")
+        return [VerifyOutcome(**row, command=command, duration_ms=batch.duration_ms) for row in rows]
+    except (ValueError, TypeError, KeyError):
+        return [replace(batch, path=str(path), verifier="(none)", status="skipped",
+                        reason="Project checker returned an invalid result") for path in paths]
 
 
 async def _verify_javascript(path: Path, timeout_s: int) -> VerifyOutcome:
@@ -220,7 +262,9 @@ _DISPATCH: dict[str, VerifierFn] = {
     ".ts": _verify_typescript,
     ".tsx": _verify_typescript,
     ".js": _verify_javascript,
-    ".jsx": _verify_javascript,
+    ".jsx": _verify_typescript,
+    ".mjs": _verify_javascript,
+    ".cjs": _verify_javascript,
     ".json": _verify_json,
     ".toml": _verify_toml,
 }
