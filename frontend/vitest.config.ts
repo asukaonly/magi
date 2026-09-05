@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Translation checker tests run with node:test through check:i18n.
+    include: ['src/**/*.{test,spec}.{js,jsx,ts,tsx}', 'scripts/check-boundaries.test.mjs'],
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     globals: true,

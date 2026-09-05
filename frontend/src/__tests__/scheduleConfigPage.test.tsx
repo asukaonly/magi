@@ -119,11 +119,8 @@ describe('ScheduleConfigPage', () => {
     const user = userEvent.setup();
     schedulesListMock.mockResolvedValue({ schedules: [makeAgentSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
-    // ▶ icon button now opens a popover with [立即运行, 带参运行…] options;
-    // a direct click no longer fires the run. Step through both clicks.
-    // The trigger button's aria-label uses defaultValue ('运行') so the
-    // test i18n mock (which returns defaultValue ?? key) resolves to '运行'.
-    await user.click(await screen.findByRole('button', { name: '运行' }));
+    // Follow the translated trigger into the run menu.
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.runNow' }));
     await user.click(await screen.findByText('tasks.scheduled.actions.runNow'));
     await waitFor(() => {
       // No params provided through the menu path → second arg is undefined.
