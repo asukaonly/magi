@@ -67,7 +67,7 @@ def _package_sha256() -> str:
     with tempfile.TemporaryDirectory(prefix="magi-candidate-job-package-") as tmp:
         package_dir = Path(tmp)
         (package_dir / "plugin.toml").write_text(
-            '[plugin]\nid = "demo-plugin"\nname = "Demo Plugin"\nversion = "1.0.0"\n',
+            '[plugin]\nprotocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\nid = "demo-plugin"\nname = "Demo Plugin"\nversion = "1.0.0"\n',
             encoding="utf-8",
         )
         (package_dir / "plugin.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -90,6 +90,7 @@ def _registered_candidate(store: PluginInstallCandidateStore):
 def _package_response(state: PluginPackageState) -> PluginPackageResponse:
     return PluginPackageResponse(
         manifest=PluginManifestResponse(
+            protocol_version=2, min_sdk_version="0.2.0", execution_mode="trusted_process", settings_fields=[],
             plugin_id=state.manifest.plugin_id,
             name=state.manifest.name,
             version=state.manifest.version,

@@ -16,9 +16,9 @@ from ...plugins.operation_execution import (
     run_plugin_lifecycle_operation,
 )
 from ...plugins.contracts import PluginSettingsResourcePayload
+from ...plugins.operation_authorization import build_host_invocation
 from ..services.plugin_secrets import (
     mask_plugin_setting_values,
-    normalize_masked_plugin_updates,
 )
 from .plugins_common import (
     _get_plugin_i18n,
@@ -33,7 +33,6 @@ from .plugins_schemas import (
     PluginSettingsActionRequest,
     PluginSettingsActionRunResponse,
     PluginSettingsResourceResponse,
-    PluginSettingsUpdateRequest,
     PluginsListResponse,
 )
 
@@ -107,49 +106,11 @@ async def rescan_plugins():
     )
 
 
-@plugins_core_router.post("/{plugin_id}/enable", response_model=PluginPackageResponse)
-async def enable_plugin(plugin_id: str):
-    manager, _ = _require_package(plugin_id)
-    state = await run_plugin_lifecycle_operation(lambda: manager.enable_plugin(plugin_id))
-    await _refresh_channels_after_plugin_change(plugin_id, "enabled")
-    return _serialize_package(state)
-
-
-@plugins_core_router.post("/{plugin_id}/disable", response_model=PluginPackageResponse)
-async def disable_plugin(plugin_id: str):
-    manager, _ = _require_package(plugin_id)
-    state = await run_plugin_lifecycle_operation(lambda: manager.disable_plugin(plugin_id))
-    await _refresh_channels_after_plugin_change(plugin_id, "disabled")
-    return _serialize_package(state)
-
-
 @plugins_core_router.post("/{plugin_id}/reload", response_model=PluginPackageResponse)
 async def reload_plugin(plugin_id: str):
     manager, _ = _require_package(plugin_id)
     state = await run_plugin_lifecycle_operation(lambda: manager.reload_plugin(plugin_id))
     await _refresh_channels_after_plugin_change(plugin_id, "reloaded")
-    return _serialize_package(state)
-
-
-@plugins_core_router.get("/{plugin_id}/settings", response_model=PluginPackageResponse)
-async def get_plugin_settings(plugin_id: str):
-    _, package = _require_package(plugin_id)
-    return _serialize_package(package)
-
-
-@plugins_core_router.put("/{plugin_id}/settings", response_model=PluginPackageResponse)
-async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRequest):
-    manager, package = _require_package(plugin_id)
-    updates = normalize_masked_plugin_updates(
-        request.updates,
-        package.current_settings,
-        package.contributions,
-    )
-    state = await run_plugin_lifecycle_operation(
-        lambda: manager.update_plugin_settings(plugin_id, updates)
-    )
-    if updates:
-        await _refresh_channels_after_plugin_change(plugin_id, "settings_updated")
     return _serialize_package(state)
 
 
@@ -207,19 +168,28 @@ def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) ->
     return payload_dict
 
 
+def _require_settings_connection(connection_id: str):
+    """Resolve a settings target without interpreting package IDs as connections."""
+    manager = _require_plugin_manager()
+    try:
+        connection = manager.connection_store.get(connection_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Plugin connection not found") from exc
+    package = manager.get_package(connection.plugin_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail="Plugin package not found")
+    return manager, connection, package
+
+
 @plugins_core_router.get(
-    "/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
+    "/connections/{connection_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
 )
-async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
-    manager, _ = _require_package(plugin_id)
+async def read_plugin_settings_resource(connection_id: str, resource_name: str):
+    manager, connection, _ = _require_settings_connection(connection_id)
+    plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
-        payload = await run_plugin_callback_operation(
-            lambda: settings_service.read_plugin_settings_resource(
-                plugin_id,
-                resource_name,
-            )
-        )
+        payload = await settings_service.read_plugin_settings_resource(connection_id, resource_name)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -228,7 +198,9 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
                 fallback="Plugin settings resource not found",
             ),
         ) from exc
-    except RuntimeError as exc:
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     if isinstance(payload, PluginSettingsResourcePayload):
@@ -236,10 +208,11 @@ async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
     else:
         payload_dict = dict(payload)
     payload_dict = _translate_resource_payload(payload_dict, plugin_id)
-    return PluginSettingsResourceResponse(**payload_dict)
+    return PluginSettingsResourceResponse(connection_id=connection_id, **payload_dict)
 
 
 def _serialize_action_run(
+    connection_id: str,
     plugin_id: str,
     action_id: str,
     run,
@@ -247,6 +220,7 @@ def _serialize_action_run(
 ) -> PluginSettingsActionRunResponse:
     result = run.result
     return PluginSettingsActionRunResponse(
+        connection_id=connection_id,
         plugin_id=plugin_id,
         action_id=action_id,
         session_id=run.session_id,
@@ -261,20 +235,22 @@ def _serialize_action_run(
 
 
 @plugins_core_router.post(
-    "/{plugin_id}/settings/actions/{action_id}/start",
+    "/connections/{connection_id}/settings/actions/{action_id}/start",
     response_model=PluginSettingsActionRunResponse,
 )
 async def start_plugin_settings_action(
-    plugin_id: str,
+    connection_id: str,
     action_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, package = _require_package(plugin_id)
+    manager, connection, package = _require_settings_connection(connection_id)
+    plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.start_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=build_host_invocation(connection, trigger="user"),
             field_values=request.field_values,
         )
     except KeyError as exc:
@@ -285,7 +261,9 @@ async def start_plugin_settings_action(
                 fallback="Plugin settings action not found",
             ),
         ) from exc
-    except RuntimeError as exc:
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run.result.status == "succeeded" and (
         run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
@@ -293,25 +271,27 @@ async def start_plugin_settings_action(
         await _refresh_channels_after_plugin_change(
             plugin_id, f"settings_action_{action_id}_succeeded"
         )
-    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
+    return _serialize_action_run(connection_id, plugin_id, action_id, run, package.contributions)
 
 
 @plugins_core_router.post(
-    "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll",
+    "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll",
     response_model=PluginSettingsActionRunResponse,
 )
 async def poll_plugin_settings_action(
-    plugin_id: str,
+    connection_id: str,
     action_id: str,
     session_id: str,
     request: PluginSettingsActionRequest,
 ):
-    manager, package = _require_package(plugin_id)
+    manager, connection, package = _require_settings_connection(connection_id)
+    plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.poll_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=build_host_invocation(connection, trigger="user"),
             session_id=session_id,
             field_values=request.field_values,
         )
@@ -323,7 +303,9 @@ async def poll_plugin_settings_action(
                 fallback="Plugin settings action session not found",
             ),
         ) from exc
-    except RuntimeError as exc:
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if run.result.status == "succeeded" and (
         run.result.settings_updates or bool(run.result.data.get("refresh_channels"))
@@ -331,24 +313,26 @@ async def poll_plugin_settings_action(
         await _refresh_channels_after_plugin_change(
             plugin_id, f"settings_action_{action_id}_succeeded"
         )
-    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
+    return _serialize_action_run(connection_id, plugin_id, action_id, run, package.contributions)
 
 
 @plugins_core_router.post(
-    "/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel",
+    "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel",
     response_model=PluginSettingsActionRunResponse,
 )
 async def cancel_plugin_settings_action(
-    plugin_id: str,
+    connection_id: str,
     action_id: str,
     session_id: str,
 ):
-    manager, package = _require_package(plugin_id)
+    manager, connection, package = _require_settings_connection(connection_id)
+    plugin_id = connection.plugin_id
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.cancel_plugin_settings_action(
-            plugin_id,
+            connection_id,
             action_id,
+            identity=build_host_invocation(connection, trigger="user"),
             session_id=session_id,
         )
     except KeyError as exc:
@@ -359,9 +343,11 @@ async def cancel_plugin_settings_action(
                 fallback="Plugin settings action session not found",
             ),
         ) from exc
-    except RuntimeError as exc:
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return _serialize_action_run(plugin_id, action_id, run, package.contributions)
+    return _serialize_action_run(connection_id, plugin_id, action_id, run, package.contributions)
 
 
 __all__ = [

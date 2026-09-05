@@ -13,25 +13,30 @@ from ...plugins.contracts import (
 )
 
 
-class PluginSettingsUpdateRequest(BaseModel):
-    updates: dict[str, Any] = Field(default_factory=dict)
-
-
 class PluginSettingsActionRequest(BaseModel):
     field_values: dict[str, Any] = Field(default_factory=dict)
 
 
 class PluginSettingsActionRunResponse(BaseModel):
+    connection_id: str
     plugin_id: str
     action_id: str
     session_id: str
-    status: Literal["pending", "succeeded", "failed", "cancelled"]
+    status: Literal["pending", "succeeded", "failed", "cancelled", "uncertain"]
     message: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
     settings_updates: dict[str, Any] = Field(default_factory=dict)
 
 
 class PluginManifestResponse(BaseModel):
+    protocol_version: int
+    min_sdk_version: str
+    execution_mode: str
+    settings_fields: list[dict[str, Any]]
+    activation_flow: dict[str, Any] | None = None
+    settings_actions: list[dict[str, Any]] = Field(default_factory=list)
+    settings_resources: list[dict[str, Any]] = Field(default_factory=list)
+    settings_ui_blocks: list[dict[str, Any]] = Field(default_factory=list)
     plugin_id: str
     name: str
     version: str
@@ -71,6 +76,7 @@ class PluginPackageResponse(BaseModel):
 
 
 class PluginSettingsResourceResponse(BaseModel):
+    connection_id: str
     plugin_id: str
     resource_name: str
     resource_type: str
@@ -180,7 +186,6 @@ __all__ = [
     "PluginSettingsActionRequest",
     "PluginSettingsActionRunResponse",
     "PluginSettingsResourceResponse",
-    "PluginSettingsUpdateRequest",
     "PluginUpdateCheckResponse",
     "PluginsListResponse",
 ]

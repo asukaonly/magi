@@ -34,9 +34,6 @@ from .plugins_common import (
     _version_newer,
 )
 from .plugins_core_routes import (
-    disable_plugin,
-    enable_plugin,
-    get_plugin_settings,
     list_plugins,
     cancel_plugin_settings_action,
     poll_plugin_settings_action,
@@ -45,7 +42,6 @@ from .plugins_core_routes import (
     reload_plugin,
     rescan_plugins,
     start_plugin_settings_action,
-    update_plugin_settings,
 )
 from .plugins_install_routes import (
     create_plugin_install_candidate,
@@ -76,7 +72,6 @@ from .plugins_schemas import (
     PluginSettingsActionRequest,
     PluginSettingsActionRunResponse,
     PluginSettingsResourceResponse,
-    PluginSettingsUpdateRequest,
     PluginUpdateCheckResponse,
     PluginsListResponse,
 )
@@ -84,8 +79,11 @@ from .plugins_schemas import (
 logger = logging.getLogger(__name__)
 plugins_router = plugins_core_router
 
+from .plugins_connection_routes import plugins_connection_router
+
 plugins_router.include_router(plugins_install_router)
 plugins_router.include_router(plugins_registry_router)
+plugins_router.include_router(plugins_connection_router)
 
 __all__ = [
     "APIRouter",
@@ -110,7 +108,6 @@ __all__ = [
     "PluginSettingsActionRunResponse",
     "PluginSettingsResourcePayload",
     "PluginSettingsResourceResponse",
-    "PluginSettingsUpdateRequest",
     "PluginUpdateCheckResponse",
     "PluginsListResponse",
     "UploadFile",
@@ -128,10 +125,7 @@ __all__ = [
     "check_plugin_updates",
     "cancel_plugin_settings_action",
     "create_plugin_install_candidate",
-    "disable_plugin",
     "discard_plugin_install_candidate",
-    "enable_plugin",
-    "get_plugin_settings",
     "get_plugin_install_job",
     "install_plugin_from_registry",
     "list_plugins",
@@ -152,5 +146,4 @@ __all__ = [
     "tempfile",
     "uninstall_plugin",
     "update_plugin",
-    "update_plugin_settings",
 ]
