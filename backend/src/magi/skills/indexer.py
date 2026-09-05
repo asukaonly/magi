@@ -9,6 +9,8 @@ Implements the "Index" phase of the skill system:
 
 import logging
 import re
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -59,6 +61,28 @@ class SkillIndexer:
         """
         self.skill_locations = skill_locations or self.SKILL_LOCATIONS
         self._cache: Dict[str, SkillMetadata] = {}
+        self._plugin_skills: dict[str, SkillMetadata] = {}
+
+    def register_plugin_skill(
+        self, name: str, skill_file: Path
+    ) -> tuple[SkillMetadata, Callable[[], None]]:
+        """Index packaged content with an owner-bound revocation handle."""
+        if name in self._cache or name in self._plugin_skills:
+            raise ValueError(f"Skill is already indexed: {name}")
+        metadata = self._parse_skill_metadata(skill_file)
+        if metadata is None:
+            raise ValueError(f"Invalid plugin skill: {skill_file}")
+        metadata = replace(metadata, name=name)
+        self._plugin_skills[name] = metadata
+        self._cache[name] = metadata
+
+        def dispose() -> None:
+            if self._plugin_skills.get(name) is metadata:
+                del self._plugin_skills[name]
+                if self._cache.get(name) is metadata:
+                    del self._cache[name]
+
+        return metadata, dispose
 
     @staticmethod
     def validate_skill_name(
@@ -100,7 +124,10 @@ class SkillIndexer:
             return False, f"Skill name cannot end with hyphen: '{name}'"
 
         if directory_name and name != directory_name:
-            return False, f"Skill name '{name}' must match directory name '{directory_name}'"
+            return (
+                False,
+                f"Skill name '{name}' must match directory name '{directory_name}'",
+            )
 
         return True, None
 
@@ -127,6 +154,7 @@ class SkillIndexer:
 
             logger.info(f"Scanned {len(found_skills)} skills from {location}")
 
+        skills.update(self._plugin_skills)
         self._cache = skills
         logger.info(f"Total skills indexed: {len(skills)}")
 
@@ -247,7 +275,9 @@ class SkillIndexer:
             metadata=data.get("metadata", {}),
         )
 
-    def _validated_frontmatter_name(self, data: dict[str, Any], source_file: Path) -> Any | None:
+    def _validated_frontmatter_name(
+        self, data: dict[str, Any], source_file: Path
+    ) -> Any | None:
         name = data.get("name")
         if not name:
             logger.warning(f"Skill missing 'name' field in {source_file}")
@@ -297,7 +327,9 @@ class SkillIndexer:
         logger.info("Skill index cache cleared")
 
 
-def _load_frontmatter_mapping(yaml_content: str, source_file: Path) -> dict[str, Any] | None:
+def _load_frontmatter_mapping(
+    yaml_content: str, source_file: Path
+) -> dict[str, Any] | None:
     import yaml
 
     try:
@@ -333,7 +365,9 @@ def _normalized_compatibility(data: dict[str, Any], source_file: Path) -> Any:
     return compatibility
 
 
-def _normalized_allowed_tools(data: dict[str, Any], source_file: Path) -> list[str] | None:
+def _normalized_allowed_tools(
+    data: dict[str, Any], source_file: Path
+) -> list[str] | None:
     allowed_tools_raw = data.get("allowed-tools")
     parsed_rules = parse_allowed_tools(allowed_tools_raw)
     if allowed_tools_raw is not None and not parsed_rules:

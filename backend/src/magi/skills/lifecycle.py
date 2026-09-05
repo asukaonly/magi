@@ -55,6 +55,8 @@ class SkillsModule(LifecycleModule):
             tool_registry=self._tool_registry,
             orchestrator_factory=self._orchestrator_factory,
             agent_run_request_factory=self._agent_run_request_factory,
+            skill_indexer=self._context.skills.skill_indexer,
+            skill_loader=self._context.skills.skill_loader,
         )
         self._context.skills.skill_indexer = bindings.skill_indexer
         self._context.skills.skill_loader = bindings.skill_loader
