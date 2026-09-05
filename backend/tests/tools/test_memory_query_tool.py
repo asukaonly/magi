@@ -187,6 +187,7 @@ class TestMemoryQueryTool:
             )
         )
         fake_mq = _make_fake_mq(fake_service)
+        fake_mq.get_canonical_names = AsyncMock(return_value={"weather_state:humid": "潮湿天气"})
         tool = MemoryQueryTool()
         context = _make_context(fake_mq=fake_mq, task_id="test-task")
 
@@ -196,7 +197,10 @@ class TestMemoryQueryTool:
         assert result.data["historical_recall"]["summary"] == "你讨厌潮湿天气。"
         assert (
             result.data["historical_recall"]["findings"][0]["statement"]
-            == "user:local_user DISLIKES weather_state:humid"
+            == "local_user DISLIKES 潮湿天气"
+        )
+        fake_mq.get_canonical_names.assert_awaited_once_with(
+            {"user:local_user", "weather_state:humid"}
         )
         assert result.data["debug"]["retrieval_trace"]["query_mode"] == "detail"
         request = fake_mq.query.await_args.args[0]

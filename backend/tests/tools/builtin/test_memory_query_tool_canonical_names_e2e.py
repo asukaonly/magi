@@ -52,9 +52,9 @@ def _make_fake_mq_with_real_db(fake_payload, db_path: str):
         from magi.memory.retrieval_projection import project_historical_recall
         return project_historical_recall(**kwargs)
 
-    async def _get_canonical_names(dp, entity_ids):
+    async def _get_canonical_names(entity_ids):
         from magi.memory.l2.entities.catalog.lookup import get_canonical_names
-        return await get_canonical_names(dp, entity_ids)
+        return await get_canonical_names(db_path, entity_ids)
 
     mq = MagicMock(name="memory_query_port")
     mq.build_query.side_effect = _build_query
@@ -62,7 +62,6 @@ def _make_fake_mq_with_real_db(fake_payload, db_path: str):
     mq.get_canonical_names = AsyncMock(side_effect=_get_canonical_names)
     mq.project_historical_recall.side_effect = _project
     mq.make_conversation_turn.side_effect = _make_turn
-    mq.memory_db_path = db_path
     return mq
 
 

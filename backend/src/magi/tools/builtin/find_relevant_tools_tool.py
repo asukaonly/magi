@@ -285,8 +285,8 @@ class FindRelevantToolsTool(Tool):
         if not recommendations:
             return []
 
-        l4_store = self._get_l4_store(context=context)
-        if l4_store is None or not hasattr(l4_store, "get_tool_advisory"):
+        memory = self._get_memory_query(context=context)
+        if memory is None:
             return recommendations
 
         tool_names = [str(item.get("name") or "").strip() for item in recommendations]
@@ -295,7 +295,7 @@ class FindRelevantToolsTool(Tool):
             return recommendations
 
         try:
-            advisory_rows = await l4_store.get_tool_advisory(
+            advisory_rows = await memory.get_tool_advisory(
                 tool_names=tool_names, task_context=query
             )
         except Exception as exc:
@@ -422,12 +422,12 @@ class FindRelevantToolsTool(Tool):
         bound = getattr(self, "_tool_registry_ref", None)
         return bound if bound is not None else tool_registry
 
-    def _get_l4_store(self, *, context: ToolExecutionContext | None = None) -> Any | None:
+    def _get_memory_query(self, *, context: ToolExecutionContext | None = None) -> Any | None:
         if context is not None:
             caps = getattr(context, "capabilities", None)
             mq = getattr(caps, "memory_query", None) if caps is not None else None
             if mq is not None:
-                return mq.get_l4_store()
+                return mq
         return None
 
 

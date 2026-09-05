@@ -387,10 +387,8 @@ async def test_memory_query_resolves_canonical_names_before_projection():
 
     fake_mq = _make_fake_mq()
     fake_mq.query = AsyncMock(return_value=fake_payload)
-    # Expose memory_db_path so the executor opts into Phase 5 mode
-    fake_mq.memory_db_path = "/tmp/fake_memory.db"
 
-    async def fake_lookup(db_path, entity_ids):
+    async def fake_lookup(entity_ids):
         return {"user:local_user": "asuka", "74f953b57f75": "字节跳动"}
 
     fake_mq.get_canonical_names = AsyncMock(side_effect=fake_lookup)

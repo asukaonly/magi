@@ -60,11 +60,9 @@ class MemoryQueryPort(Protocol):
     this port so they never import host internals directly.
     """
 
-    @property
-    def memory_db_path(self) -> Optional[str]: ...
     def build_query(self, **kwargs: Any) -> Any: ...
     async def query(self, request: Any) -> Any: ...
-    async def get_canonical_names(self, db_path: str, entity_ids: Any) -> dict: ...
+    async def get_canonical_names(self, entity_ids: set[str]) -> dict[str, str]: ...
     def project_historical_recall(
         self,
         *,
@@ -74,12 +72,8 @@ class MemoryQueryPort(Protocol):
         canonical_names: Any = None,
     ) -> Any: ...
     def make_conversation_turn(self, **kwargs: Any) -> Any: ...
-    def get_l4_store(self) -> Optional[Any]:
-        """Return the L4 memory store (UnifiedMemoryStore.l4), or None if unavailable.
-
-        Used by tools that need the tool-advisory and other L4 services without
-        importing host memory internals directly.
-        """
+    async def get_tool_advisory(self, *, tool_names: list[str], task_context: str) -> list[dict[str, Any]]:
+        """Return advisory data without exposing a writable memory store."""
         ...
 
 
@@ -215,21 +209,18 @@ class InteractionPort(Protocol):
 class ToolCapabilities:
     """Bundle of host capability ports injected into tool execution.
 
-    Attributes default to None so partial wiring during migration is safe.
-    Cluster tasks add typed ports incrementally.
+    Optional services are absent when the host does not provide that capability.
+    Required service admission happens before a plugin operation starts.
     """
 
     trace: Optional[TracePort] = None
     delegation_events: Optional[DelegationEventPort] = None
     delegation_artifacts: Optional[DelegationArtifactPort] = None
     background: Optional[BackgroundPort] = None
-    session_cache: Optional[Any] = None
     chat: Optional[ChatPort] = None
     memory_query: Optional[MemoryQueryPort] = None
     image_gen: Optional[ImageGenPort] = None
-    control: Optional[Any] = None
     interaction: Optional[InteractionPort] = None
-    subagent: Optional[Any] = None
     detach: Optional[DetachPort] = None
 
 

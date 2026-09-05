@@ -186,8 +186,8 @@ class TestFindRelevantToolsTool:
                 ]
 
         class _FakeMemoryQueryPort:
-            def get_l4_store(self):
-                return _FakeL4Store()
+            async def get_tool_advisory(self, **kwargs):
+                return await _FakeL4Store().get_tool_advisory(**kwargs)
 
         monkeypatch.setattr(ToolRecommender, "recommend_tools", _fake_recommend_tools)
 
@@ -405,26 +405,3 @@ class TestFindRelevantToolsTool:
         assert second.data["discovery_metrics"]["cache_hit"] is False
         assert call_count == 2
 
-    @pytest.mark.asyncio
-    async def test_get_l4_store_uses_memory_query_port(self) -> None:
-        """_get_l4_store reads through ctx.capabilities.memory_query.get_l4_store()."""
-        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
-
-        sentinel = object()
-
-        class _FakeMemoryQueryPort:
-            def get_l4_store(self):
-                return sentinel
-
-        tool = FindRelevantToolsTool()
-        ctx = _make_context_with_memory_query(memory_query_port=_FakeMemoryQueryPort())
-        assert tool._get_l4_store(context=ctx) is sentinel
-
-    @pytest.mark.asyncio
-    async def test_get_l4_store_returns_none_when_no_port(self) -> None:
-        """_get_l4_store returns None gracefully when memory_query port is absent."""
-        from magi.tools.builtin.find_relevant_tools_tool import FindRelevantToolsTool
-
-        tool = FindRelevantToolsTool()
-        ctx = _make_context_with_memory_query(memory_query_port=None)
-        assert tool._get_l4_store(context=ctx) is None

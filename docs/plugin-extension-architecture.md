@@ -97,6 +97,11 @@ External plugin examples live in the separate plugin repository (`github.com/asu
 
 ## Manifest Contract
 
+Host memory capabilities expose queries and serializable advisory results. They
+do not expose database paths, store instances, or unused session/control/subagent
+handles. Canonical entity name lookup is a host operation; plugins cannot choose
+its database. Tool reranking consumes advisory data through that same boundary.
+
 The public SDK is version `0.2.0`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its
