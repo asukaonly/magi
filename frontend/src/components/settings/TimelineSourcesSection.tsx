@@ -49,13 +49,13 @@ interface TimelineSourcesSectionProps {
   availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
   selectedSourceName: string | null;
-  pluginDrafts: Record<string, Record<string, any>>;
+  pluginDrafts: Record<string, Record<string, unknown>>;
   onSelectSource: (sourceName: string | null) => void;
   onRefreshSources: () => Promise<void>;
   onPluginInstalled?: () => Promise<void>;
   onBrowseMarketplace?: () => void;
-  onPluginFieldChange: (pluginId: string, key: string, value: any) => void;
-  onPluginFieldsChange: (pluginId: string, updates: Record<string, any>) => void;
+  onPluginFieldChange: (pluginId: string, key: string, value: unknown) => void;
+  onPluginFieldsChange: (pluginId: string, updates: Record<string, unknown>) => void;
 }
 
 const EXPERT_ONLY_SUFFIXES = ['source_path', 'edge_whitelist'];
@@ -70,7 +70,7 @@ const getSourceEnabledKey = (source: SensorSourceStatusItem) =>
 const buildActivationValues = (
   flow: ActivationFlowSpec,
   source: SensorSourceStatusItem,
-  pluginDrafts: Record<string, Record<string, any>>
+  pluginDrafts: Record<string, Record<string, unknown>>
 ) =>
   Object.fromEntries(
     flow.fields.map((field) => [
@@ -290,7 +290,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const [activationDialog, setActivationDialog] = useState<{
     source: SensorSourceStatusItem;
     flow: ActivationFlowSpec;
-    values: Record<string, any>;
+    values: Record<string, unknown>;
     intent: 'enable';
   } | null>(null);
   const expertMode = userMode === 'expert';
@@ -334,7 +334,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   }, [selectedCapability, selectedEntryName]);
 
-  const resolveSourceValue = (source: SensorSourceStatusItem, key: string, fallback?: any) =>
+  const resolveSourceValue = (source: SensorSourceStatusItem, key: string, fallback?: unknown) =>
     pluginDrafts[source.plugin_id]?.[key] ?? source.current_settings[key] ?? fallback;
   const getSourceDisplayName = (source: SensorSourceStatusItem) => getTimelineSourceDisplayName(t, source);
 
@@ -360,7 +360,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     onPluginFieldChange(source.plugin_id, enabledKey, true);
   };
 
-  const confirmActivationFlow = async (values: Record<string, any>) => {
+  const confirmActivationFlow = async (values: Record<string, unknown>) => {
     if (!activationDialog) {
       return;
     }

@@ -2378,6 +2378,18 @@
     "toolEnabled": "{{tool}} 已启用",
     "toolDisabled": "{{tool}} 已禁用",
     "toolToggleFailed": "切换工具状态失败: {{message}}",
+    "dynamicValidation": {
+      "required": "此项不能为空。",
+      "boolean": "请选择开启或关闭。",
+      "number": "请输入有效数字。",
+      "integer": "请输入整数。",
+      "selection": "请选择有效选项。",
+      "string": "请输入文本。",
+      "stringArray": "请输入文本列表。",
+      "object": "请输入有效的 JSON 对象。",
+      "pickerFailed": "无法打开文件选择器，请重试。",
+      "fieldInvalid": "{{field}}：{{reason}}"
+    },
     "showSensitiveValue": "显示敏感信息",
     "hideSensitiveValue": "隐藏敏感信息",
     "providerStatus": {

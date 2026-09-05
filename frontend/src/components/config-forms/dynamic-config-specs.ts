@@ -1,5 +1,6 @@
 import type { ToolConfigSpec } from '@/api/modules/tools';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
+import { isRecord, isStringArray } from '@/utils/value-guards';
 
 export type DynamicConfigSpec = ToolConfigSpec | ExtensionFieldSpec;
 
@@ -12,11 +13,41 @@ export type NormalizedDynamicConfigSpec = {
   readOnly: boolean;
   sensitive: boolean;
   pathKind?: 'file' | 'directory';
-  defaultValue?: any;
-  enumValues?: any[];
+  defaultValue?: unknown;
+  enumValues?: unknown[];
 };
 
 const isExtensionFieldSpec = (spec: DynamicConfigSpec): spec is ExtensionFieldSpec => 'key' in spec;
+
+export function isExtensionFieldVisible(field: ExtensionFieldSpec, values: Record<string, unknown>): boolean {
+  return !field.depends_on_key || !field.depends_on_values?.length
+    || field.depends_on_values.includes(String(values[field.depends_on_key] ?? ''));
+}
+
+export type DynamicConfigIssue = 'required' | 'boolean' | 'number' | 'integer' | 'selection' | 'string' | 'stringArray' | 'object';
+
+/** Validate only constraints represented by the host field specification. */
+export function validateDynamicConfigValue(spec: DynamicConfigSpec, value: unknown): DynamicConfigIssue | null {
+  const normalized = normalizeDynamicSpec(spec);
+  if (value === undefined || value === null) return normalized.required ? 'required' : null;
+  if (normalized.required && ((typeof value === 'string' && !value.trim()) || (Array.isArray(value) && !value.length))) return 'required';
+  switch (normalized.inputKind) {
+    case 'boolean': return typeof value === 'boolean' ? null : 'boolean';
+    case 'number':
+      if (typeof value !== 'number' || !Number.isFinite(value)) return 'number';
+      return spec.type === 'integer' && !Number.isInteger(value) ? 'integer' : null;
+    case 'select':
+      if (value === '' && !normalized.required) return null;
+      return normalized.enumValues?.includes(value) ? null : 'selection';
+    case 'path_list':
+    case 'array': return isStringArray(value) ? null : 'stringArray';
+    case 'checkbox_group':
+      if (!isStringArray(value)) return 'stringArray';
+      return value.every(item => normalized.enumValues?.includes(item)) ? null : 'selection';
+    case 'json': return isRecord(value) ? null : 'object';
+    default: return typeof value === 'string' ? null : 'string';
+  }
+}
 
 export const normalizeDynamicSpec = (
   spec: DynamicConfigSpec,

@@ -1,3 +1,4 @@
+import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -31,18 +32,6 @@ function humanizePluginId(pluginId: string): string {
     .join(' ');
 }
 
-/**
- * Required-field gate, replicated from PluginActivationDialog.isFieldSatisfied
- * (not exported there). A field is satisfied when it is optional, or has a
- * non-empty value (strings trimmed; arrays non-empty; everything else defined).
- */
-const isFieldSatisfied = (field: ExtensionFieldSpec, value: unknown): boolean => {
-  if (!field.required) return true;
-  if (value === undefined || value === null) return false;
-  if (typeof value === 'string') return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  return true;
-};
 
 /**
  * Seed the form state from each field's `default` (PluginSettingsFields does not
@@ -240,7 +229,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   }, []);
 
   const allRequiredSatisfied = useMemo(
-    () => fieldSpecs.every((field) => isFieldSatisfied(field, values[field.key])),
+    () => fieldSpecs.every((field) => !isExtensionFieldVisible(field, values) || validateDynamicConfigValue(field, values[field.key]) === null),
     [fieldSpecs, values],
   );
 
@@ -455,7 +444,7 @@ export function PluginInstallPanel(): JSX.Element | null {
               </p>
               <PluginSettingsFields
                 fields={fieldSpecs}
-                values={values as Record<string, any>}
+                values={values}
                 onChange={handleFieldChange}
                 pluginId={pluginId ?? undefined}
               />

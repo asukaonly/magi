@@ -1943,6 +1943,25 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('preserves an invalid source draft without saving it as a number', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await screen.findByTestId('timeline-overview');
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    const panel = await screen.findByTestId('timeline-source-detail-photo_library');
+    const interval = within(panel).getByLabelText('Sync Interval (minutes)');
+    fireEvent.change(interval, { target: { value: '' } });
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+    expect(interval).toHaveValue(null);
+    fireEvent.change(interval, { target: { value: '45' } });
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
+      'photo-library', expect.objectContaining({ 'sensors.photo_library.sync_interval_minutes': 45 }),
+    ));
+  });
+
   it('queues a historical backfill from timeline source settings', async () => {
     const user = userEvent.setup();
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({

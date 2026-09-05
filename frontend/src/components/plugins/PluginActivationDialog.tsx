@@ -1,6 +1,7 @@
+import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import type { ActivationFlowSpec, ExtensionFieldSpec } from '@/api/modules/plugins';
+import type { ActivationFlowSpec } from '@/api/modules/plugins';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,27 +32,6 @@ const getActivationText = (
   return flow[translatedKey] || fallback;
 };
 
-/**
- * Treat the field as "satisfied" when:
- *   - it is not required, OR
- *   - it has a non-empty value (strings trimmed; booleans always pass; arrays
- *     non-empty; everything else just needs to be defined).
- */
-const isFieldSatisfied = (field: ExtensionFieldSpec, value: unknown): boolean => {
-  if (!field.required) {
-    return true;
-  }
-  if (value === undefined || value === null) {
-    return false;
-  }
-  if (typeof value === 'string') {
-    return value.trim().length > 0;
-  }
-  if (Array.isArray(value)) {
-    return value.length > 0;
-  }
-  return true;
-};
 
 export interface PluginActivationDialogProps {
   /** Controls dialog visibility. When ``false`` the component renders nothing. */
@@ -119,7 +99,7 @@ export const PluginActivationDialog: React.FC<PluginActivationDialogProps> = ({
   }, [open, flow, initialValues]);
 
   const allRequiredSatisfied = useMemo(
-    () => flow.fields.every((field) => isFieldSatisfied(field, values[field.key])),
+    () => flow.fields.every((field) => !isExtensionFieldVisible(field, values) || validateDynamicConfigValue(field, values[field.key]) === null),
     [flow.fields, values],
   );
 
@@ -163,7 +143,7 @@ export const PluginActivationDialog: React.FC<PluginActivationDialogProps> = ({
         <div className="px-6 pb-6">
           <PluginSettingsFields
             fields={flow.fields}
-            values={values as Record<string, any>}
+            values={values}
             onChange={handleFieldChange}
             pluginId={pluginId}
             disabled={submitting}

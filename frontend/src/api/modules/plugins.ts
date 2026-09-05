@@ -1,4 +1,5 @@
 import { api } from '../client';
+import { isRecord } from '@/utils/value-guards';
 import type { ApiResponse } from '../client';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
@@ -49,7 +50,7 @@ export interface ExtensionFieldSpec {
   description: string;
   /** Plugin-i18n-sourced description; see ``label_translated``. */
   description_translated?: string | null;
-  default?: any;
+  default?: unknown;
   required: boolean;
   options: ExtensionFieldOption[];
   section: string;
@@ -176,8 +177,8 @@ export interface PluginSettingsActionRunResponse {
   session_id: string;
   status: PluginSettingsActionStatus;
   message: string;
-  data: Record<string, any>;
-  settings_updates: Record<string, any>;
+  data: Record<string, unknown>;
+  settings_updates: Record<string, unknown>;
 }
 
 export interface PluginSettingsResourceItem {
@@ -199,7 +200,7 @@ export interface PluginSettingsResourcePayload {
   resource_type: string;
   data: {
     groups?: PluginSettingsResourceGroup[];
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
@@ -242,7 +243,7 @@ export interface PluginContribution {
   description: string;
   surface: ExtensionSurface;
   fields: ExtensionFieldSpec[];
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export interface PluginPackageState {
@@ -253,7 +254,7 @@ export interface PluginPackageState {
   healthy: boolean;
   last_error?: string | null;
   contributions: PluginContribution[];
-  current_settings: Record<string, any>;
+  current_settings: Record<string, unknown>;
 }
 
 export interface PluginInstallCandidate {
@@ -298,7 +299,7 @@ export interface PluginsListResponse {
 }
 
 export interface PluginSettingsUpdateRequest {
-  updates: Record<string, any>;
+  updates: Record<string, unknown>;
 }
 
 const unwrapPayload = <T>(payload: T | ApiResponse<T>): T => {
@@ -354,12 +355,12 @@ const waitForInstallJob = async (
 };
 
 export const getNestedPluginSetting = (
-  settings: Record<string, any>,
+  settings: Record<string, unknown>,
   path: string,
-  fallback?: any
-): any => {
-  const value = path.split('.').reduce<any>((current, part) => {
-    if (current && typeof current === 'object' && part in current) {
+  fallback?: unknown
+): unknown => {
+  const value = path.split('.').reduce<unknown>((current, part) => {
+    if (isRecord(current) && Object.prototype.hasOwnProperty.call(current, part)) {
       return current[part];
     }
     return undefined;
@@ -369,8 +370,8 @@ export const getNestedPluginSetting = (
 
 export const buildPluginFieldValueMap = (
   fields: ExtensionFieldSpec[],
-  settings: Record<string, any>
-): Record<string, any> =>
+  settings: Record<string, unknown>
+): Record<string, unknown> =>
   Object.fromEntries(fields.map((field) => [field.key, getNestedPluginSetting(settings, field.key, field.default)]));
 
 // ---------------------------------------------------------------------------
@@ -466,7 +467,7 @@ export const pluginsApi = {
 
   updateSettings: async (
     pluginId: string,
-    updates: Record<string, any>
+    updates: Record<string, unknown>
   ): Promise<PluginPackageState> => {
     const response = await api.put<PluginPackageState>(`/plugins/${pluginId}/settings`, {
       updates,
@@ -477,7 +478,7 @@ export const pluginsApi = {
   startSettingsAction: async (
     pluginId: string,
     actionId: string,
-    fieldValues: Record<string, any>
+    fieldValues: Record<string, unknown>
   ): Promise<PluginSettingsActionRunResponse> => {
     const response = await api.post<PluginSettingsActionRunResponse>(
       `/plugins/${pluginId}/settings/actions/${actionId}/start`,
@@ -492,7 +493,7 @@ export const pluginsApi = {
     pluginId: string,
     actionId: string,
     sessionId: string,
-    fieldValues: Record<string, any>
+    fieldValues: Record<string, unknown>
   ): Promise<PluginSettingsActionRunResponse> => {
     const response = await api.post<PluginSettingsActionRunResponse>(
       `/plugins/${pluginId}/settings/actions/${actionId}/sessions/${sessionId}/poll`,

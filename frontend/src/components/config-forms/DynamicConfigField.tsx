@@ -5,13 +5,14 @@ import { Eye, EyeOff, File, FolderOpen, Plus, X } from 'lucide-react';
 import { SelectField } from '@/components/config-forms/fields';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { normalizeDynamicSpec, type DynamicConfigSpec } from '@/components/config-forms/dynamic-config-specs';
+import { normalizeDynamicSpec, validateDynamicConfigValue, type DynamicConfigSpec } from '@/components/config-forms/dynamic-config-specs';
+import { isRecord, isStringArray } from '@/utils/value-guards';
 import { pickDirectory, pickFile } from '@/runtime/desktop';
 
 interface DynamicConfigFieldProps {
   spec: DynamicConfigSpec;
-  value: any;
-  onChange: (value: any) => void;
+  value: unknown;
+  onChange: (value: unknown) => void;
   disabled?: boolean;
   providerName?: string;
   selectOptions?: Array<{ label: string; value: string; disabled?: boolean }>;
@@ -28,10 +29,13 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   const { t } = useTranslation('app');
   const [showPassword, setShowPassword] = useState(false);
   const [tagInput, setTagInput] = useState('');
+  const [pickerFailed, setPickerFailed] = useState(false);
   const normalized = normalizeDynamicSpec(spec, providerName);
+  const effectiveValue = value === undefined ? normalized.defaultValue : value;
+  const validationIssue = validateDynamicConfigValue(spec, effectiveValue);
 
   const handleChange = useCallback(
-    (newValue: any) => {
+    (newValue: unknown) => {
       if (!disabled) {
         onChange(newValue);
       }
@@ -52,7 +56,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="flex items-center justify-between">
           {renderLabel()}
           <Switch
-            checked={!!value}
+            checked={value === true}
             onCheckedChange={handleChange}
             disabled={disabled || normalized.readOnly}
           />
@@ -89,7 +93,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           <div className="relative">
             <Input
               type={showPassword ? 'text' : 'password'}
-              value={value ?? ''}
+              value={typeof value === 'string' ? value : ''}
               onChange={(event) => handleChange(event.target.value)}
               placeholder={normalized.placeholder || sensitivePlaceholder}
               disabled={disabled || normalized.readOnly}
@@ -114,7 +118,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
           {renderLabel()}
           <input
             type="number"
-            value={value ?? normalized.defaultValue ?? ''}
+            value={typeof effectiveValue === 'number' || typeof effectiveValue === 'string' ? effectiveValue : ''}
             onChange={(event) => handleChange(event.target.value === '' ? '' : Number(event.target.value))}
             placeholder={normalized.placeholder}
             disabled={disabled || normalized.readOnly}
@@ -134,6 +138,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       );
       const PathIcon = isDirectory ? FolderOpen : File;
       const handleBrowse = async () => {
+        setPickerFailed(false);
         try {
           const selected = isDirectory
             ? await pickDirectory(selectedPath || undefined)
@@ -142,7 +147,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             handleChange(selected);
           }
         } catch {
-          // Native browsing is unavailable outside the desktop runtime.
+          setPickerFailed(true);
         }
       };
 
@@ -188,7 +193,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         <label className="space-y-2">
           {renderLabel()}
           <Input
-            value={value ?? ''}
+            value={typeof value === 'string' ? value : ''}
             onChange={(event) => handleChange(event.target.value)}
             placeholder={normalized.placeholder}
             disabled={disabled || normalized.readOnly}
@@ -198,8 +203,9 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     }
 
     if (normalized.inputKind === 'path_list') {
-      const paths: string[] = Array.isArray(value) ? value : [];
+      const paths: string[] = isStringArray(value) ? value : [];
       const handleBrowse = async () => {
+        setPickerFailed(false);
         try {
           // runtime/desktop is already in the eagerly-loaded bundle (via
           // main.tsx); the dynamic import previously here only produced a
@@ -211,7 +217,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             handleChange([...paths, selected]);
           }
         } catch {
-          // Not in Tauri runtime, so browsing is unavailable.
+          setPickerFailed(true);
         }
       };
       const handleRemove = (index: number) => {
@@ -254,7 +260,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     }
 
     if (normalized.inputKind === 'checkbox_group') {
-      const selected: string[] = Array.isArray(value) ? value : [];
+      const selected: string[] = isStringArray(value) ? value : [];
       const options = selectOptions ?? (normalized.enumValues || []).map((optionValue) => ({
         label: String(optionValue),
         value: String(optionValue),
@@ -288,7 +294,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
     }
 
     if (normalized.inputKind === 'array') {
-      const tags: string[] = Array.isArray(value) ? value : [];
+      const tags: string[] = isStringArray(value) ? value : [];
       const handleAdd = () => {
         const trimmed = tagInput.trim();
         if (trimmed && !tags.includes(trimmed)) {
@@ -356,13 +362,14 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       <label className="space-y-2">
         {renderLabel()}
         <textarea
-          value={typeof value === 'object' ? JSON.stringify(value, null, 2) : ''}
+          value={typeof value === 'string' ? value : typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : ''}
           onChange={(event) => {
             try {
-              const parsed = JSON.parse(event.target.value);
-              handleChange(parsed);
+              const parsed: unknown = JSON.parse(event.target.value);
+              handleChange(isRecord(parsed) ? parsed : event.target.value);
             } catch {
-              // Keep invalid JSON local until it becomes valid.
+              // Preserve the draft; save validation rejects it until it is an object.
+              handleChange(event.target.value);
             }
           }}
           placeholder={normalized.placeholder || '{}'}
@@ -377,6 +384,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   return (
     <div className="space-y-1.5">
       {renderField()}
+      {validationIssue ? <p role="alert" className="text-xs text-destructive">{t(`settings.dynamicValidation.${validationIssue}`)}</p> : null}
+      {pickerFailed ? <p role="alert" className="text-xs text-destructive">{t('settings.dynamicValidation.pickerFailed')}</p> : null}
       {normalized.description ? (
         <p className="text-xs leading-5 text-muted-foreground">
           {normalized.description}

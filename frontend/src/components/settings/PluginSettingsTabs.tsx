@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 
 interface PluginSettingsTabsProps {
   layout: PluginSettingsLayoutSpec;
-  values: Record<string, any>;
-  onChange: (key: string, value: any) => void;
+  values: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
 }
 
 const tabLabel = (tab: PluginSettingsLayoutTabSpec): string =>
@@ -28,7 +28,7 @@ export const isTabsSettingsLayout = (layout: unknown): layout is PluginSettingsL
 
 export const getActiveSettingsTab = (
   layout: PluginSettingsLayoutSpec | null,
-  values: Record<string, any>
+  values: Record<string, unknown>
 ): PluginSettingsLayoutTabSpec | null => {
   if (!layout?.tabs.length) {
     return null;

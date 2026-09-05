@@ -16,9 +16,9 @@ import { openExternalUrl } from '@/runtime/desktop';
 interface PluginSettingsActionsProps {
   pluginId: string;
   actions: PluginSettingsActionSpec[];
-  values: Record<string, any>;
+  values: Record<string, unknown>;
   disabled?: boolean;
-  onSettingsUpdates?: (pluginId: string, updates: Record<string, any>) => void;
+  onSettingsUpdates?: (pluginId: string, updates: Record<string, unknown>) => void;
   onActionSettled?: () => Promise<void> | void;
 }
 
@@ -30,7 +30,7 @@ type ActionState = {
 
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
-const isActionVisible = (action: PluginSettingsActionSpec, values: Record<string, any>) => {
+const isActionVisible = (action: PluginSettingsActionSpec, values: Record<string, unknown>) => {
   if (!action.depends_on_key || !action.depends_on_values?.length) {
     return true;
   }
@@ -53,7 +53,7 @@ const getActionCopy = (
   return action[translatedKey] || action[key];
 };
 
-const getQrImageSource = (data: Record<string, any>): string => {
+const getQrImageSource = (data: Record<string, unknown>): string => {
   const raw =
     data.qr_code_url ??
     data.qrcode_url ??

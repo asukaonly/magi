@@ -672,6 +672,7 @@ Expected product behavior:
   dependency count, lockfile size, installation disk usage, filesystem entry
   count, and retained installer output must all have explicit host-owned limits
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
+- dynamic field values enter the UI as unknown data and are checked against the declared field kind before saving. Installation and activation use the same validation and conditional-visibility rules as the settings fields. Hidden required fields do not block unrelated activation choices. Numeric blanks are never converted to zero; invalid JSON stays in the draft with a field error until corrected. A native picker failure is visible and retryable.
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
 - `/api/tools/{tool_name}/config` owns tool enablement, provider selection, credentials, and web-fetch network policy; `/api/config` does not expose or write a second tool configuration model
 - skill selection remains a separate `skills` field in system configuration, persisted only to the runtime `tools.skills` path

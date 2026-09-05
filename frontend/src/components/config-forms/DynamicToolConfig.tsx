@@ -23,9 +23,9 @@ export type { DynamicConfigSpec } from '@/components/config-forms/dynamic-config
 
 interface ToolConfigCardProps {
   tool: ToolConfig;
-  values: Record<string, any>;
+  values: Record<string, unknown>;
   enabled: boolean;
-  onUpdateConfig: (toolName: string, path: string, value: any) => void;
+  onUpdateConfig: (toolName: string, path: string, value: unknown) => void;
   onUpdateEnabled: (toolName: string, enabled: boolean) => void;
   disabled?: boolean;
 }
@@ -183,8 +183,8 @@ interface DynamicToolsConfigProps {
   tools: ToolConfig[];
   loading?: boolean;
   error?: string | null;
-  drafts: Record<string, { enabled: boolean; values: Record<string, any> }>;
-  onUpdateConfig: (toolName: string, path: string, value: any) => void;
+  drafts: Record<string, { enabled: boolean; values: Record<string, unknown> }>;
+  onUpdateConfig: (toolName: string, path: string, value: unknown) => void;
   onUpdateEnabled: (toolName: string, enabled: boolean) => void;
 }
 

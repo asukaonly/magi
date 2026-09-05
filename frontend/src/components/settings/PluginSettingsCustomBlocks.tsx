@@ -16,8 +16,8 @@ import { openExternalUrl } from '@/runtime/desktop';
 interface PluginSettingsCustomBlocksProps {
   pluginId: string;
   blocks: PluginSettingsUiBlockSpec[];
-  values: Record<string, any>;
-  onChange: (key: string, value: any) => void;
+  values: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
 }
 
 /**
@@ -30,7 +30,7 @@ const getBlockTitle = (block: PluginSettingsUiBlockSpec) => block.title_translat
 const getBlockDescription = (block: PluginSettingsUiBlockSpec) =>
   block.description_translated || block.description;
 
-const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string, any>) => {
+const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string, unknown>) => {
   if (!block.depends_on_key || !block.depends_on_values?.length) {
     return true;
   }
@@ -40,8 +40,8 @@ const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string,
 const CalendarListResourcePicker: React.FC<{
   pluginId: string;
   block: PluginSettingsUiBlockSpec;
-  values: Record<string, any>;
-  onChange: (key: string, value: any) => void;
+  values: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
 }> = ({ pluginId, block, values, onChange }) => {
   const { t } = useTranslation('app');
   const [groups, setGroups] = useState<PluginSettingsResourceGroup[]>([]);

@@ -117,11 +117,11 @@ const ChannelStatusPanel: React.FC<{ pluginId: string; enabled: boolean }> = ({ 
 
 interface ChannelsSectionProps {
   plugins: PluginPackageState[];
-  drafts: Record<string, Record<string, any>>;
+  drafts: Record<string, Record<string, unknown>>;
   dirty?: boolean;
   selectedContributionId: string | null;
   onSelectContribution: (id: string | null) => void;
-  onFieldChange: (pluginId: string, key: string, value: any) => void;
+  onFieldChange: (pluginId: string, key: string, value: unknown) => void;
   onSettingsActionUpdates: (pluginId: string, updates: Record<string, unknown>) => void;
   onRefreshPlugins: () => Promise<void>;
   onBrowseMarketplace?: () => void;

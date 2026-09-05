@@ -500,7 +500,7 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     });
   };
 
-  const updateDraftService = (serviceName: ServiceName, updater: (service: any) => void) => {
+  const updateDraftService = <T extends ServiceName>(serviceName: T, updater: (service: LLMProviderConfig['services'][T]) => void) => {
     updateDraftProvider((provider) => {
       updater(provider.services[serviceName]);
     });

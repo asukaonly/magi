@@ -361,7 +361,7 @@ export function usePluginInstallFlow(
       if (src.activation_flow.authorize_on_confirm) {
         const auth = await sensorsApi.requestAuthorization(
           src.source_name,
-          values as Record<string, any>,
+          values,
         );
         if (!isActive()) return;
         if (!auth.authorized) throw new Error(auth.message || 'authorization_denied');

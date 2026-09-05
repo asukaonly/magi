@@ -22,8 +22,8 @@ export interface ToolConfigSpec {
   sensitive: boolean;
   read_only: boolean;
   required: boolean;
-  default?: any;
-  enum?: any[];
+  default?: unknown;
+  enum?: unknown[];
   placeholder?: string;
   is_template: boolean;
   providers?: string[];
@@ -40,7 +40,7 @@ export interface ToolConfig {
   is_multi_provider: boolean;
   providers: ToolProviderInfo[];
   config_specs: ToolConfigSpec[];
-  current_values: Record<string, any>;
+  current_values: Record<string, unknown>;
 }
 
 export interface ToolsListResponse {
@@ -49,7 +49,7 @@ export interface ToolsListResponse {
 }
 
 export interface ToolConfigUpdateRequest {
-  updates: Record<string, any>;
+  updates: Record<string, unknown>;
   enabled?: boolean;
 }
 

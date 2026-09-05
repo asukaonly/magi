@@ -6,6 +6,7 @@ import { configApi, type SystemConfig } from '@/api/modules/config';
 import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/control';
 import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
+import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import { syncAutoStartPreference, syncCloseToTrayPreference, syncSkipQuitConfirmationPreference, syncStartMinimizedPreference } from '@/runtime/desktop';
 import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notifications';
 import type { ThemeMode, ThemeState } from '@/stores/theme';
@@ -18,6 +19,7 @@ import {
 } from '@/utils/settings-helpers';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
 import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
+import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 interface UseSettingsPersistenceParams {
   savedConfig: SystemConfig;
@@ -42,6 +44,7 @@ interface UseSettingsPersistenceParams {
   setDraftThemeMode: Dispatch<SetStateAction<ThemeMode>>;
   tools: ToolConfig[];
   plugins: PluginPackageState[];
+  timelineStatuses: SensorSourceStatusItem[];
   setThemeMode: ThemeState['setMode'];
   fetchTimelineStatuses: () => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
@@ -85,6 +88,7 @@ export function useSettingsPersistence({
   setDraftThemeMode,
   tools,
   plugins,
+  timelineStatuses,
   setThemeMode,
   fetchTimelineStatuses,
   loadPlugins,
@@ -142,6 +146,44 @@ export function useSettingsPersistence({
     if (memoryL0ValidationIssue) {
       toast.warning(t(`settings.memory.validation.${memoryL0ValidationIssue}`));
       return;
+    }
+
+    // Validate all changed dynamic fields before performing any persistence.
+    for (const tool of tools) {
+      const saved = savedToolDrafts[tool.name]?.values ?? tool.current_values;
+      const draft = draftToolDrafts[tool.name]?.values ?? saved;
+      const updates = diffFlatMaps(saved, draft);
+      for (const spec of tool.config_specs) {
+        const paths = spec.is_template
+          ? tool.providers.map(provider => spec.path.replace('{provider}', provider.name))
+          : [spec.path];
+        for (const path of paths) {
+          if (!(path in updates)) continue;
+          const issue = validateDynamicConfigValue(spec, updates[path]);
+          if (issue) {
+            toast.warning(t('settings.dynamicValidation.fieldInvalid', { field: spec.description, reason: t(`settings.dynamicValidation.${issue}`) }));
+            return;
+          }
+        }
+      }
+    }
+    for (const plugin of plugins) {
+      const id = plugin.manifest.plugin_id;
+      const saved = savedPluginDrafts[id] ?? {};
+      const draft = draftPluginDrafts[id] ?? saved;
+      const updates = diffFlatMaps(saved, draft);
+      const fields = [
+        ...plugin.contributions.flatMap(contribution => contribution.fields),
+        ...timelineStatuses.filter(source => source.plugin_id === id).flatMap(source => source.fields),
+      ];
+      for (const field of fields) {
+        if (!(field.key in updates) || !isExtensionFieldVisible(field, draft)) continue;
+        const issue = validateDynamicConfigValue(field, updates[field.key]);
+        if (issue) {
+          toast.warning(t('settings.dynamicValidation.fieldInvalid', { field: field.label_translated || field.label, reason: t(`settings.dynamicValidation.${issue}`) }));
+          return;
+        }
+      }
     }
 
     setSaving(true);
@@ -265,6 +307,7 @@ export function useSettingsPersistence({
     draftThemeMode,
     tools,
     plugins,
+    timelineStatuses,
     setThemeMode,
     fetchTimelineStatuses,
     loadPlugins,

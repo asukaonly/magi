@@ -233,6 +233,7 @@ export function useSettings(): UseSettingsReturn {
     setDraftThemeMode,
     tools,
     plugins,
+    timelineStatuses,
     setThemeMode,
     fetchTimelineStatuses,
     loadPlugins,

@@ -2379,6 +2379,18 @@
     "toolEnabled": "{{tool}} enabled",
     "toolDisabled": "{{tool}} disabled",
     "toolToggleFailed": "Failed to toggle tool: {{message}}",
+    "dynamicValidation": {
+      "required": "This field is required.",
+      "boolean": "Choose on or off.",
+      "number": "Enter a finite number.",
+      "integer": "Enter a whole number.",
+      "selection": "Choose a valid option.",
+      "string": "Enter text.",
+      "stringArray": "Enter a list of text values.",
+      "object": "Enter a valid JSON object.",
+      "pickerFailed": "Could not open the file picker. Please try again.",
+      "fieldInvalid": "{{field}}: {{reason}}"
+    },
     "showSensitiveValue": "Show sensitive value",
     "hideSensitiveValue": "Hide sensitive value",
     "providerStatus": {

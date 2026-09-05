@@ -63,7 +63,7 @@ export interface SensorSourceStatusItem {
   unavailable_reason_translated?: string | null;
   platforms?: string[] | null;
   fields: ExtensionFieldSpec[];
-  current_settings: Record<string, any>;
+  current_settings: Record<string, unknown>;
   enabled: boolean;
   sync_mode: string;
   sync_interval_minutes: number;
@@ -198,7 +198,7 @@ export const sensorsApi = {
 
   requestAuthorization: async (
     sourceName: string,
-    fieldValues: Record<string, any>
+    fieldValues: Record<string, unknown>
   ): Promise<SensorSourceAuthorizationResponse> => {
     const response = await api.post<SensorSourceAuthorizationResponse>(
       `/sensors/${sourceName}/authorize`,

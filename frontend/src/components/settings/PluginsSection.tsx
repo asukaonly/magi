@@ -63,9 +63,9 @@ const getPluginTranslation = (
 interface PluginsSectionProps {
   plugins: PluginPackageState[];
   loading?: boolean;
-  drafts: Record<string, Record<string, any>>;
+  drafts: Record<string, Record<string, unknown>>;
   dirty?: boolean;
-  onFieldChange: (pluginId: string, key: string, value: any) => void;
+  onFieldChange: (pluginId: string, key: string, value: unknown) => void;
   onRescan: () => Promise<void>;
   onPluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   processingIds: Record<string, string>;
