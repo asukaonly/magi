@@ -16,7 +16,6 @@ export {
 } from './MemorySettingsSections';
 
 // Existing section components
-export { LLMUsageSection } from './LLMUsageSection';
 export { LLMStatisticsSection } from './LLMStatisticsSection';
 export { RuntimeStatisticsSection } from './RuntimeStatisticsSection';
 export { StatisticsPageFrame } from './StatisticsPageFrame';

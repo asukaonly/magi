@@ -50,7 +50,7 @@ export const CoverPickerSheet: React.FC<CoverPickerSheetProps> = ({
 }) => {
   const { t } = useTranslation("app");
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
-  const candidates = cover?.candidates ?? [];
+  const candidates = useMemo(() => cover?.candidates ?? [], [cover?.candidates]);
   const fallbackLabel = t("timeline.cover.candidate", { defaultValue: "图片" });
   const [selectedRef, setSelectedRef] = useState<string | null>(cover?.asset_ref ?? null);
   const [uploading, setUploading] = useState(false);

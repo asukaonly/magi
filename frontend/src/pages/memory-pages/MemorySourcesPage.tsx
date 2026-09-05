@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import {
@@ -1107,7 +1107,6 @@ export const MemorySourcesPage = () => {
           }
           finished = true;
         });
-        setSensorStatus(nextStatus);
         if (finished) {
           const payload = await loadSourceOverview();
           if (!cancelled) {
@@ -1116,6 +1115,8 @@ export const MemorySourcesPage = () => {
             setTodaySummary(payload.todaySummary);
             setTodayEvents(payload.todayEvents);
           }
+        } else {
+          setSensorStatus(nextStatus);
         }
       } catch {
         // Keep the last known state and try again on the next poll.
@@ -1128,7 +1129,7 @@ export const MemorySourcesPage = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeBackfillKey]);
+  }, [activeBackfillKey, activeBackfillJobs, t]);
 
   const openSourceMarketplace = () => {
     setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
@@ -1699,7 +1700,12 @@ export const MemorySourceDetailPage = () => {
   const observedBackfillJobRef = useRef<string | null>(null);
   const backfillBaselineJobRef = useRef<string | null>(null);
 
-  const loadMetadata = async (cancelledRef?: { cancelled: boolean }, silent = false) => {
+  const metadataRequestId = useRef(0);
+  const eventsRequestId = useRef(0);
+  useEffect(() => () => { metadataRequestId.current += 1; eventsRequestId.current += 1; }, []);
+
+  const loadMetadata = useCallback(async (cancelledRef?: { cancelled: boolean }, silent = false) => {
+    const requestId = ++metadataRequestId.current;
     if (!silent) {
       setLoading(true);
       setMetadataReady(false);
@@ -1711,7 +1717,7 @@ export const MemorySourceDetailPage = () => {
         sensorsApi.getStatus(),
         sensorsApi.getTodaySummary(),
       ]);
-      if (cancelledRef?.cancelled) {
+      if (cancelledRef?.cancelled || requestId !== metadataRequestId.current) {
         return;
       }
       setDashboard(dashboardPayload);
@@ -1719,27 +1725,29 @@ export const MemorySourceDetailPage = () => {
       setTodaySummary(todayPayload);
       setMetadataReady(true);
     } catch (err) {
-      if (!cancelledRef?.cancelled && !silent) {
+      if (!cancelledRef?.cancelled && requestId === metadataRequestId.current && !silent) {
         setError(err instanceof Error ? err.message : String(err));
         setMetadataReady(false);
       }
     } finally {
-      if (!cancelledRef?.cancelled && !silent) {
+      if (!cancelledRef?.cancelled && requestId === metadataRequestId.current && !silent) {
         setLoading(false);
       }
     }
-  };
+  }, []);
 
-  const loadEvents = async (options?: {
+  const loadEvents = useCallback(async (options?: {
     offset?: number;
     append?: boolean;
     cancelledRef?: { cancelled: boolean };
   }) => {
+    const requestId = ++eventsRequestId.current;
     const offset = options?.offset ?? 0;
     const append = Boolean(options?.append);
     if (append) {
       setLoadingMore(true);
     } else {
+      setLoadingMore(false);
       setEventsLoading(true);
     }
     setError(null);
@@ -1753,18 +1761,18 @@ export const MemorySourceDetailPage = () => {
         customEndDate: customDateRange.end,
         offset,
       }));
-      if (options?.cancelledRef?.cancelled) {
+      if (options?.cancelledRef?.cancelled || requestId !== eventsRequestId.current) {
         return;
       }
       const nextEvents = eventsPayload.items || [];
       setEvents((current) => (append ? [...current, ...nextEvents] : nextEvents));
       setEventsTotal(eventsPayload.total ?? nextEvents.length);
     } catch (err) {
-      if (!options?.cancelledRef?.cancelled) {
+      if (!options?.cancelledRef?.cancelled && requestId === eventsRequestId.current) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
-      if (!options?.cancelledRef?.cancelled) {
+      if (!options?.cancelledRef?.cancelled && requestId === eventsRequestId.current) {
         if (append) {
           setLoadingMore(false);
         } else {
@@ -1772,7 +1780,7 @@ export const MemorySourceDetailPage = () => {
         }
       }
     }
-  };
+  }, [sourceName, timeRange, query, todaySummary?.date, customDateRange.start, customDateRange.end]);
 
   useEffect(() => {
     const cancelledRef = { cancelled: false };
@@ -1780,7 +1788,7 @@ export const MemorySourceDetailPage = () => {
     return () => {
       cancelledRef.cancelled = true;
     };
-  }, [sourceName]);
+  }, [sourceName, loadMetadata]);
 
   useEffect(() => {
     if (!metadataReady) {
@@ -1791,7 +1799,7 @@ export const MemorySourceDetailPage = () => {
     return () => {
       cancelledRef.cancelled = true;
     };
-  }, [metadataReady, sourceName, timeRange, customDateRange.start, customDateRange.end, query, todaySummary?.date]);
+  }, [metadataReady, loadEvents]);
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
@@ -1864,7 +1872,7 @@ export const MemorySourceDetailPage = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [trackingBackfill, sourceName, row.label]);
+  }, [trackingBackfill, sourceName, row.label, loadMetadata, loadEvents, t]);
 
   const handleSync = async () => {
     setSyncing(true);

@@ -196,21 +196,23 @@ export function useChatComposerController({
     setNormalInputValue(value);
   }, [pendingAsk, recallFeedbackDraft]);
 
+  const pendingAskRequestId = pendingAsk?.requestId;
+  const pendingAskSessionId = pendingAsk?.sessionId;
   useEffect(() => {
     setPendingAskDraft((current) => {
       if (!current) {
         return current;
       }
       if (
-        pendingAsk
-        && current.sessionId === pendingAsk.sessionId
-        && current.requestId === pendingAsk.requestId
+        pendingAskRequestId
+        && current.sessionId === pendingAskSessionId
+        && current.requestId === pendingAskRequestId
       ) {
         return current;
       }
       return null;
     });
-  }, [pendingAsk?.requestId, pendingAsk?.sessionId]);
+  }, [pendingAskRequestId, pendingAskSessionId]);
 
   const clearRecallFeedback = useCallback(() => {
     setRecallFeedbackDraft(null);

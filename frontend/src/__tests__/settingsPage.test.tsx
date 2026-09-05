@@ -155,9 +155,6 @@ vi.mock('@/components/config-forms/DynamicToolConfig', async () => {
   };
 });
 
-vi.mock('@/components/settings/LLMUsageSection', () => ({
-  LLMUsageSection: () => <div>usage-section</div>,
-}));
 
 vi.mock('@/components/settings/LLMStatisticsSection', () => ({
   LLMStatisticsSection: () => <div data-testid="llm-statistics-section">llm-statistics-section</div>,

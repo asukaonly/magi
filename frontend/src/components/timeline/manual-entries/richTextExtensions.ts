@@ -25,7 +25,7 @@ import Placeholder from '@tiptap/extension-placeholder';
  *  the rest of the schema while differing only on the cue text. The
  *  renderer passes an empty string so the placeholder rule is a no-op
  *  at display time. */
-export function buildRichTextExtensions(placeholder = '') {
+export function buildRichTextExtensions(placeholder: string | (() => string) = '') {
   return [
     StarterKit.configure({
       // Limit headings to H2/H3 — H1 would visually compete with the

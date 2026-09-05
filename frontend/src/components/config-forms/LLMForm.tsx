@@ -103,7 +103,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const [customProviderTemplate, setCustomProviderTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
   const [customProviderDefaults, setCustomProviderDefaults] = useState<LLMProviderConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [activeProviderId, setActiveProviderId] = useState<string>('');
   const [providerDiscoveryState, setProviderDiscoveryState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
   const [providerTestState, setProviderTestState] = useState<
@@ -152,39 +152,42 @@ const LLMForm: React.FC<LLMFormProps> = ({
     onValidationChange?.(validationIssues);
   }, [onValidationChange, validationIssues]);
 
-  const updateValue = (updater: (draft: LLMConfig) => void) => {
+  const updateValue = useCallback((updater: (draft: LLMConfig) => void) => {
     const next = cloneLLMConfig(currentValue);
     updater(next);
     onChange(next);
-  };
+  }, [currentValue, onChange]);
 
   useEffect(() => {
+    let cancelled = false;
     const loadRegistry = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setLoadFailed(false);
         const [catalog, template] = await Promise.all([
           configApi.resolveLLMProviderCatalog({
             providers: initialProvidersRef.current,
           }),
           configApi.getLLMCustomProviderTemplate(),
         ]);
+        if (cancelled) return;
         if (catalog && template) {
           setCustomProviderTemplate(template);
           setCustomProviderDefaults(template.defaults ? cloneProvider(template.defaults) : null);
           setRegistry(buildRegistryFromCatalog(catalog, template));
         } else {
-          setError(t('llm.loadFailed'));
+          setLoadFailed(true);
         }
       } catch {
-        setError(t('llm.loadFailed'));
+        if (!cancelled) setLoadFailed(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     void loadRegistry();
-  }, [t]);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!customProviderTemplate) {
@@ -211,6 +214,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
 
     return () => {
       window.clearTimeout(timeoutId);
+      registryPreviewRequestRef.current += 1;
     };
   }, [currentValue.providers, customProviderTemplate]);
 
@@ -237,7 +241,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     if (!normalized.providers[activeProviderId]) {
       setActiveProviderId(Object.keys(normalized.providers)[0] || '');
     }
-  }, [activeProviderId, currentValue, onAutoNormalize, registry]);
+  }, [activeProviderId, currentValue, onAutoNormalize, registry, updateValue]);
 
   useEffect(() => {
     if (!memorySummarizerUsesCore) {
@@ -249,7 +253,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     updateValue((draft) => {
       draft.selections.memory_summarizer = cloneSelection(draft.selections.core);
     });
-  }, [currentValue.selections.core, currentValue.selections.memory_summarizer, memorySummarizerUsesCore]);
+  }, [currentValue.selections.core, currentValue.selections.memory_summarizer, memorySummarizerUsesCore, updateValue]);
 
   const scenarioReferences = useMemo(() => {
     return Object.entries(currentValue.selections).reduce<Record<string, LLMScenario[]>>((acc, [scenario, selection]) => {
@@ -733,7 +737,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
     );
   }
 
-  if (!registry || error) {
+  if (!registry || loadFailed) {
     return (
       <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
         <p className="font-medium">{t('llm.loadFailed')}</p>

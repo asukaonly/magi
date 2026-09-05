@@ -1101,4 +1101,28 @@ describe('MemorySourcesPage', () => {
     }));
     expect(screen.getByText('Bilibili result')).toBeInTheDocument();
   });
+
+  it('ignores an old load-more response after changing the search query', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => buildEvent(index + 1));
+    let finishAppend!: (value: Awaited<ReturnType<typeof memoryApi.getL1Events>>) => void;
+    const pendingAppend = new Promise<Awaited<ReturnType<typeof memoryApi.getL1Events>>>((resolve) => { finishAppend = resolve; });
+    vi.mocked(memoryApi.getL1Events).mockImplementation(async (params) => {
+      if (params?.offset === 50) return pendingAppend;
+      if (params?.query) return { items: [buildEvent(91, { content: 'Current search result' })], total: 1, limit: 50, offset: 0 } as never;
+      return { items: firstPage, total: 75, limit: 50, offset: 0 } as never;
+    });
+    const user = userEvent.setup();
+    render(<MemoryRouter initialEntries={['/memory/sources/chrome_history']}><Routes>
+      <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+    </Routes></MemoryRouter>);
+    await screen.findByText('已显示 50 / 共 75 条');
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+    await user.type(screen.getByPlaceholderText('搜索内容'), 'current');
+    await user.click(screen.getByRole('button', { name: '搜索' }));
+    await screen.findByText('Current search result');
+    await act(async () => { finishAppend({ items: [buildEvent(75)], total: 75, limit: 50, offset: 50 } as never); });
+    expect(screen.getByText('Current search result')).toBeInTheDocument();
+    expect(screen.queryByText('Chrome event 75')).not.toBeInTheDocument();
+    expect(screen.getByText('已显示 1 / 共 1 条')).toBeInTheDocument();
+  });
 });

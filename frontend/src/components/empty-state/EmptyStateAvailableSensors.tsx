@@ -110,7 +110,7 @@ export function EmptyStateAvailableSensors({
     i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key;
 
   const hookState = useInstallableSensors(installableItems === undefined);
-  const items = installableItems ?? hookState.items ?? [];
+  const items = installableItems ?? hookState.items;
   const catalogMode =
     installableCatalogMode === undefined
       ? hookState.catalogMode

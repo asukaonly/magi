@@ -210,7 +210,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     pluginId,
   ]);
 
-  const fieldSpecs = flow.flow?.fields ?? [];
+  const fieldSpecs = useMemo(() => flow.flow?.fields ?? [], [flow.flow?.fields]);
 
   // Seed field defaults once the flow surfaces a field form; reset on close.
   useEffect(() => {
@@ -221,8 +221,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     if (flow.phase === 'awaiting_fields') {
       setValues(seedFieldValues(fieldSpecs));
     }
-    // fieldSpecs identity is stable per flow fetch; key off phase + flow.flow.
-  }, [open, flow.phase, flow.flow]);
+  }, [open, flow.phase, fieldSpecs]);
 
   const handleFieldChange = useCallback((key: string, nextValue: unknown) => {
     setValues((prev) => ({ ...prev, [key]: nextValue }));

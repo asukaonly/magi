@@ -277,7 +277,7 @@ export function useSettings(): UseSettingsReturn {
     ) {
       setTimelineSelection(null);
     }
-  }, [timelineSelection, timelineStatuses]);
+  }, [timelineSelection, timelineStatuses, setTimelineSelection]);
 
   // Timeline polling when section is active
   useEffect(() => {

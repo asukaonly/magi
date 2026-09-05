@@ -351,12 +351,13 @@ export function LLMSetupStep({
   const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
   const [customTemplate, setCustomTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [catalogResolutionPending, setCatalogResolutionPending] = useState(false);
   const [catalogResolutionError, setCatalogResolutionError] = useState(false);
   const catalogResolutionRequestIdRef = useRef(0);
+  const initialProvidersRef = useRef(value.providers);
   const activeProviderId = getActiveProviderId(value);
   const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
   const [providerChooserOpen, setProviderChooserOpen] = useState(() => !activeProviderId);
@@ -389,9 +390,9 @@ export function LLMSetupStep({
     const loadRegistry = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setLoadFailed(false);
         const [catalog, template] = await Promise.all([
-          configApi.resolveLLMProviderCatalog({ providers: value.providers || {} }),
+          configApi.resolveLLMProviderCatalog({ providers: initialProvidersRef.current }),
           configApi.getLLMCustomProviderTemplate(),
         ]);
         if (cancelled) {
@@ -401,7 +402,7 @@ export function LLMSetupStep({
         setRegistry(buildRegistryFromCatalog(catalog, template));
       } catch {
         if (!cancelled) {
-          setError(t('llm.loadFailed'));
+          setLoadFailed(true);
         }
       } finally {
         if (!cancelled) {
@@ -657,7 +658,7 @@ export function LLMSetupStep({
     );
   }
 
-  if (!registry || error) {
+  if (!registry || loadFailed) {
     return (
       <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
         <p className="font-medium">{t('llm.loadFailed')}</p>

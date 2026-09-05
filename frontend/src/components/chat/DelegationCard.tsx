@@ -49,7 +49,7 @@ export function DelegationCard({
 
   const lifecycle = card?.lifecycle ?? 'started';
   const result = card?.result ?? null;
-  const events = card?.events ?? [];
+  const events = useMemo(() => card?.events ?? [], [card?.events]);
   const applyOutcome = card?.applyOutcome ?? null;
   const diffText = card?.diffText ?? '';
 

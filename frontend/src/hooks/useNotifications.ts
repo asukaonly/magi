@@ -3,6 +3,7 @@ import { useNotificationStore } from '@/stores/notifications';
 
 export function useNotifications() {
   const store = useNotificationStore();
-  useEffect(() => { void store.refresh(); }, []);  // hydrate on mount
+  const refresh = store.refresh;
+  useEffect(() => { void refresh(); }, [refresh]);  // hydrate on mount
   return store;
 }

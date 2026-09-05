@@ -149,6 +149,7 @@ export const MemoryGovernancePage = () => {
     };
   }, [memory.l2Entities, selectedRecord]);
 
+  const { loadL0Sessions, queryL1Events, loadL2Entities, loadL2Assertions, loadL2Relations, loadL2Snapshots, loadL3Summaries, loadL4Skills } = memory;
   const loadCategoryRecords = useCallback(async (
     category: MaintenanceCategoryId,
     params: ReturnType<typeof currentPageParams>
@@ -161,28 +162,28 @@ export const MemoryGovernancePage = () => {
     let loaded: boolean | void = true;
     switch (category) {
       case 'sessions':
-        loaded = await memory.loadL0Sessions(params);
+        loaded = await loadL0Sessions(params);
         break;
       case 'events':
-        loaded = await memory.queryL1Events(params);
+        loaded = await queryL1Events(params);
         break;
       case 'entities':
-        loaded = await memory.loadL2Entities(params);
+        loaded = await loadL2Entities(params);
         break;
       case 'assertions':
-        loaded = await memory.loadL2Assertions({ ...params, include_inactive: true });
+        loaded = await loadL2Assertions({ ...params, include_inactive: true });
         break;
       case 'relations':
-        loaded = await memory.loadL2Relations({ ...params, include_inactive: true });
+        loaded = await loadL2Relations({ ...params, include_inactive: true });
         break;
       case 'snapshots':
-        loaded = await memory.loadL2Snapshots(params);
+        loaded = await loadL2Snapshots(params);
         break;
       case 'summaries':
-        loaded = await memory.loadL3Summaries(params);
+        loaded = await loadL3Summaries(params);
         break;
       case 'skills':
-        loaded = await memory.loadL4Skills(params);
+        loaded = await loadL4Skills(params);
         break;
     }
 
@@ -192,14 +193,14 @@ export const MemoryGovernancePage = () => {
     }
     setRecordLoading(false);
   }, [
-    memory.loadL0Sessions,
-    memory.queryL1Events,
-    memory.loadL2Entities,
-    memory.loadL2Assertions,
-    memory.loadL2Relations,
-    memory.loadL2Snapshots,
-    memory.loadL3Summaries,
-    memory.loadL4Skills,
+    loadL0Sessions,
+    queryL1Events,
+    loadL2Entities,
+    loadL2Assertions,
+    loadL2Relations,
+    loadL2Snapshots,
+    loadL3Summaries,
+    loadL4Skills,
   ]);
 
   const refreshCategory = async (category: MaintenanceCategoryId): Promise<boolean> => {

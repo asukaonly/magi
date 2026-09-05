@@ -69,10 +69,12 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   const [evidence, setEvidence] = useState<StoryEvidenceItem[] | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState(false);
   const [evidenceTargetId, setEvidenceTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     setEvidenceOpen(false);
+    setEvidenceError(false);
     setEvidence(null);
     setEvidenceLoading(false);
     setEvidenceTargetId(story?.summary_id ?? null);
@@ -80,24 +82,22 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
 
   useEffect(() => {
     const summaryId = story?.summary_id;
-    if (!summaryId || !evidenceOpen || evidence !== null || evidenceTargetId !== summaryId) return;
+    if (!summaryId || !evidenceOpen || evidenceError || evidence !== null || evidenceTargetId !== summaryId) return;
     let cancelled = false;
     setEvidenceLoading(true);
     memoryStoriesApi.evidence(summaryId, { limit: 25 })
       .then((payload) => {
         if (cancelled) return;
+        setEvidenceLoading(false);
         setEvidence(payload.items);
       })
       .catch(() => {
         if (cancelled) return;
-        setEvidence([]);
-      })
-      .finally(() => {
-        if (cancelled) return;
         setEvidenceLoading(false);
+        setEvidenceError(true);
       });
     return () => { cancelled = true; };
-  }, [story?.summary_id, evidenceOpen, evidenceTargetId]);
+  }, [story?.summary_id, evidenceOpen, evidenceTargetId, evidence, evidenceError]);
 
   if (!story) return null;
 
@@ -166,6 +166,11 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
               evidenceLoading ? (
                 <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
                   {t('memory.stories.detailRail.evidenceLoading')}
+                </div>
+              ) : evidenceError ? (
+                <div role="alert" className="mt-2 space-y-2 text-xs text-destructive">
+                  <p>{t('memory.stories.detailRail.evidenceFailed')}</p>
+                  <Button variant="outline" size="sm" onClick={() => setEvidenceError(false)}>{t('memory.stories.detailRail.evidenceRetry')}</Button>
                 </div>
               ) : evidence && evidence.length > 0 ? (
                 <ul className="mt-2 space-y-2">

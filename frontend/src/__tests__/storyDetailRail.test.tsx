@@ -124,6 +124,18 @@ describe('StoryDetailRail', () => {
     expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
   });
 
+  it('keeps a failed evidence request distinct from empty results and allows retry', async () => {
+    vi.mocked(memoryStoriesApi.evidence).mockRejectedValueOnce(new Error('Unavailable'));
+    render(<StoryDetailRail story={baseStory} onClose={() => {}} />);
+    await userEvent.click(screen.getByRole('button', { name: '查看依据 · 3 条' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('memory.stories.detailRail.evidenceFailed');
+    expect(screen.queryByText('没有找到关联的事件。')).not.toBeInTheDocument();
+    expect(memoryStoriesApi.evidence).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'memory.stories.detailRail.evidenceRetry' }));
+    expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('shows the period range and keeps the generated title out of the visible header', () => {
     const storyWithGeneratedTitle: StoryItem = {
       ...baseStory,

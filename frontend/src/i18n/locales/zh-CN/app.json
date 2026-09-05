@@ -3263,6 +3263,8 @@
         "year": "本年度总结"
       },
       "detailRail": {
+        "evidenceFailed": "相关记录加载失败。",
+        "evidenceRetry": "重试",
         "close": "关闭详情",
         "evidenceTitle": "证据",
         "evidenceToggle": "查看依据 · {{count}} 条",

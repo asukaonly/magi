@@ -81,7 +81,7 @@ export function ExperienceDraftSegmentCard({
   const contentState = content.evidenceKey === evidenceKey
     ? content.state
     : 'idle';
-  const events = content.evidenceKey === evidenceKey ? content.events : [];
+  const events = useMemo(() => content.evidenceKey === evidenceKey ? content.events : [], [content, evidenceKey]);
   const timeRange = formatMemoryTimeRange(chapter.time_start, chapter.time_end, i18n.language);
   const readableEvents = useMemo(
     () => events.filter((event) => String(event.content_preview || '').trim()),

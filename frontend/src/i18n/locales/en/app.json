@@ -3265,6 +3265,8 @@
         "year": "Yearly summary"
       },
       "detailRail": {
+        "evidenceFailed": "Could not load the supporting records.",
+        "evidenceRetry": "Retry",
         "close": "Close details",
         "evidenceTitle": "Evidence",
         "evidenceToggle": "View evidence · {{count}}",

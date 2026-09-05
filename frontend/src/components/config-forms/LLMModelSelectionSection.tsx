@@ -168,7 +168,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         }
       )
     );
-  }, [enabledEmbeddingProviders, registry.providers]);
+  }, [enabledEmbeddingProviders, registry]);
 
   // Collect all image generation models from all enabled providers
   const allImageGenerationModels = useMemo(() => {
@@ -195,7 +195,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
         { label: `${right.modelLabel} (${right.providerName})`, value: `${right.providerId}::${right.modelId}` }
       )
     );
-  }, [enabledImageGenerationProviders, registry.providers]);
+  }, [enabledImageGenerationProviders, registry]);
 
   // Auto-correct: if mode is 'remote' but no remote embedding models are available, switch to 'off'
   useEffect(() => {

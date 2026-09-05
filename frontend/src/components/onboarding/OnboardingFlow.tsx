@@ -208,7 +208,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
   const [seedPreviewsLoading, setSeedPreviewsLoading] = useState(true);
 
-  const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const debugI18n = localStorage.getItem("magi_i18n_debug") === "1";
 
   useEffect(() => {
@@ -265,7 +264,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       t("steps.firstContext"),
       t("steps.complete"),
     ],
-    [t, activeLanguage],
+    [t],
   );
   const guidedSteps = steps.slice(LLM_SETUP_STEP);
 

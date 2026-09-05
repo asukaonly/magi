@@ -67,15 +67,16 @@ export function PermissionModal({
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
+  const requestId = request?.request_id;
   useEffect(() => {
-    if (!open || !request) return;
+    if (!open || !requestId) return;
     setAllowScope(DEFAULT_SCOPE);
     setDenyScope(DEFAULT_SCOPE);
     setPattern('');
     setReason('');
     setError(null);
     setNowMs(Date.now());
-  }, [open, request?.request_id]);
+  }, [open, requestId]);
 
   useEffect(() => {
     if (!open || !request?.expires_at_ms) return () => undefined;

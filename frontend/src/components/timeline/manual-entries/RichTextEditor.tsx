@@ -15,7 +15,7 @@
  *     leaving the editor.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -80,23 +80,16 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 }) => {
   // Stable initial content: prefer the saved doc, then the plain-text
   // fallback wrapped in a single paragraph, then an empty doc.
-  const initialContent = useMemo(() => {
+  const [initialContent] = useState(() => {
     if (value && Object.keys(value).length > 0) return value;
     if (fallbackPlainText && fallbackPlainText.length > 0) {
       return docFromPlainText(fallbackPlainText);
     }
     return emptyDoc();
-    // Intentionally only on mount — runtime value changes flow through
-    // editor commands, not via reseeding (which would reset cursor).
-  }, []);
+  });
 
-  // Build extensions once per mount, capturing the placeholder text.
-  // Rebuilding on every render would force Tiptap to re-init the
-  // schema and lose the editor's transaction history.
-  const extensions = useMemo(
-    () => buildRichTextExtensions(placeholder),
-    [],
-  );
+  const placeholderRef = useRef(placeholder);
+  const [extensions] = useState(() => buildRichTextExtensions(() => placeholderRef.current || ''));
 
   const editor = useEditor({
     extensions,
@@ -159,13 +152,14 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     },
   });
 
-  // Destroy on unmount — useEditor handles this internally but be
-  // explicit so we don't leak if the parent re-mounts us.
+  // useEditor owns destruction. Refresh placeholder decorations without
+  // rebuilding the editor or resetting the draft and undo history.
   useEffect(() => {
-    return () => {
-      editor?.destroy();
-    };
-  }, []);
+    placeholderRef.current = placeholder;
+    if (editor && !editor.isDestroyed) {
+      editor.view.dispatch(editor.state.tr.setMeta('placeholder', true));
+    }
+  }, [editor, placeholder]);
 
   const applyLink = useCallback(
     (url: string) => {
