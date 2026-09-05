@@ -1898,7 +1898,7 @@
         },
         "export": {
           "title": "可读数据导出",
-          "description": "生成便于查阅或迁移的可读副本。导出会包含当前关注，但不能用于恢复 Magi。",
+          "description": "生成便于查阅或迁移的可读副本，可自行选择是否包含短期关注状态，不能用于恢复 Magi。",
           "action": "导出记忆",
           "dialogTitle": "导出可读记忆数据",
           "dialogDescription": "请选择一个私密位置，保存可在 Magi 之外阅读的副本。",

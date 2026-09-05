@@ -1899,7 +1899,7 @@
         },
         "export": {
           "title": "Readable export",
-          "description": "Create a human-readable copy for review or migration. An export includes current attention but cannot be restored into Magi.",
+          "description": "Create a human-readable copy for review or migration. Short-term attention is optional. This copy cannot be restored into Magi.",
           "action": "Export memory",
           "dialogTitle": "Export readable memory data",
           "dialogDescription": "Choose a private destination for a copy intended to be read outside Magi.",
