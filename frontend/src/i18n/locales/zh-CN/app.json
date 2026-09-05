@@ -2923,7 +2923,7 @@
     "consolidation": {
       "loadFailed": "暂时无法读取整理进度，请重试。",
       "lastRun": "上次检查：{{time}}",
-      "modelUnavailable": "模型整理暂不可用；仍按证据规则判断，不会为了产出经历而降低门槛。",
+      "modelUnavailable": "自动整理暂时受限，已有内容和待处理线索会继续保留。",
       "request": "检查并整理",
       "reasons": {
         "loading": "正在读取整理进度…",
@@ -2935,7 +2935,7 @@
         "failed": "本次整理失败，可重试。",
         "processing_events": "导入的记录仍在提取，经历线索可能尚未形成。",
         "not_run": "还没有进行经历整理，可以先检查一次。",
-        "model_budget": "本轮整理额度已用完，未处理的候选继续保留。",
+        "model_budget": "本轮整理已结束，还有部分线索等待处理。",
         "ready": "本轮整理完成，结果已显示在下方或待确认列表。",
         "insufficient_evidence": "目前没有足够连贯的线索形成新经历。"
       }

@@ -2924,7 +2924,7 @@
     "consolidation": {
       "loadFailed": "Processing status is unavailable. Try again.",
       "lastRun": "Last checked: {{time}}",
-      "modelUnavailable": "Model selection is unavailable. Evidence rules still apply without lowering the quality threshold.",
+      "modelUnavailable": "Automatic organization is currently limited. Existing memories and pending candidates are kept.",
       "request": "Check and organize",
       "reasons": {
         "loading": "Reading processing status…",
@@ -2936,7 +2936,7 @@
         "failed": "Organization failed. You can retry.",
         "processing_events": "Imported records are still being extracted; experience clues may not be ready.",
         "not_run": "Experiences have not been checked yet. You can start a check.",
-        "model_budget": "This run reached its model limit. Unprocessed candidates are preserved.",
+        "model_budget": "This check has finished. Some candidates are still waiting to be processed.",
         "ready": "This check is complete. Results appear below or in the review inbox.",
         "insufficient_evidence": "There is not enough coherent evidence to form a new experience yet."
       }

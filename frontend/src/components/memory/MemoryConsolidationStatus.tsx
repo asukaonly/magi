@@ -49,7 +49,7 @@ export const MemoryConsolidationStatus = ({ onCompleted }: { onCompleted: () => 
     } catch { setError(true); }
     finally { setBusy(false); }
   };
-  return <section aria-live="polite" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 text-sm">
+  return <section aria-live="polite" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 text-sm">
     <div>
       <p>{error ? t('memory.consolidation.loadFailed') : t(`memory.consolidation.reasons.${status?.reason_code ?? 'loading'}`)}</p>
       {status?.last_run_at ? <p className="mt-1 text-xs text-muted-foreground">{t('memory.consolidation.lastRun', { time: new Date(status.last_run_at * 1000).toLocaleString(i18n.language) })}</p> : null}
