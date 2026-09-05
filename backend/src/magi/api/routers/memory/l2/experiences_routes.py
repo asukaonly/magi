@@ -856,11 +856,12 @@ async def list_l2_experience_seeds(
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items = await unified_memory.l2.list_experience_seeds(
         status=status_filter,
-        limit=limit,
-        offset=offset,
+        limit=None,
     )
+    total = len(items)
+    items = items[offset:offset + limit]
     await _attach_experience_seed_display_fields(unified_memory, items)
-    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 @memory_router.post("/l2/experience-seeds/{seed_id}/promote")

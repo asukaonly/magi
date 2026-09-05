@@ -14,7 +14,7 @@ import { ExperienceDraftSegmentCard } from '@/components/memory/experiences/Expe
 import ExperienceHero from '@/components/memory/experiences/ExperienceHero';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from '../MemoryPageFrame';
 
@@ -770,7 +770,7 @@ export const MemoryExperienceDraftPage = () => {
                 <div className="mt-3 space-y-2">
                   {possibleSegments.map((segment) => {
                     const { evidence } = segment;
-                    const timeRange = formatEpisodeTimeRange(evidence.time_start, evidence.time_end, i18n.language);
+                    const timeRange = formatMemoryTimeRange(evidence.time_start, evidence.time_end, i18n.language);
                     return (
                       <label key={segment.key} className="flex cursor-pointer items-start gap-3 rounded-md border border-[hsl(var(--memory-border)/0.46)] bg-[hsl(var(--memory-panel-subtle)/0.24)] p-4">
                         <input

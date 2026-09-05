@@ -11,8 +11,8 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
-        'memory.overview.metrics.totalMemories': 'Total memories',
-        'memory.overview.metrics.understanding': 'About you',
+        'memory.overview.metrics.sourceRecords': 'Source records',
+        'memory.overview.metrics.profileCandidates': 'About you',
         'memory.overview.metrics.summaries': 'Reviews & summaries',
         'memory.overview.metrics.sources': 'Active sources',
         'memory.overview.metrics.storage': 'Storage',
@@ -131,7 +131,7 @@ const dashboardPayload = {
     l2: { relation_count: 4, assertion_count: 6 },
     l3: { summary_count: 5 },
     l4: { skill_count: 1, open_circuit_breakers: 0 },
-    total_memories: 28,
+    stored_records: 28,
     disk_usage_bytes: 1536,
     attention: { pending_assertions: 1, open_circuit_breakers: 0 },
   },
@@ -168,7 +168,7 @@ const dashboardPayload = {
   },
   deltas: {
     today: {
-      total_memories: 9,
+      stored_records: 9,
       l1_events: 4,
       l2_assertions: 3,
       l3_summaries: 2,
@@ -416,9 +416,9 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByTestId('memory-theme-root')).toHaveClass('px-4', 'py-4');
     expect(screen.getByTestId('memory-theme-root')).not.toHaveClass('px-6', 'py-6');
     expect(await screen.findByTestId('memory-overview-summary')).toBeInTheDocument();
-    expect(await screen.findByText('Total memories')).toBeInTheDocument();
-    expect(await screen.findByText('28')).toBeInTheDocument();
-    expect(screen.getByText('Today +9')).toBeInTheDocument();
+    expect(await screen.findByText('Source records')).toBeInTheDocument();
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.getByText('Today +4')).toBeInTheDocument();
     expect(screen.getByText('About you')).toBeInTheDocument();
     expect(screen.getByText('6')).toBeInTheDocument();
     expect(screen.getByText('Today +3')).toBeInTheDocument();
@@ -465,7 +465,7 @@ describe('MemoryOverviewPage', () => {
         l1: { event_count: 0 },
         l2: { relation_count: 0, assertion_count: 0 },
         l3: { summary_count: 0 },
-        total_memories: 0,
+        stored_records: 0,
         disk_usage_bytes: 1_363_149,
         attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       },
@@ -474,7 +474,7 @@ describe('MemoryOverviewPage', () => {
       pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
       deltas: {
         today: {
-          total_memories: 0,
+          stored_records: 0,
           l1_events: 0,
           l2_assertions: 0,
           l3_summaries: 0,
@@ -506,7 +506,7 @@ describe('MemoryOverviewPage', () => {
       ...dashboardPayload,
       statistics: {
         ...dashboardPayload.statistics,
-        total_memories: 1,
+        stored_records: 1,
       },
       source_counts: [],
       attention: { pending_assertions: 0, open_circuit_breakers: 0 },

@@ -2922,6 +2922,35 @@
     }
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "Processing status is unavailable. Try again.",
+      "lastRun": "Last checked: {{time}}",
+      "modelUnavailable": "Automatic organization is currently limited. Existing memories and pending candidates are kept.",
+      "request": "Check and organize",
+      "reasons": {
+        "loading": "Reading processing status…",
+        "disabled": "Automatic organization is disabled.",
+        "unavailable": "The organization service is not ready.",
+        "queued": "Organization is scheduled and will start shortly.",
+        "running": "Reviewing fragments, forming experiences and writing recaps…",
+        "partial_failure": "Some steps failed. Existing results are preserved; you can retry.",
+        "failed": "Organization failed. You can retry.",
+        "processing_events": "Imported records are still being extracted; experience clues may not be ready.",
+        "not_run": "Experiences have not been checked yet. You can start a check.",
+        "model_budget": "This check has finished. Some candidates are still waiting to be processed.",
+        "ready": "This check is complete. Results appear below or in the review inbox.",
+        "insufficient_evidence": "There is not enough coherent evidence to form a new experience yet."
+      }
+    },
+    "provenance": {
+      "user_confirmed": "Confirmed by you",
+      "direct_report": "Stated by you",
+      "inferred": "Inferred from activity",
+      "unknown": "Basis not classified",
+      "sources": "{{count}} source records",
+      "behavior_recent": "Your recent activity suggests you may be interested in {{value}}.",
+      "behavior_repeated": "Your repeated activity suggests you may be interested in {{value}}."
+    },
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
@@ -2948,6 +2977,8 @@
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
       "summaryLabel": "Memory summary",
       "metrics": {
+        "sourceRecords": "Source records",
+        "profileCandidates": "Extracted statements (including pending)",
         "totalMemories": "Total memories",
         "understanding": "About you",
         "summaries": "Reviews & summaries",
@@ -3257,6 +3288,11 @@
       }
     },
     "pending": {
+      "loadMore": "Load more {{section}}",
+      "loadFailed": "Could not load {{section}}. Other loaded items remain available.",
+      "actionFailed": "The action did not finish. Your content and selection are saved; please retry.",
+      "retry": "Retry",
+      "loadSections": {"reviews": "memory reviews", "assertions": "judgments", "stories": "summaries", "seeds": "experience signals", "conflicts": "conflicts"},
       "title": "Pending",
       "subtitle": "Memory signals that need your judgment live here.",
       "totalCount": "{{count}} item(s)",
@@ -3315,7 +3351,7 @@
       "planBatch": {
         "title": "Which plans are still current?",
         "body": "Select the plans that still apply. Unselected plans stay here for later and are not treated as rejected.",
-        "selectAll": "Select all",
+        "selectAll": "Select loaded plans",
         "clearSelection": "Clear selection",
         "confirmSelected": "Confirm {{count}} selected",
         "selectLabel": "Select plan: {{value}}",

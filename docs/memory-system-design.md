@@ -791,13 +791,13 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
-Preference Claims follow the same stability boundary. An explicit `LIKES` or
-`DISLIKES` Claim marked `one_off` may still authorize an Assertion for cautious
-profile interpretation, but it cannot authorize a durable knowledge-graph edge.
-The semantic route contract owns this distinction and Phase 1 graph projection
-reuses that contract-level policy. Route-contract reprojection removes only the
-obsolete relationship authority from older Claims; it preserves the Assertion,
-shared Claim support, and independent user-correction authority.
+Preference Claims follow the same stability boundary. The host normalizes a
+single-experience evaluation to an `explicit_fact` with a `one_off` cue, retaining
+the event/Claim evidence without treating it as a reusable profile preference.
+A direct general preference remains eligible for profile interpretation; an
+explicit recent preference retains a bounded horizon. Graph projection also
+enforces the semantic route contract's independent exclusion of `one_off`
+preference edges. User-correction authority remains independent of extraction.
 
 Phase 1 must choose the most specific evidence-supported type from the canonical
 entity registry. Named collectives belong to `group`, named creative works belong
@@ -806,6 +806,13 @@ last-resort classification for a concrete entity that does not fit any available
 type; unfamiliarity alone is not a reason to use it. The host still validates the
 type against the registry, but it does not guess a replacement type from an entity
 name when the evidence cannot support that semantic decision.
+
+Reusable concept IDs use a stable fingerprint of the complete Unicode-normalized
+name and entity type. Concrete entities use a source-owned key or an unresolved
+mention's evidence scope, so matching display names do not establish identity.
+Display slugs never determine identity. Replay keeps the same identity; changing
+a catalog name requires explicit rename authority and must preserve that identity.
+Ingestion cannot overwrite an existing identity with an unrelated name.
 
 Knowledge graph endpoints must resolve through the entity catalog before they are
 persisted. The LLM is not an authority for inventing `entity_id` values. Every
@@ -1031,8 +1038,9 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
-Assertion-backed portrait items display the accepted `natural_summary` when one
-exists and retain the typed `trait_value` as the correction payload; this prevents
+Assertion-backed portrait items display host-rendered `natural_summary` when one
+exists, or a localized structured behavior expression for inferred observations,
+and retain the typed `trait_value` as the correction payload; this prevents
 distinct preferences that share an enum-like value such as `like` from collapsing
 into one review item. This display rule does not make review Assertions prompt
 facts: only their independently grounded Claim may use the tentative path above.
@@ -1315,7 +1323,7 @@ Key properties:
 - Supersession: When a fact changes (e.g. "I moved from Hangzhou to Shanghai"), the old assertion is marked `superseded` with `superseded_by` / `superseded_at` linking to the new one. This is a normal lifecycle transition, not a contradiction.
 - Decay policies: `session_decay`, `fast_decay`, `time_window`, `evidence_only`, `none`
 - Memory subdomain tag: `memory_subdomain` distinguishes `'state'` (mood, stress, engagement) from `'semantic'` (preferences, long-term facts) within assertions
-- Reconciliation: `reconcile_entity()` re-derives confidence and stability from evidence counts and time spans
+- Reconciliation: the cognition store's `reconcile_entity()` re-derives confidence and stability from evidence counts and time spans. This is the sole reconciliation path; LLM services do not infer lifecycle state or select winning trait values.
 - Snapshot evolution: `refresh_entity_snapshot()` rebuilds from reconciled assertions + graph edges, maintaining `core_traits_history`, `preferences_history`, `relationship_history`, `mood_trajectory`, and `emerging_signals`
 
 Assertion family semantics are centralized in `backend/src/magi/memory/l2/assertion_family_policy.py`. The canonical families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`. Families describe meaning, not retention: `preference_profile` is reserved for actual likes and dislikes, `interest_profile` describes grounded attention or interest without claiming affinity, `project_profile` describes active project work, `goal_profile` represents a concrete near-term intention and is always bounded recent context rather than durable identity or snapshot core-trait material, and `routine_profile` owns repeated behavior rhythms and habits. Each family policy defines its durable description, baseline lifecycle defaults, snapshot bucket, and value-localization expectation. Runtime confidence and TTL tuning lives under `agent.memory.l2.assertion`, and host materialization plus assertion reconciliation read those config-backed values rather than maintaining separate TTL or state-threshold constants. These policies drive host validation, materialization defaults, decay, and snapshot placement; they are not model prompt instructions.
@@ -1375,12 +1383,7 @@ Assertion API rows expose family display metadata, including `trait_value_i18n`,
   event memberships with live L2 assertions whose `evidence_events` intersect
   those events; confirmation uses the lightweight assertion feedback path,
   while rejection and editing use the governed correction surface
-- The episode review surface is reading-first: it presents Magi's natural
-  language recap from the linked L3 episodic summary, then lets the user edit
-  the display title, edit or regenerate the recap, and curate the member event
-  boundary with explicit buttons. V1 keeps confidence-style reactions out of the
-  surface until a dedicated feedback/confidence system exists.
-- Add/remove event curation operates on system-suggested nearby candidate
+- Backend add/remove event curation operates on system-suggested nearby candidate
   events, not a global event search. Merge curation chooses a suggested active
   episode and folds it into the current survivor. Split curation uses a
   chronological breakpoint between member events, creates two active child
@@ -1404,6 +1407,12 @@ only as evidence on those experiences. `episode_recall` is reserved for explicit
 activity-span recall, but episodes must not be surfaced or ranked as user-facing
 hits; any episode use in that path should only narrow an evidence window before
 returning L1 events or promoted experiences.
+
+The frontend review routes use the Experience index, draft editor, and detail
+surface. Source episodes remain readable through the episode detail API for
+draft evidence expansion. Timeline pin/hide actions and operator reconsolidation
+keep their episode APIs; no separate episode card, recap editor, or boundary
+curation dialogs are mounted in the product UI.
 
 **Experiences** are the product-grade episodic object surfaced in the review
 page and timeline. An experience is promoted only when one or more substrate
@@ -2941,3 +2950,192 @@ The identity model must always be clear:
 - `event_id` — Stable external reference
 - `source_item_id` — Source-side identity
 - `idempotency_key` — Business idempotency key
+
+## Memory Correctness and Consumption Contracts
+
+Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
+positive polarity means an explicit dislike; negative `LIKES` never becomes
+`DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. Route contract v7
+retains negative Claims, evidence, and temporal scope in the ledger with reason
+`negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
+is supported, these Claims have no graph or portrait/assertion target. Initial
+projection, optional wording, and route replay share this boundary.
+
+Assertion `natural_summary` is a host-rendered view of predicate, target, and
+time qualifiers. Model wording must exactly match this controlled view to be
+accepted; substring overlap is not semantic validation. Materialization renders
+again at the write boundary, so portraits, prompts, full-text and vector indexes
+cannot receive an optional summary that reverses or extends the Claim.
+
+Temporal summaries persist the union of all generation dependencies in
+`source_event_ids` and the evidence-link table: selected samples, events supplied
+to a successful plugin feature builder, and the complete event lineage of prior
+and child summaries. `insight_metadata.cited_event_ids` retains the smaller
+citation sample; `dependency_summary_ids` records transitive summary inputs.
+These host-owned fields cannot be overwritten by model output. Forgetting or
+blocking any dependency invalidates the complete derived summary.
+
+A rejected L3 summary remains review history but is excluded from retrieval,
+prompt material, and future summary context. Summaries derived from a rejected
+summary are excluded as well. Replaying the same category, insight, and complete
+source set returns the prior rejected record rather than creating a new pending
+item. New evidence can produce a new review candidate. Rejection does not delete
+or suppress the underlying L1 facts.
+
+Preference scope is checked against the supporting statement at normalization
+and grounded-Claim admission. An evaluation of one meal or visit stays event-only;
+a direct general preference can be durable without an "always" keyword; an
+explicit recent preference retains a bounded lifetime. A transient desire is not
+promoted into a durable preference even if extraction labels it `LIKES`.
+
+A mixed user message may admit its asserted clauses even when it ends in a
+question. Claim grounding requires the quoted evidence to occur inside an
+asserted clause, with question marks, hypothetical context, and quoted speech
+preserved as boundaries. The graph preference guard inspects that grounded quote
+instead of rejecting the entire source message because another clause asks a
+question. The full original message remains unchanged in L1.
+
+Frequency admission evaluates every eligible event once, inside the counter's
+serialized transaction. Only admitted events enter the LLM window; a promoted
+key never admits unrelated keys or forced structured-only events in its batch.
+The durable batch descriptor and leases still cover the original batch. Direct
+structured graph and facet writes retain each event's own evidence IDs.
+
+L4 records each execution event once, independently of its owning turn. Its
+complete source-event link is the durable replay guard even after trace pruning.
+Statistics, breaker transitions, evidence links, and the execution trace commit
+atomically; a trace write failure rolls the learning update back. Separate tool
+executions in one turn remain distinct observations.
+
+L4 inactivity retirement keeps the skill identity available for a later,
+independent execution: recording can find the inactive row and revive it without
+violating name/category uniqueness. Replaying an already linked old event leaves
+it inactive. This lookup still enforces source tombstones and projection blocks;
+user-forgotten evidence cannot revive a retired skill.
+
+L4 strategy publication atomically updates the strategy revision and full-text
+index, then schedules vector refresh. Vector publication checks the captured
+revision and content; pending vectors are excluded from semantic retrieval.
+Strategy extraction consumes only the sampled, unprocessed trace IDs under an
+expected revision. Executions arriving during extraction remain pending, and a
+slower extraction cannot overwrite a newer strategy. The first execution counts
+as pending; trace pruning reconciles the retained pending backlog.
+
+Pending review loading is independent per section. A failed request displays a
+section-specific retry and cannot masquerade as an empty inbox or discard other
+loaded sections. Failed single-item and edit actions preserve the item, current
+selection, and unsaved edit, with a visible error. Batch actions retain failed
+selections and report partial success.
+
+### Pending review pagination
+
+The pending inbox uses server-side review-state and conflict-kind filters before pagination. Every lane returns a complete visible total; page length is never presented as a total. The client loads 25 records per page, retains loaded pages on failure, and reloads the loaded window after successful review so remaining records fill the gap. Batch selection covers loaded plans only. Summary deduplication, expiration and readability checks run on the complete active projection before slicing. This favors correct visibility and totals; a persisted feed index can replace this read model if measured collection size/latency requires it, without changing the API contract.
+
+### Entity identity and ambiguous names
+
+An explicit resolved entity ID is not replaced merely because a catalog row shares its name. Source-owned `structured_entity_hints` may supply `source_entity_key`; the host namespaces it by source and entity type and preserves it across renamed labels and repeated events. Raw event item IDs are not treated as entity IDs. People, places, works, hardware and projects without an identity key receive replay-stable mention-scoped IDs. Concept types (topics, concepts, software/technology, food, language and skills) retain normalized concept lookup. Cross-event memoization and automatic alias matching are limited to those concept types. Versioned resolved context references remain the path for intentional reuse of concrete identities.
+
+Name and alias indexes omit ambiguous labels instead of selecting the first row. Maintenance never chooses among ambiguous ghost targets by popularity, and does not merge mention/source-scoped identities by name. This intentionally prefers separate or unresolved concrete entities over false identity merges; new source integrations should provide stable object keys. No existing catalog data is rewritten by this change.
+
+### Profile-worthiness of observed objects
+
+Graph-to-profile derivation reads active L1 source semantics in batches before counting evidence. Navigation/search/feed pages, UI/menu labels, task instructions and explicit `profile_eligible=false` records do not support a profile assertion. A structured entity's semantic role (`topic`, `creator`, `work`, `product`, `organization`, `person`) can identify a meaningful object within a surrounding feed; an explicit non-profile role still wins. Thus “动态(2)” is excluded while “动态规划” and a named work with that title remain valid candidates. Raw facts and behavioral graph edges remain available independently of profile admission.
+
+### Independent evidence and confidence
+
+Behavior occurrence counts and independent support counts have separate meanings. Repeated event delivery remains idempotent; separate visits/plays remain separate observations and retain every L1 link for review and forgetting. Profile promotion and assertion confidence use source evidence groups instead: canonical resource URLs (tracking parameters removed), source content/track keys, or normalized content fingerprints. Reimports of the same authored content share a group across import batches. Distinct live chat messages retain message identity.
+
+The unified store injects an active L1 evidence reader into assertion write and reconciliation. Claim evidence locators persist the host-owned `independent_evidence_key`, and routed Claim statistics count those groups. Graph-derived confidence uses the shared support curve capped by the observed edge confidence; it no longer multiplies edge confidence by repetition. These scores are ranking/governance heuristics, not calibrated probabilities of personal preference. Standalone L2 callers without an L1 resolver own the uniqueness of their supplied evidence IDs. No stored events or assertions are repaired in bulk.
+
+### Readable profile expressions and provenance
+
+Behavior-derived assertions use controlled localized wording (“activity suggests …”) instead of predicate identifiers or claims of an explicit preference. Portrait items carry an evidence-basis enum (`user_confirmed`, `direct_report`, `inferred`, `unknown`), source-event references, source-record count and an optional structured behavior expression. The frontend renders that expression in the active locale, labels provenance alongside the item, and does not equate a stable validation rank with user confirmation. Source-record counts describe traceable records, not independent corroboration or accuracy percentages.
+
+### Experience processing status and bounded requests
+
+History-import completion requests one coalesced L2 consolidation run after a
+30-second settling window. Manual requests use the same durable request schedule
+and target lock as periodic consolidation. Requests preserve the configured
+per-run model budget and existing promotion gates; they do not declare an import
+understood or repair historical records.
+
+`GET /memory/l2/consolidation` exposes waiting, queued, running, disabled,
+unavailable, insufficient-evidence, ready, and failed states. The response uses
+persisted scheduler results plus the current projection backlog. Partial failures
+retain generated output and diagnostic counts. A returned unsuccessful scheduler
+result records a failed execution and preserves its statistics and error detail;
+it does not advance the last-success timestamp, accepted cursor, or watermark.
+Model-budget exhaustion defers unprocessed
+seeds without rejecting them. The experiences page can request another bounded
+check, retry a failed status read, and refresh results after a run completes.
+
+### Memory quality diagnostics
+
+`GET /memory/quality?user_id=...` separates three populations:
+
+- `runtime`: attempts since the pipeline's `started_at`, including evaluated,
+  write-eligible and model-admitted events; grounded/rejected candidate Claims;
+  materialization decisions; degraded stages; extraction failures and elapsed
+  extraction time. Retries can increase these counters. They reset on restart and
+  must not be interpreted as unique records or a model accuracy score.
+- `stored`: active source-record count and durable projection backlog across the
+  store. This is the received-data inventory, including data not eligible for L2.
+- `user`: active grounded Claims and the latest non-invalidated route per Claim,
+  grouped by disposition and reason. Replay history is excluded. Current portrait
+  builders supply visible item/assertion and review-item counts for that user.
+
+Consolidation counts and model-selection diagnostics remain in the persistent
+scheduler result exposed by `/memory/l2/consolidation`. L3/L4 inventories remain
+in the existing statistics response. Confidence remains a support heuristic,
+not an empirically calibrated probability.
+
+The overview's headline now counts original L1 records. Extracted statements,
+including pending statements, and summaries remain separate. The API calls the
+cross-layer storage inventory `stored_records`; it is not a count of unique
+memories, understanding, or personal facts. Today deltas use the same units.
+
+### Chinese journey regression and live evaluation
+
+`backend/tests/memory/journeys/test_chinese_memory_journey.py` runs a fresh-store
+journey from raw `UserMessage` ingestion through L1, the durable L2 workers,
+grounded Claims, the public correction and portrait routes, the production
+`UserProfileService`/prompt assembler, and `MemoryQueryTool` with its host query
+port. It imports an authored Markdown document through `HistoryImportService`,
+rejects a proposed L3 summary, forgets source events, closes/reopens the stores,
+and redelivers the original events. Checks cover Chinese names, mixed questions,
+negation, one-meal evaluations, durable/recent preferences, hypothetical text,
+correction visibility, summary rejection, and forbidden-source replay.
+
+The durable preference horizon is taken from its own explicitly timed clause.
+For example, “我一直很喜欢 DIIV，最近又把《Oshin》听了几遍” preserves the durable
+preference; the nearby listening episode does not shorten its lifetime.
+
+Default execution uses a scripted provider transport with deliberately unsafe
+candidate Claims. Storage, governance, public routing, retrieval, and prompt
+consumption are real. Its generated replies assert transport/context wiring;
+passing this suite is **not** a model-quality percentage or a complete desktop
+`ChatTaskAgent`/delivery evaluation. The existing runtime tests cover those
+runtime wiring boundaries separately. Retrieval `found` means candidate evidence
+exists; it does not establish that an arbitrary requested claim is true.
+
+Run from `backend` with the project environment and an isolated test HOME:
+
+```sh
+PYTHONPATH=src:../sdk/src python -m pytest tests/memory/journeys \
+  tests/memory/history_imports/test_history_import_l2_quality.py -q
+```
+
+For a live extraction/answer run, explicitly supply `MAGI_EVAL_API_KEY`,
+`MAGI_EVAL_MODEL`, and optionally `MAGI_EVAL_BASE_URL` in the environment, then:
+
+```sh
+MAGI_LIVE_MEMORY_EVAL=1 PYTHONPATH=src:../sdk/src python -m pytest \
+  tests/memory/journeys/test_chinese_memory_journey.py \
+  -k live -q --junitxml=/tmp/magi-live-memory-journey.xml
+```
+
+Without explicit provider configuration the live case is skipped, not counted
+as passed. The fixture is synthetic; tests never consume the user's actual
+conversation database. Live results should be reported with model, test revision,
+case failures, and the boundary above. This small regression baseline is not a
+replacement for a representative model-quality benchmark.

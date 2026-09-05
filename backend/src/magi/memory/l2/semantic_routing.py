@@ -17,7 +17,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 6
+ROUTE_CONTRACT_VERSION = 7
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -67,6 +67,7 @@ class SemanticRouteInput:
     raw_time_expression: str
     time_resolution: str
     time_frame: Mapping[str, Any] | None = None
+    polarity: str = "positive"
 
 
 @dataclass(frozen=True, slots=True)
@@ -410,6 +411,14 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
     predicate = _required(route_input.canonical_predicate).upper()
     fact_kind = _required(route_input.fact_kind).casefold()
     object_type = _required(route_input.object_type).casefold()
+
+    if route_input.polarity != "positive":
+        return _non_routed(
+            route_input,
+            disposition=RouteDisposition.DEFERRED,
+            reason_code="negative_claim_requires_scoped_exclusion",
+            object_role=ObjectRole.UNSUPPORTED,
+        )
 
     if predicate == "PLANS_TO":
         if fact_kind not in _GOAL_SPEC.allowed_fact_kinds:

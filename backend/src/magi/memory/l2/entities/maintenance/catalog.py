@@ -10,6 +10,7 @@ from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
 from ...assertions.assertion_rekey_coordinator import AssertionEntityRekeyCoordinator
 from ...pipeline import L2Pipeline
+from ..identity import CONCEPT_ENTITY_TYPES
 from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
     L2EntityGhostMaintenanceMixin,
@@ -17,7 +18,6 @@ from .ghosts import (
     _CatalogMaintenanceStatsProtocol,
     _canonical_entity_id,
     _merge_evidence_json,
-    _slugify_entity_id_suffix,
 )
 from .ghosts_tom import _refresh_tom_snapshot_after_rekey
 
@@ -58,6 +58,8 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
             if len(group) < 2:
                 continue
             types = [str(r["entity_type"]) for r in group]
+            if any(kind not in CONCEPT_ENTITY_TYPES for kind in types) or any(":source:" in str(row["entity_id"]) for row in group):
+                continue
             if not self._group_types_all_mergeable(types):
                 continue
             entity_ids = [str(r["entity_id"]) for r in group]
@@ -444,5 +446,4 @@ __all__ = [
     "_CatalogMaintenanceStatsProtocol",
     "_canonical_entity_id",
     "_merge_evidence_json",
-    "_slugify_entity_id_suffix",
 ]

@@ -46,6 +46,9 @@ class _EvidenceEventStore:
             if event_id in self.timestamps
         }
 
+    async def get_evidence_records(self, event_ids: list[str]) -> dict[str, dict]:
+        return {event_id: {"event_id": event_id, "timestamp": timestamp, "source": "test", "metadata_json": {}} for event_id, timestamp in (await self.get_event_timestamps(event_ids)).items()}
+
 
 async def _seed_edge(
     store: Any,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -40,6 +41,16 @@ DEFAULT_L2_PROJECTION_HEARTBEAT_INTERVAL_SECONDS = 30.0
 class L2PipelineStats:
     """Counters for the durable-projection L2 background pipeline."""
 
+    started_at: float = field(default_factory=time.time)
+    events_evaluated: int = 0
+    events_eligible: int = 0
+    events_model_admitted: int = 0
+    claims_grounded: int = 0
+    claims_rejected: int = 0
+    eligibility_by_reason: dict[str, int] = field(default_factory=dict)
+    materialization_by_action: dict[str, int] = field(default_factory=dict)
+    degraded_by_stage: dict[str, int] = field(default_factory=dict)
+    extract_duration_seconds: float = 0.0
     is_running: bool = False
     extract_enqueued: int = 0
     extract_active: int = 0

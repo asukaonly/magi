@@ -54,7 +54,11 @@ def test_web_fetch_config_response_has_no_user_provider_toggle():
 
     assert response.enabled is True
     assert response.config_specs == []
-    assert response.current_values == {}
+    assert response.current_values == {
+        "allow_rfc2544_benchmark_range": True,
+        "allow_private_network": False,
+        "private_network_allowlist": [],
+    }
 
 
 def test_web_search_config_response_exposes_provider_enum_and_targeted_specs():

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import {
@@ -32,6 +33,8 @@ import {
 import { isMemoryUpdateStory } from './storyFilters';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 
+type PendingSection = 'reviews' | 'assertions' | 'stories' | 'seeds' | 'conflicts';
+
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
   const [reviews, setReviews] = useState<L2PendingReview[]>([]);
@@ -40,42 +43,65 @@ export const MemoryPendingPage = () => {
   const [seeds, setSeeds] = useState<L2ExperienceSeed[]>([]);
   const [conflicts, setConflicts] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failedSections, setFailedSections] = useState<PendingSection[]>([]);
+  const [retryingSection, setRetryingSection] = useState<PendingSection | null>(null);
+  const loadVersion = useRef(0);
+  const pageSizes = useRef<Partial<Record<PendingSection, number>>>({});
+  const [totals, setTotals] = useState<Partial<Record<PendingSection, number>>>({});
+  const requestVersions = useRef<Partial<Record<PendingSection, number>>>({});
   const [actionId, setActionId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<PendingFilter>('all');
   const [editingReview, setEditingReview] = useState<L2PendingReview | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [selectedPlanReviewIds, setSelectedPlanReviewIds] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [reviewPayload, dashboardPayload, storyPayload, seedPayload, notificationPayload] = await Promise.all([
-        memoryApi.listPendingReviews(100),
-        memoryApi.getDashboard({ pending_limit: 25 }),
-        memoryStoriesApi.list({ limit: 50, offset: 0, surface: 'all' }),
-        memoryApi.listExperienceSeeds({ status: 'candidate', limit: 50, offset: 0 }),
-        listNotifications(),
-      ]);
-      setReviews(reviewPayload.items || []);
-      setAssertions(dashboardPayload.pending_assertions?.items || []);
-      setStories((storyPayload.items || []).filter((story) => (
-        story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story)
-      )));
-      setSeeds(seedPayload.items || []);
-      setConflicts((notificationPayload.items || []).filter(isOpenProfileConflict));
-    } finally {
-      setLoading(false);
-    }
+  const load = useCallback(async (onlySection?: PendingSection, more = false) => {
+    const version = onlySection ? loadVersion.current : ++loadVersion.current;
+    if (onlySection) setRetryingSection(onlySection);
+    else setLoading(true);
+    const loadSection = async <T,>(section: PendingSection, request: (offset: number) => Promise<{ items: T[]; total: number }>, apply: (items: T[]) => void) => {
+      if (onlySection && onlySection !== section) return;
+      const version = (requestVersions.current[section] ?? 0) + 1;
+      requestVersions.current[section] = version;
+      const targetSize = (pageSizes.current[section] ?? 25) + (more ? 25 : 0);
+      try {
+        const items: T[] = [];
+        let total = 0;
+        do {
+          const payload = await request(items.length);
+          if (requestVersions.current[section] !== version) return;
+          total = payload.total;
+          items.push(...payload.items);
+          if (payload.items.length === 0) break;
+        } while (items.length < targetSize && items.length < total);
+        apply(items);
+        pageSizes.current[section] = targetSize;
+        setTotals((values) => ({ ...values, [section]: total }));
+        setFailedSections((items) => items.filter((item) => item !== section));
+      } catch {
+        if (requestVersions.current[section] !== version) return;
+        setFailedSections((items) => items.includes(section) ? items : [...items, section]);
+      }
+    };
+    await Promise.all([
+      loadSection('reviews', (offset) => memoryApi.listPendingReviews(25, offset), setReviews),
+      loadSection('assertions', async (offset) => (await memoryApi.getDashboard({ pending_limit: 25, pending_offset: offset })).pending_assertions, setAssertions),
+      loadSection('stories', (offset) => memoryStoriesApi.list({ limit: 25, offset, surface: 'all', group: 'memory_update', review_state: 'pending_confirmation' }), (items) => setStories(items.filter((story) => story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story)))),
+      loadSection('seeds', (offset) => memoryApi.listExperienceSeeds({ status: 'candidate', limit: 25, offset }), setSeeds),
+      loadSection('conflicts', (offset) => listNotifications({ limit: 25, offset, profile_conflicts_only: true }), (items) => setConflicts(items.filter(isOpenProfileConflict))),
+    ]);
+    if (onlySection) setRetryingSection(null);
+    else if (loadVersion.current === version) setLoading(false);
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const totalCount = reviews.length + assertions.length + stories.length + seeds.length + conflicts.length;
-  const memoryCount = reviews.length + assertions.length + conflicts.length;
-  const experienceCount = seeds.length;
-  const observationCount = stories.length;
+  const totalCount = Object.values(totals).reduce((sum, count) => sum + count, 0);
+  const memoryCount = (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);
+  const experienceCount = totals.seeds ?? 0;
+  const observationCount = totals.stories ?? 0;
 
   const handleAssertion = async (assertion: L2Assertion, action: PendingAction) => {
     if (action === 'rejected') {
@@ -93,6 +119,9 @@ export const MemoryPendingPage = () => {
     try {
       await memoryApi.submitAssertionFeedback(assertion.assertion_id, 'confirmed');
       setAssertions((items) => items.filter((item) => item.assertion_id !== assertion.assertion_id));
+      await load('assertions');
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -111,11 +140,14 @@ export const MemoryPendingPage = () => {
         expected_version: review.version,
       });
       setReviews((items) => items.filter((item) => item.review_id !== review.review_id));
+      await load('reviews');
       setSelectedPlanReviewIds((items) => {
         const next = new Set(items);
         next.delete(review.review_id);
         return next;
       });
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -156,6 +188,7 @@ export const MemoryPendingPage = () => {
       setSelectedPlanReviewIds((items) => new Set(
         Array.from(items).filter((reviewId) => !confirmedIds.has(reviewId)),
       ));
+      if (confirmedIds.size > 0) await load('reviews');
       const failedCount = selectedReviews.length - confirmedIds.size;
       if (failedCount === 0) {
         toast.success(t('memory.pending.planBatch.confirmed', { count: confirmedIds.size }));
@@ -167,6 +200,8 @@ export const MemoryPendingPage = () => {
       } else {
         toast.error(t('memory.pending.planBatch.failed'));
       }
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -184,7 +219,10 @@ export const MemoryPendingPage = () => {
         edit,
       });
       setReviews((items) => items.filter((item) => item.review_id !== review.review_id));
+      await load('reviews');
       setEditingReview(null);
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -196,6 +234,9 @@ export const MemoryPendingPage = () => {
     try {
       await memoryStoriesApi.review(story.summary_id, { review_state: action });
       setStories((items) => items.filter((item) => item.summary_id !== story.summary_id));
+      await load('stories');
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -211,6 +252,9 @@ export const MemoryPendingPage = () => {
         await memoryApi.rejectExperienceSeed(seed.seed_id);
       }
       setSeeds((items) => items.filter((item) => item.seed_id !== seed.seed_id));
+      await load('seeds');
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -222,6 +266,9 @@ export const MemoryPendingPage = () => {
     try {
       await resolveConflict(notification.id, action);
       setConflicts((items) => items.filter((item) => item.id !== notification.id));
+      await load('conflicts');
+    } catch {
+      toast.error(t('memory.pending.actionFailed'));
     } finally {
       setActionId(null);
     }
@@ -245,11 +292,20 @@ export const MemoryPendingPage = () => {
       className="max-w-[1040px] gap-3 px-5 pb-5 pt-3"
       contentClassName="pb-6"
     >
+      {failedSections.map((section) => (
+        <section key={section} role="alert" className={`${MEMORY_EMPTY_PANEL_CLASS} flex flex-wrap items-center justify-between gap-3`}>
+          <p>{t('memory.pending.loadFailed', { section: t(`memory.pending.loadSections.${section}`) })}</p>
+          <Button variant="outline" size="sm" disabled={retryingSection !== null || loading} onClick={() => void load(section)}>
+            {retryingSection === section ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
+            {t('memory.pending.retry')}
+          </Button>
+        </section>
+      ))}
       {loading ? (
         <section className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         </section>
-      ) : totalCount === 0 ? (
+      ) : totalCount === 0 && failedSections.length === 0 ? (
         <section className={MEMORY_EMPTY_PANEL_CLASS}>
           <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.pending.emptyTitle')}</div>
           <p className="mt-1 text-sm">{t('memory.pending.emptyBody')}</p>
@@ -290,6 +346,15 @@ export const MemoryPendingPage = () => {
           </div>
         </div>
       )}
+      {(['reviews', 'assertions', 'conflicts', 'stories', 'seeds'] as const).filter((section) => {
+        const visible = section === 'stories' ? showObservations : section === 'seeds' ? showExperiences : showMemory;
+        const count = { reviews: reviews.length, assertions: assertions.length, stories: stories.length, seeds: seeds.length, conflicts: conflicts.length }[section];
+        return visible && (totals[section] ?? 0) > count;
+      }).map((section) => (
+        <Button key={section} variant="outline" disabled={loading || retryingSection !== null || actionId !== null} onClick={() => void load(section, true)}>
+          {t('memory.pending.loadMore', { section: t(`memory.pending.loadSections.${section}`) })}
+        </Button>
+      ))}
       <MemoryCorrectionDialog
         open={correctionTarget !== null}
         target={correctionTarget}
@@ -297,8 +362,8 @@ export const MemoryPendingPage = () => {
         onOpenChange={(open) => {
           if (!open) setCorrectionTarget(null);
         }}
-        onSaved={load}
-        onConflict={load}
+        onSaved={() => load()}
+        onConflict={() => load()}
       />
       <PendingMemoryReviewEditDialog
         review={editingReview}

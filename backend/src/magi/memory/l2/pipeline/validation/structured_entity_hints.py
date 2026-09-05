@@ -8,6 +8,7 @@ from typing import Any
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
+from ...entities.identity import entity_hint_id
 from ...models import (
     L2Phase1FactClaim,
     L2Phase1Result,
@@ -32,6 +33,7 @@ class _StructuredEntityHintUpsertState:
     catalog: Any
     host: Any
     source_event_ids: tuple[str, ...]
+    source: str
     projection_leases: tuple[L2ProjectionLease, ...]
     seen_ids: set[str] = field(default_factory=set)
     upserted_count: int = 0
@@ -58,6 +60,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
             catalog=catalog,
             host=self._structured_hint_host(),
             source_event_ids=(event.event_id,),
+            source=event.source,
             projection_leases=tuple(projection_leases),
         )
         await self._upsert_structured_entity_hint_records(metadata_json, state)
@@ -139,11 +142,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         if not mention_text or not entity_type:
             return None
         canonical_name = state.host._non_empty_text(hint.get("canonical_name_hint")) or mention_text
-        resolved_id = state.host._non_empty_text(hint.get("resolved_entity_id"))
-        entity_id = resolved_id or state.host._build_canonical_entity_id(
-            entity_type=entity_type,
-            canonical_name=canonical_name,
-        )
+        entity_id = entity_hint_id(hint, source=state.source, event_id=state.source_event_ids[0])
         return _StructuredEntityHintCandidate(
             entity_id=entity_id,
             entity_type=entity_type,
@@ -249,19 +248,9 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         entity_type: str,
         canonical_name: str,
     ) -> str | None:
-        """Return an existing same-name entity for a structured graph ref."""
-        for candidate in self._structured_ref_lookup_candidates(
-            entity_ref=entity_ref,
-            entity_type=entity_type,
-            canonical_name=canonical_name,
-        ):
-            matches = await catalog.find_by_canonical_name(
-                candidate,
-                entity_type=entity_type,
-            )
-            if matches:
-                return str(matches[0]["entity_id"])
-        return None
+        """Resolve exact IDs only; names are candidate labels, never foreign keys."""
+        matches = await catalog.list_entities(entity_ids=[entity_ref], limit=1)
+        return entity_ref if matches else None
 
     def _structured_ref_lookup_candidates(
         self,
@@ -326,14 +315,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 continue
 
             canonical_name = str(hint.get("canonical_name_hint") or mention_text).strip()
-            resolved_id = hint.get("resolved_entity_id")
-            if resolved_id:
-                entity_id = str(resolved_id)
-            else:
-                entity_id = host._build_canonical_entity_id(
-                    entity_type=entity_type,
-                    canonical_name=canonical_name,
-                )
+            entity_id = entity_hint_id(hint, source=event.source, event_id=event.event_id)
 
             if entity_id in existing_ids:
                 continue

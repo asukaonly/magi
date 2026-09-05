@@ -168,7 +168,9 @@ class NotificationStore:
         self,
         user_id: str,
         *,
-        limit: int = 50,
+        limit: int | None = 50,
+        offset: int = 0,
+        profile_conflicts_only: bool = False,
         before_id: Optional[int] = None,
         exclude_profile_conflicts: bool = False,
     ) -> list[NotificationRow]:
@@ -181,11 +183,13 @@ class NotificationStore:
             params: list = [user_id]
             if exclude_profile_conflicts:
                 sql += "AND dedupe_key NOT LIKE 'profile_conflict:%' "
+            if profile_conflicts_only:
+                sql += "AND json_extract(payload_json, '$.conflict_type') = 'profile_conflict' "
             if before_id is not None:
                 sql += "AND id < ? "
                 params.append(before_id)
-            sql += "ORDER BY created_at_ms DESC, id DESC LIMIT ?"
-            params.append(limit)
+            sql += "ORDER BY created_at_ms DESC, id DESC LIMIT ? OFFSET ?"
+            params.extend([-1 if limit is None else limit, offset])
             rows = conn.execute(sql, tuple(params)).fetchall()
             return [self._to_row(r) for r in rows]
         finally:

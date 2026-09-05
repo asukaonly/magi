@@ -12,10 +12,8 @@ from magi.utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...models import L2EventWindow
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
-    ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     render_batch_entity_resolution_prompt,
-    render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
 )
 
@@ -145,6 +143,23 @@ Return JSON only:
   }
 }
 ```
+
+### Mixed statements and questions
+When a user states a fact and then asks a question, extract only the asserted clause.
+"我喜欢爵士乐，你推荐什么？" supports "我喜欢爵士乐"; the question is not evidence.
+Questions, hypotheses, and quoted statements from other speakers cannot establish a self fact.
+
+### Preference scope
+A favorable evaluation of one meal, visit, or attempt is not a durable preference.
+"午饭吃了螺蛳粉，比上次好吃" is one-off evidence, not stable LIKES.
+"我喜欢螺蛳粉" is a direct general preference without requiring words like always.
+"最近喜欢螺蛳粉" is recent; "今天想吃螺蛳粉" is an intent, not a preference.
+
+### Polarity
+Polarity negates the predicate; it does not label negative sentiment.
+"我讨厌鱼" = DISLIKES + positive; "我并不讨厌鱼" = DISLIKES + negative.
+"我不住在杭州" = LIVES_IN + negative. Never invent an opposite predicate.
+Preserve any temporal qualifier on a negative claim.
 
 ### Example — correct extraction:
 Input: [USER] 我特别喜欢吃螺蛳粉
@@ -502,11 +517,9 @@ __all__ = [
     "PHASE1_EXTRACT_SYSTEM_PROMPT",
     "PHASE2_INTEGRATE_SYSTEM_PROMPT",
     "build_phase2_integrate_system_prompt",
-    "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "render_phase1_extract_prompt",
     "render_phase2_integrate_prompt",
-    "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
     "BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "render_batch_entity_resolution_prompt",

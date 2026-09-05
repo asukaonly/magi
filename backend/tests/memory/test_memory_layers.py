@@ -35,7 +35,7 @@ _STRESS_PHASE1 = json.dumps({
             "object_type": "concept",
             "fact_kind": "explicit_fact",
             "temporal_cue": "recent",
-            "polarity": "negative",
+            "polarity": "positive",
             "specificity": "concrete",
             "evidence_text": "I have been really stressed about work lately.",
             "confidence": 0.90,

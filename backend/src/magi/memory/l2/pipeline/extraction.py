@@ -157,6 +157,7 @@ def _empty_phase1_result_payload(
         "rejected_graph_candidate_count": 0,
         "summary_count": 0,
         "contradiction_hint_count": 0,
+        "degraded_stages": list(phase1_flow.phase1_result.diagnostics.get("degraded_stages", [])),
     }
 
 
@@ -325,7 +326,11 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         return await self._run_phase2_flow(batch, phase1_flow)
 
     def _record_extraction_decisions(self: Any, extraction_plan: L2ExtractionPlan) -> None:
+        self._stats.events_evaluated += len(extraction_plan.decisions)
+        self._stats.events_eligible += len(extraction_plan.eligible_decisions)
         for decision in extraction_plan.decisions:
+            if not decision.is_write_eligible:
+                self._increment_bucket(self._stats.eligibility_by_reason, decision.policy.skip_reason or "policy_ineligible")
             event = decision.event
             classification = decision.classification
             policy = decision.policy
@@ -378,17 +383,24 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         event, policy = primary_decision.event, primary_decision.policy
         eligible_events = self._eligible_event_tuples(extraction_plan)
         batch_event_ids = extraction_plan.batch_event_ids
-        context_messages, history_contexts = await self._load_batch_contexts(
-            event,
-            policy,
-            eligible_events,
-            batch_event_ids,
-        )
+        admitted_events = []
+        for item in eligible_events:
+            if await resolve_llm_extraction(item[0], getattr(self, "_promotion_counter", None)):
+                admitted_events.append(item)
+        self._stats.events_model_admitted += len(admitted_events)
+        if admitted_events:
+            event, classification, policy = admitted_events[-1]
+            context_messages, history_contexts = await self._load_batch_contexts(
+                event, policy, admitted_events, batch_event_ids,
+            )
+        else:
+            classification = primary_decision.classification
+            context_messages, history_contexts = [], []
         extraction_profile = self._resolve_batch_extraction_profile(event)
         self_entity_id = self._resolve_self_entity_id(event)
         event_window = await self._build_extraction_event_window(
             event=event,
-            eligible_events=eligible_events,
+            eligible_events=admitted_events,
             batch_event_ids=batch_event_ids,
             context_messages=context_messages,
             history_contexts=history_contexts,
@@ -406,7 +418,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         return _prepared_extraction_batch(
             job=job,
             event=event,
-            classification=primary_decision.classification,
+            classification=classification,
             policy=policy,
             eligible_events=eligible_events,
             batch_event_ids=batch_event_ids,
@@ -495,7 +507,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         batch_events = [item[0] for item in eligible_events]
         pinned_by_id = await self._fetch_pinned_payloads(batch_event_ids)
         return L2EventWindow(
-            event_ids=batch_event_ids,
+            event_ids=[item.event_id for item in batch_events],
             events=[self._serialize_event_for_batch(item) for item in batch_events],
             texts=resolve_window_texts(batch_events, pinned_by_id),
             context_texts=[
@@ -559,13 +571,9 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         self: Any,
         batch: _PreparedExtractionBatch,
     ) -> dict[str, Any] | None:
-        should_extract = await resolve_llm_extraction(
-            batch.stored_event,
-            getattr(self, "_promotion_counter", None),
-        )
-        if should_extract:
-            return None
         facet_count = await self._upsert_structured_facets(batch)
+        if batch.event_window.events:
+            return None
         logger.info(
             "L2 structured-only mode: skipped LLM phase1/2",
             event_id=batch.stored_event.event_id,
@@ -576,14 +584,15 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         return _structured_only_result(batch)
 
     async def _upsert_structured_facets(self: Any, batch: _PreparedExtractionBatch) -> int:
-        facet_candidates = self._build_structured_facet_candidates(
-            event=batch.stored_event,
-            evidence_event_ids=batch.batch_event_ids,
-        )
-        return await self._upsert_entity_facets(
-            facet_candidates,
-            projection_leases=batch.projection_leases,
-        )
+        written = 0
+        for event, _classification, _policy in batch.eligible_events:
+            candidates = self._build_structured_facet_candidates(
+                event=event, evidence_event_ids=[event.event_id],
+            )
+            written += await self._upsert_entity_facets(
+                candidates, projection_leases=batch.projection_leases,
+            )
+        return written
 
     async def _run_phase1_extraction(
         self: Any,
@@ -666,6 +675,8 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
             batch.event_window,
             context_messages=batch.context_messages,
         )
+        self._stats.claims_grounded += claim_grounding_stats["kept"]
+        self._stats.claims_rejected += (claim_grounding_stats["rejected"] + rejected_count + int(phase1_result.diagnostics.get("rejected_fact_claim_count", 0)))
         if claim_grounding_stats["rejected"] or claim_grounding_stats["rebound"]:
             logger.info(
                 "L2 Phase 1 claim evidence grounding applied",
@@ -715,14 +726,12 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         batch: _PreparedExtractionBatch,
         phase1_flow: _Phase1ExtractionFlow,
     ) -> dict[str, Any]:
-        facet_count = await self._upsert_structured_facets(batch)
         logger.info(
             "L2 Phase 1 returned empty result, skipping Phase 2",
             event_id=batch.stored_event.event_id,
             profile_id=batch.extraction_profile.profile_id,
             evidence_class=batch.classification.evidence_class,
             direct_write_count=batch.direct_write_count,
-            facet_count=facet_count,
         )
         return _empty_phase1_result_payload(batch, phase1_flow)
 

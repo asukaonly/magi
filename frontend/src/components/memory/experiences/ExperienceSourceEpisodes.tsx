@@ -5,7 +5,7 @@ import type {
   L2EpisodeEventPreview,
   L2EpisodeWithSummary,
 } from '@/api/modules/memory';
-import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import {
   formatEventTime,
   formatSourceLabel,
@@ -33,7 +33,7 @@ export function SourceEpisodeList({
         <div data-testid="experience-source-episodes" className="mt-3 grid gap-3">
           {chapters.map((chapter) => {
             const chapterEvents = chapter.episode_ids.flatMap((episodeId) => eventsByEpisode.get(episodeId) ?? []);
-            const range = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
+            const range = formatMemoryTimeRange(chapter.time_start, chapter.time_end, i18n.language);
             return (
               <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -71,7 +71,7 @@ export function SourceEpisodeList({
           );
           const rawSummary = getReadableSourceEpisodeSummary(episode, eventsByEpisode);
           const summary = rawSummary === title ? '' : rawSummary;
-          const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
+          const range = formatMemoryTimeRange(episode.time_start, episode.time_end, i18n.language);
           const episodeEvents = eventsByEpisode.get(episode.episode_id) ?? [];
           return (
             <article key={episode.episode_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">

@@ -28,6 +28,7 @@ from .embeddings import (
 from .queries import L2EntityCatalogQueryMixin
 from .source_event_governance import L2EntitySourceEventGovernanceMixin
 from ...ontology import coerce_unknown_entity_type
+from ..identity import normalized_entity_name
 from ...batch_models import L2ProjectionLease
 from ...projection.fencing import (
     assert_current_projection_attempt,
@@ -132,6 +133,7 @@ class L2EntityCatalog(
         entity_id: str,
         source_event_ids: Iterable[str] | None = None,
         projection_leases: Iterable[L2ProjectionLease] = (),
+        allow_rename: bool = False,
     ) -> str:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
@@ -153,6 +155,19 @@ class L2EntityCatalog(
             if source_event_ids is not None and not active_event_ids:
                 await db.commit()
                 return normalized_entity_id
+            async with db.execute(
+                "SELECT canonical_name, entity_type FROM entity_catalog WHERE entity_id = ?",
+                (normalized_entity_id,),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is not None and (
+                existing[1] != normalized_entity_type
+                or (
+                    normalized_entity_name(existing[0]) != normalized_entity_name(canonical_name)
+                    and not allow_rename
+                )
+            ):
+                raise ValueError("Entity identity already belongs to a different canonical name")
             if source_event_ids is None:
                 await db.execute(
                     """

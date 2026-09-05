@@ -23,10 +23,10 @@ from magi.scheduler import (
 async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_path):
     service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     handler = AsyncMock(side_effect=[
-        ScheduledExecutionResult(success=True, message="ok", next_cursor="accepted"),
+        ScheduledExecutionResult(success=True, message="ok", next_cursor="accepted", watermark_ts=100.0),
         ScheduledExecutionResult(
-            success=False, message="maintenance_failed", next_cursor="invalid",
-            stats={"error": "Storage unavailable"},
+            success=False, message="maintenance_failed", next_cursor="invalid", watermark_ts=999.0,
+            stats={"error": "Storage unavailable", "processed": 2},
         ),
     ])
     service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
@@ -44,9 +44,14 @@ async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_pa
         assert result.success is False
         assert executions[0]["status"] == "failed"
         assert executions[0]["error"] == "Storage unavailable"
+        assert executions[0]["stats"] == {"error": "Storage unavailable", "processed": 2}
+        assert executions[0]["next_cursor"] is None
+        assert executions[0]["watermark_ts"] is None
         assert state.last_error == "Storage unavailable"
         assert state.last_success_at == successful_state.last_success_at
         assert state.last_cursor == "accepted"
+        assert state.watermark_ts == 100.0
+        assert state.stats == {"error": "Storage unavailable", "processed": 2}
         assert state.running is False
     finally:
         await service.stop()
@@ -487,11 +492,15 @@ async def test_unschedule_clears_stale_target_errors(tmp_path):
     with pytest.raises(RuntimeError):
         await service.trigger_now("maintenance-error")
 
-    failed_state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
+    failed_state = await service.get_target_state(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global"
+    )
     assert failed_state.last_error == "boom"
 
     await service.unschedule("maintenance-error")
-    cleared_state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
+    cleared_state = await service.get_target_state(
+        ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global"
+    )
 
     assert cleared_state.last_error is None
     assert cleared_state.scheduler_job_id is None
@@ -930,4 +939,37 @@ async def test_system_handler_finishing_after_clear_cannot_restore_result_conten
         assert service._scheduler.get_job("system-maintenance-stale") is not None
     finally:
         release_handler.set()
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_failed_result_preserves_stats_without_marking_success(tmp_path):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+
+    async def handler(context):
+        return ScheduledExecutionResult(
+            success=False,
+            message="consolidation_partial_failure",
+            stats={"experiences_promoted": 1},
+        )
+
+    service.register_handler(ScheduledTargetType.MEMORY_L2_CONSOLIDATE, handler)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="partial",
+            target_type=ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+            target_key="global",
+            seconds=3600,
+            target_payload={},
+        )
+        await service.trigger_now("partial")
+        state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_CONSOLIDATE, "global")
+        assert state.last_error == "consolidation_partial_failure"
+        assert state.last_success_at is None
+        assert state.stats == {"experiences_promoted": 1}
+        executions = await service.repository.list_executions(schedule_id="partial", limit=1)
+        assert executions[0]["status"] == "failed"
+        assert executions[0]["stats"] == state.stats
+    finally:
         await service.stop()

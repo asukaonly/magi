@@ -47,7 +47,6 @@ from .config_update_paths import (
 from .config_response_builders import (
     build_llm_config_model as _build_llm_config_model,
     build_memory_config as _build_memory_config,
-    build_tools as _build_tools,
     load_full_personality as _load_full_personality,
 )
 from .config_schemas import (
@@ -163,7 +162,7 @@ def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
                 getattr(runtime_config.agent.personality, "enable_deep_persona", True)
             ),
         ).normalized(),
-        tools=_build_tools(raw, runtime_config),
+        skills=list(runtime_config.tools.skills),
         timeline=TimelineConfigModel(
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
         ),

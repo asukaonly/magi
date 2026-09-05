@@ -2921,6 +2921,35 @@
     }
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "暂时无法读取整理进度，请重试。",
+      "lastRun": "上次检查：{{time}}",
+      "modelUnavailable": "自动整理暂时受限，已有内容和待处理线索会继续保留。",
+      "request": "检查并整理",
+      "reasons": {
+        "loading": "正在读取整理进度…",
+        "disabled": "自动整理已关闭。",
+        "unavailable": "整理服务暂未就绪。",
+        "queued": "已安排整理，稍后开始。",
+        "running": "正在检查片段、形成经历并生成回顾…",
+        "partial_failure": "部分整理步骤失败，已有结果保留，可重试。",
+        "failed": "本次整理失败，可重试。",
+        "processing_events": "导入的记录仍在提取，经历线索可能尚未形成。",
+        "not_run": "还没有进行经历整理，可以先检查一次。",
+        "model_budget": "本轮整理已结束，还有部分线索等待处理。",
+        "ready": "本轮整理完成，结果已显示在下方或待确认列表。",
+        "insufficient_evidence": "目前没有足够连贯的线索形成新经历。"
+      }
+    },
+    "provenance": {
+      "user_confirmed": "你已确认",
+      "direct_report": "你直接说过",
+      "inferred": "根据行为推测",
+      "unknown": "依据尚未分类",
+      "sources": "{{count}} 条来源记录",
+      "behavior_recent": "根据近期活动推测，你可能关注「{{value}}」。",
+      "behavior_repeated": "根据多次活动推测，你可能关注「{{value}}」。"
+    },
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
@@ -2947,6 +2976,8 @@
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
       "summaryLabel": "记忆概况",
       "metrics": {
+        "sourceRecords": "原始记录",
+        "profileCandidates": "提取的信息（含待确认）",
         "totalMemories": "记忆总量",
         "understanding": "关于你的理解",
         "summaries": "回顾与总结",
@@ -3255,6 +3286,11 @@
       }
     },
     "pending": {
+      "loadMore": "继续加载{{section}}",
+      "loadFailed": "{{section}}加载失败，已加载的内容仍可查看。",
+      "actionFailed": "操作未完成，内容和选择已保留，请重试。",
+      "retry": "重试",
+      "loadSections": {"reviews": "待确认记忆", "assertions": "待确认判断", "stories": "总结", "seeds": "经历线索", "conflicts": "冲突"},
       "title": "待确认",
       "subtitle": "需要你判断的记忆线索都在这里。",
       "totalCount": "{{count}} 条",
@@ -3313,7 +3349,7 @@
       "planBatch": {
         "title": "哪些计划现在仍然有效？",
         "body": "选择仍然有效的计划。未选择的会继续保留在这里，不会被当作否定。",
-        "selectAll": "全选",
+        "selectAll": "选择已加载的计划",
         "clearSelection": "取消全选",
         "confirmSelected": "确认选中的 {{count}} 项",
         "selectLabel": "选择计划：{{value}}",

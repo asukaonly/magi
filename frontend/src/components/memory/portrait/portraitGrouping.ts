@@ -15,6 +15,9 @@ export interface PortraitDisplayItem {
   assertionId: string | null;
   updatedAt?: number | null;
   claimKind?: string | null;
+  evidenceBasis?: PortraitSelfViewItem['evidence_basis'];
+  expression?: PortraitSelfViewItem['expression'];
+  basisCount?: number;
 }
 
 export interface PortraitWorldGroup {
@@ -63,6 +66,9 @@ const displayItem = (item: PortraitSelfViewItem): PortraitDisplayItem => {
     assertionId: item.assertion_id,
     updatedAt: item.updated_at ?? null,
     claimKind: item.claim_kind ?? null,
+    evidenceBasis: item.evidence_basis,
+    expression: item.expression,
+    basisCount: item.basis_count,
   };
 };
 
@@ -79,7 +85,7 @@ export const buildPortraitViewModel = (selfView: PortraitSelfView): PortraitView
         .map(displayItem);
       // A group whose items were all profile projections loses its summary too
       // (summaries are stitched from those same items server-side).
-      const summary = rawItems.length > 0 && items.length === 0 ? '' : group?.summary ?? '';
+      const summary = (rawItems.length > 0 && items.length === 0) || items.some((item) => item.expression) ? '' : group?.summary ?? '';
       return { id, summary, items };
     }),
     recentItems: selfView.recent.items.map(displayItem),

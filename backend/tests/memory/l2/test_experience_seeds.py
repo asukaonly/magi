@@ -595,8 +595,11 @@ async def test_default_selection_rejects_generic_only_candidate(l2_store_with_sc
 
 
 @pytest.mark.asyncio
-async def test_limited_selector_falls_back_after_budget():
-    from magi.memory.l2.experiences.promotion import _limit_selector_calls
+async def test_limited_selector_defers_after_budget():
+    from magi.memory.l2.experiences.promotion import (
+        _limit_selector_calls,
+        ExperienceSelectionDeferred,
+    )
     from magi.memory.l2.experiences.seed_selection import select_experience_from_seed
 
     calls: list[str] = []
@@ -644,12 +647,39 @@ async def test_limited_selector_falls_back_after_budget():
         selector=limited,
     )
     second_seed = {**seed, "seed_id": "seed2"}
-    second = await select_experience_from_seed(
-        seed=second_seed,
-        evidence_pack={**evidence_pack, "seed": second_seed},
-        selector=limited,
-    )
+    with pytest.raises(ExperienceSelectionDeferred):
+        await select_experience_from_seed(
+            seed=second_seed,
+            evidence_pack={**evidence_pack, "seed": second_seed},
+            selector=limited,
+        )
 
     assert calls == ["seed1"]
     assert first.title == "LLM selected"
-    assert second.title == "Local fallback"
+
+
+@pytest.mark.asyncio
+async def test_exhausted_budget_keeps_seed_accepted(l2_store_with_schema):
+    from magi.memory.l2.experiences.promotion import _promote_single_seed, _limit_selector_calls
+    from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-budget",
+        status="active",
+        label="東京旅行",
+        time_start=100,
+        time_end=200,
+        primary_entity_ids=["place:tokyo"],
+    )
+    seed_id = await discover_manual_experience_seed(store, episode_id="ep-budget", title="東京旅行")
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    outcome = await _promote_single_seed(
+        store,
+        seed=seed,
+        selector=_limit_selector_calls(lambda *_: {}, max_selector_calls=0),
+        existing_sets=[],
+    )
+    assert outcome.deferred == 1
+    assert outcome.rejected == 0
+    assert (await store.get_experience_seed(seed_id=seed_id))["status"] == "accepted"

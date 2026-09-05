@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Awaitable, Callable, Protocol
 
 from ....core.logger import get_logger
@@ -115,6 +116,7 @@ class L2PipelineWorkerMixin:
         heartbeat_task: asyncio.Task[None] | None = None
         lease_lost = asyncio.Event()
         host._stats.extract_active += 1
+        started = time.monotonic()
         try:
             should_process = await self._start_extract_job(job)
             if not should_process:
@@ -145,6 +147,7 @@ class L2PipelineWorkerMixin:
             await self._fail_extract_job(job, exc)
         finally:
             await self._stop_projection_heartbeat(heartbeat_task)
+            host._stats.extract_duration_seconds += time.monotonic() - started
             host._stats.extract_active = max(host._stats.extract_active - 1, 0)
 
     async def _start_extract_job(self, job: L2BatchJob) -> bool:
@@ -297,6 +300,10 @@ class L2PipelineWorkerMixin:
     ) -> None:
         host = self._worker_host()
         host._stats.extract_completed += 1
+        for action, count in result.get("materialization_by_action", {}).items():
+            host._stats.materialization_by_action[action] = host._stats.materialization_by_action.get(action, 0) + int(count)
+        for stage in result.get("degraded_stages", []):
+            host._stats.degraded_by_stage[stage] = host._stats.degraded_by_stage.get(stage, 0) + 1
         self._log_extract_result(job, result)
         host._stats.relations_written += int(result["relation_count"])
         host._stats.assertions_written += int(result["assertion_count"])

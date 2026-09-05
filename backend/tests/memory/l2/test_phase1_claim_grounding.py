@@ -463,7 +463,7 @@ def test_history_document_keeps_unambiguous_author_prose(
     assert result.fact_claims[0].supporting_event_ids == ["evt-history"]
 
 
-def test_non_document_event_keeps_existing_markdown_grounding_behavior() -> None:
+def test_non_document_quote_cannot_be_promoted_as_self_report() -> None:
     result = L2Phase1Result(fact_claims=[_claim(evidence_text="我很喜欢 DIIV。")])
 
     stats = ground_phase1_fact_claims(
@@ -474,8 +474,8 @@ def test_non_document_event_keeps_existing_markdown_grounding_behavior() -> None
         ),
     )
 
-    assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
-    assert result.fact_claims[0].supporting_event_ids == ["evt-history"]
+    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+    assert result.fact_claims == []
 
 
 def test_ground_phase1_claim_rejects_ungrounded_multi_event_claim() -> None:
@@ -650,3 +650,43 @@ def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
 
     assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
     assert result.fact_claims == []
+
+
+@pytest.mark.parametrize("text,scope", [
+    ("午饭吃了螺蛳粉，比上次好吃", "one_off"),
+    ("这家螺蛳粉味道不错", "one_off"),
+    ("今天想吃螺蛳粉", "one_off"),
+    ("我喜欢螺蛳粉", "unspecified"),
+    ("我好喜欢螺蛳粉", "unspecified"),
+    ("我喜欢早餐吃螺蛳粉", "unspecified"),
+    ("最近我喜欢螺蛳粉", "recent"),
+])
+def test_preference_scope_is_grounded_in_actual_statement(text, scope):
+    payload = {"fact_claims": [{
+        "subject_ref": "user:self", "predicate": "LIKES", "object_ref": "螺蛳粉",
+        "object_type": "food", "fact_kind": "stable_preference", "temporal_cue": "stable",
+        "evidence_text": text, "supporting_event_ids": ["evt-scope"],
+    }]}
+    window = _window(("evt-scope", text))
+    normalize_phase1_claim_contract(payload, window)
+    result = L2Phase1Result.from_dict(payload)
+    assert ground_phase1_fact_claims(result, window)["kept"] == 1
+    claim = result.fact_claims[0]
+    assert claim.temporal_cue == scope
+    if scope == "one_off":
+        assert claim.fact_kind == "explicit_fact"
+
+
+@pytest.mark.parametrize("text,kept", [
+    ("我喜欢 DIIV，你推荐什么？", 1),
+    ("我喜欢 DIIV 吗？", 0),
+    ("如果我喜欢 DIIV，你推荐什么？", 0),
+    ("假设可以自由选择，我喜欢 DIIV，你推荐什么？", 0),
+    ('他说“我喜欢 DIIV”，你推荐什么？', 0),
+])
+def test_chat_grounding_requires_asserted_clause(text, kept):
+    window = L2EventWindow(events=[L2BatchEvent(
+        event_id="evt-mixed", content=text, author_type="user", event_type="UserMessage",
+    )])
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我喜欢 DIIV")])
+    assert ground_phase1_fact_claims(result, window)["kept"] == kept

@@ -403,6 +403,33 @@ class L2GroundedClaimStoreMixin:
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
 
+    async def get_claim_quality_counts(self, *, user_id: str) -> dict[str, Any]:
+        """Count active Claims and their latest route decisions, excluding replay history."""
+        host = cast(_GroundedClaimHostProtocol, self)
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path) as db:
+            async with db.execute("SELECT COUNT(*) FROM l2_grounded_claims WHERE user_id = ? AND availability = 'active'", (user_id,)) as cursor:
+                grounded = int((await cursor.fetchone())[0])
+            async with db.execute("""
+                WITH ranked AS (
+                    SELECT o.outcome, o.reason_code,
+                        ROW_NUMBER() OVER (PARTITION BY o.claim_id ORDER BY o.created_at DESC, o.outcome_id DESC) AS rank
+                    FROM l2_claim_projection_outcomes o
+                    JOIN l2_grounded_claims c ON c.claim_id = o.claim_id
+                    WHERE c.user_id = ? AND c.availability = 'active'
+                        AND o.target_kind = 'route' AND o.invalidated_at IS NULL
+                )
+                SELECT outcome, reason_code, COUNT(*) FROM ranked WHERE rank = 1
+                GROUP BY outcome, reason_code
+                """, (user_id,)) as cursor:
+                rows = await cursor.fetchall()
+        by_disposition: dict[str, int] = {}
+        by_reason: dict[str, int] = {}
+        for outcome, reason, count in rows:
+            by_disposition[outcome] = by_disposition.get(outcome, 0) + int(count)
+            by_reason[reason or 'unspecified'] = by_reason.get(reason or 'unspecified', 0) + int(count)
+        return {'grounded_claims': grounded, 'routed_claims': sum(by_disposition.values()), 'route_by_disposition': by_disposition, 'route_by_reason': by_reason}
+
     async def list_grounded_claims(
         self,
         *,

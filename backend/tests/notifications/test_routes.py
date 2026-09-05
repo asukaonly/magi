@@ -90,3 +90,14 @@ def test_dismiss_all_clears_feed(tmp_path):
     assert r.status_code == 200
     assert r.json()["dismissed"] == 2
     assert store.list_for_user("default_user") == []
+
+
+def test_conflict_filter_precedes_page_and_total(tmp_path):
+    client, store = _client(tmp_path)
+    for i in range(65):
+        store.insert(NotificationRow(user_id="default_user", kind="suggestion", dedupe_key=f"profile_conflict:{i}",
+                                     title="conflict", body="evidence", payload_json='{"conflict_type":"profile_conflict"}', created_at_ms=i))
+    page = client.get("/notifications?profile_conflicts_only=true&offset=50&limit=25").json()
+    assert page["total"] == 65
+    assert len(page["items"]) == 15
+    assert all(item["payload"]["conflict_type"] == "profile_conflict" for item in page["items"])

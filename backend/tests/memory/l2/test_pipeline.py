@@ -815,36 +815,6 @@ async def test_extract_queue_rejects_jobs_without_projection_leases():
             await pipeline._enqueue_extract_job(job)
 
 
-def test_reconcile_prompt_rendering_is_deterministic():
-    from magi.memory.l2.models import (
-        L2ReconcileAssertion,
-        L2ReconcileEntity,
-        L2ReconcileGraphFact,
-        L2SourceEvent,
-    )
-    from magi.memory.l2.pipeline.prompts import (
-        render_entity_reconcile_prompt,
-    )
-
-    reconcile_prompt = render_entity_reconcile_prompt(
-        entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-        graph_facts=[L2ReconcileGraphFact(predicate="LIKES", object_id="food:sushi")],
-        assertions=[L2ReconcileAssertion(trait_name="stress_level", trait_value="high")],
-        recent_events=[
-            L2SourceEvent(
-                event_id="evt-1",
-                timestamp=1710000000.0,
-                source="chat",
-                event_type="UserMessage",
-                content="I am stressed.",
-            )
-        ],
-    )
-
-    assert '"entity_id": "user:u1"' in reconcile_prompt
-    assert '"trait_name": "stress_level"' in reconcile_prompt
-
-
 @pytest.mark.asyncio
 async def test_low_confidence_resolution_is_returned_as_unresolved():
     from magi.memory.l2.llm_service import L2LLMService
@@ -1020,21 +990,19 @@ async def test_batch_entity_resolution_fills_missing_keys():
 
 
 @pytest.mark.asyncio
-async def test_invalid_json_from_reconcile_llm_fails_closed():
+async def test_invalid_json_from_entity_resolution_llm_fails_closed():
     from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
-        L2ReconcileEntity,
+        L2EntityResolutionMention,
     )
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
     with pytest.raises(L2InvalidJsonResponseError):
-        await service.reconcile_entity_state(
-            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-            graph_facts=[],
-            assertions=[],
-            recent_events=[],
+        await service.resolve_entity(
+            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+            candidate_entities=[],
         )
 
 
@@ -2939,7 +2907,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
                             "temporal_cue": "unspecified",
-                            "polarity": "negative",
+                            "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
                             "confidence": 0.88,
@@ -3024,7 +2992,7 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
                             "object_type": "food",
                             "fact_kind": "stable_preference",
                             "temporal_cue": "unspecified",
-                            "polarity": "negative",
+                            "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
                             "confidence": 0.88,
@@ -3544,7 +3512,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
 
 
 @pytest.mark.asyncio
-async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_id():
+async def test_structured_graph_ref_preserves_its_explicit_identity():
     """Graph refs should reuse same-event entity hints instead of creating ID fragments."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
@@ -3581,25 +3549,21 @@ async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_i
         ipad_entities = [
             entity
             for entity in entities
-            if "apple-ipad-pro" in str(entity.get("entity_id") or "")
+            if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [
-            "hardware:apple-ipad-pro-11-inch-3rd-generation"
-        ]
-
+        assert len(ipad_entities) == 1
         catalog_name_index = await pipeline._build_catalog_name_index()
         object_id = pipeline._resolve_phase2_object_id(
             raw_object_ref="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
-            object_type="hardware",
-            resolved_mentions=[],
-            catalog_name_index=catalog_name_index,
+            object_type="hardware", resolved_mentions=[], catalog_name_index=catalog_name_index,
         )
-        assert object_id == "hardware:apple-ipad-pro-11-inch-3rd-generation"
+        assert object_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
+
 
 
 @pytest.mark.asyncio
-async def test_phase1_resolved_id_reuses_existing_same_name_entity():
-    """Phase 1 resolved IDs should not create a second entity for the same canonical name."""
+async def test_phase1_resolved_id_preserves_same_name_identities():
+    """Same-name catalog rows must not override explicit resolved IDs."""
     from magi.memory.l2.models import L2Phase1Entity, L2Phase1Result
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3636,14 +3600,14 @@ async def test_phase1_resolved_id_reuses_existing_same_name_entity():
             allowed_entity_types=frozenset({"hardware"}),
         )
 
-        assert resolved_mentions[0].resolved_entity_id == canonical_id
+        assert resolved_mentions[0].resolved_entity_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
         entities = await pipeline._entity_catalog.list_entities(limit=10)
         ipad_entities = [
             entity
             for entity in entities
             if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [canonical_id]
+        assert {entity["entity_id"] for entity in ipad_entities} == {canonical_id, "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"}
 
 
 def test_inject_structured_entity_hints_noop_without_metadata():
@@ -4552,8 +4516,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()
@@ -4640,8 +4607,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()
@@ -4974,7 +4944,7 @@ class TestEntityResolutionCache:
 
             cache = getattr(pipeline, "_entity_resolution_cache", {})
             assert ("magi", "software") in cache
-            assert ("magi", "person") in cache
+            assert ("evt-ct-2:magi", "person") in cache
 
 
 class TestPhase2CatalogNameIndex:

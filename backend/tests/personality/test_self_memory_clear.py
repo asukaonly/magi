@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import aiosqlite
 import pytest
 
 from _shared.sqlite_privacy import assert_sqlite_fragment_absent
-from magi.personality.behavior_evolution import BehaviorEvolutionEngine
 from magi.personality.emotional_state import EmotionalStateEngine
 from magi.personality.growth_memory import GrowthMemoryEngine
 from magi.personality.loader import PersonalityConfig
@@ -61,6 +61,7 @@ async def _table_count(path: Path, table_name: str) -> int:
 @pytest.mark.asyncio
 async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     private_markers = {
         "behavior": "magi-behavior-private-marker-that-must-not-survive",
@@ -105,22 +106,25 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
         """,
     )
 
-    behavior = BehaviorEvolutionEngine(str(behavior_path), persona_id="a")
     emotion = EmotionalStateEngine(str(emotional_path), persona_id="a")
     growth = GrowthMemoryEngine(str(growth_path), persona_id="a")
-    behavior._cache["chat"] = object()  # type: ignore[assignment]
-    behavior._stats_cache["chat"] = object()  # type: ignore[assignment]
     emotion._current_state = EmotionalState(current_mood="happy")
     emotion._event_history.append(object())  # type: ignore[arg-type]
     growth._relationship_cache["user-a"] = object()  # type: ignore[assignment]
     growth._milestone_cache = [object()]  # type: ignore[list-item]
 
     config = PersonalityConfig(name="kept-persona")
+    monkeypatch.setattr(
+        "magi.personality.self_memory.get_runtime_paths",
+        lambda: SimpleNamespace(
+            self_memory_db_path=tmp_path / "self_memory.db",
+            behavior_db_path=behavior_path,
+        ),
+    )
     self_memory = SelfMemory(
         personality_name="kept-persona",
         personality_config=config,
     )
-    self_memory._behavior_engine = behavior
     self_memory._emotion_engine = emotion
     self_memory._growth_engine = growth
 
@@ -128,8 +132,6 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
 
     assert deleted == 12
     assert self_memory._personality_config is config
-    assert behavior._cache == {}
-    assert behavior._stats_cache == {}
     assert emotion._current_state is not None
     assert emotion._current_state.current_mood == "neutral"
     assert emotion._event_history == []
@@ -156,6 +158,29 @@ async def test_clear_learned_state_removes_all_persona_rows_and_caches(
     assert_sqlite_fragment_absent(behavior_path, private_markers["behavior"])
     assert_sqlite_fragment_absent(emotional_path, private_markers["emotion"])
     assert_sqlite_fragment_absent(growth_path, private_markers["growth"])
+    assert await self_memory.clear_learned_state() == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_learned_state_does_not_create_historical_behavior_database(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    behavior_path = tmp_path / "missing" / "behavior.db"
+    monkeypatch.setattr(
+        "magi.personality.self_memory.get_runtime_paths",
+        lambda: SimpleNamespace(
+            self_memory_db_path=tmp_path / "self_memory.db",
+            behavior_db_path=behavior_path,
+        ),
+    )
+    self_memory = SelfMemory(
+        personality_name="kept-persona",
+        personality_config=PersonalityConfig(name="kept-persona"),
+    )
+
+    assert await self_memory.clear_learned_state() == 0
+    assert not behavior_path.parent.exists()
 
 
 @pytest.mark.asyncio

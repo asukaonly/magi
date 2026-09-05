@@ -13,7 +13,6 @@ from ...config.llm_registry import (
 from ...config.models import LLMCapabilitiesSettings
 from ...core.logger import get_logger
 from .config_schemas import (
-    BuiltInToolsConfigModel,
     CrossEncoderConfigModel,
     EmbeddingConfigModel,
     EmbeddingLocalConfigModel,
@@ -35,10 +34,6 @@ from .config_schemas import (
     MemoryL4ConfigModel,
     MemoryRerankerConfigModel,
     QueryExpansionConfigModel,
-    ToolsConfigModel,
-    WeatherToolConfigModel,
-    WebFetchToolConfigModel,
-    WebSearchToolConfigModel,
 )
 from .config_update_paths import selection_limits_from_registry_limits
 
@@ -151,47 +146,6 @@ def _build_memory_l4_config(memory_cfg: Any) -> MemoryL4ConfigModel:
         vectors_enabled=memory_cfg.l4.vectors_enabled,
         inactive_skill_retention_days=memory_cfg.l4.inactive_skill_retention_days,
         inactive_skill_min_attempts=memory_cfg.l4.inactive_skill_min_attempts,
-    )
-
-
-def build_tools(raw: Dict[str, Any], runtime_config: Any) -> ToolsConfigModel:
-    tools_raw = raw.get("tools", {}) if isinstance(raw.get("tools"), dict) else {}
-    built_in = tools_raw.get("builtIn", {}) if isinstance(tools_raw.get("builtIn"), dict) else {}
-
-    weather_runtime = runtime_config.tools.weather
-    web_search_runtime = runtime_config.tools.web_search
-    web_fetch_runtime = runtime_config.tools.web_fetch
-
-    weather_provider = built_in.get("weather", {}).get("provider", weather_runtime.default_provider)
-    weather_provider_cfg = weather_runtime.providers.get(weather_provider)
-
-    web_search_provider = built_in.get("webSearch", {}).get(
-        "provider", web_search_runtime.default_provider
-    )
-    web_search_provider_cfg = web_search_runtime.providers.get(web_search_provider)
-
-    return ToolsConfigModel(
-        builtIn=BuiltInToolsConfigModel(
-            weather=WeatherToolConfigModel(
-                enabled=weather_runtime.enabled,
-                provider=weather_provider,
-                apiKey=(weather_provider_cfg.api_key if weather_provider_cfg else None),
-                apiUrl=(weather_provider_cfg.base_url if weather_provider_cfg else None),
-            ),
-            webSearch=WebSearchToolConfigModel(
-                enabled=web_search_runtime.enabled,
-                provider=web_search_provider,
-                apiKey=(web_search_provider_cfg.api_key if web_search_provider_cfg else None),
-                apiUrl=(web_search_provider_cfg.base_url if web_search_provider_cfg else None),
-            ),
-            webFetch=WebFetchToolConfigModel(
-                enabled=web_fetch_runtime.enabled,
-                allowRfc2544BenchmarkRange=(web_fetch_runtime.allow_rfc2544_benchmark_range),
-                allowPrivateNetworkFetch=web_fetch_runtime.allow_private_network,
-                privateNetworkAllowlist=list(web_fetch_runtime.private_network_allowlist),
-            ),
-        ),
-        skills=tools_raw.get("skills", []),
     )
 
 
@@ -438,6 +392,5 @@ def _build_chat_selection_config(
 __all__ = [
     "build_llm_config_model",
     "build_memory_config",
-    "build_tools",
     "load_full_personality",
 ]

@@ -216,7 +216,7 @@ const dashboardPayload = {
     },
   ],
   processing_backlog: { total_pending: 3, all_idle: false },
-  deltas: { today: { total_memories: 42, l1_events: 31, l2_assertions: 8, l3_summaries: 3, disk_usage_bytes: null } },
+  deltas: { today: { stored_records: 42, l1_events: 31, l2_assertions: 8, l3_summaries: 3, disk_usage_bytes: null } },
   attention: { pending_assertions: 0, open_circuit_breakers: 0 },
   pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
 };

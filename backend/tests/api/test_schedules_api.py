@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -207,7 +206,7 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
             manual=True,
             started_at=1710000000.0,
         )
-        await repository.complete_execution_success(
+        await repository.complete_execution_result(
             execution_id,
             result=ScheduledExecutionResult(
                 success=True,
@@ -243,4 +242,3 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
 # the test exercised that deliberately-reverted Python route. (The leftover
 # Python /activity handler still references the dropped repository method —
 # tracked separately as dead code.)
-

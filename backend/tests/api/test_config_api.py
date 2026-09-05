@@ -710,46 +710,28 @@ def test_build_system_config_masks_llm_api_keys_by_default(
 def test_system_config_secrets_are_write_only_with_keep_replace_delete_semantics():
     config = SystemConfigModel()
     config.network.password = "proxy-secret"
-    config.tools.builtIn.weather.apiKey = "weather-secret"
-    config.tools.builtIn.webSearch.apiKey = "search-secret"
 
     masked = mask_system_config_secrets(config)
 
     assert masked.network.password == "***"
-    assert masked.tools.builtIn.weather.apiKey == "***"
-    assert masked.tools.builtIn.webSearch.apiKey == "***"
     assert config.network.password == "proxy-secret"
 
     runtime = SimpleNamespace(
         llm=SimpleNamespace(providers={}),
         network=SimpleNamespace(password="proxy-secret"),
-        tools=SimpleNamespace(
-            weather=SimpleNamespace(
-                providers={"openmeteo": SimpleNamespace(api_key="weather-secret")}
-            ),
-            web_search=SimpleNamespace(
-                providers={"duckduckgo": SimpleNamespace(api_key="search-secret")}
-            ),
-        ),
     )
     kept = normalize_masked_secrets(masked, runtime)
     assert kept.network.password == "proxy-secret"
-    assert kept.tools.builtIn.weather.apiKey == "weather-secret"
-    assert kept.tools.builtIn.webSearch.apiKey == "search-secret"
 
     replaced = masked.model_copy(deep=True)
     replaced.network.password = "rotated-proxy-secret"
-    replaced.tools.builtIn.weather.apiKey = "rotated-weather-secret"
     normalized_replacement = normalize_masked_secrets(replaced, runtime)
     assert normalized_replacement.network.password == "rotated-proxy-secret"
-    assert normalized_replacement.tools.builtIn.weather.apiKey == "rotated-weather-secret"
 
     cleared = masked.model_copy(deep=True)
     cleared.network.password = ""
-    cleared.tools.builtIn.weather.apiKey = ""
     normalized_clear = normalize_masked_secrets(cleared, runtime)
     assert normalized_clear.network.password == ""
-    assert normalized_clear.tools.builtIn.weather.apiKey == ""
 
 
 def test_masked_llm_settings_override_restores_backend_owned_keys():
@@ -1932,7 +1914,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     client = TestClient(app)
     current = _remote_embedding_config()
     proposed = current.model_copy(deep=True)
-    proposed.tools.builtIn.webFetch.enabled = not current.tools.builtIn.webFetch.enabled
+    proposed.preferences.close_to_tray_enabled = not current.preferences.close_to_tray_enabled
 
     def unexpected_manager():
         raise AssertionError("Unrelated settings must not pause embedding rebuilds")
@@ -1966,17 +1948,6 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     response = client.put("/config/", json=proposed.model_dump(mode="json"))
 
     assert response.status_code == 200
-
-
-def test_fake_ip_compatibility_defaults_on_and_can_be_disabled_separately() -> None:
-    config = SystemConfigModel()
-    assert config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange is True
-    config.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = False
-
-    updates = _build_update_paths(config)
-
-    assert updates["tools.web_fetch.allow_rfc2544_benchmark_range"] is False
-    assert updates.get("tools.web_fetch.allow_private_network", False) is False
 
 
 def test_embedding_config_save_failure_still_resumes_rebuild_starts(
@@ -2207,10 +2178,10 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     client = TestClient(app)
 
     payload = SystemConfigModel()
-    payload.tools.builtIn.webFetch.enabled = False
+    payload.preferences.close_to_tray_enabled = False
     expected_updates = {
         "agent.memory.l0.enabled": False,
-        "tools.web_fetch.enabled": False,
+        "preferences": {"close_to_tray_enabled": False},
     }
     captured_updates: dict[str, object] = {}
 
@@ -2221,7 +2192,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     refreshed_config = object()
     returned_config = SystemConfigModel()
     returned_config.memory.l0.enabled = False
-    returned_config.tools.builtIn.webFetch.enabled = False
+    returned_config.preferences.close_to_tray_enabled = False
 
     monkeypatch.setattr(
         "magi.api.routers.config._build_update_paths", lambda config: expected_updates
@@ -2246,7 +2217,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     assert response.status_code == 200
     assert captured_updates == expected_updates
     assert response.json()["data"]["memory"]["l0"]["enabled"] is False
-    assert response.json()["data"]["tools"]["builtIn"]["webFetch"]["enabled"] is False
+    assert response.json()["data"]["preferences"]["close_to_tray_enabled"] is False
 
 
 def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(

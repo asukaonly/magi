@@ -115,7 +115,7 @@ async def test_pipeline_abort_drops_job_waiting_behind_clear() -> None:
 async def test_pipeline_reset_discards_resolution_cache_and_session_state() -> None:
     pipeline = L2Pipeline(None)
     pipeline._entity_catalog = object()  # type: ignore[assignment]
-    pipeline._entity_resolution_cache[("private", "person")] = (
+    pipeline._entity_resolution_cache[("event-new:private", "person")] = (
         "person:old",
         0.99,
     )
@@ -151,7 +151,7 @@ async def test_pipeline_reset_discards_resolution_cache_and_session_state() -> N
         entity_type="person",
         mention_text="private",
         mention_confidence=0.8,
-        event=SimpleNamespace(content="", source="test"),
+        event=SimpleNamespace(event_id="event-new", content="", source="test"),
         source_event_ids=["event-new"],
     )
 

@@ -93,6 +93,7 @@ class ExperiencePromotionStats:
     promoted: int = 0
     skipped_duplicates: int = 0
     rejected: int = 0
+    deferred: int = 0
     promoted_experience_ids: list[str] = field(default_factory=list)
 
 

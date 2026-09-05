@@ -50,8 +50,7 @@ class AgentRun:
     """The active execution state for one chat session.
 
     Live user messages wait in ``pending_turns`` until the loop reaches a safe
-    boundary. Generic ``IncomingEvent`` values are run triggers, not another
-    process-local input queue.
+    boundary. The separate ``trigger`` field preserves the run origin.
     """
 
     session_id: str

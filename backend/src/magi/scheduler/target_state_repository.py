@@ -94,7 +94,7 @@ class SchedulerTargetStateRepositoryMixin:
             await db.commit()
             return cursor.rowcount == 1
 
-    async def record_target_success(
+    async def record_target_result(
         self,
         target_type: ScheduledTargetType,
         target_key: str,
@@ -108,18 +108,22 @@ class SchedulerTargetStateRepositoryMixin:
                 """
                 UPDATE target_state
                 SET running = 0,
-                    last_success_at = ?,
-                    last_error = NULL,
-                    last_cursor = ?,
-                    watermark_ts = ?,
+                    last_success_at = CASE WHEN ? THEN ? ELSE last_success_at END,
+                    last_error = ?,
+                    last_cursor = CASE WHEN ? THEN ? ELSE last_cursor END,
+                    watermark_ts = CASE WHEN ? THEN ? ELSE watermark_ts END,
                     scheduler_job_id = ?,
                     stats_json = ?,
                     updated_at = ?
                 WHERE target_type = ? AND target_key = ?
                 """,
                 (
+                    int(result.success),
                     now,
+                    None if result.success else str(result.stats.get("error") or result.message or "Scheduled execution failed"),
+                    int(result.success),
                     result.next_cursor,
+                    int(result.success),
                     result.watermark_ts,
                     scheduler_job_id,
                     json.dumps(result.stats, ensure_ascii=False),

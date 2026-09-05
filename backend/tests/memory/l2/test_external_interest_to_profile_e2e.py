@@ -13,7 +13,6 @@ import pytest
 from magi.events.events import EventLevel
 from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
 
-from .test_derived_assertion_rules import _EvidenceEventStore
 from .test_pipeline import _FakeAdapter, _FakeScenarioPool, UnifiedMemoryStore
 
 
@@ -89,11 +88,12 @@ async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
         )
         await store.initialize()
         try:
+            now = time.time()
             ingest_result = await store.ingest_event(
                 {
                     "id": "evt-ext-interest-1",
                     "type": "SENSOR_EVENT",
-                    "timestamp": time.time(),
+                    "timestamp": now - 2 * 86_400,
                     "source": "chrome_history",
                     "level": EventLevel.INFO.value,
                     "data": {
@@ -114,27 +114,37 @@ async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
             first_edge = relationships[0]
 
             for index in range(2):
+                event_id = f"evt-ext-interest-extra-{index + 1}"
+                observed_at = now - (1 - index) * 86_400
+                await store.l1.store(store._normalize_event({
+                    "id": event_id,
+                    "type": "SENSOR_EVENT",
+                    "timestamp": observed_at,
+                    "source": "chrome_history",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "content": ["read rock climbing route guides", "read rock climbing technique tutorials"][index],
+                        "author_type": "external",
+                        "content_type": "observation",
+                        "source_item_id": f"web:{event_id}",
+                    },
+                }))
                 await store.l2.upsert_knowledge_edge(
                     subject_id="user:u1",
                     subject_type="user",
                     predicate="INTERESTED_IN",
                     object_id=first_edge["object_id"],
                     object_type=first_edge["object_type"],
-                    evidence_event_ids=[f"evt-ext-interest-extra-{index + 1}"],
+                    evidence_event_ids=[event_id],
                     confidence=0.7,
-                    observed_at=time.time() + (index + 1) * 86_400,
+                    observed_at=observed_at,
                     source_type="chrome_history",
                 )
 
             agg_stats = await aggregate_interests(
                 store.l2,
-                l1_store=_EvidenceEventStore(
-                    {
-                        "evt-ext-interest-1": time.time() - 2 * 86_400,
-                        "evt-ext-interest-extra-1": time.time() - 86_400,
-                        "evt-ext-interest-extra-2": time.time(),
-                    }
-                ),
+                l1_store=store.l1,
                 entity_id="user:u1",
                 min_observations=3,
             )

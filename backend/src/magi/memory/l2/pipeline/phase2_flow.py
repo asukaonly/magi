@@ -18,6 +18,7 @@ from ..assertions.occurrence_stats import (
     load_routed_claim_occurrence_stats,
 )
 from ..claims.outcomes import ClaimTargetOutcomeContext
+from ..factual_rendering import render_grounded_fact
 from ..llm_json_client import L2LLMJsonError
 from ..phase1_models import L2Phase1FactClaim
 from ..reviews import PendingReviewProposal
@@ -123,13 +124,9 @@ def _validated_summary_by_key(
 
 
 def _summary_is_grounded(text: str, claims: list[L2Phase1FactClaim]) -> bool:
-    normalized_text = "".join(text.casefold().split())
-    anchors = {
-        "".join(str(claim.object_ref or "").casefold().split())
-        for claim in claims
-        if str(claim.object_ref or "").strip()
-    }
-    return bool(anchors and any(anchor in normalized_text for anchor in anchors))
+    # Object overlap cannot establish entailment. Accept only host-owned wording.
+    expected = {render_grounded_fact(claim) for claim in claims}
+    return bool(text and expected == {text})
 
 
 def _materialization_outcomes(
@@ -357,10 +354,7 @@ class L2Phase2FlowMixin:
         relation_count, _facet_count, assertion_count = await self._persist_extraction_outputs(
             graph_candidates=graph_candidates,
             direct_write_candidates=batch.direct_write_candidates,
-            facet_candidates=self._build_structured_facet_candidates(
-                event=batch.stored_event,
-                evidence_event_ids=batch.batch_event_ids,
-            ),
+            facet_candidates=[],
             assertion_candidates=assertion_candidates,
             contradiction_hints=[],
             attempt_key=batch.attempt_key,

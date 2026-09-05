@@ -12,6 +12,8 @@ import { THEME_MODE_OPTIONS, type ThemeMode } from '@/stores/theme';
 
 interface SettingsPreferencesSectionProps {
   draftConfig: SystemConfig;
+  fakeIpCompatibilityEnabled: boolean | undefined;
+  onFakeIpCompatibilityChange: (enabled: boolean) => void;
   draftThemeMode: ThemeMode;
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   onThemePreviewChange: (mode: ThemeMode) => void;
@@ -28,11 +30,13 @@ function PreferenceToggleRow({
   label,
   description,
   checked,
+  disabled = false,
   onCheckedChange,
 }: {
   label: string;
   description?: string;
   checked: boolean;
+  disabled?: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
@@ -48,6 +52,7 @@ function PreferenceToggleRow({
       <Switch
         aria-label={label}
         checked={checked}
+        disabled={disabled}
         onCheckedChange={onCheckedChange}
         className={settingsSwitchClassName}
       />
@@ -57,6 +62,8 @@ function PreferenceToggleRow({
 
 export function SettingsPreferencesSection({
   draftConfig,
+  fakeIpCompatibilityEnabled,
+  onFakeIpCompatibilityChange,
   draftThemeMode,
   patchDraftConfig,
   onThemePreviewChange,
@@ -248,10 +255,9 @@ export function SettingsPreferencesSection({
           <PreferenceToggleRow
             label={t('settings.fakeIpCompatibility')}
             description={t('settings.fakeIpCompatibilityDesc')}
-            checked={draftConfig.tools.builtIn.webFetch.allowRfc2544BenchmarkRange}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.tools.builtIn.webFetch.allowRfc2544BenchmarkRange = checked;
-            })}
+            checked={fakeIpCompatibilityEnabled === true}
+            disabled={fakeIpCompatibilityEnabled === undefined}
+            onCheckedChange={onFakeIpCompatibilityChange}
           />
         </div>
       </SettingsGroup>

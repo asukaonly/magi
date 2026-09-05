@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import {
   getExperienceDescription,
   getExperienceEntityLabels,
@@ -75,7 +75,7 @@ export function ExperienceDetail({
   const sourceEpisodes = Array.isArray(detail.source_episodes) ? detail.source_episodes : [];
   const chapters = Array.isArray(detail.chapters) ? detail.chapters : [];
   const description = getExperienceDescription(experience);
-  const range = formatEpisodeTimeRange(experience.time_start, experience.time_end, i18n.language);
+  const range = formatMemoryTimeRange(experience.time_start, experience.time_end, i18n.language);
   const tags = [
     ...getExperienceEntityLabels(experience),
     ...normalizeList(experience.primary_place_ids),

@@ -6,6 +6,16 @@ from enum import Enum
 from dataclasses import dataclass, field
 
 
+class SatisfactionLevel(Enum):
+    """User satisfaction signal from post-turn interaction analysis."""
+
+    VERY_LOW = "very_low"
+    LOW = "low"
+    NEUTRAL = "neutral"
+    HIGH = "high"
+    VERY_HIGH = "very_high"
+
+
 class AmbiguityTolerance(Enum):
     """Ambiguity tolerance"""
     IMPATIENT = "impatient"
@@ -15,7 +25,7 @@ class AmbiguityTolerance(Enum):
 
 @dataclass
 class TaskBehaviorProfile:
-    """Behavior preference layer"""
+    """Static task behavior defaults, without stored-interaction inference."""
     task_category: str
     information_density: str = "medium"
     ambiguity_tolerance: AmbiguityTolerance = AmbiguityTolerance.ADAPTIVE

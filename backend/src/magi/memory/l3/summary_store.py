@@ -626,6 +626,12 @@ class L3SummaryStore(
             period_end=period_end,
             source_filter=source_filter,
         )
+        evidence_pack.dependency_event_ids = list(evidence_pack.source_event_ids)
+        if evidence_pack.plugin_summary_features:
+            evidence_pack.dependency_event_ids = list(dict.fromkeys([
+                *evidence_pack.dependency_event_ids,
+                *(str(event["event_id"]) for event in selection.feature_events if event.get("event_id")),
+            ]))
         return evidence_pack
 
     def _temporal_plugin_summary_features(
@@ -711,6 +717,16 @@ class L3SummaryStore(
             },
         }
         summary_overrides.update(generation.summary_overrides)
+        dependencies = list(dict.fromkeys(evidence_pack.dependency_event_ids))
+        summary_overrides["source_event_ids"] = dependencies
+        summary_overrides["source_event_count"] = len(dependencies)
+        metadata = dict(generation.candidate.insight_metadata or {})
+        metadata.update({
+            "cited_event_ids": list(evidence_pack.source_event_ids),
+            "dependency_summary_ids": list(evidence_pack.dependency_summary_ids),
+            "evidence_selection": dict(summary_overrides["evidence_selection"]),
+        })
+        summary_overrides["insight_metadata"] = metadata
         return summary_overrides
 
     async def _attach_temporal_summary_context(self, pack: Any) -> None:
@@ -733,6 +749,14 @@ class L3SummaryStore(
                 period_end=float(pack.period_end),
                 limit=child_limit,
             )
+
+        for context in [*pack.previous_period_summaries, *pack.child_period_summaries]:
+            pack.dependency_event_ids.extend(context.get("source_event_ids", []))
+            pack.dependency_summary_ids.extend(context.get("dependency_summary_ids", []))
+            if context.get("summary_id"):
+                pack.dependency_summary_ids.append(str(context["summary_id"]))
+        pack.dependency_event_ids = list(dict.fromkeys(pack.dependency_event_ids))
+        pack.dependency_summary_ids = list(dict.fromkeys(pack.dependency_summary_ids))
 
     async def _list_previous_temporal_context(
         self,
@@ -801,6 +825,10 @@ class L3SummaryStore(
             "period_end": float(summary.get("period_end") or 0.0),
             "content": str(summary.get("content") or ""),
             "generated_by_model": str(summary.get("generated_by_model") or ""),
+            "source_event_ids": list(summary.get("source_event_ids") or []),
+            "dependency_summary_ids": list(
+                (summary.get("insight_metadata") or {}).get("dependency_summary_ids") or []
+            ),
         }
         key_topics = summary.get("key_topics")
         if isinstance(key_topics, list) and key_topics:

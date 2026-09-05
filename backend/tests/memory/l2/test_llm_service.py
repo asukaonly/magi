@@ -524,65 +524,21 @@ def test_chat_source_entity_resolution_uses_medium_priority_limiter(
     assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
 
 
-def test_entity_reconcile_returns_typed_outcomes():
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import (
-        L2ReconcileEntity,
-        ReconciledTraitOutcome,
-    )
-
-    response = json.dumps(
-        {
-            "reconciled_traits": [
-                {
-                    "entity_id": "user:u1",
-                    "entity_type": "user",
-                    "trait_name": "stress_level",
-                    "winning_value": "high",
-                    "status": "corroborated",
-                    "confidence": 0.82,
-                    "evidence_event_ids": ["evt-1", "evt-2"],
-                    "time_span_hours": 24.0,
-                    "stability_kind": "temporary_state",
-                    "recommended_snapshot_field": "current_stress_level",
-                }
-            ]
-        }
-    )
-    service = L2LLMService(_FakeScenarioPool(_FakeAdapter(response)))
-
-    outcomes = asyncio.run(
-        service.reconcile_entity_state(
-            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-            graph_facts=[],
-            assertions=[],
-            recent_events=[],
-        )
-    )
-
-    assert len(outcomes) == 1
-    assert isinstance(outcomes[0], ReconciledTraitOutcome)
-    assert outcomes[0].trait_name == "stress_level"
-    assert outcomes[0].confidence == 0.82
-
-
 def test_invalid_json_is_retried_once_with_stricter_instruction():
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
-    adapter = _FakeAdapter(["not-json", '{"reconciled_traits": []}'])
+    adapter = _FakeAdapter(["not-json", '{"resolution": {"decision": "unresolved"}}'])
     service = L2LLMService(_FakeScenarioPool(adapter))
 
-    outcomes = asyncio.run(
-        service.reconcile_entity_state(
-            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-            graph_facts=[],
-            assertions=[],
-            recent_events=[],
+    resolution = asyncio.run(
+        service.resolve_entity(
+            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+            candidate_entities=[],
         )
     )
 
-    assert outcomes == []
+    assert resolution.decision == "unresolved"
     assert len(adapter.calls) == 2
     retry_messages = adapter.calls[1]["messages"]
     assert isinstance(retry_messages, list)
@@ -592,18 +548,16 @@ def test_invalid_json_is_retried_once_with_stricter_instruction():
 def test_repeated_invalid_json_raises_instead_of_becoming_empty_result():
     from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
     adapter = _FakeAdapter(["not-json", "still-not-json"])
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     with pytest.raises(L2InvalidJsonResponseError):
         asyncio.run(
-            service.reconcile_entity_state(
-                entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-                graph_facts=[],
-                assertions=[],
-                recent_events=[],
+            service.resolve_entity(
+                mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+                candidate_entities=[],
             )
         )
 
@@ -613,17 +567,15 @@ def test_repeated_invalid_json_raises_instead_of_becoming_empty_result():
 def test_missing_adapter_raises_instead_of_becoming_empty_result():
     from magi.memory.l2.llm_json_client import L2LLMUnavailableError
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
     service = L2LLMService(None)
 
     with pytest.raises(L2LLMUnavailableError):
         asyncio.run(
-            service.reconcile_entity_state(
-                entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-                graph_facts=[],
-                assertions=[],
-                recent_events=[],
+            service.resolve_entity(
+                mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+                candidate_entities=[],
             )
         )
 
@@ -631,38 +583,34 @@ def test_missing_adapter_raises_instead_of_becoming_empty_result():
 def test_provider_failure_raises_instead_of_becoming_empty_result():
     from magi.memory.l2.llm_json_client import L2LLMCallError
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter([RuntimeError("provider failed")])))
 
     with pytest.raises(L2LLMCallError):
         asyncio.run(
-            service.reconcile_entity_state(
-                entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-                graph_facts=[],
-                assertions=[],
-                recent_events=[],
+            service.resolve_entity(
+                mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+                candidate_entities=[],
             )
         )
 
 
 def test_missing_required_json_fields_trigger_format_retry():
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
-    adapter = _FakeAdapter(["{}", '{"reconciled_traits": []}'])
+    adapter = _FakeAdapter(["{}", '{"resolution": {"decision": "unresolved"}}'])
     service = L2LLMService(_FakeScenarioPool(adapter))
 
-    outcomes = asyncio.run(
-        service.reconcile_entity_state(
-            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-            graph_facts=[],
-            assertions=[],
-            recent_events=[],
+    resolution = asyncio.run(
+        service.resolve_entity(
+            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+            candidate_entities=[],
         )
     )
 
-    assert outcomes == []
+    assert resolution.decision == "unresolved"
     assert len(adapter.calls) == 2
 
 
@@ -1003,23 +951,21 @@ def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
 def test_wrong_json_field_type_raises_after_format_retry():
     from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2ReconcileEntity
+    from magi.memory.l2.models import L2EntityResolutionMention
 
     adapter = _FakeAdapter(
         [
-            '{"reconciled_traits": {}}',
-            '{"reconciled_traits": {}}',
+            '{"resolution": []}',
+            '{"resolution": []}',
         ]
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     with pytest.raises(L2InvalidJsonResponseError):
         asyncio.run(
-            service.reconcile_entity_state(
-                entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-                graph_facts=[],
-                assertions=[],
-                recent_events=[],
+            service.resolve_entity(
+                mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+                candidate_entities=[],
             )
         )
 

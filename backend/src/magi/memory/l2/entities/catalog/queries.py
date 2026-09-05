@@ -63,7 +63,7 @@ class L2EntityCatalogQueryMixin:
     async def list_entities(
         self,
         *,
-        limit: int = 100,
+        limit: int | None = 100,
         offset: int = 0,
         entity_ids: list[str] | None = None,
         query: str | None = None,
@@ -344,7 +344,7 @@ class L2EntityCatalogQueryMixin:
     async def _list_entities(
         self,
         *,
-        limit: int,
+        limit: int | None,
         offset: int = 0,
         entity_type: Optional[str] = None,
         entity_ids: list[str] | None = None,
@@ -373,7 +373,7 @@ class L2EntityCatalogQueryMixin:
             sql += " ORDER BY ec.updated_at DESC LIMIT ? OFFSET ?"
         else:
             sql += " ORDER BY ec.entity_id ASC LIMIT ? OFFSET ?"
-        args.append(int(limit))
+        args.append(-1 if limit is None else int(limit))
         args.append(int(offset))
 
         async with sqlite_connection_async(host.db_path) as db:

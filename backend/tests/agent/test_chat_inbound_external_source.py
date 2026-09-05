@@ -13,7 +13,7 @@ incoming source as ``source_channel``.
 When an external message arrives while a run is already active, the
 coordinator uses the same canonical ``pending_turns`` store as native chat.
 The durable delivery envelope retains the source for restart redrive; the
-live run does not maintain a second process-local ``IncomingEvent`` queue.
+live run uses one process-local queue for admitted pending user turns.
 """
 
 from __future__ import annotations

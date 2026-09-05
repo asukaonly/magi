@@ -107,6 +107,7 @@ class L2CognitionStore(
         *,
         db_path: str = "~/.magi/data/memory/memory.db",
         graph_conflict_rules: Mapping[str, GraphConflictRule | Mapping[str, Any]] | None = None,
+        evidence_record_resolver: Callable[[List[str]], Awaitable[Mapping[str, Mapping[str, Any]]]] | None = None,
         evidence_timestamp_resolver: (
             Callable[[List[str]], Awaitable[Mapping[str, float]]] | None
         ) = None,
@@ -125,6 +126,20 @@ class L2CognitionStore(
         self._memory_correction_job_lock = asyncio.Lock()
         self._graph_conflict_rule_lock = asyncio.Lock()
         self._evidence_timestamp_resolver = evidence_timestamp_resolver
+        self._evidence_record_resolver = evidence_record_resolver
+
+    async def resolve_independent_evidence_keys(self, event_ids: List[str]) -> Dict[str, str]:
+        """Resolve evidence groups from L1; standalone callers own their event identity contract."""
+        from ..evidence.independence import independent_evidence_key
+        ids = list(dict.fromkeys(str(value) for value in event_ids if value))
+        if self._evidence_record_resolver is None:
+            return {identity: identity for identity in ids}
+        records = await self._evidence_record_resolver(ids)
+        return {identity: independent_evidence_key(record) for identity, record in records.items() if identity in ids}
+
+    async def count_independent_evidence(self, event_ids: List[str]) -> int:
+        """Count independent support while retaining every source event for forgetting."""
+        return len(set((await self.resolve_independent_evidence_keys(event_ids)).values()))
 
     async def resolve_evidence_timestamps(
         self,
@@ -353,7 +368,7 @@ class L2CognitionStore(
         *,
         subject_id: str | None = None,
         status: str = "pending",
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[dict[str, Any]]:
         """List governed pending-memory review records."""
 

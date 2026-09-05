@@ -3,24 +3,14 @@
 from __future__ import annotations
 
 import json
-import re
-import uuid
 from typing import Any, Protocol
 
 from ...storage.utils import MAX_EVIDENCE_EVENT_IDS, max_evidence_event_ids
-
-
-def _slugify_entity_id_suffix(value: str) -> str:
-    """Match L2Pipeline._slugify for stable entity_id suffix comparison."""
-    normalized = value.strip().casefold()
-    slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
-    if slug:
-        return slug
-    return uuid.uuid5(uuid.NAMESPACE_URL, normalized).hex[:12]
+from ..identity import canonical_entity_id
 
 
 def _canonical_entity_id(entity_type: str, canonical_name: str) -> str:
-    return f"{entity_type}:{_slugify_entity_id_suffix(canonical_name)}"
+    return canonical_entity_id(entity_type, canonical_name)
 
 
 def _merge_evidence_json(a: str, b: str, *, max_items: int | None = None) -> str:
@@ -76,5 +66,4 @@ __all__ = [
     "_CatalogMaintenanceStatsProtocol",
     "_canonical_entity_id",
     "_merge_evidence_json",
-    "_slugify_entity_id_suffix",
 ]

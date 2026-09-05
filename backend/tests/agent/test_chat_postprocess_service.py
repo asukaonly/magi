@@ -55,7 +55,7 @@ from magi.personality.interaction_analyzer import (
     InteractionObservation,
 )
 from magi.personality.interaction_batch_analyzer import BatchInteractionAnalysis
-from magi.personality.behavior_evolution import SatisfactionLevel
+from magi.personality.models import SatisfactionLevel
 from magi.personality.emotional_state import EngagementLevel, InteractionOutcome
 from magi.runtime_trace.store import RuntimeTraceStore
 

@@ -222,6 +222,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
   }
 
   const renderSectionContent = () => {
+    const fakeIpCompatibilityEnabled = draftToolDrafts['web-fetch']?.values.allow_rfc2544_benchmark_range;
     const embeddingSelection = draftConfig.llm?.selections?.embedding;
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
     const hasCrossEncoderModel = !!(draftConfig.memory.reranker?.cross_encoder?.managed_model_id);
@@ -231,6 +232,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
         return (
           <SettingsPreferencesSection
             draftConfig={draftConfig}
+            fakeIpCompatibilityEnabled={typeof fakeIpCompatibilityEnabled === 'boolean' ? fakeIpCompatibilityEnabled : undefined}
+            onFakeIpCompatibilityChange={(enabled) => handleToolDraftChange('web-fetch', 'allow_rfc2544_benchmark_range', enabled)}
             draftThemeMode={draftThemeMode}
             patchDraftConfig={patchDraftConfig}
             onThemePreviewChange={handleThemePreviewChange}
@@ -340,11 +343,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             toolsLoading={toolsLoading}
             toolsError={toolsError}
             draftToolDrafts={draftToolDrafts}
-            selectedSkills={draftConfig.tools.skills || []}
+            selectedSkills={draftConfig.skills || []}
             onToolDraftChange={handleToolDraftChange}
             onToolEnabledChange={handleToolEnabledChange}
             onSelectedSkillsChange={(nextSkills) => patchDraftConfig((draft) => {
-              draft.tools.skills = nextSkills;
+              draft.skills = nextSkills;
             })}
           />
         );

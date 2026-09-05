@@ -383,13 +383,17 @@ async def test_cancellation_terminates_descendant_and_is_reraised(
 
     await _wait_for_path(pid_path)
     child_pid = int(pid_path.read_text(encoding="utf-8"))
-    await _wait_for_path(heartbeat_path)
-    task.cancel()
     try:
+        await _wait_for_path(heartbeat_path)
+        task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
         await _assert_heartbeat_stopped(heartbeat_path)
     finally:
+        if not task.done():
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
         _force_kill_for_test(child_pid)
 
 

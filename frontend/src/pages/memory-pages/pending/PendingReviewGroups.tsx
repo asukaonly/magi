@@ -4,7 +4,7 @@ import type { L2Assertion, L2ExperienceSeed, L2PendingReview } from '@/api/modul
 import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 import { Button } from '@/components/ui/button';
-import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
+import { getAssertionEvidenceBasis, getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 import { MEMORY_GHOST_ACTION_CLASS, MEMORY_PRIMARY_ACTION_CLASS } from '../MemoryPageFrame';
 import {
   ConflictActions,
@@ -190,7 +190,7 @@ export function PendingReviewGroups({
               <PendingCard
                 key={assertion.assertion_id}
                 testId={`pending-assertion-${assertion.assertion_id}`}
-                label={t('memory.pending.meta.assertion')}
+                label={t(`memory.provenance.${getAssertionEvidenceBasis(assertion)}`)}
                 title={copy.title}
                 body={copy.body}
                 meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}

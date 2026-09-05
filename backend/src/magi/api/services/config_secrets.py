@@ -32,12 +32,6 @@ def mask_system_config_secrets(config: SystemConfigModel) -> SystemConfigModel:
             service.api_key = mask_api_key(service.api_key or "") or None
 
     masked.network.password = mask_api_key(masked.network.password)
-    masked.tools.builtIn.weather.apiKey = (
-        mask_api_key(masked.tools.builtIn.weather.apiKey or "") or None
-    )
-    masked.tools.builtIn.webSearch.apiKey = (
-        mask_api_key(masked.tools.builtIn.webSearch.apiKey or "") or None
-    )
     return masked
 
 
@@ -107,22 +101,6 @@ def normalize_masked_secrets(config: SystemConfigModel, runtime_config: Any) -> 
             provider_id,
             provider,
             runtime_config,
-        )
-
-    weather_api_key = normalized.tools.builtIn.weather.apiKey
-    if is_masked_api_key(weather_api_key):
-        weather_provider = normalized.tools.builtIn.weather.provider
-        runtime_weather = runtime_config.tools.weather.providers.get(weather_provider)
-        normalized.tools.builtIn.weather.apiKey = (
-            runtime_weather.api_key if runtime_weather is not None else None
-        )
-
-    web_search_api_key = normalized.tools.builtIn.webSearch.apiKey
-    if is_masked_api_key(web_search_api_key):
-        web_search_provider = normalized.tools.builtIn.webSearch.provider
-        runtime_web_search = runtime_config.tools.web_search.providers.get(web_search_provider)
-        normalized.tools.builtIn.webSearch.apiKey = (
-            runtime_web_search.api_key if runtime_web_search is not None else None
         )
 
     if is_masked_api_key(normalized.network.password):

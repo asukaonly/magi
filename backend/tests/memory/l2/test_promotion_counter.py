@@ -197,3 +197,14 @@ def test_already_promoted_key_bypasses_the_cap(tmp_path):
         assert (await c.bump("chrome", "established.com", "e2", threshold=1, now=now))[1] is True
 
     asyncio.run(run())
+
+
+def test_concurrent_replays_count_one_event_once(tmp_path):
+    c = _counter(tmp_path)
+    async def run():
+        results = await asyncio.gather(*[
+            c.bump("browser", "same", "event:one", threshold=2) for _ in range(10)
+        ])
+        assert all(result == (1, False) for result in results)
+        assert await c.bump("browser", "same", "event:two", threshold=2) == (2, True)
+    asyncio.run(run())

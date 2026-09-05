@@ -59,8 +59,9 @@ class L3ReviewOperationsMixin:
         await host.initialize()
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
             async with db.execute(
-                "SELECT insight_metadata FROM summaries WHERE summary_id = ?",
+                "SELECT insight_metadata, content, source_event_ids FROM summaries WHERE summary_id = ?",
                 (summary_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -69,6 +70,27 @@ class L3ReviewOperationsMixin:
             metadata = _decode_metadata(row["insight_metadata"])
             if user_note is not None:
                 metadata["user_note"] = user_note
+            reviewed_at = time.time()
+            fingerprint = metadata.get("generation_input_fingerprint")
+            history = list(metadata.get("review_history") or [])
+            history.append({
+                "review_state": review_state,
+                "reviewed_at": reviewed_at,
+                "generation_input_fingerprint": fingerprint,
+                "content": row["content"],
+                "source_event_ids": json.loads(row["source_event_ids"] or "[]"),
+                "user_note": user_note,
+            })
+            metadata["review_history"] = history
+            if review_state == "rejected" and fingerprint:
+                metadata["rejected_input_fingerprints"] = list(dict.fromkeys([
+                    *(metadata.get("rejected_input_fingerprints") or []), fingerprint,
+                ]))
+            elif fingerprint:
+                metadata["rejected_input_fingerprints"] = [
+                    item for item in metadata.get("rejected_input_fingerprints", [])
+                    if item != fingerprint
+                ]
             await db.execute(
                 """
                 UPDATE summaries
@@ -85,7 +107,7 @@ class L3ReviewOperationsMixin:
             await db.commit()
         return True
 
-    async def get_summary_by_id(self, summary_id: str) -> Optional[Dict[str, Any]]:
+    async def get_summary_by_id(self, summary_id: str, *, include_rejected: bool = False) -> Optional[Dict[str, Any]]:
         """Return the summary dict for *summary_id*, or None if not found."""
         host = cast(_ReviewHostProtocol, self)
         await host.initialize()
@@ -94,7 +116,7 @@ class L3ReviewOperationsMixin:
             async with db.execute(
                 f"""
                 SELECT * FROM summaries
-                WHERE summary_id = ? AND {active_summary_predicate()}
+                WHERE summary_id = ? AND {active_summary_predicate(include_rejected=include_rejected)}
                 """,
                 (summary_id,),
             ) as cursor:

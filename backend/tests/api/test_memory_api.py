@@ -938,7 +938,7 @@ def test_memory_statistics_api_reports_new_layers(monkeypatch, tmp_path):
     assert body["l0"]["background_attention_items"] == 1
     assert body["l0"]["resolved_attention_items"] == 1
     assert "l4" in body
-    assert body["total_memories"] == 16
+    assert body["stored_records"] == 16
     assert body["disk_usage_bytes"] == 28
 
 

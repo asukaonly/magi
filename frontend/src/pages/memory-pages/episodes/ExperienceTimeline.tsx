@@ -10,7 +10,7 @@ import {
   getExperienceDescription,
   getExperienceDisplayTitle,
 } from '@/components/memory/experiences/ExperienceRow';
-import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import { cn } from '@/lib/utils';
 import { getExperienceTags, type ExperienceMonthGroup } from './experienceIndexModel';
 
@@ -58,7 +58,7 @@ function TimelineExperienceItem({
   const { t, i18n } = useTranslation('app');
   const title = getExperienceDisplayTitle(experience, t('memory.episodes.awaitingLabel'), i18n.language);
   const description = getExperienceDescription(experience);
-  const range = formatEpisodeTimeRange(experience.time_start, experience.time_end, i18n.language);
+  const range = formatMemoryTimeRange(experience.time_start, experience.time_end, i18n.language);
   const tags = getExperienceTags(experience, 3);
 
   return (

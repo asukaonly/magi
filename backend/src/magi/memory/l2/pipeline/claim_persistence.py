@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
 from ....utils.calendar_timezone import calendar_timezone_id_from_metadata
+from ...evidence.independence import independent_evidence_key
 from ...evidence import EvidenceClassification, classify_event_evidence
 from ...event_contracts import MemoryEvent
 from ..claims.identity import derive_claim_identity_key
@@ -298,6 +299,7 @@ class L2ClaimPersistenceMixin:
                     subject_type=str(claim.subject_type or "user"),
                     canonical_predicate=canonical_predicate,
                     fact_kind=str(claim.fact_kind or "explicit_fact"),
+                    polarity=claim.polarity,
                     object_type=(
                         object_ref[1]
                         if object_ref is not None
@@ -434,11 +436,10 @@ def _claim_event_links(
                 evidence_class=(
                     classification.evidence_class if classification is not None else None
                 ),
-                evidence_locator=_evidence_locator(
-                    batch_event.content,
-                    claim.evidence_text,
-                    event_type=batch_event.event_type,
-                ),
+                evidence_locator={
+                    **(_evidence_locator(batch_event.content, claim.evidence_text, event_type=batch_event.event_type) or {}),
+                    "independent_evidence_key": independent_evidence_key(batch_event.to_dict()),
+                },
                 calendar_timezone_id=calendar_timezone_id_from_metadata(
                     batch_event.metadata_json
                 ),

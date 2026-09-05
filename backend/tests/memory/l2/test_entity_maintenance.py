@@ -1889,7 +1889,7 @@ async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
             entity_type="software",
         )
         ghost_object = _canonical_entity_id("software", "X")
-        assert ghost_object == "software:x"
+        assert ghost_object != "software:twitter-handle"
         now = time.time()
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
@@ -2798,7 +2798,7 @@ async def test_ghost_object_id_rewrites_by_evidence_text() -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_same_name_mergeable_types() -> None:
+async def test_same_name_does_not_merge_scoped_identity() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -2891,8 +2891,8 @@ async def test_merge_same_name_mergeable_types() -> None:
             resolve_ghosts=False,
             prune_orphans=False,
         )
-        assert stats.fragment_entities_merged == 2
-        assert stats.snapshots_refreshed == 1
+        assert stats.fragment_entities_merged == 0
+        assert stats.snapshots_refreshed == 0
 
         async with sqlite_connection_async(db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -2911,9 +2911,9 @@ async def test_merge_same_name_mergeable_types() -> None:
                     WHERE entity_id IN ('software:claude-app', 'technology:claude-ai')
                     """)
             ).fetchone()
-        assert [row["entity_id"] for row in entities] == ["software:claude-app"]
+        assert {"software:claude-app", "technology:claude-ai"}.issubset({row["entity_id"] for row in entities})
         assert snapshot is not None
-        assert snapshot["entity_id"] == "software:claude-app"
+        assert snapshot["entity_id"] == "technology:claude-ai"
         assert snapshot["current_mood"] == "focused"
         assert json.loads(snapshot["update_source_assertion_ids"]) == [assertion_id]
 

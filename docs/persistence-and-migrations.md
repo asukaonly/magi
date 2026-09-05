@@ -77,7 +77,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `runtime/runtime_trace.db` | runtime trace | canonical run manifests/events, versioned plans, normalized spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona, source-linked reference dossiers for generated personas |
-| `data/memory/behavior_evolution.db` | personality | task interactions, category statistics, behavior profiles |
+| `data/memory/behavior_evolution.db` | personality | historical task interactions, category statistics, and behavior profiles; no runtime collection or inference |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
@@ -185,6 +185,13 @@ correction and preserve evidence added after the correction was created.
 
 Each subsystem owns the schema for its own file. There is no
 cross-file foreign-key enforcement.
+
+The historical behavior database keeps its registered schema and runtime path
+for explicit learned-state clearing. Normal persona initialization and chat
+processing neither read nor update its behavior records. Clearing removes all
+three historical tables' rows and securely compacts the existing database; it
+does not create a missing database or remove the database file. This deletion
+responsibility does not reintroduce a behavior-learning execution path.
 
 The persona registry stores reference research separately from the runtime persona
 configuration. `persona_reference_dossiers` is keyed by stable `persona_id` and
@@ -400,7 +407,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |
+| `memory_shared` | `v49_l4_strategy_revisions` | add strategy revision and per-trace consumption markers for fenced procedural learning; no historical data repair |
 
 `chat_task_execution_budgets` is owned by the accepted root turn. Its
 `root_turn_id` is a non-null primary key and a foreign key to `chat_turns`, with

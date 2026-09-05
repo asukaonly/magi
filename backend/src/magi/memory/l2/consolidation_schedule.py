@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+import time
 from typing import Any
 
 from ...config import get_config
@@ -44,6 +45,8 @@ class _ExperienceConsolidationStats:
     rejected: int = 0
     summaries_generated: int = 0
     summary_errors: list[str] = field(default_factory=list)
+    deferred: int = 0
+    selector_diagnostics: dict[str, int] = field(default_factory=dict)
 
 
 async def handle_l2_consolidation(
@@ -60,6 +63,7 @@ async def handle_l2_consolidation(
         return stores_or_skip
     stores = stores_or_skip
 
+    started = time.monotonic()
     async with stores.unified.memory_operation_guard():
         episode_result = await _run_episode_consolidation(stores.cognition_store)
         if isinstance(episode_result, ScheduledExecutionResult):
@@ -67,16 +71,16 @@ async def handle_l2_consolidation(
 
         episodic_summary_stats = await _generate_episodic_summaries(
             stores=stores,
-            promoted_episode_ids=list(
-                getattr(episode_result, "promoted_episode_ids", []) or []
-            ),
+            promoted_episode_ids=list(getattr(episode_result, "promoted_episode_ids", []) or []),
         )
         experience_stats = await _promote_experiences_and_summaries(stores)
-        return _l2_consolidation_success_result(
+        result = _l2_consolidation_success_result(
             episode_stats=episode_result,
             episodic_summary_stats=episodic_summary_stats,
             experience_stats=experience_stats,
         )
+        result.stats["duration_seconds"] = round(time.monotonic() - started, 3)
+        return result
 
 
 def _l2_consolidation_skip_result() -> ScheduledExecutionResult | None:
@@ -177,6 +181,7 @@ async def _promote_experiences_and_summaries(
             scenario_llm_pool=stores.scenario_llm_pool,
             enabled=bool(l2_cfg.experience_seed_llm_selection_enabled),
             timeout_seconds=float(l2_cfg.experience_seed_llm_timeout_seconds),
+            diagnostics=stats.selector_diagnostics,
         )
         promotion_kwargs: dict[str, Any] = {}
         if selector is not None:
@@ -190,6 +195,7 @@ async def _promote_experiences_and_summaries(
         stats.promoted = int(experience_stats.promoted)
         stats.duplicates = int(experience_stats.skipped_duplicates)
         stats.rejected = int(experience_stats.rejected)
+        stats.deferred = int(getattr(experience_stats, "deferred", 0))
 
         if stores.l1_store is not None and stores.l3_store is not None:
             summary_result = await generate_missing_experience_summaries(
@@ -212,9 +218,17 @@ def _l2_consolidation_success_result(
     episodic_summary_stats: _EpisodicSummaryStats,
     experience_stats: _ExperienceConsolidationStats,
 ) -> ScheduledExecutionResult:
+    errors = (
+        list(getattr(episode_stats, "errors", []) or [])
+        + episodic_summary_stats.errors
+        + experience_stats.summary_errors
+    )
+    selector_errors = int(experience_stats.selector_diagnostics.get("failures", 0))
     return ScheduledExecutionResult(
-        success=True,
-        message="consolidation_ok",
+        success=not errors and not selector_errors,
+        message="consolidation_partial_failure"
+        if errors or selector_errors
+        else "consolidation_ok",
         stats={
             **asdict(episode_stats),
             "episodes_promoted": int(episode_stats.promoted),
@@ -226,10 +240,26 @@ def _l2_consolidation_success_result(
             "experiences_promoted": experience_stats.promoted,
             "experience_duplicates": experience_stats.duplicates,
             "experience_rejected": experience_stats.rejected,
+            "experience_deferred": experience_stats.deferred,
+            "selector_diagnostics": experience_stats.selector_diagnostics,
             "experience_summaries_generated": experience_stats.summaries_generated,
             "experience_summary_errors": experience_stats.summary_errors,
         },
     )
+
+
+async def request_l2_consolidation(scheduler: SchedulerService, *, reason: str) -> bool:
+    """Coalesce import/manual requests into one bounded scheduled run."""
+    if _l2_consolidation_skip_result() is not None:
+        return False
+    await scheduler.schedule_once_earliest(
+        schedule_id="memory-l2-consolidate:requested",
+        target_type=ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
+        target_key=TARGET_KEY_L2_CONSOLIDATE,
+        run_at=time.time() + 30.0,
+        target_payload={"reason": reason},
+    )
+    return True
 
 
 class L2ConsolidationScheduleContrib:

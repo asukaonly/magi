@@ -243,7 +243,7 @@ async def test_experience_promotion_requires_seed_for_single_strong_episode(l2_s
     stats = await promote_experiences_from_episodes(store)
 
     assert stats.promoted == 0
-    assert stats.rejected >= 1
+    assert stats.candidates == stats.rejected == 0
     assert await store.list_experiences(status="active") == []
 
 
@@ -586,7 +586,7 @@ async def test_experience_promotion_rejects_generic_adjacent_chain(l2_store_with
     stats = await promote_experiences_from_episodes(store)
 
     assert stats.promoted == 0
-    assert stats.rejected >= 1
+    assert stats.candidates == stats.rejected == 0
     assert await store.list_experiences(status="active") == []
 
 
@@ -718,7 +718,7 @@ async def test_experience_promotion_rejects_sparse_generic_episode(l2_store_with
     stats = await promote_experiences_from_episodes(store)
 
     assert stats.promoted == 0
-    assert stats.rejected >= 1
+    assert stats.candidates == stats.rejected == 0
     assert await store.list_experiences(status="active") == []
 
 

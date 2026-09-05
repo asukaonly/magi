@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
+import { PortraitEvidenceLabel, portraitItemText } from './PortraitEvidenceLabel';
 import { Button } from '@/components/ui/button';
 import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
 
@@ -49,7 +50,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect }: PortraitWorl
                   ) : (
                     group.items.slice(0, 4).map((item) => (
                       <div key={item.id} className="group flex items-start justify-between gap-3">
-                        <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
+                        <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{portraitItemText(item, t)}<PortraitEvidenceLabel item={item} /></p>
                         {item.assertionId && item.correctionValue != null ? (
                           <Button
                             type="button"
@@ -77,7 +78,7 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect }: PortraitWorl
                       <div className="mt-2 space-y-2">
                         {detailItems.map((item) => (
                           <div key={item.id} className="group flex items-start justify-between gap-3 rounded-mem-sm bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2.5">
-                            <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+                            <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{portraitItemText(item, t)}<PortraitEvidenceLabel item={item} /></p>
                             {item.assertionId && item.correctionValue != null ? (
                               <Button
                                 type="button"

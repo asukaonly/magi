@@ -691,3 +691,17 @@ async def test_sustained_claims_remain_recent_without_direct_durable_permission(
     assert stats.source_strength == "sustained_engagement"
     assert stats.durable_permitted is False
     assert decision.horizon is PromotionHorizon.RECENT
+
+
+@pytest.mark.asyncio
+async def test_claim_ledger_counts_independent_locator_groups(l2_store_with_schema):
+    key = ClaimRouteValueKey("slot:music", "value:music")
+    for index in range(4):
+        await _seed_claim(l2_store_with_schema.db_path, claim_id=f"copy:{index}", event_id=f"event:{index}", key=key, event_time=1000 + index * 86400)
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        await db.execute("UPDATE l2_claim_evidence SET evidence_locator_json = ?", (json.dumps({"independent_evidence_key": "one-original-document"}),))
+        await db.commit()
+    stats = (await load_routed_claim_occurrence_stats(l2_store_with_schema.db_path, keys=[key], now=500000))[key]
+    assert stats.observation_count == 4
+    assert stats.evidence_count == 1
+    assert len(stats.supporting_event_ids) == 4
