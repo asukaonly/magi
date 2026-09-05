@@ -82,13 +82,20 @@ def _web_search_parameters() -> list[ToolParameter]:
         ToolParameter(
             name="start_date",
             type=ParameterType.STRING,
-            description="Optional inclusive start date in YYYY-MM-DD format for time-bounded search",
+            description=(
+                "Optional start date in YYYY-MM-DD format. May be used alone or "
+                "with end_date; omit for no lower date bound."
+            ),
             required=False,
         ),
         ToolParameter(
             name="end_date",
             type=ParameterType.STRING,
-            description="Optional inclusive end date in YYYY-MM-DD format for time-bounded search",
+            description=(
+                "Optional end date in YYYY-MM-DD format. May be used alone or "
+                "with start_date; omit for no upper date bound. "
+                "When both dates are provided, end_date must be on or after start_date."
+            ),
             required=False,
         ),
     ]
@@ -103,6 +110,10 @@ def _web_search_examples() -> list[dict[str, Any]]:
         {
             "input": {"query": "OpenAI release notes", "num_results": 5},
             "output": "Returns search results using the configured default provider",
+        },
+        {
+            "input": {"query": "company leadership announcement", "start_date": "2026-01-01"},
+            "output": "Searches with a start date and no upper date bound",
         },
     ]
 
@@ -916,30 +927,25 @@ class WebSearchTool(MultiProviderTool):
         end = str(end_date or "").strip()
         if not start and not end:
             return None
-        if not start or not end:
-            return ToolResult(
-                success=False,
-                error="Both 'start_date' and 'end_date' must be provided together in YYYY-MM-DD format.",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
         try:
-            normalized_start = date.fromisoformat(start)
-            normalized_end = date.fromisoformat(end)
+            normalized_start = date.fromisoformat(start) if start else None
+            normalized_end = date.fromisoformat(end) if end else None
         except ValueError:
             return ToolResult(
                 success=False,
-                error="Invalid date range. Use YYYY-MM-DD for both 'start_date' and 'end_date'.",
+                error="Invalid search date. Use YYYY-MM-DD for each provided 'start_date' or 'end_date'.",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
-        if normalized_start > normalized_end:
+        if normalized_start is not None and normalized_end is not None and normalized_start > normalized_end:
             return ToolResult(
                 success=False,
                 error="'start_date' must be on or before 'end_date'.",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
         return {
-            "start_date": normalized_start.isoformat(),
-            "end_date": normalized_end.isoformat(),
+            name: value.isoformat()
+            for name, value in (("start_date", normalized_start), ("end_date", normalized_end))
+            if value is not None
         }
 
     def _apply_date_range_to_query(
@@ -947,6 +953,9 @@ class WebSearchTool(MultiProviderTool):
     ) -> str:
         if not date_range:
             return query
-        return (
-            f"{query} after:{date_range['start_date']} before:{date_range['end_date']}"
-        )
+        parts = [query]
+        if start := date_range.get("start_date"):
+            parts.append(f"after:{start}")
+        if end := date_range.get("end_date"):
+            parts.append(f"before:{end}")
+        return " ".join(parts)

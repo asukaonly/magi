@@ -58,6 +58,99 @@ def test_schema_exposes_no_provider_parameter() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fallback", [False, True])
+@pytest.mark.parametrize(
+    ("dates", "expected_query", "expected_bounds"),
+    [
+        ({}, "news", None),
+        ({"start_date": "2026-01-01"}, "news after:2026-01-01", {"start_date": "2026-01-01"}),
+        ({"end_date": "2026-09-05"}, "news before:2026-09-05", {"end_date": "2026-09-05"}),
+        (
+            {"start_date": "2026-01-01", "end_date": "2026-09-05"},
+            "news after:2026-01-01 before:2026-09-05",
+            {"start_date": "2026-01-01", "end_date": "2026-09-05"},
+        ),
+        (
+            {"start_date": " 2026-01-01 ", "end_date": " "},
+            "news after:2026-01-01",
+            {"start_date": "2026-01-01"},
+        ),
+    ],
+)
+async def test_date_bounds_reach_providers_and_results(
+    monkeypatch, dates, expected_query, expected_bounds, fallback
+) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    requests = []
+
+    def behavior(params):
+        requests.append(dict(params))
+        if fallback and len(requests) == 1:
+            raise RuntimeError("provider unavailable")
+        return {"results": [{"title": "Report", "url": "https://example.com"}], "total": 1}
+
+    tool = _tool(
+        [_FakeProvider(name, behavior=behavior) for name in ("brave", "tavily")],
+        default="brave",
+    )
+    result = await tool.execute({"query": "news", **dates}, _ctx())
+
+    assert result.success is True
+    assert len(requests) == (2 if fallback else 1)
+    assert all(request["query"] == expected_query for request in requests)
+    assert result.data["query"] == "news"
+    assert result.data["executed_query"] == expected_query
+    assert result.data.get("date_range_applied") == expected_bounds
+    assert result.data["fallback_used"] is fallback
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dates",
+    [
+        {"start_date": "2026-13-01"},
+        {"end_date": "2026-02-30"},
+        {"start_date": "2026/01/01"},
+        {"end_date": "invalid"},
+        {"start_date": "2026-01-01", "end_date": "invalid"},
+        {"start_date": "2026-09-05", "end_date": "2026-01-01"},
+    ],
+)
+async def test_invalid_dates_fail_before_provider_execution(monkeypatch, dates) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+
+    def unexpected_search(params):
+        pytest.fail("Invalid dates must not reach the provider")
+
+    tool = _tool([_FakeProvider("brave", behavior=unexpected_search)], default="brave")
+    result = await tool.execute({"query": "news", **dates}, _ctx())
+
+    assert result.success is False
+    assert result.error_code == "INVALID_PARAMETERS"
+
+
+@pytest.mark.asyncio
+async def test_date_bounds_keep_cached_queries_distinct(monkeypatch) -> None:
+    monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
+    requests = []
+
+    def behavior(params):
+        requests.append(params["query"])
+        return {"results": [{"title": params["query"], "url": "https://example.com"}], "total": 1}
+
+    tool = _tool([_FakeProvider("brave", behavior=behavior)], default="brave")
+    for dates in ({}, {"start_date": "2026-01-01"}, {"end_date": "2026-09-05"}):
+        result = await tool.execute({"query": "news", **dates}, _ctx())
+        cached = await tool.execute({"query": "news", **dates}, _ctx())
+        assert result.success is True
+        assert cached.success is True
+        assert cached.data["cached"] is True
+        assert cached.data["results"] == result.data["results"]
+        assert cached.data.get("date_range_applied") == (dates or None)
+    assert requests == ["news", "news after:2026-01-01", "news before:2026-09-05"]
+
+
+@pytest.mark.asyncio
 async def test_uses_configured_default_when_healthy(monkeypatch) -> None:
     monkeypatch.setattr(web_search_tool, "get_config", lambda: _FakeConfig())
     tool = _tool(
