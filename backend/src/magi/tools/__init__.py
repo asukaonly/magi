@@ -18,7 +18,6 @@ from .schema import (
 from .registry import ToolRegistry, tool_registry
 from .tool_hint_resolver import ToolHintResolver
 from .recommender import ToolRecommender, ScenarioType
-from .planner import ExecutionPlanner, ExecutionPlan, PlanNode, TaskStatus
 from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
 # Import built-in tools
@@ -72,12 +71,6 @@ __all__ = [
     # Recommendation engine
     "ToolRecommender",
     "ScenarioType",
-
-    # Execution planner
-    "ExecutionPlanner",
-    "ExecutionPlan",
-    "PlanNode",
-    "TaskStatus",
 
     # Version management
     "ToolVersionManager",
