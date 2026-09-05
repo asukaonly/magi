@@ -1,9 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LLMStatisticsSection } from '@/components/settings/LLMStatisticsSection';
-import { metricsApi } from '@/api/modules/metrics';
+import { metricsApi, type LLMUsageSummary, type LLMUsageTimeseries } from '@/api/modules/metrics';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -18,7 +18,7 @@ vi.mock('@/api/modules/metrics', () => ({
   },
 }));
 
-const summaryFixture = {
+const summaryFixture: LLMUsageSummary = {
   window_days: 7,
   totals: {
     total_calls: 120,
@@ -55,7 +55,7 @@ const summaryFixture = {
   ],
 };
 
-const timeseriesFixture = {
+const timeseriesFixture: LLMUsageTimeseries = {
   window_days: 7,
   points: [
     { day: '03-18', calls: 16, prompt_tokens: 14000, completion_tokens: 6000, total_tokens: 20000, cache_read_tokens: 7000, cache_write_tokens: 2000, cache_hit_rate: 50, cost_usd: 1.4 },
@@ -65,8 +65,9 @@ const timeseriesFixture = {
 };
 
 beforeEach(() => {
-  vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValue({ data: summaryFixture } as any);
-  vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValue({ data: timeseriesFixture } as any);
+  vi.clearAllMocks();
+  vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValue({ success: true, message: '', data: summaryFixture });
+  vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValue({ success: true, message: '', data: timeseriesFixture });
   vi.stubGlobal(
     'ResizeObserver',
     class ResizeObserver {
@@ -78,6 +79,59 @@ beforeEach(() => {
 });
 
 describe('LLMStatisticsSection', () => {
+  it.each(['getLLMUsageSummary', 'getLLMUsageTimeseries'] as const)(
+    'shows an error and recovers after %s rejects',
+    async (method) => {
+      vi.mocked(metricsApi[method]).mockRejectedValueOnce(new Error('503 Service unavailable'));
+      const user = userEvent.setup();
+      render(<LLMStatisticsSection />);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('settings.usage.loadErrorTitle');
+      expect(screen.queryByText('settings.usage.emptyTitle')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'settings.usage.retry' }));
+
+      expect(await screen.findByTestId('statistics-page-toolbar')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(metricsApi[method]).toHaveBeenCalledTimes(2);
+    }
+  );
+
+  it('does not treat an incomplete response as empty usage', async () => {
+    vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({ success: true, message: '' });
+    render(<LLMStatisticsSection />);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByText('settings.usage.emptyTitle')).not.toBeInTheDocument();
+  });
+
+  it('does not show old statistics when a different window fails', async () => {
+    const user = userEvent.setup();
+    render(<LLMStatisticsSection />);
+    await screen.findByTestId('statistics-page-toolbar');
+    vi.mocked(metricsApi.getLLMUsageSummary).mockRejectedValueOnce(new Error('Request failed'));
+
+    await user.click(screen.getByRole('button', { name: 'settings.usage.windows.30' }));
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.queryByTestId('statistics-page-signal-ribbon')).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.usage.emptyTitle')).not.toBeInTheDocument();
+  });
+
+  it('handles a pending rejection after the section unmounts', async () => {
+    let rejectRequest: (reason: Error) => void = () => {};
+    const pending = new Promise<Awaited<ReturnType<typeof metricsApi.getLLMUsageSummary>>>(
+      (_resolve, reject) => { rejectRequest = reject; }
+    );
+    vi.mocked(metricsApi.getLLMUsageSummary).mockReturnValueOnce(pending);
+    const { unmount } = render(<LLMStatisticsSection />);
+    expect(screen.getByText('settings.usage.loading')).toBeInTheDocument();
+
+    unmount();
+    await act(async () => { rejectRequest(new Error('Request failed after unmount')); });
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('renders the statistics frame without the removed summary rail', async () => {
     render(<LLMStatisticsSection />);
 
@@ -105,8 +159,8 @@ describe('LLMStatisticsSection', () => {
     expect(screen.queryByRole('heading', { name: 'settings.tabs.statisticsLlm' })).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'settings.usage.windows.7' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'settings.usage.windows.30' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'provider-filter' })).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'model-filter' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'settings.usage.providerFilter' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'settings.usage.modelFilter' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.models' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.providers' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'settings.statistics.llm.tabs.requestKinds' })).toBeInTheDocument();
@@ -148,6 +202,8 @@ describe('LLMStatisticsSection', () => {
 
   it('shows an explicit empty state when no calls are available', async () => {
     vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({
+      success: true,
+      message: '',
       data: {
         ...summaryFixture,
         totals: {
@@ -161,8 +217,8 @@ describe('LLMStatisticsSection', () => {
           total_cost_usd: 0,
         },
       },
-    } as any);
-    vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValueOnce({ data: { window_days: 7, points: [] } } as any);
+    });
+    vi.mocked(metricsApi.getLLMUsageTimeseries).mockResolvedValueOnce({ success: true, message: '', data: { window_days: 7, points: [] } });
 
     render(<LLMStatisticsSection />);
 
@@ -172,6 +228,8 @@ describe('LLMStatisticsSection', () => {
   it('keeps tab rendering stable when multiple providers share the same model name', async () => {
     const user = userEvent.setup();
     vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValueOnce({
+      success: true,
+      message: '',
       data: {
         ...summaryFixture,
         models: [
@@ -179,7 +237,7 @@ describe('LLMStatisticsSection', () => {
           { provider: 'openai', model: 'glm', calls: 10, prompt_tokens: 12000, completion_tokens: 4000, total_tokens: 16000, cost_usd: 0.8 },
         ],
       },
-    } as any);
+    });
 
     render(<LLMStatisticsSection />);
 

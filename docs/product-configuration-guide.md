@@ -316,6 +316,7 @@ Current product expectations:
 - provider account quotas and rate limits must not be represented as fixed model metadata because they vary by account, tier, region, and live provider policy
 - the configurable concurrency value is a local Magi safety limit, defaults to `4`, and is isolated by provider instance, plan, endpoint host, model, and request family so separate accounts or billing modes do not block each other
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
+- usage statistics must distinguish a successful empty result from a failed or incomplete response; failures offer retry, and changing the time window must never display a previous window as the current result
 - prompt-cache diagnostics should be lightweight and privacy-safe: they may record provider cache token counters, stable hashes, sizes, selected strategy, and bounded tool names for troubleshooting, but must not persist raw prompts, tool schemas, message bodies, or tool outputs
 - users can review the active model capability profile during onboarding and later in settings
 - first-run LLM setup should show whether the selected provider or provider plan includes a vector model; plan-level gaps should explain that the plan is for chat only, background memory and Timeline work need a normal API provider, and memory recall remains keyword-only until an embedding model is configured

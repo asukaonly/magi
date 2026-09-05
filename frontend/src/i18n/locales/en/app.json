@@ -2386,6 +2386,11 @@
       "notConfigured": "Not Configured"
     },
     "usage": {
+      "loadErrorTitle": "Unable to load usage statistics",
+      "loadErrorDesc": "Usage statistics could not be retrieved. Try again.",
+      "retry": "Retry",
+      "providerFilter": "Filter by provider",
+      "modelFilter": "Filter by model",
       "loading": "Loading usage metrics...",
       "loadFailed": "Failed to load usage metrics: {{message}}",
       "emptyTitle": "No LLM usage metrics yet",

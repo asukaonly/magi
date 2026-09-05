@@ -2385,6 +2385,11 @@
       "notConfigured": "未配置"
     },
     "usage": {
+      "loadErrorTitle": "无法加载用量统计",
+      "loadErrorDesc": "暂时无法读取用量统计，请重试。",
+      "retry": "重试",
+      "providerFilter": "按提供商筛选",
+      "modelFilter": "按模型筛选",
       "loading": "加载统计中...",
       "loadFailed": "加载统计失败: {{message}}",
       "emptyTitle": "还没有可用的 LLM 调用统计",

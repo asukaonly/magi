@@ -20,6 +20,13 @@ const TABLE_TABS = ['models', 'providers', 'requestKinds'] as const;
 
 type TableTab = (typeof TABLE_TABS)[number];
 
+type UsageLoadState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'success'; summary: LLMUsageSummary; points: LLMUsageTimeseriesPoint[] };
+
+const EMPTY_POINTS: LLMUsageTimeseriesPoint[] = [];
+
 const REQUEST_KIND_DISPLAY_KEYS: Record<string, { scenario: string; stage: string }> = {
   chat: { scenario: 'generalChat', stage: 'uncategorizedChat' },
   auxiliary: { scenario: 'supportTasks', stage: 'supportInference' },
@@ -142,9 +149,10 @@ export const LLMStatisticsSection: FC = () => <LLMStatisticsSectionInner />;
 const LLMStatisticsSectionInner: FC = () => {
   const { t } = useTranslation('app');
   const [windowDays, setWindowDays] = useState<(typeof WINDOW_OPTIONS)[number]>(7);
-  const [summary, setSummary] = useState<LLMUsageSummary | null>(null);
-  const [timeseries, setTimeseries] = useState<LLMUsageTimeseriesPoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadState, setLoadState] = useState<UsageLoadState>({ status: 'loading' });
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const summary = loadState.status === 'success' ? loadState.summary : null;
+  const timeseries = loadState.status === 'success' ? loadState.points : EMPTY_POINTS;
   const [providerFilter, setProviderFilter] = useState('all');
   const [modelFilter, setModelFilter] = useState('all');
   const [activeTab, setActiveTab] = useState<TableTab>('models');
@@ -153,7 +161,7 @@ const LLMStatisticsSectionInner: FC = () => {
     let cancelled = false;
 
     const load = async () => {
-      setLoading(true);
+      setLoadState({ status: 'loading' });
       try {
         const [summaryResponse, timeseriesResponse] = await Promise.all([
           metricsApi.getLLMUsageSummary(windowDays, 8),
@@ -162,11 +170,18 @@ const LLMStatisticsSectionInner: FC = () => {
         if (cancelled) {
           return;
         }
-        setSummary(summaryResponse.data || null);
-        setTimeseries(timeseriesResponse.data?.points || []);
-      } finally {
+        if (!summaryResponse.success || !summaryResponse.data ||
+            !timeseriesResponse.success || !timeseriesResponse.data) {
+          throw new Error('Usage metrics response is incomplete');
+        }
+        setLoadState({
+          status: 'success',
+          summary: summaryResponse.data,
+          points: timeseriesResponse.data.points,
+        });
+      } catch {
         if (!cancelled) {
-          setLoading(false);
+          setLoadState({ status: 'error' });
         }
       }
     };
@@ -175,7 +190,7 @@ const LLMStatisticsSectionInner: FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [windowDays]);
+  }, [retryAttempt, windowDays]);
 
   const providerOptions = useMemo(
     () => uniqueStrings((summary?.providers || []).map((item) => item.provider)),
@@ -228,13 +243,27 @@ const LLMStatisticsSectionInner: FC = () => {
     return requestKinds;
   }, [activeTab, filteredModels, filteredProviders, requestKinds]);
 
-  if (loading) {
+  if (loadState.status === 'loading') {
     return (
       <div data-testid="llm-statistics-section" className="flex h-full items-center justify-center">
         <div className="flex items-center gap-2 text-muted-foreground">
           <LoadingSpinner />
           <span className="text-sm">{t('settings.usage.loading')}</span>
         </div>
+      </div>
+    );
+  }
+
+  if (loadState.status === 'error') {
+    return (
+      <div data-testid="llm-statistics-section" className="space-y-4 rounded-2xl border border-destructive/30 p-8">
+        <div role="alert" className="space-y-2">
+          <p className="font-medium">{t('settings.usage.loadErrorTitle')}</p>
+          <p className="text-sm text-muted-foreground">{t('settings.usage.loadErrorDesc')}</p>
+        </div>
+        <Button type="button" variant="outline" onClick={() => setRetryAttempt((attempt) => attempt + 1)}>
+          {t('settings.usage.retry')}
+        </Button>
       </div>
     );
   }
@@ -270,7 +299,7 @@ const LLMStatisticsSectionInner: FC = () => {
                 </Button>
               ))}
               <select
-                aria-label="provider-filter"
+                aria-label={t('settings.usage.providerFilter')}
                 value={providerFilter}
                 onChange={(event) => setProviderFilter(event.target.value)}
                 className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
@@ -281,7 +310,7 @@ const LLMStatisticsSectionInner: FC = () => {
                 ))}
               </select>
               <select
-                aria-label="model-filter"
+                aria-label={t('settings.usage.modelFilter')}
                 value={modelFilter}
                 onChange={(event) => setModelFilter(event.target.value)}
                 className="h-9 rounded-full border border-[hsl(var(--settings-subnav-border)/0.8)] bg-transparent px-3 text-sm text-foreground outline-none"
