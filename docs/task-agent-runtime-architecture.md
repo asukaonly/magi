@@ -352,6 +352,14 @@ projection; and `FunctionCallingToolBatchJournal` owns requested-tool,
 tool-result, evidence, and child-run projection. Tool execution, cancellation,
 suppression, and retry policy stay in `FunctionCallingToolBatchExecutor`.
 
+An `INVALID_PARAMETERS` result rejects that invocation, not the tool for the
+whole run. Corrected arguments remain eligible even when several calls in one
+model response fail validation before the model can see the errors. Identical
+failed calls are still blocked by their argument fingerprints; consecutive
+failed model iterations and the run budget bound further repair attempts.
+Provider challenges, missing provider configuration, and other terminal tool
+conditions retain their existing suppression policy.
+
 There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
 graph, or route-derived handler registry for ordinary turns. A simple chat still
 costs one main model call because it naturally takes the shortest path through
