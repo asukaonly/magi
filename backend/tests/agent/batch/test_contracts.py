@@ -26,14 +26,14 @@ def test_job_and_item_are_value_equal():
         job_id="j1", title="t", owner="local_user", origin_session_id="s1",
         origin_turn_id="u1", handler_ref="movie-rename", handler_config={},
         seed_spec={}, status=BatchJobStatus.PLANNING, batch_size=15,
-        concurrency=1, max_attempts=3, reconcile_rounds_max=2,
+        concurrency=1, max_attempts=3,
         created_at_ms=1, updated_at_ms=1,
     )
     b = BatchJob(
         job_id="j1", title="t", owner="local_user", origin_session_id="s1",
         origin_turn_id="u1", handler_ref="movie-rename", handler_config={},
         seed_spec={}, status=BatchJobStatus.PLANNING, batch_size=15,
-        concurrency=1, max_attempts=3, reconcile_rounds_max=2,
+        concurrency=1, max_attempts=3,
         created_at_ms=1, updated_at_ms=1,
     )
     assert a == b

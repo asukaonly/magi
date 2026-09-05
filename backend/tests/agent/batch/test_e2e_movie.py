@@ -1,19 +1,18 @@
-"""End-to-end demo: drive a movie-rename batch to completion.
+"""Exercise real batch dispatch, manifest updates, and file operations.
 
-This exercises enumerator -> store seed -> drive_job (lease/run/reconcile) with
-an INLINE run_batch that simulates what the real `movie-rename` handler agent
-would do per item (look up the movie, compute a name, actually rename the file,
-write the outcome back). No bootstrap / real agent / websearch — that wiring is
-verified in a real runtime. Here we prove the engine + manifest + real file ops
-flow works end to end.
+The per-batch handler uses a fixed catalog in place of the model. Scheduling
+and completion pass through BatchDriver and its production runner.
 """
 import os
 import sqlite3
+import time
+from types import SimpleNamespace
 
 import pytest
 
-from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
-from magi.agent.batch.engine import drive_job
+from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, BatchRunIdentity, ItemOutcome
+from magi.agent.batch.driver import BatchDriver
+from magi.agent.batch.tool_selection import default_batch_tool_names
 from magi.agent.batch.enumerator import enumerate_seed
 from magi.agent.batch.store import BatchStore
 
@@ -24,7 +23,7 @@ CREATE TABLE batch_job (
     handler_ref TEXT NOT NULL, handler_config TEXT NOT NULL DEFAULT '{}',
     seed_spec TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
     batch_size INTEGER NOT NULL DEFAULT 15, concurrency INTEGER NOT NULL DEFAULT 1,
-    max_attempts INTEGER NOT NULL DEFAULT 3, reconcile_rounds_max INTEGER NOT NULL DEFAULT 2,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
     created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
 );
 CREATE TABLE batch_item (
@@ -49,6 +48,37 @@ def _lookup(filename: str) -> str | None:
         if kw.lower() in low and year in filename:
             return title
     return None
+
+
+async def _drive_job(store, job, *, run_batch):
+    class Registry:
+        @staticmethod
+        def resolve_tool_name(name):
+            return name
+
+        @staticmethod
+        def get_tool(name):
+            return object() if name in default_batch_tool_names() else None
+
+        @staticmethod
+        def is_skill(name):
+            return False
+
+    class Manager:
+        max_concurrent = 2
+
+        async def enqueue(self, spec):
+            identity = BatchRunIdentity.from_trigger(spec.trigger)
+            items = [
+                item for item in await store.list_by_status(identity.job_id, BatchItemStatus.RUNNING)
+                if item.lease_owner == identity.lease_owner
+            ]
+            await run_batch(items)
+            await driver.on_terminal(SimpleNamespace(spec=spec))
+
+    driver = BatchDriver(Manager(), tool_registry=Registry(), store_factory=lambda: store)
+    await driver.kickoff(job.job_id)
+    return await store.reconcile_scan(job.job_id, now_ms=int(time.time() * 1000))
 
 
 @pytest.fixture
@@ -99,7 +129,7 @@ async def test_e2e_movie_rename_drives_to_completion(store, tmp_path):
                                     result={"old": path, "new": new_path, "dedup_key": new_name}))
         await store.update_items(job.job_id, outs)
 
-    report = await drive_job(store, job, run_batch=run_batch)
+    report = await _drive_job(store, job, run_batch=run_batch)
 
     # manifest outcome
     assert report.counts.get("done") == 2
@@ -136,7 +166,7 @@ async def test_e2e_review_then_resume(store, tmp_path):
             for i in items
         ])
 
-    await drive_job(store, job, run_batch=to_review)
+    await _drive_job(store, job, run_batch=to_review)
     review_items = await store.list_by_status(job.job_id, BatchItemStatus.NEEDS_REVIEW)
     assert len(review_items) == 1
 
@@ -149,7 +179,7 @@ async def test_e2e_review_then_resume(store, tmp_path):
             for i in items
         ])
 
-    report = await drive_job(store, job, run_batch=resolve)
+    report = await _drive_job(store, job, run_batch=resolve)
     assert report.complete is True
     assert report.counts.get("done") == 1
     assert (await store.get_job(job.job_id)).status == BatchJobStatus.DONE

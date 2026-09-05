@@ -67,7 +67,6 @@ def _row_to_job(row: aiosqlite.Row) -> BatchJob:
         batch_size=row["batch_size"],
         concurrency=row["concurrency"],
         max_attempts=row["max_attempts"],
-        reconcile_rounds_max=row["reconcile_rounds_max"],
         created_at_ms=row["created_at_ms"],
         updated_at_ms=row["updated_at_ms"],
     )
@@ -128,7 +127,6 @@ class BatchStore:
         batch_size: int = 15,
         concurrency: int = 1,
         max_attempts: int = 3,
-        reconcile_rounds_max: int = 2,
     ) -> BatchJob:
         now = _now_ms()
         job = BatchJob(
@@ -144,7 +142,6 @@ class BatchStore:
             batch_size=batch_size,
             concurrency=concurrency,
             max_attempts=max_attempts,
-            reconcile_rounds_max=reconcile_rounds_max,
             created_at_ms=now,
             updated_at_ms=now,
         )
@@ -154,16 +151,16 @@ class BatchStore:
                 INSERT INTO batch_job (
                     job_id, title, owner, origin_session_id, origin_turn_id,
                     handler_ref, handler_config, seed_spec, status, batch_size,
-                    concurrency, max_attempts, reconcile_rounds_max,
+                    concurrency, max_attempts,
                     created_at_ms, updated_at_ms
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     job.job_id, job.title, job.owner, job.origin_session_id,
                     job.origin_turn_id, job.handler_ref,
                     json.dumps(job.handler_config), json.dumps(job.seed_spec),
                     job.status.value, job.batch_size, job.concurrency,
-                    job.max_attempts, job.reconcile_rounds_max,
+                    job.max_attempts,
                     job.created_at_ms, job.updated_at_ms,
                 ),
             )

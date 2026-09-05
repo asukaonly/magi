@@ -18,7 +18,7 @@ CREATE TABLE batch_job (
     handler_ref TEXT NOT NULL, handler_config TEXT NOT NULL DEFAULT '{}',
     seed_spec TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
     batch_size INTEGER NOT NULL DEFAULT 15, concurrency INTEGER NOT NULL DEFAULT 1,
-    max_attempts INTEGER NOT NULL DEFAULT 3, reconcile_rounds_max INTEGER NOT NULL DEFAULT 2,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
     created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL
 );
 CREATE TABLE batch_item (

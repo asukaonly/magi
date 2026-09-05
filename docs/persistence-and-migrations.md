@@ -397,6 +397,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 |-------------|------|------------------------|
 | `chat` | `v16` | reconstructible model-context surfaces plus exact system/tool epochs and model-call boundaries |
 | `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
+| `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |

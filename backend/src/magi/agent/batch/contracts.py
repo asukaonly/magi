@@ -71,7 +71,6 @@ class BatchJob:
     batch_size: int
     concurrency: int
     max_attempts: int
-    reconcile_rounds_max: int
     created_at_ms: int
     updated_at_ms: int
 

@@ -1,18 +1,8 @@
-"""Batch driver wiring core — event-driven self-enqueue (the production driver).
+"""Lease, replenish, and reconcile bounded background batch runs.
 
-``engine.drive_job`` is the inline, fully-testable driver (one async loop). In
-production each batch must be an INDEPENDENT bounded background agent run, strung
-together by a terminal listener, to dodge the 30-iteration cap (1000 items =
-~67 short runs rather than one 1000-step run). This module holds that
-event-driven logic with the background enqueue as an INJECTED SEAM:
-
-    enqueue_run(job, items)  — real binding: build a BackgroundTaskSpec whose
-                               goal carries the handler prompt + items, and hand
-                               it to the runtime's launch service (wiring, needs
-                               a real runtime). tests inject a fake.
-
-Everything here is task-agnostic — it only reads ``job.handler_ref`` and the
-opaque item inputs; the handler skill's prompt is supplied by the caller.
+The driver enqueues each lease as a separate background run. Completion
+listeners reclaim that run's unfinished items, replenish work, and finalize
+only after the manifest has drained.
 """
 from __future__ import annotations
 

@@ -928,6 +928,11 @@ read that same identity after reload. Handler prompts and model instructions
 never determine job attribution or lease recovery; text that resembles a runtime
 marker remains ordinary task content.
 
+`BatchDriver` and its event-driven runner are the only batch execution path.
+Each lease starts a bounded background run; the terminal listener replenishes
+pending work or reconciles the manifest. Retry bounds come from item attempts,
+without a second inline driver or a separate reconciliation-round limit.
+
 ## Delivery, Recovery, And Privacy Boundaries
 
 Chat acceptance is a single chat-domain transaction covering the session/turn,

@@ -1,6 +1,6 @@
 """BatchDriver — production wiring: drive batch jobs via the real BackgroundManager.
 
-Turns the engine's injected seams (``enqueue_run`` / ``on_batch_run_done``) into
+Binds the runner's enqueue and completion operations to
 real bounded background agent runs. ``on_terminal`` is registered as a
 ``BackgroundTaskManager`` terminal listener at bootstrap; ``kickoff`` is called by
 ``batch_create`` to fire the first batch. task-agnostic — it only reads
