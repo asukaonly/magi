@@ -112,7 +112,6 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(
                     llm_summary_enabled=True,
                     temporal_llm_timeout_seconds=30,
                     temporal_llm_min_event_count=5,
-                    summary_interval_minutes=15,
                 ),
                 l4=SimpleNamespace(
                     enabled=True,
@@ -230,7 +229,6 @@ async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdo
                     llm_summary_enabled=False,
                     temporal_llm_timeout_seconds=30,
                     temporal_llm_min_event_count=5,
-                    summary_interval_minutes=60,
                 ),
                 l4=SimpleNamespace(enabled=True, vectors_enabled=False),
             )

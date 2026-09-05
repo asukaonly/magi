@@ -71,6 +71,35 @@ def _fixture_manifest_path(plugin_id: str) -> Path:
     return manifest
 
 
+def test_l3_settings_round_trip_without_ineffective_summary_controls(tmp_path, monkeypatch):
+    from magi.api.routers.config_response_builders import build_memory_config
+    from magi.api.routers.config_schemas import SystemConfigModel
+    from magi.api.routers.config_update_paths import _memory_update_paths
+    from magi.config.introspection import list_app_config_specs
+
+    _patch_config_paths(monkeypatch, tmp_path)
+    loader = ConfigLoader()
+    runtime = loader.load()
+    proposed = SystemConfigModel(memory=build_memory_config({}, runtime))
+    proposed.memory.l3.retention_days = 90
+    proposed.memory.l3.llm_summary_enabled = False
+    proposed.memory.l3.temporal_llm_timeout_seconds = 4.5
+    proposed.memory.l3.temporal_llm_min_event_count = 5
+    updates = _memory_update_paths(proposed)
+    assert loader.save(updates) is True
+
+    refreshed = loader.load()
+    assert build_memory_config({}, refreshed).l3 == proposed.memory.l3
+    assert refreshed.agent.memory.l3.maintenance_interval_seconds == runtime.agent.memory.l3.maintenance_interval_seconds
+    persisted = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text())
+    assert persisted["agent"]["memory"]["l3"] == proposed.memory.l3.model_dump()
+    specs = {spec.path for spec in list_app_config_specs(prefix="")}
+    for field in ("summary_interval_minutes", "digest_enabled", "digest_interval_hours"):
+        assert field not in refreshed.agent.memory.l3.model_dump()
+        assert f"agent.memory.l3.{field}" not in updates
+        assert f"agent.memory.l3.{field}" not in specs
+
+
 def _seed_fixture_manifest_paths(plugins_dir: Path) -> None:
     """Write an index that points builtin packages at fixed manifest fixtures."""
     plugins_dir.mkdir(parents=True, exist_ok=True)

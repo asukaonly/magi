@@ -142,7 +142,6 @@ def _build_memory_l3_config(memory_cfg: Any) -> MemoryL3ConfigModel:
         llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
         temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
         temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
-        summary_interval_minutes=memory_cfg.l3.summary_interval_minutes,
     )
 
 

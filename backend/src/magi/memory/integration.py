@@ -27,8 +27,6 @@ class MemoryIntegrationConfig:
     enable_l3: bool = True
     enable_l4: bool = True
 
-    summary_interval_minutes: int = 60
-
     subscribed_events: Set[str] = field(
         default_factory=lambda: {
             EventTypes.ACTION_EXECUTED,
@@ -225,7 +223,6 @@ class MemoryIntegrationModule:
                 "enable_l2": self.config.enable_l2,
                 "enable_l3": self.config.enable_l3,
                 "enable_l4": self.config.enable_l4,
-                "summary_interval_minutes": self.config.summary_interval_minutes,
             },
             "subscription_count": len(self._subscription_ids),
         }

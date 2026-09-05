@@ -398,7 +398,6 @@ def _memory_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.l3.llm_summary_enabled": config.memory.l3.llm_summary_enabled,
         "agent.memory.l3.temporal_llm_timeout_seconds": config.memory.l3.temporal_llm_timeout_seconds,
         "agent.memory.l3.temporal_llm_min_event_count": config.memory.l3.temporal_llm_min_event_count,
-        "agent.memory.l3.summary_interval_minutes": config.memory.l3.summary_interval_minutes,
         "agent.memory.l4.enabled": config.memory.l4.enabled,
         "agent.memory.l4.vectors_enabled": config.memory.l4.vectors_enabled,
         "agent.memory.l4.inactive_skill_retention_days": config.memory.l4.inactive_skill_retention_days,

@@ -142,13 +142,14 @@ class MemoryL2ConfigModel(BaseModel):
 
 
 class MemoryL3ConfigModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = Field(default=True)
     retention_days: int = Field(default=180, ge=1)
     vectors_enabled: bool = Field(default=True)
     llm_summary_enabled: bool = Field(default=True)
     temporal_llm_timeout_seconds: float = Field(default=3.0, ge=0.1)
     temporal_llm_min_event_count: int = Field(default=2, ge=1)
-    summary_interval_minutes: int = Field(default=60, ge=1)
 
 
 class MemoryL4ConfigModel(BaseModel):
