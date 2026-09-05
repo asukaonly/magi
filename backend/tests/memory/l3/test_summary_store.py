@@ -2333,3 +2333,33 @@ async def test_l3_rebuild_failure_keeps_previous_searchable_embedding(tmp_path):
     assert current["embedding_status"] == "ready"
     assert _summary_vector_models(db_path, chunk_id) == {"test-embedding"}
     assert chunk_count == 1
+
+
+@pytest.mark.asyncio
+async def test_temporal_summary_tracks_plugin_and_context_dependencies(tmp_path, monkeypatch):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l3.evidence_selector import TemporalEvidenceSelection
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l1 = L1EventStore(db_path=str(tmp_path / "l1.db"))
+    store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    await l1.initialize()
+    await store.initialize()
+    previous = await store.upsert_candidate(candidate=L3Candidate(
+        summary_type="temporal", summary_category="day", content="Previous private evidence",
+        source_event_ids=["previous-private"],
+    ), summary_overrides={"period_start": 10.0, "period_end": 20.0})
+    public = {"event_id": "public", "event_type": "USER_MESSAGE", "content": "Public fact", "timestamp": 40.0, "importance_score": 0.5}
+    private = {**public, "event_id": "feature-private", "content": "Private browsing fact"}
+    async def select(**kwargs):
+        return TemporalEvidenceSelection(selected_events=[public], feature_events=[public, private], source_event_total=2)
+    monkeypatch.setattr(store, "_select_temporal_summary_events", select)
+    store._temporal_summary_features_builder = lambda **kwargs: {"private": {"summary_lines": ["Private browsing fact"]}}
+    summary = await store.generate_temporal_summary(l1_store=l1, summary_category="day", period_start=30, period_end=50)
+    assert summary is not None
+    reloaded = await store.get_summary_by_id(summary["summary_id"])
+    assert set(reloaded["source_event_ids"]) == {"public", "feature-private", "previous-private"}
+    assert reloaded["insight_metadata"]["cited_event_ids"] == ["public"]
+    assert reloaded["insight_metadata"]["dependency_summary_ids"] == [previous["summary_id"]]
+    assert await store.forget_source_events(["feature-private"]) == 1
+    assert await store.get_summary_by_id(summary["summary_id"]) is None

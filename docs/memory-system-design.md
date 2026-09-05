@@ -2962,3 +2962,11 @@ time qualifiers. Model wording must exactly match this controlled view to be
 accepted; substring overlap is not semantic validation. Materialization renders
 again at the write boundary, so portraits, prompts, full-text and vector indexes
 cannot receive an optional summary that reverses or extends the Claim.
+
+Temporal summaries persist the union of all generation dependencies in
+`source_event_ids` and the evidence-link table: selected samples, events supplied
+to a successful plugin feature builder, and the complete event lineage of prior
+and child summaries. `insight_metadata.cited_event_ids` retains the smaller
+citation sample; `dependency_summary_ids` records transitive summary inputs.
+These host-owned fields cannot be overwritten by model output. Forgetting or
+blocking any dependency invalidates the complete derived summary.
