@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..assertion_family_policy import get_assertion_family_policy
+from ..factual_rendering import render_grounded_fact
 from ..phase1_models import L2ClaimEvidenceMode, L2Phase1FactClaim, L2TemporalCue
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
 from .occurrence_stats import ClaimOccurrenceStats
@@ -334,14 +335,11 @@ def _trait_value(material: MaterializationInput) -> str:
 
 
 def _natural_summary(material: MaterializationInput) -> str:
-    supplied = " ".join(str(material.natural_summary or "").split())[:500]
-    if supplied:
-        return supplied
     for claim in material.claims:
-        evidence = " ".join(str(claim.evidence_text or "").split())
-        if evidence:
-            return evidence[:500]
-    return str(material.route.object_surface or _trait_value(material)).strip()[:500]
+        text = render_grounded_fact(claim)
+        if text:
+            return text
+    return ""
 
 
 def _review_proposal(material: MaterializationInput) -> dict[str, Any] | None:

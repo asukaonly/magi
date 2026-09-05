@@ -2956,3 +2956,9 @@ retains negative Claims, evidence, and temporal scope in the ledger with reason
 `negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
 is supported, these Claims have no graph or portrait/assertion target. Initial
 projection, optional wording, and route replay share this boundary.
+
+Assertion `natural_summary` is a host-rendered view of predicate, target, and
+time qualifiers. Model wording must exactly match this controlled view to be
+accepted; substring overlap is not semantic validation. Materialization renders
+again at the write boundary, so portraits, prompts, full-text and vector indexes
+cannot receive an optional summary that reverses or extends the Claim.
