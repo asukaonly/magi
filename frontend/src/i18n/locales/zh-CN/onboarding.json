@@ -683,6 +683,11 @@
   },
   "llm": {
     "modelSelection": {
+      "pluginModelRequired": "请填写所选插件提供者的模型 ID 后再保存。",
+      "pluginProvider": "插件：{{provider}}",
+      "pluginUnavailableOption": "{{provider}}（不可用）",
+      "pluginUnavailable": "此插件提供者当前不可用。请在插件页启用对应连接，或选择其他提供者后保存。",
+      "pluginManualModel": "请输入此插件支持的模型 ID。暂不支持自动发现模型；凭证由插件连接管理。",
       "title": "模型选择",
       "desc": "按职责分配模型。核心模型运行 Agent 循环，辅助任务模型处理边界明确的后台工作。",
       "empty": "请先启用至少一个供应商，再回来选择模型。",

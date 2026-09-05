@@ -50,6 +50,24 @@ export function LLMChatScenarioPanel({
   onScenarioModelChange,
 }: LLMChatScenarioPanelProps) {
   const { t } = useTranslation('onboarding');
+  const pluginProvider = registry.plugin_providers?.find((entry) => entry.provider_id === selection.provider_id);
+  const isPluginSelection = !provider && selection.provider_id.includes(':');
+  const unavailablePlugin = isPluginSelection && !pluginProvider;
+  const providerOptions = [
+    ...enabledProviders.map(([providerId, enabledProvider]) => ({
+      label: enabledProvider.display_name || providerId,
+      value: providerId,
+    })),
+    ...(registry.plugin_providers || []).map((entry) => ({
+      label: t('llm.modelSelection.pluginProvider', { provider: entry.display_name }),
+      value: entry.provider_id,
+    })),
+    ...(unavailablePlugin ? [{
+      label: t('llm.modelSelection.pluginUnavailableOption', { provider: selection.provider_id }),
+      value: selection.provider_id,
+      disabled: true,
+    }] : []),
+  ];
   const models = provider
     ? resolveProviderModels(registry, selection.provider_id, provider).chat_models.filter((model) => !model.hidden)
     : [];
@@ -67,14 +85,12 @@ export function LLMChatScenarioPanel({
           <span className="text-sm font-medium">{t('llm.fields.provider')}</span>
           <SelectField
             className="w-full"
+            ariaLabel={t('llm.fields.provider')}
             triggerClassName={inputClassName}
             value={selection.provider_id}
             disabled={disabled}
             allowEmpty={false}
-            options={enabledProviders.map(([providerId, enabledProvider]) => ({
-              label: enabledProvider.display_name || providerId,
-              value: providerId,
-            }))}
+            options={providerOptions}
             onChange={(nextValue) => onScenarioProviderChange(scenario, nextValue)}
           />
         </label>
@@ -108,7 +124,11 @@ export function LLMChatScenarioPanel({
         </label>
       </div>
 
-      {advancedSettings}
+      {isPluginSelection ? (
+        <p className="mt-3 text-xs text-muted-foreground" role={unavailablePlugin ? 'alert' : undefined}>
+          {t(unavailablePlugin ? 'llm.modelSelection.pluginUnavailable' : 'llm.modelSelection.pluginManualModel')}
+        </p>
+      ) : advancedSettings}
 
       {scenario === 'core' && !selection.capabilities.vision ? (
         <div

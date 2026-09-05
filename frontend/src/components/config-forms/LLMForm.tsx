@@ -23,12 +23,14 @@ import {
   cloneProvider,
   cloneSelection,
   isProviderAllowedForScenario,
+  isPluginModelSelection,
   llmSignature,
   normalizeLLMConfig,
   resolveProviderActionBaseUrl,
   resolveProviderDefaultModel,
   resolveSelectionDefaultMaxConcurrency,
   validateLLMCustomProviderReadiness,
+  validatePluginModelSelections,
   type LLMValidationIssue,
   type ScenarioConcurrencyState,
 } from './llm-form-state';
@@ -127,19 +129,26 @@ const LLMForm: React.FC<LLMFormProps> = ({
   const fillAvailableHeight = view === 'providers';
   const memorySummarizerCanUseCore = Boolean(
     registry &&
-    isProviderAllowedForScenario(
-      registry,
-      currentValue.providers[currentValue.selections.core?.provider_id],
-      'memory_summarizer'
-    )
+    (isPluginModelSelection(currentValue, currentValue.selections.core.provider_id)
+      ? registry.plugin_providers?.some((provider) => provider.provider_id === currentValue.selections.core.provider_id)
+      : isProviderAllowedForScenario(
+          registry,
+          currentValue.providers[currentValue.selections.core?.provider_id],
+          'memory_summarizer'
+        ))
   );
   const memorySummarizerUsesCore = memorySummarizerCanUseCore && (
     memorySummarizerUsesCoreOverride
     ?? areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core)
   );
-  const validationIssues = useMemo(() => validateLLMCustomProviderReadiness(currentValue), [currentValue]);
+  const validationIssues = useMemo(() => [
+    ...validateLLMCustomProviderReadiness(currentValue),
+    ...(registry ? validatePluginModelSelections(currentValue, registry) : []),
+  ], [currentValue, registry]);
 
   const formatValidationIssue = useCallback((issue: LLMValidationIssue): string => {
+    if (issue.code === 'pluginProviderUnavailable') return t('llm.modelSelection.pluginUnavailable');
+    if (issue.code === 'pluginModelRequired') return t('llm.modelSelection.pluginModelRequired');
     const serviceLabel = t(`llm.providerConfiguration.serviceLabels.${issue.serviceName}`);
     if (issue.code === 'customScenarioModelMissing' && issue.scenario && issue.model) {
       return t('llm.validation.customScenarioModelMissing', {
@@ -202,15 +211,15 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return;
     }
 
-    const requestId = registryPreviewRequestRef.current + 1;
-    registryPreviewRequestRef.current = requestId;
-    const timeoutId = window.setTimeout(() => {
+    let disposed = false;
+    const refreshCatalog = () => {
+      const requestId = ++registryPreviewRequestRef.current;
       void (async () => {
         try {
           const catalog = await configApi.resolveLLMProviderCatalog({
             providers: currentValue.providers,
           });
-          if (registryPreviewRequestRef.current !== requestId || !catalog) {
+          if (disposed || registryPreviewRequestRef.current !== requestId || !catalog) {
             return;
           }
           setRegistry(buildRegistryFromCatalog(catalog, customProviderTemplate));
@@ -218,10 +227,14 @@ const LLMForm: React.FC<LLMFormProps> = ({
           // Preserve the last successful catalog snapshot while the user edits draft values.
         }
       })();
-    }, 120);
+    };
+    const timeoutId = window.setTimeout(refreshCatalog, 120);
+    window.addEventListener('focus', refreshCatalog);
 
     return () => {
+      disposed = true;
       window.clearTimeout(timeoutId);
+      window.removeEventListener('focus', refreshCatalog);
     };
   }, [currentValue.providers, customProviderTemplate]);
 
@@ -376,7 +389,8 @@ const LLMForm: React.FC<LLMFormProps> = ({
       return;
     }
     updateValue((draft) => {
-      const selection = cloneSelection(draft.selections[scenario]);
+      const pluginProvider = registry.plugin_providers?.find((entry) => entry.provider_id === providerId);
+      const selection = cloneSelection(pluginProvider ? undefined : draft.selections[scenario]);
       selection.provider_id = providerId;
       const provider = draft.providers[providerId];
       selection.model = resolveProviderDefaultModel(registry, providerId, provider, scenario);

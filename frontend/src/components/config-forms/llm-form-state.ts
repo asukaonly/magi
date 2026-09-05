@@ -23,7 +23,9 @@ export type LLMProviderServiceName = 'chat' | 'embedding' | 'image_generation';
 
 export type LLMValidationIssueCode =
   | 'customServiceModelRequired'
-  | 'customScenarioModelMissing';
+  | 'customScenarioModelMissing'
+  | 'pluginModelRequired'
+  | 'pluginProviderUnavailable';
 
 export interface LLMValidationIssue {
   code: LLMValidationIssueCode;
@@ -319,7 +321,26 @@ export const buildRegistryFromCatalog = (
 ): LLMProviderRegistry => ({
   providers: [...(catalog?.providers || [])],
   custom_provider: cloneCustomProviderMeta(customTemplate?.template),
+  plugin_providers: [...(catalog?.plugin_providers || [])],
 });
+
+export const isPluginModelSelection = (value: LLMConfig, providerId: string): boolean =>
+  !value.providers[providerId] && providerId.includes(':');
+
+export const validatePluginModelSelections = (value: LLMConfig, registry: LLMProviderRegistry): LLMValidationIssue[] =>
+  (['core', 'auxiliary', 'memory_summarizer'] as const).flatMap((scenario) => {
+    const selection = value.selections[scenario];
+    if (!isPluginModelSelection(value, selection.provider_id)) return [];
+    const provider = registry.plugin_providers?.find((entry) => entry.provider_id === selection.provider_id);
+    const code = !provider ? 'pluginProviderUnavailable' : !selection.model.trim() ? 'pluginModelRequired' : null;
+    return code ? [{
+      code,
+      providerId: selection.provider_id,
+      providerName: provider?.display_name || selection.provider_id,
+      serviceName: 'chat',
+      scenario,
+    } satisfies LLMValidationIssue] : [];
+  });
 
 const getProviderMeta = (registry: LLMProviderRegistry, providerId?: string) =>
   registry.providers.find((provider) => provider.id === providerId);
@@ -673,6 +694,15 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
     }
 
     const selection = cloneSelection(next.selections[scenario]);
+    // Preserve the user's plugin selection even when its connection is offline.
+    // Availability is validated by the host; never silently switch providers.
+    if (
+      scenario !== 'embedding' && scenario !== 'image_generation'
+      && isPluginModelSelection(next, selection.provider_id)
+    ) {
+      next.selections[scenario] = selection;
+      continue;
+    }
     const hasEnabledSelection =
       Boolean(selection.provider_id) &&
       Boolean(next.providers[selection.provider_id]?.enabled);

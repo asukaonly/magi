@@ -360,10 +360,20 @@ export interface LLMGenerationModelMeta {
 export interface LLMProviderRegistry {
   providers: LLMProviderMeta[];
   custom_provider: LLMCustomProviderMeta;
+  plugin_providers?: PluginModelProviderCatalogEntry[];
+}
+
+export interface PluginModelProviderCatalogEntry {
+  provider_id: string;
+  plugin_id: string;
+  connection_id: string;
+  display_name: string;
+  model_selection: 'manual';
 }
 
 export interface LLMProviderCatalog {
   providers: LLMProviderMeta[];
+  plugin_providers?: PluginModelProviderCatalogEntry[];
 }
 
 export interface LLMProviderCatalogResolveRequest {

@@ -14,7 +14,7 @@ import { LLMLocalEmbeddingModelPanel } from './LLMLocalEmbeddingModelPanel';
 import { LLMRemoteEmbeddingModelSelector } from './LLMRemoteEmbeddingModelSelector';
 import { LLMRerankerModelPanel } from './LLMRerankerModelPanel';
 import { LLMScenarioAdvancedSettings } from './LLMScenarioAdvancedSettings';
-import { isProviderAllowedForScenario } from './llm-form-state';
+import { isPluginModelSelection, isProviderAllowedForScenario } from './llm-form-state';
 
 interface LLMModelSelectionSectionProps {
   registry: LLMProviderRegistry;
@@ -210,7 +210,10 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
     }
   }, [embeddingConfig?.mode, allEmbeddingModels.length, onEmbeddingConfigChange]);
 
-  if (enabledProviders.length === 0) {
+  const hasPluginSelection = Object.values(value.selections).some(
+    (selection) => isPluginModelSelection(value, selection.provider_id)
+  );
+  if (enabledProviders.length === 0 && !registry.plugin_providers?.length && !hasPluginSelection) {
     return (
       <section
         data-testid="llm-model-selection-section"

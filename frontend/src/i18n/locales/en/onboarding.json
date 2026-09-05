@@ -683,6 +683,11 @@
   },
   "llm": {
     "modelSelection": {
+      "pluginModelRequired": "Enter a model ID for the selected plugin provider before saving.",
+      "pluginProvider": "Plugin: {{provider}}",
+      "pluginUnavailableOption": "{{provider}} (unavailable)",
+      "pluginUnavailable": "This plugin provider is unavailable. Enable its connection in Plugins or choose another provider before saving.",
+      "pluginManualModel": "Enter the model ID supported by this plugin. Model discovery is not available; credentials are managed by the plugin connection.",
       "title": "Model Selection",
       "desc": "Assign models by responsibility. The core model runs the agent loop; support models handle bounded background work.",
       "empty": "Enable at least one provider first, then come back to assign models.",

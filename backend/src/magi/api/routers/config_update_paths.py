@@ -19,6 +19,7 @@ from ...config.models import (
     LLMSelectionLimitsSettings,
 )
 from ..services.config_secrets import normalize_masked_secrets
+from ..services.llm_plugin_providers import get_plugin_model_provider_registry
 from ..services.llm_testing_service import get_llm_provider_registry
 from .config_schemas import LLMSelectionConfigModel, SystemConfigModel
 
@@ -282,6 +283,16 @@ def _validate_llm_selections(config: SystemConfigModel) -> None:
             continue
         provider = config.llm.providers.get(selection.provider_id)
         if provider is None:
+            plugin_registry = get_plugin_model_provider_registry()
+            if (
+                plugin_registry is not None
+                and plugin_registry.get("model", selection.provider_id) is not None
+            ):
+                if selection_id not in CHAT_SCENARIOS:
+                    raise ValueError("Plugin model providers support chat scenarios only")
+                if not selection.model.strip():
+                    raise ValueError("Plugin model providers require an explicit model ID")
+                continue
             raise ValueError(
                 core_i18n.t(
                     "config.validation.llm_selection_unknown_provider",
