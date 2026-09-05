@@ -631,7 +631,23 @@ truth outside `run_plans`.
 ## Child Runs
 
 The parent model decides whether decomposition is useful by calling the `agent`
-tool. `ChildRunCoordinator` owns the mechanics:
+tool. Its model-facing description recommends delegation for a concrete,
+self-contained subtask when parallel progress, isolation of substantial work,
+or an independent review offers a clear benefit. Simple lookups, single-page
+reads, short checks, and immediate blocking steps should use the relevant tools
+directly; missing tools should be discovered through `find-relevant-tools`.
+Tool metadata describes delegation rather than broadly recommending children
+for external research or code exploration.
+
+Assignments must include their goal, context, scope, and expected output. The
+parent should avoid duplicating the delegated work and review the evidence
+before integrating the result. Children receive no parent conversation by
+default; `inherit_context=true` adds a bounded summary, not the full history.
+Foreground launch waits for results. Background launch returns child IDs and is
+appropriate when the parent can continue useful independent work before using
+`status`, `await`, or `cancel`.
+
+`ChildRunCoordinator` owns the mechanics:
 
 - `launch`, `status`, `await`, and `cancel` actions;
 - single or batch children, optionally parallel;

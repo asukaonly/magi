@@ -14,6 +14,22 @@ from .worker_state import (
 )
 
 
+AGENT_TOOL_DESCRIPTION = (
+    "Delegate a concrete, self-contained subtask to a child agent when independent "
+    "execution offers a clear benefit: parallel progress, isolating substantial "
+    "work from the main conversation, or an independent review.\n\n"
+    "Handle simple factual lookups, single-page reads, short checks, and immediate "
+    "blocking steps directly with the relevant tools. If a needed capability is "
+    "missing, use find-relevant-tools; do not launch a child merely to obtain tools.\n\n"
+    "Give the child a clear goal, necessary context, a bounded scope, and the "
+    "expected output. Avoid duplicating its work. Review its evidence and integrate "
+    "the result into your answer.\n\n"
+    "Launch waits for the result by default. Set run_in_background=true when you "
+    "can continue useful work independently, then use status, await, or cancel with "
+    "the returned child IDs. Wait only when the result is needed for your next step."
+)
+
+
 class _WorkerSchemaHostProtocol(Protocol):
     ACTION_LAUNCH: str
     ACTION_STATUS: str
@@ -33,10 +49,7 @@ class WorkerSchemaMixin:
         host = cast(_WorkerSchemaHostProtocol, self)
         host.schema = ToolSchema(
             name="agent",
-            description=(
-                "Launch and control bounded child agent runs. Presets constrain "
-                "capabilities and reasoning without classifying task semantics."
-            ),
+            description=AGENT_TOOL_DESCRIPTION,
             category="agent",
             version="1.0.0",
             author="Magi Team",
@@ -95,7 +108,12 @@ def _launch_parameters(host: _WorkerSchemaHostProtocol) -> list[ToolParameter]:
         ToolParameter(
             name="preset",
             type=ParameterType.STRING,
-            description="Capability preset: default, read_only, workspace_write, or review",
+            description=(
+                "Capability policy, not a task category. Use only: default "
+                "(read-only), read_only (read-only tools), workspace_write "
+                "(read and local-write tools), or review (read-only with a higher "
+                "baseline reasoning depth). Put the task itself in prompt."
+            ),
             required=False,
             default=host.PRESET_DEFAULT,
             enum=[
@@ -114,7 +132,11 @@ def _launch_parameters(host: _WorkerSchemaHostProtocol) -> list[ToolParameter]:
         ToolParameter(
             name="prompt",
             type=ParameterType.STRING,
-            description="Detailed task instructions for the worker agent",
+            description=(
+                "Self-contained assignment with a clear goal, necessary context, "
+                "bounded scope, and expected output. The child does not receive "
+                "the parent conversation by default."
+            ),
             required=False,
         ),
         ToolParameter(
@@ -123,7 +145,9 @@ def _launch_parameters(host: _WorkerSchemaHostProtocol) -> list[ToolParameter]:
             array_item_type=ParameterType.OBJECT,
             description=(
                 "Batch worker definitions. Each item: "
-                "{preset, description, prompt, max_iterations?}"
+                "{preset, description, prompt, max_iterations?}. Use the same "
+                "allowed preset values and self-contained prompt requirements "
+                "as a single launch. Give each child a distinct scope."
             ),
             required=False,
         ),
@@ -142,7 +166,10 @@ def _execution_parameters() -> list[ToolParameter]:
         ToolParameter(
             name="run_in_background",
             type=ParameterType.BOOLEAN,
-            description="Run asynchronously and return immediately",
+            description=(
+                "Return immediately with child IDs when true; otherwise wait for "
+                "results. Use true when you can continue useful work independently."
+            ),
             required=False,
             default=False,
         ),
@@ -173,9 +200,10 @@ def _context_parameters() -> list[ToolParameter]:
             name="inherit_context",
             type=ParameterType.BOOLEAN,
             description=(
-                "Whether to pass a summary of the parent conversation "
-                "to the worker. When false (default), workers start "
-                "with a clean context and only see the prompt."
+                "Pass a bounded summary of the parent conversation when true, "
+                "not the full history. When false (default), the child receives "
+                "only the assignment prompt as conversation context. Include "
+                "essential details in prompt even when enabled."
             ),
             required=False,
             default=False,
@@ -188,10 +216,17 @@ def build_worker_schema_examples() -> list[dict[str, object]]:
         {
             "input": {
                 "action": "launch",
-                "preset": "read_only",
-                "description": "scan auth flow",
-                "prompt": "Find where JWT token is created and validated.",
+                "preset": "review",
+                "description": "review authentication error handling",
+                "prompt": (
+                    "Independently review the authentication implementation in "
+                    "the current workspace for missing token validation and "
+                    "incorrect error handling. Trace the relevant request paths. "
+                    "Do not edit files. Return actionable findings with file and "
+                    "line references, supporting evidence, and any uncertainties."
+                ),
+                "run_in_background": True,
             },
-            "output": "Returns worker id and status",
+            "output": "Returns child IDs and status for later status, await, or cancel",
         }
     ]
