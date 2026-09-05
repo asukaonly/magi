@@ -1375,12 +1375,7 @@ Assertion API rows expose family display metadata, including `trait_value_i18n`,
   event memberships with live L2 assertions whose `evidence_events` intersect
   those events; confirmation uses the lightweight assertion feedback path,
   while rejection and editing use the governed correction surface
-- The episode review surface is reading-first: it presents Magi's natural
-  language recap from the linked L3 episodic summary, then lets the user edit
-  the display title, edit or regenerate the recap, and curate the member event
-  boundary with explicit buttons. V1 keeps confidence-style reactions out of the
-  surface until a dedicated feedback/confidence system exists.
-- Add/remove event curation operates on system-suggested nearby candidate
+- Backend add/remove event curation operates on system-suggested nearby candidate
   events, not a global event search. Merge curation chooses a suggested active
   episode and folds it into the current survivor. Split curation uses a
   chronological breakpoint between member events, creates two active child
@@ -1404,6 +1399,12 @@ only as evidence on those experiences. `episode_recall` is reserved for explicit
 activity-span recall, but episodes must not be surfaced or ranked as user-facing
 hits; any episode use in that path should only narrow an evidence window before
 returning L1 events or promoted experiences.
+
+The frontend review routes use the Experience index, draft editor, and detail
+surface. Source episodes remain readable through the episode detail API for
+draft evidence expansion. Timeline pin/hide actions and operator reconsolidation
+keep their episode APIs; no separate episode card, recap editor, or boundary
+curation dialogs are mounted in the product UI.
 
 **Experiences** are the product-grade episodic object surfaced in the review
 page and timeline. An experience is promoted only when one or more substrate

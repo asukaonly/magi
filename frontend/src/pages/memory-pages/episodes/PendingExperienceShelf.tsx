@@ -8,7 +8,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { L2ExperienceSeed } from '@/api/modules/memory';
-import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -80,7 +80,7 @@ function PendingExperienceCard({
     t('memory.episodes.pending.fallbackDescription'),
     t('memory.episodes.pending.fallbackDescriptionGeneric')
   );
-  const range = formatEpisodeTimeRange(seed.time_start, seed.time_end, i18n.language);
+  const range = formatMemoryTimeRange(seed.time_start, seed.time_end, i18n.language);
   const promoting = actionId === `${seed.seed_id}:promote`;
   const rejecting = actionId === `${seed.seed_id}:reject`;
   const busy = promoting || rejecting;

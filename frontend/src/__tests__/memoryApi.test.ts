@@ -36,18 +36,6 @@ describe('memoryApi endpoints', () => {
     expect(getSpy).toHaveBeenCalledWith('/memory/l2/episodes/ep-1');
   });
 
-  it('merges an absorbed episode into a survivor episode', async () => {
-    const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: { episode_id: 'ep-1' },
-    });
-
-    await memoryApi.mergeEpisodes('ep-1', 'ep-2');
-
-    expect(postSpy).toHaveBeenCalledWith('/memory/l2/episodes/ep-1/merge', { absorbed_id: 'ep-2' });
-  });
-
   it('creates an experience seed from selected episodes', async () => {
     const postSpy = vi.spyOn(api, 'post').mockResolvedValue({
       success: true,

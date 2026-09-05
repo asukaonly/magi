@@ -191,7 +191,6 @@ vi.mock('@/api/modules/memory', () => ({
     uploadExperienceCover: vi.fn(),
     regenerateExperienceReview: vi.fn(),
     hideExperience: vi.fn(),
-    listEpisodes: vi.fn(),
     reconsolidateEpisodes: vi.fn(),
   },
 }));
@@ -328,35 +327,6 @@ const pendingSeeds: L2ExperienceSeed[] = [
     time_end: 1700300000,
     confidence: 0.7,
     evidence_count: 3,
-  },
-];
-
-const sourceEpisodes = [
-  {
-    episode_id: 'ep-create-1',
-    episode_type: 'activity',
-    status: 'active',
-    display_title: 'Planning thread',
-    display_description: 'Drafted the route and hotels.',
-    time_start: 1700000000,
-    time_end: 1700050000,
-    source_event_count: 2,
-    primary_entity_ids: [],
-    primary_place_ids: [],
-    primary_topic_keys: ['topic:travel'],
-  },
-  {
-    episode_id: 'ep-create-2',
-    episode_type: 'activity',
-    status: 'active',
-    label: 'Ticket booking',
-    summary: 'Booked Shinkansen tickets.',
-    time_start: 1700060000,
-    time_end: 1700063000,
-    source_event_count: 1,
-    primary_entity_ids: [],
-    primary_place_ids: [],
-    primary_topic_keys: ['topic:travel'],
   },
 ];
 
@@ -643,12 +613,6 @@ beforeEach(() => {
     ...experienceDetail,
     status: 'hidden',
   });
-  vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
-    items: sourceEpisodes,
-    total: sourceEpisodes.length,
-    limit: 100,
-    offset: 0,
-  } as never);
   vi.mocked(memoryApi.reconsolidateEpisodes).mockResolvedValue({
     promoted: 1,
     standouts: 1,
@@ -685,7 +649,6 @@ describe('MemoryEpisodesPage', () => {
     ]);
     expect(memoryApi.listExperiences).toHaveBeenCalledWith({ status: 'active', limit: 100, offset: 0 });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 6, offset: 0 });
-    expect(memoryApi.listEpisodes).not.toHaveBeenCalled();
     expect(memoryApi.getExperience).not.toHaveBeenCalled();
     expect(screen.queryByText('Visited Kyoto station')).not.toBeInTheDocument();
   });

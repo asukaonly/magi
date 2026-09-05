@@ -678,25 +678,6 @@ export interface L2ExperienceReviewDetail extends L2ExperienceWithReview {
   key_events?: L2EpisodeEventPreview[];
 }
 
-export interface L2EpisodeCandidate extends L2EpisodeWithSummary {
-  candidate_score: number;
-  candidate_reasons: string[];
-}
-
-export interface L2EpisodeSplitSide {
-  event_count: number;
-  time_start?: number | null;
-  time_end?: number | null;
-  events: L2EpisodeEventPreview[];
-  display_title?: string;
-  display_description?: string;
-}
-
-export interface L2EpisodeSplitPreview {
-  left: L2EpisodeSplitSide;
-  right: L2EpisodeSplitSide;
-}
-
 export interface EpisodeReconsolidateResult {
   promoted: number;
   standouts: number;
@@ -1079,12 +1060,6 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
-  listEpisodes: async (params?: PaginationParams & {
-    episode_type?: string;
-    status?: string;
-    surface?: 'standout';
-  }): Promise<PaginatedResponse<L2EpisodeWithSummary>> =>
-    unwrapMemoryResponse(await api.get<PaginatedResponse<L2EpisodeWithSummary>>('/memory/l2/episodes', { params })),
   listExperiences: async (params?: PaginationParams & {
     status?: string;
     time_start?: number;
@@ -1151,30 +1126,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/hide`)),
   getEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
     unwrapMemoryResponse(await api.get<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}`)),
-  regenerateEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
-    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/regenerate`)),
-  listEpisodeEventCandidates: async (episodeId: string): Promise<{ items: L2EpisodeEventPreview[] }> =>
-    unwrapMemoryResponse(await api.get<{ items: L2EpisodeEventPreview[] }>(`/memory/l2/episodes/${episodeId}/event-candidates`)),
-  addEpisodeEvents: async (episodeId: string, eventIds: string[]): Promise<L2EpisodeReviewDetail> =>
-    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/events`, { event_ids: eventIds })),
-  removeEpisodeEvents: async (episodeId: string, eventIds: string[]): Promise<L2EpisodeReviewDetail> =>
-    unwrapMemoryResponse(await api.delete<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/events`, { data: { event_ids: eventIds } })),
-  listEpisodeMergeCandidates: async (episodeId: string): Promise<{ items: L2EpisodeCandidate[] }> =>
-    unwrapMemoryResponse(await api.get<{ items: L2EpisodeCandidate[] }>(`/memory/l2/episodes/${episodeId}/merge-candidates`)),
-  previewEpisodeSplit: async (episodeId: string, breakAfterEventId: string): Promise<L2EpisodeSplitPreview> =>
-    unwrapMemoryResponse(await api.post<L2EpisodeSplitPreview>(`/memory/l2/episodes/${episodeId}/split-preview`, {
-      break_after_event_id: breakAfterEventId,
-    })),
-  splitEpisode: async (episodeId: string, breakAfterEventId: string): Promise<{ items: L2EpisodeReviewDetail[] }> =>
-    unwrapMemoryResponse(await api.post<{ items: L2EpisodeReviewDetail[] }>(`/memory/l2/episodes/${episodeId}/split`, {
-      break_after_event_id: breakAfterEventId,
-    })),
   reconsolidateEpisodes: async (): Promise<EpisodeReconsolidateResult> =>
     unwrapMemoryResponse(await api.post<EpisodeReconsolidateResult>('/memory/l2/episodes/reconsolidate')),
   annotateEpisode: async (episodeId: string, payload: EpisodeAnnotationPayload): Promise<L2Episode> =>
     unwrapMemoryResponse(await api.patch<L2Episode>(`/memory/l2/episodes/${episodeId}`, payload)),
-  mergeEpisodes: async (episodeId: string, absorbedId: string): Promise<L2EpisodeReviewDetail> =>
-    unwrapMemoryResponse(await api.post<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}/merge`, { absorbed_id: absorbedId })),
   forgetEpisode: async (episodeId: string, deleteEvents = false): Promise<ForgetEpisodeResponse> =>
     unwrapMemoryResponse(await api.post<ForgetEpisodeResponse>('/memory/forget/episode', {
       episode_id: episodeId,

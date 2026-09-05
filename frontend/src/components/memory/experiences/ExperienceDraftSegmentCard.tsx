@@ -6,7 +6,7 @@ import {
   type ExperienceDraftChapter,
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
-import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 type ContentState = 'idle' | 'loading' | 'loaded' | 'failed';
@@ -82,7 +82,7 @@ export function ExperienceDraftSegmentCard({
     ? content.state
     : 'idle';
   const events = content.evidenceKey === evidenceKey ? content.events : [];
-  const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
+  const timeRange = formatMemoryTimeRange(chapter.time_start, chapter.time_end, i18n.language);
   const readableEvents = useMemo(
     () => events.filter((event) => String(event.content_preview || '').trim()),
     [events],

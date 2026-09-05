@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { L2Experience, L2ExperienceWithReview } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
+import { formatMemoryTimeRange } from '@/utils/memory-time';
 
 interface ExperienceRowProps {
   experience: L2ExperienceWithReview;
@@ -178,7 +178,7 @@ export function ExperienceRow({ experience, selected, onOpen }: ExperienceRowPro
   const { t, i18n } = useTranslation('app');
   const title = getExperienceDisplayTitle(experience, t('memory.episodes.awaitingLabel'), i18n.language);
   const summary = getExperienceSummary(experience);
-  const range = formatEpisodeTimeRange(experience.time_start, experience.time_end, i18n.language);
+  const range = formatMemoryTimeRange(experience.time_start, experience.time_end, i18n.language);
   const entityLabels = getExperienceEntityLabels(experience);
   const typeLabel = t(`memory.episodes.filters.${experience.experience_type || 'activity'}`, {
     defaultValue: experience.experience_type || '',
