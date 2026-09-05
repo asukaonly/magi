@@ -26,10 +26,34 @@ Current release expectations are:
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
 - frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and Python sidecar exactly once before producing the desktop bundle
-- release jobs publish a GitHub Release and attach the generated desktop installers (`releaseDraft: false` in the workflow)
+- release jobs attach installers to a draft GitHub Release (`releaseDraft: true`); successful builds do not publish an unvalidated candidate or advance the public updater feed
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
+
+### Candidate acceptance
+
+Before publishing the draft, a maintainer records the release commit, artifact
+checksum, OS version, architecture, executed cases and results in the draft's
+validation section. Each supported target (macOS Apple Silicon, macOS Intel and
+Windows x64) needs actual installation/launch evidence for its own artifact.
+An unsigned local build proves local behavior only; it does not prove signing,
+notarization, installer behavior, updates or another target's runtime.
+
+| Area | Required candidate evidence |
+| --- | --- |
+| Startup and native runtime | Launch outside the source checkout with a fresh isolated data root; bundled gateway, worker and plugin Python start without the development environment; native file selection and private resources work. |
+| Configuration | Missing settings lead to onboarding; rejected connections remain editable; changing connection parameters invalidates verification; confirmed settings survive a full quit and relaunch. |
+| Agent operation | Send, stream, stop, switch sessions and recover from provider/worker failure without displaying a false running or completed state. |
+| Data and extensions | Import preview/selection, failure and retry; retrieve, delete and export selected data; invalid plugin configuration does not appear enabled; runtime state survives restart. |
+| Desktop interaction | Core dialogs support Tab/Enter/Escape and return focus; minimum supported window and scaling keep actions visible; language, close/quit behavior and suspend/resume remain coherent. |
+
+Existing component/contract tests supply detailed branch coverage; the record
+identifies which cases were also executed through the actual packaged WebView,
+gateway and worker. Missing platform or critical-flow evidence keeps the release
+in draft. After acceptance, the maintainer replaces the pending validation text
+with results and explicitly publishes that same draft. Code or artifact changes
+invalidate the affected results and require a new candidate validation.
 
 ## Core Goals
 

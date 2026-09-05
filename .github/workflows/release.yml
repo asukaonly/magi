@@ -40,7 +40,7 @@ jobs:
           echo "Release commit ${GITHUB_SHA} passed CI in run ${run_id}."
 
   publish-tauri:
-    name: Publish desktop bundle (${{ matrix.label }})
+    name: Build desktop candidate (${{ matrix.label }})
     needs: verify-ci
     runs-on: ${{ matrix.runner }}
     environment: release
@@ -240,6 +240,11 @@ jobs:
           {
             echo "title=Magi ${current_tag}"
             echo "body<<EOF"
+            echo "## Candidate validation"
+            echo
+            echo "This release stays in draft until packaged desktop validation is recorded for every supported platform."
+            echo "Record the commit, OS/architecture, artifact checksum, startup, native interaction, persistence and failure-recovery results before publishing. See docs/project-overview.md."
+            echo
             echo "## Download"
             echo
             echo "| Platform | File |"
@@ -260,7 +265,7 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build and publish Tauri bundle
+      - name: Build candidate Tauri bundle
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -272,6 +277,6 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ steps.release_notes.outputs.title }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
-          releaseDraft: false
+          releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}

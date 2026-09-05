@@ -130,5 +130,6 @@ echo ">>> CI green. Tagging ${TAG} ..."
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push origin "${TAG}"
 
-echo ">>> Released ${TAG}: pushed ${BRANCH} and ${TAG}."
-echo ">>> release.yml will now build the desktop bundles (macOS/Windows)."
+echo ">>> Prepared candidate ${TAG}: pushed ${BRANCH} and ${TAG}."
+echo ">>> release.yml will build draft desktop bundles (macOS/Windows)."
+echo ">>> Validate the packaged candidates on every supported platform before publishing the draft release."

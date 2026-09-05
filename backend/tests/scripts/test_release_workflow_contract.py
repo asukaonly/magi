@@ -53,7 +53,7 @@ def test_release_matrix_only_runs_packaging_work() -> None:
 
     assert step_names.isdisjoint(ci_owned_steps)
     assert step_names.isdisjoint(duplicate_sidecar_steps)
-    assert "Build and publish Tauri bundle" in step_names
+    assert "Build candidate Tauri bundle" in step_names
 
     install_script = next(
         step["run"] for step in steps if step["name"] == "Install backend dependencies"
@@ -69,6 +69,18 @@ def test_tauri_hook_remains_the_single_sidecar_build_owner() -> None:
     assert tauri_config["build"]["beforeBuildCommand"] == "node ../scripts/prepare-tauri-build.mjs"
     assert prepare_script.count("build-sidecar.sh") == 1
     assert prepare_script.count("build-sidecar.ps1") == 1
+
+
+def test_packaged_candidates_remain_drafts_until_platform_validation() -> None:
+    steps = _workflow_jobs()["publish-tauri"]["steps"]
+    bundle = next(step for step in steps if step["name"] == "Build candidate Tauri bundle")
+    assert bundle["with"]["releaseDraft"] is True
+    workflow_text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    assert "artifact checksum" in workflow_text
+    assert "every supported platform" in workflow_text
+    release_script = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    assert "Prepared candidate" in release_script
+    assert "Released ${TAG}" not in release_script
 
 
 def test_release_script_requires_up_to_date_main_branch() -> None:
