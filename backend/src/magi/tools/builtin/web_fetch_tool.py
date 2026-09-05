@@ -614,11 +614,17 @@ class WebFetchTool(MultiProviderTool):
             content = self._to_markdown(html)
 
         content = content.strip()
+        total_chars = len(content)
         if max_chars > 0 and len(content) > max_chars:
             content = content[:max_chars]
 
+        content_data = {
+            "content": content,
+            "total_chars": total_chars,
+            "content_truncated": len(content) < total_chars,
+        }
         if not include_metadata:
-            return ToolResult(success=True, data={"content": content})
+            return ToolResult(success=True, data=content_data)
 
         return ToolResult(
             success=True,
@@ -633,7 +639,7 @@ class WebFetchTool(MultiProviderTool):
                 "mode": mode,
                 "attempts": attempts,
                 "output_format": output_format,
-                "content": content,
+                **content_data,
             },
         )
 

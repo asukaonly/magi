@@ -363,6 +363,23 @@ projection; and `FunctionCallingToolBatchJournal` owns requested-tool,
 tool-result, evidence, and child-run projection. Tool execution, cancellation,
 suppression, and retry policy stay in `FunctionCallingToolBatchExecutor`.
 
+Tool execution results and model observations are separate projections.
+`ToolCallResult` and journal evidence retain structured results for permissions,
+completion checks, trace UI, and replay. `FunctionCallingPostprocessor` renders
+successful web searches as source links and snippets, and fetched pages as text
+with source identity and truncation notices. Web content shares a bounded total
+observation budget instead of silently reducing each page to a generic preview.
+Failure observations retain error codes, retry/terminal flags, and recovery
+guidance in JSON. Other structured capabilities keep their JSON observation.
+
+Tool messages carry a small runtime-only `ToolResultMetadata` record with
+success, a bounded activity summary, and the evidence reference. Chat persists
+it in model-context item metadata and restores it only for runtime reuse;
+provider requests exclude it. Historical tool-block compaction reads this
+record instead of parsing externally sourced observation text as JSON. Missing
+status remains unknown and cannot be promoted to success or failure by text
+inside a web page. The exact model observation is still journaled for replay.
+
 An `INVALID_PARAMETERS` result rejects that invocation, not the tool for the
 whole run. Corrected arguments remain eligible even when several calls in one
 model response fail validation before the model can see the errors. Identical

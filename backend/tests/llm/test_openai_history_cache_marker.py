@@ -23,6 +23,7 @@ from magi.utils.model_context_messages import (
     build_working_context_message,
     set_runtime_message_provenance,
 )
+from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY
 
 SYS = f"STABLE HEAD{SYSTEM_PROMPT_CACHE_BOUNDARY}"
 WORKING_CONTEXT = build_working_context_message("MEMORY TAIL")
@@ -155,13 +156,16 @@ async def test_tool_role_messages_are_never_marked() -> None:
             {"role": "assistant", "content": "", "tool_calls": [
                 {"id": "t1", "type": "function", "function": {"name": "bash", "arguments": "{}"}}
             ]},
-            {"role": "tool", "tool_call_id": "t1", "content": '{"ok": true}'},
+            {"role": "tool", "tool_call_id": "t1", "content": 'Search results: page text',
+             TOOL_RESULT_METADATA_KEY: {"success": True, "summary": "results=1", "evidence_ref": "private-id"}},
             WORKING_CONTEXT,
             {"role": "user", "content": "u2"},
         ],
         tools=[{"type": "function", "function": {"name": "bash"}}],
     )
     sent = completions.kwargs["messages"]
+    assert TOOL_RESULT_METADATA_KEY not in str(sent)
+    assert "private-id" not in str(sent)
     # tool-role messages must keep plain-string content (no cache_control list).
     for m in sent:
         if m.get("role") == "tool":

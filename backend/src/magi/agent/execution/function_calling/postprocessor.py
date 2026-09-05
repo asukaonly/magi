@@ -13,6 +13,8 @@ from ....memory.tool_context_formatter import compact_memory_tool_data
 from ..tool_context_formatters import (
     ToolContextFormatterRegistry,
 )
+from ..web_tool_rendering import render_web_result
+from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY, ToolResultMetadata
 
 
 class FunctionCallingPostprocessor:
@@ -33,6 +35,50 @@ class FunctionCallingPostprocessor:
             max_text_chars=max_text_chars,
             memory_formatter=self._compact_memory_query_data,
         )
+
+    def build_tool_message(self, tool_name: str, result: Any, *, evidence_ref: str) -> Dict[str, Any]:
+        """Separate model observation text from replayable execution status."""
+        success = bool(getattr(result, "success", False))
+        data = getattr(result, "data", None)
+        content = None
+        if success and isinstance(data, dict):
+            content = render_web_result(
+                tool_name, data, max_items=self.max_items,
+                max_text_chars=self.max_text_chars, max_chars=self.max_payload_chars,
+            )
+        if content is None:
+            payload = self.build_tool_message_payload(tool_name, result)
+            payload = {key: value for key, value in payload.items() if value is not None}
+            content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        metadata = ToolResultMetadata(
+            success=success,
+            summary=self._tool_status_summary(result),
+            evidence_ref=evidence_ref,
+        )
+        return {
+            "role": "tool",
+            "tool_call_id": result.tool_call_id,
+            "content": content,
+            TOOL_RESULT_METADATA_KEY: metadata.to_dict(),
+        }
+
+    @staticmethod
+    def _tool_status_summary(result: Any) -> str:
+        data = getattr(result, "data", None)
+        if not getattr(result, "success", False):
+            detail = f"{getattr(result, 'error_code', '') or ''}: {getattr(result, 'error', '') or ''}"
+        elif isinstance(data, dict):
+            if "return_code" in data:
+                detail = f"exit={data['return_code']} | {str(data.get('stdout') or '')[-200:]}"
+            elif isinstance(data.get("results"), list):
+                detail = f"results={len(data['results'])}"
+            elif "match_count" in data:
+                detail = f"matches={data['match_count']}"
+            else:
+                detail = str(data.get("result_preview") or data.get("summary") or data.get("status") or "")
+        else:
+            detail = ""
+        return " ".join(detail.split())[:320]
 
     def build_tool_message_payload(self, tool_name: str, result: Any) -> Dict[str, Any]:
         """Build compact tool result payload for the next LLM turn."""

@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, Mapping
 
 from magi.utils.model_context_messages import set_runtime_message_provenance
+from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY, ToolResultMetadata
 
 
 class ModelContextItemKind(str, Enum):
@@ -63,6 +64,9 @@ class ModelContextItem:
         """Return an internal message carrying stable context identity."""
 
         message = self.to_prompt_message()
+        tool_result = ToolResultMetadata.from_dict(self.metadata.get("tool_result"))
+        if tool_result is not None:
+            message[TOOL_RESULT_METADATA_KEY] = tool_result.to_dict()
         set_runtime_message_provenance(
             message,
             context_item_id=(

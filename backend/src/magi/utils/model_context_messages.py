@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
+from .tool_result_metadata import TOOL_RESULT_METADATA_KEY
+
 
 _RUNTIME_WORLD_STATE_TAG = "runtime_world_state"
 _WORKING_CONTEXT_TAG = "working_context"
@@ -140,7 +142,9 @@ def strip_runtime_context_metadata(message: Mapping[str, Any]) -> dict[str, Any]
     return {
         key: value
         for key, value in message.items()
-        if key not in {_RUNTIME_CONTEXT_KIND_KEY, _RUNTIME_MESSAGE_PROVENANCE_KEY}
+        if key not in {
+            _RUNTIME_CONTEXT_KIND_KEY, _RUNTIME_MESSAGE_PROVENANCE_KEY, TOOL_RESULT_METADATA_KEY
+        }
     }
 
 

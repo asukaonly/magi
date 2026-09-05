@@ -19,6 +19,17 @@ def _context() -> ToolExecutionContext:
     return ToolExecutionContext(agent_id="test-agent")
 
 
+@pytest.mark.parametrize("include_metadata", [False, True])
+def test_fetch_reports_content_truncation_even_without_provider_metadata(include_metadata):
+    result = WebFetchTool()._build_output(
+        provider_data={"html": "abcdefghij"}, output_format="html", max_chars=5,
+        include_metadata=include_metadata, mode="http", attempts=["http"],
+    )
+    assert result.data["content"] == "abcde"
+    assert result.data["total_chars"] == 10
+    assert result.data["content_truncated"] is True
+
+
 def _allow_tool_network_safety(monkeypatch) -> None:
     async def allow(
         _url,

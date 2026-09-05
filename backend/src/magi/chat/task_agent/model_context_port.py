@@ -25,6 +25,7 @@ from magi.utils.model_context_messages import (
     set_runtime_message_provenance,
     strip_runtime_message_provenance,
 )
+from magi.utils.tool_result_metadata import strip_tool_result_metadata, tool_result_metadata
 
 logger = get_logger(__name__)
 
@@ -141,6 +142,9 @@ def _item_from_runtime_message(
     kind, source, scope = _classify_runtime_message(normalized_message)
     provenance = runtime_message_provenance(message)
     metadata: dict[str, Any] = {"context_item_id": context_item_id}
+    tool_result = tool_result_metadata(message)
+    if tool_result is not None:
+        metadata["tool_result"] = tool_result.to_dict()
     origin_turn_id = provenance.get("origin_turn_id") or str(turn_id or "").strip()
     resolved_persona_id = provenance.get("persona_id") or str(persona_id or "").strip()
     if origin_turn_id:
@@ -186,7 +190,13 @@ def _align_runtime_items(
                 context_item_id = str(
                     reused.metadata.get("context_item_id") or ""
                 ).strip() or None
-        if reused is not None and _message_key(reused.message) == key:
+        tool_result = tool_result_metadata(runtime_message)
+        result_metadata = tool_result.to_dict() if tool_result is not None else None
+        if (
+            reused is not None
+            and _message_key(reused.message) == key
+            and reused.metadata.get("tool_result") == result_metadata
+        ):
             set_runtime_message_provenance(
                 runtime_message,
                 context_item_id=context_item_id,
@@ -305,7 +315,7 @@ def _message_text(message: dict[str, Any]) -> str:
 def _normalize_message_for_storage(message: dict[str, Any]) -> dict[str, Any]:
     """Remove attachment bytes while retaining stable model-visible handles."""
 
-    normalized = strip_runtime_message_provenance(message)
+    normalized = strip_tool_result_metadata(strip_runtime_message_provenance(message))
     content = message.get("content")
     if not isinstance(content, list):
         return normalized
