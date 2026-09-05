@@ -364,7 +364,7 @@ def _build_today_delta(snapshot: _DashboardSnapshot) -> dict[str, Any]:
     l2_today_assertion_count = int(snapshot.l2_today_assertion_count)
     l3_today_count = int(snapshot.l3_today_count)
     return {
-        "total_memories": l1_today_count + l2_today_assertion_count + l3_today_count,
+        "stored_records": l1_today_count + l2_today_assertion_count + l3_today_count,
         "l1_events": l1_today_count,
         "l2_assertions": l2_today_assertion_count,
         "l3_summaries": l3_today_count,

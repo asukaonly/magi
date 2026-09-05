@@ -3063,3 +3063,28 @@ result records a failed execution and preserves its statistics; it does not
 advance the last-success timestamp. Model-budget exhaustion defers unprocessed
 seeds without rejecting them. The experiences page can request another bounded
 check, retry a failed status read, and refresh results after a run completes.
+
+### Memory quality diagnostics
+
+`GET /memory/quality?user_id=...` separates three populations:
+
+- `runtime`: attempts since the pipeline's `started_at`, including evaluated,
+  write-eligible and model-admitted events; grounded/rejected candidate Claims;
+  materialization decisions; degraded stages; extraction failures and elapsed
+  extraction time. Retries can increase these counters. They reset on restart and
+  must not be interpreted as unique records or a model accuracy score.
+- `stored`: active source-record count and durable projection backlog across the
+  store. This is the received-data inventory, including data not eligible for L2.
+- `user`: active grounded Claims and the latest non-invalidated route per Claim,
+  grouped by disposition and reason. Replay history is excluded. Current portrait
+  builders supply visible item/assertion and review-item counts for that user.
+
+Consolidation counts and model-selection diagnostics remain in the persistent
+scheduler result exposed by `/memory/l2/consolidation`. L3/L4 inventories remain
+in the existing statistics response. Confidence remains a support heuristic,
+not an empirically calibrated probability.
+
+The overview's headline now counts original L1 records. Extracted statements,
+including pending statements, and summaries remain separate. The API calls the
+cross-layer storage inventory `stored_records`; it is not a count of unique
+memories, understanding, or personal facts. Today deltas use the same units.

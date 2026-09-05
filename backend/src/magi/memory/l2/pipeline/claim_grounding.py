@@ -232,8 +232,7 @@ def normalize_phase1_claim_contract(
     if not isinstance(diagnostics, dict):
         diagnostics = {}
         payload["diagnostics"] = diagnostics
-    if rejected_count:
-        diagnostics["rejected_fact_claim_count"] = rejected_count
+    diagnostics["rejected_fact_claim_count"] = rejected_count
     return normalizations
 
 

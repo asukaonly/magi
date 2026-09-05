@@ -157,6 +157,7 @@ def _empty_phase1_result_payload(
         "rejected_graph_candidate_count": 0,
         "summary_count": 0,
         "contradiction_hint_count": 0,
+        "degraded_stages": list(phase1_flow.phase1_result.diagnostics.get("degraded_stages", [])),
     }
 
 
@@ -325,7 +326,11 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         return await self._run_phase2_flow(batch, phase1_flow)
 
     def _record_extraction_decisions(self: Any, extraction_plan: L2ExtractionPlan) -> None:
+        self._stats.events_evaluated += len(extraction_plan.decisions)
+        self._stats.events_eligible += len(extraction_plan.eligible_decisions)
         for decision in extraction_plan.decisions:
+            if not decision.is_write_eligible:
+                self._increment_bucket(self._stats.eligibility_by_reason, decision.policy.skip_reason or "policy_ineligible")
             event = decision.event
             classification = decision.classification
             policy = decision.policy
@@ -382,6 +387,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         for item in eligible_events:
             if await resolve_llm_extraction(item[0], getattr(self, "_promotion_counter", None)):
                 admitted_events.append(item)
+        self._stats.events_model_admitted += len(admitted_events)
         if admitted_events:
             event, classification, policy = admitted_events[-1]
             context_messages, history_contexts = await self._load_batch_contexts(
@@ -669,6 +675,8 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
             batch.event_window,
             context_messages=batch.context_messages,
         )
+        self._stats.claims_grounded += claim_grounding_stats["kept"]
+        self._stats.claims_rejected += (claim_grounding_stats["rejected"] + rejected_count + int(phase1_result.diagnostics.get("rejected_fact_claim_count", 0)))
         if claim_grounding_stats["rejected"] or claim_grounding_stats["rebound"]:
             logger.info(
                 "L2 Phase 1 claim evidence grounding applied",

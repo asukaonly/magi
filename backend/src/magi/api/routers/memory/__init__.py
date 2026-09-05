@@ -83,3 +83,5 @@ __all__ = [
     "get_chat_read_service",
     "logger",
 ]
+
+from . import quality_routes  # noqa: F401,E402

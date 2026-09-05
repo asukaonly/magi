@@ -845,7 +845,7 @@ export interface MemoryStatistics {
   l2: { relation_count: number; assertion_count: number; db_path?: string };
   l3: { summary_count: number; db_path?: string };
   l4: { skill_count: number; open_circuit_breakers: number; db_path?: string };
-  total_memories?: number;
+  stored_records?: number;
   disk_usage_bytes?: number;
   attention?: MemoryAttention;
 }
@@ -884,7 +884,7 @@ export interface MemoryProcessingBacklog {
 }
 
 export interface MemoryDashboardDeltaWindow {
-  total_memories: number;
+  stored_records: number;
   l1_events: number;
   l2_assertions: number;
   l3_summaries: number;
@@ -893,6 +893,12 @@ export interface MemoryDashboardDeltaWindow {
 
 export interface MemoryDashboardDeltas {
   today: MemoryDashboardDeltaWindow;
+}
+
+export interface MemoryQualityDiagnostics {
+  runtime: { scope: 'process_attempts'; counts: Record<string, number | boolean | Record<string, number>> };
+  stored: { scope: 'active_store_records'; l1_events: number; projection_backlog: Record<string, number> };
+  user: { user_id: string; grounded_claims: number; routed_claims: number; route_by_disposition: Record<string, number>; route_by_reason: Record<string, number>; profile_visible_assertions: number; profile_visible_items: number; profile_review_items: number };
 }
 
 export interface MemoryDashboard {
@@ -1008,6 +1014,8 @@ export const memoryApi = {
   async getMaintenanceTasks(): Promise<{ tasks: MemoryMaintenanceTask[] }> {
     return unwrapGatewayPayload(await api.get<{ tasks: MemoryMaintenanceTask[] }>('/memory/maintenance/tasks'));
   },
+  getQuality: async (userId: string): Promise<MemoryQualityDiagnostics> => unwrapMemoryResponse(await api.get<MemoryQualityDiagnostics>('/memory/quality', { params: { user_id: userId } })),
+
   // L0 Working Memory
   getL0Sessions: async (params?: PaginationParams & { status?: string; query?: string }): Promise<L0SessionsResponse> =>
     unwrapMemoryResponse(await api.get<L0SessionsResponse>('/memory/l0/sessions', { params })),

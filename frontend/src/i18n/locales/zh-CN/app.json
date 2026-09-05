@@ -2975,6 +2975,8 @@
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
       "summaryLabel": "记忆概况",
       "metrics": {
+        "sourceRecords": "原始记录",
+        "profileCandidates": "提取的信息（含待确认）",
         "totalMemories": "记忆总量",
         "understanding": "关于你的理解",
         "summaries": "回顾与总结",

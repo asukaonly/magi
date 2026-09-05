@@ -115,8 +115,8 @@ export const MemoryRecallPage = () => {
   };
 
   const noResults = resultSections.length === 0;
-  const hasLoadedMemoryTotal = typeof stats.total_memories === 'number';
-  const memoryTotal = stats.total_memories ?? 0;
+  const hasLoadedMemoryTotal = typeof stats.stored_records === 'number';
+  const memoryTotal = stats.stored_records ?? 0;
   const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
   const showSearching = hasSearched && searching;
   const showNoResults = hasSearched && !searching && noResults;

@@ -2976,6 +2976,8 @@
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
       "summaryLabel": "Memory summary",
       "metrics": {
+        "sourceRecords": "Source records",
+        "profileCandidates": "Extracted statements (including pending)",
         "totalMemories": "Total memories",
         "understanding": "About you",
         "summaries": "Reviews & summaries",

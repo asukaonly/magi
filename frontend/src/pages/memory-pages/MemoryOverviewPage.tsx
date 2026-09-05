@@ -86,7 +86,7 @@ export const MemoryOverviewPage = () => {
     [stories, t],
   );
   const hasOverviewContent = (
-    (dashboard?.statistics.total_memories ?? 0) > 0
+    (dashboard?.statistics.stored_records ?? 0) > 0
     || sourceRows.length > 0
     || pendingItems.length > 0
     || recentStories.length > 0

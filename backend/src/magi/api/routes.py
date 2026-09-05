@@ -71,6 +71,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l3/summaries": {"GET"},
         "/dashboard": {"GET"},
         "/maintenance/tasks": {"GET"},
+        "/quality": {"GET"},
         "/statistics": {"GET"},
         "/embeddings/status": {"GET"},
         "/embeddings/rebuild": {"POST"},

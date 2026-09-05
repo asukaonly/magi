@@ -39,7 +39,7 @@ const renderPage = () => render(
 beforeEach(() => {
   vi.mocked(useMemory).mockReturnValue({
     loading: false,
-    stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+    stats: { stored_records: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
     searchQuery: '',
     setSearchQuery: vi.fn(),
     searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
@@ -67,7 +67,7 @@ describe('MemoryRecallPage', () => {
     vi.mocked(useMemory).mockReturnValue({
       loading: false,
       stats: {
-        total_memories: 12,
+        stored_records: 12,
         l1: { event_count: 8 },
         l2: { relation_count: 1, assertion_count: 2 },
         l3: { summary_count: 1 },
@@ -91,7 +91,7 @@ describe('MemoryRecallPage', () => {
   it('renders returned memory search results', () => {
     vi.mocked(useMemory).mockReturnValue({
       loading: false,
-      stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      stats: { stored_records: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
       searchQuery: '东京',
       setSearchQuery: vi.fn(),
       searchResults: {
@@ -122,7 +122,7 @@ describe('MemoryRecallPage', () => {
     const handleSearch = vi.fn();
     vi.mocked(useMemory).mockReturnValue({
       loading: false,
-      stats: { total_memories: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      stats: { stored_records: 0, l1: { event_count: 0 }, l2: { relation_count: 0, assertion_count: 0 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
       searchQuery: '东京',
       setSearchQuery: vi.fn(),
       searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
@@ -146,7 +146,7 @@ describe('MemoryRecallPage', () => {
     const handleSearch = vi.fn();
     let memoryState = {
       loading: false,
-      stats: { total_memories: 5, l1: { event_count: 3 }, l2: { relation_count: 1, assertion_count: 1 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      stats: { stored_records: 5, l1: { event_count: 3 }, l2: { relation_count: 1, assertion_count: 1 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
       searchQuery: '我听过的歌',
       setSearchQuery: vi.fn(),
       searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },

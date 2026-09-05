@@ -121,8 +121,8 @@ class L2PipelineQueueMixin(L2PipelineProjectionMixin):
             host._session_touched_entities[session_id] = bucket
         bucket.update(entity_ids)
 
-    def get_statistics(self) -> dict[str, int | bool]:
-        return cast(dict[str, int | bool], asdict(self._queue_host()._stats))
+    def get_statistics(self) -> dict[str, Any]:
+        return asdict(self._queue_host()._stats)
 
     async def _run_flush_worker(self) -> None:
         host = self._queue_host()
