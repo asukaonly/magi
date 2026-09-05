@@ -1,6 +1,6 @@
 """Build episodic evidence packs from L1 events linked to an episode.
 
-The builder folds noisy sensor sources (chrome_history, screen_time) into
+The builder folds noisy sources (chrome_history, screen_time) into
 compact summary lines, keeps high-signal sources (chat, manual_entry, music)
 verbatim, and derives fallback topics from structured_entity_hints when
 the L2 layer didn't populate primary_topic_keys.
@@ -15,7 +15,7 @@ from typing import Any
 from .models import EpisodicEvidenceItem, EpisodicEvidencePack
 
 # Sources whose events get folded into a single summary line per episode.
-# Sensor streams that produce many near-identical rows.
+# Source streams that produce many near-identical rows.
 _FOLDED_SOURCES = {"chrome_history", "screen_time"}
 
 # Maximum number of folded items to show per source group.
@@ -45,7 +45,7 @@ def _role_from_author_type(author_type: Any) -> str | None:
     """L1 author_type code -> human role label.
 
     L1 fact_events.author_type uses small integer codes:
-        1 = user, 2 = assistant, 3 = system, 4 = sensor (approx).
+        1 = user, 2 = assistant, 3 = system, 4 = source (approx).
     """
     try:
         code = int(author_type)

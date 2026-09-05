@@ -15,10 +15,10 @@ import { ScheduleConfigTable, type ScheduleGroup } from './components/ScheduleCo
 import { ScheduleEditDrawer } from './components/ScheduleEditDrawer';
 import { ScheduleInfoDrawer } from './components/ScheduleInfoDrawer';
 import { scheduleCategory } from './utils/scheduleCategory';
-import { getSensorPluginId } from './utils/scheduleHelpers';
+import { getSourcePluginId } from './utils/scheduleHelpers';
 
 const EMPTY_COUNTS: Record<CategoryFilter, number> = {
-  all: 0, user: 0, sensor: 0, memory: 0, timeline: 0, other: 0,
+  all: 0, user: 0, source: 0, memory: 0, timeline: 0, other: 0,
 };
 
 export const ScheduleConfigPage: React.FC = () => {
@@ -69,11 +69,11 @@ export const ScheduleConfigPage: React.FC = () => {
     return schedules.filter((s) => scheduleCategory(s.target_type) === category);
   }, [schedules, category]);
 
-  const sensorGroups = useMemo<ScheduleGroup[] | undefined>(() => {
-    if (category !== 'sensor') return undefined;
+  const sourceGroups = useMemo<ScheduleGroup[] | undefined>(() => {
+    if (category !== 'source') return undefined;
     const byPlugin = new Map<string, ScheduleDTO[]>();
     for (const s of filtered) {
-      const pid = getSensorPluginId(s);
+      const pid = getSourcePluginId(s);
       const list = byPlugin.get(pid) ?? [];
       list.push(s);
       byPlugin.set(pid, list);
@@ -179,7 +179,7 @@ export const ScheduleConfigPage: React.FC = () => {
         ) : (
           <ScheduleConfigTable
             schedules={filtered}
-            groups={sensorGroups}
+            groups={sourceGroups}
             loading={loading}
             emptyMessage={t('tasks.scheduled.empty.enabled')}
             editingScheduleId={editingSchedule?.schedule_id ?? null}

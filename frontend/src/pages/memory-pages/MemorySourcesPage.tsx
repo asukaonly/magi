@@ -26,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { EmptyStateAvailableSources } from '@/components/empty-state/EmptyStateAvailableSources';
 import HistoryImportsSection, {
   type HistoryImportsAvailability,
 } from '@/components/history-imports/HistoryImportsSection';
@@ -45,12 +45,12 @@ import {
 import { pluginsApi } from '@/api/modules/plugins';
 import { mergeConnectionSettings } from '@/utils/plugin-connection-settings';
 import {
-  sensorsApi,
-  type SensorSourceStatusItem,
-  type SensorSourceStatusResponse,
-  type SensorSyncActivity,
-  type SensorTodaySummaryResponse,
-} from '@/api/modules/sensors';
+  sourcesApi,
+  type SourceStatusItem,
+  type SourceStatusResponse,
+  type SourceSyncActivity,
+  type SourceTodaySummaryResponse,
+} from '@/api/modules/sources';
 import { useChatShellStore } from '@/stores';
 import { buildTimelineCapabilities } from '@/utils/timeline-capabilities';
 import {
@@ -81,7 +81,7 @@ interface SourceLedgerRow extends SourceCoverageRow {
   syncMode: string | null;
   storageMode: string | null;
   nextRunAt: number | string | null;
-  syncActivity: SensorSyncActivity | null;
+  syncActivity: SourceSyncActivity | null;
 }
 
 const CONVERSATION_SOURCE_KEYS = new Set([
@@ -94,102 +94,102 @@ const normalizeSourceKey = (value: string | null | undefined): string => (
   String(value || '').trim().toLowerCase()
 );
 
-const sensorLabel = (sensor?: SensorSourceStatusItem | null): string | null => {
-  if (!sensor) {
+const sourceLabel = (source?: SourceStatusItem | null): string | null => {
+  if (!source) {
     return null;
   }
   return (
-    String(sensor.display_name_translated || '').trim()
-    || String(sensor.display_name || '').trim()
-    || String(sensor.source_name || '').trim()
+    String(source.display_name_translated || '').trim()
+    || String(source.display_name || '').trim()
+    || String(source.source_name || '').trim()
     || null
   );
 };
 
-const sensorDescription = (sensor?: SensorSourceStatusItem | null): string | null => {
-  if (!sensor) {
+const sourceDescription = (source?: SourceStatusItem | null): string | null => {
+  if (!source) {
     return null;
   }
   return (
-    String(sensor.description_translated || '').trim()
-    || String(sensor.description || '').trim()
+    String(source.description_translated || '').trim()
+    || String(source.description || '').trim()
     || null
   );
 };
 
-const sensorMatchesSource = (
-  sensor: SensorSourceStatusItem,
+const matchesSourceType = (
+  source: SourceStatusItem,
   sourceName: string,
 ): boolean => {
-  return normalizeSourceKey(sensor.source_name) === normalizeSourceKey(sourceName);
+  return normalizeSourceKey(source.source_name) === normalizeSourceKey(sourceName);
 };
 
-const findSensorForSource = (
+const findSourceConnection = (
   sourceName: string,
-  sensors: SensorSourceStatusItem[],
+  sources: SourceStatusItem[],
   connectionId?: string | null,
-): SensorSourceStatusItem | undefined => {
-  const matches = sensors.filter((sensor) => sensorMatchesSource(sensor, sourceName)
-    && (!connectionId || sensor.connection_id === connectionId));
+): SourceStatusItem | undefined => {
+  const matches = sources.filter((source) => matchesSourceType(source, sourceName)
+    && (!connectionId || source.connection_id === connectionId));
   return matches.length === 1 ? matches[0] : undefined;
 };
 
 const rowFromSource = (
-  source: MemorySourceCount | null,
-  sensor: SensorSourceStatusItem | undefined,
+  count: MemorySourceCount | null,
+  source: SourceStatusItem | undefined,
   t: OverviewTranslateFn,
 ): SourceLedgerRow => {
-  const key = source?.source || sensor?.source_name || sensor?.contribution_id || sensor?.plugin_id || '';
-  const status = sensor?.status || (sensor ? (sensor.enabled === false ? 'disabled' : 'ready') : 'ready');
+  const key = count?.source || source?.source_name || source?.contribution_id || source?.plugin_id || '';
+  const status = source?.status || (source ? (source.enabled === false ? 'disabled' : 'ready') : 'ready');
   return {
     key,
-    label: sensorLabel(sensor) || getMemorySourceLabel(t, key),
-    pluginId: sensor?.plugin_id ?? null,
-    icon: sensor?.icon ?? null,
+    label: sourceLabel(source) || getMemorySourceLabel(t, key),
+    pluginId: source?.plugin_id ?? null,
+    icon: source?.icon ?? null,
     status,
-    eventCount: source?.event_count ?? 0,
-    lastResultCount: sensor?.last_result_count ?? sensor?.last_raw_result_count ?? null,
-    enabled: sensor ? Boolean(sensor.enabled) : null,
-    running: sensor?.running == null ? null : Boolean(sensor.running),
-    lastSyncAt: sensor?.last_sync_at ?? sensor?.last_run_at ?? null,
-    lastEventAt: source?.last_event_at ?? null,
-    description: sensorDescription(sensor),
-    available: sensor?.available == null ? null : Boolean(sensor.available),
-    activationRequired: Boolean(sensor?.activation_required),
-    supportsPullSync: Boolean(sensor?.supports_pull_sync),
-    syncMode: sensor?.sync_mode ?? null,
-    storageMode: sensor?.storage_mode ?? null,
-    nextRunAt: sensor?.next_run_at ?? null,
-    syncActivity: sensor?.sync_activity ?? null,
+    eventCount: count?.event_count ?? 0,
+    lastResultCount: source?.last_result_count ?? source?.last_raw_result_count ?? null,
+    enabled: source ? Boolean(source.enabled) : null,
+    running: source?.running == null ? null : Boolean(source.running),
+    lastSyncAt: source?.last_sync_at ?? source?.last_run_at ?? null,
+    lastEventAt: count?.last_event_at ?? null,
+    description: sourceDescription(source),
+    available: source?.available == null ? null : Boolean(source.available),
+    activationRequired: Boolean(source?.activation_required),
+    supportsPullSync: Boolean(source?.supports_pull_sync),
+    syncMode: source?.sync_mode ?? null,
+    storageMode: source?.storage_mode ?? null,
+    nextRunAt: source?.next_run_at ?? null,
+    syncActivity: source?.sync_activity ?? null,
   };
 };
 
 const buildSourceLedgerRows = (
   counts: MemorySourceCount[],
-  status: SensorSourceStatusResponse | null,
+  status: SourceStatusResponse | null,
   t: OverviewTranslateFn,
 ): SourceLedgerRow[] => {
-  const sensors = status?.sources || [];
+  const sources = status?.sources || [];
   const rows = new Map<string, SourceLedgerRow>();
 
   const sourceKeys = new Set([
     ...counts.map((source) => normalizeSourceKey(source.source)),
-    ...sensors.map((sensor) => normalizeSourceKey(sensor.source_name)),
+    ...sources.map((source) => normalizeSourceKey(source.source_name)),
   ]);
   sourceKeys.forEach((key) => {
     if (!key) return;
-    const source = counts.find((item) => normalizeSourceKey(item.source) === key) ?? null;
-    const matches = sensors.filter((sensor) => sensorMatchesSource(sensor, key));
-    const row = rowFromSource(source, matches[0], t);
+    const count = counts.find((item) => normalizeSourceKey(item.source) === key) ?? null;
+    const matches = sources.filter((source) => matchesSourceType(source, key));
+    const row = rowFromSource(count, matches[0], t);
     if (matches.length > 1) {
       // Event totals belong to the semantic source. Runtime facts from one
       // account must not stand in for the whole source.
-      const statuses = matches.map((sensor) => sensor.status || (sensor.enabled ? 'ready' : 'disabled'));
+      const statuses = matches.map((source) => source.status || (source.enabled ? 'ready' : 'disabled'));
       row.status = ['error', 'retrying', 'running', 'setup_required', 'stale'].find((status) => statuses.includes(status))
-        ?? (matches.some((sensor) => sensor.enabled) ? 'ready' : 'disabled');
+        ?? (matches.some((source) => source.enabled) ? 'ready' : 'disabled');
       row.pluginId = null;
-      row.enabled = matches.some((sensor) => sensor.enabled);
-      row.running = matches.some((sensor) => sensor.running);
+      row.enabled = matches.some((source) => source.enabled);
+      row.running = matches.some((source) => source.running);
       row.lastResultCount = null;
       row.lastSyncAt = null;
       row.syncMode = null;
@@ -212,10 +212,10 @@ const sourceDetailPath = (sourceName: string): string => (
 );
 
 const loadSourceOverview = async () => {
-  const [dashboardPayload, sensorPayload, todayPayload] = await Promise.all([
+  const [dashboardPayload, sourcePayload, todayPayload] = await Promise.all([
     memoryApi.getDashboard({ pending_limit: 8 }),
-    sensorsApi.getStatus(),
-    sensorsApi.getTodaySummary(),
+    sourcesApi.getStatus(),
+    sourcesApi.getTodaySummary(),
   ]);
   const todayEventsPayload = await memoryApi.getL1Events({
     start_date: todayPayload.date,
@@ -225,7 +225,7 @@ const loadSourceOverview = async () => {
   });
   return {
     dashboard: dashboardPayload,
-    sensorStatus: sensorPayload,
+    sourceStatus: sourcePayload,
     todaySummary: todayPayload,
     todayEvents: todayEventsPayload.items || [],
   };
@@ -256,12 +256,12 @@ const sourceSyncModeLabel = (syncMode: string | null, t: OverviewTranslateFn): s
   return translated === key ? String(syncMode) : translated;
 };
 
-const isActiveBackfill = (activity: SensorSyncActivity | null | undefined): boolean => (
+const isActiveBackfill = (activity: SourceSyncActivity | null | undefined): boolean => (
   activity?.mode === 'backfill'
   && ['queued', 'running', 'retrying', 'continuing'].includes(activity.status)
 );
 
-const isActiveSyncActivity = (activity: SensorSyncActivity | null | undefined): boolean => (
+const isActiveSyncActivity = (activity: SourceSyncActivity | null | undefined): boolean => (
   Boolean(activity) && ['queued', 'running', 'retrying', 'continuing'].includes(activity?.status || '')
 );
 
@@ -398,7 +398,7 @@ const sourceDetailActionState = (
 };
 
 const backfillRangeLabel = (
-  activity: SensorSyncActivity | null | undefined,
+  activity: SourceSyncActivity | null | undefined,
   t: OverviewTranslateFn,
 ): string | null => {
   if (!isActiveBackfill(activity)) {
@@ -444,44 +444,44 @@ const sourceStatusPresentation = (
   };
 };
 
-const findSensorByName = (
-  status: SensorSourceStatusResponse,
+const findSourceByName = (
+  status: SourceStatusResponse,
   sourceName: string,
   connectionId?: string | null,
-): SensorSourceStatusItem | undefined => findSensorForSource(sourceName, status.sources || [], connectionId);
+): SourceStatusItem | undefined => findSourceConnection(sourceName, status.sources || [], connectionId);
 
 const notifyBackfillResult = (
-  sensor: SensorSourceStatusItem | undefined,
-  sourceLabel: string,
+  source: SourceStatusItem | undefined,
+  displayName: string,
   t: OverviewTranslateFn,
 ): void => {
-  const activity = sensor?.sync_activity;
-  if (activity?.status === 'failed' || sensor?.status === 'error') {
+  const activity = source?.sync_activity;
+  if (activity?.status === 'failed' || source?.status === 'error') {
     toast.error(t('memory.sourcesPage.feedback.backfillFailed', {
-      source: sourceLabel,
-      message: activity?.error || sensor?.last_error || t('memory.sourcesPage.unknown'),
+      source: displayName,
+      message: activity?.error || source?.last_error || t('memory.sourcesPage.unknown'),
     }));
     return;
   }
-  toast.success(t('memory.sourcesPage.feedback.backfillCompleted', { source: sourceLabel }));
+  toast.success(t('memory.sourcesPage.feedback.backfillCompleted', { source: displayName }));
 };
 
 const sourceEnabledSettingKey = (
-  sensor: SensorSourceStatusItem | undefined,
+  source: SourceStatusItem | undefined,
   sourceName: string,
 ): string => (
-  sensor?.fields.find((field) => field.key.endsWith('.enabled'))?.key
-  ?? `sensors.${sourceName}.enabled`
+  source?.fields.find((field) => field.key.endsWith('.enabled'))?.key
+  ?? `sources.${sourceName}.enabled`
 );
 
 const settingsSourceIdForSource = (
   sourceName: string,
-  status: SensorSourceStatusResponse | null,
+  status: SourceStatusResponse | null,
   t: OverviewTranslateFn,
 ): string => {
-  const sensors = status?.sources || [];
-  const capability = buildTimelineCapabilities(t, sensors).find((item) => (
-    item.sources.some((source) => sensorMatchesSource(source, sourceName))
+  const sources = status?.sources || [];
+  const capability = buildTimelineCapabilities(t, sources).find((item) => (
+    item.sources.some((source) => matchesSourceType(source, sourceName))
   ));
   return capability?.id || sourceName;
 };
@@ -568,7 +568,7 @@ const buildSourceDetailEventParams = ({
   return params;
 };
 
-const getTodayCountMap = (todaySummary: SensorTodaySummaryResponse | null): Map<string, number> => {
+const getTodayCountMap = (todaySummary: SourceTodaySummaryResponse | null): Map<string, number> => {
   const counts = new Map<string, number>();
   (todaySummary?.sources || []).forEach((source) => {
     const key = normalizeSourceKey(source.source_name);
@@ -577,7 +577,7 @@ const getTodayCountMap = (todaySummary: SensorTodaySummaryResponse | null): Map<
   return counts;
 };
 
-const dayBoundsFromSummary = (todaySummary: SensorTodaySummaryResponse | null): { start: number; end: number } => {
+const dayBoundsFromSummary = (todaySummary: SourceTodaySummaryResponse | null): { start: number; end: number } => {
   const date = todaySummary?.date || new Date().toISOString().slice(0, 10);
   const startMs = new Date(`${date}T00:00:00`).getTime();
   const start = Number.isFinite(startMs) ? startMs / 1000 : new Date().setHours(0, 0, 0, 0) / 1000;
@@ -698,7 +698,7 @@ function SourceEmptyState({ onSourceConnected }: { onSourceConnected: () => void
         </div>
 
         <div className="mt-8 max-w-2xl">
-          <EmptyStateAvailableSensors
+          <EmptyStateAvailableSources
             variant="source_page"
             i18nNamespace="app"
             i18nKeyPrefix="timeline"
@@ -761,7 +761,7 @@ function SourcePulseSection({
 }: {
   rows: SourceLedgerRow[];
   dashboard: MemoryDashboard | null;
-  todaySummary: SensorTodaySummaryResponse | null;
+  todaySummary: SourceTodaySummaryResponse | null;
   todayEvents: L1Event[];
 }) {
   const { t } = useTranslation('app');
@@ -859,7 +859,7 @@ function SourcePulseSection({
                     ? sourceEvents
                     : [{
                         event_id: `${row.key}:last-event`,
-                        event_type: 'SENSOR_EVENT',
+                        event_type: 'SOURCE_EVENT',
                         source: row.key,
                         timestamp: fallbackEventAt,
                         content: '',
@@ -934,7 +934,7 @@ function SourceLedgerSection({
   onBrowseSources,
 }: {
   rows: SourceLedgerRow[];
-  todaySummary: SensorTodaySummaryResponse | null;
+  todaySummary: SourceTodaySummaryResponse | null;
   onBrowseSources: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
@@ -1036,8 +1036,8 @@ export const MemorySourcesPage = () => {
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
-  const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
-  const [todaySummary, setTodaySummary] = useState<SensorTodaySummaryResponse | null>(null);
+  const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | null>(null);
+  const [todaySummary, setTodaySummary] = useState<SourceTodaySummaryResponse | null>(null);
   const [todayEvents, setTodayEvents] = useState<L1Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1057,7 +1057,7 @@ export const MemorySourcesPage = () => {
           return;
         }
         setDashboard(payload.dashboard);
-        setSensorStatus(payload.sensorStatus);
+        setSourceStatus(payload.sourceStatus);
         setTodaySummary(payload.todaySummary);
         setTodayEvents(payload.todayEvents);
       } catch (err) {
@@ -1077,16 +1077,16 @@ export const MemorySourcesPage = () => {
   }, [sourceRefreshVersion]);
 
   const allRows = useMemo(
-    () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
-    [dashboard?.source_counts, sensorStatus, t],
+    () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
+    [dashboard?.source_counts, sourceStatus, t],
   );
   const rows = useMemo(
     () => allRows.filter((row) => !isHistoryImportMemorySource(row.key)),
     [allRows],
   );
-  const activeBackfillJobs = useMemo(() => (sensorStatus?.sources ?? []).filter((sensor) => isActiveBackfill(sensor.sync_activity)), [sensorStatus]);
+  const activeBackfillJobs = useMemo(() => (sourceStatus?.sources ?? []).filter((source) => isActiveBackfill(source.sync_activity)), [sourceStatus]);
   const activeBackfillKey = activeBackfillJobs
-    .map((sensor) => `${sensor.connection_id}:${sensor.source_name}:${sensor.sync_activity?.job_id || ''}`)
+    .map((source) => `${source.connection_id}:${source.source_name}:${source.sync_activity?.job_id || ''}`)
     .sort()
     .join('|');
 
@@ -1096,11 +1096,11 @@ export const MemorySourcesPage = () => {
     }
     let cancelled = false;
     let polling = false;
-    const tracked = activeBackfillJobs.map((sensor) => ({
-      sourceName: sensor.source_name,
-      connectionId: sensor.connection_id,
-      label: `${sensorLabel(sensor)} · ${sensor.connection_display_name}`,
-      jobId: sensor.sync_activity?.job_id || '',
+    const tracked = activeBackfillJobs.map((source) => ({
+      sourceName: source.source_name,
+      connectionId: source.connection_id,
+      label: `${sourceLabel(source)} · ${source.connection_display_name}`,
+      jobId: source.sync_activity?.job_id || '',
     }));
     const poll = async () => {
       if (polling) {
@@ -1108,31 +1108,31 @@ export const MemorySourcesPage = () => {
       }
       polling = true;
       try {
-        const nextStatus = await sensorsApi.getStatus();
+        const nextStatus = await sourcesApi.getStatus();
         if (cancelled) {
           return;
         }
         let finished = false;
         tracked.forEach((item) => {
-          const nextSensor = findSensorByName(nextStatus, item.sourceName, item.connectionId);
-          const nextActivity = nextSensor?.sync_activity;
+          const nextSource = findSourceByName(nextStatus, item.sourceName, item.connectionId);
+          const nextActivity = nextSource?.sync_activity;
           if (isActiveBackfill(nextActivity)) {
             return;
           }
-          if (!nextSensor || nextActivity?.job_id !== item.jobId || !['success', 'failed'].includes(nextActivity.status)) return;
+          if (!nextSource || nextActivity?.job_id !== item.jobId || !['success', 'failed'].includes(nextActivity.status)) return;
           const notificationKey = `${item.connectionId}:${item.jobId}`;
           if (!notifiedBackfillJobsRef.current.has(notificationKey)) {
             notifiedBackfillJobsRef.current.add(notificationKey);
-            notifyBackfillResult(nextSensor, item.label, t);
+            notifyBackfillResult(nextSource, item.label, t);
           }
           finished = true;
         });
-        setSensorStatus(nextStatus);
+        setSourceStatus(nextStatus);
         if (finished) {
           const payload = await loadSourceOverview();
           if (!cancelled) {
             setDashboard(payload.dashboard);
-            setSensorStatus(payload.sensorStatus);
+            setSourceStatus(payload.sourceStatus);
             setTodaySummary(payload.todaySummary);
             setTodayEvents(payload.todayEvents);
           }
@@ -1706,8 +1706,8 @@ export const MemorySourceDetailPage = () => {
   const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const sourceName = decodeURIComponent(params.sourceName || '');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
-  const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
-  const [todaySummary, setTodaySummary] = useState<SensorTodaySummaryResponse | null>(null);
+  const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | null>(null);
+  const [todaySummary, setTodaySummary] = useState<SourceTodaySummaryResponse | null>(null);
   const [events, setEvents] = useState<L1Event[]>([]);
   const [eventsTotal, setEventsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1751,16 +1751,16 @@ export const MemorySourceDetailPage = () => {
       setError(null);
     }
     try {
-      const [dashboardPayload, sensorPayload, todayPayload] = await Promise.all([
+      const [dashboardPayload, sourcePayload, todayPayload] = await Promise.all([
         memoryApi.getDashboard({ pending_limit: 8 }),
-        sensorsApi.getStatus(),
-        sensorsApi.getTodaySummary(),
+        sourcesApi.getStatus(),
+        sourcesApi.getTodaySummary(),
       ]);
       if (!active()) {
         return;
       }
       setDashboard(dashboardPayload);
-      setSensorStatus(sensorPayload);
+      setSourceStatus(sourcePayload);
       setTodaySummary(todayPayload);
       setMetadataReady(true);
     } catch (err) {
@@ -1845,15 +1845,15 @@ export const MemorySourceDetailPage = () => {
   }, [metadataReady, sourceName, timeRange, customDateRange.start, customDateRange.end, query, todaySummary?.date]);
 
   const rows = useMemo(
-    () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
-    [dashboard?.source_counts, sensorStatus, t],
+    () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
+    [dashboard?.source_counts, sourceStatus, t],
   );
   const row = rows.find((item) => normalizeSourceKey(item.key) === normalizeSourceKey(sourceName))
     || fallbackSourceRow(sourceName, t);
-  const sourceConnections = (sensorStatus?.sources ?? []).filter((sensor) => sensorMatchesSource(sensor, sourceName));
-  const sourceSensor = findSensorForSource(sourceName, sourceConnections, selectedConnectionId);
-  const runtimeRow = sourceSensor ? { ...row, ...rowFromSource(null, sourceSensor, t), eventCount: row.eventCount, lastEventAt: row.lastEventAt } : row;
-  const sourceSyncActivity = sourceSensor?.sync_activity ?? null;
+  const sourceConnections = (sourceStatus?.sources ?? []).filter((source) => matchesSourceType(source, sourceName));
+  const selectedSource = findSourceConnection(sourceName, sourceConnections, selectedConnectionId);
+  const runtimeRow = selectedSource ? { ...row, ...rowFromSource(null, selectedSource, t), eventCount: row.eventCount, lastEventAt: row.lastEventAt } : row;
+  const sourceSyncActivity = selectedSource?.sync_activity ?? null;
   const activeBackfill = isActiveBackfill(sourceSyncActivity);
   const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
   const hasMore = events.length < eventsTotal;
@@ -1867,7 +1867,7 @@ export const MemorySourceDetailPage = () => {
   }, [activeBackfill, sourceSyncActivity?.job_id]);
 
   useEffect(() => {
-    if (!trackingBackfill || !sourceSensor) {
+    if (!trackingBackfill || !selectedSource) {
       return undefined;
     }
     let cancelled = false;
@@ -1878,14 +1878,14 @@ export const MemorySourceDetailPage = () => {
       }
       polling = true;
       try {
-        const nextStatus = await sensorsApi.getStatus();
+        const nextStatus = await sourcesApi.getStatus();
         if (cancelled) {
           return;
         }
-        const nextSensor = findSensorByName(nextStatus, sourceName, sourceSensor?.connection_id);
-        const nextActivity = nextSensor?.sync_activity;
-        setSensorStatus(nextStatus);
-        if (!nextSensor) return;
+        const nextSource = findSourceByName(nextStatus, sourceName, selectedSource?.connection_id);
+        const nextActivity = nextSource?.sync_activity;
+        setSourceStatus(nextStatus);
+        if (!nextSource) return;
         if (isActiveBackfill(nextActivity)) {
           observedBackfillJobRef.current = nextActivity?.job_id || observedBackfillJobRef.current;
           return;
@@ -1901,7 +1901,7 @@ export const MemorySourceDetailPage = () => {
         if (!terminalBackfill || (observedJob ? nextActivity?.job_id !== observedJob : !isNewRequestedJob)) {
           return;
         }
-        notifyBackfillResult(nextSensor, row.label, t);
+        notifyBackfillResult(nextSource, row.label, t);
         observedBackfillJobRef.current = null;
         backfillBaselineJobRef.current = nextActivity?.job_id || null;
         setTrackingBackfill(false);
@@ -1920,15 +1920,15 @@ export const MemorySourceDetailPage = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [trackingBackfill, sourceName, row.label, sourceSensor?.connection_id]);
+  }, [trackingBackfill, sourceName, row.label, selectedSource?.connection_id]);
 
   const handleSync = async () => {
-    if (!sourceSensor) return;
+    if (!selectedSource) return;
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     setSyncing(true);
     try {
-      await sensorsApi.requestSync(sourceSensor.source_name, sourceSensor.connection_id);
+      await sourcesApi.requestSync(selectedSource.source_name, selectedSource.connection_id);
       if (!isCurrent()) return;
       await loadMetadata(undefined, true, isCurrent);
     } catch (err) {
@@ -1942,14 +1942,14 @@ export const MemorySourceDetailPage = () => {
   };
 
   const handleBackfill = async (selection: SourceBackfillSelection) => {
-    if (!sourceSensor) return;
+    if (!selectedSource) return;
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     setBackfilling(true);
     setTrackingBackfill(true);
     backfillBaselineJobRef.current = sourceSyncActivity?.job_id || null;
     try {
-      await sensorsApi.requestSync(sourceSensor.source_name, sourceSensor.connection_id, {
+      await sourcesApi.requestSync(selectedSource.source_name, selectedSource.connection_id, {
         mode: 'backfill',
         backfillScope: selection.scope,
         backfillStartDate: selection.startDate,
@@ -1974,34 +1974,34 @@ export const MemorySourceDetailPage = () => {
   const handleOpenSettings = () => {
     setSettingsNavigationIntent({
       section: 'timeline',
-      source: settingsSourceIdForSource(sourceName, sensorStatus, t),
+      source: settingsSourceIdForSource(sourceName, sourceStatus, t),
     });
     setActivePanel('settings');
   };
 
   const handleToggleEnabled = async () => {
-    if (!sourceSensor) return;
+    if (!selectedSource) return;
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     if (runtimeRow.activationRequired || runtimeRow.status === 'setup_required') {
       handleOpenSettings();
       return;
     }
-    const pluginId = sourceSensor?.plugin_id || row.pluginId;
+    const pluginId = selectedSource?.plugin_id || row.pluginId;
     if (!pluginId) {
       toast.error(t('memory.sourcesPage.feedback.toggleFailed', { message: 'missing_plugin' }));
       return;
     }
-    const nextEnabled = sourceSensor.enabled === false;
+    const nextEnabled = selectedSource.enabled === false;
     setTogglingEnabled(true);
     try {
-      const connection = await pluginsApi.getConnection(pluginId, sourceSensor.connection_id);
+      const connection = await pluginsApi.getConnection(pluginId, selectedSource.connection_id);
       if (!isCurrent()) return;
-      if (connection.connection_id !== sourceSensor.connection_id || connection.plugin_id !== pluginId) throw new Error('Connection response identity mismatch');
-      await pluginsApi.updateConnection(pluginId, sourceSensor.connection_id, {
+      if (connection.connection_id !== selectedSource.connection_id || connection.plugin_id !== pluginId) throw new Error('Connection response identity mismatch');
+      await pluginsApi.updateConnection(pluginId, selectedSource.connection_id, {
         expected_revision: connection.revision,
         settings: mergeConnectionSettings(connection.settings, {
-          [sourceEnabledSettingKey(sourceSensor, sourceName)]: nextEnabled,
+          [sourceEnabledSettingKey(selectedSource, sourceName)]: nextEnabled,
         }),
       });
       if (!isCurrent()) return;
@@ -2048,7 +2048,7 @@ export const MemorySourceDetailPage = () => {
             <div className="space-y-2 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.42)] px-5 py-4">
               <label className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:gap-3">
                 <span className="shrink-0">{t('plugins.connections.title')}</span>
-                <select value={sourceSensor?.connection_id ?? ''} onChange={(event) => {
+                <select value={selectedSource?.connection_id ?? ''} onChange={(event) => {
                   const next = new URLSearchParams(searchParams);
                   if (event.target.value) next.set('connection', event.target.value);
                   else next.delete('connection');
@@ -2058,13 +2058,13 @@ export const MemorySourceDetailPage = () => {
                   {sourceConnections.map((source) => <option key={source.connection_id} value={source.connection_id}>{source.connection_display_name}</option>)}
                 </select>
               </label>
-              {!sourceSensor ? <p className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.chooseConnection')}</p> : null}
+              {!selectedSource ? <p className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.chooseConnection')}</p> : null}
               <p className="text-xs leading-5 text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.connectionScope')}</p>
             </div>
           ) : null}
           <SourceDetailHeader
             row={runtimeRow}
-            actionsAvailable={Boolean(sourceSensor)}
+            actionsAvailable={Boolean(selectedSource)}
             syncing={syncing}
             backfilling={backfilling || trackingBackfill || activeBackfill}
             togglingEnabled={togglingEnabled}
@@ -2073,7 +2073,7 @@ export const MemorySourceDetailPage = () => {
             onOpenSettings={handleOpenSettings}
             onToggleEnabled={handleToggleEnabled}
           />
-          <SourceDetailStats row={runtimeRow} todayCount={todayCount} includeRuntime={Boolean(sourceSensor)} />
+          <SourceDetailStats row={runtimeRow} todayCount={todayCount} includeRuntime={Boolean(selectedSource)} />
           <SourceRecentEvents
             events={events}
             total={eventsTotal}
@@ -2092,7 +2092,7 @@ export const MemorySourceDetailPage = () => {
           />
           <SourceBackfillDialog
             open={backfillDialogOpen}
-            sourceLabel={sourceSensor ? `${row.label} · ${sourceSensor.connection_display_name}` : row.label}
+            sourceLabel={selectedSource ? `${row.label} · ${selectedSource.connection_display_name}` : row.label}
             isSubmitting={backfilling}
             onOpenChange={setBackfillDialogOpen}
             onConfirm={handleBackfill}

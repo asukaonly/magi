@@ -1,4 +1,4 @@
-"""Host coordinator for plugin- and sensor-owned user-content deletion."""
+"""Host coordinator for plugin- and source-owned user-content deletion."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from magi_plugin_sdk.channels import (
     ChannelInboundClearRequest,
     ChannelInboundClearStrategy,
 )
-from magi_plugin_sdk.sensors import PluginRuntimePaths, ScopedSensorRuntimePaths
+from magi_plugin_sdk.sources import PluginRuntimePaths, ScopedSourceRuntimePaths
 
 from ..core.logger import get_logger
 from .manager import PluginManager, PluginUserContentTargetSnapshot
@@ -26,11 +26,11 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class PluginUserContentClearFailure:
-    """One failed plugin or sensor clear hook."""
+    """One failed plugin or source clear hook."""
 
-    target_kind: Literal["plugin", "sensor", "channel"]
+    target_kind: Literal["plugin", "source", "channel"]
     plugin_id: str
-    sensor_id: str | None
+    source_id: str | None
     error_type: str
     error: str
     channel_type: str | None = None
@@ -58,8 +58,8 @@ class PluginUserContentClearError(RuntimeError):
         self.causes = causes
         targets = ", ".join(
             (
-                f"sensor:{failure.plugin_id}/{failure.sensor_id}"
-                if failure.sensor_id is not None
+                f"source:{failure.plugin_id}/{failure.source_id}"
+                if failure.source_id is not None
                 else (
                     f"channel:{failure.plugin_id}/{failure.channel_type}"
                     if failure.channel_type is not None
@@ -182,7 +182,7 @@ class PluginUserContentClearSession:
                 PluginUserContentClearFailure(
                     target_kind="plugin",
                     plugin_id=preparation_failure.plugin_id,
-                    sensor_id=None,
+                    source_id=None,
                     error_type=cause.__class__.__name__,
                     error=str(cause) or cause.__class__.__name__,
                 )
@@ -201,7 +201,7 @@ class PluginUserContentClearSession:
             attempted += 1
             context = UserContentClearContext(
                 request=request,
-                runtime_paths=ScopedSensorRuntimePaths(connection_id, plugin_id, plugin.context.state_dir),
+                runtime_paths=ScopedSourceRuntimePaths(connection_id, plugin_id, plugin.context.state_dir),
                 plugin_id=plugin_id,
                 connection_id=connection_id,
                 plugin_settings=plugin_settings,
@@ -209,7 +209,7 @@ class PluginUserContentClearSession:
             failure = await self._run_hook(
                 target_kind="plugin",
                 plugin_id=plugin_id,
-                sensor_id=None,
+                source_id=None,
                 hook=plugin.clear_user_content,
                 context=context,
             )
@@ -220,38 +220,38 @@ class PluginUserContentClearSession:
                 failures.append(failure_record)
                 causes.append(cause)
 
-        for sensor_target in self._targets.sensors:
+        for source_target in self._targets.sources:
             attempted += 1
-            connection_id = sensor_target.connection_id
+            connection_id = source_target.connection_id
             plugin = plugins_by_connection_id[connection_id]
             context = UserContentClearContext(
                 request=request,
-                runtime_paths=ScopedSensorRuntimePaths(connection_id, sensor_target.plugin_id, plugin.context.state_dir),
-                plugin_id=sensor_target.plugin_id,
+                runtime_paths=ScopedSourceRuntimePaths(connection_id, source_target.plugin_id, plugin.context.state_dir),
+                plugin_id=source_target.plugin_id,
                 connection_id=connection_id,
-                sensor_id=sensor_target.sensor_id,
+                source_id=source_target.source_id,
                 plugin_settings=settings_by_connection_id.get(
                     connection_id,
                     {},
                 ),
             )
-            hook = getattr(sensor_target.sensor, "clear_user_content", None)
+            hook = getattr(source_target.source, "clear_user_content", None)
             if not callable(hook):
                 failure = (
                     PluginUserContentClearFailure(
-                        target_kind="sensor",
-                        plugin_id=sensor_target.plugin_id,
-                        sensor_id=sensor_target.sensor_id,
+                        target_kind="source",
+                        plugin_id=source_target.plugin_id,
+                        source_id=source_target.source_id,
                         error_type="TypeError",
-                        error="Registered sensor does not implement clear_user_content",
+                        error="Registered source does not implement clear_user_content",
                     ),
-                    TypeError("Registered sensor does not implement clear_user_content"),
+                    TypeError("Registered source does not implement clear_user_content"),
                 )
             else:
                 failure = await self._run_hook(
-                    target_kind="sensor",
-                    plugin_id=sensor_target.plugin_id,
-                    sensor_id=sensor_target.sensor_id,
+                    target_kind="source",
+                    plugin_id=source_target.plugin_id,
+                    source_id=source_target.source_id,
                     hook=hook,
                     context=context,
                 )
@@ -339,7 +339,7 @@ class PluginUserContentClearSession:
                     PluginUserContentClearFailure(
                         target_kind="plugin",
                         plugin_id=plugin_id,
-                        sensor_id=None,
+                        source_id=None,
                         error_type=exc.__class__.__name__,
                         error=str(exc) or exc.__class__.__name__,
                     )
@@ -353,7 +353,7 @@ class PluginUserContentClearSession:
                         PluginUserContentClearFailure(
                             target_kind="plugin",
                             plugin_id=plugin_id,
-                            sensor_id=None,
+                            source_id=None,
                             error_type=exc.__class__.__name__,
                             error=str(exc) or exc.__class__.__name__,
                         )
@@ -376,9 +376,9 @@ class PluginUserContentClearSession:
     async def _run_hook(
         self,
         *,
-        target_kind: Literal["plugin", "sensor"],
+        target_kind: Literal["plugin", "source"],
         plugin_id: str,
-        sensor_id: str | None,
+        source_id: str | None,
         hook: Callable[[UserContentClearContext], Any],
         context: UserContentClearContext,
     ) -> tuple[PluginUserContentClearFailure, Exception] | None:
@@ -398,14 +398,14 @@ class PluginUserContentClearSession:
                 "Plugin user-content clear hook failed",
                 target_kind=target_kind,
                 plugin_id=plugin_id,
-                sensor_id=sensor_id,
+                source_id=source_id,
                 clear_generation=context.request.clear_generation,
             )
             return (
                 PluginUserContentClearFailure(
                     target_kind=target_kind,
                     plugin_id=plugin_id,
-                    sensor_id=sensor_id,
+                    source_id=source_id,
                     error_type=exc.__class__.__name__,
                     error=error_text,
                 ),
@@ -454,7 +454,7 @@ class PluginUserContentClearSession:
                 PluginUserContentClearFailure(
                     target_kind="channel",
                     plugin_id=plugin_id,
-                    sensor_id=None,
+                    source_id=None,
                     channel_type=channel_type,
                     error_type=exc.__class__.__name__,
                     error=str(exc) or exc.__class__.__name__,
@@ -464,14 +464,14 @@ class PluginUserContentClearSession:
 
 
 class PluginUserContentClearCoordinator:
-    """Quiesce plugin operations and sensor execution around one full clear."""
+    """Quiesce plugin operations and source execution around one full clear."""
 
     def __init__(
         self,
         *,
         plugin_manager: PluginManager,
         runtime_paths: PluginRuntimePaths,
-        get_sensor_sync_executor: Callable[[], Any | None],
+        get_source_sync_executor: Callable[[], Any | None],
         checkpoint_store: PluginUserContentClearCheckpointStore,
         read_current_clear_generation: Callable[[], Awaitable[int]],
         hook_timeout_seconds: float = 10.0,
@@ -481,7 +481,7 @@ class PluginUserContentClearCoordinator:
             raise ValueError("hook_timeout_seconds must be positive")
         self._plugin_manager = plugin_manager
         self._runtime_paths = runtime_paths
-        self._get_sensor_sync_executor = get_sensor_sync_executor
+        self._get_source_sync_executor = get_source_sync_executor
         self._checkpoint_store = checkpoint_store
         self._read_current_clear_generation = read_current_clear_generation
         self._hook_timeout_seconds = float(hook_timeout_seconds)
@@ -492,10 +492,10 @@ class PluginUserContentClearCoordinator:
     async def user_content_clear_boundary(
         self,
     ) -> AsyncIterator[PluginUserContentClearSession]:
-        """Stop sensor execution and hold an immutable target snapshot."""
+        """Stop source execution and hold an immutable target snapshot."""
 
         async with plugin_user_content_clear_boundary():
-            executor = self._get_sensor_sync_executor()
+            executor = self._get_source_sync_executor()
             executor_was_running = self._executor_needs_restart(executor)
             restart_executor = executor_was_running or (
                 executor is not None and executor is self._suspended_executor

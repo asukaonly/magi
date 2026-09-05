@@ -7,17 +7,17 @@ import { toast } from 'sonner';
 import { historyImportsApi, type HistoryImportJob } from '@/api/modules/historyImports';
 import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
-import { sensorsApi } from '@/api/modules/sensors';
+import { sourcesApi } from '@/api/modules/sources';
 import { MemorySourceDetailPage, MemorySourcesPage } from '@/pages/memory-pages';
 import { useChatShellStore } from '@/stores';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
-const { mockUseInstallableSensors } = vi.hoisted(() => ({
-  mockUseInstallableSensors: vi.fn(),
+const { mockUseInstallableSources } = vi.hoisted(() => ({
+  mockUseInstallableSources: vi.fn(),
 }));
 
-vi.mock('@/hooks/useInstallableSensors', () => ({
-  useInstallableSensors: () => mockUseInstallableSensors(),
+vi.mock('@/hooks/useInstallableSources', () => ({
+  useInstallableSources: () => mockUseInstallableSources(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -141,8 +141,8 @@ vi.mock('@/api/modules/memory', async () => {
   };
 });
 
-vi.mock('@/api/modules/sensors', () => ({
-  sensorsApi: {
+vi.mock('@/api/modules/sources', () => ({
+  sourcesApi: {
     getStatus: vi.fn(),
     getTodaySummary: vi.fn(),
     requestSync: vi.fn(),
@@ -221,7 +221,7 @@ const dashboardPayload = {
   pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
 };
 
-const sensorPayload = {
+const sourcePayload = {
   sources: [
     {
       source_name: 'chrome_history',
@@ -392,7 +392,7 @@ const completedHistoryImport = (): HistoryImportJob => ({
 
 const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => ({
   event_id: `evt-${index}`,
-  event_type: 'SENSOR_EVENT',
+  event_type: 'SOURCE_EVENT',
   source: 'chrome_history',
   timestamp: 1783049000 - index * 60,
   content: `Chrome event ${index}`,
@@ -406,7 +406,7 @@ const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => (
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(historyImportsApi.list).mockResolvedValue([]);
-  mockUseInstallableSensors.mockReturnValue({
+  mockUseInstallableSources.mockReturnValue({
     items: [{
       plugin_id: 'calendar',
       name: 'Calendar',
@@ -431,8 +431,8 @@ beforeEach(() => {
     refresh: vi.fn(),
   });
   vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
-  vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as never);
-  vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue(todayPayload as never);
+  vi.mocked(sourcesApi.getStatus).mockResolvedValue(sourcePayload as never);
+  vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue(todayPayload as never);
   vi.mocked(pluginsApi.getConnection).mockImplementation(async (pluginId, connectionId) => ({ plugin_id: pluginId, connection_id: connectionId, revision: 3, settings: {} } as never));
   vi.mocked(pluginsApi.updateConnection).mockResolvedValue({} as never);
   useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
@@ -441,7 +441,7 @@ beforeEach(() => {
     items: [
       {
         event_id: 'evt-1',
-        event_type: 'SENSOR_EVENT',
+        event_type: 'SOURCE_EVENT',
         source: 'chrome_history',
         timestamp: 1783049000,
         content: 'Chrome 浏览 Opened docs about Magi memory sources',
@@ -459,7 +459,7 @@ beforeEach(() => {
       },
       {
         event_id: 'evt-2',
-        event_type: 'SENSOR_EVENT',
+        event_type: 'SOURCE_EVENT',
         source: 'netease_music',
         timestamp: 1782912000,
         content: 'Played a playlist',
@@ -473,12 +473,12 @@ beforeEach(() => {
     limit: 500,
     offset: 0,
   } as never);
-  vi.mocked(sensorsApi.requestSync).mockResolvedValue({ queued: true, source_name: 'chrome_history' } as never);
+  vi.mocked(sourcesApi.requestSync).mockResolvedValue({ queued: true, source_name: 'chrome_history' } as never);
 });
 
 const multiAccountPayload = () => ({ sources: [
-  sensorPayload.sources[0],
-  { ...sensorPayload.sources[0], connection_id: 'chrome-home', connection_display_name: 'Home', last_result_count: 999 },
+  sourcePayload.sources[0],
+  { ...sourcePayload.sources[0], connection_id: 'chrome-home', connection_display_name: 'Home', last_result_count: 999 },
 ] });
 const renderDetail = (search = '') => render(
   <MemoryRouter initialEntries={[`/memory/sources/chrome_history${search}`]}>
@@ -495,8 +495,8 @@ const deferred = <T,>() => {
 describe('MemorySourcesPage', () => {
   it('requires an explicit account and keeps semantic totals unchanged by selection', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
-    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({ ...todayPayload, sources: [
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({ ...todayPayload, sources: [
       todayPayload.sources[0], { ...todayPayload.sources[0], connection_id: 'chrome-home', count: 8 },
     ] } as never);
     renderDetail();
@@ -508,7 +508,7 @@ describe('MemorySourcesPage', () => {
     expect(within(screen.getByTestId('source-detail-facts')).getByText('44')).toBeInTheDocument();
     await user.selectOptions(chooser, 'chrome-home');
     await user.click(screen.getByRole('button', { name: '同步一次' }));
-    await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-home'));
+    await waitFor(() => expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-home'));
     expect(within(screen.getByTestId('source-detail-facts')).getByText('233')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 0 });
   });
@@ -518,21 +518,21 @@ describe('MemorySourcesPage', () => {
     expect(await screen.findByRole('combobox', { name: '连接' })).toHaveValue('');
     expect(screen.queryByRole('button', { name: '同步一次' })).not.toBeInTheDocument();
     expect(pluginsApi.getConnection).not.toHaveBeenCalled();
-    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+    expect(sourcesApi.requestSync).not.toHaveBeenCalled();
   });
 
   it('submits backfill to the selected account and shows its own runtime status', async () => {
     const user = userEvent.setup();
     const payload = multiAccountPayload();
     payload.sources[0] = { ...payload.sources[0], enabled: false, status: 'disabled' };
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(payload as never);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(payload as never);
     renderDetail();
     await user.selectOptions(await screen.findByRole('combobox', { name: '连接' }), 'chrome-work');
     expect(screen.getByRole('button', { name: '启用来源' })).toBeInTheDocument();
     await user.selectOptions(screen.getByRole('combobox', { name: '连接' }), 'chrome-home');
     await user.click(screen.getByRole('button', { name: '补旧数据' }));
     await user.click(screen.getByRole('button', { name: '开始补回' }));
-    await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-home', {
+    await waitFor(() => expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-home', {
       mode: 'backfill', backfillScope: 'last_30_days', backfillStartDate: undefined, backfillEndDate: undefined,
     }));
   });
@@ -540,7 +540,7 @@ describe('MemorySourcesPage', () => {
   it('never continues a settings write after its account is changed during the revision read', async () => {
     const user = userEvent.setup();
     const pending = deferred<Awaited<ReturnType<typeof pluginsApi.getConnection>>>();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
     vi.mocked(pluginsApi.getConnection).mockReturnValueOnce(pending.promise);
     renderDetail('?connection=chrome-work');
     await user.click(await screen.findByRole('button', { name: '更多操作' }));
@@ -554,17 +554,17 @@ describe('MemorySourcesPage', () => {
 
   it('ignores an old sync completion while the next account is still syncing', async () => {
     const user = userEvent.setup();
-    const first = deferred<Awaited<ReturnType<typeof sensorsApi.requestSync>>>();
-    const second = deferred<Awaited<ReturnType<typeof sensorsApi.requestSync>>>();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
-    vi.mocked(sensorsApi.requestSync).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const first = deferred<Awaited<ReturnType<typeof sourcesApi.requestSync>>>();
+    const second = deferred<Awaited<ReturnType<typeof sourcesApi.requestSync>>>();
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(multiAccountPayload() as never);
+    vi.mocked(sourcesApi.requestSync).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     renderDetail('?connection=chrome-work');
     await user.click(await screen.findByRole('button', { name: '同步一次' }));
     await user.selectOptions(screen.getByRole('combobox', { name: '连接' }), 'chrome-home');
     await user.click(screen.getByRole('button', { name: '同步一次' }));
     await act(async () => first.resolve({ source_name: 'chrome_history', connection_id: 'chrome-work', queued: true }));
     expect(screen.getByRole('button', { name: '同步中' })).toBeDisabled();
-    expect(sensorsApi.getStatus).toHaveBeenCalledOnce();
+    expect(sourcesApi.getStatus).toHaveBeenCalledOnce();
     await act(async () => second.resolve({ source_name: 'chrome_history', connection_id: 'chrome-home', queued: true }));
     expect(await screen.findByRole('button', { name: '同步一次' })).toBeEnabled();
   });
@@ -581,7 +581,7 @@ describe('MemorySourcesPage', () => {
 
   it('does not report a backfill complete when the tracked account disappears', async () => {
     const initial = multiAccountPayload();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValueOnce({ sources: [
+    vi.mocked(sourcesApi.getStatus).mockResolvedValueOnce({ sources: [
       { ...initial.sources[0], sync_activity: { job_id: 'work-job', mode: 'backfill', status: 'running' } },
       initial.sources[1],
     ] } as never).mockResolvedValue({ sources: [
@@ -589,7 +589,7 @@ describe('MemorySourcesPage', () => {
     ] } as never);
     renderDetail('?connection=chrome-work');
     await screen.findByRole('button', { name: '补数据中' });
-    await waitFor(() => expect(sensorsApi.getStatus).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    await waitFor(() => expect(sourcesApi.getStatus).toHaveBeenCalledTimes(2), { timeout: 2000 });
     expect(toast.success).not.toHaveBeenCalled();
   });
 
@@ -625,8 +625,8 @@ describe('MemorySourcesPage', () => {
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
       },
     } as never);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
-    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({
       ...todayPayload,
       sources: [],
     } as never);
@@ -662,7 +662,7 @@ describe('MemorySourcesPage', () => {
     act(() => onDone?.({ pluginId: 'calendar', connectionId: 'calendar-connection', sourceName: 'calendar' }));
 
     await waitFor(() => expect(memoryApi.getDashboard).toHaveBeenCalledTimes(2));
-    expect(sensorsApi.getStatus).toHaveBeenCalledTimes(2);
+    expect(sourcesApi.getStatus).toHaveBeenCalledTimes(2);
   });
 
   it('shows a compact ongoing-source prompt when history has already been imported', async () => {
@@ -683,8 +683,8 @@ describe('MemorySourcesPage', () => {
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
       },
     } as never);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
-    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({
       ...todayPayload,
       sources: [],
     } as never);
@@ -727,8 +727,8 @@ describe('MemorySourcesPage', () => {
         today: { ...dashboardPayload.deltas.today, l1_events: 0 },
       },
     } as never);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
-    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({
       ...todayPayload,
       sources: [],
     } as never);
@@ -811,8 +811,8 @@ describe('MemorySourcesPage', () => {
         today: { ...dashboardPayload.deltas.today, l1_events: 1 },
       },
     } as never);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
-    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sourcesApi.getTodaySummary).mockResolvedValue({
       ...todayPayload,
       sources: [{
         source_name: 'chat_projector',
@@ -880,12 +880,12 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('menuitem', { name: '暂停' }));
 
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('chrome-history', 'chrome-work', {
-      expected_revision: 3, settings: { sensors: { chrome_history: { enabled: false } } },
+      expected_revision: 3, settings: { sources: { chrome_history: { enabled: false } } },
     }));
 
     await user.click(screen.getByRole('button', { name: '同步一次' }));
 
-    await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work'));
+    await waitFor(() => expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work'));
   });
 
   it('offers configuration instead of sync actions when setup is required', async () => {
@@ -917,8 +917,8 @@ describe('MemorySourcesPage', () => {
 
   it('offers enablement before sync for a configured disabled source', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
-      sources: sensorPayload.sources.map((source) => (
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -945,14 +945,14 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '启用来源' }));
 
     await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('chrome-history', 'chrome-work', {
-      expected_revision: 3, settings: { sensors: { chrome_history: { enabled: true } } },
+      expected_revision: 3, settings: { sources: { chrome_history: { enabled: true } } },
     }));
-    expect(sensorsApi.requestSync).not.toHaveBeenCalled();
+    expect(sourcesApi.requestSync).not.toHaveBeenCalled();
   });
 
   it('disables duplicate sync actions while a sync is queued', async () => {
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
-      sources: sensorPayload.sources.map((source) => (
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -980,8 +980,8 @@ describe('MemorySourcesPage', () => {
 
   it('offers retry without backfill after a terminal sync error', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
-      sources: sensorPayload.sources.map((source) => (
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -1004,7 +1004,7 @@ describe('MemorySourcesPage', () => {
     expect(screen.queryByRole('button', { name: '补旧数据' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '重试同步' }));
-    await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work'));
+    await waitFor(() => expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work'));
   });
 
   it('queues a historical backfill from a source detail page', async () => {
@@ -1024,7 +1024,7 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '开始补回' }));
 
     await waitFor(() =>
-      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work', {
+      expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work', {
         mode: 'backfill',
         backfillScope: 'last_30_days',
       })
@@ -1050,7 +1050,7 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '开始补回' }));
 
     await waitFor(() =>
-      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work', {
+      expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-work', {
         mode: 'backfill',
         backfillScope: 'custom',
         backfillStartDate: '2026-06-01',
@@ -1060,8 +1060,8 @@ describe('MemorySourcesPage', () => {
   });
 
   it('keeps an active backfill status and selected range visible', async () => {
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
-      sources: sensorPayload.sources.map((source) => (
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -1092,8 +1092,8 @@ describe('MemorySourcesPage', () => {
   });
 
   it('keeps a retrying backfill active and shows its attempt count', async () => {
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
-      sources: sensorPayload.sources.map((source) => (
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -1126,7 +1126,7 @@ describe('MemorySourcesPage', () => {
 
   it('polls an active backfill and reports completion', async () => {
     const activePayload = {
-      sources: sensorPayload.sources.map((source) => (
+      sources: sourcePayload.sources.map((source) => (
         source.source_name === 'chrome_history'
           ? {
               ...source,
@@ -1155,7 +1155,7 @@ describe('MemorySourcesPage', () => {
           : source
       )),
     };
-    vi.mocked(sensorsApi.getStatus)
+    vi.mocked(sourcesApi.getStatus)
       .mockResolvedValueOnce(activePayload as never)
       .mockResolvedValue(completedPayload as never);
 

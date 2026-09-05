@@ -78,7 +78,7 @@ from magi.plugins.history_importers import HistoryImporterRegistry
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessLimits, ProcessPluginProxy
 from magi.plugins.providers import PluginProviderRegistry
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.plugins.skills import PluginSkillRegistry
 from magi.hooks.registry import HookRegistry
 from magi.skills.indexer import SkillIndexer
@@ -246,9 +246,9 @@ async def main() -> int:
     ) as temporary:
         root = Path(temporary)
         connections = {}
-        tools, sensors, hooks, history = (
+        tools, sources, hooks, history = (
             ToolRegistry(),
-            SensorRegistry(),
+            SourceRegistry(),
             HookRegistry(),
             HistoryImporterRegistry(),
         )
@@ -261,7 +261,7 @@ async def main() -> int:
         providers = PluginProviderRegistry(get_connection=connections.get)
         registrar = PluginContributionRegistrar(
             tool_registry=tools,
-            sensor_registry=sensors,
+            source_registry=sources,
             history_importer_registry=history,
             hook_registry_provider=lambda: hooks,
             skill_registrar=skills,
@@ -273,7 +273,7 @@ async def main() -> int:
             return {
                 "tools": sorted(tools._tools),
                 "operations": sorted(operations._entries),
-                "sensors": sorted(spec.sensor_id for spec in sensors.list_specs()),
+                "sources": sorted(spec.source_id for spec in sources.list_specs()),
                 "history": sorted(
                     (item.plugin_id, item.connection_id, item.importer_id)
                     for item in history.list()
@@ -298,9 +298,9 @@ async def main() -> int:
                     for key, value in operations._entries.items()
                     if key[0] == connection_id
                 },
-                "sensors": {
-                    item.sensor_id: item.sensor
-                    for item in sensors.snapshot_user_content_clear_targets()
+                "sources": {
+                    item.source_id: item.source
+                    for item in sources.snapshot_user_content_clear_targets()
                     if item.connection_id == connection_id
                 },
                 "history": {

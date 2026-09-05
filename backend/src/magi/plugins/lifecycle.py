@@ -24,7 +24,7 @@ class PluginSystemModule(LifecycleModule):
         context: RuntimeBootstrapContext,
         *,
         tool_registry: Any,
-        request_sensor_schedule_refresh: Callable[[], None],
+        request_source_schedule_refresh: Callable[[], None],
     ):
         super().__init__(
             name="runtime_plugin_system",
@@ -32,19 +32,19 @@ class PluginSystemModule(LifecycleModule):
         )
         self._context = context
         self._tool_registry = tool_registry
-        self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
+        self._request_source_schedule_refresh = request_source_schedule_refresh
         self._runtime_loop: asyncio.AbstractEventLoop | None = None
 
     async def init(self) -> None:
         runtime_loop = asyncio.get_running_loop()
         self._runtime_loop = runtime_loop
 
-        def request_sensor_schedule_refresh() -> None:
+        def request_source_schedule_refresh() -> None:
             if self._runtime_loop is not runtime_loop or runtime_loop.is_closed():
                 return
             try:
                 runtime_loop.call_soon_threadsafe(
-                    self._run_sensor_schedule_refresh,
+                    self._run_source_schedule_refresh,
                     runtime_loop,
                 )
             except RuntimeError:
@@ -82,8 +82,8 @@ class PluginSystemModule(LifecycleModule):
         async def enqueue_source_change(payload: dict[str, Any]) -> None:
             async def enqueue() -> None:
                 contributor = require_initialized(
-                    self._context.agent_runtime.sensor_scheduler_contrib,
-                    "sensor scheduler contributor",
+                    self._context.agent_runtime.source_scheduler_contrib,
+                    "source scheduler contributor",
                 )
                 await contributor.queue_source_change(payload)
 
@@ -97,8 +97,8 @@ class PluginSystemModule(LifecycleModule):
                 return
             connection_id = instance.connection_id
             source_types = frozenset(
-                str(spec.metadata.get("source_type") or sensor.source_type)
-                for _sensor_id, sensor, spec in instance.get_sensors()
+                str(spec.metadata.get("source_type") or source.source_type)
+                for _source_id, source, spec in instance.get_sources()
             )
             for capability, scopes in (
                 ("source.emit", sorted(source_types)),
@@ -149,7 +149,7 @@ class PluginSystemModule(LifecycleModule):
 
         bindings = build_plugin_runtime(
             tool_registry=self._tool_registry,
-            request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+            request_source_schedule_refresh=request_source_schedule_refresh,
             activate_enabled=False,
             skill_registrar=skills,
             operation_registrar=operations,
@@ -161,7 +161,7 @@ class PluginSystemModule(LifecycleModule):
         )
         self._context.plugins.plugin_manager = bindings.plugin_manager
         self._context.plugins.plugin_projection_service = bindings.plugin_projection_service
-        self._context.plugins.sensor_registry = bindings.sensor_registry
+        self._context.plugins.source_registry = bindings.source_registry
         self._context.plugins.history_importer_registry = bindings.history_importer_registry
         self._context.plugins.source_store = source_store
         self._context.plugins.operation_registry = operations
@@ -177,7 +177,7 @@ class PluginSystemModule(LifecycleModule):
                 self._context.core.runtime_paths,
                 "runtime paths",
             ),
-            get_sensor_sync_executor=lambda: (self._context.agent_runtime.sensor_sync_executor),
+            get_source_sync_executor=lambda: (self._context.agent_runtime.source_sync_executor),
             checkpoint_store=PluginUserContentClearCheckpointStore(
                 require_initialized(
                     self._context.core.runtime_paths,
@@ -201,13 +201,13 @@ class PluginSystemModule(LifecycleModule):
                 transaction_id=transaction_state.transaction_id,
             )
 
-    def _run_sensor_schedule_refresh(
+    def _run_source_schedule_refresh(
         self,
         runtime_loop: asyncio.AbstractEventLoop,
     ) -> None:
         if self._runtime_loop is not runtime_loop or runtime_loop.is_closed():
             return
-        self._request_sensor_schedule_refresh()
+        self._request_source_schedule_refresh()
 
     async def shutdown(self) -> None:
         self._runtime_loop = None
@@ -217,7 +217,7 @@ class PluginSystemModule(LifecycleModule):
         self._context.plugins.user_content_clear_coordinator = None
         self._context.plugins.plugin_manager = None
         self._context.plugins.plugin_projection_service = None
-        self._context.plugins.sensor_registry = None
+        self._context.plugins.source_registry = None
         self._context.plugins.history_importer_registry = None
         self._context.plugins.source_store = None
         self._context.plugins.operation_registry = None

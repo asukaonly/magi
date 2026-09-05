@@ -1,4 +1,4 @@
-import type { SensorSourceStatusItem } from '@/api/modules/sensors';
+import type { SourceStatusItem } from '@/api/modules/sources';
 import type { PluginRegistryEntry } from '@/api/modules/plugins';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
 import { getTimelineSourceDescription, getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
@@ -9,7 +9,7 @@ export interface TimelineCapability {
   id: string;
   displayName: string;
   description: string;
-  sources: SensorSourceStatusItem[];
+  sources: SourceStatusItem[];
   enabledCount: number;
   attentionCount: number;
   lastSyncAt: number | string | null | undefined;
@@ -32,12 +32,12 @@ export interface TimelineAvailableEntry {
   installFingerprint: string;
 }
 
-export const getTimelineCapabilityId = (source: SensorSourceStatusItem): string =>
+export const getTimelineCapabilityId = (source: SourceStatusItem): string =>
   source.capability_id || source.source_name;
 
 export const getTimelineCapabilityDisplayName = (
   t: TimelineTranslateFn,
-  source: SensorSourceStatusItem
+  source: SourceStatusItem
 ): string =>
   source.capability_display_name_translated
   || source.capability_display_name
@@ -45,7 +45,7 @@ export const getTimelineCapabilityDisplayName = (
 
 export const getTimelineCapabilityDescription = (
   t: TimelineTranslateFn,
-  source: SensorSourceStatusItem
+  source: SourceStatusItem
 ): string =>
   source.capability_description_translated
   || source.capability_description
@@ -53,7 +53,7 @@ export const getTimelineCapabilityDescription = (
 
 export const getTimelineEntryDisplayName = (
   t: TimelineTranslateFn,
-  source: SensorSourceStatusItem
+  source: SourceStatusItem
 ): string =>
   source.entry_display_name_translated
   || source.entry_display_name
@@ -61,7 +61,7 @@ export const getTimelineEntryDisplayName = (
 
 export const getTimelineEntryDescription = (
   t: TimelineTranslateFn,
-  source: SensorSourceStatusItem
+  source: SourceStatusItem
 ): string =>
   source.entry_description_translated
   || source.entry_description
@@ -80,7 +80,7 @@ const timestampValue = (value: number | string | null | undefined): number => {
 
 export const buildTimelineCapabilities = (
   t: TimelineTranslateFn,
-  statuses: SensorSourceStatusItem[]
+  statuses: SourceStatusItem[]
 ): TimelineCapability[] => {
   const grouped = new Map<string, TimelineCapability>();
 
@@ -170,7 +170,7 @@ export const buildTimelineAvailableEntries = (
       if (!group?.id) {
         return false;
       }
-      if (!entry.contribution_types.includes('sensor')) {
+      if (!entry.contribution_types.includes('source')) {
         return false;
       }
       if (entry.installed || installedPluginIds.has(entry.plugin_id)) {

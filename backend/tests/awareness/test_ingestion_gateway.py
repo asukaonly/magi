@@ -1,7 +1,7 @@
-"""Tests for SensorIngestionGateway as a thin publisher.
+"""Tests for SourceIngestionGateway as a thin publisher.
 
 Phase 9: Gateway no longer writes to memory/timeline/state directly.
-It builds a SensorEventEmitted payload and publishes to the event bus.
+It builds a SourceEventEmitted payload and publishes to the event bus.
 Side effects are tested through their respective subscribers.
 """
 
@@ -12,33 +12,33 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from magi.awareness.ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
-from magi.awareness.sensor_base import L2BatchPolicy, SensorBase
-from magi.awareness.sensor_output import (
+from magi.awareness.ingestion_gateway import SourceIngestionGateway, SourceIngestionResult
+from magi.awareness.source_base import L2BatchPolicy, Source
+from magi.awareness.source_output import (
     ActivityFacet,
     ContentBlock,
-    SensorActivity,
-    SensorMemoryPolicy,
-    SensorNarration,
-    SensorOutput,
-    SensorOutputMetadata,
+    SourceActivity,
+    SourceMemoryPolicy,
+    SourceNarration,
+    SourceOutput,
+    SourceOutputMetadata,
 )
-from magi.events.domain_payloads import SensorEventEmitted
+from magi.events.domain_payloads import SourceEventEmitted
 from magi.events.events import EventTypes
-from magi.memory.sensor_ingestion import (
-    SensorCommitOutcome,
-    SensorCommitReceipt,
-    SensorEventCommitter,
-    SensorIngestionBoundary,
+from magi.memory.source_ingestion import (
+    SourceCommitOutcome,
+    SourceCommitReceipt,
+    SourceEventCommitter,
+    SourceIngestionBoundary,
 )
 
 
-class _FakeSensor(SensorBase):
-    sensor_id = "test.fake"
+class _FakeSource(Source):
+    source_id = "test.fake"
     source_type = "fake_source"
     memory_event_type = "FAKE_EVENT"
     update_key_fields = ("id",)
-    memory_policy = SensorMemoryPolicy(
+    memory_policy = SourceMemoryPolicy(
         memory_domain="external_activity",
         ingest_target="l1_only",
         cognition_eligible=True,
@@ -48,7 +48,7 @@ class _FakeSensor(SensorBase):
         content_type="observation",
     )
 
-    async def build_output(self, item: dict[str, Any]) -> SensorOutput:
+    async def build_output(self, item: dict[str, Any]) -> SourceOutput:
         return self._build_output(
             source_item_id=str(item["id"]),
             activity=self._build_activity(
@@ -67,8 +67,8 @@ class _FakeSensor(SensorBase):
         )
 
 
-class _FakeBatchingSensor(_FakeSensor):
-    def l2_batch_policy(self, output: SensorOutput) -> L2BatchPolicy | None:
+class _FakeBatchingSource(_FakeSource):
+    def l2_batch_policy(self, output: SourceOutput) -> L2BatchPolicy | None:
         return L2BatchPolicy(
             owner=f"{output.source_type}:default",
             max_events=20,
@@ -77,13 +77,13 @@ class _FakeBatchingSensor(_FakeSensor):
         )
 
 
-def _make_output(**overrides: Any) -> SensorOutput:
+def _make_output(**overrides: Any) -> SourceOutput:
     defaults = dict(
         source_type="fake_source",
         source_item_id="item-1",
         occurred_at=1700000000.0,
         captured_at=1700000001.0,
-        activity=SensorActivity(
+        activity=SourceActivity(
             source=ActivityFacet(
                 code="fake_source",
                 i18n_key="activity.source.fake_source",
@@ -95,12 +95,12 @@ def _make_output(**overrides: Any) -> SensorOutput:
                 fallback="Observed",
             ),
         ),
-        narration=SensorNarration(body="Something happened", title="Test Event"),
+        narration=SourceNarration(body="Something happened", title="Test Event"),
         content_blocks=[ContentBlock(kind="text", value="hello")],
         tags=["tag1"],
     )
     defaults.update(overrides)
-    return SensorOutput(**defaults)
+    return SourceOutput(**defaults)
 
 
 def _make_bus() -> MagicMock:
@@ -112,7 +112,7 @@ def _make_bus() -> MagicMock:
 def _make_committer() -> MagicMock:
     committer = MagicMock()
     committer.capture_ingestion_boundary = AsyncMock(
-        return_value=SensorIngestionBoundary(
+        return_value=SourceIngestionBoundary(
             expected_epoch=0,
             clear_generation=0,
             clear_cutoff_at=0.0,
@@ -127,27 +127,27 @@ def _make_committer() -> MagicMock:
         clear_cutoff_at,
         allow_pre_clear_events,
     ):
-        return SensorCommitReceipt(
+        return SourceCommitReceipt(
             event_id=event.event_id,
-            outcome=SensorCommitOutcome.PERSISTED,
+            outcome=SourceCommitOutcome.PERSISTED,
         )
 
     committer.commit = AsyncMock(side_effect=_commit)
     return committer
 
 
-class TestSensorIngestionGatewayPublishes:
+class TestSourceIngestionGatewayPublishes:
     @pytest.mark.asyncio
-    async def test_ingest_publishes_sensor_event_emitted(self):
+    async def test_ingest_publishes_source_event_emitted(self):
         bus = _make_bus()
         committer = _make_committer()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=committer)
+        source = _FakeSource()
         output = _make_output()
 
-        result = await gateway.ingest(sensor, output)
+        result = await gateway.ingest(source, output)
 
-        assert isinstance(result, SensorIngestionResult)
+        assert isinstance(result, SourceIngestionResult)
         assert result.ingested is True
         assert result.event_id  # ULID assigned
         assert result.stats == {
@@ -159,13 +159,13 @@ class TestSensorIngestionGatewayPublishes:
         bus.publish.assert_awaited_once()
 
         event = bus.publish.await_args.args[0]
-        assert event.type == EventTypes.SENSOR_EVENT_EMITTED
+        assert event.type == EventTypes.SOURCE_EVENT_EMITTED
         assert event.event_id == result.event_id
-        assert event.source == "sensor_ingestion_gateway"
+        assert event.source == "source_ingestion_gateway"
         payload = event.data
-        assert isinstance(payload, SensorEventEmitted)
-        assert payload.sensor_id == "test.fake"
-        assert payload.sensor_name == "test.fake"
+        assert isinstance(payload, SourceEventEmitted)
+        assert payload.source_id == "test.fake"
+        assert payload.source_name == "test.fake"
         assert payload.memory_event_type == "FAKE_EVENT"
         assert payload.idempotency_key == "item-1"
         assert payload.occurred_at == 1700000000.0
@@ -176,15 +176,15 @@ class TestSensorIngestionGatewayPublishes:
     async def test_ingest_preserves_explicit_clear_boundary(self):
         bus = _make_bus()
         committer = _make_committer()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
-        boundary = SensorIngestionBoundary(
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=committer)
+        boundary = SourceIngestionBoundary(
             expected_epoch=17,
             clear_generation=4,
             clear_cutoff_at=1_700_000_010.0,
         )
 
         await gateway.ingest(
-            _FakeSensor(),
+            _FakeSource(),
             _make_output(),
             boundary=boundary,
             allow_pre_clear_events=True,
@@ -199,10 +199,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_policy_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.policy_dict["memory_domain"] == "external_activity"
@@ -213,10 +213,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_projection_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.projection_dict.get("embedding_head") == "Fake Source Observed"
@@ -224,17 +224,17 @@ class TestSensorIngestionGatewayPublishes:
             payload.projection_dict.get("metadata", {})
             .get("projection", {})
             .get("renderer_version")
-            == "sensor_activity_v1"
+            == "source_activity_v1"
         )
 
     @pytest.mark.asyncio
     async def test_payload_carries_owner_from_provenance(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
         output = _make_output(provenance={"user_id": "owner-42"})
 
-        await gateway.ingest(sensor, output)
+        await gateway.ingest(source, output)
 
         payload = bus.publish.await_args.args[0].data
         assert payload.owner_user_id == "owner-42"
@@ -243,15 +243,15 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_metadata_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
-        metadata = SensorOutputMetadata(
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
+        metadata = SourceOutputMetadata(
             tags=["j-pop", "electropop"],
             entities=[{"id": "entity-1"}],
             fact_hints=[{"subject_ref": "user:self"}],
         )
 
-        await gateway.ingest(sensor, _make_output(), metadata)
+        await gateway.ingest(source, _make_output(), metadata)
 
         payload = bus.publish.await_args.args[0].data
         assert payload.metadata_dict is not None
@@ -262,10 +262,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_metadata_dict_none_when_no_metadata(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.metadata_dict is None
@@ -273,16 +273,16 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_relation_candidates_and_whitelist(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
-        metadata = SensorOutputMetadata(
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
+        metadata = SourceOutputMetadata(
             relation_candidates=[
                 {"predicate": "LIKES", "object_id": "topic:test", "confidence": 0.9},
             ],
         )
 
         await gateway.ingest(
-            sensor,
+            source,
             _make_output(),
             metadata,
             allowed_edge_whitelist=["LIKES"],
@@ -297,10 +297,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_relation_candidates_default_empty(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.relation_candidates == ()
@@ -309,10 +309,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_l2_batch_policy_dict(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeBatchingSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeBatchingSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.l2_batch_policy_dict is not None
@@ -324,10 +324,10 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_l2_batch_policy_dict_none_when_no_policy(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.l2_batch_policy_dict is None
@@ -335,24 +335,24 @@ class TestSensorIngestionGatewayPublishes:
     @pytest.mark.asyncio
     async def test_payload_carries_fingerprint_and_idempotency_key(self):
         bus = _make_bus()
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        await gateway.ingest(sensor, _make_output())
+        await gateway.ingest(source, _make_output())
 
         payload = bus.publish.await_args.args[0].data
         assert payload.idempotency_key == "item-1"
-        assert payload.sensor_fingerprint  # non-empty string
+        assert payload.source_fingerprint  # non-empty string
 
     @pytest.mark.asyncio
     async def test_projection_publish_failure_keeps_confirmed_memory_success(self):
         """Derived projection failure cannot erase an already confirmed L1 commit."""
         bus = _make_bus()
         bus.publish = AsyncMock(side_effect=RuntimeError("boom"))
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=_make_committer())
-        sensor = _FakeSensor()
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=_make_committer())
+        source = _FakeSource()
 
-        result = await gateway.ingest(sensor, _make_output())
+        result = await gateway.ingest(source, _make_output())
         assert result.ingested is True
         assert result.stats["projection_published"] is False
 
@@ -361,10 +361,10 @@ class TestSensorIngestionGatewayPublishes:
         bus = _make_bus()
         committer = _make_committer()
         committer.commit = AsyncMock(side_effect=RuntimeError("l1 unavailable"))
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=committer)
 
         with pytest.raises(RuntimeError, match="l1 unavailable"):
-            await gateway.ingest(_FakeSensor(), _make_output())
+            await gateway.ingest(_FakeSource(), _make_output())
 
         bus.publish.assert_not_awaited()
 
@@ -373,14 +373,14 @@ class TestSensorIngestionGatewayPublishes:
         bus = _make_bus()
         committer = _make_committer()
         committer.commit = AsyncMock(
-            return_value=SensorCommitReceipt(
+            return_value=SourceCommitReceipt(
                 event_id="forgotten-event",
-                outcome=SensorCommitOutcome.GOVERNED_SKIP,
+                outcome=SourceCommitOutcome.GOVERNED_SKIP,
             )
         )
-        gateway = SensorIngestionGateway(event_bus=bus, memory_committer=committer)
+        gateway = SourceIngestionGateway(event_bus=bus, memory_committer=committer)
 
-        result = await gateway.ingest(_FakeSensor(), _make_output())
+        result = await gateway.ingest(_FakeSource(), _make_output())
 
         assert result.ingested is True
         assert result.stats == {
@@ -415,12 +415,12 @@ class TestSensorIngestionGatewayPublishes:
 
         bus = _make_bus()
         memory = _EpochMemory()
-        gateway = SensorIngestionGateway(
+        gateway = SourceIngestionGateway(
             event_bus=bus,
-            memory_committer=SensorEventCommitter(unified_memory=memory),
+            memory_committer=SourceEventCommitter(unified_memory=memory),
         )
         batch_epoch = memory.epoch
-        boundary = SensorIngestionBoundary(
+        boundary = SourceIngestionBoundary(
             expected_epoch=batch_epoch,
             clear_generation=0,
             clear_cutoff_at=0.0,
@@ -428,7 +428,7 @@ class TestSensorIngestionGatewayPublishes:
         memory.epoch += 1
 
         result = await gateway.ingest(
-            _FakeSensor(),
+            _FakeSource(),
             _make_output(),
             boundary=boundary,
         )

@@ -519,30 +519,32 @@ async def test_runtime_command_queue_enqueues_and_claims_llm_refresh(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_sensor_sync(tmp_path: Path) -> None:
-    from magi.events.contracts import RuntimeCommandType, SensorSyncCommand
+async def test_runtime_command_queue_enqueues_and_claims_source_sync(tmp_path: Path) -> None:
+    from magi.events.contracts import RuntimeCommandType, SourceSyncCommand
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
 
     try:
-        queued_command_id = await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+        queued_command_id = await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="calendar",
             )
         )
 
         claimed = await queue.claim_next(
             consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.SENSOR_SYNC,),
+            command_types=(RuntimeCommandType.SOURCE_SYNC,),
         )
 
         assert claimed is not None
         assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.SENSOR_SYNC
+        assert claimed.command_type is RuntimeCommandType.SOURCE_SYNC
         assert claimed.payload["source_name"] == "calendar"
+        assert claimed.as_source_sync().connection_id == "account-main"
         assert claimed.payload["first_context"] is False
 
         await queue.ack(claimed.command_id)
@@ -556,30 +558,32 @@ async def test_runtime_command_queue_enqueues_and_claims_sensor_sync(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_queue_enqueues_and_claims_sensor_state_flush(tmp_path: Path) -> None:
-    from magi.events.contracts import RuntimeCommandType, SensorStateFlushCommand
+async def test_runtime_command_queue_enqueues_and_claims_source_state_flush(tmp_path: Path) -> None:
+    from magi.events.contracts import RuntimeCommandType, SourceStateFlushCommand
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
 
     try:
-        queued_command_id = await queue.enqueue_sensor_state_flush(
-            SensorStateFlushCommand(
+        queued_command_id = await queue.enqueue_source_state_flush(
+            SourceStateFlushCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="screen_time",
             )
         )
 
         claimed = await queue.claim_next(
             consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.SENSOR_STATE_FLUSH,),
+            command_types=(RuntimeCommandType.SOURCE_STATE_FLUSH,),
         )
 
         assert claimed is not None
         assert claimed.command_id == queued_command_id
-        assert claimed.command_type is RuntimeCommandType.SENSOR_STATE_FLUSH
+        assert claimed.command_type is RuntimeCommandType.SOURCE_STATE_FLUSH
         assert claimed.payload["source_name"] == "screen_time"
+        assert claimed.as_source_state_flush().connection_id == "account-main"
 
         await queue.ack(claimed.command_id)
 
@@ -598,8 +602,8 @@ async def test_global_clear_purges_every_clear_sensitive_runtime_command(
     from magi.events.contracts import (
         RefreshLLMConfigCommand,
         RuntimeCommandType,
-        SensorStateFlushCommand,
-        SensorSyncCommand,
+        SourceStateFlushCommand,
+        SourceSyncCommand,
         UserMessageCommand,
     )
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
@@ -617,16 +621,18 @@ async def test_global_clear_purges_every_clear_sensitive_runtime_command(
                 message="old message",
             )
         )
-        await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+        await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="chrome_history",
                 sync_mode="backfill",
             )
         )
-        await queue.enqueue_sensor_state_flush(
-            SensorStateFlushCommand(
+        await queue.enqueue_source_state_flush(
+            SourceStateFlushCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="screen_time",
             )
         )
@@ -638,8 +644,8 @@ async def test_global_clear_purges_every_clear_sensitive_runtime_command(
         async with queue.user_message_global_clear_boundary():
             generation, purged = await queue.advance_user_message_generation_and_purge()
             post_clear_enqueue = asyncio.create_task(
-                queue.enqueue_sensor_sync(
-                    SensorSyncCommand(source="api", source_name="calendar")
+                queue.enqueue_source_sync(
+                    SourceSyncCommand(source="api", connection_id="account-main", source_name="calendar")
                 )
             )
             await asyncio.sleep(0)
@@ -652,8 +658,8 @@ async def test_global_clear_purges_every_clear_sensitive_runtime_command(
                 consumer_name="runtime-worker",
                 command_types=(
                     RuntimeCommandType.USER_MESSAGE,
-                    RuntimeCommandType.SENSOR_SYNC,
-                    RuntimeCommandType.SENSOR_STATE_FLUSH,
+                    RuntimeCommandType.SOURCE_SYNC,
+                    RuntimeCommandType.SOURCE_STATE_FLUSH,
                 ),
             )
             is None
@@ -670,7 +676,7 @@ async def test_global_clear_purges_every_clear_sensitive_runtime_command(
         await post_clear_enqueue
         post_clear_sync = await queue.claim_next(
             consumer_name="runtime-worker",
-            command_types=(RuntimeCommandType.SENSOR_SYNC,),
+            command_types=(RuntimeCommandType.SOURCE_SYNC,),
         )
         assert post_clear_sync is not None
         assert post_clear_sync.user_message_generation == 1

@@ -1,14 +1,14 @@
-"""Project SensorEventEmitted into the timeline read model."""
+"""Project SourceEventEmitted into the timeline read model."""
 from __future__ import annotations
 import asyncio
 import logging
 from typing import Optional
 
 from magi.events.events import Event, EventTypes
-from magi.events.domain_payloads import SensorEventEmitted
+from magi.events.domain_payloads import SourceEventEmitted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from ..contracts import TimelineEvent
-from ..sensor_event_projection import build_timeline_event_dict
+from ..source_event_projection import build_timeline_event_dict
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class TimelineSubscriber:
 
     async def start(self) -> None:
         self._sub_id = await self._bus.subscribe(
-            EventTypes.SENSOR_EVENT_EMITTED, self._on_event,
+            EventTypes.SOURCE_EVENT_EMITTED, self._on_event,
         )
 
     async def stop(self) -> None:
@@ -41,7 +41,7 @@ class TimelineSubscriber:
 
     async def _on_event(self, event: Event) -> None:
         try:
-            payload = expect_payload(event, SensorEventEmitted)
+            payload = expect_payload(event, SourceEventEmitted)
         except PayloadTypeError:
             return
         try:

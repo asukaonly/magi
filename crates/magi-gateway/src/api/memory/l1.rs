@@ -157,7 +157,7 @@ fn build_l1_events_response(params: &L1EventsQuery) -> Result<Value, L1EventsRea
                 WHEN 2 THEN 'assistant' \
                 WHEN 3 THEN 'tool' \
                 WHEN 4 THEN 'system' \
-                WHEN 5 THEN 'sensor' \
+                WHEN 5 THEN 'source' \
                 WHEN 6 THEN 'external' \
                 ELSE 'unknown' \
             END AS author_type, \
@@ -363,7 +363,7 @@ mod tests {
                 1, 'may-5',
                 CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
                 CAST(strftime('%s', '2026-05-05 12:00:00', 'utc') AS REAL),
-                'sensor_event', 'netease_music', 'source-1', 'idem-1', 2,
+                'source_event', 'netease_music', 'source-1', 'idem-1', 2,
                 1, 2, 'session-1', 'turn-1', 'user-1',
                 'in-range event', 4, 1, 0.5, NULL,
                 '{"timeline":{"source_app":"NetEase"}}', 2, 7,
@@ -390,7 +390,7 @@ mod tests {
                 2, 'may-7',
                 CAST(strftime('%s', '2026-05-07 12:00:00', 'utc') AS REAL),
                 CAST(strftime('%s', '2026-05-07 12:00:00', 'utc') AS REAL),
-                'sensor_event', 'netease_music', 'source-2', 'idem-2', 2,
+                'source_event', 'netease_music', 'source-2', 'idem-2', 2,
                 1, 2, 'session-1', 'turn-2', 'user-1',
                 'out-of-range event', 4, 1, 0.5, NULL,
                 '{}', 1, 7, 6, 1, NULL

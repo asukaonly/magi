@@ -3,6 +3,6 @@ id = "screen-time"
 name = "App Usage"
 version = "0.2.6"
 
-[plugin.default_settings.sensors.screen_time]
+[plugin.default_settings.sources.screen_time]
 enabled = false
 sync_interval_minutes = 5

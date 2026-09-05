@@ -413,7 +413,7 @@ async def test_default_candidates_degrades_when_registry_is_unreachable(
     )
     monkeypatch.setattr(
         system_suggestions_routes,
-        "_active_sensor_plugin_ids",
+        "_active_source_plugin_ids",
         no_active_sources,
     )
 
@@ -466,7 +466,7 @@ async def test_default_candidates_carries_registry_source_authority(
     monkeypatch.setattr(plugins_common, "_get_registry_client", lambda: Registry())
     monkeypatch.setattr(
         system_suggestions_routes,
-        "_active_sensor_plugin_ids",
+        "_active_source_plugin_ids",
         no_active_sources,
     )
 
@@ -581,18 +581,18 @@ def test_clear_dismissal_removes_one(app_with_dismissals) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _active_sensor_plugin_ids: maps get_sensor_source_status() -> in-use ids.
+# _active_source_plugin_ids: maps get_source_status() -> in-use ids.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_active_sensor_plugin_ids_parses_status(monkeypatch) -> None:
+async def test_active_source_plugin_ids_parses_status(monkeypatch) -> None:
     """enabled + not activation_required -> included (in use);
     enabled + activation_required -> excluded (not yet configured);
     disabled -> excluded.
     """
-    import magi.api.routers.sensors as sensors_mod
-    from magi.api.routers.system_suggestions_routes import _active_sensor_plugin_ids
+    import magi.api.routers.sources as sources_mod
+    from magi.api.routers.system_suggestions_routes import _active_source_plugin_ids
 
     async def _fake_status():
         return {
@@ -608,28 +608,28 @@ async def test_active_sensor_plugin_ids_parses_status(monkeypatch) -> None:
             ]
         }
 
-    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _fake_status)
+    monkeypatch.setattr(sources_mod, "get_source_status", _fake_status)
 
-    active = await _active_sensor_plugin_ids()
+    active = await _active_source_plugin_ids()
     assert active == {"chrome-history"}
 
 
 @pytest.mark.asyncio
-async def test_active_sensor_plugin_ids_handles_list_and_errors(monkeypatch) -> None:
-    """get_sensor_source_status may return ``[]`` (no plugin manager) or raise;
+async def test_active_source_plugin_ids_handles_list_and_errors(monkeypatch) -> None:
+    """get_source_status may return ``[]`` (no plugin manager) or raise;
     both degrade to an empty set rather than crashing the suggestion path.
     """
-    import magi.api.routers.sensors as sensors_mod
-    from magi.api.routers.system_suggestions_routes import _active_sensor_plugin_ids
+    import magi.api.routers.sources as sources_mod
+    from magi.api.routers.system_suggestions_routes import _active_source_plugin_ids
 
     async def _list_status():
         return []
 
-    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _list_status)
-    assert await _active_sensor_plugin_ids() == set()
+    monkeypatch.setattr(sources_mod, "get_source_status", _list_status)
+    assert await _active_source_plugin_ids() == set()
 
     async def _boom():
         raise RuntimeError("status unavailable")
 
-    monkeypatch.setattr(sensors_mod, "get_sensor_source_status", _boom)
-    assert await _active_sensor_plugin_ids() == set()
+    monkeypatch.setattr(sources_mod, "get_source_status", _boom)
+    assert await _active_source_plugin_ids() == set()

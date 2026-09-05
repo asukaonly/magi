@@ -141,7 +141,7 @@ Run one-off or scheduled agent work with visible status. You can interrupt runs,
 
 ### Plugins And External Capabilities
 
-Install, enable, and configure plugins for local data sources, tools, sensors, and external channels. MCP servers and channels such as Telegram can plug into the same runtime.
+Install, enable, and configure plugins for local data sources, tools, and external channels. MCP servers and channels such as Telegram can plug into the same runtime.
 
 Most installable plugins live in the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins). This repository contains the desktop app, agent runtime, gateway, frontend, backend, and plugin platform.
 

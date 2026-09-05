@@ -11,17 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from magi_plugin_sdk.runtime import PluginConnection
-from magi_plugin_sdk.sensors import SensorBase
+from magi_plugin_sdk.sources import Source
 
-from ..memory.sensor_ingestion import SensorIngestionBoundary
-from .ingestion_gateway import SensorIngestionGateway
+from ..memory.source_ingestion import SourceIngestionBoundary
+from .ingestion_gateway import SourceIngestionGateway
 from .source_store import PendingSourceBatch, SourceCheckpoint, SourceCheckpointConflict, SourceStore, source_object_identity
 
 
 class SourceBatchIngestor:
     """Persist source state only after version-specific L1 outcomes are confirmed."""
 
-    def __init__(self, *, store: SourceStore, gateway: SensorIngestionGateway) -> None:
+    def __init__(self, *, store: SourceStore, gateway: SourceIngestionGateway) -> None:
         self.store = store
         self.gateway = gateway
 
@@ -29,9 +29,9 @@ class SourceBatchIngestor:
         self,
         *,
         connection: PluginConnection,
-        sensor: SensorBase,
+        source: Source,
         pending: PendingSourceBatch,
-        boundary: SensorIngestionBoundary,
+        boundary: SourceIngestionBoundary,
         rule_revision: str,
         allowed_edge_whitelist: list[str],
         allow_pre_clear_events: bool = False,
@@ -41,26 +41,26 @@ class SourceBatchIngestor:
             raise ValueError("Source projection requires an immutable package revision")
         if connection.connection_id != pending.checkpoint.connection_id:
             raise PermissionError("Source batch connection mismatch")
-        if sensor.connection != connection or sensor.context is None:
-            raise PermissionError("Sensor is not bound to this source connection")
+        if source.connection != connection or source.context is None:
+            raise PermissionError("Source is not bound to this source connection")
         for change in pending.batch.changes:
             version = await self.store.version(pending.checkpoint, change)
             if change.operation == "delete" or version["receipt"] is not None:
                 continue
-            fetched = await sensor.fetch_item(deepcopy(change.payload))
-            output = await sensor.build_output(fetched)
-            metadata = await sensor.extract_metadata(fetched)
+            fetched = await source.fetch_item(deepcopy(change.payload))
+            output = await source.build_output(fetched)
+            metadata = await source.extract_metadata(fetched)
             if output.source_type != pending.checkpoint.source_type:
-                raise ValueError("Sensor output changed its declared semantic source type")
+                raise ValueError("Source output changed its declared semantic source type")
             evidence = version.get("evidence_ref")
             if evidence is None:
                 raise SourceCheckpointConflict("Source evidence was revoked before memory ingestion")
-            object_identity = source_object_identity(connection.connection_id, sensor.sensor_id, change.object_id)
+            object_identity = source_object_identity(connection.connection_id, source.source_id, change.object_id)
             resources = list(change.resources)
             if output.raw_payload_ref:
                 output.raw_payload_ref, imported = await self._import_output_resource(
                     connection=connection,
-                    sensor=sensor,
+                    source=source,
                     raw_ref=output.raw_payload_ref,
                     declared=resources,
                 )
@@ -73,7 +73,7 @@ class SourceBatchIngestor:
             source_metadata = {
                 "source_connection_id": connection.connection_id,
                 "source_plugin_id": connection.plugin_id,
-                "source_sensor_id": sensor.sensor_id,
+                "source_id": source.source_id,
                 "source_object_id": change.object_id,
                 "source_object_version": change.version,
                 "source_evidence_ref": evidence.model_dump(mode="json"),
@@ -85,7 +85,7 @@ class SourceBatchIngestor:
             output.provenance.update(dict(provenance or {}))
             output.provenance.update(source_metadata)
             result = await self.gateway.ingest(
-                sensor, output, metadata,
+                source, output, metadata,
                 allowed_edge_whitelist=allowed_edge_whitelist,
                 boundary=boundary,
                 allow_pre_clear_events=allow_pre_clear_events,
@@ -101,19 +101,19 @@ class SourceBatchIngestor:
         return await self.store.accept_batch(connection, pending)
 
     async def _import_output_resource(
-        self, *, connection: PluginConnection, sensor: SensorBase, raw_ref: str, declared: list[Any]
+        self, *, connection: PluginConnection, source: Source, raw_ref: str, declared: list[Any]
     ) -> tuple[str, Any | None]:
         for ref in declared:
             if ref.resource_id == raw_ref:
                 await self.store.read_resource(connection, ref)
                 return raw_ref, None
-        root = sensor.context.resources_dir.resolve()
+        root = source.context.resources_dir.resolve()
         candidate = Path(raw_ref)
         if not candidate.is_absolute():
             candidate = root / candidate
         resolved = candidate.resolve()
         if not resolved.is_relative_to(root) or not resolved.is_file():
-            raise PermissionError("Sensor resource must be inside its host-allocated resource directory")
+            raise PermissionError("Source resource must be inside its host-allocated resource directory")
         content = await asyncio.to_thread(_read_scoped_resource, root, resolved.relative_to(root))
         ref = await self.store.register_resource(
             connection, content,

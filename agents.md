@@ -85,7 +85,7 @@ magi/
 │   ├── src/magi/
 │   │   ├── agent/              # Task-agent runtime, orchestration, workers
 │   │   ├── api/                # Product-facing routers and services
-│   │   ├── awareness/          # Sensors, ingestion, scheduling, event emission
+│   │   ├── awareness/          # Data sources, ingestion, scheduling, event emission
 │   │   ├── bootstrap/          # Composition root and lifecycle assembly
 │   │   ├── channels/           # External messaging adapters
 │   │   ├── chat/               # Chat domain persistence and attachments
@@ -149,15 +149,15 @@ magi/
 ```text
 magi-plugins/                     # github.com/asukaonly/magi-plugins
 ├── registry.json                  # Marketplace index (plugin_id, version, path, platforms)
-├── calendar/                      # macOS calendar sensor
-├── chrome-history/                # Chrome browsing history sensor
-├── git-activity/                  # Git commit history sensor
-├── netease-music/                 # NetEase Cloud Music play history sensor
-├── photo-library/                 # Photo library EXIF sensor
-├── screen-time/                   # macOS app usage sensor
-├── system-media/                  # Cross-platform media playback sensor
+├── calendar/                      # macOS calendar source
+├── chrome-history/                # Chrome browsing history source
+├── git-activity/                  # Git commit history source
+├── netease-music/                 # NetEase Cloud Music play history source
+├── photo-library/                 # Photo library EXIF source
+├── screen-time/                   # macOS app usage source
+├── system-media/                  # Cross-platform media playback source
 ├── telegram/                      # Telegram bot channel adapter
-└── terminal-history/              # Terminal command history sensor
+└── terminal-history/              # Terminal command history source
 ```
 
 ### External Plugin Repository
@@ -165,15 +165,15 @@ magi-plugins/                     # github.com/asukaonly/magi-plugins
 ```text
 magi-plugins/                     # github.com/asukaonly/magi-plugins
 ├── registry.json                  # Marketplace index (plugin_id, version, path, platforms)
-├── calendar/                      # macOS calendar sensor
-├── chrome-history/                # Chrome browsing history sensor
-├── git-activity/                  # Git commit history sensor
-├── netease-music/                 # NetEase Cloud Music play history sensor
-├── photo-library/                 # Photo library EXIF sensor
-├── screen-time/                   # macOS app usage sensor
-├── system-media/                  # Cross-platform media playback sensor
+├── calendar/                      # macOS calendar source
+├── chrome-history/                # Chrome browsing history source
+├── git-activity/                  # Git commit history source
+├── netease-music/                 # NetEase Cloud Music play history source
+├── photo-library/                 # Photo library EXIF source
+├── screen-time/                   # macOS app usage source
+├── system-media/                  # Cross-platform media playback source
 ├── telegram/                      # Telegram bot channel adapter
-└── terminal-history/              # Terminal command history sensor
+└── terminal-history/              # Terminal command history source
 ```
 
 ---

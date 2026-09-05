@@ -512,9 +512,9 @@
       "owner_file": "backend/src/magi/api/routers/schedules.py"
     },
     {
-      "prefix": "/api/sensors",
+      "prefix": "/api/sources",
       "owner": "python-ipc",
-      "owner_file": "backend/src/magi/api/routers/sensors.py"
+      "owner_file": "backend/src/magi/api/routers/sources.py"
     },
     {
       "prefix": "/api/skills",

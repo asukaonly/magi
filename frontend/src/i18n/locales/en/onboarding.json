@@ -81,7 +81,7 @@
     "defaultFeatureSummaryTitle": "System defaults will enable:",
     "personaBadge": "Default persona",
     "personaSummaryTitle": "Default conversation persona",
-    "sensorHint": "You can install data collection sensors in the next step.",
+    "sourceHint": "You can install data source plugins in the next step.",
     "defaultHint": "Uses system defaults. All features can be enabled or adjusted in Settings at any time.",
     "personas": {
       "chatAssistant": {
@@ -108,27 +108,27 @@
       "knowledgeExtraction": "Knowledge extraction (extracts facts and relations from conversations)",
       "temporalSummary": "Temporal summary (auto-generates periodic summaries)",
       "skillLearning": "Skill learning (accumulates capabilities from experience)",
-      "sensors": "Data collection sensors (requires plugin installation)"
+      "sources": "Data sources (requires plugin installation)"
     }
   },
-  "sensorSelection": {
-    "title": "Install Sensor Plugins",
-    "description": "Sensors automatically collect your digital life data. Select the ones you need and install them. All are optional — you can add more later in Settings.",
+  "sourceSelection": {
+    "title": "Install Source Plugins",
+    "description": "Source plugins automatically collect your digital life data. Select the ones you need and install them. All are optional — you can add more later in Settings.",
     "recommended": "Recommended",
-    "installSelected": "Install Selected Sensors",
-    "installSuccess": "Successfully installed {{count}} sensor(s)",
-    "installAllFailed": "{{count}} sensor(s) failed to install, you can retry later in Settings",
+    "installSelected": "Install Selected Sources",
+    "installSuccess": "Successfully installed {{count}} source(s)",
+    "installAllFailed": "{{count}} source(s) failed to install, you can retry later in Settings",
     "installPartial": "{{success}} installed, {{fail}} failed",
     "installProgressTitle": "Installing {{name}}",
-    "installBeforeNextHint": "Install the selected sensors before continuing, or deselect them to skip.",
-    "installingBlockNext": "Sensors are still installing. Please wait for installation to finish before continuing.",
-    "skipHint": "You can skip this step and install sensors later in Settings → Plugins.",
-    "registryUnavailable": "The sensor plugin registry is temporarily unavailable. After setup, you can browse and install these sensors in Settings → Plugins:",
-    "installLaterHint": "You can install and configure sensors in Settings → Plugins after setup. Click Next to continue."
+    "installBeforeNextHint": "Install the selected sources before continuing, or deselect them to skip.",
+    "installingBlockNext": "Sources are still installing. Please wait for installation to finish before continuing.",
+    "skipHint": "You can skip this step and install sources later in Settings → Plugins.",
+    "registryUnavailable": "The source plugin registry is temporarily unavailable. After setup, you can browse and install these sources in Settings → Plugins:",
+    "installLaterHint": "You can install and configure sources in Settings → Plugins after setup. Click Next to continue."
   },
-  "sensors": {
-    "title": "Sensor Configuration",
-    "description": "Choose data sources to enable. Sensors automatically collect and analyze your digital life data.",
+  "sources": {
+    "title": "Source Configuration",
+    "description": "Choose data sources to enable so Magi can automatically collect and analyze your digital life data.",
     "syncModeLabel": "Sync Mode",
     "syncModes": {
       "manual": "Manual",

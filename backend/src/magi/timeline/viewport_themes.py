@@ -31,7 +31,7 @@ MAX_THEME_TITLE_LEN = 20
 # of the chip row.
 BAD_THEME_TITLE_SUFFIXES: tuple[str, ...] = ("反思", "总结", "summary", "Summary")
 
-# Source-telemetry-style entity names that sensor plugins create as
+# Source-telemetry-style entity names that source plugins create as
 # parent buckets for their events ("Chrome 历史" → all browsing events).
 # These are catalog entries but are not "things the user cares about"
 # — they're internal categorization. Filtered out of theme chips.
@@ -72,7 +72,7 @@ def is_acceptable_theme_title(title: str) -> bool:
       - Empty / whitespace
       - Longer than MAX_THEME_TITLE_LEN (sentence-shaped data leak)
       - Ends in a known internal-key suffix ("Day反思" etc.)
-      - In the exact-match blacklist of sensor-bucket names
+      - In the exact-match blacklist of source-bucket names
     """
     stripped = title.strip()
     if not stripped or len(stripped) > MAX_THEME_TITLE_LEN:

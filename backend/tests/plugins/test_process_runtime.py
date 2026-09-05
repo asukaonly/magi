@@ -12,7 +12,7 @@ import pytest
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.contracts import PluginManifest
 from magi_plugin_sdk.runtime import CapabilityGrant, PluginConnection, SourceChangeBatch
-from magi_plugin_sdk.sensors import SensorSyncContext
+from magi_plugin_sdk.sources import SourceSyncContext
 from magi_plugin_sdk.tools import ToolExecutionContext
 from magi_plugin_sdk.transport import ProtocolError, decode, encode, pack, read_frame
 from magi.plugins.process_broker import CapabilityBroker
@@ -27,14 +27,14 @@ from magi.plugins.process_runtime import (
 PLUGIN = """
 import asyncio, os, sys, time
 from magi_plugin_sdk import Plugin
-from magi_plugin_sdk.sensors import SensorBase, SensorSpec
+from magi_plugin_sdk.sources import Source, SourceSpec
 from magi_plugin_sdk.runtime import SourceChange, SourceChangeBatch
 from magi_plugin_sdk.tools import Tool, ToolSchema, ToolResult
 from magi_plugin_sdk.worker import get_host
 os.environ["MAGI_TEST_CHILD_IMPORT"] = "only-child"
 print("plugin stdout must not corrupt protocol")
 os.write(1, b"native stdout must not corrupt protocol\\n")
-class Source(SensorBase):
+class Source(Source):
     source_type = "process_test"
     supports_pull_sync = True
     async def collect_items(self, context):
@@ -52,8 +52,8 @@ class TestPlugin(Plugin):
         super().configure(**kwargs)
         self.context.credentials.set("boot", "worker-value")
         self.boot_secret = self.context.credentials.get("boot")
-    def get_sensors(self):
-        return [("process_test", Source(), SensorSpec(sensor_id="process_test", display_name="Test", description="Test", domain="timeline"))]
+    def get_sources(self):
+        return [("process_test", Source(), SourceSpec(source_id="process_test", display_name="Test", description="Test", domain="timeline"))]
     def get_tools(self):
         return [EchoTool]
     def read_settings_resource(self, resource_name):
@@ -162,10 +162,10 @@ def test_real_child_imports_dependencies_and_scoped_boot_credentials(proxy):
 
 
 @pytest.mark.asyncio
-async def test_sensor_and_settings_real_async_calls(proxy):
-    _, sensor, _ = proxy.get_sensors()[0]
-    assert sensor.connection == proxy.connection
-    context = SensorSyncContext(
+async def test_source_and_settings_real_async_calls(proxy):
+    _, source, _ = proxy.get_sources()[0]
+    assert source.connection == proxy.connection
+    context = SourceSyncContext(
         connection_id=proxy.connection.connection_id,
         source_type="process_test",
         manual=True,
@@ -174,7 +174,7 @@ async def test_sensor_and_settings_real_async_calls(proxy):
         limit=10,
         runtime_paths=object(),
     )
-    result = await sensor.collect_items(context)
+    result = await source.collect_items(context)
     assert isinstance(result, SourceChangeBatch)
     assert result.changes[0].payload["connection_id"] == proxy.connection.connection_id
     assert result.changes[0].payload["path"] == str(proxy.context.state_dir)

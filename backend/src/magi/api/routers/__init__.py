@@ -13,7 +13,7 @@ from .personality_presets import personality_presets_router
 from .personas import personas_router
 from .skills import skills_router
 from .hooks import hooks_router
-from .sensors import sensors_router
+from .sources import sources_router
 from .timeline import timeline_router
 from .plugins import plugins_router
 from .local_embedding import local_embedding_router
@@ -42,7 +42,7 @@ __all__ = [
     "personas_router",
     "skills_router",
     "hooks_router",
-    "sensors_router",
+    "sources_router",
     "timeline_router",
     "plugins_router",
     "local_embedding_router",

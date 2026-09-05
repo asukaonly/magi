@@ -52,7 +52,7 @@ import {
   type MarketplacePluginDisplayItem,
 } from '@/utils/plugin-display-groups';
 
-const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
+const CONTRIBUTION_TYPE_FILTERS = ['all', 'source', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
 
 interface EntryPickerState {

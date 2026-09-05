@@ -477,7 +477,7 @@ async def test_filters_knowledge_edges_to_current_user_evidence_scope():
                     "object_type": "topic",
                     "status": "active",
                     "evidence_event_ids": [],
-                    "source_type": "external_sensor",
+                    "source_type": "external_source",
                 },
                 {
                     "triple_id": "governed-correction",

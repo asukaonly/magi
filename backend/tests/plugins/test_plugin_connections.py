@@ -107,7 +107,7 @@ def test_credentials_are_scoped_write_only_and_cannot_be_rebound(store):
 def test_credential_port_updates_exact_dotted_reference_and_revokes_old_value(store):
     connection = store.create("example", display_name="Work")
     port = store.context(connection.connection_id).credentials
-    key = "sensors.github_activity.access_token"
+    key = "sources.github_activity.access_token"
     port.set(key, "first-secret")
     first = store.get(connection.connection_id)
     assert key in first.credential_refs

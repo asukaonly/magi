@@ -1,4 +1,4 @@
-"""Bounded batch writer for sensor-derived knowledge graph edges."""
+"""Bounded batch writer for source-derived knowledge graph edges."""
 
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ class _QueuedKnowledgeGraphEdgeWrite:
 
 
 class KnowledgeGraphWriteQueue:
-    """Serialize and batch high-volume graph edge writes from sensor events."""
+    """Serialize and batch high-volume graph edge writes from source events."""
 
     def __init__(
         self,

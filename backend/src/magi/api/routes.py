@@ -163,7 +163,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/asset/{asset_ref:path}": {"GET"},
         "/cover": {"POST"},
     },
-    "sensors": {
+    "sources": {
         "/status": {"GET"},
         "/today-summary": {"GET"},
         "/{source_name}/memory-readiness": {"GET"},
@@ -363,7 +363,7 @@ _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
     _RouterRegistrationSpec("personas_router", "personas", "/api/personas", "Personas"),
     _RouterRegistrationSpec("skills_router", "skills", "", "Skills"),
     _RouterRegistrationSpec("hooks_router", "hooks", "", "Hooks"),
-    _RouterRegistrationSpec("sensors_router", "sensors", "/api/sensors", "Sensors"),
+    _RouterRegistrationSpec("sources_router", "sources", "/api/sources", "Sources"),
     _RouterRegistrationSpec("timeline_router", "timeline", "/api/timeline", "Timeline"),
     _RouterRegistrationSpec("plugins_router", "plugins", "/api/plugins", "Plugins"),
     _RouterRegistrationSpec(

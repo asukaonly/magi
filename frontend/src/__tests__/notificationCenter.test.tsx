@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { NotificationCenter } from '@/components/notifications/NotificationCenter';
 import * as api from '@/api/modules/notifications';
 import * as suggestionsApi from '@/api/modules/systemSuggestions';
-import { sensorsApi } from '@/api/modules/sensors';
+import { sourcesApi } from '@/api/modules/sources';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 import { useNotificationStore } from '@/stores/notifications';
 
@@ -26,7 +26,7 @@ describe('NotificationCenter', () => {
     vi.spyOn(api, 'markAllRead').mockResolvedValue();
     vi.spyOn(api, 'dismissNotification').mockResolvedValue();
     vi.spyOn(api, 'dismissAllNotifications').mockResolvedValue();
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({ sources: [
+    vi.spyOn(sourcesApi, 'getStatus').mockResolvedValue({ sources: [
       { plugin_id: 'chrome-history', source_name: 'chrome', activation_flow: { enabled_key: 'enabled', configured_key: 'configured', authorize_on_confirm: false, fields: [] } },
     ] } as any);
     vi.spyOn(suggestionsApi, 'listDismissals').mockResolvedValue([

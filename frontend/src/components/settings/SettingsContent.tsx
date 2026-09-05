@@ -97,7 +97,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     pluginProcessingIds,
     handlePluginAction,
     loadPlugins,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     tools,
     toolsLoading,
     toolsError,
@@ -319,7 +319,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             selectedSourceName={timelineSelection}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
-            onPluginInstalled={loadPluginsAndSensors}
+            onPluginInstalled={loadPluginsAndSources}
             onBrowseMarketplace={browsePluginMarketplace}
           />
         );
@@ -369,7 +369,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             setChannelsSelection={setChannelsSelection}
             handlePluginAction={handlePluginAction}
             loadPlugins={loadPlugins}
-            loadPluginsAndSensors={loadPluginsAndSensors}
+            loadPluginsAndSources={loadPluginsAndSources}
             onBrowseMarketplace={browsePluginMarketplace}
           />
         );

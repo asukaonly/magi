@@ -16,7 +16,7 @@ import type {
   InstallableItem,
 } from "@/api/modules/systemSuggestions";
 import type { LLMConfig } from "@/api/modules/config";
-import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateAvailableSensors";
+import { EmptyStateAvailableSources } from "@/components/empty-state/EmptyStateAvailableSources";
 import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
 import { localizedPluginText } from "@/utils/plugin-display-groups";
@@ -468,7 +468,7 @@ export function FirstContextStep({
         </div>
       ) : null}
 
-      <EmptyStateAvailableSensors
+      <EmptyStateAvailableSources
         variant="first_context"
         showBrowseAll={false}
         panelContext="first_context"

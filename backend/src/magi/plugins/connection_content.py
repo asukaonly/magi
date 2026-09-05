@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from magi_plugin_sdk import Plugin, PluginConnection, PluginContext
-from magi_plugin_sdk.sensors import ScopedSensorRuntimePaths
+from magi_plugin_sdk.sources import ScopedSourceRuntimePaths
 from magi_plugin_sdk.user_content import UserContentClearContext, UserContentClearRequest
 
 from ..awareness.source_store import SourceStore
@@ -25,16 +25,16 @@ class ConnectionContentCoordinator:
         request = UserContentClearRequest(
             connection_id=connection.connection_id, reason="user_clear_connection_content",
         )
-        paths = ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, context.state_dir)
+        paths = ScopedSourceRuntimePaths(connection.connection_id, connection.plugin_id, context.state_dir)
         async with asyncio.timeout(self._timeout_seconds):
             await plugin.clear_user_content(UserContentClearContext(
                 request=request, runtime_paths=paths, plugin_id=connection.plugin_id,
                 connection_id=connection.connection_id, plugin_settings=connection.settings,
             ))
-            for sensor_id, sensor, _spec in plugin.get_sensors():
-                await sensor.clear_user_content(UserContentClearContext(
+            for source_id, source, _spec in plugin.get_sources():
+                await source.clear_user_content(UserContentClearContext(
                     request=request, runtime_paths=paths, plugin_id=connection.plugin_id,
-                    connection_id=connection.connection_id, sensor_id=sensor_id,
+                    connection_id=connection.connection_id, source_id=source_id,
                     plugin_settings=connection.settings,
                 ))
             await self._source_store.clear_user_content(connection_id=connection.connection_id)

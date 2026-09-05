@@ -19,7 +19,7 @@ from runtime_fixtures import bind_fixture_plugin
 
 from magi.plugins.manager import PluginManager, PluginUserContentTargetSnapshot
 from magi.plugins.operation_execution import run_plugin_lifecycle_operation
-from magi.plugins.sensors import RegisteredSensorSnapshot, SensorRegistry
+from magi.plugins.sources import RegisteredSourceSnapshot, SourceRegistry
 from magi.plugins.settings_service import PluginSettingsService
 from magi.plugins.user_content_clear import (
     PluginUserContentClearCoordinator,
@@ -51,8 +51,8 @@ def _bound_snapshot(snapshot):
         bind_fixture_plugin(plugin, plugin_id, root=_FIXTURE_ROOT, settings=settings)
         connection_ids[plugin_id] = plugin.connection_id
         bound.append((plugin.connection_id, plugin, settings))
-    return replace(snapshot, plugins=tuple(bound), sensors=tuple(
-        replace(sensor, connection_id=connection_ids[sensor.plugin_id]) for sensor in snapshot.sensors
+    return replace(snapshot, plugins=tuple(bound), sources=tuple(
+        replace(source, connection_id=connection_ids[source.plugin_id]) for source in snapshot.sources
     ))
 
 
@@ -67,8 +67,8 @@ def _disabled_manager(plugin_id, instance_factory, settings=None):
         plugin = instance_factory()
         plugin.configure(manifest=manifest,connection=connection,context=context)
         return plugin
-    manager = PluginManager(tool_registry=ToolRegistry(), sensor_registry=SensorRegistry(),search_paths=[],
-                            request_sensor_schedule_refresh=lambda: None,connection_store=store,instance_factory=factory)
+    manager = PluginManager(tool_registry=ToolRegistry(), source_registry=SourceRegistry(),search_paths=[],
+                            request_source_schedule_refresh=lambda: None,connection_store=store,instance_factory=factory)
     manager._package_states[plugin_id] = state
     return manager, state, connection
 
@@ -171,7 +171,7 @@ class _RecordingPlugin(Plugin):
             raise RuntimeError(f"{self.name} failed")
 
 
-class _RecordingSensor:
+class _RecordingSource:
     def __init__(self, name: str, events: list[str], *, fail: bool = False) -> None:
         self.name = name
         self.events = events
@@ -180,7 +180,7 @@ class _RecordingSensor:
 
     async def clear_user_content(self, context) -> None:  # type: ignore[no-untyped-def]
         self.contexts.append(context)
-        self.events.append(f"sensor:{self.name}")
+        self.events.append(f"source:{self.name}")
         if self.fail:
             raise RuntimeError(f"{self.name} failed")
 
@@ -198,7 +198,7 @@ def _coordinator(
     return PluginUserContentClearCoordinator(
         plugin_manager=_Manager(snapshot),  # type: ignore[arg-type]
         runtime_paths=_RuntimePaths(),
-        get_sensor_sync_executor=lambda: executor,
+        get_source_sync_executor=lambda: executor,
         checkpoint_store=checkpoint,  # type: ignore[arg-type]
         read_current_clear_generation=read_generation,
         hook_timeout_seconds=1,
@@ -206,20 +206,20 @@ def _coordinator(
 
 
 @pytest.mark.asyncio
-async def test_clear_attempts_every_plugin_and_sensor_before_reporting_failures() -> None:
+async def test_clear_attempts_every_plugin_and_source_before_reporting_failures() -> None:
     events: list[str] = []
     bad_plugin = _RecordingPlugin("bad", events, fail=True)
     good_plugin = _RecordingPlugin("good", events)
-    bad_sensor = _RecordingSensor("bad", events, fail=True)
-    good_sensor = _RecordingSensor("good", events)
+    bad_source = _RecordingSource("bad", events, fail=True)
+    good_source = _RecordingSource("good", events)
     snapshot = PluginUserContentTargetSnapshot(
         plugins=(
             ("bad-plugin", bad_plugin, {"account": {"id": "a"}}),
             ("good-plugin", good_plugin, {"enabled": True}),
         ),
-        sensors=(
-            RegisteredSensorSnapshot("bad-plugin", "sensor.bad", bad_sensor),
-            RegisteredSensorSnapshot("good-plugin", "sensor.good", good_sensor),
+        sources=(
+            RegisteredSourceSnapshot("bad-plugin", "source.bad", bad_source),
+            RegisteredSourceSnapshot("good-plugin", "source.good", good_source),
         ),
     )
     checkpoint = _Checkpoint()
@@ -239,23 +239,23 @@ async def test_clear_attempts_every_plugin_and_sensor_before_reporting_failures(
         "executor-stop",
         "plugin:bad",
         "plugin:good",
-        "sensor:bad",
-        "sensor:good",
+        "source:bad",
+        "source:good",
     ]
     assert raised.value.report.attempted == 4
     assert raised.value.report.cleared == 2
     assert {
-        (failure.target_kind, failure.plugin_id, failure.sensor_id)
+        (failure.target_kind, failure.plugin_id, failure.source_id)
         for failure in raised.value.report.failures
     } == {
         ("plugin", "bad-plugin", None),
-        ("sensor", "bad-plugin", "sensor.bad"),
+        ("source", "bad-plugin", "source.bad"),
     }
     assert checkpoint.applied_generation == 0
     assert executor.state.value == "stopped"
 
     bad_plugin.fail = False
-    bad_sensor.fail = False
+    bad_source.fail = False
     async with coordinator.user_content_clear_boundary() as session:
         retry_report = await session.clear_user_content(UserContentClearRequest(7))
 
@@ -266,14 +266,14 @@ async def test_clear_attempts_every_plugin_and_sensor_before_reporting_failures(
 
 
 @pytest.mark.asyncio
-async def test_clear_passes_readonly_plugin_settings_to_plugin_and_sensor() -> None:
+async def test_clear_passes_readonly_plugin_settings_to_plugin_and_source() -> None:
     events: list[str] = []
     plugin = _RecordingPlugin("example", events)
-    sensor = _RecordingSensor("example", events)
-    settings = {"sensor": {"watch": True}, "paths": ["/private/source"]}
+    source = _RecordingSource("example", events)
+    settings = {"source": {"watch": True}, "paths": ["/private/source"]}
     snapshot = PluginUserContentTargetSnapshot(
         plugins=(("example", plugin, settings),),
-        sensors=(RegisteredSensorSnapshot("example", "sensor.example", sensor),),
+        sources=(RegisteredSourceSnapshot("example", "source.example", source),),
     )
     checkpoint = _Checkpoint()
     coordinator = _coordinator(
@@ -284,22 +284,22 @@ async def test_clear_passes_readonly_plugin_settings_to_plugin_and_sensor() -> N
 
     async with coordinator.user_content_clear_boundary() as session:
         report = await session.clear_user_content(UserContentClearRequest(4))
-    settings["sensor"]["watch"] = False
+    settings["source"]["watch"] = False
 
     assert report.attempted == 2
     assert checkpoint.applied_generation == 4
-    for context in [*plugin.contexts, *sensor.contexts]:
-        assert context.plugin_settings["sensor"]["watch"] is True
+    for context in [*plugin.contexts, *source.contexts]:
+        assert context.plugin_settings["source"]["watch"] is True
         assert context.plugin_settings["paths"] == ("/private/source",)
         assert context.network_access_allowed is False
         assert context.preserve_source_progress is True
-    assert sensor.contexts[0].sensor_id == "sensor.example"
+    assert source.contexts[0].source_id == "source.example"
 
 
 @pytest.mark.asyncio
-async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling() -> None:
+async def test_disabled_installed_plugin_and_source_are_cleared_without_enabling() -> None:
     events: list[str] = []
-    sensor = _RecordingSensor("disabled", events)
+    source = _RecordingSource("disabled", events)
 
     class _DisabledChannel:
         channel_type = "disabled-channel"
@@ -318,8 +318,8 @@ async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling
     channel = _DisabledChannel()
 
     class _DisabledPlugin(_RecordingPlugin):
-        def get_sensors(self):  # type: ignore[no-untyped-def]
-            return [("sensor.disabled", sensor, None)]
+        def get_sources(self):  # type: ignore[no-untyped-def]
+            return [("source.disabled", source, None)]
 
         def get_channel(self):  # type: ignore[no-untyped-def]
             return channel
@@ -340,7 +340,7 @@ async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling
     coordinator = PluginUserContentClearCoordinator(
         plugin_manager=manager,
         runtime_paths=_RuntimePaths(),
-        get_sensor_sync_executor=lambda: executor,
+        get_source_sync_executor=lambda: executor,
         checkpoint_store=checkpoint,  # type: ignore[arg-type]
         read_current_clear_generation=read_generation,
         hook_timeout_seconds=1,
@@ -351,14 +351,14 @@ async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling
 
     assert report.failures == ()
     assert "plugin:disabled" in events
-    assert "sensor:disabled" in events
+    assert "source:disabled" in events
     assert "channel:enter" in events
     assert "channel:exit" in events
     assert "plugin:shutdown" in events
     assert state.enabled is False
     assert state.loaded is False
     assert manager._plugin_instances == {}
-    assert manager._sensor_registry.list_specs() == []
+    assert manager._source_registry.list_specs() == []
     assert checkpoint.applied_generation == 1
     assert executor.state.value == "running"
 
@@ -378,7 +378,7 @@ async def test_broken_disabled_plugin_keeps_clear_pending_and_collection_stopped
     coordinator = PluginUserContentClearCoordinator(
         plugin_manager=manager,
         runtime_paths=_RuntimePaths(),
-        get_sensor_sync_executor=lambda: executor,
+        get_source_sync_executor=lambda: executor,
         checkpoint_store=checkpoint,  # type: ignore[arg-type]
         read_current_clear_generation=read_generation,
         hook_timeout_seconds=1,
@@ -418,7 +418,7 @@ async def test_recovery_replays_interrupted_generation_before_executor_exists() 
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("recover", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=3,
         checkpoint=checkpoint,
@@ -441,7 +441,7 @@ async def test_recovery_failure_keeps_checkpoint_pending() -> None:
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("recover", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=3,
         checkpoint=checkpoint,
@@ -461,7 +461,7 @@ async def test_startup_check_does_not_replay_plugin_only_pending_generation() ->
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("pending", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=3,
         checkpoint=_Checkpoint(applied_generation=2),
@@ -481,7 +481,7 @@ async def test_completed_generation_is_not_replayed() -> None:
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("done", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=5,
         checkpoint=_Checkpoint(applied_generation=5),
@@ -498,7 +498,7 @@ async def test_fresh_install_generation_zero_does_not_build_a_clear_request() ->
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("fresh", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=0,
         checkpoint=_Checkpoint(applied_generation=0),
@@ -529,7 +529,7 @@ async def test_cancelled_hook_leaves_generation_pending_for_next_startup_replay(
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("blocking", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=2,
         checkpoint=checkpoint,
@@ -559,7 +559,7 @@ async def test_cancelled_hook_leaves_generation_pending_for_next_startup_replay(
 @pytest.mark.asyncio
 async def test_lifecycle_mutation_waits_until_clear_boundary_reopens() -> None:
     coordinator = _coordinator(
-        snapshot=PluginUserContentTargetSnapshot(plugins=(), sensors=()),
+        snapshot=PluginUserContentTargetSnapshot(plugins=(), sources=()),
         current_generation=1,
         checkpoint=_Checkpoint(),
     )
@@ -590,7 +590,7 @@ async def test_clear_waits_for_active_lifecycle_mutation_before_stopping_executo
     await asyncio.to_thread(mutation_started.wait, 1)
     executor = _Executor(events)
     coordinator = _coordinator(
-        snapshot=PluginUserContentTargetSnapshot(plugins=(), sensors=()),
+        snapshot=PluginUserContentTargetSnapshot(plugins=(), sources=()),
         current_generation=1,
         checkpoint=_Checkpoint(applied_generation=1),
         executor=executor,
@@ -651,7 +651,7 @@ async def test_clear_waits_for_active_async_settings_action() -> None:
                                   connection_id=plugin.connection_id, principal_id="local_user",trigger="user")
     executor = _Executor(events)
     coordinator = _coordinator(
-        snapshot=PluginUserContentTargetSnapshot(plugins=(), sensors=()),
+        snapshot=PluginUserContentTargetSnapshot(plugins=(), sources=()),
         current_generation=1,
         checkpoint=_Checkpoint(applied_generation=1),
         executor=executor,
@@ -686,7 +686,7 @@ async def test_failure_after_hooks_keeps_executor_stopped_and_checkpoint_pending
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("good", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=1,
         checkpoint=checkpoint,
@@ -712,7 +712,7 @@ async def test_recorded_later_clear_failure_prevents_checkpoint_and_resume() -> 
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("good", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=1,
         checkpoint=checkpoint,
@@ -739,7 +739,7 @@ async def test_restart_failure_keeps_executor_stopped_and_checkpoint_pending() -
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("good", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=1,
         checkpoint=checkpoint,
@@ -766,7 +766,7 @@ async def test_checkpoint_failure_requiesces_executor_and_stays_pending() -> Non
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("good", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=1,
         checkpoint=checkpoint,
@@ -798,7 +798,7 @@ async def test_resume_failure_rolls_checkpoint_back_and_stays_stopped() -> None:
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(
             plugins=(("good", plugin, {}),),
-            sensors=(),
+            sources=(),
         ),
         current_generation=1,
         checkpoint=checkpoint,

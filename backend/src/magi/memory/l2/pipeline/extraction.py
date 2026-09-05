@@ -39,7 +39,7 @@ logger = get_logger("magi.memory.l2.pipeline")
 def event_allows_llm_extraction(event: Any) -> bool:
     """Whether an event may drive LLM phase1/2 extraction.
 
-    A sensor can set ``allow_llm_extraction=False`` (carried in ``metadata_json``) to run
+    A source can set ``allow_llm_extraction=False`` (carried in ``metadata_json``) to run
     in "structured-only" mode: deterministic direct-writes still happen, but the LLM
     extractor is skipped. A missing key defaults to True (full extraction).
     """
@@ -54,7 +54,7 @@ async def resolve_llm_extraction(event: Any, counter: Any) -> bool:
       ``force_full`` runs full extraction and ``force_structured_only`` skips it,
       either way beating both P1 and P2. An unknown value is ignored.
     - P1: if ``allow_llm_extraction`` is False -> structured-only (skip LLM).
-    - P2: a sensor declaring ``promotion_threshold`` (metadata_json) + a per-event
+    - P2: a source declaring ``promotion_threshold`` (metadata_json) + a per-event
       ``promotion_key`` runs structured-only until the key has been seen >= threshold
       times, then is promoted to full extraction (and stays promoted).
     No counter or no frequency policy -> falls back to the P1 flag.

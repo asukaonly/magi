@@ -8,10 +8,10 @@ from typing import Any
 import uuid
 
 from magi_plugin_sdk.channels import Channel
-from magi_plugin_sdk.sensors import SensorBase
+from magi_plugin_sdk.sources import Source
 from magi_plugin_sdk.tools import Tool, ToolExecutionContext, ToolResult
 from magi_plugin_sdk.runtime import InvocationIdentity
-from magi_plugin_sdk.worker_catalog import SENSOR_METHODS
+from magi_plugin_sdk.worker_catalog import SOURCE_METHODS
 
 
 class AsyncObjectProxy:
@@ -33,12 +33,12 @@ class AsyncObjectProxy:
         return await self.owner.invoke(self.target, "__call__", *args, **kwargs)
 
 
-class SensorProxy(SensorBase):
+class SourceProxy(Source):
     def __init__(self, owner: Any, descriptor: dict[str, Any]) -> None:
         super().__init__()
         self.owner, self.target = owner, descriptor["target"]
         self._methods = set(descriptor["methods"])
-        self.sensor_id = descriptor["id"]
+        self.source_id = descriptor["id"]
         for name, value in descriptor["attributes"].items():
             setattr(self, name, value)
         self.bind_plugin_context(
@@ -82,7 +82,7 @@ class SensorProxy(SensorBase):
         return self.owner.invoke_sync(self.target, "t", key, *args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
-        if name not in SENSOR_METHODS or name not in self._methods:
+        if name not in SOURCE_METHODS or name not in self._methods:
             raise AttributeError(name)
 
         async def call(*args: Any, **kwargs: Any) -> Any:

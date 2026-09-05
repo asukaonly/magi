@@ -104,7 +104,7 @@ def _build_postprocess_service(
         context_assembler=context_parts.context_assembler,
         get_event_emitter=callbacks.get_event_emitter,
         get_task_agent_manager=callbacks.get_task_agent_manager,
-        get_sensor_hub=callbacks.get_sensor_hub,
+        get_source_hub=callbacks.get_source_hub,
         memory=config.memory,
         unified_memory=config.unified_memory,
         post_turn_understanding_service=config.post_turn_understanding_service,

@@ -166,16 +166,16 @@ def _isolate_user_message_clear_boundary(monkeypatch):
             self.full_clear_completed_transaction_id = transaction_id
 
     queue = _FakeRuntimeCommandQueue()
-    sensor_hub = SimpleNamespace(discard_stale_user_messages=AsyncMock(return_value=0))
+    source_hub = SimpleNamespace(discard_stale_user_messages=AsyncMock(return_value=0))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_runtime_command_queue",
         lambda: queue,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_sensor_hub",
-        lambda: sensor_hub,
+        "magi.api.routers.memory._resolve_source_hub",
+        lambda: source_hub,
     )
-    return queue, sensor_hub
+    return queue, source_hub
 
 
 @pytest.fixture(autouse=True)
@@ -3003,7 +3003,7 @@ async def test_memory_clear_api_rejects_old_control_waiters_and_reopens(
 
 
 @pytest.mark.asyncio
-async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
+async def test_memory_clear_waits_for_source_command_and_purges_source_queue(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -3015,8 +3015,8 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
     from magi.events.contracts import (
         RefreshLLMConfigCommand,
         RuntimeCommandType,
-        SensorStateFlushCommand,
-        SensorSyncCommand,
+        SourceStateFlushCommand,
+        SourceSyncCommand,
     )
     from magi.events.lifecycle import RuntimeCommandProcessorModule
     from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
@@ -3029,15 +3029,15 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
     sync_writes: list[str] = []
     flush_writes: list[str] = []
 
-    class _BlockingSensorScheduler:
+    class _BlockingSourceScheduler:
         async def queue_manual_sync(self, source_name: str, **kwargs):  # type: ignore[no-untyped-def]
             _ = kwargs
             command_started.set()
             await release_command.wait()
             sync_writes.append(source_name)
 
-    class _RecordingSensorExecutor:
-        async def flush_sensor_state(self, source_name: str) -> None:
+    class _RecordingSourceExecutor:
+        async def flush_source_state(self, source_name: str) -> None:
             flush_writes.append(source_name)
 
     class _ObservedUnifiedMemory(_FakeUnifiedMemory):
@@ -3046,20 +3046,20 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
             return await super().clear_all_memory(**kwargs)
 
     context = RuntimeBootstrapContext()
-    context.agent_runtime.sensor_scheduler_contrib = _BlockingSensorScheduler()
-    context.agent_runtime.sensor_sync_executor = _RecordingSensorExecutor()
+    context.agent_runtime.source_scheduler_contrib = _BlockingSourceScheduler()
+    context.agent_runtime.source_sync_executor = _RecordingSourceExecutor()
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
 
-    await queue.enqueue_sensor_sync(
-        SensorSyncCommand(
+    await queue.enqueue_source_sync(
+        SourceSyncCommand(
             source="api",
             source_name="chrome_history",
             connection_id="chrome-work",
             sync_mode="backfill",
         )
     )
-    await queue.enqueue_sensor_state_flush(
-        SensorStateFlushCommand(source="api", source_name="screen_time", connection_id="screen-work")
+    await queue.enqueue_source_state_flush(
+        SourceStateFlushCommand(source="api", source_name="screen_time", connection_id="screen-work")
     )
     refresh_id = await queue.enqueue_refresh_llm_config(
         RefreshLLMConfigCommand(source="api", reason="settings_saved")
@@ -3080,7 +3080,7 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory._resolve_sensor_hub",
+        "magi.api.routers.memory._resolve_source_hub",
         lambda: None,
     )
     monkeypatch.setattr(
@@ -3523,7 +3523,7 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         lambda: None,
     )
     monkeypatch.setattr(
-        "magi.api.routers.memory.overview_routes._resolve_sensor_hub",
+        "magi.api.routers.memory.overview_routes._resolve_source_hub",
         lambda: None,
     )
     monkeypatch.setattr(
@@ -3590,15 +3590,15 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         await queue.stop()
 
 
-def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
+def test_memory_clear_finishes_data_clear_when_source_queue_cleanup_fails(
     monkeypatch,
     _isolate_user_message_clear_boundary,
 ):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
-    queue, sensor_hub = _isolate_user_message_clear_boundary
-    sensor_hub.discard_stale_user_messages = AsyncMock(
-        side_effect=RuntimeError("sensor queue cleanup failed")
+    queue, source_hub = _isolate_user_message_clear_boundary
+    source_hub.discard_stale_user_messages = AsyncMock(
+        side_effect=RuntimeError("source queue cleanup failed")
     )
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock(  # type: ignore[method-assign]

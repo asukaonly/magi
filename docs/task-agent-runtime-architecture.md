@@ -135,7 +135,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 29. `runtime_skills`
 30. `runtime_mcp`
 31. `runtime_personality`
-32. `runtime_sensor_hub`
+32. `runtime_source_hub`
 33. `runtime_context`
 34. `runtime_agent_core`
 
@@ -147,10 +147,10 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 38. `runtime_timeline`
 39. `runtime_timeline_subscriber`
 40. `runtime_kg_subscriber`
-41. `runtime_sensor_state_subscriber`
+41. `runtime_source_state_subscriber`
 42. `runtime_scheduler`
 43. `runtime_agent_schedule_registration`
-44. `runtime_sensor_scheduler`
+44. `runtime_source_scheduler`
 
 ### Phase 4: exports and maintenance registration
 
@@ -169,7 +169,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 57. `runtime_channels`
 58. `runtime_outreach`
 59. `runtime_scheduler_activation`
-60. `runtime_sensor_sync_executor`
+60. `runtime_source_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. The
 scheduler engine is infrastructure even though it starts after services that
@@ -778,7 +778,7 @@ attachment observations.
   completion intents, and budgets;
 - memory databases — governed memory facts and lifecycle state, never the
   source of truth for active execution recovery;
-- `scheduler.db` — schedules, target state, execution records, and sensor jobs.
+- `scheduler.db` — schedules, target state, execution records, and source jobs.
 
 The retired `orchestration_id` column has been removed from chat, trace, and
 background current schemas. `run_id`, `parent_run_id`, turn identity, and task

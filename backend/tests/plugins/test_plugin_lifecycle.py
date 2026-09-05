@@ -23,12 +23,12 @@ def _patch_plugin_runtime(
     def build_plugin_runtime(
         *,
         tool_registry: object,
-        request_sensor_schedule_refresh: Callable[[], None],
+        request_source_schedule_refresh: Callable[[], None],
         activate_enabled: bool,
         **collaborators,
     ) -> SimpleNamespace:
         del tool_registry
-        captured["request_sensor_schedule_refresh"] = request_sensor_schedule_refresh
+        captured["request_source_schedule_refresh"] = request_source_schedule_refresh
         captured["activate_enabled"] = activate_enabled
         return SimpleNamespace(
             plugin_manager=SimpleNamespace(
@@ -37,7 +37,7 @@ def _patch_plugin_runtime(
                 shutdown=AsyncMock(),
             ),
             plugin_projection_service=object(),
-            sensor_registry=object(),
+            source_registry=object(),
             history_importer_registry=object(),
         )
 
@@ -85,7 +85,7 @@ def _runtime_context(tmp_path: Path) -> RuntimeBootstrapContext:
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
+async def test_source_schedule_refresh_from_worker_runs_on_runtime_loop(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -95,7 +95,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     refresh_called = asyncio.Event()
     refresh_thread_ids: list[int] = []
 
-    def refresh_sensor_schedule() -> None:
+    def refresh_source_schedule() -> None:
         asyncio.get_running_loop()
         refresh_thread_ids.append(threading.get_ident())
         refresh_called.set()
@@ -103,7 +103,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=refresh_sensor_schedule,
+        request_source_schedule_refresh=refresh_source_schedule,
     )
     await module.init()
 
@@ -116,7 +116,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
 
     def request_from_worker() -> None:
         try:
-            captured["request_sensor_schedule_refresh"]()
+            captured["request_source_schedule_refresh"]()
         except BaseException as exc:  # pragma: no cover - asserted below
             worker_errors.append(exc)
 
@@ -130,7 +130,7 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
+async def test_source_schedule_refresh_is_ignored_after_shutdown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -140,18 +140,18 @@ async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
+        request_source_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
     )
     await module.init()
     await module.shutdown()
 
-    await asyncio.to_thread(captured["request_sensor_schedule_refresh"])
+    await asyncio.to_thread(captured["request_source_schedule_refresh"])
     await asyncio.sleep(0)
 
     assert refresh_thread_ids == []
 
 
-def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
+def test_source_schedule_refresh_is_ignored_after_runtime_loop_closes(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -161,7 +161,7 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
+        request_source_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
     )
     runtime_loop = asyncio.new_event_loop()
     runtime_loop.run_until_complete(module.init())
@@ -171,7 +171,7 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
 
     def request_from_worker() -> None:
         try:
-            captured["request_sensor_schedule_refresh"]()
+            captured["request_source_schedule_refresh"]()
         except BaseException as exc:  # pragma: no cover - asserted below
             worker_errors.append(exc)
 
@@ -195,14 +195,14 @@ async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
 
     with pytest.raises(RuntimeError, match="no durable recovery owner"):
         await module.init()
 
     assert captured["clear_checked"] is True
-    assert context.agent_runtime.sensor_sync_executor is None
+    assert context.agent_runtime.source_sync_executor is None
 
 
 @pytest.mark.asyncio
@@ -228,7 +228,7 @@ async def test_pending_desktop_transaction_allows_runtime_to_start_for_recovery(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
 
     await module.init()

@@ -19,7 +19,7 @@ interface SettingsIntegrationsSectionProps {
   setChannelsSelection: Dispatch<SetStateAction<string | null>>;
   handlePluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
-  loadPluginsAndSensors: () => Promise<void>;
+  loadPluginsAndSources: () => Promise<void>;
   onBrowseMarketplace?: () => void;
 }
 
@@ -33,7 +33,7 @@ export function SettingsIntegrationsSection({
   setChannelsSelection,
   handlePluginAction,
   loadPlugins,
-  loadPluginsAndSensors,
+  loadPluginsAndSources,
   onBrowseMarketplace,
 }: SettingsIntegrationsSectionProps) {
   const { t } = useTranslation('app');
@@ -58,7 +58,7 @@ export function SettingsIntegrationsSection({
       return (
         <PluginMarketplace
           installedPlugins={plugins}
-          onInstallComplete={loadPluginsAndSensors}
+          onInstallComplete={loadPluginsAndSources}
         />
       );
 

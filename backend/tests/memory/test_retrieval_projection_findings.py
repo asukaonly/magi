@@ -294,7 +294,7 @@ class TestEchoFiltering:
                 },
                 {
                     "event_id": "evt-chrome-history",
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "author_type": "external",
                     "content_type": "observation",
@@ -382,7 +382,7 @@ class TestEvidenceClassDrivenFiltering:
                 },
                 {
                     "event_id": "evt-chrome-history",
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "author_type": "external",
                     "content_type": "observation",
@@ -448,7 +448,7 @@ class TestEvidenceClassDrivenFiltering:
                 },
                 {
                     "event_id": "evt-obs",
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "author_type": "external",
                     "content_type": "observation",
@@ -487,7 +487,7 @@ class TestEvidenceClassDrivenFiltering:
                 },
                 {
                     "event_id": "evt-obs",
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "author_type": "external",
                     "content_type": "observation",
@@ -527,7 +527,7 @@ class TestEvidenceClassDrivenFiltering:
                 },
                 {
                     "event_id": "evt-legacy-chrome",
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "author_type": "external",
                     "content_type": "observation",

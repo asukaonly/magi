@@ -320,7 +320,7 @@ def _serialize_settings_layout(
     return out
 
 
-def _serialize_sensor_capability(
+def _serialize_source_capability(
     metadata: dict[str, Any],
     i18n: PluginI18n | None,
     *,
@@ -329,7 +329,7 @@ def _serialize_sensor_capability(
     fallback_display_name: str,
     fallback_description: str,
 ) -> dict[str, Any]:
-    """Serialize the capability/entry grouping metadata for one sensor source."""
+    """Serialize the capability/entry grouping metadata for one source."""
     plugin_id_normalized = normalize_plugin_id(plugin_id)
     capability_id = str(metadata.get("capability_id") or fallback_source_name)
     entry_id = str(metadata.get("entry_id") or fallback_source_name)
@@ -528,7 +528,7 @@ __all__ = [
     "_serialize_manifest",
     "_serialize_package",
     "_serialize_package_lightweight",
-    "_serialize_sensor_capability",
+    "_serialize_source_capability",
     "_serialize_settings_action",
     "_serialize_settings_layout",
     "_serialize_settings_ui_block",

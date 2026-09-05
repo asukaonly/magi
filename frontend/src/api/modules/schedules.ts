@@ -1,7 +1,7 @@
 import { api, unwrapGatewayPayload } from '../client';
 
 export type ScheduleTargetType =
-  | 'sensor_sync'
+  | 'source_sync'
   | 'memory_l2_maintenance'
   | 'memory_l3_summary'
   | 'user_agent_task'
@@ -44,7 +44,7 @@ export interface ScheduleDTO {
   metadata: Record<string, unknown>;
   job_id?: string | null;
   editable?: boolean;
-  owner_kind?: 'sensor_settings' | 'system' | 'user' | string;
+  owner_kind?: 'source_settings' | 'system' | 'user' | string;
   settings_link?: ScheduleSettingsLinkDTO | null;
   target_state?: ScheduleTargetStateDTO | null;
 }
@@ -74,7 +74,7 @@ export interface ScheduleActivityDTO {
   finished_at?: number | null;
   duration_ms?: number | null;
   cancellable: boolean;
-  cancel_kind?: 'sensor_sync_job' | string | null;
+  cancel_kind?: 'source_sync_job' | string | null;
   error?: string | null;
   background_task_id?: string | null;
   result_message?: string | null;

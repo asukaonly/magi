@@ -1,4 +1,4 @@
-"""Tests for the sensor-derived knowledge graph write queue."""
+"""Tests for the source-derived knowledge graph write queue."""
 
 from __future__ import annotations
 

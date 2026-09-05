@@ -12,7 +12,7 @@ from magi.plugins import installation, manager as manager_module, package_files
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.manager import PluginManager
 from magi.plugins.package_identity import compute_installed_package_sha256, compute_package_sha256
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 from magi.utils.runtime import RuntimePaths
 
@@ -66,9 +66,9 @@ def runtime(tmp_path, monkeypatch):
     factory = Mock(side_effect=AssertionError("Authorization must not create workers"))
     manager = PluginManager(
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
+        source_registry=SourceRegistry(),
         search_paths=[root],
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
         connection_store=store,
         instance_factory=factory,
     )

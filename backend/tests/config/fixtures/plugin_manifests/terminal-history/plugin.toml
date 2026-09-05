@@ -3,7 +3,7 @@ id = "terminal-history"
 name = "Terminal History"
 version = "0.1.1"
 
-[plugin.default_settings.sensors.terminal_history]
+[plugin.default_settings.sources.terminal_history]
 enabled = false
 sync_interval_minutes = 15
 initial_sync_policy = "lookback_days"

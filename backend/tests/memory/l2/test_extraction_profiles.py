@@ -295,7 +295,7 @@ def test_load_profiles_from_yaml_handles_invalid_yaml(tmp_path):
     assert "chat.user_message" in profiles
 
 
-# ── Sensor source routing ──
+# ── Source source routing ──
 
 
 def test_netease_music_source_uses_music_profile():
@@ -359,7 +359,7 @@ def test_screen_time_source_uses_screen_time_profile():
     assert "software" in profile.allowed_entity_types
 
 
-def test_plugin_profiles_load_all_sensor_profiles():
+def test_plugin_profiles_load_all_source_profiles():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry(_plugin_profile_specs())
@@ -386,7 +386,7 @@ def test_netease_music_profile_allows_preference_assertions():
 def test_unknown_source_still_falls_back_to_chat():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 
-    profile = resolve_extraction_profile(_make_event(source="some_unknown_sensor", content="data"))
+    profile = resolve_extraction_profile(_make_event(source="some_unknown_source", content="data"))
     assert profile.profile_id == "chat.user_message"
 
 
@@ -396,14 +396,14 @@ def test_invalid_plugin_profile_is_skipped():
     profiles = build_extraction_profile_registry(
         [
             {
-                "profile_id": "source.bad_sensor",
-                "source_types": ["bad_sensor"],
+                "profile_id": "source.bad_source",
+                "source_types": ["bad_source"],
                 "allowed_entity_types": ["not_a_real_entity_type"],
             }
         ]
     )
 
-    assert "source.bad_sensor" not in profiles
+    assert "source.bad_source" not in profiles
     assert "chat.user_message" in profiles
 
 
@@ -439,8 +439,8 @@ def test_phase1_and_summary_instructions_are_independent():
     profiles = build_extraction_profile_registry(
         [
             {
-                "profile_id": "source.custom_sensor",
-                "source_types": ["custom_sensor"],
+                "profile_id": "source.custom_source",
+                "source_types": ["custom_source"],
                 "allowed_entity_types": ["topic"],
                 "allowed_predicates": ["INTERESTED_IN"],
                 "extraction_instructions": "legacy instructions",
@@ -451,7 +451,7 @@ def test_phase1_and_summary_instructions_are_independent():
         ]
     )
 
-    profile = profiles["source.custom_sensor"]
+    profile = profiles["source.custom_source"]
     assert profile.extraction_instructions == "new phase one instructions"
     assert profile.phase1_instructions == "new phase one instructions"
     assert profile.summary_instructions == "summary wording instructions"

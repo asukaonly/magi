@@ -45,8 +45,8 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "behavior_evolution": {"task_interactions", "behavior_profiles"},
     "emotional": {"emotional_state", "emotional_events"},
     "growth_memory": {"milestones", "relationships", "personality_evolution"},
-    "scheduler": {"schedules", "schedule_executions", "sensor_sync_jobs"},
-    "sensor_state": {"sensor_cursors", "sensor_fingerprints", "sensor_stats"},
+    "scheduler": {"schedules", "schedule_executions", "source_sync_jobs"},
+    "source_state": {"source_cursors", "source_fingerprints", "source_stats"},
     "background_tasks": {
         "background_tasks",
         "background_task_events",

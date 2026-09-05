@@ -31,7 +31,7 @@ from magi.plugins.package_identity import (
 )
 from magi.plugins.manager import PluginManager, build_plugin_runtime
 from magi.plugins.projections import PluginProjectionService
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from magi_plugin_sdk import (
     ExtractionProfileSpec,
@@ -359,8 +359,8 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -391,8 +391,8 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -424,8 +424,8 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[builtin_plugins_root],
     )
 
@@ -481,7 +481,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
     tmp_path: Path,
 ) -> None:
     """Regression: previously unload_plugin dropped the plugin from the
-    registry without ever giving it a chance to clean up sensors /
+    registry without ever giving it a chance to clean up sources /
     subprocesses / timers. Every reload (settings update, disable) leaked
     the old instance. Now the host must invoke `plugin.shutdown()`."""
     _write_shutdown_test_plugin(tmp_path)
@@ -501,8 +501,8 @@ async def test_unload_plugin_invokes_shutdown_hook(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -543,8 +543,8 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
 
@@ -593,8 +593,8 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=True)
@@ -663,8 +663,8 @@ def test_install_plugin_from_directory_reports_progress(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     progress_events: list[tuple[str, str, float | None]] = []
@@ -727,8 +727,8 @@ def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
 
@@ -842,8 +842,8 @@ def test_plugin_install_rejects_state_changed_during_preparation(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.install_plugin_from_directory(initial_source)
@@ -926,8 +926,8 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=True)
@@ -1008,8 +1008,8 @@ def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
     plugin_id = "shutdown-lock-test"
@@ -1051,8 +1051,8 @@ def test_package_read_snapshot_does_not_interleave_lifecycle_write(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
     manager._package_states["existing"] = PluginPackageState(
@@ -1133,8 +1133,8 @@ def test_plugin_import_waits_for_explicit_connection(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
 
@@ -1196,8 +1196,8 @@ def test_plugin_update_load_failure_restores_previous_install(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=False)
@@ -1261,8 +1261,8 @@ def test_install_plugin_from_directory_still_rejects_builtin_overwrite(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager._package_states["core-tools"] = PluginPackageState(
@@ -1309,8 +1309,8 @@ def test_local_directory_install_does_not_replace_an_existing_package_by_default
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=False)
@@ -1345,8 +1345,8 @@ def test_uninstall_refuses_a_package_from_a_custom_scan_root(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[custom_root],
     )
     manager.scan(persist_discovery=False)
@@ -1382,8 +1382,8 @@ def test_uninstall_refuses_a_manifest_at_the_managed_root(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[managed_root],
     )
     manager._package_states["root-owned"] = PluginPackageState(
@@ -1423,8 +1423,8 @@ def test_uninstall_refuses_a_symlinked_managed_package(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[managed_root],
     )
     manifest = load_plugin_manifest(linked_dir / "plugin.toml", source="external")
@@ -1459,8 +1459,8 @@ def test_uninstall_removes_an_exact_managed_package(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[managed_root],
     )
     manager.scan(persist_discovery=False)
@@ -1501,8 +1501,8 @@ def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[custom_root],
     )
     manager.scan(persist_discovery=False)
@@ -1540,8 +1540,8 @@ def test_enable_does_not_load_when_persistence_fails(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[tmp_path],
     )
     manager.scan(persist_discovery=False)
@@ -1576,8 +1576,8 @@ def test_local_install_rejects_unbound_package_dependencies(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
 
@@ -1788,8 +1788,8 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
 
     bindings = build_plugin_runtime(
         tool_registry=shared_tool_registry,
-        request_sensor_schedule_refresh=lambda: None,
-        sensor_registry=SensorRegistry(),
+        request_source_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
         instance_factory=instantiate_fixture_plugin,
     )
     connection = bindings.plugin_manager.create_connection(

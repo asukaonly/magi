@@ -38,7 +38,7 @@ const STATUS_CHIPS: ReadonlyArray<StatusFilter> = ['all', ...STATUS_OPTIONS];
 function targetTypesForCategory(category: Exclude<CategoryFilter, 'all' | 'other'>): string[] {
   switch (category) {
     case 'user': return ['user_agent_task'];
-    case 'sensor': return ['sensor_sync'];
+    case 'source': return ['source_sync'];
     case 'memory': return ['memory_l2_maintenance', 'memory_l3_summary', 'memory_l4_maintenance'];
     case 'timeline': return [
       'timeline_diary_narrative',
@@ -50,7 +50,7 @@ function targetTypesForCategory(category: Exclude<CategoryFilter, 'all' | 'other
 }
 
 const EMPTY_COUNTS: Record<CategoryFilter, number> = {
-  all: 0, user: 0, sensor: 0, memory: 0, timeline: 0, other: 0,
+  all: 0, user: 0, source: 0, memory: 0, timeline: 0, other: 0,
 };
 
 export const ScheduleActivityPage: React.FC = () => {

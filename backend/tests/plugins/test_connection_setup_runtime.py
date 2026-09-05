@@ -14,7 +14,7 @@ from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.manager import PluginManager
 from magi.plugins.operation_authorization import InstalledOperationAuthorizer, build_host_invocation
 from magi.plugins.process_runtime import ProcessPluginProxy
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.agent.background import BackgroundTaskStore
 from magi.tools.registry import ToolRegistry
 from magi.utils.runtime import RuntimePaths
@@ -30,7 +30,7 @@ min_sdk_version = "0.2.0"
 execution_mode = "trusted_process"
 entry_module = "plugin"
 entry_class = "SetupPlugin"
-contribution_types = ["tool", "sensor"]
+contribution_types = ["tool", "source"]
 
 [[plugin.permissions.capabilities]]
 capability = "network"
@@ -54,7 +54,7 @@ requires_enabled = false
 PLUGIN = '''
 import asyncio, os
 from magi_plugin_sdk import Plugin
-from magi_plugin_sdk.sensors import SensorBase, SensorSpec
+from magi_plugin_sdk.sources import Source, SourceSpec
 from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
 
 class SampleTool(Tool):
@@ -64,7 +64,7 @@ class SampleTool(Tool):
     async def execute(self, parameters, context):
         return ToolResult(success=True, data={"pid": os.getpid()})
 
-class SampleSensor(SensorBase):
+class SampleSource(Source):
     source_type = "setup_source"
     async def collect_items(self, context):
         raise AssertionError("Setup must not collect")
@@ -81,8 +81,8 @@ class SetupPlugin(Plugin):
             stream.write(f"{event}:{os.getpid()}\\n")
     def get_tools(self):
         return [SampleTool]
-    def get_sensors(self):
-        return [("source", SampleSensor(), SensorSpec("source", "Source", domain="timeline"))]
+    def get_sources(self):
+        return [("source", SampleSource(), SourceSpec("source", "Source", domain="timeline"))]
     def read_settings_resource(self, resource_name):
         return {"pid": os.getpid(), "session": self.session}
     async def start_settings_action(self, action_id, *, session_id, field_values=None):
@@ -115,7 +115,7 @@ def setup_runtime(tmp_path, monkeypatch, runtime_paths_with_schema):
         consented_capabilities=[{"capability": "network", "scope": ["login.example.test"]}],
     )
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    tools, sensors, configured = ToolRegistry(), SensorRegistry(), []
+    tools, sources, configured = ToolRegistry(), SourceRegistry(), []
     tools.bind_tool_effect_ledger(BackgroundTaskStore(
         db_path=str(runtime_paths_with_schema.background_tasks_db_path)))
     store = PluginConnectionStore(
@@ -131,8 +131,8 @@ def setup_runtime(tmp_path, monkeypatch, runtime_paths_with_schema):
         configured.append(instance)
 
     manager = PluginManager(
-        tool_registry=tools, sensor_registry=sensors, search_paths=[package],
-        request_sensor_schedule_refresh=lambda: None,
+        tool_registry=tools, source_registry=sources, search_paths=[package],
+        request_source_schedule_refresh=lambda: None,
         connection_store=store, configure_instance=configure_instance,
         connection_disconnector=lambda _: None, content_clearer=lambda *_: None,
     )
@@ -141,7 +141,7 @@ def setup_runtime(tmp_path, monkeypatch, runtime_paths_with_schema):
         get_package=manager.get_package, connection_store=store, config_provider=lambda: config)
     manager.operation_registry._publish_progress = AsyncMock()
     connection = manager.create_connection("setup-test", display_name="Account")
-    runtime = SimpleNamespace(manager=manager, connection=connection, tools=tools, sensors=sensors,
+    runtime = SimpleNamespace(manager=manager, connection=connection, tools=tools, sources=sources,
                               config=config, configured=configured, store=store, path=path)
     yield runtime
     asyncio.run(manager.shutdown())
@@ -165,7 +165,7 @@ async def test_disabled_login_retains_real_worker_and_publishes_no_contributions
     assert runtime.tools.list_tools() == []
     assert runtime.tools.get_all_tools_info() == []
     assert runtime.tools.export_to_claude_format() == []
-    assert runtime.sensors.snapshot_user_content_clear_targets() == ()
+    assert runtime.sources.snapshot_user_content_clear_targets() == ()
     assert runtime.configured == [worker]
     resource = await manager.read_plugin_settings_resource(connection.connection_id, "status")
     assert resource.data["session"] == started.session_id
@@ -404,7 +404,7 @@ async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active
 
     runtime = setup_runtime
     hooks, configured = HookRegistry(), []
-    runtime.path.write_text(MANIFEST.replace('["tool", "sensor"]', '["tool", "sensor", "hook"]'))
+    runtime.path.write_text(MANIFEST.replace('["tool", "source"]', '["tool", "source", "hook"]'))
     runtime.path.with_name("plugin.py").write_text(PLUGIN + '''
     def get_hooks(self):
         from magi_plugin_sdk.hooks import HookDecision, HookEventType
@@ -414,8 +414,8 @@ async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active
 ''')
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [runtime.path.parent])
     bindings = build_plugin_runtime(
-        tool_registry=runtime.tools, sensor_registry=runtime.sensors,
-        request_sensor_schedule_refresh=lambda: None, activate_enabled=False,
+        tool_registry=runtime.tools, source_registry=runtime.sources,
+        request_source_schedule_refresh=lambda: None, activate_enabled=False,
         connection_store=runtime.store,
         configure_instance=lambda manifest, instance: configured.append((manifest, instance)),
         hook_registry_provider=lambda: hooks,

@@ -132,7 +132,7 @@ name = "Chrome History"
 version = "0.1.0"
 entry_module = "plugin"
 entry_class = "ChromeHistoryPlugin"
-contribution_types = ["sensor"]
+contribution_types = ["source"]
 
 [plugin.suggestion_descriptor]
 category = "browser_history"

@@ -73,7 +73,7 @@ def test_legacy_chrome_and_inline_package_settings_are_not_migrated(tmp_path, mo
     index = loader._plugins_index_file
     index.write_text("packages:\n  chrome-history:\n    enabled: false\n    trusted: false\n")
     settings = index.parent / "chrome-history.yaml"
-    settings.write_text("sensors: {chrome_history: {enabled: false}}\n")
+    settings.write_text("sources: {chrome_history: {enabled: false}}\n")
     before = index.read_bytes(), settings.read_bytes()
     with pytest.raises(ValidationError):
         loader.reload()

@@ -2157,7 +2157,7 @@ async def test_ghost_rewrite_collision_keeps_independent_claim_through_revert() 
             evidence_event_ids=["evt-canonical"],
             confidence=0.6,
             observed_at=time.time(),
-            source_type="sensor",
+            source_type="source",
         )
 
         maint = L2EntityMaintenance(db_path=db_path)
@@ -2268,7 +2268,7 @@ async def test_forgotten_relationship_stays_forgotten_after_identity_merge() -> 
             evidence_event_ids=["evt-canonical-existing"],
             confidence=0.7,
             observed_at=observed_at + 1,
-            source_type="sensor",
+            source_type="source",
         )
         async with sqlite_connection_async(db_path) as db:
             old_fingerprint = str(
@@ -4754,7 +4754,7 @@ async def test_archive_stale_edges_preserves_user_authority_and_future_validity(
         evidence_event_ids=["evt-old-contact"],
         confidence=0.2,
         observed_at=now - 200 * 86400,
-        source_type="sensor",
+        source_type="source",
     )
     stale_at = now - 200 * 86400
     async with sqlite_connection_async(store.db_path) as db:

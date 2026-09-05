@@ -28,21 +28,21 @@ CREATE TABLE IF NOT EXISTS source_connections (
 );
 CREATE TABLE IF NOT EXISTS source_checkpoints (
     connection_id TEXT NOT NULL REFERENCES source_connections(connection_id),
-    sensor_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
     source_type TEXT NOT NULL,
     cursor TEXT,
     revision INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (connection_id, sensor_id)
+    PRIMARY KEY (connection_id, source_id)
 );
 CREATE TABLE IF NOT EXISTS source_batches (
     batch_id TEXT PRIMARY KEY,
     connection_id TEXT NOT NULL,
-    sensor_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
     checkpoint_revision INTEGER NOT NULL,
     body TEXT NOT NULL,
-    UNIQUE (connection_id, sensor_id),
-    FOREIGN KEY (connection_id, sensor_id)
-        REFERENCES source_checkpoints(connection_id, sensor_id)
+    UNIQUE (connection_id, source_id),
+    FOREIGN KEY (connection_id, source_id)
+        REFERENCES source_checkpoints(connection_id, source_id)
 );
 CREATE TABLE IF NOT EXISTS source_resources (
     resource_id TEXT PRIMARY KEY,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS source_resources (
 );
 CREATE TABLE IF NOT EXISTS source_versions (
     connection_id TEXT NOT NULL,
-    sensor_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
     object_id TEXT NOT NULL,
     version TEXT NOT NULL,
     operation TEXT NOT NULL CHECK(operation IN ('upsert', 'delete')),
@@ -61,27 +61,27 @@ CREATE TABLE IF NOT EXISTS source_versions (
     evidence_id TEXT,
     receipt_json TEXT,
     accepted INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY(connection_id, sensor_id, object_id, version),
-    FOREIGN KEY (connection_id, sensor_id)
-        REFERENCES source_checkpoints(connection_id, sensor_id)
+    PRIMARY KEY(connection_id, source_id, object_id, version),
+    FOREIGN KEY (connection_id, source_id)
+        REFERENCES source_checkpoints(connection_id, source_id)
 );
 CREATE TABLE IF NOT EXISTS source_objects (
     connection_id TEXT NOT NULL,
-    sensor_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
     object_id TEXT NOT NULL,
     version TEXT NOT NULL,
     deleted INTEGER NOT NULL,
-    PRIMARY KEY(connection_id, sensor_id, object_id),
-    FOREIGN KEY (connection_id, sensor_id, object_id, version)
-        REFERENCES source_versions(connection_id, sensor_id, object_id, version)
+    PRIMARY KEY(connection_id, source_id, object_id),
+    FOREIGN KEY (connection_id, source_id, object_id, version)
+        REFERENCES source_versions(connection_id, source_id, object_id, version)
 );
 CREATE TABLE IF NOT EXISTS source_resource_owners (
     connection_id TEXT NOT NULL,
-    sensor_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
     object_id TEXT NOT NULL,
     version TEXT NOT NULL,
     resource_id TEXT NOT NULL REFERENCES source_resources(resource_id) ON DELETE CASCADE,
-    PRIMARY KEY(connection_id, sensor_id, object_id, version, resource_id)
+    PRIMARY KEY(connection_id, source_id, object_id, version, resource_id)
 );
 """
 
@@ -90,9 +90,9 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
-def source_object_identity(connection_id: str, sensor_id: str, object_id: str) -> str:
+def source_object_identity(connection_id: str, source_id: str, object_id: str) -> str:
     """Use unambiguous host namespacing while retaining the semantic source type."""
-    return "source:" + hashlib.sha256(_json([connection_id, sensor_id, object_id]).encode()).hexdigest()
+    return "source:" + hashlib.sha256(_json([connection_id, source_id, object_id]).encode()).hexdigest()
 
 
 def source_change_digest(change: SourceChange) -> str:
@@ -106,7 +106,7 @@ class SourceCheckpointConflict(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class SourceCheckpoint:
     connection_id: str
-    sensor_id: str
+    source_id: str
     source_type: str
     cursor: str | None
     revision: int
@@ -156,31 +156,31 @@ class SourceStore:
         )
 
     async def checkpoint(
-        self, connection: PluginConnection, sensor_id: str, source_type: str
+        self, connection: PluginConnection, source_id: str, source_type: str
     ) -> SourceCheckpoint:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             await self._admit_connection(db, connection)
             await db.execute(
-                "INSERT OR IGNORE INTO source_checkpoints(connection_id, sensor_id, source_type) VALUES (?, ?, ?)",
-                (connection.connection_id, sensor_id, source_type),
+                "INSERT OR IGNORE INTO source_checkpoints(connection_id, source_id, source_type) VALUES (?, ?, ?)",
+                (connection.connection_id, source_id, source_type),
             )
             rows = await db.execute_fetchall(
-                "SELECT source_type, cursor, revision FROM source_checkpoints WHERE connection_id = ? AND sensor_id = ?",
-                (connection.connection_id, sensor_id),
+                "SELECT source_type, cursor, revision FROM source_checkpoints WHERE connection_id = ? AND source_id = ?",
+                (connection.connection_id, source_id),
             )
             if rows[0][0] != source_type:
                 raise ValueError("A registered source cannot change its semantic type")
             await db.commit()
-            return SourceCheckpoint(connection.connection_id, sensor_id, source_type, rows[0][1], rows[0][2])
+            return SourceCheckpoint(connection.connection_id, source_id, source_type, rows[0][1], rows[0][2])
 
     async def pending(self, checkpoint: SourceCheckpoint) -> PendingSourceBatch | None:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             rows = await db.execute_fetchall(
-                "SELECT batch_id, checkpoint_revision, body FROM source_batches WHERE connection_id = ? AND sensor_id = ?",
-                (checkpoint.connection_id, checkpoint.sensor_id),
+                "SELECT batch_id, checkpoint_revision, body FROM source_batches WHERE connection_id = ? AND source_id = ?",
+                (checkpoint.connection_id, checkpoint.source_id),
             )
             if not rows:
                 return None
@@ -258,7 +258,7 @@ class SourceStore:
     ) -> PendingSourceBatch:
         """Journal a whole batch without advancing its authoritative cursor."""
         if not isinstance(batch, SourceChangeBatch):
-            raise TypeError("Sensors must return SourceChangeBatch")
+            raise TypeError("Sources must return SourceChangeBatch")
         if checkpoint.connection_id != connection.connection_id:
             raise PermissionError("Source checkpoint connection mismatch")
         serialized = batch.model_dump_json()
@@ -278,8 +278,8 @@ class SourceStore:
             await self._admit_connection(db, connection)
             await self._check_checkpoint(db, checkpoint)
             previous = await db.execute_fetchall(
-                "SELECT batch_id, body FROM source_batches WHERE connection_id = ? AND sensor_id = ?",
-                (connection.connection_id, checkpoint.sensor_id),
+                "SELECT batch_id, body FROM source_batches WHERE connection_id = ? AND source_id = ?",
+                (connection.connection_id, checkpoint.source_id),
             )
             if previous:
                 if previous[0][1] != serialized:
@@ -290,16 +290,16 @@ class SourceStore:
             batch_id = uuid.uuid4().hex
             await db.execute(
                 "INSERT INTO source_batches VALUES (?, ?, ?, ?, ?)",
-                (batch_id, connection.connection_id, checkpoint.sensor_id, checkpoint.revision, serialized),
+                (batch_id, connection.connection_id, checkpoint.source_id, checkpoint.revision, serialized),
             )
             await db.commit()
         return PendingSourceBatch(batch_id, checkpoint, SourceChangeBatch.model_validate_json(serialized))
 
     async def _stage_change(self, db: Any, checkpoint: SourceCheckpoint, change: SourceChange) -> None:
-        key = (checkpoint.connection_id, checkpoint.sensor_id, change.object_id, change.version)
+        key = (checkpoint.connection_id, checkpoint.source_id, change.object_id, change.version)
         digest = source_change_digest(change)
         existing = await db.execute_fetchall(
-            "SELECT digest FROM source_versions WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?",
+            "SELECT digest FROM source_versions WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?",
             key,
         )
         if existing:
@@ -321,7 +321,7 @@ class SourceStore:
                 (evidence_id, checkpoint.connection_id, ref.model_dump_json(), content),
             )
         await db.execute(
-            "INSERT INTO source_versions(connection_id, sensor_id, object_id, version, operation, digest, evidence_id) "
+            "INSERT INTO source_versions(connection_id, source_id, object_id, version, operation, digest, evidence_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (*key, change.operation, digest, evidence_id),
         )
@@ -331,8 +331,8 @@ class SourceStore:
     @staticmethod
     async def _check_checkpoint(db: Any, checkpoint: SourceCheckpoint) -> None:
         rows = await db.execute_fetchall(
-            "SELECT revision, cursor FROM source_checkpoints WHERE connection_id = ? AND sensor_id = ?",
-            (checkpoint.connection_id, checkpoint.sensor_id),
+            "SELECT revision, cursor FROM source_checkpoints WHERE connection_id = ? AND source_id = ?",
+            (checkpoint.connection_id, checkpoint.source_id),
         )
         if not rows or rows[0][0] != checkpoint.revision or rows[0][1] != checkpoint.cursor:
             raise SourceCheckpointConflict("Source checkpoint changed during collection")
@@ -341,8 +341,8 @@ class SourceStore:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             rows = await db.execute_fetchall(
-                "SELECT * FROM source_versions WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?",
-                (checkpoint.connection_id, checkpoint.sensor_id, change.object_id, change.version),
+                "SELECT * FROM source_versions WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?",
+                (checkpoint.connection_id, checkpoint.source_id, change.object_id, change.version),
             )
             if not rows:
                 raise SourceCheckpointConflict("Source revision was cleared before ingestion")
@@ -363,15 +363,15 @@ class SourceStore:
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             await self._check_checkpoint(db, pending.checkpoint)
-            key = (pending.checkpoint.connection_id, pending.checkpoint.sensor_id, change.object_id, change.version)
+            key = (pending.checkpoint.connection_id, pending.checkpoint.source_id, change.object_id, change.version)
             await db.execute(
-                "UPDATE source_versions SET receipt_json = ? WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?",
+                "UPDATE source_versions SET receipt_json = ? WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?",
                 (_json({"event_id": event_id, "outcome": outcome}), *key),
             )
             if outcome == "governed_skip":
                 await db.execute(
                     "DELETE FROM source_resources WHERE resource_id IN (SELECT evidence_id FROM source_versions "
-                    "WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?)", key,
+                    "WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?)", key,
                 )
                 await self._revoke_owned_resources(db, key)
                 rows = await db.execute_fetchall("SELECT body FROM source_batches WHERE batch_id = ?", (pending.batch_id,))
@@ -392,13 +392,13 @@ class SourceStore:
             await self._validate_resource(db, checkpoint.connection_id, ref)
             await db.execute(
                 "INSERT OR IGNORE INTO source_resource_owners VALUES (?, ?, ?, ?, ?)",
-                (checkpoint.connection_id, checkpoint.sensor_id, change.object_id, change.version, ref.resource_id),
+                (checkpoint.connection_id, checkpoint.source_id, change.object_id, change.version, ref.resource_id),
             )
             await db.commit()
 
     @staticmethod
     async def _revoke_owned_resources(db: Any, key: tuple[str, ...]) -> None:
-        where = "connection_id = ? AND sensor_id = ? AND object_id = ?"
+        where = "connection_id = ? AND source_id = ? AND object_id = ?"
         if len(key) == 4:
             where += " AND version = ?"
         rows = await db.execute_fetchall(f"SELECT resource_id FROM source_resource_owners WHERE {where}", key)
@@ -419,45 +419,45 @@ class SourceStore:
             await self._admit_connection(db, connection)
             await self._check_checkpoint(db, checkpoint)
             rows = await db.execute_fetchall(
-                "SELECT body FROM source_batches WHERE batch_id = ? AND connection_id = ? AND sensor_id = ? AND checkpoint_revision = ?",
-                (pending.batch_id, checkpoint.connection_id, checkpoint.sensor_id, checkpoint.revision),
+                "SELECT body FROM source_batches WHERE batch_id = ? AND connection_id = ? AND source_id = ? AND checkpoint_revision = ?",
+                (pending.batch_id, checkpoint.connection_id, checkpoint.source_id, checkpoint.revision),
             )
             if not rows:
                 raise SourceCheckpointConflict("Source batch was cleared before acceptance")
             batch = SourceChangeBatch.model_validate_json(rows[0][0])
             for change in batch.changes:
-                key = (checkpoint.connection_id, checkpoint.sensor_id, change.object_id, change.version)
+                key = (checkpoint.connection_id, checkpoint.source_id, change.object_id, change.version)
                 versions = await db.execute_fetchall(
-                    "SELECT receipt_json, accepted FROM source_versions WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?", key,
+                    "SELECT receipt_json, accepted FROM source_versions WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?", key,
                 )
                 if not versions or (change.operation == "upsert" and not versions[0][0]):
                     raise RuntimeError("Source batch has an unconfirmed memory revision")
                 if versions[0][1]:
                     continue
                 await db.execute(
-                    "INSERT INTO source_objects VALUES (?, ?, ?, ?, ?) ON CONFLICT(connection_id, sensor_id, object_id) "
+                    "INSERT INTO source_objects VALUES (?, ?, ?, ?, ?) ON CONFLICT(connection_id, source_id, object_id) "
                     "DO UPDATE SET version = excluded.version, deleted = excluded.deleted",
                     (*key, int(change.operation == "delete")),
                 )
                 await db.execute(
-                    "UPDATE source_versions SET accepted = 1 WHERE connection_id = ? AND sensor_id = ? AND object_id = ? AND version = ?", key,
+                    "UPDATE source_versions SET accepted = 1 WHERE connection_id = ? AND source_id = ? AND object_id = ? AND version = ?", key,
                 )
                 if change.operation == "delete":
                     await self._revoke_owned_resources(db, key[:3])
             await db.execute(
-                "UPDATE source_checkpoints SET cursor = ?, revision = revision + 1 WHERE connection_id = ? AND sensor_id = ?",
-                (batch.next_cursor, checkpoint.connection_id, checkpoint.sensor_id),
+                "UPDATE source_checkpoints SET cursor = ?, revision = revision + 1 WHERE connection_id = ? AND source_id = ?",
+                (batch.next_cursor, checkpoint.connection_id, checkpoint.source_id),
             )
             await db.execute("DELETE FROM source_batches WHERE batch_id = ?", (pending.batch_id,))
             await db.commit()
-        return SourceCheckpoint(checkpoint.connection_id, checkpoint.sensor_id, checkpoint.source_type, batch.next_cursor, checkpoint.revision + 1)
+        return SourceCheckpoint(checkpoint.connection_id, checkpoint.source_id, checkpoint.source_type, batch.next_cursor, checkpoint.revision + 1)
 
     async def current_object(self, checkpoint: SourceCheckpoint, object_id: str) -> dict[str, Any] | None:
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             rows = await db.execute_fetchall(
-                "SELECT * FROM source_objects WHERE connection_id = ? AND sensor_id = ? AND object_id = ?",
-                (checkpoint.connection_id, checkpoint.sensor_id, object_id),
+                "SELECT * FROM source_objects WHERE connection_id = ? AND source_id = ? AND object_id = ?",
+                (checkpoint.connection_id, checkpoint.source_id, object_id),
             )
             return dict(rows[0]) if rows else None
 
@@ -467,7 +467,7 @@ class SourceStore:
         async with sqlite_connection_async(self.db_path) as db:
             rows = await db.execute_fetchall(
                 "SELECT DISTINCT json_extract(v.receipt_json, '$.event_id') FROM source_versions v "
-                "JOIN source_checkpoints c ON c.connection_id = v.connection_id AND c.sensor_id = v.sensor_id "
+                "JOIN source_checkpoints c ON c.connection_id = v.connection_id AND c.source_id = v.source_id "
                 "JOIN source_connections owner ON owner.connection_id = c.connection_id "
                 "WHERE c.connection_id = ? AND c.source_type = ? AND owner.disconnected = 0 "
                 "AND v.accepted = 1 AND json_extract(v.receipt_json, '$.outcome') IN ('persisted', 'duplicate')",

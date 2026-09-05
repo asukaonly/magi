@@ -1273,7 +1273,7 @@ async def test_recovery_replays_pre_run_turn_from_first_persisted_intent(
     runtime = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_AsyncRead(),
         delivery_scheduler=_Scheduler(),
         l0_store=restored_l0,
@@ -1446,7 +1446,7 @@ async def test_assistant_delete_recovery_terminates_its_delivery_turn(
     runtime = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_AsyncRead(),
         delivery_scheduler=_Scheduler(),
     )
@@ -1557,7 +1557,7 @@ async def test_runtime_forgetting_stops_matching_background_work() -> None:
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_Read(),
         delivery_scheduler=_Scheduler(),
         background_task_manager=_Background(),
@@ -1643,7 +1643,7 @@ async def test_session_delete_discards_post_turn_state_after_background_drain() 
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=object(),
         delivery_scheduler=object(),
         post_turn_understanding_service=_PostTurnUnderstanding(),
@@ -1670,7 +1670,7 @@ async def test_session_delete_discards_post_turn_state_after_background_drain() 
 
 
 @pytest.mark.asyncio
-async def test_runtime_coordinator_persists_barrier_before_cancel_and_sensor_purge() -> None:
+async def test_runtime_coordinator_persists_barrier_before_cancel_and_source_purge() -> None:
     calls: list[str] = []
 
     class _Queue:
@@ -1708,7 +1708,7 @@ async def test_runtime_coordinator_persists_barrier_before_cancel_and_sensor_pur
     class _Hub:
         async def discard_user_message_scope(self, **scope) -> int:  # type: ignore[no-untyped-def]
             calls.append(
-                f"sensor-purge:{scope['session_id']}:{scope['turn_id']}:"
+                f"source-purge:{scope['session_id']}:{scope['turn_id']}:"
                 f"{scope['message_id']}"
             )
             return 1
@@ -1761,7 +1761,7 @@ async def test_runtime_coordinator_persists_barrier_before_cancel_and_sensor_pur
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=_Manager(),
-        sensor_hub=_Hub(),
+        source_hub=_Hub(),
         chat_read_service=_Read(),
         delivery_scheduler=_Scheduler(),
         background_task_manager=_Background(),
@@ -1791,16 +1791,16 @@ async def test_runtime_coordinator_persists_barrier_before_cancel_and_sensor_pur
         "queue-boundary-exit",
         "cancel-after-barrier",
         "bump:u1:session-1:turn-1:True",
-        "sensor-purge:session-1:None:message-1",
-        "sensor-purge:session-1:None:replacement-1",
-        "sensor-purge:session-1:turn-1:None",
+        "source-purge:session-1:None:message-1",
+        "source-purge:session-1:None:replacement-1",
+        "source-purge:session-1:turn-1:None",
         "surface-hidden",
         "schedule:survivor",
         "background-scope-exit",
         "hold-exit",
     ]
     assert result.purged_commands == 6
-    assert result.purged_sensor_events == 3
+    assert result.purged_source_events == 3
     assert result.cancelled_agent is True
 
 
@@ -1873,7 +1873,7 @@ async def test_message_delete_first_intent_contains_pre_run_replay_scope() -> No
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=_Manager(),
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=object(),
         delivery_scheduler=object(),
         background_task_manager=_Background(),
@@ -1940,7 +1940,7 @@ async def test_assistant_message_runtime_delete_keeps_user_turn_scope() -> None:
 
     class _Hub:
         async def discard_user_message_scope(self, **scope) -> int:  # type: ignore[no-untyped-def]
-            calls.append(f"sensor:{scope['turn_id']}:{scope['message_id']}")
+            calls.append(f"source:{scope['turn_id']}:{scope['message_id']}")
             return 0
 
     class _Read:
@@ -1967,7 +1967,7 @@ async def test_assistant_message_runtime_delete_keeps_user_turn_scope() -> None:
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=_Manager(),
-        sensor_hub=_Hub(),
+        source_hub=_Hub(),
         chat_read_service=_Read(),
         delivery_scheduler=_Scheduler(),
     )
@@ -1987,8 +1987,8 @@ async def test_assistant_message_runtime_delete_keeps_user_turn_scope() -> None:
         "queue:None:assistant-message",
         "queue:turn-1:None",
         "bump:u1:session-1:['turn-1']:True",
-        "sensor:None:assistant-message",
-        "sensor:turn-1:None",
+        "source:None:assistant-message",
+        "source:turn-1:None",
         "schedule:['root']",
     ]
 
@@ -2134,7 +2134,7 @@ async def test_message_delete_invalidates_real_ledger_before_scheduling_survivor
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=_Manager(),
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_AsyncRead(),
         delivery_scheduler=_Scheduler(),
     )
@@ -2284,7 +2284,7 @@ async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
     coordinator = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=_Manager(),
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_AsyncRead(),
         delivery_scheduler=_Scheduler(),
     )
@@ -2328,7 +2328,7 @@ async def test_stopped_newer_run_is_terminal_when_cancel_cleanup_fails(
     retry = ChatRuntimeForgettingCoordinator(
         runtime_command_queue=_Queue(),
         task_agent_manager=None,
-        sensor_hub=None,
+        source_hub=None,
         chat_read_service=_AsyncRead(),
         delivery_scheduler=_Scheduler(),
     )

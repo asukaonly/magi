@@ -551,7 +551,7 @@ class BootstrapDialogueService:
                 "- Treat anything labeled as recent context as tentative, not as a lasting trait.\n"
                 '- Creepiness check: if your line could make the user wonder "how do you know '
                 'that?", cut it.\n'
-                "- Never mention memory storage, plugins, sensors, data import, records, or "
+                "- Never mention memory storage, plugins, sources, data import, records, or "
                 "sources. Do not list or quote the context.\n"
                 "- If the understanding is thin, noisy, or uncertain, ignore it completely and open "
                 "from persona alone.\n"
@@ -585,7 +585,7 @@ class BootstrapDialogueService:
                 "or that could reveal you saw any records.\n"
                 '- Creepiness check: if your line could make the user wonder "how do you know '
                 'that?", cut it.\n'
-                "- Never mention browsing history, plugins, sensors, data import, records, or "
+                "- Never mention browsing history, plugins, sources, data import, records, or "
                 "sources. Do not list or quote samples.\n"
                 "- If the evidence is thin, noisy, or uncertain, ignore it completely and open "
                 "from persona alone.\n"

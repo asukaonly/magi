@@ -109,7 +109,7 @@ class AuthorType(_LabeledIntEnum):
     ASSISTANT = 2
     TOOL = 3
     SYSTEM = 4
-    SENSOR = 5
+    SOURCE = 5
     EXTERNAL = 6
     UNKNOWN = 7
 
@@ -120,7 +120,7 @@ class AuthorType(_LabeledIntEnum):
             cls.ASSISTANT: "assistant",
             cls.TOOL: "tool",
             cls.SYSTEM: "system",
-            cls.SENSOR: "sensor",
+            cls.SOURCE: "source",
             cls.EXTERNAL: "external",
             cls.UNKNOWN: "unknown",
         }
@@ -396,8 +396,8 @@ def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dic
         return AuthorType.TOOL.label
     if rule["memory_domain"] == MemoryDomain.RUNTIME_TELEMETRY or source == "system":
         return AuthorType.SYSTEM.label
-    if source in {"sensor", "location"}:
-        return AuthorType.SENSOR.label
+    if source in {"source", "location"}:
+        return AuthorType.SOURCE.label
     return AuthorType.EXTERNAL.label
 
 
@@ -482,9 +482,9 @@ def _classify_event(event: Event) -> Dict[str, Any]:
     if event_type == EventTypes.ACTION_EXECUTED:
         return _runtime_disposable_classification()
 
-    # SENSOR_EVENT is normally routed by SensorIngestionGateway with per-sensor
+    # SOURCE_EVENT is normally routed by SourceIngestionGateway with per-source
     # policy. This fallback handles edge cases where it reaches _classify_event.
-    if event_type == "SENSOR_EVENT":
+    if event_type == "SOURCE_EVENT":
         return _external_activity_classification()
 
     return _external_activity_classification()

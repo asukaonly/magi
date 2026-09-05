@@ -137,7 +137,7 @@ describe('PluginActivationDialog', () => {
     pickDirectoryMock.mockResolvedValue('/Users/example/My Vault');
     const vaultField: ExtensionFieldSpec = {
       ...profilePathField,
-      key: 'sensors.obsidian_vault.vault_path',
+      key: 'sources.obsidian_vault.vault_path',
       type: 'path',
       path_kind: 'directory',
       label: 'Obsidian Vault Folder',
@@ -169,7 +169,7 @@ describe('PluginActivationDialog', () => {
     await user.click(screen.getByRole('button', { name: /confirm|connect|启用|确认/i }));
     await waitFor(() =>
       expect(onConfirm).toHaveBeenCalledWith({
-        'sensors.obsidian_vault.vault_path': '/Users/example/My Vault',
+        'sources.obsidian_vault.vault_path': '/Users/example/My Vault',
       }),
     );
   });

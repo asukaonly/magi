@@ -159,12 +159,12 @@ pub(super) fn remove_schedule(schedule_id: &str) -> bool {
 }
 
 pub(super) fn cancel_queued_activity(activity_id: &str, reason: &str) -> Option<Value> {
-    let job_id = activity_id.strip_prefix("sensor_job:")?;
+    let job_id = activity_id.strip_prefix("source_job:")?;
     let conn = open_scheduler_db_rw()?;
     let finished_at = now_seconds()?;
     let row = conn
         .query_row(
-            "SELECT execution_id, started_at FROM sensor_sync_jobs WHERE job_id = ?1 AND status = 'queued'",
+            "SELECT execution_id, started_at FROM source_sync_jobs WHERE job_id = ?1 AND status = 'queued'",
             rusqlite::params![job_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<f64>>(1)?)),
         )
@@ -172,7 +172,7 @@ pub(super) fn cancel_queued_activity(activity_id: &str, reason: &str) -> Option<
     let started_at = row.1.unwrap_or(finished_at);
     let updated = conn
         .execute(
-            "UPDATE sensor_sync_jobs SET status = 'cancelled', finished_at = ?1, error = NULL, result_message = ?2 \
+            "UPDATE source_sync_jobs SET status = 'cancelled', finished_at = ?1, error = NULL, result_message = ?2 \
              WHERE job_id = ?3 AND status = 'queued'",
             rusqlite::params![finished_at, reason, job_id],
         )

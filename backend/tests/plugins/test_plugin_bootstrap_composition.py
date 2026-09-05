@@ -98,7 +98,7 @@ def bootstrap(tmp_path, monkeypatch, runtime_paths_with_schema):
     tools = ToolRegistry()
     tools.bind_tool_effect_ledger(BackgroundTaskStore(
         db_path=str(runtime_paths_with_schema.background_tasks_db_path)))
-    module = PluginSystemModule(context, tool_registry=tools, request_sensor_schedule_refresh=lambda: None)
+    module = PluginSystemModule(context, tool_registry=tools, request_source_schedule_refresh=lambda: None)
     hooks = HooksModule(context)
     skills = SkillsModule(context, tools, orchestrator_factory=lambda **_: None,
                           agent_run_request_factory=lambda **_: None)

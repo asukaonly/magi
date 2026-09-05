@@ -26,8 +26,8 @@ vi.mock('react-i18next', () => {
 });
 
 vi.mock('@/hooks/useMemory');
-vi.mock('@/components/empty-state/EmptyStateAvailableSensors', () => ({
-  EmptyStateAvailableSensors: () => <div data-testid="available-sensors" />,
+vi.mock('@/components/empty-state/EmptyStateAvailableSources', () => ({
+  EmptyStateAvailableSources: () => <div data-testid="available-sources" />,
 }));
 
 const renderPage = () => render(
@@ -59,7 +59,7 @@ describe('MemoryRecallPage', () => {
   it('shows the cold-start guide when there are no memories yet', () => {
     renderPage();
     expect(screen.getByText('magi 对你的了解还很有限')).toBeInTheDocument();
-    expect(screen.getByTestId('available-sensors')).toBeInTheDocument();
+    expect(screen.getByTestId('available-sources')).toBeInTheDocument();
     expect(screen.getByText('手动添加一条记忆')).toBeInTheDocument();
   });
 
@@ -84,7 +84,7 @@ describe('MemoryRecallPage', () => {
     renderPage();
 
     expect(screen.queryByText('magi 对你的了解还很有限')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('available-sensors')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('available-sources')).not.toBeInTheDocument();
     expect(screen.queryByText('手动添加一条记忆')).not.toBeInTheDocument();
   });
 

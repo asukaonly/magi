@@ -8,11 +8,11 @@ Use it when you want to:
 
 - add a built-in extension under `plugins/`
 - author an external plugin in a separate development scan directory
-- contribute new tools, timeline sensors, or channels
+- contribute new tools, timeline sources, or channels
 
 ## Prerequisites — Plugin SDK
 
-All plugin contracts (`Plugin`, `SensorSpec`, `ExtensionFieldSpec`, …) live in the
+All plugin contracts (`Plugin`, `SourceSpec`, `ExtensionFieldSpec`, …) live in the
 **`magi-plugin-sdk`** package (`sdk/` in this repository).  Install it before
 developing plugins:
 
@@ -40,7 +40,9 @@ This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
 Use only `magi_plugin_sdk` in an external plugin. The host backend is not
 installed in the plugin worker and is not an authoring dependency. The current
-contract is SDK `0.2.0`, protocol `2`; there is no compatibility window.
+contract is SDK `0.2.0`, protocol `2`. This Source naming change is part of
+the unreleased contract: it adds no version bump, old-name aliases, or
+data migration.
 
 ## Authoring Surface
 
@@ -107,9 +109,9 @@ code; it is not an operating-system sandbox. Restricted execution currently
 requires verified macOS confinement and fails on unsupported platforms.
 
 Use `history_importer` for a one-shot parser of a declared platform export. Do
-not model a bounded archive as a sensor merely to reuse polling infrastructure;
-an importer has user-selected input and a completed lifecycle, while a sensor
-owns ongoing collection state.
+not model a bounded archive as a Source contribution merely to reuse polling
+infrastructure; an importer has user-selected input and a completed lifecycle,
+while a Source owns ongoing collection state.
 
 ### Plugin icons
 
@@ -120,7 +122,7 @@ Choose one of two icon forms:
   the plugin
 
 Brand icons belong in the plugin package. This lets marketplace listings,
-installation prompts, installed-plugin pages, and sensor rows use the same
+installation prompts, installed-plugin pages, and source rows use the same
 image without adding brand-specific code to the host.
 
 Packaged icons may be SVG, PNG, or WebP and must be no larger than 64 KiB. SVG
@@ -148,7 +150,7 @@ class ExamplePlugin(Plugin):
     def get_tools(self):
         return []
 
-    def get_sensors(self):
+    def get_sources(self):
         return []
 
     def get_settings_resources(self):
@@ -160,14 +162,14 @@ of connection settings before registration. A package may have many instances.
 
 ### User-content clear contract
 
-Every plugin and every `SensorBase` contribution inherits an async
+Every plugin and every `Source` contribution inherits an async
 `clear_user_content(context)` hook. The default implementation is an idempotent
 no-op and is suitable only when that object retains no user content of its own.
 
-Override the hook when the plugin or sensor keeps any local copy of raw source
+Override the hook when the plugin or source keeps any local copy of raw source
 items, prompts, queries, fetched bodies, generated results, derived indexes,
 temporary files, pending batches, or background-run state. The host invokes both
-the plugin-level and sensor-level hooks during **Clear all data**, including for
+the plugin-level and source-level hooks during **Clear all data**, including for
 installed plugins that are currently disabled, so each hook must delete only
 the files and records that object owns. A disabled plugin is instantiated only
 for deletion and then shut down; it is not enabled and none of its contributions
@@ -613,7 +615,7 @@ from magi_plugin_sdk.ingress import (
     PluginIngressEventRecord,
     PluginIngressHandlerRegistration,
 )
-from magi_plugin_sdk.sensors import PluginRuntimePaths
+from magi_plugin_sdk.sources import PluginRuntimePaths
 
 
 class ExampleIngressHandler:
@@ -746,40 +748,59 @@ class ExamplePlugin(Plugin):
         return [(spec.importer_id, ExampleArchiveImporter(), spec)]
 ```
 
-## Sensor Plugins
+## Source Plugins
 
-Sensors return tuples from `get_sensors()`:
+A `Source` is an ongoing data-collection contribution. It produces
+domain-neutral records for host ingestion; memory retention and timeline
+presentation remain host responsibilities. A one-shot archive parser uses
+the separate `history_importer` contribution.
 
-- `sensor_id`
-- sensor instance
-- `SensorSpec`
+Keep these identities distinct:
 
-Example:
+| Field | Meaning |
+| --- | --- |
+| `source_id` | Stable contribution ID, such as `timeline.example_source`; it must match the tuple ID and `SourceSpec.source_id`. |
+| `source_type` | Semantic data category, such as `example_source`; declare it on the source and in `SourceSpec.metadata`. It does not identify an account. |
+| `connection_id` | Host-issued identity for one account, folder, or independently configured instance. Multiple connections may expose the same source type. |
+
+Source contracts live in `magi_plugin_sdk.sources`
+([SDK sources.py](../sdk/src/magi_plugin_sdk/sources.py)): `Source`,
+`PullSource`, `SourceSpec`, `SourceSyncContext`, `SourceOutput`, and
+`SourceOutputMetadata`. `Plugin.get_sources()` returns
+`(source_id, source_instance, SourceSpec)` tuples. The host scopes external
+registrations by connection and retains the declared ID as
+`metadata.local_source_id`; plugins do not invent connection identities.
+
+Registration example (collection and output construction are omitted):
 
 ```python
-from magi_plugin_sdk import ExtensionFieldSpec, Plugin, SensorSpec
+from typing import Any
+
+from magi_plugin_sdk import ExtensionFieldSpec, Plugin, SourceSpec
+from magi_plugin_sdk.sources import Source, SourceOutput
 
 
-class ExampleTimelineSensor:
+class ExampleTimelineSource(Source):
+    source_id = "timeline.example_source"
     source_type = "example_source"
 
-    def normalize(self, item):
+    async def build_output(self, item: dict[str, Any]) -> SourceOutput:
         ...
 
 
 class ExamplePlugin(Plugin):
-    def get_sensors(self):
-        sensor = ExampleTimelineSensor()
-        spec = SensorSpec(
-            sensor_id="timeline.example_source",
+    def get_sources(self) -> list[tuple[str, Source, SourceSpec]]:
+        source = ExampleTimelineSource()
+        spec = SourceSpec(
+            source_id=source.source_id,
             display_name="Example Source",
-            description="Example timeline sensor",
+            description="Example timeline source",
             domain="timeline",
             surface="timeline",
             sync_mode="interval",
             fields=[
                 ExtensionFieldSpec(
-                    key="sensors.example_source.enabled",
+                    key="sources.example_source.enabled",
                     type="switch",
                     label="Enabled",
                     default=True,
@@ -794,31 +815,42 @@ class ExamplePlugin(Plugin):
                 },
             },
         )
-        return [("timeline.example_source", sensor, spec)]
+        return [(source.source_id, source, spec)]
 ```
 
 Guidelines:
 
-- use `domain="timeline"` when you want the sensor to appear as a timeline source
-- set `metadata.source_type` because sensor routing and scheduling use it
+- use `domain="timeline"` when you want the source to appear as a timeline source
+- set `metadata.source_type` to the same semantic category as the source instance; routing and scheduling also require the owning `connection_id`
 - provide a `default_settings` object when the contribution needs stable defaults
-- store settings under a stable subtree such as `sensors.<source_name>.*`
-- keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
-- when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the sensor authorization endpoint before flipping the source to enabled
+- store settings under a stable subtree such as `sources.<source_name>.*`
+- keep the source contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
+- when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the source authorization endpoint before flipping the source to enabled
 - when a source needs lighter first-run behavior for onboarding, declare `activation_flow.first_context.max_items_per_sync` for its initial read cap and use `settings_overrides` for other settings that apply only in the first-context panel; the host uses 200 only as a safety fallback when the cap is absent
 - opt into first-context or empty-source recommendations through `suggestion_descriptor.surfaces.first_context` or `suggestion_descriptor.surfaces.empty_state`; the plugin owns its name, icon, copy, scope, and order, so do not rely on the host frontend hardcoding the plugin id
 
-### SensorBase Hooks
+### Pull Collection
 
-Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to the following hooks that control memory routing and L2 cognition behavior:
+A pull-capable Source implements the SDK `PullSource` protocol: set
+`supports_pull_sync = True` and implement
+`async collect_items(context: SourceSyncContext) -> SourceChangeBatch`.
+`SourceSyncContext` carries the explicit `connection_id`, semantic
+`source_type`, manual-sync flag, last accepted cursor and success time,
+item limit, scoped runtime paths, and plugin settings. Return versioned
+changes for that connection and source type; only the host acknowledges
+cursor progress after durable ingestion.
+
+### Source Hooks
+
+Sources inheriting `Source` from `magi_plugin_sdk.sources` have access to the following hooks that control memory routing and L2 cognition behavior:
 
 **Core contract:**
 
-- `build_output(item)`: convert a source item into a domain-neutral `SensorOutput` (required)
-- `extract_metadata(item)`: extract `SensorOutputMetadata` containing entity hints, tags, and relation candidates
+- `build_output(item)`: convert a source item into a domain-neutral `SourceOutput` (required)
+- `extract_metadata(item)`: extract `SourceOutputMetadata` containing entity hints, tags, and relation candidates
 - `collect_items(context)`: returns `SourceChangeBatch` with immutable object revisions, explicit upsert/delete changes, next cursor, watermark and stats. Use `build_change_batch()` when deriving revisions from normalized payloads; never reuse a revision for changed content.
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
-- `clear_user_content(context)`: remove sensor-owned local raw, derived, pending,
+- `clear_user_content(context)`: remove source-owned local raw, derived, pending,
   and temporary content while preserving settings, credentials, connected
   accounts, and source progress. For plugin-managed state files, use
   `magi_plugin_sdk.fs.read_managed_text()`,
@@ -826,9 +858,9 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
   `magi_plugin_sdk.fs.remove_managed_file()` so clear hooks replace or remove
   links themselves instead of following them into user-owned files.
 
-`SensorOutput` is now a source-truth contract, not a final display-string contract.
+`SourceOutput` is now a source-truth contract, not a final display-string contract.
 
-Required truth fields inside `SensorOutput`:
+Required truth fields inside `SourceOutput`:
 
 - `activity.source` / `activity.action`: stable semantic facets with `code` and `i18n_key`
 - optional `activity.object`: optional semantic object facet when it materially changes retrieval or display
@@ -850,7 +882,7 @@ available without flooding the primary timeline:
 - `compact`: timeline summary uses the provided short `title` or `summary`; L1 content keeps the full narration
 - `evidence_only`: same compact primary display, intended for raw evidence such as OCR, transcripts, or logs that should remain searchable and openable but not inline-expanded in the main timeline
 
-For example, a screenshot sensor should put OCR/AX text in `narration.body` and
+For example, a screenshot source should put OCR/AX text in `narration.body` and
 `content_blocks`, then set `timeline_presentation=TimelinePresentation(mode="evidence_only", title="App: Window")`.
 The timeline will show the short app/window label, while search/detail paths can
 still use the complete captured text.
@@ -914,7 +946,7 @@ For high-volume sources such as browser history, a practical pattern is:
 
 ### Entity Hints and Relation Candidates
 
-`extract_metadata()` returns `SensorOutputMetadata` with three fields:
+`extract_metadata()` returns `SourceOutputMetadata` with three fields:
 
 - `entities`: structured entity hints (list of dicts with `mention_text`, `entity_type`, `canonical_name_hint`)
 - `tags`: classification tags for the event
@@ -1016,7 +1048,7 @@ Supported field types:
 
 Important conventions:
 
-- use stable dot-notated keys such as `sensors.photo_library.source_path`
+- use stable dot-notated keys such as `sources.photo_library.source_path`
 - for a scalar `path` field, set `path_kind="directory"` or
   `path_kind="file"` so the host renders the matching native picker; keep an
   array default for fields that accept multiple directories
@@ -1030,7 +1062,7 @@ Typical surfaces:
     plugin package level settings shown on the Plugins page
 
 - `timeline`
-  sensor settings shown in Timeline & Sources
+  source settings shown in Timeline & Sources
 
 - `tools`
   reserved for tool-facing settings surfaces
@@ -1042,7 +1074,7 @@ from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec
 
 fields = [
     ExtensionFieldSpec(
-        key="sensors.example_source.sync_mode",
+        key="sources.example_source.sync_mode",
         type="select",
         label="Sync Mode",
         description="How synchronization is performed.",
@@ -1073,7 +1105,7 @@ Example:
 ```python
 defaults = {"enabled": True, "sync_mode": "interval"}
 current = dict(defaults)
-current.update(self.settings.get("sensors", {}).get("example_source", {}))
+current.update(self.settings.get("sources", {}).get("example_source", {}))
 ```
 
 ## Where Settings Persist
@@ -1102,7 +1134,7 @@ When adding a new plugin or contribution, validate at three levels when relevant
   discovery, enable, disable, reload
 
 - registry integration
-  tool or sensor is visible in the correct runtime registry
+  tool or source is visible in the correct runtime registry
 
 - API or UI surface
   settings metadata is serialized correctly and appears in the expected frontend page
@@ -1134,14 +1166,14 @@ unrelated system Python. Use `--package <id>` for a focused rerun.
 Use these as the primary templates:
 
 - [core-tools plugin](../plugins/core-tools/plugin.py)
-- `chrome-history` plugin in the companion `magi-plugins` repository under `plugins/chrome-history/` - full sensor with entity hints, L2 batch policy, and extraction metadata
+- `chrome-history` plugin in the companion `magi-plugins` repository under `plugins/chrome-history/` - full source with entity hints, L2 batch policy, and extraction metadata
 
 ## Common Mistakes
 
 - forgetting to include `plugin.toml`
 - returning raw dictionaries instead of typed specs
 - using unstable setting keys that change between reloads
-- exposing timeline sensors without `metadata.source_type`
+- exposing timeline sources without `metadata.source_type`
 - trying to ship plugin-owned frontend code instead of field metadata
 - assuming new external plugins auto-enable after discovery
 - relying on `official = true` in an external manifest instead of the registry allowlist

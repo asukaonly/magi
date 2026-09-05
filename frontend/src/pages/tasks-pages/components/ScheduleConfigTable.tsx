@@ -58,8 +58,8 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
   } = props;
 
   const renderRow = (schedule: ScheduleDTO): React.ReactElement => {
-    const sensorOwned = schedule.target_type === 'sensor_sync';
-    const systemOwned = schedule.editable === false && !sensorOwned;
+    const sourceOwned = schedule.target_type === 'source_sync';
+    const systemOwned = schedule.editable === false && !sourceOwned;
     const selected = editingScheduleId === schedule.schedule_id;
     const scheduleRunning = Boolean(schedule.target_state?.running);
     const runPending = runningScheduleId === schedule.schedule_id;
@@ -85,11 +85,11 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
           'transition-colors duration-200',
           selected && 'bg-primary/[0.045]',
           !selected && 'hover:bg-muted/25',
-          // Non-sensor rows open a read-only overview. Mutations stay in
+          // Non-source rows open a read-only overview. Mutations stay in
           // explicit controls so opening details never changes state.
-          !sensorOwned && 'cursor-pointer',
+          !sourceOwned && 'cursor-pointer',
         )}
-        onClick={() => { if (!sensorOwned) onOpenInfo(schedule); }}
+        onClick={() => { if (!sourceOwned) onOpenInfo(schedule); }}
       >
         <td className="px-4 py-3.5 align-middle">
           <div className="flex items-center gap-2">
@@ -124,7 +124,7 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
               pending={runPending}
               onRun={onRunSchedule}
             />
-            {sensorOwned ? (
+            {sourceOwned ? (
               <IconActionButton
                 variant="ghost"
                 label={t('tasks.scheduled.actions.openSettings')}
@@ -146,7 +146,7 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
                 />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                {!sensorOwned && !systemOwned ? (
+                {!sourceOwned && !systemOwned ? (
                   <DropdownMenuItem onSelect={() => onSelectSchedule(schedule)}>
                     <Pencil className="h-3.5 w-3.5" />
                     {t('tasks.scheduled.actions.edit')}
@@ -161,7 +161,7 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
                   )}
                   {toggleLabel}
                 </DropdownMenuItem>
-                {!sensorOwned && !systemOwned ? (
+                {!sourceOwned && !systemOwned ? (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem

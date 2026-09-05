@@ -20,7 +20,7 @@ def change(version="1", **kwargs):
 
 
 async def accept(store, owner, changes, cursor):
-    checkpoint = await store.checkpoint(owner, "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(owner, "notes.source", "notes")
     pending = await store.stage_batch(owner, checkpoint, SourceChangeBatch(changes=changes, next_cursor=cursor))
     for item in changes:
         if item.operation == "upsert":
@@ -37,7 +37,7 @@ async def test_same_object_id_isolated_between_connections_and_revision_replay(t
     left = await accept(store, connection(), [change()], "a3")
     assert (await store.current_object(left, "note"))["version"] == "2"
     assert (await store.current_object(right, "note"))["version"] == "1"
-    assert (await store.checkpoint(connection("account-b"), "notes.sensor", "notes")).cursor == "b1"
+    assert (await store.checkpoint(connection("account-b"), "notes.source", "notes")).cursor == "b1"
 
 
 @pytest.mark.asyncio
@@ -45,7 +45,7 @@ async def test_unconfirmed_batch_cannot_advance_and_survives_restart(tmp_path):
     path = tmp_path / "sources.db"
     store = SourceStore(path)
     owner = connection()
-    checkpoint = await store.checkpoint(owner, "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(owner, "notes.source", "notes")
     batch = SourceChangeBatch(changes=[change(), SourceChange(object_id="two", version="1")], next_cursor="next")
     pending = await store.stage_batch(owner, checkpoint, batch)
     await store.record_receipt(pending, batch.changes[0], event_id="first", outcome="persisted")
@@ -53,7 +53,7 @@ async def test_unconfirmed_batch_cannot_advance_and_survives_restart(tmp_path):
         await store.accept_batch(owner, pending)
     reopened = SourceStore(path)
     assert await reopened.current_object(checkpoint, "note") is None
-    assert (await reopened.checkpoint(owner, "notes.sensor", "notes")).cursor is None
+    assert (await reopened.checkpoint(owner, "notes.source", "notes")).cursor is None
     resumed = await reopened.pending(checkpoint)
     assert resumed.batch == batch
     await reopened.record_receipt(resumed, batch.changes[1], event_id="second", outcome="duplicate")
@@ -71,7 +71,7 @@ async def test_invalid_revision_reuse_rolls_back_entire_batch(tmp_path):
             SourceChange(object_id="note", version="1", payload={"text": "tampered"}),
         ], next_cursor="two"))
     assert await store.pending(checkpoint) is None
-    assert (await store.checkpoint(owner, "notes.sensor", "notes")).cursor == "one"
+    assert (await store.checkpoint(owner, "notes.source", "notes")).cursor == "one"
     with pytest.raises(SourceCheckpointConflict):
         await store.version(checkpoint, SourceChange(object_id="new", version="1"))
 
@@ -86,7 +86,7 @@ async def test_resource_ownership_version_and_operation_validation(tmp_path):
     assert await store.validate_operation_resource(identity, ref.model_copy(update={"size_bytes": 0})) is False
     with pytest.raises(PermissionError):
         await store.read_resource(connection("account-b"), ref)
-    checkpoint = await store.checkpoint(connection("account-b"), "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(connection("account-b"), "notes.source", "notes")
     with pytest.raises(PermissionError):
         await store.stage_batch(connection("account-b"), checkpoint, SourceChangeBatch(changes=[change(resources=[ref])]))
     await store.disconnect_connection(owner.connection_id)
@@ -124,7 +124,7 @@ async def test_clear_erases_payloads_preserves_cursor_and_fences_old_work(tmp_pa
         await store.accept_batch(owner, pending)
     with pytest.raises(SourceCheckpointConflict):
         await store.stage_batch(owner, checkpoint, SourceChangeBatch())
-    fresh = await store.checkpoint(owner, "notes.sensor", "notes")
+    fresh = await store.checkpoint(owner, "notes.source", "notes")
     assert fresh.cursor == "one"
     assert await store.pending(fresh) is None
     await accept(store, owner, [change()], "three")
@@ -155,7 +155,7 @@ async def test_global_clear_waits_for_admitted_source_work(tmp_path):
     assert not cleared.is_set()
     finish.set()
     await asyncio.gather(task, clear_task)
-    checkpoint = await store.checkpoint(connection(), "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(connection(), "notes.source", "notes")
     assert checkpoint.cursor == "cursor"
     assert await store.current_object(checkpoint, "note") is None
 
@@ -164,7 +164,7 @@ async def test_global_clear_waits_for_admitted_source_work(tmp_path):
 async def test_governed_skip_scrubs_staged_evidence_before_retry(tmp_path):
     store = SourceStore(tmp_path / "sources.db")
     owner = connection()
-    checkpoint = await store.checkpoint(owner, "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(owner, "notes.source", "notes")
     item = change()
     pending = await store.stage_batch(owner, checkpoint, SourceChangeBatch(changes=[item], next_cursor="one"))
     evidence = (await store.version(checkpoint, item))["evidence_ref"]
@@ -179,8 +179,8 @@ async def test_governed_skip_scrubs_staged_evidence_before_retry(tmp_path):
 async def test_cursor_compare_and_swap_rejects_racing_collector(tmp_path):
     store = SourceStore(tmp_path / "sources.db")
     owner = connection()
-    checkpoint = await store.checkpoint(owner, "notes.sensor", "notes")
+    checkpoint = await store.checkpoint(owner, "notes.source", "notes")
     await accept(store, owner, [change()], "one")
     with pytest.raises(SourceCheckpointConflict):
         await store.stage_batch(owner, checkpoint, SourceChangeBatch(next_cursor="stale"))
-    assert (await store.checkpoint(owner, "notes.sensor", "notes")).cursor == "one"
+    assert (await store.checkpoint(owner, "notes.source", "notes")).cursor == "one"

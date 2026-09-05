@@ -3,7 +3,7 @@ id = "git-activity"
 name = "Git Activity"
 version = "0.1.2"
 
-[plugin.default_settings.sensors.git_activity]
+[plugin.default_settings.sources.git_activity]
 enabled = false
 repos = []
 sync_interval_minutes = 30

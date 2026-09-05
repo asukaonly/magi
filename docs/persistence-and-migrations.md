@@ -80,10 +80,10 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/memory/behavior_evolution.db` | personality | historical task interactions, category statistics, and behavior profiles; no runtime collection or inference |
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
-| `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
+| `runtime/scheduler.db` | scheduler | schedules, execution history, source sync jobs |
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
-| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/sensor full-clear checkpoint, pending desktop full-clear transaction |
-| `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
+| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/source full-clear checkpoint, pending desktop full-clear transaction |
+| `runtime/source_state.db` | sources | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task rows and event history, stable task-level execution budgets, privacy-minimized tool-effect intent/completion records, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
 | `data/channels/channels.db` | channels + outreach | external channel session mappings, binding preferences, delivery receipts, notification cursors, proactive-outreach outbox and delivery log |
@@ -113,7 +113,14 @@ remain inside each owned database so restoring or replacing one database cannot
 be hidden by a global bootstrap record. Crash recovery, process-local bindings,
 and other every-launch work also remain outside the skip mechanism.
 
-Sensor pagination is part of scheduler truth. When a completed sensor batch
+Source bookkeeping uses `runtime/source_state.db` with `source_cursors`,
+`source_fingerprints`, and `source_stats`, keyed by `source_id`. Its Alembic
+environment is `backend/src/magi/db/migrations/source_state/`. Scheduler
+attempts live in `source_sync_jobs` in `scheduler.db`. These names are part
+of the unreleased Source contract; no old-name aliases or rename-specific
+data migration are provided.
+
+Source pagination is part of scheduler truth. When a completed source batch
 reports more source data, `scheduler.db` records the parent success and admits
 the next queued job plus execution row in one transaction. A failed
 continuation insert rolls back the parent success instead of leaving a
@@ -123,7 +130,7 @@ A destructive full clear treats scheduler configuration and scheduler content
 differently. It preserves system-owned schedules and each source's cursor,
 watermark, and binding, while deleting user-created agent schedules, their
 runtime jobs and target state, every execution-history row, and every queued or
-running sensor-sync job. Remaining target state keeps progress fields but loses
+running source-sync job. Remaining target state keeps progress fields but loses
 error and statistics payloads. The scheduler applies SQLite secure deletion and
 truncates its WAL before reporting that this store has been cleared, so removed
 prompt, result, error, and statistics text is not left in database sidecars.
@@ -154,20 +161,20 @@ retained backend completion journal. The host marker stays until browser-owned
 state and desktop logs are also clean, so a crash or ambiguous response replays
 the complete idempotent clear.
 
-Plugin- and sensor-owned user content uses the same full-clear generation stored
+Plugin- and source-owned user content uses the same full-clear generation stored
 by the runtime command queue. `runtime_plugin_user_content_clear_state` records
-only the latest generation whose plugin/sensor hooks may be treated as applied;
+only the latest generation whose plugin/source hooks may be treated as applied;
 it is not the global clear completion record and does not create a second
 generation stream. It advances only at the surrounding clear's success edge.
 The checkpoint remains behind when any hook fails, the clear
-is cancelled, a later global clearer or diagnostic-log erasure fails, or sensor
+is cancelled, a later global clearer or diagnostic-log erasure fails, or source
 collection cannot be resumed safely. Collection is started in a non-claiming
 paused state before the checkpoint write and released only after that write
 succeeds. Startup detects a pending shared generation after plugins load and
 fails closed before collection or other plugin ingress starts; plugin-only
 replay is not allowed to claim completion for the cross-store clear.
 Configuration, credentials,
-connected-account state, and sensor cursor/watermark are intentionally retained;
+connected-account state, and source cursor/watermark are intentionally retained;
 plugin hooks delete only their locally retained raw, derived, pending, and
 temporary user content.
 
@@ -390,7 +397,7 @@ independent Alembic environment with its own version chain:
 | `emotional` | `emotional_state.db` |
 | `growth_memory` | `growth_memory.db` |
 | `scheduler` | `scheduler.db` |
-| `sensor_state` | `sensor_state.db` |
+| `source_state` | `source_state.db` |
 | `background_tasks` | `background_tasks.db` |
 | `message_queue` | `message_queue.db` |
 | `permission_rules` | `permission_rules.db` |
@@ -521,7 +528,7 @@ Current governed runtime cleanup:
 | `llm_usage.db` | roll up expired raw rows by day, then delete raw rows older than 7 days |
 | `message_queue.db` | roll up completed rows by hour, delete completed rows older than 24 hours, delete failed rows older than 7 days |
 | `scheduler.db` | delete success history after 30 days and failed history after 60 days |
-| `sensor_state.db` | keep only the latest configured fingerprint count per sensor |
+| `source_state.db` | keep only the latest configured fingerprint count per source |
 | `background_tasks.db` | delete terminal task rows, event history, and their completion-intent rows after the configured background-task history window |
 | chat resources | preserve every file with a surviving message owner, including hidden transcript rows; remove unclaimed files from active sessions only after the longer of the configured grace period or 25 hours; optionally sweep old orphan session directories after the configured grace period |
 | ephemeral jobs | personality generation job snapshots use the configured TTL |

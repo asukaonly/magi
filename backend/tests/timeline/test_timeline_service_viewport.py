@@ -638,8 +638,8 @@ async def test_theme_cards_drop_single_mention_entities() -> None:
     assert "One-off Mention" not in titles
 
 
-async def test_theme_cards_blacklist_sensor_bucket_names() -> None:
-    """Sensor-created bucket entities like "Chrome 历史" / "应用使用情况"
+async def test_theme_cards_blacklist_source_bucket_names() -> None:
+    """Source-created bucket entities like "Chrome 历史" / "应用使用情况"
     must not surface as themes even if they pass the count threshold."""
     from magi.timeline.viewport_builder import TimelineViewportBuilder
 

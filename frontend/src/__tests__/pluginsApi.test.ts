@@ -178,7 +178,7 @@ describe('pluginsApi.getSettingsResource', () => {
           description: '',
           author: 'Magi',
           official: true,
-          contribution_types: ['sensor'],
+          contribution_types: ['source'],
           source: 'external',
           plugin_dir: '/tmp/calendar',
           manifest_path: '/tmp/calendar/plugin.toml',

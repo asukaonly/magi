@@ -4,7 +4,7 @@ import type {
   MemoryDashboard,
   MemorySourceCount,
 } from '@/api/modules/memory';
-import type { SensorSourceStatusItem, SensorSourceStatusResponse } from '@/api/modules/sensors';
+import type { SourceStatusItem, SourceStatusResponse } from '@/api/modules/sources';
 import type { StoryItem } from '@/api/modules/memoryStories';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
@@ -125,28 +125,28 @@ export const storyDisplayTitle = (story: StoryItem, t: OverviewTranslateFn): str
   return translated !== key ? translated : story.summary_category;
 };
 
-const getSensorLabel = (sensor?: SensorSourceStatusItem): string | null => {
-  if (!sensor) {
+const getSourceLabel = (source?: SourceStatusItem): string | null => {
+  if (!source) {
     return null;
   }
   return (
-    String(sensor.display_name_translated || '').trim()
-    || String(sensor.display_name || '').trim()
-    || String(sensor.source_name || '').trim()
+    String(source.display_name_translated || '').trim()
+    || String(source.display_name || '').trim()
+    || String(source.source_name || '').trim()
     || null
   );
 };
 
-const findSensorForSource = (
-  source: MemorySourceCount,
-  sensors: SensorSourceStatusItem[],
-): SensorSourceStatusItem | undefined => {
-  const sourceName = sourceKey(source.source);
-  return sensors.find((sensor) => {
+const findSourceStatus = (
+  count: MemorySourceCount,
+  sources: SourceStatusItem[],
+): SourceStatusItem | undefined => {
+  const sourceName = sourceKey(count.source);
+  return sources.find((source) => {
     const candidates = [
-      sensor.source_name,
-      sensor.contribution_id,
-      sensor.plugin_id,
+      source.source_name,
+      source.contribution_id,
+      source.plugin_id,
     ].map(sourceKey);
     return candidates.includes(sourceName);
   });
@@ -154,24 +154,24 @@ const findSensorForSource = (
 
 export const buildSourceRows = (
   counts: MemorySourceCount[],
-  status?: SensorSourceStatusResponse | null,
+  status?: SourceStatusResponse | null,
   t?: OverviewTranslateFn,
 ): SourceCoverageRow[] => {
-  const sensors = status?.sources || [];
-  return counts.map((source) => {
-    const sensor = findSensorForSource(source, sensors);
+  const sources = status?.sources || [];
+  return counts.map((count) => {
+    const source = findSourceStatus(count, sources);
     return {
-      key: source.source,
-      label: getSensorLabel(sensor) || getMemorySourceLabel(t || ((key: string) => key), source.source),
-      pluginId: sensor?.plugin_id ?? null,
-      icon: sensor?.icon ?? null,
-      status: sensor?.status || (sensor ? (sensor.enabled === false ? 'disabled' : 'ready') : 'ready'),
-      eventCount: source.event_count,
-      lastResultCount: sensor?.last_result_count ?? sensor?.last_raw_result_count ?? null,
-      enabled: sensor ? Boolean(sensor.enabled) : null,
-      running: sensor?.running == null ? null : Boolean(sensor.running),
-      lastSyncAt: sensor?.last_sync_at ?? sensor?.last_run_at ?? null,
-      lastEventAt: source.last_event_at,
+      key: count.source,
+      label: getSourceLabel(source) || getMemorySourceLabel(t || ((key: string) => key), count.source),
+      pluginId: source?.plugin_id ?? null,
+      icon: source?.icon ?? null,
+      status: source?.status || (source ? (source.enabled === false ? 'disabled' : 'ready') : 'ready'),
+      eventCount: count.event_count,
+      lastResultCount: source?.last_result_count ?? source?.last_raw_result_count ?? null,
+      enabled: source ? Boolean(source.enabled) : null,
+      running: source?.running == null ? null : Boolean(source.running),
+      lastSyncAt: source?.last_sync_at ?? source?.last_run_at ?? null,
+      lastEventAt: count.last_event_at,
     };
   }).sort((left, right) => right.eventCount - left.eventCount || left.label.localeCompare(right.label));
 };

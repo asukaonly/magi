@@ -11,7 +11,7 @@ from typing import Any
 from .base import Plugin
 from .contracts import ContributionType, PluginContribution, PluginManifest
 from .history_importers import HistoryImporterRegistry
-from .sensors import SensorRegistry
+from .sources import SourceRegistry
 from .settings_service import collect_plugin_settings_actions, settings_actions_for_contribution
 
 
@@ -22,7 +22,7 @@ class PluginContributionRegistrar:
         self,
         *,
         tool_registry: Any,
-        sensor_registry: SensorRegistry,
+        source_registry: SourceRegistry,
         history_importer_registry: HistoryImporterRegistry | None = None,
         hook_registry_provider: Callable[[], Any | None] | None = None,
         skill_registrar: Any | None = None,
@@ -30,7 +30,7 @@ class PluginContributionRegistrar:
         provider_registrar: Any | None = None,
     ) -> None:
         self._tool_registry = tool_registry
-        self._sensor_registry = sensor_registry
+        self._source_registry = source_registry
         self._history_importer_registry = history_importer_registry or HistoryImporterRegistry()
         self._hook_registry_provider = hook_registry_provider or _resolve_hook_registry
         self._skill_registrar = skill_registrar
@@ -60,7 +60,7 @@ class PluginContributionRegistrar:
             if connection_id in self._registrations:
                 raise ValueError(f"Connection contributions already registered: {connection_id}")
             tools = list(plugin_instance.get_tools())
-            sensors = list(plugin_instance.get_sensors())
+            sources = list(plugin_instance.get_sources())
             importers = list(plugin_instance.get_history_importers())
             channel = plugin_instance.get_channel()
             hooks = list(plugin_instance.get_hooks())
@@ -73,7 +73,7 @@ class PluginContributionRegistrar:
                     (ContributionType.TOOL, tools),
                     (ContributionType.OPERATION, operations),
                     (ContributionType.PROVIDER, providers),
-                    (ContributionType.SENSOR, sensors),
+                    (ContributionType.SOURCE, sources),
                     (ContributionType.HISTORY_IMPORTER, importers),
                     (ContributionType.CHANNEL, channel is not None),
                     (ContributionType.HOOK, hooks),
@@ -202,24 +202,24 @@ class PluginContributionRegistrar:
                             implementation=implementation,
                         )
                     )
-                for sensor_id, sensor, spec in sensors:
-                    if sensor_id != spec.sensor_id:
-                        raise ValueError("Sensor tuple id must match its spec")
+                for source_id, source, spec in sources:
+                    if source_id != spec.source_id:
+                        raise ValueError("Source tuple id must match its spec")
                     surface = (
                         spec.surface
                         if spec.surface in {"extensions", "tools", "timeline"}
                         else "extensions"
                     )
                     record(
-                        ContributionType.SENSOR,
-                        sensor_id,
+                        ContributionType.SOURCE,
+                        source_id,
                         display_name=spec.display_name,
                         description=spec.description,
                         surface=surface,
                         fields=list(spec.fields),
                         metadata={"domain": spec.domain, **dict(spec.metadata)},
                     )
-                    bind = getattr(sensor, "bind_plugin_context", None)
+                    bind = getattr(source, "bind_plugin_context", None)
                     if callable(bind):
                         bind(
                             plugin_id=plugin_id,
@@ -227,19 +227,19 @@ class PluginContributionRegistrar:
                             connection=plugin_instance.connection,
                             context=plugin_instance.context,
                         )
-                    registered_id = host_id(sensor_id)
+                    registered_id = host_id(source_id)
                     disposers.append(
-                        self._sensor_registry.register(
+                        self._source_registry.register(
                             plugin_id,
                             registered_id,
-                            sensor,
+                            source,
                             replace(
                                 spec,
-                                sensor_id=registered_id,
+                                source_id=registered_id,
                                 metadata={
                                     **spec.metadata,
                                     "connection_id": connection_id,
-                                    "local_sensor_id": sensor_id,
+                                    "local_source_id": source_id,
                                 },
                             ),
                         )

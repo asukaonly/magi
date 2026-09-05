@@ -14,7 +14,7 @@ from magi.plugins import manager as manager_module
 from magi.plugins import package_files
 from magi.plugins.contracts import PluginCapability
 from magi.plugins.manager import PluginManager
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 
 
@@ -110,9 +110,9 @@ def _patch_config(
 def _manager(user_root: Path) -> PluginManager:
     return PluginManager(
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
+        source_registry=SourceRegistry(),
         search_paths=[user_root],
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
 
 

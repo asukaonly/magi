@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document describes the timeline domain (L13) — a reactive read-model layer that projects sensor outputs into scale-aware temporal views for the frontend.
+This document describes the timeline domain (L13) — a reactive read-model layer that projects source outputs into scale-aware temporal views for the frontend.
 
 Read together with [Layered Agent Architecture](./layered-agent-architecture.md), [Unified Plugin Architecture](./plugin-extension-architecture.md), and [Memory System Design](./memory-system-design.md).
 
 ## Scope
 
-The timeline domain is a downstream consumer of sensor ingestion. It does not own ingestion, scheduling, or durable memory retention. Those responsibilities belong to `awareness/` (L10), `scheduler/` (L1), and `memory/` (L7) respectively.
+The timeline domain is a downstream consumer of source ingestion. It does not own ingestion, scheduling, or durable memory retention. Those responsibilities belong to `awareness/` (L10), `scheduler/` (L1), and `memory/` (L7) respectively.
 
 Timeline owns:
 
@@ -23,26 +23,26 @@ Timeline owns:
 
 Timeline does not own:
 
-- sensor scheduling or execution (L1/L10)
+- source scheduling or execution (L1/L10)
 - durable memory storage or recall (L7)
 - chat transcript truth (L14 `chat/`)
 
 ## Data Flow
 
 ```
-Sensor plugin
-  → SensorIngestionGateway (L10)
+Source plugin
+  → SourceIngestionGateway (L10)
   → memory-owned L1 commit confirmation
-  → committed SensorEventEmitted publication
+  → committed SourceEventEmitted publication
   → TimelineSubscriber
-  → timeline-owned SensorEventEmitted projection
+  → timeline-owned SourceEventEmitted projection
   → TimelineEvent (L13 read model)
   → TimelineService.upsert_event()
       ├─ TimelineInsightPipeline (relation → L2 graph)
       └─ Timeline read model persistence
 ```
 
-Timeline projection failure does not revoke an already confirmed sensor-memory
+Timeline projection failure does not revoke an already confirmed source-memory
 commit. The canonical L1 event remains the source from which downstream read
 models can be rebuilt.
 
@@ -65,7 +65,7 @@ GET /timeline/context/{anchor_id}
 
 ### TimelineEvent
 
-The canonical timeline fact. Created by the host projection pipeline from `SensorOutput` truth:
+The canonical timeline fact. Created by the host projection pipeline from `SourceOutput` truth:
 
 - `event_id`, `source_type`, `source_item_id`
 - `occurred_at`, `captured_at` — when the event happened vs. when it was captured
@@ -73,17 +73,17 @@ The canonical timeline fact. Created by the host projection pipeline from `Senso
 - `retention_mode` — `retain_raw`, `analyze_only`, or `compressible`
 - `content_blocks` — list of `{kind, value, mime_type}`
 - `entities`, `tags`, `privacy_labels` — semantic annotations
-- `raw_payload_ref` — reference to the original sensor payload
+- `raw_payload_ref` — reference to the original source payload
 - `processing_status`, `provenance` — metadata and audit trail
 
-`TimelineEvent` is L13-internal. Sensors produce `SensorOutput` truth (L10), the
+`TimelineEvent` is L13-internal. Sources produce `SourceOutput` truth (L10), the
 host renders display text, and the timeline layer owns the final
-`SensorEventEmitted` → `TimelineEvent` projection. Awareness does not construct
+`SourceEventEmitted` → `TimelineEvent` projection. Awareness does not construct
 timeline read-model records. When timeline reads events that already live in
 memory, it uses the neutral `activity_snapshot` metadata block rather than a
 timeline-owned structure persisted by memory.
 
-The host projection layer also enforces each sensor output's
+The host projection layer also enforces each source output's
 `timeline_presentation` policy. Default `full` events keep the historical
 behavior: the primary timeline summary mirrors the host-rendered event content.
 `compact` and `evidence_only` events use a short title/summary for the primary
@@ -214,7 +214,7 @@ document.
 
 ### `adapter.py` — TimelineAdapter
 
-Stores pre-rendered `TimelineEvent` objects. Called post-ingestion by the timeline handler after the host projection layer has rendered title/summary from `SensorOutput.activity`, `SensorOutput.narration`, and `SensorOutput.timeline_presentation`. Does not re-ingest into memory.
+Stores pre-rendered `TimelineEvent` objects. Called post-ingestion by the timeline handler after the host projection layer has rendered title/summary from `SourceOutput.activity`, `SourceOutput.narration`, and `SourceOutput.timeline_presentation`. Does not re-ingest into memory.
 
 ### `service.py` — TimelineService
 
@@ -343,7 +343,7 @@ surface.
 Timeline (L13) may depend on:
 
 - memory (L7) for L1 events, L2 assertions/episodes/edges, L3 summaries, L4 procedures
-- awareness (L10) for `SensorOutput` contracts (input only)
+- awareness (L10) for `SourceOutput` contracts (input only)
 - config (L2) for runtime settings
 - core (L1) for infrastructure
 
@@ -353,5 +353,5 @@ Timeline must not depend on:
 - external services (L14)
 - transport (L15)
 
-Sensors (L10) must not depend on timeline. Sensor ingestion publishes neutral
-events; timeline subscribers own the sensor → timeline read-model projection.
+Sources (L10) must not depend on timeline. Source ingestion publishes neutral
+events; timeline subscribers own the source → timeline read-model projection.

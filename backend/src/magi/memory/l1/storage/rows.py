@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from ...event_contracts import (
     IngestTarget,

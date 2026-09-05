@@ -90,7 +90,7 @@ _TRIGGER_SOURCE_BY_TRIGGER_TYPE: dict[str, BackgroundTaskTriggerSource] = {
     "external_inbound": BackgroundTaskTriggerSource.USER,
     "scheduled": BackgroundTaskTriggerSource.SCHEDULE,
     "background_resume": BackgroundTaskTriggerSource.MANUAL,
-    "sensor_event": BackgroundTaskTriggerSource.RULE,
+    "source_event": BackgroundTaskTriggerSource.RULE,
     "agent_self": BackgroundTaskTriggerSource.RULE,
     "child_run_completed": BackgroundTaskTriggerSource.RULE,
     "batch": BackgroundTaskTriggerSource.RULE,

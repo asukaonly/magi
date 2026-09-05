@@ -1,4 +1,4 @@
-import type { SensorSourceStatusItem } from '@/api/modules/sensors';
+import type { SourceStatusItem } from '@/api/modules/sources';
 
 type TimelineTranslateFn = (key: string) => string;
 
@@ -21,7 +21,7 @@ const resolveTranslation = (
 export const getTimelineSourceDisplayName = (
   t: TimelineTranslateFn,
   source: Pick<
-    SensorSourceStatusItem,
+    SourceStatusItem,
     'source_name' | 'plugin_id' | 'display_name' | 'display_name_translated'
   >
 ): string =>
@@ -40,7 +40,7 @@ export const getTimelineSourceDisplayName = (
 export const getTimelineSourceDescription = (
   t: TimelineTranslateFn,
   source: Pick<
-    SensorSourceStatusItem,
+    SourceStatusItem,
     'source_name' | 'plugin_id' | 'description' | 'description_translated'
   >
 ): string =>

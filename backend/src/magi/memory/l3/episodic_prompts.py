@@ -8,7 +8,7 @@ EPISODIC_SUMMARY_SYSTEM_PROMPT = """You are writing one entry in a user's person
 # Voice
 - Use second person to refer to the user ("你..." in Chinese, "you..." in English).
 - Use the user's language for label and content.
-- Concise diary tone — neither dry sensor logs nor literary prose. Think of how a friend would briefly describe what someone did, not a memoir narrator.
+- Concise diary tone — neither dry source logs nor literary prose. Think of how a friend would briefly describe what someone did, not a memoir narrator.
 
 # Label (≤ 18 chars / ~10 Chinese characters)
 A short noun phrase that someone scanning a list of chapters could read in one glance and remember.
@@ -35,7 +35,7 @@ Bad:
 - key_topics: up to 5, prefer keys that recur. Use Topics if non-empty; otherwise derive from prominent names in the evidence.
 
 # Honest signal
-If the evidence is mostly low-information sensor events (e.g. a long series of browser visits without a clear theme), keep label and content brief and factual — don't fabricate a narrative arc.
+If the evidence is mostly low-information source events (e.g. a long series of browser visits without a clear theme), keep label and content brief and factual — don't fabricate a narrative arc.
 
 # Constraints
 - Do not invent facts not present in the evidence.

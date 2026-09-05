@@ -31,7 +31,7 @@ from magi.plugins.provisional_dependencies import (
 )
 from magi.plugins.registry_client import PluginRegistrySnapshot
 from magi.plugins.registry_provenance import registry_install_fingerprint
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from runtime_fixtures import instantiate_fixture_plugin
 from magi.utils.runtime import RuntimePaths
 from magi.tools.registry import ToolRegistry
@@ -261,8 +261,8 @@ def _new_manager(user_root: Path) -> PluginManager:
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     original_outcome = manager._build_directory_install_outcome

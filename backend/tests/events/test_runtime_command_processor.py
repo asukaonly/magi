@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from magi.awareness.sensor_hub import SensorHub
+from magi.awareness.source_hub import SourceHub
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.events.contracts import (
     RefreshLLMConfigCommand,
     RuntimeCommandType,
     RuntimeQueuedCommand,
-    SensorStateFlushCommand,
-    SensorSyncCommand,
+    SourceStateFlushCommand,
+    SourceSyncCommand,
     UserMessageCommand,
 )
 from magi.events.events import EventTypes
@@ -39,8 +39,8 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    sensor_hub = SensorHub(message_bus=message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus=message_bus)
+    await source_hub.start()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
@@ -66,7 +66,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(
         )
 
         for _ in range(100):
-            batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
+            batch = await source_hub.get_batch(max_items=8, timeout_seconds=0.02)
             if batch:
                 break
         else:
@@ -93,7 +93,7 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(
         assert stats["completed_count"] == 0
     finally:
         await processor.shutdown()
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()
 
@@ -199,8 +199,8 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    sensor_hub = SensorHub(message_bus=message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus=message_bus)
+    await source_hub.start()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
@@ -226,7 +226,7 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
 
         await asyncio.sleep(0.05)
 
-        batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
+        batch = await source_hub.get_batch(max_items=8, timeout_seconds=0.02)
         assert batch == []
 
         stats = await queue.get_stats()
@@ -234,18 +234,18 @@ async def test_runtime_command_processor_stops_claiming_commands_while_draining(
         assert processor.is_draining is True
     finally:
         await processor.shutdown()
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> None:
+async def test_runtime_command_processor_queues_source_sync(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    class _FakeSensorSchedulerContrib:
+    class _FakeSourceSchedulerContrib:
         def __init__(self) -> None:
             self.queued_sources: list[dict[str, object]] = []
 
@@ -253,6 +253,7 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
             self,
             source_name: str,
             *,
+            connection_id: str,
             first_context: bool = False,
             sync_mode: str = "latest",
             backfill_scope: str | None = None,
@@ -263,6 +264,7 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
             self.queued_sources.append(
                 {
                     "source_name": source_name,
+                    "connection_id": connection_id,
                     "first_context": first_context,
                     "sync_mode": sync_mode,
                     "backfill_scope": backfill_scope,
@@ -273,21 +275,22 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
             )
             return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
-    sensor_scheduler = _FakeSensorSchedulerContrib()
+    source_scheduler = _FakeSourceSchedulerContrib()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.agent_runtime.sensor_scheduler_contrib = sensor_scheduler
+    context.agent_runtime.source_scheduler_contrib = source_scheduler
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
 
     try:
-        await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+        await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="calendar",
                 first_context=True,
             )
@@ -301,9 +304,10 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
 
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
-        assert sensor_scheduler.queued_sources == [
+        assert source_scheduler.queued_sources == [
             {
                 "source_name": "calendar",
+                "connection_id": "account-main",
                 "first_context": True,
                 "sync_mode": "latest",
                 "backfill_scope": None,
@@ -319,12 +323,12 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: Path) -> None:
+async def test_runtime_command_processor_queues_backfill_source_sync(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    class _FakeSensorSchedulerContrib:
+    class _FakeSourceSchedulerContrib:
         def __init__(self) -> None:
             self.queued_sources: list[dict[str, object]] = []
 
@@ -332,6 +336,7 @@ async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: P
             self,
             source_name: str,
             *,
+            connection_id: str,
             first_context: bool = False,
             sync_mode: str = "latest",
             backfill_scope: str | None = None,
@@ -342,6 +347,7 @@ async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: P
             self.queued_sources.append(
                 {
                     "source_name": source_name,
+                    "connection_id": connection_id,
                     "first_context": first_context,
                     "sync_mode": sync_mode,
                     "backfill_scope": backfill_scope,
@@ -352,21 +358,22 @@ async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: P
             )
             return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
-    sensor_scheduler = _FakeSensorSchedulerContrib()
+    source_scheduler = _FakeSourceSchedulerContrib()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.agent_runtime.sensor_scheduler_contrib = sensor_scheduler
+    context.agent_runtime.source_scheduler_contrib = source_scheduler
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
 
     try:
-        await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+        await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="chrome_history",
                 sync_mode="backfill",
                 backfill_scope="custom",
@@ -383,9 +390,10 @@ async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: P
 
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
-        assert sensor_scheduler.queued_sources == [
+        assert source_scheduler.queued_sources == [
             {
                 "source_name": "chrome_history",
+                "connection_id": "account-main",
                 "first_context": False,
                 "sync_mode": "backfill",
                 "backfill_scope": "custom",
@@ -401,34 +409,36 @@ async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: P
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_flushes_sensor_state(tmp_path: Path) -> None:
+async def test_runtime_command_processor_flushes_source_state(tmp_path: Path) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
 
-    class _FakeSensorSyncExecutor:
+    class _FakeSourceSyncExecutor:
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        async def flush_sensor_state(self, source_name: str):
+        async def flush_source_state(self, source_name: str, *, connection_id: str):
+            assert connection_id == "account-main"
             self.calls.append(source_name)
             return {"bucket_count": 1}
 
-    executor = _FakeSensorSyncExecutor()
+    executor = _FakeSourceSyncExecutor()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
     context.message_bus.message_bus = message_bus
     context.agent_runtime.agent_runtime = object()
-    context.agent_runtime.sensor_sync_executor = executor
+    context.agent_runtime.source_sync_executor = executor
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
 
     try:
-        await queue.enqueue_sensor_state_flush(
-            SensorStateFlushCommand(
+        await queue.enqueue_source_state_flush(
+            SourceStateFlushCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="screen_time",
             )
         )
@@ -489,20 +499,20 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
         assert stats["completed_count"] == 0
         assert stats["pending_count"] > 0 or stats["claimed_count"] > 0
 
-        sensor_hub = SensorHub(message_bus=message_bus)
-        await sensor_hub.start()
+        source_hub = SourceHub(message_bus=message_bus)
+        await source_hub.start()
         try:
             # Generous wall-clock budgets (~6s each): this poll-based test runs
             # late in the full suite where leaked aiosqlite worker threads jitter
             # the event loop, so tight 2-3s budgets flake under load.
             for _ in range(300):
-                batch = await sensor_hub.get_batch(max_items=8, timeout_seconds=0.02)
+                batch = await source_hub.get_batch(max_items=8, timeout_seconds=0.02)
                 if batch:
                     break
             else:
                 batch = []
         finally:
-            await sensor_hub.stop()
+            await source_hub.stop()
 
         assert len(batch) == 1
         assert batch[0].event_type == EventTypes.USER_MESSAGE
@@ -524,8 +534,8 @@ async def test_global_clear_waits_for_claimed_user_message_dispatch(
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
-    sensor_hub = SensorHub(message_bus=message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus=message_bus)
+    await source_hub.start()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
@@ -573,7 +583,7 @@ async def test_global_clear_waits_for_claimed_user_message_dispatch(
         release_claim.set()
         await asyncio.wait_for(dispatch_task, timeout=1)
         assert await asyncio.wait_for(clear_task, timeout=1) == (1, 1)
-        batch = await sensor_hub.get_batch(timeout_seconds=0.05)
+        batch = await source_hub.get_batch(timeout_seconds=0.05)
         assert len(batch) == 1
         assert batch[0].payload["content"] == "finish dispatch before clear"
         assert processor._active_commands == 0
@@ -584,14 +594,14 @@ async def test_global_clear_waits_for_claimed_user_message_dispatch(
         if not dispatch_task.done():
             dispatch_task.cancel()
         await asyncio.gather(dispatch_task, return_exceptions=True)
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command_kind", ["sensor_sync", "sensor_state_flush"])
-async def test_global_clear_waits_for_active_sensor_command(
+@pytest.mark.parametrize("command_kind", ["source_sync", "source_state_flush"])
+async def test_global_clear_waits_for_active_source_command(
     tmp_path: Path,
     command_kind: str,
 ) -> None:
@@ -603,35 +613,37 @@ async def test_global_clear_waits_for_active_sensor_command(
     clear_entered = asyncio.Event()
     order: list[str] = []
 
-    class _BlockingSensorScheduler:
+    class _BlockingSourceScheduler:
         async def queue_manual_sync(self, source_name: str, **kwargs):  # type: ignore[no-untyped-def]
             _ = (source_name, kwargs)
             command_started.set()
             await release_command.wait()
-            order.append("sensor_write")
+            order.append("source_write")
 
-    class _BlockingSensorExecutor:
-        async def flush_sensor_state(self, source_name: str) -> None:
+    class _BlockingSourceExecutor:
+        async def flush_source_state(self, source_name: str, *, connection_id: str) -> None:
+            assert connection_id == "account-main"
             _ = source_name
             command_started.set()
             await release_command.wait()
-            order.append("sensor_write")
+            order.append("source_write")
 
-    context.agent_runtime.sensor_scheduler_contrib = _BlockingSensorScheduler()
-    context.agent_runtime.sensor_sync_executor = _BlockingSensorExecutor()
+    context.agent_runtime.source_scheduler_contrib = _BlockingSourceScheduler()
+    context.agent_runtime.source_sync_executor = _BlockingSourceExecutor()
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
 
-    if command_kind == "sensor_sync":
-        await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+    if command_kind == "source_sync":
+        await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="chrome_history",
                 sync_mode="backfill",
             )
         )
     else:
-        await queue.enqueue_sensor_state_flush(
-            SensorStateFlushCommand(source="api", source_name="screen_time")
+        await queue.enqueue_source_state_flush(
+            SourceStateFlushCommand(source="api", connection_id="account-main", source_name="screen_time")
         )
 
     processing = asyncio.create_task(
@@ -655,7 +667,7 @@ async def test_global_clear_waits_for_active_sensor_command(
         release_command.set()
         await asyncio.wait_for(processing, timeout=1)
         assert await asyncio.wait_for(clearing, timeout=1) == (1, 1)
-        assert order == ["sensor_write", "clear"]
+        assert order == ["source_write", "clear"]
     finally:
         release_command.set()
         if clearing is not None:
@@ -667,8 +679,8 @@ async def test_global_clear_waits_for_active_sensor_command(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("command_kind", ["sensor_sync", "sensor_state_flush"])
-async def test_sensor_command_queued_before_clear_cannot_run_after_clear(
+@pytest.mark.parametrize("command_kind", ["source_sync", "source_state_flush"])
+async def test_source_command_queued_before_clear_cannot_run_after_clear(
     tmp_path: Path,
     command_kind: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -687,17 +699,18 @@ async def test_sensor_command_queued_before_clear_cannot_run_after_clear(
         return True
 
     monkeypatch.setattr(processor, "_execute_runtime_command", _record_execution)
-    if command_kind == "sensor_sync":
-        await queue.enqueue_sensor_sync(
-            SensorSyncCommand(
+    if command_kind == "source_sync":
+        await queue.enqueue_source_sync(
+            SourceSyncCommand(
                 source="api",
+                connection_id="account-main",
                 source_name="chrome_history",
                 sync_mode="backfill",
             )
         )
     else:
-        await queue.enqueue_sensor_state_flush(
-            SensorStateFlushCommand(source="api", source_name="screen_time")
+        await queue.enqueue_source_state_flush(
+            SourceStateFlushCommand(source="api", connection_id="account-main", source_name="screen_time")
         )
 
     processing: asyncio.Task[None] | None = None
@@ -727,8 +740,8 @@ async def test_sensor_command_queued_before_clear_cannot_run_after_clear(
     "command_type",
     [
         RuntimeCommandType.USER_MESSAGE,
-        RuntimeCommandType.SENSOR_SYNC,
-        RuntimeCommandType.SENSOR_STATE_FLUSH,
+        RuntimeCommandType.SOURCE_SYNC,
+        RuntimeCommandType.SOURCE_STATE_FLUSH,
     ],
 )
 async def test_processor_rejects_stale_clear_sensitive_command(
@@ -778,8 +791,8 @@ async def test_claimed_user_message_is_discarded_when_its_session_is_deleted(
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
-    sensor_hub = SensorHub(message_bus=message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus=message_bus)
+    await source_hub.start()
 
     context = RuntimeBootstrapContext()
     context.runtime_commands.runtime_command_queue = queue
@@ -823,14 +836,14 @@ async def test_claimed_user_message_is_discarded_when_its_session_is_deleted(
 
         release_claim.set()
         await asyncio.wait_for(dispatch_task, timeout=1)
-        assert await sensor_hub.get_batch(timeout_seconds=0.05) == []
+        assert await source_hub.get_batch(timeout_seconds=0.05) == []
         assert processor._active_commands == 0
     finally:
         release_claim.set()
         if not dispatch_task.done():
             dispatch_task.cancel()
             await asyncio.gather(dispatch_task, return_exceptions=True)
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()
 

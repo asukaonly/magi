@@ -92,7 +92,7 @@ async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
             ingest_result = await store.ingest_event(
                 {
                     "id": "evt-ext-interest-1",
-                    "type": "SENSOR_EVENT",
+                    "type": "SOURCE_EVENT",
                     "timestamp": now - 2 * 86_400,
                     "source": "chrome_history",
                     "level": EventLevel.INFO.value,
@@ -118,7 +118,7 @@ async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
                 observed_at = now - (1 - index) * 86_400
                 await store.l1.store(store._normalize_event({
                     "id": event_id,
-                    "type": "SENSOR_EVENT",
+                    "type": "SOURCE_EVENT",
                     "timestamp": observed_at,
                     "source": "chrome_history",
                     "level": EventLevel.INFO.value,

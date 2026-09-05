@@ -237,17 +237,17 @@ def build_default_system_suggestions_router(
 # ---------------------------------------------------------------------------
 
 
-async def _active_sensor_plugin_ids() -> set[str]:
-    """Plugin ids whose sensor source is already in use (enabled AND configured).
+async def _active_source_plugin_ids() -> set[str]:
+    """Plugin ids whose source is already in use (enabled AND configured).
 
-    Reuses the sensor-source status the frontend reads, so "in use" matches what
+    Reuses the source-source status the frontend reads, so "in use" matches what
     the user sees in Settings. Degrades to an empty set on any error (we'd rather
     occasionally re-suggest an active plugin than crash the suggestion path).
     """
     try:
-        from magi.api.routers.sensors import get_sensor_source_status
+        from magi.api.routers.sources import get_source_status
 
-        status = await get_sensor_source_status()
+        status = await get_source_status()
         sources = (status or {}).get("sources", []) if isinstance(status, dict) else []
         active: set[str] = set()
         for s in sources:
@@ -256,7 +256,7 @@ async def _active_sensor_plugin_ids() -> set[str]:
                 continue
             # "configured": the activation flow's configured_key is truthy in
             # current_settings, OR the source doesn't require activation.
-            # get_sensor_source_status exposes `activation_required` = True only
+            # get_source_status exposes `activation_required` = True only
             # when an activation flow exists AND it's not yet enabled+configured.
             # So: in-use == enabled AND not activation_required.
             if not s.get("activation_required", False):
@@ -276,8 +276,8 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
     installed-only and log a warning, so the route never fails just because the
     registry is unreachable.
 
-    Plugins whose sensor source is already in use (enabled+configured, per
-    :func:`_active_sensor_plugin_ids`) are dropped via
+    Plugins whose source is already in use (enabled+configured, per
+    :func:`_active_source_plugin_ids`) are dropped via
     :func:`partition_for_candidates` so we never suggest connecting/installing a
     data source the user already has on.
     """
@@ -302,7 +302,7 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
             )
             registry_entries = []
 
-        active_plugin_ids = await _active_sensor_plugin_ids()
+        active_plugin_ids = await _active_source_plugin_ids()
         installed_manifests, not_installed_registry = partition_for_candidates(
             packages, registry_entries, active_plugin_ids
         )

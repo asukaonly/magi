@@ -82,13 +82,13 @@ class AssistantResponseProduced:
 
 
 @dataclass(frozen=True)
-class SensorEventEmitted:
-    sensor_name: str
+class SourceEventEmitted:
+    source_name: str
     payload: Mapping[str, Any]
     context: TaskContext
 
     # New (C): extended fields for cross-subscriber projection.
-    sensor_id: str = ""
+    source_id: str = ""
     output_dict: Mapping[str, Any] = field(default_factory=dict)
     metadata_dict: Optional[Mapping[str, Any]] = None
     policy_dict: Mapping[str, Any] = field(default_factory=dict)
@@ -97,9 +97,9 @@ class SensorEventEmitted:
     owner_user_id: Optional[str] = None
     relation_candidates: tuple[Mapping[str, Any], ...] = ()
     allowed_edge_whitelist: tuple[str, ...] = ()
-    sensor_fingerprint: Optional[str] = None
+    source_fingerprint: Optional[str] = None
     idempotency_key: Optional[str] = None
-    memory_event_type: str = "SENSOR_EVENT"
+    memory_event_type: str = "SOURCE_EVENT"
     l2_batch_policy_dict: Optional[Mapping[str, Any]] = None
 
 

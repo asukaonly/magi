@@ -76,7 +76,7 @@ def mask_plugin_setting_values(
     values: dict[str, Any],
     contributions: Iterable[Any],
 ) -> dict[str, Any]:
-    """Mask a flat settings-key projection such as a sensor status payload."""
+    """Mask a flat settings-key projection such as a source status payload."""
     return {
         key: (MASKED_PLUGIN_SECRET if value else value)
         if is_plugin_secret_key(key, contributions)

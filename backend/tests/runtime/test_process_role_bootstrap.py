@@ -22,8 +22,8 @@ def test_build_runtime_modules_includes_full_runtime() -> None:
 
     assert "runtime_agent_core" in module_names
     assert "runtime_scheduler" in module_names
-    assert "runtime_sensor_scheduler" in module_names
-    assert "runtime_sensor_sync_executor" in module_names
+    assert "runtime_source_scheduler" in module_names
+    assert "runtime_source_sync_executor" in module_names
     assert "runtime_l1_maintenance_scheduler" in module_names
     assert "runtime_l2_maintenance_scheduler" in module_names
     assert "runtime_l2_consolidation_scheduler" in module_names

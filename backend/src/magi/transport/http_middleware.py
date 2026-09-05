@@ -22,7 +22,7 @@ QUIET_REQUEST_PATHS = {
     "/api/config",
     "/api/config/",
     "/api/memory/models",
-    "/api/sensors/status",
+    "/api/sources/status",
     "/api/plugins",
     "/api/tools/config",
 }

@@ -71,6 +71,6 @@ export const getActivityTitle = (
   return schedule ? getScheduleTitle(schedule) : activity.schedule_id;
 };
 
-export const getSensorPluginId = (schedule: ScheduleDTO): string => (
+export const getSourcePluginId = (schedule: ScheduleDTO): string => (
   getScheduleStringValue(schedule, 'plugin_id') || schedule.target_key.split(':')[0] || schedule.target_key
 );

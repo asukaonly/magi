@@ -118,7 +118,7 @@ which agree on the same string scheme.
   HTTP `/chat` default and is typed as `MagiUserID`.
 - `user_profile/models.py` re-exports the same value for profile read
   models instead of declaring an independent source of truth.
-- `awareness/sensor_hub.py` falls back to `DEFAULT_USER_ID` when an
+- `awareness/source_hub.py` falls back to `DEFAULT_USER_ID` when an
   inbound event lacks `user_id`.
 
 ### 5.2 External-id synthesis
@@ -135,7 +135,7 @@ The resulting string is stored on `channel_session_mappings.magi_user_id`,
 returned to the channel adapter, and then propagated as the `user_id`
 on every subsequent event the adapter dispatches via
 `dispatch_user_message`. From there it flows verbatim into chat
-storage, sensor_hub → fact_events, runtime_notifications, and
+storage, source_hub → fact_events, runtime_notifications, and
 anything else keyed by `user_id`.
 
 ### 5.3 Partial normalization
@@ -257,7 +257,7 @@ all callers see one interface.
 - Phase 3 (separate future PR): ratchet `MagiUserID` outward,
   starting at the ingress edges (`channels/dispatcher.py`,
   `api/services/message_dispatch_service.py`,
-  `awareness/sensor_hub.py`) and growing inward toward storage
+  `awareness/source_hub.py`) and growing inward toward storage
   call sites. Each PR shrinks the `str` perimeter, identical to how
   `.importlinter` shrinks its `ignore_imports` list.
 
@@ -294,7 +294,7 @@ downstream:
 | - | ------------------------------------------------------------------------------------- | ----- | --------------------------------------------- | ------------------ |
 | 1 | `channels/dispatcher.py::ChannelMessageDispatcher.dispatch_user_message`              | L13   | `source` (channel scheme) + adapter-provided `external_user_id` via metadata | resolve → `MagiUserID` → pass downstream as `user_id` |
 | 2 | `api/services/message_dispatch_service.py::dispatch_user_message`                     | L13   | `user_id` query arg / form arg (defaults to `DEFAULT_USER_ID`) | canonicalize (today: always equals `local_user`) → continue |
-| 3 | `awareness/sensor_hub.py::SensorHub._on_user_message`                                 | L9    | `event.data["user_id"]` from the published Event | already-canonical, asserts |
+| 3 | `awareness/source_hub.py::SourceHub._on_user_message`                                 | L9    | `event.data["user_id"]` from the published Event | already-canonical, asserts |
 | 4 | `channels/session_mapper.py::resolve_or_create`                                       | L13   | `(channel_type, external_user_id)`            | resolve → store canonical in `magi_user_id` column |
 
 After Phase 2, no other layer should be the first to see an
@@ -418,8 +418,8 @@ Three tiers:
 - **Ingress integration tests**: each of the four ingress sites in
   §6.5 gets a focused test that an external-id-bearing payload
   produces a canonical `user_id` downstream. Mirrors the test we
-  already added for `SensorHub` source-field propagation in
-  `tests/awareness/test_sensor_hub_source_propagation.py`.
+  already added for `SourceHub` source-field propagation in
+  `tests/awareness/test_source_hub_source_propagation.py`.
 - **End-to-end test**: weixin inbound → run completes → fact_events
   row has `user_id = 'local_user'`. This is the user-visible win:
   cross-channel memory recall works.
@@ -486,7 +486,7 @@ lost, only re-keyed).
 │ L12   timeline                                                 │
 │ L11   agent                                                    │
 │ L10   context                                                  │
-│ L9    awareness         ◄── ingress: sensor_hub resolve() site │
+│ L9    awareness         ◄── ingress: source_hub resolve() site │
 │ L8    personality                                              │
 │ L7    tools | skills                                           │
 │ L6    memory            ◄── consumes MagiUserID (write/read)   │

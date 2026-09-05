@@ -81,7 +81,7 @@
     "defaultFeatureSummaryTitle": "系统默认配置将开启以下功能：",
     "personaBadge": "默认人格",
     "personaSummaryTitle": "默认对话人格",
-    "sensorHint": "下一步可以选择要安装的数据采集传感器。",
+    "sourceHint": "下一步可以选择要安装的数据来源插件。",
     "defaultHint": "使用系统默认配置，所有功能均可在设置页面中随时启用或调整。",
     "personas": {
       "chatAssistant": {
@@ -108,27 +108,27 @@
       "knowledgeExtraction": "知识抽取（从对话中提取事实和关系）",
       "temporalSummary": "时间摘要（自动生成阶段性总结）",
       "skillLearning": "技能学习（从经验中积累能力）",
-      "sensors": "数据采集传感器（需安装插件）"
+      "sources": "数据来源（需安装插件）"
     }
   },
-  "sensorSelection": {
-    "title": "安装传感器插件",
-    "description": "传感器会自动采集你的数字生活数据。选择需要的传感器，点击安装后即可使用。全部可选，可以之后在设置中再添加。",
+  "sourceSelection": {
+    "title": "安装数据来源插件",
+    "description": "连接数据来源后，Magi 可以自动采集你的数字生活数据。选择需要的插件，点击安装后即可使用。全部可选，可以之后在设置中再添加。",
     "recommended": "推荐",
-    "installSelected": "安装选中的传感器",
-    "installSuccess": "已成功安装 {{count}} 个传感器",
-    "installAllFailed": "{{count}} 个传感器安装失败，可稍后在设置中重试",
+    "installSelected": "安装选中的数据来源",
+    "installSuccess": "已成功安装 {{count}} 个数据来源",
+    "installAllFailed": "{{count}} 个数据来源安装失败，可稍后在设置中重试",
     "installPartial": "{{success}} 个安装成功，{{fail}} 个失败",
     "installProgressTitle": "正在安装 {{name}}",
-    "installBeforeNextHint": "安装已选传感器后才能继续，或取消选择后跳过。",
-    "installingBlockNext": "传感器正在安装，请等待安装完成后继续。",
-    "skipHint": "不选择任何传感器也可以继续，之后可以在设置 → 插件中安装。",
-    "registryUnavailable": "传感器插件仓库暂时不可用。完成引导后，你可以在设置 → 插件中浏览和安装以下传感器：",
-    "installLaterHint": "完成引导后可以在设置 → 插件中安装和配置传感器，直接点击下一步继续。"
+    "installBeforeNextHint": "安装已选数据来源后才能继续，或取消选择后跳过。",
+    "installingBlockNext": "数据来源正在安装，请等待安装完成后继续。",
+    "skipHint": "不选择任何数据来源也可以继续，之后可以在设置 → 插件中安装。",
+    "registryUnavailable": "数据来源插件仓库暂时不可用。完成引导后，你可以在设置 → 插件中浏览和安装以下数据来源：",
+    "installLaterHint": "完成引导后可以在设置 → 插件中安装和配置数据来源，直接点击下一步继续。"
   },
-  "sensors": {
-    "title": "传感器配置",
-    "description": "选择要启用的数据来源。传感器会自动采集和分析你的数字生活数据。",
+  "sources": {
+    "title": "数据来源配置",
+    "description": "选择要启用的数据来源，让 Magi 自动采集和分析你的数字生活数据。",
     "syncModeLabel": "同步模式",
     "syncModes": {
       "manual": "手动",

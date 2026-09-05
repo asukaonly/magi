@@ -11,10 +11,10 @@ from ..awareness.source_store import SourceStore
 from ..plugins.operation_execution import plugin_runtime_operation
 from ..utils.runtime import get_runtime_paths
 from ..memory import UnifiedMemoryStore
-from ..plugins import PluginManager, SensorRegistry
+from ..plugins import PluginManager, SourceRegistry
 
 if TYPE_CHECKING:
-    from ..awareness.ingestion_gateway import SensorIngestionGateway
+    from ..awareness.ingestion_gateway import SourceIngestionGateway
 
 
 def _get_nested_setting(payload: dict[str, Any], path: str, default: Any) -> Any:
@@ -32,9 +32,9 @@ def build_timeline_handler(
     config: AppConfig,
     unified_memory: UnifiedMemoryStore,
     *,
-    sensor_registry: SensorRegistry,
+    source_registry: SourceRegistry,
     plugin_manager: PluginManager,
-    ingestion_gateway: SensorIngestionGateway | None = None,
+    ingestion_gateway: SourceIngestionGateway | None = None,
 ) -> Callable[[dict[str, Any]], Any]:
     """Build an async handler that processes incoming timeline payloads."""
 
@@ -48,22 +48,22 @@ def build_timeline_handler(
             raise ValueError("Timeline source ingestion requires an explicit connection identity")
         change = SourceChange.model_validate(payload.get("source_change"))
         source_type = str(payload.get("source_type") or "").strip()
-        resolved = sensor_registry.resolve_source_sensor(source_type, connection_id=connection_id)
+        resolved = source_registry.resolve_source(source_type, connection_id=connection_id)
         if resolved is None:
             return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
-        plugin_id, _sensor_id, sensor, spec = resolved
+        plugin_id, _source_id, source, spec = resolved
         package_state = plugin_manager.get_package(plugin_id)
-        if package_state is None or sensor.connection is None or not sensor.connection.enabled:
+        if package_state is None or source.connection is None or not source.connection.enabled:
             return {"handled": False, "reason": "source_disabled", "source_type": source_type}
         if spec.domain != "timeline":
             return {"handled": False, "reason": "unsupported_source", "source_type": source_type}
-        current_settings = sensor.connection.settings
-        sensor_settings_path = f"sensors.{source_type}"
+        current_settings = source.connection.settings
+        source_settings_path = f"sources.{source_type}"
         default_settings = dict(spec.metadata.get("default_settings", {}))
         if not bool(
             _get_nested_setting(
                 current_settings,
-                f"{sensor_settings_path}.enabled",
+                f"{source_settings_path}.enabled",
                 default_settings.get("enabled", True),
             )
         ):
@@ -73,23 +73,23 @@ def build_timeline_handler(
             str(edge_type)
             for edge_type in _get_nested_setting(
                 current_settings,
-                f"{sensor_settings_path}.edge_whitelist",
+                f"{source_settings_path}.edge_whitelist",
                 default_settings.get("edge_whitelist", []),
             )
         ]
 
         if ingestion_gateway is None:
-            raise RuntimeError("SensorIngestionGateway is required for timeline event handling")
+            raise RuntimeError("SourceIngestionGateway is required for timeline event handling")
 
         store = SourceStore(get_runtime_paths().runtime_dir / "plugin_sources.db")
-        checkpoint = await store.checkpoint(sensor.connection, sensor.sensor_id, source_type)
+        checkpoint = await store.checkpoint(source.connection, source.source_id, source_type)
         boundary = await ingestion_gateway.capture_ingestion_boundary()
         pending = await store.stage_batch(
-            sensor.connection, checkpoint,
+            source.connection, checkpoint,
             SourceChangeBatch(changes=[change], next_cursor=checkpoint.cursor),
         )
         await SourceBatchIngestor(store=store, gateway=ingestion_gateway).ingest(
-            connection=sensor.connection, sensor=sensor, pending=pending, boundary=boundary,
+            connection=source.connection, source=source, pending=pending, boundary=boundary,
             rule_revision=package_state.manifest.version, allowed_edge_whitelist=allowed_edge_whitelist,
             provenance={
                 "correlation_id": str(payload.get("correlation_id") or ""),

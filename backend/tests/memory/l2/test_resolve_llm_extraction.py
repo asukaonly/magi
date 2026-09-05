@@ -38,7 +38,7 @@ def test_explicit_optout_beats_frequency(tmp_path):
 
 
 def test_force_full_override_beats_static_optout(tmp_path):
-    # RFC #56 P4 escape hatch: a structured-only sensor force-promotes one event.
+    # RFC #56 P4 escape hatch: a structured-only source force-promotes one event.
     c = _counter(tmp_path)
     md = {"allow_llm_extraction": False, "promotion_override": "force_full"}
     assert asyncio.run(resolve_llm_extraction(_Ev(md), c)) is True

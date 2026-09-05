@@ -8,27 +8,27 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.awareness.ingestion_gateway import SensorIngestionGateway
+from magi.awareness.ingestion_gateway import SourceIngestionGateway
 from magi.awareness.source_ingestion import SourceBatchIngestor
 from magi.awareness.source_store import SourceCheckpointConflict, SourceStore
 from magi.config.models import AppConfig
 from magi.core.sqlite import sqlite_connection_async
-from magi.memory.sensor_ingestion import SensorEventCommitter
+from magi.memory.source_ingestion import SourceEventCommitter
 from magi.memory.unified_store import UnifiedMemoryStore
 from magi.plugins.connection_content import ConnectionContentCoordinator
 from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.manager import PluginManager
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 from magi.utils.runtime import RuntimePaths
 from magi_plugin_sdk import Plugin, PluginManifest, PluginPackageState
 from magi_plugin_sdk.runtime import SourceChange, SourceChangeBatch
-from magi_plugin_sdk.sensors import SensorBase, SensorOutputMetadata, SensorSpec
+from magi_plugin_sdk.sources import Source, SourceOutputMetadata, SourceSpec
 
 
-class ContentSensor(SensorBase):
-    sensor_id = "notes"
+class ContentSource(Source):
+    source_id = "notes"
     source_type = "notes"
 
     def __init__(self, events):
@@ -46,29 +46,29 @@ class ContentSensor(SensorBase):
         )
 
     async def extract_metadata(self, item):
-        return SensorOutputMetadata(tags=["notes"])
+        return SourceOutputMetadata(tags=["notes"])
 
     async def clear_user_content(self, context):
-        self.events.append(("sensor-clear", context.connection_id, context))
+        self.events.append(("source-clear", context.connection_id, context))
         if self.clear_error:
             raise self.clear_error
-        (context.runtime_paths.plugin_cache_dir(context.plugin_id) / "sensor-content").unlink(missing_ok=True)
+        (context.runtime_paths.plugin_cache_dir(context.plugin_id) / "source-content").unlink(missing_ok=True)
 
 
 class ContentPlugin(Plugin):
     def __init__(self, events):
         super().__init__()
         self.events = events
-        self.sensor = ContentSensor(events)
+        self.source = ContentSource(events)
         self.clear_error = None
 
     def configure(self, **kwargs):
         super().configure(**kwargs)
-        self.sensor.bind_plugin_context(connection=self.connection, context=self.context)
+        self.source.bind_plugin_context(connection=self.connection, context=self.context)
         self.events.append(("configured", self.connection_id, self))
 
-    def get_sensors(self):
-        return [("notes", self.sensor, SensorSpec("notes", "Notes", domain="timeline"))]
+    def get_sources(self):
+        return [("notes", self.source, SourceSpec("notes", "Notes", domain="timeline"))]
 
     async def clear_user_content(self, context):
         self.events.append(("plugin-clear", context.connection_id, context))
@@ -87,7 +87,7 @@ def runtime(tmp_path, monkeypatch):
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     manifest = PluginManifest(
         id="notes", name="Notes", version="0.2.0", execution_mode="trusted_process",
-        contribution_types=["sensor"], settings_fields=[
+        contribution_types=["source"], settings_fields=[
             {"key": "folder", "type": "input", "label": "Folder"},
             {"key": "token", "type": "secret", "label": "Token", "required": True},
         ])
@@ -106,8 +106,8 @@ def runtime(tmp_path, monkeypatch):
         return instance
 
     manager = PluginManager(
-        tool_registry=ToolRegistry(), sensor_registry=SensorRegistry(), search_paths=[],
-        request_sensor_schedule_refresh=lambda: None, connection_store=store,
+        tool_registry=ToolRegistry(), source_registry=SourceRegistry(), search_paths=[],
+        request_source_schedule_refresh=lambda: None, connection_store=store,
         instance_factory=factory, content_clearer=coordinator.clear,
         connection_disconnector=coordinator.disconnect,
     )
@@ -118,7 +118,7 @@ def runtime(tmp_path, monkeypatch):
         for name in ("left", "right")]
     for connection in connections:
         context = store.context(connection.connection_id)
-        for filename in ("plugin-content", "sensor-content", "source-cursor"):
+        for filename in ("plugin-content", "source-content", "source-cursor"):
             (context.state_dir / filename).write_text(connection.display_name)
         (context.resources_dir / "preview.txt").write_text(connection.display_name)
         store.write_state(connection.connection_id, expected_revision=0,
@@ -129,24 +129,24 @@ def runtime(tmp_path, monkeypatch):
     asyncio.run(manager.shutdown())
 
 
-async def seed_source(source, connection, *, ingestor=None, gateway=None, sensor=None):
-    resource = await source.register_resource(connection, connection.display_name.encode(), media_type="text/plain")
+async def seed_source(source_store, connection, *, ingestor=None, gateway=None, source=None):
+    resource = await source_store.register_resource(connection, connection.display_name.encode(), media_type="text/plain")
     change = SourceChange(object_id="same-object", version="v1",
                           payload={"id": "same-object", "text": f"Imported {connection.display_name}"},
                           resources=[resource])
-    checkpoint = await source.checkpoint(connection, "notes", "notes")
-    pending = await source.stage_batch(connection, checkpoint, SourceChangeBatch(
+    checkpoint = await source_store.checkpoint(connection, "notes", "notes")
+    pending = await source_store.stage_batch(connection, checkpoint, SourceChangeBatch(
         changes=[change], next_cursor=f"accepted-{connection.display_name}"))
     if ingestor:
         checkpoint = await ingestor.ingest(
-            connection=connection, sensor=sensor, pending=pending,
+            connection=connection, source=source, pending=pending,
             boundary=await gateway.capture_ingestion_boundary(), rule_revision="0.2.0",
             allowed_edge_whitelist=[])
     else:
-        await source.record_receipt(pending, change, event_id=f"memory-{connection.display_name}", outcome="persisted")
-        checkpoint = await source.accept_batch(connection, pending)
-    version = await source.version(checkpoint, change)
-    pending = await source.stage_batch(connection, checkpoint, SourceChangeBatch(
+        await source_store.record_receipt(pending, change, event_id=f"memory-{connection.display_name}", outcome="persisted")
+        checkpoint = await source_store.accept_batch(connection, pending)
+    version = await source_store.version(checkpoint, change)
+    pending = await source_store.stage_batch(connection, checkpoint, SourceChangeBatch(
         changes=[SourceChange(object_id="pending", version="v2", payload={"text": "Pending"})],
         next_cursor="not-yet-accepted"))
     return SimpleNamespace(checkpoint=checkpoint, pending=pending, change=change,
@@ -164,13 +164,13 @@ async def test_clear_one_connection_preserves_other_account_progress_credentials
         memory_db_path=str(tmp_path / "memory.db"), l1_db_path=str(tmp_path / "l1.db"),
         enable_l0=False, enable_l1=True, enable_l2=False, enable_l3=False, enable_l4=False)
     await memory.initialize()
-    gateway = SensorIngestionGateway(event_bus=SimpleNamespace(publish=AsyncMock(return_value=True)),
-                                    memory_committer=SensorEventCommitter(unified_memory=memory))
+    gateway = SourceIngestionGateway(event_bus=SimpleNamespace(publish=AsyncMock(return_value=True)),
+                                    memory_committer=SourceEventCommitter(unified_memory=memory))
     ingestor = SourceBatchIngestor(store=runtime.source, gateway=gateway)
     left, right = runtime.connections
     try:
         seeded = [await seed_source(runtime.source, connection, ingestor=ingestor, gateway=gateway,
-                                   sensor=runtime.manager.get_connection_plugin(connection.connection_id).sensor)
+                                   source=runtime.manager.get_connection_plugin(connection.connection_id).source)
                   for connection in runtime.connections]
         before_memory = await memory_rows(memory)
         assert len(before_memory) == 2
@@ -193,19 +193,19 @@ async def test_clear_one_connection_preserves_other_account_progress_credentials
 
         left_context, right_context = [runtime.store.context(item.connection_id) for item in runtime.connections]
         assert not (left_context.state_dir / "plugin-content").exists()
-        assert not (left_context.state_dir / "sensor-content").exists()
+        assert not (left_context.state_dir / "source-content").exists()
         assert (left_context.state_dir / "source-cursor").read_text() == "left"
         assert list(left_context.resources_dir.iterdir()) == []
         assert (right_context.resources_dir / "preview.txt").read_text() == "right"
         assert (right_context.state_dir / "plugin-content").read_text() == "right"
-        assert (right_context.state_dir / "sensor-content").read_text() == "right"
+        assert (right_context.state_dir / "source-content").read_text() == "right"
 
         events = runtime.events[start:]
         assert [event[0] for event in events] == [
-            "shutdown", "configured", "plugin-clear", "sensor-clear", "shutdown", "configured"]
+            "shutdown", "configured", "plugin-clear", "source-clear", "shutdown", "configured"]
         assert {event[1] for event in events} == {left.connection_id}
         for kind, _, context in events:
-            if kind not in {"plugin-clear", "sensor-clear"}:
+            if kind not in {"plugin-clear", "source-clear"}:
                 continue
             assert context.request.connection_id == left.connection_id
             assert context.request.clear_generation is None
@@ -213,7 +213,7 @@ async def test_clear_one_connection_preserves_other_account_progress_credentials
             assert context.preserve_credentials and context.preserve_source_progress
             assert not context.network_access_allowed
             assert context.runtime_paths.plugin_cache_dir("notes") == left_context.state_dir
-            assert context.sensor_id == ("notes" if kind == "sensor-clear" else None)
+            assert context.source_id == ("notes" if kind == "source-clear" else None)
 
         fresh = await runtime.source.checkpoint(cleared, "notes", "notes")
         assert fresh.cursor == seeded[0].checkpoint.cursor
@@ -259,12 +259,12 @@ async def test_disconnect_fences_only_its_source_connection_before_erasing_priva
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failing_hook", ["plugin", "sensor"])
+@pytest.mark.parametrize("failing_hook", ["plugin", "source"])
 async def test_clear_hook_failure_does_not_revoke_source_resources_or_claim_success(runtime, failing_hook):
     left = runtime.connections[0]
     seeded = await seed_source(runtime.source, left)
     plugin = runtime.manager.get_connection_plugin(left.connection_id)
-    target = plugin if failing_hook == "plugin" else plugin.sensor
+    target = plugin if failing_hook == "plugin" else plugin.source
     target.clear_error = RuntimeError("Clear hook failed")
     with pytest.raises(RuntimeError, match="Clear hook failed"):
         await runtime.coordinator.clear(left, plugin, plugin.context)

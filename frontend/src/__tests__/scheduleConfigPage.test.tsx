@@ -48,19 +48,19 @@ vi.mock('@/components/ui/sheet', () => ({
 }));
 
 const makeSchedule = (overrides: Partial<ScheduleDTO> = {}): ScheduleDTO => ({
-  schedule_id: 'sensor-sync:screen-time:screen_time',
-  target_type: 'sensor_sync',
+  schedule_id: 'source-sync:screen-time:screen_time',
+  target_type: 'source_sync',
   target_key: 'screen-time:screen_time',
   trigger: { trigger_type: 'interval', config: { seconds: 300 } },
   target_payload: { plugin_id: 'screen-time', source_type: 'screen_time' },
   enabled: true,
   metadata: { plugin_id: 'screen-time', source_type: 'screen_time' },
-  job_id: 'sensor-sync:screen-time:screen_time',
+  job_id: 'source-sync:screen-time:screen_time',
   editable: false,
-  owner_kind: 'sensor_settings',
+  owner_kind: 'source_settings',
   settings_link: { section: 'timeline', source_name: 'screen_time' },
   target_state: {
-    target_type: 'sensor_sync',
+    target_type: 'source_sync',
     target_key: 'screen-time:screen_time',
     running: false,
     next_run_at: 1710000500,
@@ -96,14 +96,14 @@ describe('ScheduleConfigPage', () => {
     useSchedulesStore.getState().reset();
   });
 
-  it('renders sensor schedule with openSettings (not edit/delete)', async () => {
+  it('renders source schedule with openSettings (not edit/delete)', async () => {
     schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
     await screen.findByRole('button', { name: 'tasks.scheduled.actions.openSettings' });
     expect(screen.queryByRole('button', { name: 'tasks.scheduled.actions.delete' })).not.toBeInTheDocument();
   });
 
-  it('navigates to settings when opening sensor schedule settings', async () => {
+  it('navigates to settings when opening source schedule settings', async () => {
     const user = userEvent.setup();
     schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
@@ -167,7 +167,7 @@ describe('ScheduleConfigPage', () => {
 
   it('user category empty CTA renders when filter active and no schedules', async () => {
     const user = userEvent.setup();
-    schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] }); // only sensor
+    schedulesListMock.mockResolvedValue({ schedules: [makeSchedule()] }); // only source
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
     await user.click(await screen.findByRole('tab', { name: /tasks.scheduled.categories.user/ }));
     await screen.findByText('tasks.scheduled.empty.userCtaTitle');

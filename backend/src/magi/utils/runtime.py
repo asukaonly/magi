@@ -249,9 +249,9 @@ class RuntimePaths:
         return self.runtime_dir / "bootstrap_state.db"
 
     @property
-    def sensor_state_db_path(self) -> Path:
-        """Sensor runtime state database path."""
-        return self.runtime_dir / "sensor_state.db"
+    def source_state_db_path(self) -> Path:
+        """Source runtime state database path."""
+        return self.runtime_dir / "source_state.db"
 
     @property
     def background_tasks_db_path(self) -> Path:

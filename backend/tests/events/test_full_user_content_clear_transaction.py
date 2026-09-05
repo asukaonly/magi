@@ -9,7 +9,7 @@ import pytest
 from _shared.sqlite_privacy import assert_sqlite_fragment_absent, sqlite_fragment_present
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.db.runner import MIGRATION_TARGETS, _build_config
-from magi.events.contracts import RuntimeCommandType, SensorSyncCommand
+from magi.events.contracts import RuntimeCommandType, SourceSyncCommand
 from magi.events.lifecycle import RuntimeCommandQueueModule
 from magi.events.runtime_queue import (
     FullUserContentClearConflictError,
@@ -119,12 +119,12 @@ async def test_host_marker_is_adopted_before_claimed_command_recovery(
         db_path=str(runtime_paths_with_schema.message_queue_db_path),
     )
     await queue.start()
-    command_id = await queue.enqueue_sensor_sync(
-        SensorSyncCommand(source="test", source_name="history")
+    command_id = await queue.enqueue_source_sync(
+        SourceSyncCommand(source="test", connection_id="account-main", source_name="history")
     )
     claimed = await queue.claim_next(
         consumer_name="crashed-worker",
-        command_types=(RuntimeCommandType.SENSOR_SYNC,),
+        command_types=(RuntimeCommandType.SOURCE_SYNC,),
     )
     assert claimed is not None
     assert claimed.command_id == command_id
@@ -155,7 +155,7 @@ async def test_host_marker_is_adopted_before_claimed_command_recovery(
         assert (
             await context.runtime_commands.runtime_command_queue.claim_next(
                 consumer_name="restarted-worker",
-                command_types=(RuntimeCommandType.SENSOR_SYNC,),
+                command_types=(RuntimeCommandType.SOURCE_SYNC,),
             )
             is None
         )

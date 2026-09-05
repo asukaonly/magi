@@ -23,12 +23,12 @@ if TYPE_CHECKING:
         HistoryImporterRegistry,
         PluginManager,
         PluginProjectionService,
-        SensorRegistry,
+        SourceRegistry,
     )
     from ..plugins.user_content_clear import PluginUserContentClearCoordinator
     from ..personality.self_memory import SelfMemory
-    from ..awareness.scheduler_contrib import SensorSchedulerContrib
-    from ..awareness.sensor_hub import SensorHub
+    from ..awareness.scheduler_contrib import SourceSchedulerContrib
+    from ..awareness.source_hub import SourceHub
     from ..agent.runtime import AgentRuntime, TaskAgentManager
     from ..awareness.event_emitter import RuntimeEventEmitter
     from ..timeline.service import TimelineService
@@ -116,7 +116,7 @@ class PluginBootstrapState:
 
     plugin_manager: PluginManager | None = None
     plugin_projection_service: PluginProjectionService | None = None
-    sensor_registry: SensorRegistry | None = None
+    source_registry: SourceRegistry | None = None
     history_importer_registry: HistoryImporterRegistry | None = None
     user_content_clear_coordinator: PluginUserContentClearCoordinator | None = None
     source_store: Any = None
@@ -215,11 +215,11 @@ class ContextBootstrapState:
 class AgentRuntimeBootstrapState:
     """L11 Agent Runtime state slice."""
 
-    sensor_hub: SensorHub | None = None
+    source_hub: SourceHub | None = None
     event_emitter: RuntimeEventEmitter | None = None
-    sensor_ingestion_gateway: Any = None
-    sensor_scheduler_contrib: SensorSchedulerContrib | None = None
-    sensor_sync_executor: Any = None
+    source_ingestion_gateway: Any = None
+    source_scheduler_contrib: SourceSchedulerContrib | None = None
+    source_sync_executor: Any = None
     agent_runtime: AgentRuntime | None = None
     task_agent_manager: TaskAgentManager | None = None
     post_turn_understanding_service: Any = None
@@ -285,7 +285,7 @@ class IdentityBootstrapState:
     """L1 Identity Layer state slice.
 
     Exposes the active resolver + store for the four ingress sites
-    (channels dispatcher, api dispatch, sensor_hub, session_mapper)
+    (channels dispatcher, api dispatch, source_hub, session_mapper)
     to pull at module-init time.
     """
 

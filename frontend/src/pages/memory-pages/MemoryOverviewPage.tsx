@@ -8,7 +8,7 @@ import {
   type L2PendingReview,
   type MemoryDashboard,
 } from '@/api/modules/memory';
-import { sensorsApi, type SensorSourceStatusResponse } from '@/api/modules/sensors';
+import { sourcesApi, type SourceStatusResponse } from '@/api/modules/sources';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { OverviewEmptyState } from './overview/OverviewEmptyState';
@@ -27,7 +27,7 @@ import {
 export const MemoryOverviewPage = () => {
   const { t } = useTranslation('app');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
-  const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
+  const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | null>(null);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [reviews, setReviews] = useState<L2PendingReview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,10 +44,10 @@ export const MemoryOverviewPage = () => {
       setLoading(true);
       setError(null);
       try {
-        const [reviewPayload, dashboardPayload, sensorPayload, storyPayload] = await Promise.all([
+        const [reviewPayload, dashboardPayload, sourcePayload, storyPayload] = await Promise.all([
           memoryApi.listPendingReviews(8),
           memoryApi.getDashboard({ pending_limit: 8 }),
-          sensorsApi.getStatus(),
+          sourcesApi.getStatus(),
           memoryStoriesApi.list({ limit: 12, offset: 0, surface: 'all' }),
         ]);
         if (cancelled) {
@@ -55,7 +55,7 @@ export const MemoryOverviewPage = () => {
         }
         setReviews(reviewPayload.items || []);
         setDashboard(dashboardPayload);
-        setSensorStatus(sensorPayload);
+        setSourceStatus(sourcePayload);
         setStories(storyPayload.items || []);
       } catch (err) {
         if (!cancelled) {
@@ -74,8 +74,8 @@ export const MemoryOverviewPage = () => {
   }, [reloadToken]);
 
   const sourceRows = useMemo(
-    () => buildSourceRows(dashboard?.source_counts || [], sensorStatus, t),
-    [dashboard?.source_counts, sensorStatus, t],
+    () => buildSourceRows(dashboard?.source_counts || [], sourceStatus, t),
+    [dashboard?.source_counts, sourceStatus, t],
   );
   const pendingItems = useMemo(
     () => buildPendingItems(dashboard, stories, reviews, dismissedIds, t),

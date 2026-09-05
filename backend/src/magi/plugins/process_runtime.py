@@ -168,7 +168,7 @@ class ProcessPluginProxy(Plugin):
         self._process: subprocess.Popen[bytes] | None = None
         self._windows_job: Any = None
         self._probe_path: Path | None = None
-        self._sensor_cache: Any = None
+        self._source_cache: Any = None
         self._tool_cache: Any = None
         self._channel_cache: Any = None
         try:
@@ -520,11 +520,11 @@ class ProcessPluginProxy(Plugin):
                     self._terminate("Provider stream did not close")
 
     def _safe_args(self, value: Any) -> Any:
-        from magi_plugin_sdk.sensors import SensorSyncContext
+        from magi_plugin_sdk.sources import SourceSyncContext
         from magi_plugin_sdk.tools import ToolExecutionContext
         from magi_plugin_sdk.user_content import UserContentClearContext
 
-        if isinstance(value, (SensorSyncContext, UserContentClearContext)):
+        if isinstance(value, (SourceSyncContext, UserContentClearContext)):
             return replace(value, runtime_paths=WorkerRuntimePaths(self.context.state_dir))
         if isinstance(value, ToolExecutionContext):
             return value.model_copy(
@@ -874,15 +874,15 @@ class ProcessPluginProxy(Plugin):
             "plugin", "invoke_operation", operation_id, arguments, identity, identity=identity
         )
 
-    def get_sensors(self) -> list[Any]:
-        from .process_proxies import SensorProxy
+    def get_sources(self) -> list[Any]:
+        from .process_proxies import SourceProxy
 
-        if self._sensor_cache is None:
-            self._sensor_cache = [
-                (item["id"], SensorProxy(self, item), item["spec"])
-                for item in self._catalog["get_sensors"]
+        if self._source_cache is None:
+            self._source_cache = [
+                (item["id"], SourceProxy(self, item), item["spec"])
+                for item in self._catalog["get_sources"]
             ]
-        return self._sensor_cache
+        return self._source_cache
 
     def get_channel(self) -> Any:
         from .process_proxies import ChannelProxy

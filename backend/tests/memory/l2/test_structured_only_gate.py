@@ -1,6 +1,6 @@
 """Gate that lets a source-declared structured-only event skip LLM phase1/2.
 
-When a sensor sets ``allow_llm_extraction=False`` (carried in ``metadata_json``),
+When a source sets ``allow_llm_extraction=False`` (carried in ``metadata_json``),
 L2 still does deterministic direct-writes but must NOT call the LLM extractor.
 """
 

@@ -530,7 +530,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             raw_payload_ref="/tmp/day-note.md",
             content_blocks=[TimelineContentBlock(kind="text", value="Today I said I like Asuka.")],
             processing_status={"stored": True, "embedded": False},
-            provenance={"sensor_id": "manual_journal"},
+            provenance={"source_id": "manual_journal"},
         )
 
         await self.store.add_event(
@@ -539,7 +539,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 correlation_id="timeline-1",
                 timestamp=event.occurred_at,
                 created_at=event.captured_at,
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 source="manual_journal",
                 source_item_id="manual-1",
                 memory_domain=MemoryDomain.USER_AUTHORED,

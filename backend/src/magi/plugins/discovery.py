@@ -253,7 +253,7 @@ def _load_manifest_document(manifest_path: Path) -> dict[str, Any]:
 def placeholder_contributions(manifest: PluginManifest) -> list[PluginContribution]:
     surface_map = {
         ContributionType.TOOL: "tools",
-        ContributionType.SENSOR: "timeline",
+        ContributionType.SOURCE: "timeline",
         ContributionType.CHANNEL: "extensions",
         ContributionType.HISTORY_IMPORTER: "extensions",
     }

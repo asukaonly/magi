@@ -17,14 +17,14 @@ from .contracts import (
     TriggerType,
 )
 from .execution_repository import SchedulerExecutionRepositoryMixin
-from .sensor_jobs import SensorSyncJobRepositoryMixin
+from .source_jobs import SourceSyncJobRepositoryMixin
 from .target_state_repository import SchedulerTargetStateRepositoryMixin
 
 
 class ScheduleRepository(
     SchedulerTargetStateRepositoryMixin,
     SchedulerExecutionRepositoryMixin,
-    SensorSyncJobRepositoryMixin,
+    SourceSyncJobRepositoryMixin,
 ):
     """Persistence layer for scheduler definitions and runtime target state."""
 
@@ -78,7 +78,7 @@ class ScheduleRepository(
                         (user_target_type,),
                     )
                     user_jobs = max(0, int(jobs_cursor.rowcount or 0))
-                sensor_jobs_cursor = await db.execute("DELETE FROM sensor_sync_jobs")
+                source_jobs_cursor = await db.execute("DELETE FROM source_sync_jobs")
                 await db.execute(
                     """
                     UPDATE target_state
@@ -86,7 +86,7 @@ class ScheduleRepository(
                         updated_at = ?
                     WHERE target_type = ?
                     """,
-                    (now, ScheduledTargetType.SENSOR_SYNC.value),
+                    (now, ScheduledTargetType.SOURCE_SYNC.value),
                 )
                 executions_cursor = await db.execute("DELETE FROM schedule_executions")
                 user_states_cursor = await db.execute(
@@ -120,7 +120,7 @@ class ScheduleRepository(
             "user_schedules": max(0, int(user_schedules_cursor.rowcount or 0)),
             "user_target_states": max(0, int(user_states_cursor.rowcount or 0)),
             "user_jobs": user_jobs,
-            "sensor_jobs": max(0, int(sensor_jobs_cursor.rowcount or 0)),
+            "source_jobs": max(0, int(source_jobs_cursor.rowcount or 0)),
             "executions": max(0, int(executions_cursor.rowcount or 0)),
             "sanitized_target_states": max(
                 0,

@@ -15,14 +15,14 @@ from magi.plugins.discovery import load_plugin_manifest
 from magi.plugins.history_importers import HistoryImporterRegistry
 from magi.plugins.manager import PluginManager
 from magi.plugins.operations import PluginOperationRegistry
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 from magi.utils.runtime import RuntimePaths
 from magi_plugin_sdk import Plugin, PluginManifest, PluginPackageState
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.history_imports import HistoryImporterSpec
 from magi_plugin_sdk.runtime import PluginConnection
-from magi_plugin_sdk.sensors import SensorSpec
+from magi_plugin_sdk.sources import SourceSpec
 from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
 
 
@@ -79,18 +79,18 @@ def configured(tmp_path, plugin_id="a", connection_id="a-one", kinds=("tool",), 
 
 
 def registrar(hooks=None, **kwargs):
-    tools, sensors = ToolRegistry(), SensorRegistry()
+    tools, sources = ToolRegistry(), SourceRegistry()
     operations = PluginOperationRegistry(tools, get_connection=lambda _: None)
     return (
         PluginContributionRegistrar(
             tool_registry=tools,
-            sensor_registry=sensors,
+            source_registry=sources,
             hook_registry_provider=lambda: hooks,
             operation_registrar=operations,
             **kwargs,
         ),
         tools,
-        sensors,
+        sources,
     )
 
 
@@ -120,19 +120,19 @@ def test_tool_collision_does_not_overwrite_owner_or_remove_replacement():
     assert tools._category_index["test"] == ["sample"]
 
 
-def test_sensor_collision_and_stale_disposer_are_owner_safe():
-    sensors = SensorRegistry()
+def test_source_collision_and_stale_disposer_are_owner_safe():
+    sources = SourceRegistry()
     original = object()
-    old = sensors.register("a", "same", original, SensorSpec("same", "Same"))
+    old = sources.register("a", "same", original, SourceSpec("same", "Same"))
     with pytest.raises(ValueError, match="already registered"):
-        sensors.register("b", "same", object(), SensorSpec("same", "Same"))
-    assert sensors.unregister("same", plugin_id="b") is False
-    assert sensors.get_sensor("same") is original
+        sources.register("b", "same", object(), SourceSpec("same", "Same"))
+    assert sources.unregister("same", plugin_id="b") is False
+    assert sources.get_source("same") is original
     old()
     replacement = object()
-    sensors.register("b", "same", replacement, SensorSpec("same", "Same"))
+    sources.register("b", "same", replacement, SourceSpec("same", "Same"))
     old()
-    assert sensors.get_sensor("same") is replacement
+    assert sources.get_source("same") is replacement
 
 
 def test_history_importer_disposer_cannot_remove_replacement():
@@ -168,20 +168,20 @@ def test_connections_share_local_tool_names_without_collision(tmp_path):
     assert set(tools._tools) == {"a-two:sample"}
 
 
-@pytest.mark.parametrize("kinds", [(), ("tool", "sensor")])
+@pytest.mark.parametrize("kinds", [(), ("tool", "source")])
 def test_declaration_mismatch_publishes_nothing(tmp_path, kinds):
-    reg, tools, sensors = registrar()
+    reg, tools, sources = registrar()
     package, plugin = configured(tmp_path, kinds=kinds)
     with pytest.raises(ValueError, match="declaration mismatch"):
         register(reg, package, plugin)
     assert tools._tools == {}
-    assert sensors.list_specs() == []
+    assert sources.list_specs() == []
 
 
 def test_late_hook_failure_rolls_back_all_contributions(tmp_path):
     class LatePlugin(SamplePlugin):
-        def get_sensors(self):
-            return [("source", object(), SensorSpec("source", "Source"))]
+        def get_sources(self):
+            return [("source", object(), SourceSpec("source", "Source"))]
 
         def get_hooks(self):
             async def good(context):
@@ -190,14 +190,14 @@ def test_late_hook_failure_rolls_back_all_contributions(tmp_path):
             return [(next(iter(HookEventType)).value, good, None), ("invalid", good, None)]
 
     hooks = HookRegistry()
-    reg, tools, sensors = registrar(hooks=hooks)
+    reg, tools, sources = registrar(hooks=hooks)
     stable, stable_plugin = configured(tmp_path, plugin_id="b", connection_id="b-one")
     register(reg, stable, stable_plugin)
-    package, plugin = configured(tmp_path, kinds=("tool", "sensor", "hook"), plugin=LatePlugin())
+    package, plugin = configured(tmp_path, kinds=("tool", "source", "hook"), plugin=LatePlugin())
     with pytest.raises(ValueError):
         register(reg, package, plugin)
     assert set(tools._tools) == {"b-one:sample"}
-    assert sensors.list_specs() == []
+    assert sources.list_specs() == []
     assert hooks.total() == 0
     reg.unregister("a-one")
     assert set(tools._tools) == {"b-one:sample"}
@@ -230,7 +230,7 @@ def test_declared_skill_requires_a_usable_registrar(tmp_path):
 def make_manager(tmp_path, monkeypatch, plugin_type=SamplePlugin):
     config = AppConfig()
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
-    tools, sensors, instances = ToolRegistry(), SensorRegistry(), []
+    tools, sources, instances = ToolRegistry(), SourceRegistry(), []
 
     def factory(package, connection, context):
         instance = plugin_type()
@@ -245,9 +245,9 @@ def make_manager(tmp_path, monkeypatch, plugin_type=SamplePlugin):
     )
     manager = PluginManager(
         tool_registry=tools,
-        sensor_registry=sensors,
+        source_registry=sources,
         search_paths=[],
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
         connection_store=store,
         instance_factory=factory,
     )
@@ -391,7 +391,7 @@ def test_packaged_skill_loads_through_real_host_loader_and_disposes(tmp_path):
     (skill_dir / "SKILL.md").write_text(
         "---\nname: demo\ndescription: A test skill\n---\nUse the source evidence.\n"
     )
-    tools, sensors = ToolRegistry(), SensorRegistry()
+    tools, sources = ToolRegistry(), SourceRegistry()
     indexer = SkillIndexer(skill_locations=[tmp_path / "empty"])
     loader = SkillLoader(indexer)
     skills = PluginSkillRegistry(tools, indexer, loader)
@@ -402,7 +402,7 @@ def test_packaged_skill_loads_through_real_host_loader_and_disposes(tmp_path):
 
     reg = PluginContributionRegistrar(
         tool_registry=tools,
-        sensor_registry=sensors,
+        source_registry=sources,
         operation_registrar=PluginOperationRegistry(tools, get_connection=lambda _: None),
         skill_registrar=skills,
     )
@@ -417,15 +417,15 @@ def test_packaged_skill_loads_through_real_host_loader_and_disposes(tmp_path):
 
 
 def test_source_lookup_requires_connection_when_ambiguous():
-    sensors = SensorRegistry()
+    sources = SourceRegistry()
     for connection_id in ("one", "two"):
-        sensor_id = f"{connection_id}:source"
-        sensors.register(
+        source_id = f"{connection_id}:source"
+        sources.register(
             "a",
-            sensor_id,
+            source_id,
             object(),
-            SensorSpec(
-                sensor_id,
+            SourceSpec(
+                source_id,
                 "Source",
                 metadata={
                     "source_type": "stable-source",
@@ -434,9 +434,9 @@ def test_source_lookup_requires_connection_when_ambiguous():
             ),
         )
     with pytest.raises(ValueError, match="unambiguous connection"):
-        sensors.resolve_source_sensor("stable-source")
-    assert sensors.resolve_source_sensor("stable-source", connection_id="two")[1] == "two:source"
-    assert {item.connection_id for item in sensors.snapshot_user_content_clear_targets()} == {
+        sources.resolve_source("stable-source")
+    assert sources.resolve_source("stable-source", connection_id="two")[1] == "two:source"
+    assert {item.connection_id for item in sources.snapshot_user_content_clear_targets()} == {
         "one",
         "two",
     }

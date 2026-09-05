@@ -412,7 +412,7 @@ def _seed_archive(archive_dir: Path) -> None:
                 100,
                 90,
                 "observation",
-                "sensor",
+                "source",
                 None,
                 "user-1",
                 json.dumps(

@@ -8,8 +8,8 @@ from .contracts import (
     ScheduledTargetType,
     TriggerDefinition,
     TriggerType,
-    build_sensor_schedule_id,
-    build_sensor_target_key,
+    build_source_schedule_id,
+    build_source_target_key,
 )
 from .repository import ScheduleRepository
 from .service import SchedulerDataClearInProgressError, SchedulerService
@@ -25,6 +25,6 @@ __all__ = [
     "SchedulerDataClearInProgressError",
     "TriggerDefinition",
     "TriggerType",
-    "build_sensor_schedule_id",
-    "build_sensor_target_key",
+    "build_source_schedule_id",
+    "build_source_target_key",
 ]

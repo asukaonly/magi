@@ -1,6 +1,6 @@
 """Timeline domain exports."""
 
-from ..awareness.sensor_sync import PullSyncSensor, SensorSyncContext, SourceChangeBatch
+from ..awareness.source_sync import PullSource, SourceSyncContext, SourceChangeBatch
 from .adapter import TimelineAdapter
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
@@ -11,8 +11,8 @@ from .viewport_builder import TimelineViewportBuilder
 # Import them from ``magi.timeline.contracts`` directly when needed.
 
 __all__ = [
-    "PullSyncSensor",
-    "SensorSyncContext",
+    "PullSource",
+    "SourceSyncContext",
     "SourceChangeBatch",
     "TimelineAdapter",
     "TimelineClusterBuilder",

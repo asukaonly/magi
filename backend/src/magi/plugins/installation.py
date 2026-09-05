@@ -1250,7 +1250,7 @@ class PluginInstallationMixin:
             raise
 
         self._package_states.pop(plugin_id, None)
-        self._request_sensor_schedule_refresh()
+        self._request_source_schedule_refresh()
         return backup_dir
 
     @staticmethod
@@ -1379,7 +1379,7 @@ class PluginInstallationMixin:
                     exc_info=True,
                 )
 
-        self._request_sensor_schedule_refresh()
+        self._request_source_schedule_refresh()
         return gc_removed
 
     def check_installed_version(self, plugin_id: str) -> str | None:

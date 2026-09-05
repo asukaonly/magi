@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { MemoryOverviewPage } from '@/pages/memory-pages';
+import { buildSourceRows } from '@/pages/memory-pages/overview/overviewModel';
+import type { SourceStatusItem } from '@/api/modules/sources';
 import { memoryApi } from '@/api/modules/memory';
-import { sensorsApi } from '@/api/modules/sensors';
+import { sourcesApi } from '@/api/modules/sources';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 
 vi.mock('react-i18next', () => ({
@@ -111,8 +113,8 @@ vi.mock('@/api/modules/memory', async () => {
   };
 });
 
-vi.mock('@/api/modules/sensors', () => ({
-  sensorsApi: {
+vi.mock('@/api/modules/sources', () => ({
+  sourcesApi: {
     getStatus: vi.fn(),
   },
 }));
@@ -300,7 +302,7 @@ const storyPayload = {
 
 const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
 
-const sensorPayload = {
+const sourcePayload = {
   sources: [
     {
       source_name: 'chrome-history',
@@ -388,7 +390,7 @@ describe('MemoryOverviewPage', () => {
       version: 2,
       assertion_id: 'assert-review-1',
     });
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(sourcePayload as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as any);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as any);
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
@@ -407,6 +409,46 @@ describe('MemoryOverviewPage', () => {
       summary_id: 'story-1',
       review_state: 'confirmed',
     });
+  });
+
+  it('keeps semantic event totals separate from source runtime status and plugin identity', () => {
+    const source: SourceStatusItem = {
+      ...sourcePayload.sources[0],
+      source_name: 'browser_history',
+      contribution_id: 'chromium.history',
+      plugin_id: 'chromium',
+      connection_id: 'browser-work',
+      connection_display_name: 'Work',
+      connection_revision: 2,
+      last_result_count: 3,
+      last_sync_at: 1710004000,
+    };
+    const rows = buildSourceRows([
+      { source: 'browser_history', event_count: 17, avg_importance: 0.5, first_event_at: 1710001000, last_event_at: 1710003000 },
+      { source: 'offline_notes', event_count: 5, avg_importance: 0.4, first_event_at: 1710001000, last_event_at: 1710002000 },
+    ], { sources: [source] });
+
+    expect(rows).toMatchObject([
+      {
+        key: 'browser_history',
+        label: 'Chrome History',
+        pluginId: 'chromium',
+        eventCount: 17,
+        lastResultCount: 3,
+        lastEventAt: 1710003000,
+        lastSyncAt: 1710004000,
+        enabled: true,
+      },
+      {
+        key: 'offline_notes',
+        pluginId: null,
+        eventCount: 5,
+        lastResultCount: null,
+        lastEventAt: 1710002000,
+        lastSyncAt: null,
+        enabled: null,
+      },
+    ]);
   });
 
   it('renders the compact summary, source coverage, pending review, and recent memory', async () => {
@@ -453,7 +495,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(8);
-    expect(sensorsApi.getStatus).toHaveBeenCalled();
+    expect(sourcesApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0, surface: 'all' });
   });
 
@@ -482,7 +524,7 @@ describe('MemoryOverviewPage', () => {
         },
       },
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       ...storyPayload,
       items: [],
@@ -512,7 +554,7 @@ describe('MemoryOverviewPage', () => {
       attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       ...storyPayload,
       items: [],

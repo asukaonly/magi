@@ -18,7 +18,7 @@ import json
 import time
 from typing import Any, Protocol
 
-from magi.events.sensor_activity_snapshot import ACTIVITY_SNAPSHOT_METADATA_KEY
+from magi.events.source_activity_snapshot import ACTIVITY_SNAPSHOT_METADATA_KEY
 
 from ..event_contracts import (
     AuthorType,
@@ -64,9 +64,9 @@ class ManualEntryProjectionGovernedError(RuntimeError):
 
 
 # Event type tag used by L1 + downstream consumers. Distinct from
-# sensor-derived events so episode_formation / themes can apply special
+# source-derived events so episode_formation / themes can apply special
 # handling if needed (currently they don't — manual entries flow through
-# the same pipeline as sensor events).
+# the same pipeline as source events).
 MANUAL_ENTRY_EVENT_TYPE = "manual_entry.note"
 
 

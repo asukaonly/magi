@@ -1,7 +1,7 @@
-"""Sensor ingestion publisher.
+"""Source ingestion publisher.
 
-Builds a SensorEventEmitted payload, commits it to L1 memory, then publishes the
-committed event for downstream timeline, graph, and sensor-state projections.
+Builds a SourceEventEmitted payload, commits it to L1 memory, then publishes the
+committed event for downstream timeline, graph, and source-state projections.
 """
 
 from __future__ import annotations
@@ -12,25 +12,25 @@ from ulid import ULID
 
 from ..core.logger import get_logger
 from ..events.events import Event, EventTypes
-from ..events.domain_payloads import SensorEventEmitted, TaskContext
-from ..memory.sensor_ingestion import (
-    SensorCommitOutcome,
-    SensorCommitReceipt,
-    SensorIngestionBoundary,
+from ..events.domain_payloads import SourceEventEmitted, TaskContext
+from ..memory.source_ingestion import (
+    SourceCommitOutcome,
+    SourceCommitReceipt,
+    SourceIngestionBoundary,
 )
 from ..identity import canonicalize_user_id as _canonicalize_user_id
 from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
-from .sensor_base import SensorBase
-from .sensor_output import SensorOutput, SensorOutputMetadata
-from .sensor_projection import build_sensor_projection
+from .source_base import Source
+from .source_output import SourceOutput, SourceOutputMetadata
+from .source_projection import build_source_projection
 
 logger = get_logger(__name__)
 
 
-class SensorMemoryCommitter(Protocol):
-    """Memory-owned port that proves the terminal L1 outcome of a sensor event."""
+class SourceMemoryCommitter(Protocol):
+    """Memory-owned port that proves the terminal L1 outcome of a source event."""
 
-    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary: ...
+    async def capture_ingestion_boundary(self) -> SourceIngestionBoundary: ...
 
     async def commit(
         self,
@@ -40,45 +40,45 @@ class SensorMemoryCommitter(Protocol):
         clear_generation: int,
         clear_cutoff_at: float,
         allow_pre_clear_events: bool,
-    ) -> SensorCommitReceipt: ...
+    ) -> SourceCommitReceipt: ...
 
 
 @dataclass(slots=True)
-class SensorIngestionResult:
-    """Outcome of an authoritative sensor-memory commit."""
+class SourceIngestionResult:
+    """Outcome of an authoritative source-memory commit."""
 
     event_id: str
     ingested: bool = True
     stats: dict[str, Any] = field(default_factory=dict)
 
 
-class SensorIngestionGateway:
-    """Commit sensor events to memory before publishing derived projections."""
+class SourceIngestionGateway:
+    """Commit source events to memory before publishing derived projections."""
 
-    def __init__(self, *, event_bus, memory_committer: SensorMemoryCommitter) -> None:
+    def __init__(self, *, event_bus, memory_committer: SourceMemoryCommitter) -> None:
         self._event_bus = event_bus
         self._memory_committer = memory_committer
 
-    async def capture_ingestion_boundary(self) -> SensorIngestionBoundary:
+    async def capture_ingestion_boundary(self) -> SourceIngestionBoundary:
         """Capture the clear state that one source batch must retain."""
 
         return await self._memory_committer.capture_ingestion_boundary()
 
     async def ingest(
         self,
-        sensor: SensorBase,
-        output: SensorOutput,
-        metadata: SensorOutputMetadata | None = None,
+        source: Source,
+        output: SourceOutput,
+        metadata: SourceOutputMetadata | None = None,
         *,
         allowed_edge_whitelist: list[str] | None = None,
-        boundary: SensorIngestionBoundary | None = None,
+        boundary: SourceIngestionBoundary | None = None,
         allow_pre_clear_events: bool = False,
         host_idempotency_key: str | None = None,
-    ) -> SensorIngestionResult:
+    ) -> SourceIngestionResult:
         captured_boundary = boundary or await self.capture_ingestion_boundary()
         event_id = str(ULID())
-        payload = self._build_sensor_event_payload(
-            sensor=sensor,
+        payload = self._build_source_event_payload(
+            source=source,
             output=output,
             metadata=metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
@@ -86,10 +86,10 @@ class SensorIngestionGateway:
         if host_idempotency_key is not None:
             payload = replace(payload, idempotency_key=host_idempotency_key)
         event = Event(
-            type=EventTypes.SENSOR_EVENT_EMITTED,
+            type=EventTypes.SOURCE_EVENT_EMITTED,
             data=payload,
             event_id=event_id,
-            source="sensor_ingestion_gateway",
+            source="source_ingestion_gateway",
         )
         receipt = await self._memory_committer.commit(
             event,
@@ -99,13 +99,13 @@ class SensorIngestionGateway:
             allow_pre_clear_events=allow_pre_clear_events,
         )
         committed_event = replace(event, event_id=receipt.event_id)
-        projection_skipped = receipt.outcome is SensorCommitOutcome.GOVERNED_SKIP
+        projection_skipped = receipt.outcome is SourceCommitOutcome.GOVERNED_SKIP
         projection_published = (
             False
             if projection_skipped
-            else await self._publish_sensor_event(
+            else await self._publish_source_event(
                 event=committed_event,
-                sensor_id=sensor.sensor_id,
+                source_id=source.source_id,
             )
         )
         stats: dict[str, Any] = {
@@ -115,24 +115,24 @@ class SensorIngestionGateway:
         }
         if receipt.skip_reason:
             stats["skip_reason"] = receipt.skip_reason
-        return SensorIngestionResult(
+        return SourceIngestionResult(
             event_id=receipt.event_id,
             ingested=True,
             stats=stats,
         )
 
-    def _build_sensor_event_payload(
+    def _build_source_event_payload(
         self,
         *,
-        sensor: SensorBase,
-        output: SensorOutput,
-        metadata: SensorOutputMetadata | None,
+        source: Source,
+        output: SourceOutput,
+        metadata: SourceOutputMetadata | None,
         allowed_edge_whitelist: list[str] | None,
-    ) -> SensorEventEmitted:
+    ) -> SourceEventEmitted:
         owner_user_id = self._resolve_memory_owner_user_id(output)
-        projection = build_sensor_projection(sensor, output, metadata)
-        return SensorEventEmitted(
-            sensor_name=sensor.sensor_id,
+        projection = build_source_projection(source, output, metadata)
+        return SourceEventEmitted(
+            source_name=source.source_id,
             payload=output.to_dict(),
             output_dict=output.to_dict(),
             context=TaskContext(
@@ -141,23 +141,23 @@ class SensorIngestionGateway:
                 task_id=None,
                 user_id=owner_user_id,
             ),
-            sensor_id=sensor.sensor_id,
+            source_id=source.source_id,
             metadata_dict=self._metadata_dict(metadata),
-            policy_dict=sensor.memory_policy.to_dict(),
+            policy_dict=source.memory_policy.to_dict(),
             projection_dict=projection.to_dict(),
             occurred_at=output.occurred_at,
             owner_user_id=owner_user_id,
             relation_candidates=self._relation_candidates(metadata),
             allowed_edge_whitelist=tuple(allowed_edge_whitelist or ()),
-            sensor_fingerprint=sensor.source_item_version_fingerprint(output.to_dict()),
-            idempotency_key=sensor.idempotency_key(output),
-            memory_event_type=str(getattr(sensor, "memory_event_type", "SENSOR_EVENT")),
-            l2_batch_policy_dict=self._l2_batch_policy_dict(sensor, output),
+            source_fingerprint=source.source_item_version_fingerprint(output.to_dict()),
+            idempotency_key=source.idempotency_key(output),
+            memory_event_type=str(getattr(source, "memory_event_type", "SOURCE_EVENT")),
+            l2_batch_policy_dict=self._l2_batch_policy_dict(source, output),
         )
 
     @staticmethod
     def _metadata_dict(
-        metadata: SensorOutputMetadata | None,
+        metadata: SourceOutputMetadata | None,
     ) -> dict[str, list[Any]] | None:
         if metadata is None:
             return None
@@ -169,17 +169,17 @@ class SensorIngestionGateway:
         }
 
     @staticmethod
-    def _relation_candidates(metadata: SensorOutputMetadata | None) -> tuple[Any, ...]:
+    def _relation_candidates(metadata: SourceOutputMetadata | None) -> tuple[Any, ...]:
         if metadata is not None and metadata.relation_candidates:
             return tuple(metadata.relation_candidates)
         return ()
 
     @staticmethod
     def _l2_batch_policy_dict(
-        sensor: SensorBase,
-        output: SensorOutput,
+        source: Source,
+        output: SourceOutput,
     ) -> dict[str, Any] | None:
-        policy = sensor.l2_batch_policy(output)
+        policy = source.l2_batch_policy(output)
         if policy is None:
             return None
         return {
@@ -191,34 +191,34 @@ class SensorIngestionGateway:
             "max_wait_seconds": policy.max_wait_seconds,
         }
 
-    async def _publish_sensor_event(
+    async def _publish_source_event(
         self,
         *,
         event: Event,
-        sensor_id: str,
+        source_id: str,
     ) -> bool:
         try:
             published = await self._event_bus.publish(event)
         except Exception:
-            logger.exception("publish SensorEventEmitted failed (sensor=%s)", sensor_id)
+            logger.exception("publish SourceEventEmitted failed (source=%s)", source_id)
             return False
         if not published:
             logger.warning(
-                "SensorEventEmitted downstream projection publish was rejected",
-                sensor_id=sensor_id,
+                "SourceEventEmitted downstream projection publish was rejected",
+                source_id=source_id,
                 event_id=event.event_id,
             )
             return False
         return True
 
     @staticmethod
-    def _resolve_memory_owner_user_id(output: SensorOutput) -> str:
-        """Phase H+2 identity layer ingress #5 (sensor side).
+    def _resolve_memory_owner_user_id(output: SourceOutput) -> str:
+        """Phase H+2 identity layer ingress #5 (source side).
 
-        Sensor outputs may stash a user_id in provenance / domain_payload
-        — historically a system-level sensor (screenshot_timeline,
+        Source outputs may stash a user_id in provenance / domain_payload
+        — historically a system-level source (screenshot_timeline,
         photo_library, browser_history) leaves it empty and falls
-        through to DEFAULT_USER_ID. A future per-user sensor might
+        through to DEFAULT_USER_ID. A future per-user source might
         populate it with a channel-specific identifier; in that case
         the value MUST get canonicalized before reaching memory L1,
         same contract as the four other ingress sites.

@@ -232,7 +232,7 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
     _EvidenceRule(
         name="external_source",
         evidence_class=EvidenceClass.EXTERNAL_OBSERVATION,
-        matches=lambda ctx: ctx.author_role in {"external", "sensor"},
+        matches=lambda ctx: ctx.author_role in {"external", "source"},
     ),
     _EvidenceRule(
         name="user_authored_history_archive",
@@ -387,7 +387,7 @@ def _grounding_type(
         return "freeform_generated"
     if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or author_role == "system":
         return "observed"
-    if author_role in {"external", "sensor", "tool"}:
+    if author_role in {"external", "source", "tool"}:
         return "observed"
     return "observed"
 
@@ -397,7 +397,7 @@ def _semantic_owner(author_role: str | None) -> str | None:
         return "user"
     if author_role == "assistant":
         return "assistant"
-    if author_role in {"external", "sensor", "system", "tool"}:
+    if author_role in {"external", "source", "system", "tool"}:
         return "world"
     return None
 

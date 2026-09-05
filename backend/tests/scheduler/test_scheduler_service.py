@@ -606,7 +606,7 @@ async def test_scheduler_service_persists_execution_history_rows(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_scheduler_service_enqueues_sensor_sync_jobs_without_running_handler(tmp_path):
+async def test_scheduler_service_enqueues_source_sync_jobs_without_running_handler(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
@@ -617,34 +617,34 @@ async def test_scheduler_service_enqueues_sensor_sync_jobs_without_running_handl
         handled.append(context.schedule.schedule_id)
         return ScheduledExecutionResult(success=True, message="unexpected_inline_run")
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.SOURCE_SYNC, handler)
     await service.start()
 
     await service.schedule_interval(
-        schedule_id="sensor-sync-enqueue",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
+        schedule_id="source-sync-enqueue",
+        target_type=ScheduledTargetType.SOURCE_SYNC,
         target_key="test-plugin:test-source",
         seconds=60.0,
         target_payload={"plugin_id": "test-plugin", "source_type": "test-source"},
     )
 
-    result = await service.execute_schedule("sensor-sync-enqueue")
-    outstanding = await service.repository.get_outstanding_sensor_sync_job(
-        ScheduledTargetType.SENSOR_SYNC,
+    result = await service.execute_schedule("source-sync-enqueue")
+    outstanding = await service.repository.get_outstanding_source_sync_job(
+        ScheduledTargetType.SOURCE_SYNC,
         "test-plugin:test-source",
     )
 
     await service.stop()
 
     assert result.success is True
-    assert result.message == "sensor_sync_enqueued"
+    assert result.message == "source_sync_enqueued"
     assert handled == []
     assert outstanding is not None
     assert outstanding["status"] == "queued"
 
 
 @pytest.mark.asyncio
-async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exists(tmp_path):
+async def test_scheduler_service_coalesces_source_sync_when_outstanding_job_exists(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"
     runtime_dir.mkdir()
@@ -653,28 +653,28 @@ async def test_scheduler_service_coalesces_sensor_sync_when_outstanding_job_exis
     async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
         return ScheduledExecutionResult(success=True, message="unexpected_inline_run")
 
-    service.register_handler(ScheduledTargetType.SENSOR_SYNC, handler)
+    service.register_handler(ScheduledTargetType.SOURCE_SYNC, handler)
     await service.start()
 
     await service.schedule_interval(
-        schedule_id="sensor-sync-coalesce",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
+        schedule_id="source-sync-coalesce",
+        target_type=ScheduledTargetType.SOURCE_SYNC,
         target_key="test-plugin:test-source",
         seconds=60.0,
         target_payload={"plugin_id": "test-plugin", "source_type": "test-source"},
     )
 
-    first = await service.execute_schedule("sensor-sync-coalesce")
-    second = await service.execute_schedule("sensor-sync-coalesce")
-    outstanding = await service.repository.get_outstanding_sensor_sync_job(
-        ScheduledTargetType.SENSOR_SYNC,
+    first = await service.execute_schedule("source-sync-coalesce")
+    second = await service.execute_schedule("source-sync-coalesce")
+    outstanding = await service.repository.get_outstanding_source_sync_job(
+        ScheduledTargetType.SOURCE_SYNC,
         "test-plugin:test-source",
     )
-    executions = await service.repository.list_executions(schedule_id="sensor-sync-coalesce")
+    executions = await service.repository.list_executions(schedule_id="source-sync-coalesce")
 
     await service.stop()
 
-    assert first.message == "sensor_sync_enqueued"
+    assert first.message == "source_sync_enqueued"
     assert second.message == "target_busy"
     assert outstanding is not None
     assert outstanding["status"] == "queued"
@@ -834,8 +834,8 @@ async def test_user_data_clear_fences_stale_user_handler_and_preserves_system_jo
                 )
             with pytest.raises(SchedulerDataClearInProgressError):
                 await service.schedule_once(
-                    schedule_id="sensor-sync-manual:during-clear",
-                    target_type=ScheduledTargetType.SENSOR_SYNC,
+                    schedule_id="source-sync-manual:during-clear",
+                    target_type=ScheduledTargetType.SOURCE_SYNC,
                     target_key="plugin:source",
                     run_at=time.time(),
                     target_payload={

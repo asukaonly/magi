@@ -28,7 +28,7 @@ from magi.plugins.package_identity import (
     compute_installed_package_sha256,
     compute_installed_source_sha256,
 )
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 from magi.plugins import manager as manager_module
 from magi.utils.runtime import RuntimePaths
@@ -96,8 +96,8 @@ def _make_manager(search_path: Path) -> PluginManager:
 
     manager = PluginManager(
         instance_factory=instantiate,
-        tool_registry=ToolRegistry(), sensor_registry=SensorRegistry(),
-        search_paths=[search_path], request_sensor_schedule_refresh=lambda: None,
+        tool_registry=ToolRegistry(), source_registry=SourceRegistry(),
+        search_paths=[search_path], request_source_schedule_refresh=lambda: None,
     )
     return manager
 
@@ -522,9 +522,9 @@ def test_broken_plugin_does_not_crash_other_plugins(
     manager = PluginManager(
         instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
-        sensor_registry=SensorRegistry(),
+        source_registry=SourceRegistry(),
         search_paths=[tmp_path],
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
     manager.scan(persist_discovery=True)
     config.plugins.packages["broken-plugin"] = PluginSettings(

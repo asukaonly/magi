@@ -256,20 +256,20 @@ async def _create_admitted_user_turn(
     )
 
 
-class _FakeSensorHub:
+class _FakeSourceHub:
     def __init__(self) -> None:
-        self.sensor_events = []
+        self.source_events = []
 
-    async def push_sensor_event(self, sensor_event) -> None:
-        self.sensor_events.append(sensor_event)
+    async def push_source_event(self, source_event) -> None:
+        self.source_events.append(source_event)
 
 
 class _FakeRuntime:
     def __init__(self) -> None:
-        self.sensor_hub = _FakeSensorHub()
+        self.source_hub = _FakeSourceHub()
 
-    def get_sensor_hub(self):
-        return self.sensor_hub
+    def get_source_hub(self):
+        return self.source_hub
 
 
 class _RecordingTaskAgentManager:
@@ -832,7 +832,7 @@ async def test_committed_chat_turns_share_one_batched_attention_analysis(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         memory=personality_memory,
         unified_memory=unified_memory,
         post_turn_understanding_service=understanding_service,
@@ -1164,7 +1164,7 @@ async def test_agent_lifecycle_preserves_shared_pending_attention_until_runtime_
             context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
             get_event_emitter=lambda: _FakeEventEmitter(),
             get_task_agent_manager=lambda: None,
-            get_sensor_hub=lambda: None,
+            get_source_hub=lambda: None,
             unified_memory=unified,
             post_turn_understanding_service=understanding,
         )
@@ -1849,7 +1849,7 @@ async def test_record_tool_interaction_preserves_trace_identity() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
 
@@ -1894,7 +1894,7 @@ async def test_record_tool_interaction_does_not_write_runtime_tactics_into_l0(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         unified_memory=_FakeUnifiedMemory(l0=l0_store),
         max_fact_memory=10,
     )
@@ -1930,7 +1930,7 @@ async def test_record_tool_interaction_uses_historical_recall_summary_for_recent
         context_assembler=context_assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
 
@@ -1968,7 +1968,7 @@ async def test_record_tool_loop_fact_stops_persisting_llm_trace_rows(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
     )
@@ -2011,7 +2011,7 @@ async def test_record_tool_loop_fact_emits_runtime_events_without_enqueuing_chat
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: manager,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
 
@@ -2051,7 +2051,7 @@ async def test_record_tool_loop_fact_does_not_write_runtime_tactics_into_l0(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         unified_memory=_FakeUnifiedMemory(l0=l0_store),
         max_fact_memory=10,
     )
@@ -2087,7 +2087,7 @@ async def test_persist_turn_supersessions_closes_old_trace_and_links_new_trace(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -2221,7 +2221,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=runtime.get_sensor_hub,
+        get_source_hub=runtime.get_source_hub,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -2271,7 +2271,7 @@ async def test_handle_does_not_emit_chat_timeline_event(monkeypatch: pytest.Monk
 
     assert outcome.emitted is True
     assert len(event_emitter.chat_response_events) == 1
-    assert runtime.sensor_hub.sensor_events == []
+    assert runtime.source_hub.source_events == []
     assert event_emitter.runtime_events == []
 
 
@@ -2285,7 +2285,7 @@ async def test_handle_stops_emitting_runtime_trace_events_when_llm_trace_exists(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
     )
@@ -2364,7 +2364,7 @@ async def test_handle_persists_turn_response_and_llm_trace_rows(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         complete_session_run=lambda session_id, run_id, revision: completed_runs.append(
             (session_id, run_id, revision)
@@ -2471,7 +2471,7 @@ async def test_handle_commits_final_chat_message_before_notification(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -2575,7 +2575,7 @@ async def test_handle_persists_failed_agent_run_as_failed_terminal_outcome(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -2688,7 +2688,7 @@ async def test_atomic_segment_commit_failure_falls_back_without_partial_transcri
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=flaky_store,  # type: ignore[arg-type]
         max_fact_memory=10,
@@ -2788,7 +2788,7 @@ async def test_handle_strips_sentinel_from_history_and_events() -> None:
         context_assembler=context_assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
     latest_fact = FactRecord(
@@ -2863,7 +2863,7 @@ async def test_handle_suppresses_final_response_when_session_run_is_cancelling(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         complete_session_run=lambda session_id, run_id, revision: completed_runs.append(
@@ -2960,7 +2960,7 @@ async def test_handle_maps_reaction_only_turn_to_user_label(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -3079,7 +3079,7 @@ async def test_handle_completes_none_surface_turn_without_final_message(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -3174,7 +3174,7 @@ async def test_handle_completes_reaction_only_turn_without_final_text(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,
@@ -3286,7 +3286,7 @@ async def test_handle_does_not_record_task_reflection_for_plain_chat_reply() -> 
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         unified_memory=unified_memory,
         max_fact_memory=10,
     )
@@ -3389,7 +3389,7 @@ async def test_handle_emits_execution_control_completed_for_streamed_result(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: action_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         chat_read_service_factory=lambda: _FakeReadService(),
@@ -3483,7 +3483,7 @@ async def test_release_pending_inputs_callback_invoked_after_completion() -> Non
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
         release_pending_inputs=_release,
     )
@@ -3526,7 +3526,7 @@ async def test_release_pending_inputs_callback_absent_is_noop() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
     context = ChatRuntimeContext(
@@ -3571,7 +3571,7 @@ async def test_release_pending_inputs_swallows_callback_exception() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
         release_pending_inputs=_raising,
     )
@@ -3690,7 +3690,7 @@ async def test_run_completion_failure_stops_delivery_after_durable_reply(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         complete_session_run=_fail_completion,
         resolve_session_run_status=lambda _session_id, _run_id, _revision: "running",
@@ -3736,7 +3736,7 @@ async def test_async_run_status_resolver_does_not_skip_completion() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         complete_session_run=lambda session_id, run_id, revision: completion_calls.append(
             (session_id, run_id, revision)
         ),
@@ -3759,7 +3759,7 @@ async def test_final_surface_marks_exact_delivery_attempt_terminal(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         max_fact_memory=10,
     )
@@ -3794,7 +3794,7 @@ async def test_final_surface_without_command_identity_recovers_current_attempt(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         max_fact_memory=10,
     )
@@ -3828,7 +3828,7 @@ async def test_old_attempt_cannot_close_newer_delivery_after_final_surface(
         context_assembler=assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         deliver_final_response=_fake_seam,
         max_fact_memory=10,
@@ -3935,7 +3935,7 @@ async def test_durable_cancel_wins_after_postprocess_preflight(
         context_assembler=assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         response_rhythm_planner=_StaticRhythmPlanner(),
         deliver_final_response=_fake_seam,
@@ -4011,7 +4011,7 @@ async def test_durable_outcome_wins_before_late_cancel(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         deliver_final_response=_fake_seam,
         max_fact_memory=10,
@@ -4085,7 +4085,7 @@ async def test_durable_cancel_blocks_no_message_completion(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         chat_store=chat_store,
         complete_session_run=lambda session_id, run_id, revision: (
             completed_runs.append((session_id, run_id, revision))
@@ -4145,7 +4145,7 @@ async def test_cancelled_outcome_does_not_leak_response_trace(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         response_rhythm_planner=_StaticRhythmPlanner(),
@@ -4255,7 +4255,7 @@ async def test_pending_input_is_released_after_old_run_completion() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         complete_session_run=_complete,
         resolve_session_run_status=lambda session_id, run_id, revision: coordinator.get_run_status(
             session_id=session_id,
@@ -4333,7 +4333,7 @@ async def test_pending_input_retries_failed_release_and_releases_once(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         complete_session_run=lambda session_id,
         run_id,
         revision: coordinator.complete_run_with_pending_inputs(
@@ -4381,7 +4381,7 @@ async def test_completed_run_without_pending_inputs_finishes_immediately() -> No
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
 
@@ -4406,7 +4406,7 @@ async def test_noncritical_background_work_does_not_pin_chat_session() -> None:
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
     release = asyncio.Event()
@@ -4491,7 +4491,7 @@ async def test_first_context_story_stores_chat_but_skips_relationship_memory_upd
         context_assembler=assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
     context, result = _plain_non_streamed_context_and_result(turn_id="turn-first-context")
@@ -4537,7 +4537,7 @@ async def test_committed_response_time_is_used_for_delayed_memory_enqueue():
         context_assembler=assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         max_fact_memory=10,
     )
     context, result = _plain_non_streamed_context_and_result(turn_id="turn-delayed-memory-enqueue")
@@ -4587,7 +4587,7 @@ async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
         event_bus=trace_event_bus,
@@ -4631,7 +4631,7 @@ async def test_handle_does_not_deliver_when_final_persistence_fails(
         context_assembler=assembler,  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
         deliver_final_response=_fake_seam,
@@ -4670,7 +4670,7 @@ async def test_handle_writes_no_agent_response_without_delivery_seam(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: event_emitter,
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
         event_bus=trace_event_bus,
@@ -4729,7 +4729,7 @@ async def test_handle_streamed_delivers_final_to_external_channels_only(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         chat_read_service_factory=lambda: _FakeReadService(),
@@ -4776,7 +4776,7 @@ async def test_segmented_agent_response_routes_each_segment_through_seam(
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         max_fact_memory=10,
         deliver_final_response=_fake_seam,
@@ -4924,7 +4924,7 @@ async def test_segmented_notification_failure_keeps_rhythm_without_duplicate_fin
         context_assembler=_FakeContextAssembler(),  # type: ignore[arg-type]
         get_event_emitter=lambda: _FakeEventEmitter(),
         get_task_agent_manager=lambda: None,
-        get_sensor_hub=lambda: None,
+        get_source_hub=lambda: None,
         runtime_trace_store=runtime_trace_store,
         chat_store=chat_store,
         max_fact_memory=10,

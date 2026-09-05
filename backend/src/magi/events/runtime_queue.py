@@ -18,10 +18,10 @@ from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     RefreshChannelsCommand,
     RefreshLLMConfigCommand,
-    SensorStateFlushCommand,
+    SourceStateFlushCommand,
     RuntimeCommandType,
     RuntimeQueuedCommand,
-    SensorSyncCommand,
+    SourceSyncCommand,
     UserMessageCommand,
 )
 
@@ -38,8 +38,8 @@ DEFAULT_CLAIM_LEASE_SECONDS = 60.0
 FULL_CLEAR_SENSITIVE_COMMAND_TYPES = frozenset(
     {
         RuntimeCommandType.USER_MESSAGE,
-        RuntimeCommandType.SENSOR_SYNC,
-        RuntimeCommandType.SENSOR_STATE_FLUSH,
+        RuntimeCommandType.SOURCE_SYNC,
+        RuntimeCommandType.SOURCE_STATE_FLUSH,
     }
 )
 
@@ -183,17 +183,17 @@ class SQLiteRuntimeCommandQueue:
             created_at=command.created_at,
         )
 
-    async def enqueue_sensor_sync(self, command: SensorSyncCommand) -> int:
+    async def enqueue_source_sync(self, command: SourceSyncCommand) -> int:
         return await self._enqueue_command(
-            command_type=RuntimeCommandType.SENSOR_SYNC,
+            command_type=RuntimeCommandType.SOURCE_SYNC,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,
         )
 
-    async def enqueue_sensor_state_flush(self, command: SensorStateFlushCommand) -> int:
+    async def enqueue_source_state_flush(self, command: SourceStateFlushCommand) -> int:
         return await self._enqueue_command(
-            command_type=RuntimeCommandType.SENSOR_STATE_FLUSH,
+            command_type=RuntimeCommandType.SOURCE_STATE_FLUSH,
             payload=command.to_payload(),
             correlation_id=command.correlation_id,
             created_at=command.created_at,

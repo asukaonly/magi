@@ -250,12 +250,12 @@
     },
     "scheduled": {
       "pageTitle": "调度配置",
-      "pageSubtitle": "管理周期性运行的任务、传感器同步与系统作业。",
+      "pageSubtitle": "管理周期性运行的任务、数据来源同步与系统作业。",
       "defaultDisplayName": "未命名调度",
       "categories": {
         "all": "全部",
         "user": "用户自定义",
-        "sensor": "传感器同步",
+        "source": "数据来源同步",
         "memory": "记忆维护",
         "timeline": "时间线维护",
         "other": "其他"
@@ -306,7 +306,7 @@
       },
       "sections": {
         "enabled": "已开启的调度任务",
-        "enabledHint": "当前启用的周期、一次性和系统维护调度。传感器同步请到设置页更新。",
+        "enabledHint": "当前启用的周期、一次性和系统维护调度。数据来源同步请到设置页更新。",
         "activity": "执行中与即将执行",
         "activityHint": "只显示最近 1 小时内运行中、排队中或即将执行的调度任务。"
       },
@@ -324,7 +324,7 @@
         "actions": "操作"
       },
       "targetTypes": {
-        "sensor_sync": "传感器同步",
+        "source_sync": "数据来源同步",
         "memory_l2_maintenance": "L2 记忆维护",
         "memory_l3_summary": "L3 摘要生成",
         "user_agent_task": "Agent 任务"
@@ -370,7 +370,7 @@
         "more": "更多操作",
         "openSettings": "去设置更新",
         "openInfo": "查看说明",
-        "sensorEditTitle": "传感器调度请在设置中更新",
+        "sourceEditTitle": "数据来源调度请在设置中更新",
         "stop": "停止",
         "stopUnavailable": "当前执行项暂不支持直接停止",
         "save": "保存",
@@ -883,7 +883,7 @@
     },
     "today": {
       "loading": "正在汇总今日感知…",
-      "idle": "今天还没有传感器数据",
+      "idle": "今天还没有数据来源活动",
       "retry": "重新加载",
       "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
     },
@@ -1388,7 +1388,7 @@
       "memoryKnowledge": "知识记忆",
       "memoryReflection": "摘要反思记忆",
       "memorySkills": "工具技能记忆",
-      "timeline": "传感器",
+      "timeline": "数据来源",
       "plugins": "插件",
       "pluginsInstalled": "已安装",
       "pluginsMarketplace": "插件市场",
@@ -2610,8 +2610,8 @@
         "healthTitle": "健康快照",
         "healthDesc": "快速看清哪些来源状态正常，哪些来源需要处理。",
         "empty": "当前还没有注册任何时间线来源。",
-        "emptyTitle": "还没有传感器来源",
-        "emptyDescription": "安装一个传感器插件后，Magi 才能把浏览、照片、日历等活动接入时间线。",
+        "emptyTitle": "还没有数据来源",
+        "emptyDescription": "安装一个数据来源插件后，Magi 才能把浏览、照片、日历等活动接入时间线。",
         "emptyAction": "去插件市场安装",
         "metricsSummary": "总数 · 启用 · 支持拉取：{{summary}}",
         "lastSync": "最近同步于 {{time}}",
@@ -2621,7 +2621,7 @@
         "entriesTitle": "同步入口",
         "entriesDesc": "每个入口独立启用、同步和记录状态。",
         "availableEntriesTitle": "还可以添加",
-        "availableEntriesDesc": "这些入口属于同一组传感器，安装后会出现在上面的入口选择里。",
+        "availableEntriesDesc": "这些入口属于同一组数据来源，安装后会出现在上面的入口选择里。",
         "sourceStatusTitle": "运行状态",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
@@ -2840,13 +2840,13 @@
       },
       "filter": {
         "all": "全部",
-        "sensor": "传感器",
+        "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
       },
       "contributionType": {
-        "sensor": "传感器",
+        "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
@@ -4115,7 +4115,7 @@
         "codingAgentHistory": "编程助手记录"
       },
       "eventTypes": {
-        "sensorEvent": "采集事件",
+        "sourceEvent": "采集事件",
         "chatMessage": "对话消息",
         "toolCall": "工具调用",
         "toolResult": "工具结果",
@@ -4774,7 +4774,7 @@
       "l4": "L4"
     },
     "eventTypes": {
-      "sensor_event": "传感器事件",
+      "source_event": "数据来源事件",
       "user_message": "用户消息",
       "ai_response": "助手回复",
       "assistant_final": "助手回复",

@@ -76,10 +76,10 @@ Examples:
 
 The memory system sits between "raw data sources" and "higher-level reasoning". It is not the raw data source itself.
 
-Sensor ingestion follows the same ownership rule. `awareness/` publishes the
-neutral `SensorEventEmitted` envelope; `memory/` owns the conversion from that
+Source ingestion follows the same ownership rule. `awareness/` publishes the
+neutral `SourceEventEmitted` envelope; `memory/` owns the conversion from that
 envelope into a `MemoryEvent`. Timeline read-model projection is owned by
-`timeline/`. This keeps sensor capture separate from memory retention and
+`timeline/`. This keeps source capture separate from memory retention and
 timeline presentation.
 
 ---
@@ -142,7 +142,7 @@ state; they must never be rendered as an empty memory history.
 
 Holds plugin-owned rebuildable intermediate state:
 
-- In-progress sensor aggregation state
+- In-progress source aggregation state
 - Flush checkpoints
 - Plugin-local computation caches
 - Workspace-scoped code indexes and retrieval caches
@@ -254,7 +254,7 @@ expiry is the safety fallback.
 
 The storage and forgetting contracts reserve both turn and event provenance so
 future governed producers can participate without weakening deletion rules.
-No sensor or generic event-ingest path currently creates L0 attention.
+No source or generic event-ingest path currently creates L0 attention.
 Accepted chat outcomes produce semantic attention deltas, while durable
 background-task attempt and terminal notifications directly reopen or close
 only the task-linked open loop. Those lifecycle notifications never create
@@ -722,7 +722,7 @@ L2 holds:
 - Experiences (product-grade, evidence-backed narrative memories promoted from episodes and events)
 - Durable projection job queue
 
-Sensor-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty sensor catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
+Source-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty source catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
 
 Implementation boundary: `L2CognitionStore` remains the public storage facade
 and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
@@ -884,7 +884,7 @@ Only `exact` and `calendar_anchor` may prove currentness or anchor relative
 expressions. File modification, sync, capture, and import timestamps are
 `approximate_recorded`; file or message order without a timestamp is
 `derived_order`. Neither can activate a current Goal, calculate recency, or
-anchor decay. Unknown sensors are `low` even if arbitrary plugin metadata claims
+anchor decay. Unknown sources are `low` even if arbitrary plugin metadata claims
 to be exact. Live chat/channel message timestamps, declared calendar sources,
 manual-entry event times, and host-owned history-import provenance are the only
 initial trusted policies. Claim evidence stores both the normalized quality and
@@ -1107,7 +1107,7 @@ consume the persona's one-shot opening state, but it must not create a parallel
 profile write path. Empty or low-signal extraction is a valid outcome and must
 not be presented as a successful durable memory.
 Recent portrait lines remain tentative, while durable lines have already passed
-the normal assertion promotion boundary. A completed sensor backfill triggers
+the normal assertion promotion boundary. A completed source backfill triggers
 the L2 derive task, and successful derived-profile writes explicitly enqueue the
 same debounced portrait refresh used by ordinary assertion changes. This keeps
 cold-start personalization timely without creating a second profile pipeline.
@@ -1505,11 +1505,11 @@ Batch policy:
 - For high-throughput sources, plugins can provide `catch_up_owner` for coarser-grained catch-up shards
 - The pipeline switches between `catch_up` (throughput-focused) and `steady_state` (latency-focused) modes based on backlog
 - Durable claim is subject to runtime backpressure
-- Plugin sync cursors only track "synced to L1", not L2 progress. A sensor item
-  may advance that cursor only after the memory-owned sensor commit boundary
+- Plugin sync cursors only track "synced to L1", not L2 progress. A source item
+  may advance that cursor only after the memory-owned source commit boundary
   returns an explicit L1 confirmation (new write, idempotent duplicate, or an
   intentional forget-governance rejection). Transient write failures and
-  memory-clear races fail the sensor job and retain the previous cursor.
+  memory-clear races fail the source job and retain the previous cursor.
 - The `runtime_worker` registers `memory_l1_maintenance` as a periodic task for L1 retention cleanup, including compressible L1 events that are already covered by L3 summaries and pinned-payload pruning.
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
 - The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.
@@ -1533,7 +1533,7 @@ Extraction flow:
 - Grounded Phase 1 claims receive a deterministic semantic route before projection. Only routes that explicitly target the graph and have resolved catalog endpoints become graph candidates; independently eligible assertion routes are not discarded merely because an optional graph endpoint is unresolved. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Entity disambiguation and Phase 2 wording are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 wording exhausts its retries, validated Phase 1 Claims, graph facts, structured facets, Assertions, reviews, and terminal outcomes are still persisted; only optional wording is lost, and the projection is completed with the degraded stage recorded in diagnostics and logs.
 - Host materialization reads the complete active Claim/evidence ledger required for occurrence, currentness, conflict, and lifecycle decisions. This host-owned retrieval does not call an LLM and is never truncated to fit a Phase 2 prompt. Phase 2 receives only the bounded current Claim material needed to produce optional wording.
-- Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
+- Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External source events without a session must not fall back to arbitrary same-user recent chat context.
 - Phase 2 runs only as optional wording synthesis. Its output contains concise summaries bound to deterministic Phase 1 Claim IDs and no record IDs, family, trait, slot, route, confidence, lifecycle, expiry, or persistence action. Invalid or cross-target summaries are discarded without changing materialization. The host independently derives family, evidence, confidence, horizon, volatility, lifecycle, review eligibility, and safe conflict actions from routed Claims and the complete active ledger.
 - Passive observations remain graph or episode evidence. They never enter the direct Assertion write path. A graph-derived rule may independently promote aggregated observations into expiring recent context after its own observation, distinct-day, time-span, and recency thresholds; durable profile conclusions additionally require a plugin-declared non-passive signal preset and explicit durable permission.
 
@@ -1558,7 +1558,7 @@ Classifier and policy responsibilities:
 Source integrations enrich events before L2 processing:
 
 - Source integrations pass `structured_entity_hints` via `MemoryEvent.metadata_json`
-- Sensor integrations pass `fact_hints` as the preferred source-owned structured-fact path
+- Source integrations pass `fact_hints` as the preferred source-owned structured-fact path
 - Legacy `relation_candidates` may still feed older timeline/relation projections, but should not be the primary L2 cognition path for new plugins
 
 Core principle: whoever best understands the raw data produces the high-confidence structural facts. `L2` is responsible for unified integration, conflict handling, persistence, and residual LLM extraction.
@@ -1566,7 +1566,7 @@ Core principle: whoever best understands the raw data produces the high-confiden
 Write pipeline:
 
 ```text
-Plugin / Sensor / Host integration
+Plugin / Source / Host integration
   -> source-owned semantic enrichment
   -> MemoryEvent.metadata_json
   -> Ingestion gateway normalization + admission
@@ -2362,7 +2362,7 @@ A Chrome history burst might look like:
 - `id = 128431`
 - `event_id = "evt_01JQ..."`
 - `source = "chrome_history"`
-- `event_type = "SENSOR_EVENT"`
+- `event_type = "SOURCE_EVENT"`
 - `source_item_id = "181979-181982"`
 - `idempotency_key = "default:181979-181982"`
 
@@ -2455,11 +2455,18 @@ Producers are diverse, but all converge on the same memory contract.
 
 Chat truth is first written to `chat.db`. A subset is then projected as `L1` canonical facts. This projection is intentionally lossy: it retains what memory needs, not a full transcript copy.
 
-### Sensors and Plugins
+### Sources and Plugins
 
-Sensors run in the awareness layer and produce `SensorOutput`. The `SensorIngestionGateway` projects these outputs into memory.
+Sources run in the awareness layer and produce `SourceOutput`. The `SourceIngestionGateway` projects these outputs into memory.
 
-For external activity sources, `SensorOutput` is not the final `L1` string. It is a source-truth envelope with:
+The contribution is identified by `source_id`, including in output provenance.
+`source_type` is its semantic data category; `connection_id` identifies the
+account or configured instance. Host ingestion binds accepted items to that
+connection and contribution before memory persistence. The neutral event
+envelope is `SourceEventEmitted`, published through `EventTypes.SOURCE_EVENT_EMITTED`, and
+the default memory classification is `SOURCE_EVENT`.
+
+For external activity sources, `SourceOutput` is not the final `L1` string. It is a source-truth envelope with:
 
 - `activity`: structured source/action semantics owned by the plugin
 - `narration`: factual body/title owned by the plugin
@@ -2474,8 +2481,8 @@ This keeps external activity memory consistent across plugins while avoiding per
 
 Gateway-side normalization rules:
 
-- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `identity.defaults.CANONICAL_LOCAL_USER` as fallback.
-- External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
+- External source events are written as durable memory with a stable owner `user_id` taken from `SourceOutput.provenance`, then `domain_payload`, and finally `identity.defaults.CANONICAL_LOCAL_USER` as fallback.
+- External source events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
 - The host, not the plugin, decides the final `L1` sentence shape and embedding text shape for external activity events.
 
 This is the primary path for:
@@ -2615,21 +2622,21 @@ independent table deletes.
 - Full clear takes the matching exclusive ingress boundary before it takes the
   memory store's exclusive operation boundary. This lock order is mandatory.
 - After active chat and embedding work is stopped, clear advances a durable
-  clear generation shared by `USER_MESSAGE`, `SENSOR_SYNC`, and
-  `SENSOR_STATE_FLUSH`. Every command of those types present at that boundary
+  clear generation shared by `USER_MESSAGE`, `SOURCE_SYNC`, and
+  `SOURCE_STATE_FLUSH`. Every command of those types present at that boundary
   is deleted from the runtime queue in every state, including claimed,
   completed, and failed rows. Runtime-only configuration and channel refresh
   commands are preserved.
 - Runtime-command processing holds a shared full-clear boundary from claim
   through handler completion and acknowledgement or requeue. Full clear takes
   the exclusive side first, stops new claims, and waits for in-flight message,
-  manual sensor-sync, and sensor-state-flush handlers to exit. Sensor command
+  manual source-sync, and source-state-flush handlers to exit. Source command
   enqueue uses the same boundary, so an enqueue racing clear is either deleted
   as pre-clear work or admitted afterward with the new generation. A stale
   manual backfill or state flush can therefore neither run nor recreate user
   data after clear.
 - The generation travels with the command through the local message bus,
-  `SensorHub`, router fact, and task-agent admission. It also remains attached to
+  `SourceHub`, router fact, and task-agent admission. It also remains attached to
   user-derived Explore orchestration state, worker updates, and the final
   dossier returned to Chat. A missing required generation or any mismatch is
   rejected once generation governance is active, which prevents a pre-clear
@@ -2699,7 +2706,7 @@ independent table deletes.
   recovery. While its marker is pending, startup constructs only the stores and
   clear owners needed to replay the complete operation. It does not restore
   claimed runtime commands, activate plugins or external channels, start the
-  message bus, scheduler, sensors, background work, recovery subscribers,
+  message bus, scheduler, sources, background work, recovery subscribers,
   tools, skills, MCP servers, or agent/LLM execution. The clear therefore works
   even when model configuration is absent, and no pre-clear work can run before
   replay completes.
@@ -2778,7 +2785,7 @@ independent table deletes.
   history and target error/statistics fields are erased because they may hold
   user-derived result text. System maintenance and source schedules remain,
   together with source cursors, watermarks, bindings, and configuration;
-  pending sensor-sync jobs are discarded so no pre-clear queue payload remains.
+  pending source-sync jobs are discarded so no pre-clear queue payload remains.
 - Full clear also removes retired user-content locations that current runtime
   code no longer reads: every entry under the managed `others/` directory and
   the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does
@@ -2877,7 +2884,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/integration.py](../backend/src/magi/memory/integration.py) — Runtime-facing memory integration boundary
 
-- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Sensor / plugin event publish entry point
+- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Source / plugin event publish entry point
 
 ---
 

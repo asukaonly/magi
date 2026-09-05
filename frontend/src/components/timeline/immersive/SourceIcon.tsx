@@ -22,7 +22,7 @@ interface SourceIconProps {
 }
 
 /**
- * Render an icon for a sensor source_type. Brand-recognizable sources
+ * Render an icon for a semantic source type. Brand-recognizable sources
  * (Chrome) get a real SVG; everything else maps to a lucide icon. The
  * default fallback is the generic Activity glyph so unknown sources don't
  * crash the row.
@@ -118,7 +118,7 @@ export function labelForSource(
     chat: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
     chat_message: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
     // chat_projector is the memory-layer source for projected chat turns —
-    // surface it as plain "聊天", same as the chat sensor, not the raw id.
+    // surface it as plain "聊天", same as the chat source, not the raw id.
     chat_projector: { i18nKey: "timeline.sources.chat", fallback: "聊天" },
     calendar: { i18nKey: "timeline.sources.calendar", fallback: "日历" },
     calendar_plugin: { i18nKey: "timeline.sources.calendar", fallback: "日历" },

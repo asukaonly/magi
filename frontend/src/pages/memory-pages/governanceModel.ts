@@ -333,7 +333,7 @@ function getReadableEventType(value: unknown, label: GovernanceLabelFn): string 
   const raw = safeText(value, label('recordTypes.event', '事件'));
   const normalized = raw.toUpperCase().replace(/[.-]+/g, '_');
   const knownTypes = new Map<string, string>([
-    ['SENSOR_EVENT', label('eventTypes.sensorEvent', '采集事件')],
+    ['SOURCE_EVENT', label('eventTypes.sourceEvent', '采集事件')],
     ['CHAT_MESSAGE', label('eventTypes.chatMessage', '对话消息')],
     ['TOOL_CALL', label('eventTypes.toolCall', '工具调用')],
     ['TOOL_RESULT', label('eventTypes.toolResult', '工具结果')],

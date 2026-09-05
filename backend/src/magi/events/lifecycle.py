@@ -291,8 +291,8 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                 RuntimeCommandType.USER_MESSAGE,
                 RuntimeCommandType.REFRESH_LLM_CONFIG,
                 RuntimeCommandType.REFRESH_CHANNELS,
-                RuntimeCommandType.SENSOR_SYNC,
-                RuntimeCommandType.SENSOR_STATE_FLUSH,
+                RuntimeCommandType.SOURCE_SYNC,
+                RuntimeCommandType.SOURCE_STATE_FLUSH,
             ),
         )
 
@@ -314,11 +314,11 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         if command.command_type is RuntimeCommandType.REFRESH_CHANNELS:
             await self._refresh_channels()
             return True
-        if command.command_type is RuntimeCommandType.SENSOR_SYNC:
-            await self._queue_sensor_sync(command)
+        if command.command_type is RuntimeCommandType.SOURCE_SYNC:
+            await self._queue_source_sync(command)
             return True
-        if command.command_type is RuntimeCommandType.SENSOR_STATE_FLUSH:
-            await self._flush_sensor_state(command)
+        if command.command_type is RuntimeCommandType.SOURCE_STATE_FLUSH:
+            await self._flush_source_state(command)
             return True
         raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")
 
@@ -393,30 +393,30 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         if channels_module is not None:
             await channels_module.restart()
 
-    async def _queue_sensor_sync(self, command: Any) -> None:
-        sensor_sync = command.as_sensor_sync()
-        sensor_scheduler = require_initialized(
-            self._context.agent_runtime.sensor_scheduler_contrib,
-            "sensor scheduler contributor",
+    async def _queue_source_sync(self, command: Any) -> None:
+        source_sync = command.as_source_sync()
+        source_scheduler = require_initialized(
+            self._context.agent_runtime.source_scheduler_contrib,
+            "source scheduler contributor",
         )
-        await sensor_scheduler.queue_manual_sync(
-            sensor_sync.source_name,
-            connection_id=sensor_sync.connection_id,
-            first_context=sensor_sync.first_context,
-            sync_mode=sensor_sync.sync_mode,
-            backfill_scope=sensor_sync.backfill_scope,
-            backfill_days=sensor_sync.backfill_days,
-            backfill_start_date=sensor_sync.backfill_start_date,
-            backfill_end_date=sensor_sync.backfill_end_date,
+        await source_scheduler.queue_manual_sync(
+            source_sync.source_name,
+            connection_id=source_sync.connection_id,
+            first_context=source_sync.first_context,
+            sync_mode=source_sync.sync_mode,
+            backfill_scope=source_sync.backfill_scope,
+            backfill_days=source_sync.backfill_days,
+            backfill_start_date=source_sync.backfill_start_date,
+            backfill_end_date=source_sync.backfill_end_date,
         )
 
-    async def _flush_sensor_state(self, command: Any) -> None:
-        sensor_flush = command.as_sensor_state_flush()
-        sensor_sync_executor = require_initialized(
-            self._context.agent_runtime.sensor_sync_executor,
-            "sensor sync executor",
+    async def _flush_source_state(self, command: Any) -> None:
+        source_flush = command.as_source_state_flush()
+        source_sync_executor = require_initialized(
+            self._context.agent_runtime.source_sync_executor,
+            "source sync executor",
         )
-        await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name, connection_id=sensor_flush.connection_id)
+        await source_sync_executor.flush_source_state(source_flush.source_name, connection_id=source_flush.connection_id)
 
 
 class PluginIngressProcessorModule(LifecycleModule):

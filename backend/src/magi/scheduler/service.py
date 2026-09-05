@@ -549,8 +549,8 @@ class SchedulerService:
 
         effective_manual = manual or bool(schedule.metadata.get("manual", False))
         started_at = time.time()
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-            return await self._prepare_sensor_sync_execution(
+        if schedule.target_type is ScheduledTargetType.SOURCE_SYNC:
+            return await self._prepare_source_sync_execution(
                 schedule=schedule,
                 effective_manual=effective_manual,
                 started_at=started_at,
@@ -627,16 +627,16 @@ class SchedulerService:
             return started_at, None
         return started_at, self._early_execution_prep("target_busy")
 
-    async def _prepare_sensor_sync_execution(
+    async def _prepare_source_sync_execution(
         self,
         *,
         schedule: ScheduleDefinition,
         effective_manual: bool,
         started_at: float,
     ) -> _ExecutionPrep:
-        # SENSOR_SYNC has its own enqueue-and-return path so the sync caller
-        # still gets the "sensor_sync_enqueued" reply.
-        admitted = await self._repository.enqueue_sensor_sync_execution(
+        # SOURCE_SYNC has its own enqueue-and-return path so the sync caller
+        # still gets the "source_sync_enqueued" reply.
+        admitted = await self._repository.enqueue_source_sync_execution(
             schedule=schedule,
             manual=effective_manual,
             started_at=started_at,
@@ -646,7 +646,7 @@ class SchedulerService:
         if schedule.trigger.trigger_type == TriggerType.ONCE:
             await self._repository.delete_schedule(schedule.schedule_id)
         return self._early_execution_prep(
-            "sensor_sync_enqueued",
+            "source_sync_enqueued",
             success=True,
             stats={
                 "job_id": admitted.job_id,

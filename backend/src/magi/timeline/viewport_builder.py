@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 
 from ..core.logger import get_logger
@@ -28,7 +28,7 @@ _CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 # Upper bound on raw L1 events pulled per viewport window. Previously
 # hardcoded at 500, which silently truncated power-user days (screen-time
-# sensor at 1 event / 30s = 2880/day). 5000 covers the realistic worst
+# source at 1 event / 30s = 2880/day). 5000 covers the realistic worst
 # case for a single day and is still cheap to pull from sqlite + send to
 # the frontend. When we hit the cap we log a warning so it's visible in
 # ops — the viewport itself doesn't surface this to the UI yet.

@@ -27,18 +27,18 @@ def test_events_service_access_has_no_global_fallback() -> None:
 
 
 def test_timeline_and_llm_runtime_do_not_keep_module_level_singletons() -> None:
-    sensor_contrib = (BACKEND_SRC / "awareness/scheduler_contrib.py").read_text(encoding="utf-8")
+    source_contrib = (BACKEND_SRC / "awareness/scheduler_contrib.py").read_text(encoding="utf-8")
     timeline_lifecycle = (BACKEND_SRC / "timeline/lifecycle.py").read_text(encoding="utf-8")
     timeline_router = (BACKEND_SRC / "api/routers/timeline.py").read_text(encoding="utf-8")
     memory_lifecycle = (BACKEND_SRC / "memory/lifecycle.py").read_text(encoding="utf-8")
     provider_bridge = (BACKEND_SRC / "llm/provider_bridge/__init__.py").read_text(encoding="utf-8")
     scheduler_service = (BACKEND_SRC / "scheduler/service.py").read_text(encoding="utf-8")
 
-    assert "_sensor_contrib" not in sensor_contrib
-    assert "def get_sensor_scheduler_contrib" not in sensor_contrib
-    assert "def set_sensor_scheduler_contrib" not in sensor_contrib
-    assert "set_sensor_scheduler_contrib" not in timeline_lifecycle
-    assert "get_sensor_scheduler_contrib" not in timeline_router
+    assert "_source_contrib" not in source_contrib
+    assert "def get_source_scheduler_contrib" not in source_contrib
+    assert "def set_source_scheduler_contrib" not in source_contrib
+    assert "set_source_scheduler_contrib" not in timeline_lifecycle
+    assert "get_source_scheduler_contrib" not in timeline_router
     # Phase 5 of D: legacy LLM_CALL_COMPLETED chain deleted entirely.
     assert not (BACKEND_SRC / "llm/usage_events.py").exists()
     assert "configure_llm_usage_event_publisher" not in memory_lifecycle
@@ -102,7 +102,7 @@ def test_timeline_handler_does_not_use_plugin_runtime_globals() -> None:
     source = (BACKEND_SRC / "timeline/handler.py").read_text(encoding="utf-8")
 
     assert "get_plugin_manager" not in source
-    assert "get_sensor_registry" not in source
+    assert "get_source_registry" not in source
 
 
 def test_bootstrap_and_agent_exports_do_not_keep_chat_runtime_aliases() -> None:
@@ -214,10 +214,10 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert not (BACKEND_SRC / "plugins/runtime.py").exists()
     assert not (BACKEND_SRC / "plugins/service_access.py").exists()
     assert "get_plugin_manager" not in plugins_init
-    assert "get_sensor_registry" not in plugins_init
+    assert "get_source_registry" not in plugins_init
     assert "get_action_registry" not in plugins_init
     assert "initialize_plugin_manager" not in plugins_lifecycle
-    assert "get_sensor_registry" not in plugins_lifecycle
+    assert "get_source_registry" not in plugins_lifecycle
     assert "get_action_registry" not in awareness_lifecycle
     assert "get_plugin_manager" not in plugins_router
     assert "reload_plugin_manager" not in plugins_router
@@ -269,7 +269,7 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
 
     assert "require_message_bus" not in runtime_bindings
-    assert "require_user_message_sensor" not in runtime_bindings
+    assert "require_user_message_source" not in runtime_bindings
     assert "require_skill_loader" not in runtime_bindings
     assert "require_skill_indexer" not in runtime_bindings
     assert "require_skill_runner" not in runtime_bindings
@@ -279,7 +279,7 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_unified_memory" not in runtime_bindings
     assert "require_hybrid_retrieval_service" not in runtime_bindings
     assert "require_plugin_manager" not in runtime_bindings
-    assert "require_sensor_registry" not in runtime_bindings
+    assert "require_source_registry" not in runtime_bindings
     assert "require_runtime_trace_store" not in runtime_bindings
     assert "require_control_session_store" not in runtime_bindings
     assert "require_control_settings_manager" not in runtime_bindings
@@ -289,7 +289,7 @@ def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     assert "require_background_task_manager" not in runtime_bindings
     # scheduler_service IS a boundary-consumed binding (schedule_tool +
     # api/routers/schedules), so it legitimately lives here.
-    assert "require_sensor_scheduler_contrib" not in runtime_bindings
+    assert "require_source_scheduler_contrib" not in runtime_bindings
     assert "require_permission_gateway" not in runtime_bindings
     assert "require_scenario_llm_pool" not in runtime_bindings
 
@@ -337,8 +337,8 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert not (BACKEND_SRC / "core/runtime").exists()
     assert not (BACKEND_SRC / "scheduler/handlers.py").exists()
     assert "from ..core.runtime import AgentRuntime, RouterAgent, TaskAgentManager" not in agent_lifecycle
-    assert "from ..core.runtime import SensorHub" not in awareness_lifecycle
-    assert "from ..core.runtime import SensorHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
+    assert "from ..core.runtime import SourceHub" not in awareness_lifecycle
+    assert "from ..core.runtime import SourceHub, AgentRuntime, TaskAgentManager" not in bootstrap_context
     assert "core.runtime.contracts" not in chat_task_agent
     assert "core.runtime.contracts" not in timeline_task_agent
     assert "core.runtime.types" not in chat_task_agent
@@ -347,7 +347,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "core.runtime.task_agent" not in timeline_task_agent
     assert "core.runtime.contracts" not in postprocess_service
     assert "core.runtime.types" not in postprocess_service
-    assert "from ....core.runtime import SensorEvent" not in postprocess_service
+    assert "from ....core.runtime import SourceEvent" not in postprocess_service
     assert "core.runtime_bindings" not in postprocess_service
     assert "core.runtime_bindings" not in chat_handlers
     assert "core.runtime_bindings" not in worker_manager
@@ -358,7 +358,7 @@ def test_runtime_domain_code_does_not_import_core_runtime_package() -> None:
     assert "agent.runtime.contracts" not in event_emitter
     assert "personality.current_state" not in config_lifecycle
     assert "agent.runtime" in agent_lifecycle
-    assert "sensor_hub" in awareness_lifecycle
+    assert "source_hub" in awareness_lifecycle
     assert "agent.runtime" in bootstrap_context
     assert "class ActionEmissionRecord" not in awareness_contracts
 

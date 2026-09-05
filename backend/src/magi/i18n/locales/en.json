@@ -152,26 +152,26 @@
       "context_not_found": "Timeline context not found"
     }
   },
-  "sensors": {
+  "sources": {
     "sync": {
-      "loop_mismatch": "Sensor sync failed due to an internal runtime loop mismatch.",
-      "internal_runtime_error": "Sensor sync failed due to an internal runtime error."
+      "loop_mismatch": "Source sync failed due to an internal runtime loop mismatch.",
+      "internal_runtime_error": "Source sync failed due to an internal runtime error."
     },
     "errors": {
-      "source_not_found": "Sensor source not found",
-      "pull_sync_unsupported": "Sensor source does not support pull sync: {source_name}",
+      "source_not_found": "Source not found",
+      "pull_sync_unsupported": "Source does not support pull sync: {source_name}",
       "setup_required": "Configure this source before syncing: {source_name}",
       "source_disabled": "Enable this source before syncing: {source_name}",
-      "state_flush_unsupported": "Sensor source does not support state flush: {source_name}",
+      "state_flush_unsupported": "Source does not support state flush: {source_name}",
       "scheduler_unavailable": "Scheduler unavailable",
-      "authorization_unsupported": "Sensor source does not support authorization",
-      "authorization_invalid_response": "Sensor source authorization returned an invalid response"
+      "authorization_unsupported": "Source does not support authorization",
+      "authorization_invalid_response": "Source authorization returned an invalid response"
     }
   },
   "schedules": {
     "errors": {
       "not_found": "Schedule not found",
-      "sensor_schedule_settings_only": "Sensor schedules must be updated from sensor settings",
+      "source_schedule_settings_only": "Source schedules must be updated from source settings",
       "service_unavailable": "Scheduler service is not available",
       "target_busy": "Schedule target is busy",
       "activity_not_cancellable": "Activity is not cancellable"

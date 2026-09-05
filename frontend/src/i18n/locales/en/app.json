@@ -250,12 +250,12 @@
     },
     "scheduled": {
       "pageTitle": "Schedule config",
-      "pageSubtitle": "Manage recurring jobs, sensor syncs, and system maintenance tasks.",
+      "pageSubtitle": "Manage recurring jobs, source syncs, and system maintenance tasks.",
       "defaultDisplayName": "Untitled schedule",
       "categories": {
         "all": "All",
         "user": "Custom",
-        "sensor": "Sensor sync",
+        "source": "Source sync",
         "memory": "Memory",
         "timeline": "Timeline",
         "other": "Other"
@@ -306,7 +306,7 @@
       },
       "sections": {
         "enabled": "Enabled Scheduled Tasks",
-        "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update sensor sync schedules from Settings.",
+        "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update source sync schedules from Settings.",
         "activity": "Running And Upcoming",
         "activityHint": "Only schedules running, queued, or due within the next hour are shown here."
       },
@@ -324,7 +324,7 @@
         "actions": "Actions"
       },
       "targetTypes": {
-        "sensor_sync": "Sensor Sync",
+        "source_sync": "Source Sync",
         "memory_l2_maintenance": "L2 Memory Maintenance",
         "memory_l3_summary": "L3 Summary Generation",
         "user_agent_task": "Agent Task"
@@ -370,7 +370,7 @@
         "more": "More actions",
         "openSettings": "Open Settings",
         "openInfo": "Open info",
-        "sensorEditTitle": "Sensor schedules are updated in Settings",
+        "sourceEditTitle": "Source schedules are updated in Settings",
         "stop": "Stop",
         "stopUnavailable": "This execution item cannot be stopped directly yet",
         "save": "Save",
@@ -883,7 +883,7 @@
     },
     "today": {
       "loading": "Summarizing today's signals…",
-      "idle": "No sensor activity today yet",
+      "idle": "No source activity today yet",
       "retry": "Reload",
       "tooltip": "Today's awareness · {{total}} events across {{count}} sources"
     },
@@ -1389,7 +1389,7 @@
       "memoryKnowledge": "Knowledge Memory",
       "memoryReflection": "Reflection Memory",
       "memorySkills": "Skill Memory",
-      "timeline": "Sensors",
+      "timeline": "Sources",
       "plugins": "Plugins",
       "pluginsInstalled": "Installed",
       "pluginsMarketplace": "Marketplace",
@@ -2611,8 +2611,8 @@
         "healthTitle": "Health snapshot",
         "healthDesc": "A compact read on which sources are ready and which ones need attention.",
         "empty": "No timeline sources are registered yet.",
-        "emptyTitle": "No sensor sources yet",
-        "emptyDescription": "Install a sensor plugin so Magi can bring browser, photo, calendar, and other activity into the timeline.",
+        "emptyTitle": "No sources yet",
+        "emptyDescription": "Install a source plugin so Magi can bring browser, photo, calendar, and other activity into the timeline.",
         "emptyAction": "Browse marketplace",
         "metricsSummary": "Total · active · pull-ready: {{summary}}",
         "lastSync": "Last synced {{time}}",
@@ -2622,7 +2622,7 @@
         "entriesTitle": "Sync entries",
         "entriesDesc": "Each entry has its own enable switch, schedule, and runtime status.",
         "availableEntriesTitle": "More entries available",
-        "availableEntriesDesc": "These entries belong to the same sensor group. After installation, they will appear in the entry selector above.",
+        "availableEntriesDesc": "These entries belong to the same source group. After installation, they will appear in the entry selector above.",
         "sourceStatusTitle": "Runtime status",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
@@ -2841,13 +2841,13 @@
       },
       "filter": {
         "all": "All",
-        "sensor": "Sensor",
+        "source": "Source",
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
       },
       "contributionType": {
-        "sensor": "Sensor",
+        "source": "Source",
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
@@ -4117,7 +4117,7 @@
         "codingAgentHistory": "Coding assistant history"
       },
       "eventTypes": {
-        "sensorEvent": "Captured event",
+        "sourceEvent": "Captured event",
         "chatMessage": "Chat message",
         "toolCall": "Tool call",
         "toolResult": "Tool result",
@@ -4776,7 +4776,7 @@
       "l4": "L4"
     },
     "eventTypes": {
-      "sensor_event": "Sensor event",
+      "source_event": "Source event",
       "user_message": "User message",
       "ai_response": "Assistant reply",
       "assistant_final": "Assistant reply",

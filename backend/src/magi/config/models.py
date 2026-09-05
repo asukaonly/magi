@@ -701,13 +701,13 @@ class SchedulerLifecycleSettings(BaseModel):
     executions: SchedulerHistoryLifecycleSettings = Field(
         default_factory=SchedulerHistoryLifecycleSettings
     )
-    sensor_sync_jobs: SchedulerHistoryLifecycleSettings = Field(
+    source_sync_jobs: SchedulerHistoryLifecycleSettings = Field(
         default_factory=SchedulerHistoryLifecycleSettings
     )
 
 
-class SensorStateLifecycleSettings(BaseModel):
-    """Lifecycle policy for sensor runtime state."""
+class SourceStateLifecycleSettings(BaseModel):
+    """Lifecycle policy for source runtime state."""
 
     fingerprints_keep_latest: int = Field(default=10000, ge=1)
 
@@ -736,7 +736,7 @@ class LifecycleSettings(BaseModel):
         default_factory=MessageQueueLifecycleSettings
     )
     scheduler: SchedulerLifecycleSettings = Field(default_factory=SchedulerLifecycleSettings)
-    sensor_state: SensorStateLifecycleSettings = Field(default_factory=SensorStateLifecycleSettings)
+    source_state: SourceStateLifecycleSettings = Field(default_factory=SourceStateLifecycleSettings)
     chat_assets: ChatAssetsLifecycleSettings = Field(default_factory=ChatAssetsLifecycleSettings)
     ephemeral_jobs: EphemeralJobsLifecycleSettings = Field(
         default_factory=EphemeralJobsLifecycleSettings

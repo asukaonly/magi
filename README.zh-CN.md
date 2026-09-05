@@ -142,7 +142,7 @@ flowchart LR
 
 ### 插件与外部能力
 
-安装、启用和配置插件，为 Magi 接入本地数据源、工具、传感器和外部渠道。MCP 服务器和 Telegram 等渠道也可以接入同一个运行时。
+安装、启用和配置插件，为 Magi 接入本地数据来源、工具和外部渠道。MCP 服务器和 Telegram 等渠道也可以接入同一个运行时。
 
 大多数可安装插件维护在配套仓库 [magi-plugins](https://github.com/asukaonly/magi-plugins)。这个仓库主要承载桌面应用、Agent runtime、网关、前后端界面和插件平台。
 

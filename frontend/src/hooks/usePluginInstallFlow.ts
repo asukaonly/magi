@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  sensorsApi,
+  sourcesApi,
   type MemoryReadinessResponse,
-  type SensorSourceStatusItem,
-} from '../api/modules/sensors';
+  type SourceStatusItem,
+} from '../api/modules/sources';
 import {
   isPluginInstallTimeoutError,
   isPluginRegistryChangedError,
@@ -68,16 +68,16 @@ function getFieldDefaults(flow: ActivationFlowSpec): Record<string, unknown> {
   return defaults;
 }
 
-function getSensorSettingsPrefix(flow: ActivationFlowSpec): string | null {
+function getSourceSettingsPrefix(flow: ActivationFlowSpec): string | null {
   const enabledKey = typeof flow.enabled_key === 'string' ? flow.enabled_key : '';
-  if (!enabledKey.startsWith('sensors.') || !enabledKey.endsWith('.enabled')) {
+  if (!enabledKey.startsWith('sources.') || !enabledKey.endsWith('.enabled')) {
     return null;
   }
   return enabledKey.slice(0, -'.enabled'.length);
 }
 
 function getFirstContextHostDefaults(flow: ActivationFlowSpec): Record<string, unknown> {
-  const prefix = getSensorSettingsPrefix(flow);
+  const prefix = getSourceSettingsPrefix(flow);
   if (!prefix) {
     return {};
   }
@@ -164,7 +164,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * Honest signals:
  *   - ① install: real installFromRegistryWithProgress onProgress (install mode only).
  *   - ② enable: collect manifest fields, create an explicit connection, authorize.
- *   - ③ sync: trigger requestSync, then poll /sensors/status until the source's
+ *   - ③ sync: trigger requestSync, then poll /sources/status until the source's
  *     last_success advances beyond the baseline; "soft-done" on timeout (work
  *     continues in the background, the bell surfaces it) + backfillNote.
  *   - ④ memory: short bounded getMemoryReadiness polls. Normal plugin panels
@@ -237,8 +237,8 @@ export function usePluginInstallFlow(
   }, []);
 
   const findSource = useCallback(
-    async (connectionId: string, sourceName?: string): Promise<SensorSourceStatusItem | undefined> => {
-      const status = await sensorsApi.getStatus();
+    async (connectionId: string, sourceName?: string): Promise<SourceStatusItem | undefined> => {
+      const status = await sourcesApi.getStatus();
       return status.sources.find((s) => s.plugin_id === pluginId && s.connection_id === connectionId
         && (sourceName === undefined || s.source_name === sourceName));
     },
@@ -425,7 +425,7 @@ export function usePluginInstallFlow(
       if (!src) throw new Error('Connection source is unavailable');
       setSourceName(src.source_name);
       if (activationFlow.authorize_on_confirm) {
-        const auth = await sensorsApi.requestAuthorization(
+        const auth = await sourcesApi.requestAuthorization(
           src.source_name,
           src.connection_id,
           values as Record<string, any>,
@@ -439,7 +439,7 @@ export function usePluginInstallFlow(
       // ③ sync (trigger + poll status until last_success advances, or timeout)
       setStep('sync', 'running');
       const baseSuccess = src.last_success ?? null;
-      const sync = await sensorsApi.requestSync(
+      const sync = await sourcesApi.requestSync(
         src.source_name,
         src.connection_id,
         panelContext === 'first_context' ? { firstContext: true } : undefined,
@@ -482,7 +482,7 @@ export function usePluginInstallFlow(
       let pollingMemory = true;
       while (pollingMemory) {
         const remainingWait = Math.max(0, memoryDeadline - Date.now());
-        const readiness = await sensorsApi.getMemoryReadiness(src.source_name, src.connection_id, {
+        const readiness = await sourcesApi.getMemoryReadiness(src.source_name, src.connection_id, {
           maxWaitMs: isFirstContext ? 0 : Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
         });
         if (!isActive()) return;
@@ -517,7 +517,7 @@ export function usePluginInstallFlow(
         await sleep(MEMORY_BACKGROUND_POLL_MS);
         if (!isActive()) return;
         try {
-          const readiness = await sensorsApi.getMemoryReadiness(src.source_name, src.connection_id, {
+          const readiness = await sourcesApi.getMemoryReadiness(src.source_name, src.connection_id, {
             maxWaitMs: MEMORY_POLL_WAIT_MS,
           });
           if (!isActive()) return;

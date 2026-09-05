@@ -1,4 +1,4 @@
-"""Unified plugin manager for tool and sensor extensions."""
+"""Unified plugin manager for tool and source extensions."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ from .package_integrity import package_identity_error
 from .package_identity import verify_installed_source_sha256, verify_installed_package_sha256
 from .provisional_dependencies import ProvisionalLibraryReceipt
 from .projections import PluginProjectionService
-from .sensors import RegisteredSensorSnapshot, SensorRegistry
+from .sources import RegisteredSourceSnapshot, SourceRegistry
 from .history_importers import HistoryImporterRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
@@ -70,7 +70,7 @@ def _serialized_lifecycle_mutation(method: Callable[..., Any]) -> Callable[..., 
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
     plugin_projection_service: PluginProjectionService
-    sensor_registry: SensorRegistry
+    source_registry: SourceRegistry
     history_importer_registry: HistoryImporterRegistry
 
 
@@ -95,10 +95,10 @@ class PluginUserContentChannelTarget:
 
 @dataclass(frozen=True, slots=True)
 class PluginUserContentTargetSnapshot:
-    """Installed plugin and sensor clear targets captured atomically."""
+    """Installed plugin and source clear targets captured atomically."""
 
     plugins: tuple[tuple[str, Plugin, dict[str, Any]], ...]
-    sensors: tuple[RegisteredSensorSnapshot, ...]
+    sources: tuple[RegisteredSourceSnapshot, ...]
     channels: tuple[PluginUserContentChannelTarget, ...] = ()
     temporary_plugin_ids: frozenset[str] = frozenset()
     preparation_failures: tuple[PluginUserContentTargetPreparationFailure, ...] = ()
@@ -107,8 +107,8 @@ class PluginUserContentTargetSnapshot:
 def build_plugin_runtime(
     *,
     tool_registry: Any,
-    request_sensor_schedule_refresh: Callable[[], None],
-    sensor_registry: SensorRegistry | None = None,
+    request_source_schedule_refresh: Callable[[], None],
+    source_registry: SourceRegistry | None = None,
     activate_enabled: bool = True,
     connection_store: Any | None = None,
     instance_factory: Callable[[PluginManifest, PluginConnection, PluginContext], Plugin]
@@ -124,12 +124,12 @@ def build_plugin_runtime(
     """Build plugin runtime services for the current runtime instance.
 
     ``tool_registry`` (the shared L9 tool registry) and the
-    ``request_sensor_schedule_refresh`` callable (an L8 awareness hook) are
+    ``request_source_schedule_refresh`` callable (an L8 awareness hook) are
     injected by the composition root so this L4 plugins module does not import
     the higher tools / awareness layers.
     """
 
-    resolved_sensor_registry = sensor_registry or SensorRegistry()
+    resolved_source_registry = source_registry or SourceRegistry()
     history_importer_registry = HistoryImporterRegistry()
     plugin_manager = PluginManager(
         tool_registry=tool_registry,
@@ -142,10 +142,10 @@ def build_plugin_runtime(
         provider_registrar=provider_registrar,
         content_clearer=content_clearer,
         connection_disconnector=connection_disconnector,
-        sensor_registry=resolved_sensor_registry,
+        source_registry=resolved_source_registry,
         history_importer_registry=history_importer_registry,
         search_paths=_resolve_search_paths(),
-        request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+        request_source_schedule_refresh=request_source_schedule_refresh,
     )
     plugin_manager.scan(persist_discovery=activate_enabled)
     if activate_enabled:
@@ -156,7 +156,7 @@ def build_plugin_runtime(
     return PluginRuntimeBindings(
         plugin_manager=plugin_manager,
         plugin_projection_service=plugin_projection_service,
-        sensor_registry=resolved_sensor_registry,
+        source_registry=resolved_source_registry,
         history_importer_registry=history_importer_registry,
     )
 
@@ -168,9 +168,9 @@ class PluginManager(PluginInstallationMixin):
         self,
         *,
         tool_registry: Any,
-        sensor_registry: SensorRegistry,
+        source_registry: SourceRegistry,
         search_paths: list[Path],
-        request_sensor_schedule_refresh: Callable[[], None],
+        request_source_schedule_refresh: Callable[[], None],
         history_importer_registry: HistoryImporterRegistry | None = None,
         connection_store: Any | None = None,
         instance_factory: Callable[[PluginManifest, PluginConnection, PluginContext], Plugin]
@@ -184,8 +184,8 @@ class PluginManager(PluginInstallationMixin):
         connection_disconnector: Callable[[PluginConnection], Any] | None = None,
     ) -> None:
         self._search_paths = list(search_paths)
-        self._sensor_registry = sensor_registry
-        self._request_sensor_schedule_refresh = request_sensor_schedule_refresh
+        self._source_registry = source_registry
+        self._request_source_schedule_refresh = request_source_schedule_refresh
         self._package_states: dict[str, PluginPackageState] = {}
         self._plugin_instances: dict[str, Plugin] = {}
         self._setup_instances: dict[str, Plugin] = {}
@@ -235,7 +235,7 @@ class PluginManager(PluginInstallationMixin):
         self.provider_registry = provider_registrar
         self._contribution_registrar = PluginContributionRegistrar(
             tool_registry=tool_registry,
-            sensor_registry=sensor_registry,
+            source_registry=source_registry,
             history_importer_registry=history_importer_registry,
             skill_registrar=skill_registrar,
             hook_registry_provider=hook_registry_provider,
@@ -392,7 +392,7 @@ class PluginManager(PluginInstallationMixin):
         self._require_no_pending_shutdown()
         self.scan(persist_discovery=persist_discovery)
         self.activate_enabled_plugins()
-        self._request_sensor_schedule_refresh()
+        self._request_source_schedule_refresh()
         return self.list_packages()
 
     def list_packages(self) -> list[PluginPackageState]:
@@ -533,7 +533,7 @@ class PluginManager(PluginInstallationMixin):
         with self._lifecycle_write_lock:
             self._require_no_pending_shutdown()
             plugins: list[tuple[str, Plugin, dict[str, Any]]] = []
-            sensors = list(self._sensor_registry.snapshot_user_content_clear_targets())
+            sources = list(self._source_registry.snapshot_user_content_clear_targets())
             channels: list[PluginUserContentChannelTarget] = []
             temporary_ids: set[str] = set()
             failures: list[PluginUserContentTargetPreparationFailure] = []
@@ -551,12 +551,12 @@ class PluginManager(PluginInstallationMixin):
                         )
                         self._temporary_clear_instances[connection_id] = instance
                         temporary_ids.add(connection_id)
-                        for sensor_id, sensor, _spec in instance.get_sensors():
-                            sensors.append(
-                                RegisteredSensorSnapshot(
+                        for source_id, source, _spec in instance.get_sources():
+                            sources.append(
+                                RegisteredSourceSnapshot(
                                     plugin_id=connection.plugin_id,
-                                    sensor_id=f"{connection_id}:{sensor_id}",
-                                    sensor=sensor,
+                                    source_id=f"{connection_id}:{source_id}",
+                                    source=source,
                                     connection_id=connection_id,
                                 )
                             )
@@ -583,7 +583,7 @@ class PluginManager(PluginInstallationMixin):
                 plugins.append((connection_id, instance, deepcopy(connection.settings)))
             return PluginUserContentTargetSnapshot(
                 plugins=tuple(plugins),
-                sensors=tuple(sensors),
+                sources=tuple(sources),
                 channels=tuple(channels),
                 temporary_plugin_ids=frozenset(temporary_ids),
                 preparation_failures=tuple(failures),
@@ -872,7 +872,7 @@ class PluginManager(PluginInstallationMixin):
             state.healthy = True
             state.last_error = None
             self._refresh_package_contributions(plugin_id)
-            self._request_sensor_schedule_refresh()
+            self._request_source_schedule_refresh()
             return instance
         except BaseException as exc:
             state.healthy = False
@@ -926,7 +926,7 @@ class PluginManager(PluginInstallationMixin):
             self._connection_failures.pop(connection_id, None)
             self._publish_connection_readiness(connection_id)
             self._refresh_package_contributions(plugin_id)
-            self._request_sensor_schedule_refresh()
+            self._request_source_schedule_refresh()
 
     @_serialized_lifecycle_mutation
     def unload_plugin(self, plugin_id: str) -> None:

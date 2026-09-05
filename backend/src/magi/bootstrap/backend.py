@@ -60,9 +60,9 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
             providers.Object(context.plugins.plugin_projection_service)
         )
         bound.append("plugin_projection_service")
-    if context.plugins.sensor_registry is not None:
-        container.sensor_registry.override(providers.Object(context.plugins.sensor_registry))
-        bound.append("sensor_registry")
+    if context.plugins.source_registry is not None:
+        container.source_registry.override(providers.Object(context.plugins.source_registry))
+        bound.append("source_registry")
     if context.runtime_trace.store is not None:
         container.runtime_trace_store.override(providers.Object(context.runtime_trace.store))
         bound.append("runtime_trace_store")

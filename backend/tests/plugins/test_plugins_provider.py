@@ -7,7 +7,7 @@ from magi.core.container import get_container
 from magi.plugins.provider import (
     resolve_plugin_manager,
     resolve_plugin_projection_service,
-    resolve_sensor_registry,
+    resolve_source_registry,
 )
 
 
@@ -36,11 +36,11 @@ def test_resolve_plugin_projection_service_returns_bound_object() -> None:
         container.plugin_projection_service.reset_override()
 
 
-def test_resolve_sensor_registry_returns_bound_object() -> None:
+def test_resolve_source_registry_returns_bound_object() -> None:
     container = get_container()
     token = object()
-    container.sensor_registry.override(providers.Object(token))
+    container.source_registry.override(providers.Object(token))
     try:
-        assert resolve_sensor_registry() is token
+        assert resolve_source_registry() is token
     finally:
-        container.sensor_registry.reset_override()
+        container.source_registry.reset_override()

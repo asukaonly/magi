@@ -32,11 +32,11 @@ lifecycle:
     executions:
       success_retention_days: 30
       failed_retention_days: 60
-    sensor_sync_jobs:
+    source_sync_jobs:
       success_retention_days: 30
       failed_retention_days: 60
 
-  sensor_state:
+  source_state:
     fingerprints_keep_latest: 10000
 
   chat_assets:

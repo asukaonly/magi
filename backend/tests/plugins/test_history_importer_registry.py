@@ -10,7 +10,7 @@ from magi_plugin_sdk import (
 
 from magi.plugins.contribution_registration import PluginContributionRegistrar
 from magi.plugins.history_importers import HistoryImporterRegistry
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.runtime import PluginConnection
 from unittest.mock import Mock
@@ -68,7 +68,7 @@ def test_registrar_publishes_and_unloads_history_importer_contribution(tmp_path)
             (),
             {"register": lambda *args: None, "unregister": lambda *args: None},
         )(),
-        sensor_registry=SensorRegistry(),
+        source_registry=SourceRegistry(),
         history_importer_registry=registry,
         hook_registry_provider=lambda: None,
     )

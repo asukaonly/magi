@@ -327,8 +327,8 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
                     agent_id="chat:u-chat",
                     agent_type=TaskAgentType.CHAT.value,
                     agent_instance_id="u-chat",
-                    event_type="SENSOR_CONTEXT_UPDATED",
-                    payload={"content": f"sensor context {index}"},
+                    event_type="SOURCE_CONTEXT_UPDATED",
+                    payload={"content": f"source context {index}"},
                 )
             )
     assert agent._fact_queue.qsize() == 5
@@ -344,8 +344,8 @@ async def test_chat_task_agent_routes_each_queued_user_message_independently() -
         assert admitted_turns == expected
         assert response_turns == expected
         assert routed_batches == [
-            [EventTypes.USER_MESSAGE, "SENSOR_CONTEXT_UPDATED"],
-            [EventTypes.USER_MESSAGE, "SENSOR_CONTEXT_UPDATED"],
+            [EventTypes.USER_MESSAGE, "SOURCE_CONTEXT_UPDATED"],
+            [EventTypes.USER_MESSAGE, "SOURCE_CONTEXT_UPDATED"],
             [EventTypes.USER_MESSAGE],
         ]
     finally:
@@ -359,14 +359,14 @@ async def test_chat_batch_boundary_keeps_later_user_queued_across_stop() -> None
         agent_id="chat:u-chat",
         agent_type=TaskAgentType.CHAT.value,
         agent_instance_id="u-chat",
-        event_type="SENSOR_CONTEXT_UPDATED",
+        event_type="SOURCE_CONTEXT_UPDATED",
         payload={"content": "leading context"},
     )
     trailing_context = FactRecord(
         agent_id="chat:u-chat",
         agent_type=TaskAgentType.CHAT.value,
         agent_instance_id="u-chat",
-        event_type="SENSOR_CONTEXT_UPDATED",
+        event_type="SOURCE_CONTEXT_UPDATED",
         payload={"content": "trailing context"},
     )
     first_user = _user_fact("first", turn_id="turn-first")

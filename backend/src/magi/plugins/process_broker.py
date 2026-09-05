@@ -103,7 +103,7 @@ def bind_source_services(
 ) -> None:
     """Bind owned resources and source ingress without accepting worker authority.
 
-    The caller supplies source types from registered sensors, not projection
+    The caller supplies source types from registered sources, not projection
     selectors. Explicit grants are still required: source.emit scopes are source
     types; resources.create/read scopes are the host connection ID.
     """

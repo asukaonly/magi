@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useMemory } from '@/hooks/useMemory';
 import type { MemorySearchResultPayload } from '@/api/modules/memory';
-import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { EmptyStateAvailableSources } from '@/components/empty-state/EmptyStateAvailableSources';
 import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
@@ -128,7 +128,7 @@ export const MemoryRecallPage = () => {
           <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
             {t('memory.recall.emptyStateIntro')}
           </p>
-          <EmptyStateAvailableSensors />
+          <EmptyStateAvailableSources />
           <button
             type="button"
             onClick={() => setEntrySheetOpen(true)}

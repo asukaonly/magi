@@ -83,11 +83,11 @@ def resolve_source_time_semantics(
         return SourceTimeSemantics("exact", "exact", "message_timestamp")
     if normalized_source in _EXACT_MANUAL_SOURCES:
         return SourceTimeSemantics("exact", "exact", "manual_entry_event_at")
-    if "calendar" in normalized_source and normalized_event_type == "sensor_event":
+    if "calendar" in normalized_source and normalized_event_type == "source_event":
         return SourceTimeSemantics(
             "calendar_anchor",
             "calendar_anchor",
-            "sensor_occurred_at",
+            "source_occurred_at",
         )
     return SourceTimeSemantics("unknown", "low", None)
 

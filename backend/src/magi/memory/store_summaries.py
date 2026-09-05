@@ -159,7 +159,7 @@ class UnifiedMemorySummaryMixin:
         period_end: Optional[float] = None,
         min_events: int = 4,
     ) -> Optional[Dict[str, Any]]:
-        """Generate an L3 activity summary scoped to one or more sensor sources."""
+        """Generate an L3 activity summary scoped to one or more sources."""
         return await self.generate_summary(
             period_type=period_type,
             period_start=period_start,

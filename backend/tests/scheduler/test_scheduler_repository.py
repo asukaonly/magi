@@ -14,13 +14,13 @@ from magi.scheduler import (
     TriggerType,
 )
 from magi.scheduler.repository import ScheduleRepository
-from magi.scheduler.sensor_jobs import SensorSyncEnqueueResult
+from magi.scheduler.source_jobs import SourceSyncEnqueueResult
 
 
-def _build_sensor_schedule() -> ScheduleDefinition:
+def _build_source_schedule() -> ScheduleDefinition:
     return ScheduleDefinition(
-        schedule_id="sensor-sync:test-plugin:test-source",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
+        schedule_id="source-sync:test-plugin:test-source",
+        target_type=ScheduledTargetType.SOURCE_SYNC,
         target_key="test-plugin:test-source",
         trigger=TriggerDefinition(
             trigger_type=TriggerType.INTERVAL,
@@ -35,15 +35,15 @@ def _build_sensor_schedule() -> ScheduleDefinition:
     )
 
 
-async def _enqueue_sensor_sync(
+async def _enqueue_source_sync(
     repository: ScheduleRepository,
     schedule: ScheduleDefinition,
     *,
     manual: bool = False,
     started_at: float | None = None,
-) -> SensorSyncEnqueueResult:
+) -> SourceSyncEnqueueResult:
     await repository.upsert_schedule(schedule)
-    admitted = await repository.enqueue_sensor_sync_execution(
+    admitted = await repository.enqueue_source_sync_execution(
         schedule=schedule,
         manual=manual,
         started_at=started_at if started_at is not None else time.time(),
@@ -53,19 +53,19 @@ async def _enqueue_sensor_sync(
 
 
 @pytest.mark.asyncio
-async def test_enqueue_sensor_sync_execution_rejects_second_outstanding_job_for_same_target(
+async def test_enqueue_source_sync_execution_rejects_second_outstanding_job_for_same_target(
     tmp_path,
 ):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    first = await _enqueue_sensor_sync(repository, schedule)
-    second = await repository.enqueue_sensor_sync_execution(
+    schedule = _build_source_schedule()
+    first = await _enqueue_source_sync(repository, schedule)
+    second = await repository.enqueue_source_sync_execution(
         schedule=schedule,
         manual=False,
         started_at=time.time(),
     )
-    outstanding = await repository.get_outstanding_sensor_sync_job(
+    outstanding = await repository.get_outstanding_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
@@ -80,13 +80,13 @@ async def test_enqueue_sensor_sync_execution_rejects_second_outstanding_job_for_
 
 
 @pytest.mark.asyncio
-async def test_claim_next_sensor_sync_job_marks_job_running(tmp_path):
+async def test_claim_next_source_sync_job_marks_job_running(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
 
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
 
     assert claimed is not None
     assert claimed["job_id"] == admitted.job_id
@@ -96,16 +96,16 @@ async def test_claim_next_sensor_sync_job_marks_job_running(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_recover_running_sensor_sync_job_immediately(tmp_path):
+async def test_recover_running_source_sync_job_immediately(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
 
-    requeued_count = await repository.recover_running_sensor_sync_jobs()
-    outstanding = await repository.get_outstanding_sensor_sync_job(
+    requeued_count = await repository.recover_running_source_sync_jobs()
+    outstanding = await repository.get_outstanding_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
@@ -117,25 +117,25 @@ async def test_recover_running_sensor_sync_job_immediately(tmp_path):
     assert outstanding["claimed_by"] is None
     assert outstanding["claimed_at"] is None
     assert outstanding["started_at"] is None
-    assert outstanding["error"] == "SENSOR_SYNC_EXECUTOR_RESTARTED"
+    assert outstanding["error"] == "SOURCE_SYNC_EXECUTOR_RESTARTED"
 
 
 @pytest.mark.asyncio
-async def test_settle_sensor_sync_job_failure_waits_until_retry_is_due(tmp_path, monkeypatch):
+async def test_settle_source_sync_job_failure_waits_until_retry_is_due(tmp_path, monkeypatch):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
+    schedule = _build_source_schedule()
     now = 1_000.0
-    monkeypatch.setattr("magi.scheduler.sensor_jobs.admission.time.time", lambda: now)
-    admitted = await _enqueue_sensor_sync(
+    monkeypatch.setattr("magi.scheduler.source_jobs.admission.time.time", lambda: now)
+    admitted = await _enqueue_source_sync(
         repository,
         schedule,
         started_at=now,
     )
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
 
-    requeued = await repository.settle_sensor_sync_job_failure(
+    requeued = await repository.settle_source_sync_job_failure(
         admitted.job_id,
         error="temporary source failure",
         failed_at=now,
@@ -145,10 +145,10 @@ async def test_settle_sensor_sync_job_failure_waits_until_retry_is_due(tmp_path,
     )
 
     assert requeued is True
-    assert await repository.claim_next_sensor_sync_job(claimed_by="executor-1") is None
+    assert await repository.claim_next_source_sync_job(claimed_by="executor-1") is None
 
     now = 1_030.0
-    retried = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    retried = await repository.claim_next_source_sync_job(claimed_by="executor-1")
 
     assert retried is not None
     assert retried["job_id"] == admitted.job_id
@@ -157,22 +157,22 @@ async def test_settle_sensor_sync_job_failure_waits_until_retry_is_due(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_settle_sensor_sync_job_success_persists_all_runtime_state(tmp_path):
+async def test_settle_source_sync_job_success_persists_all_runtime_state(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
 
     result = ScheduledExecutionResult(
         success=True,
-        message="sensor_sync_completed",
+        message="source_sync_completed",
         next_cursor="cursor-2",
         watermark_ts=123.0,
         stats={"items": 2},
     )
-    await repository.settle_sensor_sync_job_success(
+    await repository.settle_source_sync_job_success(
         claimed["job_id"],
         result=result,
         finished_at=time.time(),
@@ -180,16 +180,16 @@ async def test_settle_sensor_sync_job_success_persists_all_runtime_state(tmp_pat
         continue_sync=False,
     )
 
-    outstanding = await repository.get_outstanding_sensor_sync_job(
+    outstanding = await repository.get_outstanding_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
-    job = await repository.get_sensor_sync_job(claimed["job_id"])
+    job = await repository.get_source_sync_job(claimed["job_id"])
 
     assert outstanding is None
     assert job is not None
     assert job["status"] == "success"
-    assert job["result_message"] == "sensor_sync_completed"
+    assert job["result_message"] == "source_sync_completed"
     assert job["next_cursor"] == "cursor-2"
     assert job["watermark_ts"] == 123.0
     assert job["stats"] == {"items": 2}
@@ -208,23 +208,23 @@ async def test_settle_sensor_sync_job_success_persists_all_runtime_state(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_settle_sensor_sync_job_success_atomically_admits_continuation(tmp_path):
+async def test_settle_source_sync_job_success_atomically_admits_continuation(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
+    schedule = _build_source_schedule()
     schedule.target_payload["sync_request"] = {
         "mode": "backfill",
         "backfill_scope": "last_30_days",
     }
-    admitted = await _enqueue_sensor_sync(repository, schedule, manual=True)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    admitted = await _enqueue_source_sync(repository, schedule, manual=True)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
 
-    settlement = await repository.settle_sensor_sync_job_success(
+    settlement = await repository.settle_source_sync_job_success(
         claimed["job_id"],
         result=ScheduledExecutionResult(
             success=True,
-            message="sensor_sync_completed",
+            message="source_sync_completed",
             next_cursor="cursor-2",
             stats={"items": 200, "has_more": True},
         ),
@@ -233,8 +233,8 @@ async def test_settle_sensor_sync_job_success_atomically_admits_continuation(tmp
         continue_sync=True,
     )
 
-    parent = await repository.get_sensor_sync_job(admitted.job_id)
-    continuation = await repository.get_outstanding_sensor_sync_job(
+    parent = await repository.get_source_sync_job(admitted.job_id)
+    continuation = await repository.get_outstanding_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
@@ -255,7 +255,7 @@ async def test_settle_sensor_sync_job_success_atomically_admits_continuation(tmp
     assert continuation["status"] == "queued"
     assert continuation["manual"] is True
     assert str(continuation["schedule_id"]).startswith(
-        "sensor-sync-continuation:test-plugin:test-source:"
+        "source-sync-continuation:test-plugin:test-source:"
     )
     assert continuation["payload"] == {
         "plugin_id": "test-plugin",
@@ -271,28 +271,28 @@ async def test_settle_sensor_sync_job_success_atomically_admits_continuation(tmp
 
 
 @pytest.mark.asyncio
-async def test_settle_sensor_sync_job_success_continuation_is_idempotent(tmp_path):
+async def test_settle_source_sync_job_success_continuation_is_idempotent(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
     result = ScheduledExecutionResult(
         success=True,
-        message="sensor_sync_completed",
+        message="source_sync_completed",
         stats={"has_more": True},
     )
 
-    first = await repository.settle_sensor_sync_job_success(
+    first = await repository.settle_source_sync_job_success(
         admitted.job_id,
         result=result,
         finished_at=time.time(),
         scheduler_job_id=None,
         continue_sync=True,
     )
-    repeated = await repository.settle_sensor_sync_job_success(
+    repeated = await repository.settle_source_sync_job_success(
         admitted.job_id,
         result=result,
         finished_at=time.time(),
@@ -301,7 +301,7 @@ async def test_settle_sensor_sync_job_success_continuation_is_idempotent(tmp_pat
     )
 
     connection = sqlite3.connect(db_path)
-    job_count = connection.execute("SELECT COUNT(*) FROM sensor_sync_jobs").fetchone()[0]
+    job_count = connection.execute("SELECT COUNT(*) FROM source_sync_jobs").fetchone()[0]
     execution_count = connection.execute(
         "SELECT COUNT(*) FROM schedule_executions"
     ).fetchone()[0]
@@ -316,24 +316,24 @@ async def test_settle_sensor_sync_job_success_continuation_is_idempotent(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_concurrent_sensor_sync_success_settlement_admits_one_continuation(tmp_path):
+async def test_concurrent_source_sync_success_settlement_admits_one_continuation(tmp_path):
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
     result = ScheduledExecutionResult(
         success=True,
-        message="sensor_sync_completed",
+        message="source_sync_completed",
         stats={"has_more": True},
     )
     finished_at = time.time()
 
     settlements = await asyncio.gather(
         *(
-            repository.settle_sensor_sync_job_success(
+            repository.settle_source_sync_job_success(
                 admitted.job_id,
                 result=result,
                 finished_at=finished_at,
@@ -345,7 +345,7 @@ async def test_concurrent_sensor_sync_success_settlement_admits_one_continuation
     )
 
     connection = sqlite3.connect(db_path)
-    job_count = connection.execute("SELECT COUNT(*) FROM sensor_sync_jobs").fetchone()[0]
+    job_count = connection.execute("SELECT COUNT(*) FROM source_sync_jobs").fetchone()[0]
     execution_count = connection.execute(
         "SELECT COUNT(*) FROM schedule_executions"
     ).fetchone()[0]
@@ -362,16 +362,16 @@ async def test_continuation_admission_failure_rolls_back_success_settlement(tmp_
     db_path = tmp_path / "scheduler.db"
     repository = ScheduleRepository(db_path)
     await repository.initialize()
-    schedule = _build_sensor_schedule()
-    admitted = await _enqueue_sensor_sync(repository, schedule)
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    schedule = _build_source_schedule()
+    admitted = await _enqueue_source_sync(repository, schedule)
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
     connection = sqlite3.connect(db_path)
     connection.execute(
         """
-        CREATE TRIGGER fail_sensor_continuation_admission
-        BEFORE INSERT ON sensor_sync_jobs
-        WHEN NEW.schedule_id LIKE 'sensor-sync-continuation:%'
+        CREATE TRIGGER fail_source_continuation_admission
+        BEFORE INSERT ON source_sync_jobs
+        WHEN NEW.schedule_id LIKE 'source-sync-continuation:%'
         BEGIN
             SELECT RAISE(ABORT, 'continuation admission failed');
         END
@@ -381,11 +381,11 @@ async def test_continuation_admission_failure_rolls_back_success_settlement(tmp_
     connection.close()
 
     with pytest.raises(sqlite3.IntegrityError, match="continuation admission failed"):
-        await repository.settle_sensor_sync_job_success(
+        await repository.settle_source_sync_job_success(
             admitted.job_id,
             result=ScheduledExecutionResult(
                 success=True,
-                message="sensor_sync_completed",
+                message="source_sync_completed",
                 stats={"has_more": True},
             ),
             finished_at=time.time(),
@@ -393,8 +393,8 @@ async def test_continuation_admission_failure_rolls_back_success_settlement(tmp_
             continue_sync=True,
         )
 
-    parent = await repository.get_sensor_sync_job(admitted.job_id)
-    outstanding = await repository.get_outstanding_sensor_sync_job(
+    parent = await repository.get_source_sync_job(admitted.job_id)
+    outstanding = await repository.get_outstanding_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
@@ -413,24 +413,24 @@ async def test_continuation_admission_failure_rolls_back_success_settlement(tmp_
 
 
 @pytest.mark.asyncio
-async def test_latest_sensor_sync_job_keeps_completed_backfill_details(tmp_path):
+async def test_latest_source_sync_job_keeps_completed_backfill_details(tmp_path):
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
+    schedule = _build_source_schedule()
     schedule.target_payload["sync_request"] = {
         "mode": "backfill",
         "backfill_scope": "custom",
         "backfill_start_date": "2026-06-01",
         "backfill_end_date": "2026-06-30",
     }
-    admitted = await _enqueue_sensor_sync(
+    admitted = await _enqueue_source_sync(
         repository,
         schedule,
         manual=True,
     )
-    claimed = await repository.claim_next_sensor_sync_job(claimed_by="executor-1")
+    claimed = await repository.claim_next_source_sync_job(claimed_by="executor-1")
     assert claimed is not None
-    await repository.settle_sensor_sync_job_success(
+    await repository.settle_source_sync_job_success(
         admitted.job_id,
         result=ScheduledExecutionResult(success=True, stats={"items": 3}),
         finished_at=time.time(),
@@ -438,7 +438,7 @@ async def test_latest_sensor_sync_job_keeps_completed_backfill_details(tmp_path)
         continue_sync=False,
     )
 
-    latest = await repository.get_latest_sensor_sync_job(
+    latest = await repository.get_latest_source_sync_job(
         schedule.target_type,
         schedule.target_key,
     )
@@ -454,7 +454,7 @@ async def test_update_target_cursor_persists_partial_cursor(tmp_path):
     """update_target_cursor saves cursor without clearing the running flag."""
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
+    schedule = _build_source_schedule()
     await repository.upsert_schedule(schedule)
 
     # Mark target as running
@@ -487,7 +487,7 @@ async def test_update_target_cursor_preserves_watermark_when_none(tmp_path):
     """update_target_cursor keeps existing watermark_ts when new value is None."""
     repository = ScheduleRepository(tmp_path / "scheduler.db")
     await repository.initialize()
-    schedule = _build_sensor_schedule()
+    schedule = _build_source_schedule()
     await repository.upsert_schedule(schedule)
     await repository.acquire_target_lock(
         schedule.target_type,
@@ -535,7 +535,7 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
         target_payload={"prompt": "Summarize my private project."},
         metadata={"display_name": "Private project summary"},
     )
-    system_schedule = _build_sensor_schedule()
+    system_schedule = _build_source_schedule()
     await repository.upsert_schedule(user_schedule)
     await repository.upsert_schedule(system_schedule)
     await repository.update_schedule_binding(
@@ -567,7 +567,7 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
         error="private path: /Users/example/Documents/secret.txt",
         scheduler_job_id=system_schedule.schedule_id,
     )
-    await _enqueue_sensor_sync(repository, system_schedule, started_at=101.5)
+    await _enqueue_source_sync(repository, system_schedule, started_at=101.5)
     user_execution_id = await repository.create_execution_record(
         schedule_id=user_schedule.schedule_id,
         target_type=user_schedule.target_type,
@@ -605,7 +605,7 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
         "user_schedules": 1,
         "user_target_states": 1,
         "user_jobs": 0,
-        "sensor_jobs": 1,
+        "source_jobs": 1,
         "executions": 3,
         "sanitized_target_states": 1,
     }
@@ -619,7 +619,7 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
     assert system_state.last_error is None
     assert system_state.stats == {}
     assert (
-        await repository.enqueue_sensor_sync_execution(
+        await repository.enqueue_source_sync_execution(
             schedule=system_schedule,
             manual=False,
             started_at=104.0,
@@ -637,3 +637,39 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
         assert all(
             fragment not in persisted_bytes for fragment in forbidden_fragments
         )
+
+
+@pytest.mark.asyncio
+async def test_source_sync_jobs_keep_accounts_and_semantic_types_distinct(tmp_path):
+    from magi.scheduler import build_source_schedule_id, build_source_target_key
+
+    repository = ScheduleRepository(tmp_path / "accounts.db")
+    await repository.initialize()
+    for connection_id in ("account-personal", "account-work"):
+        schedule = _build_source_schedule()
+        schedule.schedule_id = build_source_schedule_id(
+            connection_id=connection_id, source_type="calendar_event"
+        )
+        schedule.target_key = build_source_target_key(
+            connection_id=connection_id, source_type="calendar_event"
+        )
+        schedule.target_payload.update(
+            connection_id=connection_id,
+            source_id="timeline.calendar",
+            source_type="calendar_event",
+        )
+        await _enqueue_source_sync(repository, schedule)
+
+    jobs = [
+        await repository.claim_next_source_sync_job(claimed_by="executor-1"),
+        await repository.claim_next_source_sync_job(claimed_by="executor-2"),
+    ]
+    assert all(job is not None for job in jobs)
+    assert {job["target_key"] for job in jobs} == {
+        "account-personal:calendar_event", "account-work:calendar_event"
+    }
+    for job in jobs:
+        assert job["source_type"] == "calendar_event"
+        assert job["plugin_id"] == "test-plugin"
+        assert job["payload"]["source_id"] == "timeline.calendar"
+        assert job["payload"]["connection_id"] in {"account-personal", "account-work"}

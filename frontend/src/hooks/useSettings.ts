@@ -10,7 +10,7 @@ import { type SystemConfig } from '@/api/modules/config';
 import { type ControlSettingsDTO } from '@/api/modules/control';
 import { type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
 import { type ToolConfig } from '@/api/modules/tools';
-import { type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { type SourceStatusItem } from '@/api/modules/sources';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
 import type {
   MemoryToggleFieldId,
@@ -71,7 +71,7 @@ export interface UseSettingsReturn {
   handlePluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
-  loadPluginsAndSensors: () => Promise<void>;
+  loadPluginsAndSources: () => Promise<void>;
 
   // Tools
   tools: ToolConfig[];
@@ -82,7 +82,7 @@ export interface UseSettingsReturn {
   handleToolEnabledChange: (toolName: string, enabled: boolean) => void;
 
   // Timeline
-  timelineStatuses: SensorSourceStatusItem[];
+  timelineStatuses: SourceStatusItem[];
   timelineStatusesLoading: boolean;
   timelineSelection: string | null;
   setTimelineSelection: React.Dispatch<React.SetStateAction<string | null>>;
@@ -169,7 +169,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     timelineStatuses,
     timelineStatusesLoading,
     fetchTimelineStatuses,
@@ -347,7 +347,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
 
     // Tools
     tools,

@@ -367,7 +367,7 @@ def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_m
                 {
                     "event_id": "e1",
                     "timestamp": 1.5,
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                     "source": "chrome_history",
                     "content": "Chrome 浏览 Gmail：iKuuu VPN 流量重置通知。",
                 }

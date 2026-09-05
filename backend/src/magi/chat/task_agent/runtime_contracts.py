@@ -58,7 +58,7 @@ class ChatTaskAgentRuntimeConfig:
 class ChatTaskAgentRuntimeCallbacks:
     get_event_emitter: Callable[[], Any]
     get_task_agent_manager: Callable[[], Any]
-    get_sensor_hub: Callable[[], Any]
+    get_source_hub: Callable[[], Any]
     max_fact_memory: int
     release_pending_inputs: Callable[..., Any]
     deliver_final_response: Callable[..., Any]

@@ -3,7 +3,7 @@ id = "chrome-history"
 name = "Chrome History"
 version = "0.1.3"
 
-[plugin.default_settings.sensors.chrome_history]
+[plugin.default_settings.sources.chrome_history]
 enabled = false
 sync_mode = "interval"
 sync_interval_minutes = 30

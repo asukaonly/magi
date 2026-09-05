@@ -1,6 +1,6 @@
 """L2 reads the pinned capture-time full text for extraction (RFC #56 P3).
 
-The event window feeds phase1/direct-write off ``texts``. When a sensor pinned a
+The event window feeds phase1/direct-write off ``texts``. When a source pinned a
 full body for an event (obsidian note, git commit), L2 should extract against the
 frozen full text, not the lean L1 summary — falling back to ``content`` otherwise.
 """

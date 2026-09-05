@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class ScheduledTargetType(str, Enum):
     """Supported scheduler target families."""
 
-    SENSOR_SYNC = "sensor_sync"
+    SOURCE_SYNC = "source_sync"
     MEMORY_L1_MAINTENANCE = "memory_l1_maintenance"
     MEMORY_L2_MAINTENANCE = "memory_l2_maintenance"
     MEMORY_L2_CONSOLIDATE = "memory_l2_consolidate"
@@ -136,13 +136,13 @@ class ScheduleContributor(Protocol):
         ...
 
 
-# --- Sensor schedule helpers ---
+# --- Source schedule helpers ---
 
-def build_sensor_target_key(plugin_id: str, source_type: str) -> str:
-    """Build stable scheduler target key for a sensor source."""
-    return f"{plugin_id}:{source_type}"
+def build_source_target_key(connection_id: str, source_type: str) -> str:
+    """Build a source target key scoped to one account connection."""
+    return f"{connection_id}:{source_type}"
 
 
-def build_sensor_schedule_id(plugin_id: str, source_type: str) -> str:
-    """Build stable recurring schedule id for a sensor source."""
-    return f"sensor-sync:{plugin_id}:{source_type}"
+def build_source_schedule_id(connection_id: str, source_type: str) -> str:
+    """Build a recurring source schedule id scoped to one account connection."""
+    return f"source-sync:{connection_id}:{source_type}"

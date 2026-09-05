@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS schedule_executions (
     created_at REAL NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS sensor_sync_jobs (
+CREATE TABLE IF NOT EXISTS source_sync_jobs (
     job_id TEXT PRIMARY KEY,
     schedule_id TEXT NOT NULL,
     execution_id TEXT NOT NULL,
@@ -92,18 +92,18 @@ CREATE INDEX IF NOT EXISTS idx_schedule_executions_target
 CREATE INDEX IF NOT EXISTS idx_schedule_executions_started_at
     ON schedule_executions(started_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_sensor_sync_jobs_status_due_created
-    ON sensor_sync_jobs(status, next_attempt_at ASC, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_source_sync_jobs_status_due_created
+    ON source_sync_jobs(status, next_attempt_at ASC, created_at ASC);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_sync_jobs_one_outstanding_per_target
-    ON sensor_sync_jobs(target_type, target_key)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_sync_jobs_one_outstanding_per_target
+    ON source_sync_jobs(target_type, target_key)
     WHERE status IN ('queued', 'running');
 """
 
 DROP_SQL = """
-DROP INDEX IF EXISTS idx_sensor_sync_jobs_one_outstanding_per_target;
+DROP INDEX IF EXISTS idx_source_sync_jobs_one_outstanding_per_target;
 
-DROP INDEX IF EXISTS idx_sensor_sync_jobs_status_due_created;
+DROP INDEX IF EXISTS idx_source_sync_jobs_status_due_created;
 
 DROP INDEX IF EXISTS idx_schedule_executions_started_at;
 
@@ -111,7 +111,7 @@ DROP INDEX IF EXISTS idx_schedule_executions_target;
 
 DROP INDEX IF EXISTS idx_schedule_executions_schedule_id;
 
-DROP TABLE IF EXISTS sensor_sync_jobs;
+DROP TABLE IF EXISTS source_sync_jobs;
 
 DROP TABLE IF EXISTS schedule_executions;
 

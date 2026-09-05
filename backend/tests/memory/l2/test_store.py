@@ -46,7 +46,7 @@ async def _build_group_timeline_message(text: str, *, correlation_id: str, times
         correlation_id=correlation_id,
         timestamp=timestamp,
         created_at=timestamp,
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         source="group_chat",
         source_item_id=f"group_chat:{correlation_id}",
         memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -643,7 +643,7 @@ async def test_upsert_knowledge_edge_persists_fact_kind(tmp_path):
         evidence_event_ids=["evt-1"],
         confidence=0.7,
         observed_at=1710000000.0,
-        source_type="sensor",
+        source_type="source",
         fact_kind="interaction_evidence",
     )
     edge = await store.get_relationship(triple_id=triple_id)
@@ -660,7 +660,7 @@ async def test_upsert_knowledge_edge_persists_fact_kind(tmp_path):
         evidence_event_ids=["evt-2"],
         confidence=0.4,
         observed_at=1710010000.0,
-        source_type="sensor",
+        source_type="source",
     )
     edge = await store.get_relationship(triple_id=triple_id)
 
@@ -1973,13 +1973,13 @@ async def test_l2_projection_jobs_support_enqueue_claim_complete_and_stats(tmp_p
     inserted = await store.enqueue_projection_job(
         event_id="evt-proj-1",
         source="chrome_history",
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         batch_owner="owner:chrome_history:default",
     )
     duplicate = await store.enqueue_projection_job(
         event_id="evt-proj-1",
         source="chrome_history",
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         batch_owner="owner:chrome_history:default",
     )
 
@@ -2272,7 +2272,7 @@ async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(tmp_pat
         await store.enqueue_projection_job(
             event_id=f"evt-owner-wait-{suffix}",
             source="chrome_history",
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             batch_owner="chrome_history:Default:github.com",
             max_events=3,
             max_wait_seconds=180,
@@ -2302,7 +2302,7 @@ async def test_claim_ready_projection_jobs_claims_full_chunks_and_leaves_remaind
         await store.enqueue_projection_job(
             event_id=f"evt-owner-chunk-{index}",
             source="chrome_history",
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             batch_owner="chrome_history:Default:x.com",
             max_events=2,
             max_wait_seconds=180,
@@ -2334,7 +2334,7 @@ async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_t
     await store.enqueue_projection_job(
         event_id="evt-owner-aged-1",
         source="chrome_history",
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         batch_owner="chrome_history:Default:mail.google.com",
         max_events=20,
         max_wait_seconds=60,
@@ -2342,7 +2342,7 @@ async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_t
     await store.enqueue_projection_job(
         event_id="evt-owner-aged-2",
         source="chrome_history",
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         batch_owner="chrome_history:Default:mail.google.com",
         max_events=20,
         max_wait_seconds=60,
@@ -2391,7 +2391,7 @@ async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state
         await store.enqueue_projection_job(
             event_id=f"evt-owner-steady-{index}",
             source="chrome_history",
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             batch_owner="chrome_history:Default:github.com",
             catch_up_owner="chrome_history:Default:catchup:0",
             max_events=20,
@@ -2428,7 +2428,7 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
         await store.enqueue_projection_job(
             event_id=f"evt-owner-catch-a-{index}",
             source="chrome_history",
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             batch_owner="chrome_history:Default:github.com",
             catch_up_owner="chrome_history:Default:catchup:2",
             max_events=20,
@@ -2439,7 +2439,7 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
         await store.enqueue_projection_job(
             event_id=f"evt-owner-catch-b-{index}",
             source="chrome_history",
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             batch_owner="chrome_history:Default:news.ycombinator.com",
             catch_up_owner="chrome_history:Default:catchup:2",
             max_events=20,
@@ -3938,7 +3938,7 @@ async def test_snapshot_preferences_enriched_from_jazz_preference_assertions(tmp
             "confidence_score": 0.75,
             "evidence_events": ["evt-jazz-1", "evt-jazz-2", "evt-jazz-3"],
             "volatility_index": 0.3,
-            "source_domain": "sensor",
+            "source_domain": "source",
             "inference_depth": "direct",
             "validation_state": "stable",
             "first_inferred_at": now - 3600,

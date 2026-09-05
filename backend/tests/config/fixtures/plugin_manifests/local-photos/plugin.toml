@@ -3,7 +3,7 @@ id = "local-photos"
 name = "Local Photos"
 version = "0.1.0"
 
-[plugin.default_settings.sensors.photo_library_directory]
+[plugin.default_settings.sources.photo_library_directory]
 enabled = false
 source_mode = "directory"
 sync_mode = "interval"

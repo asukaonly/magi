@@ -21,7 +21,7 @@ const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
     description: `${name} package`,
     author: 'Magi Team',
     official: true,
-    contribution_types: ['sensor'],
+    contribution_types: ['source'],
     source: 'external',
     plugin_dir: `/tmp/${pluginId}`,
     manifest_path: `/tmp/${pluginId}/plugin.toml`,
@@ -51,7 +51,7 @@ const pluginPackage = (pluginId: string, name: string): PluginPackageState => ({
     {
       plugin_id: pluginId,
       contribution_id: `timeline.${pluginId}`,
-      contribution_type: 'sensor',
+      contribution_type: 'source',
       display_name: name,
       description: `${name} timeline entry`,
       surface: 'timeline',

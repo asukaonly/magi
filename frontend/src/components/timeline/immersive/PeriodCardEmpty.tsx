@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyStateAvailableSensors } from "../../empty-state/EmptyStateAvailableSensors";
+import { EmptyStateAvailableSources } from "../../empty-state/EmptyStateAvailableSources";
 
 interface PeriodCardEmptyProps {
   scale: "month" | "week" | "day" | "hour";
@@ -28,7 +28,7 @@ export const PeriodCardEmpty: React.FC<PeriodCardEmptyProps> = ({ scale, dateLab
         {emptyMessage}
       </p>
       <div className="mt-8 w-full max-w-3xl">
-        <EmptyStateAvailableSensors i18nNamespace="app" i18nKeyPrefix="timeline" />
+        <EmptyStateAvailableSources i18nNamespace="app" i18nKeyPrefix="timeline" />
       </div>
     </div>
   );

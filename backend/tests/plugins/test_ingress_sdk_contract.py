@@ -12,7 +12,7 @@ from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration as SdkPlugi
 
 class StubIngressEvent:
     event_id = 1
-    source_kind = "sensor"
+    source_kind = "source"
     producer = "example_producer"
     plugin_target = "example_target"
     event_type = "example_event"
@@ -41,7 +41,7 @@ def test_backend_ingress_contracts_reexport_sdk_symbols() -> None:
 def test_runtime_trace_keeps_storage_record_alias() -> None:
     record = StoredPluginIngressEventRecord(
         event_id=1,
-        source_kind="sensor",
+        source_kind="source",
         producer="example_producer",
         plugin_target="example_target",
         event_type="example_event",

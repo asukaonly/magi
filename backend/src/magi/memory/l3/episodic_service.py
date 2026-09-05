@@ -323,7 +323,7 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         ]
 
         if pack.folded_groups:
-            lines.append("Activity summary (high-volume sensor sources folded):")
+            lines.append("Activity summary (high-volume sources folded):")
             for group in pack.folded_groups:
                 lines.append(f"  - {group}")
             lines.append("")

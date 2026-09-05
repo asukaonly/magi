@@ -11,7 +11,7 @@ import {
   type PluginInstallJobSnapshot,
 } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
-import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
 import { PluginConsentDialog } from '@/components/plugins/PluginConsentDialog';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
@@ -43,11 +43,11 @@ import {
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 import { mergeConnectionSettings } from '@/utils/plugin-connection-settings';
 
-const sourceIdentity = (source: SensorSourceStatusItem) => `${source.connection_id}:${source.source_name}`;
+const sourceIdentity = (source: SourceStatusItem) => `${source.connection_id}:${source.source_name}`;
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
-  statuses: SensorSourceStatusItem[];
+  statuses: SourceStatusItem[];
   availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
   selectedSourceName: string | null;
@@ -62,13 +62,13 @@ const SOURCE_ENABLED_SUFFIX = '.enabled';
 
 const isExpertOnlyField = (key: string) => EXPERT_ONLY_SUFFIXES.some((suffix) => key.endsWith(suffix));
 
-const getSourceEnabledKey = (source: SensorSourceStatusItem) =>
+const getSourceEnabledKey = (source: SourceStatusItem) =>
   source.fields.find((field) => field.key.endsWith(SOURCE_ENABLED_SUFFIX))?.key ??
-  `sensors.${source.source_name}.enabled`;
+  `sources.${source.source_name}.enabled`;
 
 const buildActivationValues = (
   flow: ActivationFlowSpec,
-  source: SensorSourceStatusItem,
+  source: SourceStatusItem,
   pluginDrafts: Record<string, Record<string, any>>
 ) =>
   Object.fromEntries(
@@ -129,7 +129,7 @@ const SourceRow: React.FC<{
 );
 
 const EntryOption: React.FC<{
-  source: SensorSourceStatusItem;
+  source: SourceStatusItem;
   selected: boolean;
   title: string;
   description: string;
@@ -275,7 +275,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const settingsPendingRef = useRef(false);
   const onPluginFieldsChange = (connectionId: string, updates: Record<string, unknown>) => setConnectionDrafts((previous) => ({ ...previous, [connectionId]: { ...previous[connectionId], ...updates } }));
   const onPluginFieldChange = (connectionId: string, key: string, value: unknown) => onPluginFieldsChange(connectionId, { [key]: value });
-  const saveSourceSettings = async (source: SensorSourceStatusItem, updates: Record<string, unknown>): Promise<boolean> => {
+  const saveSourceSettings = async (source: SourceStatusItem, updates: Record<string, unknown>): Promise<boolean> => {
     if (settingsPendingRef.current) return false;
     const generation = actionGenerationRef.current;
     const isCurrent = () => generation === actionGenerationRef.current;
@@ -325,7 +325,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   };
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const [backfillingSource, setBackfillingSource] = useState<string | null>(null);
-  const [backfillDialogSource, setBackfillDialogSource] = useState<SensorSourceStatusItem | null>(null);
+  const [backfillDialogSource, setBackfillDialogSource] = useState<SourceStatusItem | null>(null);
   const [flushingSource, setFlushingSource] = useState<string | null>(null);
   const [installingEntryId, setInstallingEntryId] = useState<string | null>(null);
   const [installingEntryLabel, setInstallingEntryLabel] = useState<string | null>(null);
@@ -339,7 +339,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     lastSyncAt: number | string | null | undefined;
   } | null>(null);
   const [activationDialog, setActivationDialog] = useState<{
-    source: SensorSourceStatusItem;
+    source: SourceStatusItem;
     flow: ActivationFlowSpec;
     values: Record<string, any>;
     intent: 'enable';
@@ -392,11 +392,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return () => { actionGenerationRef.current += 1; };
   }, [selectedIdentity]);
 
-  const resolveSourceValue = (source: SensorSourceStatusItem, key: string, fallback?: any) =>
+  const resolveSourceValue = (source: SourceStatusItem, key: string, fallback?: any) =>
     pluginDrafts[source.connection_id]?.[key] ?? source.current_settings[key] ?? fallback;
-  const getSourceDisplayName = (source: SensorSourceStatusItem) => getTimelineSourceDisplayName(t, source);
+  const getSourceDisplayName = (source: SourceStatusItem) => getTimelineSourceDisplayName(t, source);
 
-  const handleSourceEnabledChange = async (source: SensorSourceStatusItem, checked: boolean) => {
+  const handleSourceEnabledChange = async (source: SourceStatusItem, checked: boolean) => {
     const enabledKey = getSourceEnabledKey(source);
     if (!checked) {
       await saveSourceSettings(source, { [enabledKey]: false });
@@ -427,7 +427,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     const isCurrent = () => actionGenerationRef.current === generation;
     if (flow.authorize_on_confirm) {
       try {
-        const result = await sensorsApi.requestAuthorization(source.source_name, source.connection_id, values);
+        const result = await sourcesApi.requestAuthorization(source.source_name, source.connection_id, values);
         if (!isCurrent()) return;
         if (!result.authorized) {
           toast.error(
@@ -453,7 +453,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     setActivationDialog(null);
   };
 
-  const performSync = async (source: SensorSourceStatusItem) => {
+  const performSync = async (source: SourceStatusItem) => {
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     setSyncingSource(sourceIdentity(source));
@@ -464,7 +464,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       lastSyncAt: source.last_sync_at,
     });
     try {
-      await sensorsApi.requestSync(source.source_name, source.connection_id);
+      await sourcesApi.requestSync(source.source_name, source.connection_id);
       if (!isCurrent()) return;
       toast.success(t('settings.timeline.syncQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
@@ -477,12 +477,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
-  const performBackfill = async (source: SensorSourceStatusItem, selection: SourceBackfillSelection) => {
+  const performBackfill = async (source: SourceStatusItem, selection: SourceBackfillSelection) => {
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     setBackfillingSource(sourceIdentity(source));
     try {
-      await sensorsApi.requestSync(source.source_name, source.connection_id, {
+      await sourcesApi.requestSync(source.source_name, source.connection_id, {
         mode: 'backfill',
         backfillScope: selection.scope,
         backfillStartDate: selection.startDate,
@@ -500,12 +500,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
-  const performStateFlush = async (source: SensorSourceStatusItem) => {
+  const performStateFlush = async (source: SourceStatusItem) => {
     const generation = actionGenerationRef.current;
     const isCurrent = () => actionGenerationRef.current === generation;
     setFlushingSource(sourceIdentity(source));
     try {
-      await sensorsApi.requestStateFlush(source.source_name, source.connection_id);
+      await sourcesApi.requestStateFlush(source.source_name, source.connection_id);
       if (!isCurrent()) return;
       toast.success(t('settings.timeline.stateFlushQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
@@ -563,7 +563,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   }, [queuedSource, statuses]);
 
-  const getSyncActivityValue = (source: SensorSourceStatusItem, activationRequired: boolean) => {
+  const getSyncActivityValue = (source: SourceStatusItem, activationRequired: boolean) => {
     if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
       return t('settings.timeline.statuses.retrying', {
         count: source.sync_activity?.attempt_count || 0,
@@ -584,7 +584,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return t('settings.timeline.statuses.idle');
   };
 
-  const handleResetActivation = (source: SensorSourceStatusItem) => {
+  const handleResetActivation = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
     if (!flow) {
       return;
@@ -712,19 +712,19 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const showEntrySelector = entrySources.length > 0;
   const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
   const hasMultipleKnownEntries = knownEntryCount > 1;
-  const getEntrySetupRequired = (source: SensorSourceStatusItem) => {
+  const getEntrySetupRequired = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
     return Boolean(flow && !resolveSourceValue(source, flow.configured_key, false));
   };
-  const getEntryEnabled = (source: SensorSourceStatusItem) => (
+  const getEntryEnabled = (source: SourceStatusItem) => (
     !getEntrySetupRequired(source)
     && Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled))
   );
-  const getEntryAttention = (source: SensorSourceStatusItem) => {
+  const getEntryAttention = (source: SourceStatusItem) => {
     const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
     return Boolean((source.last_error && !retrying) || source.available === false);
   };
-  const getEntryStatusLabel = (source: SensorSourceStatusItem) => {
+  const getEntryStatusLabel = (source: SourceStatusItem) => {
     if (getEntryAttention(source)) {
       return t('settings.timeline.statuses.attention');
     }

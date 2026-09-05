@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { pluginsApi, type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
-import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
 
 interface UseSettingsPluginsTimelineReturn {
   plugins: PluginPackageState[];
@@ -15,15 +15,15 @@ interface UseSettingsPluginsTimelineReturn {
   handlePluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
-  loadPluginsAndSensors: () => Promise<void>;
-  timelineStatuses: SensorSourceStatusItem[];
+  loadPluginsAndSources: () => Promise<void>;
+  timelineStatuses: SourceStatusItem[];
   timelineStatusesLoading: boolean;
   fetchTimelineStatuses: () => Promise<void>;
 }
 
 export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const { t } = useTranslation('app');
-  const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
+  const [timelineStatuses, setTimelineStatuses] = useState<SourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
@@ -35,7 +35,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const fetchTimelineStatuses = useCallback(async () => {
     setTimelineStatusesLoading(true);
     try {
-      const response = await sensorsApi.getStatus();
+      const response = await sourcesApi.getStatus();
       const nextStatuses = response.sources || [];
       setTimelineStatuses(nextStatuses);
     } catch (error: unknown) {
@@ -86,7 +86,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }
   }, []);
 
-  const loadPluginsAndSensors = useCallback(async () => {
+  const loadPluginsAndSources = useCallback(async () => {
     await loadPlugins();
     await fetchTimelineStatuses();
     await loadPluginRegistry({ silent: true });
@@ -121,7 +121,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     handlePluginAction,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     timelineStatuses,
     timelineStatusesLoading,
     fetchTimelineStatuses,

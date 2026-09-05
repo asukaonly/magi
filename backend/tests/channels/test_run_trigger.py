@@ -46,7 +46,7 @@ def test_run_trigger_rejects_unknown_priority():
 def test_run_trigger_all_trigger_types_known():
     expected = {
         "user_message", "user_steer", "user_retract", "scheduled",
-        "external_inbound", "sensor_event", "agent_self",
+        "external_inbound", "source_event", "agent_self",
         "child_run_completed", "background_resume",
         # ADR-0004 P3: batch runs carry their own trigger type.
         "batch",

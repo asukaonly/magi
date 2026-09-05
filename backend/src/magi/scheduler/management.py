@@ -221,8 +221,8 @@ def _normalize_target(raw: dict[str, Any], actor: ScheduleActorContext, existing
 def serialize_schedule(schedule: ScheduleDefinition, state: ScheduledTargetState | None = None) -> dict[str, Any]:
     metadata = dict(schedule.metadata or {})
     owner_kind = metadata.get("owner_kind")
-    if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-        owner_kind = "sensor_settings"
+    if schedule.target_type is ScheduledTargetType.SOURCE_SYNC:
+        owner_kind = "source_settings"
     elif schedule.target_type is ScheduledTargetType.USER_AGENT_TASK:
         owner_kind = USER_SCHEDULE_OWNER_KIND
     else:
