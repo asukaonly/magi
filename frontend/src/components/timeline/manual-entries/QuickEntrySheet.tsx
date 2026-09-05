@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Clock3, FileText, Image, MapPin, Pencil, Smile, X } from 'lucide-react';
@@ -472,21 +473,21 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           a.draftId === draftId ? { ...a, assetRef: asset_ref, status: 'ready' } : a,
         ),
       );
-    } catch (err: any) {
+    } catch (err) {
       if (uploadController.signal.aborted) {
         return;
       }
       setAttachments((prev) =>
         prev.map((a) =>
           a.draftId === draftId
-            ? { ...a, status: 'error', errorMessage: err?.message || 'upload failed' }
+            ? { ...a, status: 'error', errorMessage: getErrorMessage(err) || 'upload failed' }
             : a,
         ),
       );
       toast.error(
         t('timeline.manualEntry.errors.uploadFailed', {
           defaultValue: '图片上传失败',
-          message: err?.message,
+          message: getErrorMessage(err),
         }),
       );
     } finally {
@@ -607,7 +608,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       );
       onSaved?.(result);
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       const memoryForgetConflict = getMemoryForgetConflict(err);
       if (memoryForgetConflict) {
         // A rejected create cannot reuse its governed identity. An edit keeps
@@ -638,7 +639,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       toast.error(
         t('timeline.manualEntry.errors.saveFailed', {
           defaultValue: '保存失败',
-          message: err?.message,
+          message: getErrorMessage(err),
         }),
       );
     } finally {

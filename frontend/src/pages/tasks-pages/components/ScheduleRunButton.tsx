@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Sparkles, Zap } from 'lucide-react';
@@ -89,8 +90,8 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(trimmed);
-    } catch (err: any) {
-      setParamsError(err?.message || 'invalid JSON');
+    } catch (err) {
+      setParamsError(getErrorMessage(err) || 'invalid JSON');
       return;
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -100,8 +101,8 @@ const BackgroundTaskPendingCard = ({
           defaultValue: 'Cancellation requested.',
         }),
       );
-    } catch (exc: any) {
-      toast.error(exc?.message ?? String(exc));
+    } catch (exc) {
+      toast.error(getErrorMessage(exc) ?? String(exc));
     } finally {
       setCancelling(false);
     }
@@ -206,8 +207,8 @@ const PermissionRequestCard = ({
         scope: 'one_shot',
       });
       finish();
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setSubmitting(null);
     }

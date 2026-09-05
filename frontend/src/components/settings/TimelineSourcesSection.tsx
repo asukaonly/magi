@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, History, Loader2, RefreshCw, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
@@ -375,8 +376,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           );
           return;
         }
-      } catch (error: any) {
-        toast.error(t('settings.timeline.errors.authorizationFailed', { message: error?.message || 'unknown' }));
+      } catch (error) {
+        toast.error(t('settings.timeline.errors.authorizationFailed', { message: getErrorMessage(error) || 'unknown' }));
         return;
       }
     }
@@ -400,9 +401,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       await sensorsApi.requestSync(source.source_name);
       toast.success(t('settings.timeline.syncQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
-    } catch (error: any) {
+    } catch (error) {
       setQueuedSource(null);
-      toast.error(t('settings.timeline.errors.syncFailed', { message: error?.message || 'unknown' }));
+      toast.error(t('settings.timeline.errors.syncFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
       setSyncingSource(null);
     }
@@ -420,8 +421,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       toast.success(t('settings.timeline.backfillQueued', { source: getSourceDisplayName(source) }));
       setBackfillDialogSource(null);
       await onRefreshSources();
-    } catch (error: any) {
-      toast.error(t('settings.timeline.errors.backfillFailed', { message: error?.message || 'unknown' }));
+    } catch (error) {
+      toast.error(t('settings.timeline.errors.backfillFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
       setBackfillingSource(null);
     }
@@ -433,8 +434,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       await sensorsApi.requestStateFlush(source.source_name);
       toast.success(t('settings.timeline.stateFlushQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
-    } catch (error: any) {
-      toast.error(t('settings.timeline.errors.stateFlushFailed', { message: error?.message || 'unknown' }));
+    } catch (error) {
+      toast.error(t('settings.timeline.errors.stateFlushFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
       setFlushingSource(null);
     }
@@ -456,14 +457,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       } else {
         await onRefreshSources();
       }
-    } catch (error: any) {
+    } catch (error) {
       if (isPluginRegistryChangedError(error)) {
         toast.error(t('settings.marketplace.feedback.registryChanged'));
         await onPluginInstalled?.();
       } else if (isPluginInstallTimeoutError(error)) {
         toast.error(t('settings.marketplace.feedback.installTimedOut'));
       } else {
-        toast.error(t('settings.marketplace.feedback.installFailed', { message: error?.message || 'unknown' }));
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: getErrorMessage(error) || 'unknown' }));
       }
     } finally {
       setInstallingEntryId(null);

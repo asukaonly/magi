@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -463,7 +464,7 @@ export function usePluginInstallFlow(
           return;
         }
       }
-    } catch (e: any) {
+    } catch (e) {
       if (!isActive()) return;
       if (isPluginRegistryChangedError(e)) {
         resetTransientState();
@@ -473,7 +474,7 @@ export function usePluginInstallFlow(
       setError(
         isPluginInstallTimeoutError(e)
           ? t('settings.marketplace.feedback.installTimedOut')
-          : e?.message || String(e),
+          : getErrorMessage(e) || String(e),
       );
       setSteps((prev) => prev.map((s) => (s.status === 'running' ? { ...s, status: 'error' } : s)));
       setPhase('error');

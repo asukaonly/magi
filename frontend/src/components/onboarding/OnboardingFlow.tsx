@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, {
   useCallback,
   useEffect,
@@ -519,8 +520,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       lastPersistedDraftFingerprintRef.current = fingerprint;
       saveProgress(values);
       return true;
-    } catch (error: any) {
-      toast.error(error?.message || t("messages.saveFailed"));
+    } catch (error) {
+      toast.error(getErrorMessage(error) || t("messages.saveFailed"));
       return false;
     } finally {
       setSaving(false);
@@ -621,7 +622,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         options.sessionId,
       );
       return true;
-    } catch (error: any) {
+    } catch (error) {
       if (await recoverCompletedOnboarding(options)) {
         return true;
       }

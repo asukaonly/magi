@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 /**
  * Chat page - desktop-focused conversation workspace
  */
@@ -873,9 +874,9 @@ export const ChatPage: React.FC = () => {
             description: lines || t('chat.commands.empty', { defaultValue: 'No matching commands.' }),
           });
         }
-      } catch (exc: any) {
+      } catch (exc) {
         if (operationIsCurrent()) {
-          toast.error(exc?.message ?? String(exc));
+          toast.error(getErrorMessage(exc) ?? String(exc));
         }
       }
     },
@@ -903,8 +904,8 @@ export const ChatPage: React.FC = () => {
           if (outcome.kind === 'not_sent') {
             toast.warning(outcome.message);
           }
-        } catch (exc: any) {
-          toast.error(exc?.message ?? String(exc));
+        } catch (exc) {
+          toast.error(getErrorMessage(exc) ?? String(exc));
         }
       } else {
         setSkillDialogDescriptor(descriptor);

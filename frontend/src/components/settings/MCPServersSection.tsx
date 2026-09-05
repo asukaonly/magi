@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -278,8 +279,8 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
     try {
       await onSave(payload, isEdit);
       onClose();
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setSaving(false);
     }
@@ -645,8 +646,8 @@ const LogsDialog: React.FC<LogsDialogProps> = ({ open, serverId, onClose }) => {
     setError(null);
     try {
       setLogs(await mcpApi.serverLogs(serverId));
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setLoading(false);
     }
@@ -744,8 +745,8 @@ const ImportPreviewDialog: React.FC<ImportPreviewDialogProps> = ({
     try {
       await onImport(chosen);
       onClose();
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setImporting(false);
     }
@@ -840,8 +841,8 @@ export const MCPServersSection: React.FC = () => {
     setRefreshError(null);
     try {
       setServers(await mcpApi.listServers());
-    } catch (exc: any) {
-      setRefreshError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setRefreshError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setLoading(false);
     }
@@ -922,8 +923,8 @@ export const MCPServersSection: React.FC = () => {
       }
       setImportDrafts(drafts);
       setImportOpen(true);
-    } catch (exc: any) {
-      alert(t('settings.mcp.import.parseFailed', { message: exc?.message ?? String(exc) }));
+    } catch (exc) {
+      alert(t('settings.mcp.import.parseFailed', { message: getErrorMessage(exc) ?? String(exc) }));
     }
   };
 

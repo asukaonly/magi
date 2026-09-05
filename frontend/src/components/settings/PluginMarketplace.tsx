@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
@@ -109,8 +110,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       const response = await pluginsApi.getRegistry(options);
       setRegistryEntries(response.plugins);
       setRegistryFingerprint(response.install_fingerprint);
-    } catch (err: any) {
-      const message = err?.message || 'unknown';
+    } catch (err) {
+      const message = getErrorMessage(err) || 'unknown';
       setError(message);
     } finally {
       setLoading(false);
@@ -210,14 +211,14 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
-    } catch (err: any) {
+    } catch (err) {
       if (isPluginRegistryChangedError(err)) {
         toast.error(t('settings.marketplace.feedback.registryChanged'));
         await fetchRegistry({ force: true });
       } else if (isPluginInstallTimeoutError(err)) {
         toast.error(t('settings.marketplace.feedback.installTimedOut'));
       } else {
-        toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: getErrorMessage(err) || 'unknown' }));
       }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
@@ -310,8 +311,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.uninstallSuccess'));
       await fetchRegistry();
-    } catch (err: any) {
-      const message = err?.message || 'unknown';
+    } catch (err) {
+      const message = getErrorMessage(err) || 'unknown';
       toast.error(t('settings.marketplace.feedback.uninstallFailed', { message }));
     } finally {
       setProcessingIds((prev) => {
@@ -341,14 +342,14 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.updateSuccess'));
       await fetchRegistry();
-    } catch (err: any) {
+    } catch (err) {
       if (isPluginRegistryChangedError(err)) {
         toast.error(t('settings.marketplace.feedback.registryChanged'));
         await fetchRegistry({ force: true });
       } else if (isPluginInstallTimeoutError(err)) {
         toast.error(t('settings.marketplace.feedback.installTimedOut'));
       } else {
-        toast.error(t('settings.marketplace.feedback.updateFailed', { message: err?.message || 'unknown' }));
+        toast.error(t('settings.marketplace.feedback.updateFailed', { message: getErrorMessage(err) || 'unknown' }));
       }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n[item.id]; return n; });
@@ -405,7 +406,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       await onInstallComplete();
       toast.success(t('settings.marketplace.feedback.installSuccess'));
       await fetchRegistry();
-    } catch (err: any) {
+    } catch (err) {
       try {
         await pluginsApi.discardInstallCandidate(candidate.candidate_id);
       } catch {
@@ -414,7 +415,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       if (isPluginInstallTimeoutError(err)) {
         toast.error(t('settings.marketplace.feedback.installTimedOut'));
       } else {
-        toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+        toast.error(t('settings.marketplace.feedback.installFailed', { message: getErrorMessage(err) || 'unknown' }));
       }
     } finally {
       setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
@@ -429,8 +430,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     let candidate: PluginInstallCandidate;
     try {
       candidate = await pluginsApi.createInstallCandidate(file);
-    } catch (err: any) {
-      toast.error(t('settings.marketplace.feedback.installFailed', { message: err?.message || 'unknown' }));
+    } catch (err) {
+      toast.error(t('settings.marketplace.feedback.installFailed', { message: getErrorMessage(err) || 'unknown' }));
       setProcessingIds((prev) => { const n = { ...prev }; delete n.__upload; return n; });
       return;
     }

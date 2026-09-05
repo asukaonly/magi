@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 /**
  * Composer /-command picker state.
  *
@@ -159,8 +160,8 @@ export function useChatComposerCommands({
     try {
       setCatalog(await commandsApi.list());
       fetchedAtRef.current = now;
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setLoading(false);
     }

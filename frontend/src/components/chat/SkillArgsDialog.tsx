@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Sparkles } from 'lucide-react';
@@ -58,8 +59,8 @@ export const SkillArgsDialog = ({
         return;
       }
       onClose();
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setSubmitting(false);
     }

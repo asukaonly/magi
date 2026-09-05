@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2 } from 'lucide-react';
@@ -145,8 +146,8 @@ export const ToolArgsDialog = ({
       const invocationText = formatInvocationText(descriptor, out);
       await onRun(descriptor, out, invocationText);
       onClose();
-    } catch (exc: any) {
-      setSubmitError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setSubmitError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setSubmitting(false);
     }

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -158,10 +159,10 @@ export const TimelinePage: React.FC = () => {
         focus: "self",
       });
       setViewport(response);
-    } catch (error: any) {
+    } catch (error) {
       toast.error(
         t("timeline.errors.loadFailed", {
-          message: error?.message || "unknown",
+          message: getErrorMessage(error) || "unknown",
           defaultValue: "Failed to load timeline",
         })
       );
@@ -232,10 +233,10 @@ export const TimelinePage: React.FC = () => {
         };
       });
       await loadSidebar();
-    } catch (error: any) {
+    } catch (error) {
       toast.error(
         t("timeline.errors.feedbackFailed", {
-          message: error?.message || "unknown",
+          message: getErrorMessage(error) || "unknown",
           defaultValue: "Failed to update",
         })
       );
@@ -259,10 +260,10 @@ export const TimelinePage: React.FC = () => {
       toast.success(
         t("timeline.immersive.hideConfirm", { defaultValue: "已隐藏" })
       );
-    } catch (error: any) {
+    } catch (error) {
       toast.error(
         t("timeline.errors.feedbackFailed", {
-          message: error?.message || "unknown",
+          message: getErrorMessage(error) || "unknown",
           defaultValue: "Failed to hide",
         })
       );
@@ -285,10 +286,10 @@ export const TimelinePage: React.FC = () => {
       });
       setViewport((current) => (current ? { ...current, cover } : current));
       toast.success(t("timeline.cover.saved", { defaultValue: "封面已更新" }));
-    } catch (error: any) {
+    } catch (error) {
       toast.error(
         t("timeline.errors.coverFailed", {
-          message: error?.message || "unknown",
+          message: getErrorMessage(error) || "unknown",
           defaultValue: "封面更新失败：{{message}}",
         })
       );
@@ -301,10 +302,10 @@ export const TimelinePage: React.FC = () => {
     try {
       const uploaded = await manualEntriesApi.uploadAsset(file);
       return uploaded.asset_ref;
-    } catch (error: any) {
+    } catch (error) {
       toast.error(
         t("timeline.errors.coverUploadFailed", {
-          message: error?.message || "unknown",
+          message: getErrorMessage(error) || "unknown",
           defaultValue: "封面图片上传失败：{{message}}",
         })
       );
@@ -483,11 +484,11 @@ export const TimelinePage: React.FC = () => {
       toast.success(t('timeline.manualEntry.deletedToast', { defaultValue: '已删除' }));
       await loadManualEntries();
       await loadViewport();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(
         t('timeline.manualEntry.errors.deleteFailed', {
           defaultValue: '删除失败',
-          message: err?.message,
+          message: getErrorMessage(err),
         }),
       );
     }

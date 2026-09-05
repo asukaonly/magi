@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -711,12 +712,12 @@ const LLMForm: React.FC<LLMFormProps> = ({
           result: result || null,
         },
       }));
-    } catch (error: any) {
+    } catch (error) {
       setProviderTestState((prev) => ({
         ...prev,
         [providerId]: {
           loading: false,
-          error: error?.message || t('llm.providerConfiguration.testFailed'),
+          error: getErrorMessage(error) || t('llm.providerConfiguration.testFailed'),
           result: null,
         },
       }));

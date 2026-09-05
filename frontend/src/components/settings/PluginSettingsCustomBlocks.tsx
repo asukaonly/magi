@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
@@ -64,11 +65,11 @@ const CalendarListResourcePicker: React.FC<{
           return;
         }
         setGroups(Array.isArray(payload.data?.groups) ? payload.data.groups : []);
-      } catch (fetchError: any) {
+      } catch (fetchError) {
         if (cancelled) {
           return;
         }
-        setError(fetchError?.message || 'unknown');
+        setError(getErrorMessage(fetchError) || 'unknown');
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -187,8 +188,8 @@ const PermissionStatusBlock: React.FC<{
       const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
       const rawItems = Array.isArray(payload.data?.items) ? payload.data.items : [];
       setItems(rawItems as PluginPermissionStatusItem[]);
-    } catch (fetchError: any) {
-      setError(fetchError?.message || 'unknown');
+    } catch (fetchError) {
+      setError(getErrorMessage(fetchError) || 'unknown');
     } finally {
       setLoading(false);
     }

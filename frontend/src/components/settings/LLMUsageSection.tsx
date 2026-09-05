@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -34,8 +35,8 @@ export const LLMUsageSection: React.FC = () => {
       ]);
       setSummary(summaryResponse.data || null);
       setTimeseries(timeseriesResponse.data?.points || []);
-    } catch (error: any) {
-      toast.error(t('settings.usage.loadFailed', { message: error?.message || 'unknown' }));
+    } catch (error) {
+      toast.error(t('settings.usage.loadFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
       setLoading(false);
     }

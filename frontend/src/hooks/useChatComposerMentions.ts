@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 /**
  * Composer @-mention picker state.
  *
@@ -100,8 +101,8 @@ export function useChatComposerMentions({
       const list = await mcpApi.listResources();
       setResources(list.map(resourceToItem));
       fetchedAtRef.current = now;
-    } catch (exc: any) {
-      setError(exc?.message ?? String(exc));
+    } catch (exc) {
+      setError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setLoading(false);
     }
