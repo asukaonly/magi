@@ -7,7 +7,7 @@ or the caller is cancelled.
 
 The default `asyncio.create_subprocess_exec(...)` flow has a sharp edge: if
 the parent process is killed unexpectedly (SIGKILL, crash, panic kernel),
-the child keeps running with PPID=1. For a sensor plugin that spawns a
+the child keeps running with PPID=1. For a source plugin that spawns a
 long-lived native helper, this means orphan processes accumulate on every
 backend restart — see the screenshot_timeline incident where five
 `magi-vision-helper` processes were found alive at once.

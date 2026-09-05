@@ -38,12 +38,16 @@ credentials; it does not expose Magi's database paths or dependency container.
 Secret fields are sent separately, never returned in settings, and read through
 `context.credentials.get("token")` using the exact declared field key.
 
+A `Source` contributes data under a connection. Its `source_id` identifies the
+contribution; `source_type` describes the semantic category of its records.
+`SourceChange.object_id` identifies a record within that source.
+
 ## Public capabilities
 
 | Surface | Contract and purpose |
 | --- | --- |
 | Operations and tools | `OperationSpec`, `InvocationIdentity`, `OperationResult`; schemas, effects, cancellation, idempotency and bounded output. Existing `BaseTool` declarations normalize into the same operation execution path. |
-| Sources | `SensorBase`, `SensorSyncContext`, `SourceChangeBatch`, `SourceChange`, `SourceObjectRef`; stable connection-local object IDs, revisions, checkpoints and evidence. |
+| Sources | `Source`, `SourceSyncContext`, `SourceChangeBatch`, `SourceChange`, `SourceSpec`; stable connection-local object IDs, revisions, checkpoints and evidence. |
 | Historical imports | `HistoryImporter`, `HistoryImporterSpec`; connection-scoped file or account history transformed through host ingestion. |
 | Channels | `Channel`, host-injected session mapping, message dispatch and inbound admission contracts. |
 | Providers | Web search, model generation/streaming and external agent contracts; host-owned provider selection. |
@@ -54,7 +58,7 @@ Secret fields are sent separately, never returned in settings, and read through
 | Resources | `ResourceRef` and scoped host create/read calls; bounded opaque references instead of arbitrary host file access. |
 | Lifecycle | Connection enable/disable, revision-checked updates, readiness, disconnect and `clear_user_content`. |
 
-`get_sensors()` returns `(sensor_id, sensor, SensorSpec)` tuples.
+`get_sources()` returns `(source_id, source, SourceSpec)` tuples.
 `get_operations()` returns `OperationSpec` declarations; implement
 `invoke_operation(operation_id, arguments, identity)` for execution.
 Read-only settings catalogs are declared in the manifest so setup can render

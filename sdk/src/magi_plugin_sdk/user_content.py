@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 if TYPE_CHECKING:
-    from .sensors import PluginRuntimePaths
+    from .sources import PluginRuntimePaths
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,7 @@ class UserContentClearRequest:
 
 @dataclass(frozen=True, slots=True)
 class UserContentClearContext:
-    """Give one plugin or sensor the local-only clear contract.
+    """Give one plugin or source the local-only clear contract.
 
     A clear hook may remove locally retained collected content, derived
     content, buffered events, and unfinished user-content work. It must keep
@@ -54,7 +54,7 @@ class UserContentClearContext:
     request: UserContentClearRequest
     runtime_paths: "PluginRuntimePaths"
     plugin_id: str
-    sensor_id: str | None = None
+    source_id: str | None = None
     plugin_settings: Mapping[str, Any] = field(default_factory=dict)
     connection_id: str | None = None
 
@@ -70,13 +70,13 @@ class UserContentClearContext:
         normalized_plugin_id = str(self.plugin_id or "").strip()
         if not normalized_plugin_id:
             raise ValueError("plugin_id must not be empty")
-        normalized_sensor_id = (
-            str(self.sensor_id).strip() if self.sensor_id is not None else None
+        normalized_source_id = (
+            str(self.source_id).strip() if self.source_id is not None else None
         )
-        if self.sensor_id is not None and not normalized_sensor_id:
-            raise ValueError("sensor_id must not be empty")
+        if self.source_id is not None and not normalized_source_id:
+            raise ValueError("source_id must not be empty")
         object.__setattr__(self, "plugin_id", normalized_plugin_id)
-        object.__setattr__(self, "sensor_id", normalized_sensor_id)
+        object.__setattr__(self, "source_id", normalized_source_id)
         object.__setattr__(
             self,
             "plugin_settings",

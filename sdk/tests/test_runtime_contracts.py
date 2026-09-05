@@ -72,11 +72,11 @@ def test_nested_declarations_reject_typos_and_non_finite_bounds():
 
 def test_scoped_clear_cannot_impersonate_a_global_generation(tmp_path):
     from magi_plugin_sdk.user_content import UserContentClearRequest, UserContentClearContext
-    from magi_plugin_sdk.sensors import ScopedSensorRuntimePaths
+    from magi_plugin_sdk.sources import ScopedSourceRuntimePaths
 
     request = UserContentClearRequest(connection_id="mail-work", reason="user_clear_connection_content")
     assert request.clear_generation is None
-    paths = ScopedSensorRuntimePaths("mail-work", "mail", tmp_path)
+    paths = ScopedSourceRuntimePaths("mail-work", "mail", tmp_path)
     with pytest.raises(ValueError):
         UserContentClearContext(request=request, runtime_paths=paths, plugin_id="mail", connection_id="mail-personal")
     with pytest.raises(ValueError):

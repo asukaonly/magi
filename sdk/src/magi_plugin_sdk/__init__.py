@@ -7,7 +7,7 @@ Magi backend runtime:
 
 Then in your plugin:
 
-    from magi_plugin_sdk import Plugin, SensorSpec, ExtensionFieldSpec
+    from magi_plugin_sdk import Plugin, SourceSpec, ExtensionFieldSpec
 
 External plugins import only this package. Host implementation modules are
 not part of the plugin authoring contract.
@@ -118,20 +118,20 @@ from .package_identity import (
     normalize_package_path_component,
     windows_path_component_issue,
 )
-from .sensors import (
+from .sources import (
     ActivityFacet,
     ContentBlock,
     L2BatchPolicy,
     PluginRuntimePaths,
-    PullSyncSensor,
-    SensorActivity,
-    SensorBase,
-    SensorMemoryPolicy,
-    SensorNarration,
-    SensorOutput,
-    SensorOutputMetadata,
-    SensorSpec,
-    SensorSyncContext,
+    PullSource,
+    SourceActivity,
+    Source,
+    SourceMemoryPolicy,
+    SourceNarration,
+    SourceOutput,
+    SourceOutputMetadata,
+    SourceSpec,
+    SourceSyncContext,
     TimelinePresentation,
 )
 from .subprocess import (
@@ -226,20 +226,20 @@ __all__ = [
     # User-content clear lifecycle
     "UserContentClearContext",
     "UserContentClearRequest",
-    # Sensor
+    # Source
     "ActivityFacet",
     "ContentBlock",
     "L2BatchPolicy",
     "PluginRuntimePaths",
-    "PullSyncSensor",
-    "SensorActivity",
-    "SensorBase",
-    "SensorMemoryPolicy",
-    "SensorNarration",
-    "SensorOutput",
-    "SensorOutputMetadata",
-    "SensorSpec",
-    "SensorSyncContext",
+    "PullSource",
+    "SourceActivity",
+    "Source",
+    "SourceMemoryPolicy",
+    "SourceNarration",
+    "SourceOutput",
+    "SourceOutputMetadata",
+    "SourceSpec",
+    "SourceSyncContext",
     "TimelinePresentation",
     # Field / settings specs
     "ExtensionFieldOption",

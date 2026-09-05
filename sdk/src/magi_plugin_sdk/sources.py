@@ -1,4 +1,4 @@
-"""Sensor authoring contracts for Magi plugins."""
+"""Source authoring contracts for Magi plugins."""
 from __future__ import annotations
 
 import hashlib
@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
-class SensorSpec:
-    """Declarative metadata for a sensor contribution."""
+class SourceSpec:
+    """Declarative metadata for a source contribution."""
 
-    sensor_id: str
+    source_id: str
     display_name: str
     description: str = ""
     domain: str = "general"
@@ -41,7 +41,7 @@ class SensorSpec:
 
 @dataclass(slots=True)
 class ContentBlock:
-    """A typed content fragment within a sensor output."""
+    """A typed content fragment within a source output."""
 
     kind: str
     value: str
@@ -50,7 +50,7 @@ class ContentBlock:
 
 @dataclass(slots=True, frozen=True)
 class ActivityFacet:
-    """One stable semantic facet used to describe a sensor event."""
+    """One stable semantic facet used to describe a source event."""
 
     code: str
     i18n_key: str
@@ -59,8 +59,8 @@ class ActivityFacet:
 
 
 @dataclass(slots=True, frozen=True)
-class SensorActivity:
-    """Structured source/action semantics emitted by a sensor event."""
+class SourceActivity:
+    """Structured source/action semantics emitted by a source event."""
 
     source: ActivityFacet
     action: ActivityFacet
@@ -74,8 +74,8 @@ class SensorActivity:
 
 
 @dataclass(slots=True, frozen=True)
-class SensorNarration:
-    """Human-authored factual narration emitted by a sensor event."""
+class SourceNarration:
+    """Human-authored factual narration emitted by a source event."""
 
     body: str = ""
     title: str | None = None
@@ -83,7 +83,7 @@ class SensorNarration:
 
 @dataclass(slots=True, frozen=True)
 class TimelinePresentation:
-    """Hint for how a sensor event should appear in the main timeline."""
+    """Hint for how a source event should appear in the main timeline."""
 
     mode: str = "full"
     title: str | None = None
@@ -101,8 +101,8 @@ class TimelinePresentation:
 
 
 @dataclass(slots=True, frozen=True)
-class SensorMemoryPolicy:
-    """Declarative memory routing policy for a sensor's outputs."""
+class SourceMemoryPolicy:
+    """Declarative memory routing policy for a source's outputs."""
 
     memory_domain: str = "external_activity"
     ingest_target: str = "l1_only"
@@ -124,20 +124,20 @@ class SensorMemoryPolicy:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SensorMemoryPolicy":
+    def from_dict(cls, data: dict) -> "SourceMemoryPolicy":
         return cls(**data)
 
 
 @dataclass(slots=True)
-class SensorOutput:
-    """Domain-neutral output produced by all sensors."""
+class SourceOutput:
+    """Domain-neutral output produced by all sources."""
 
     source_type: str
     source_item_id: str
     occurred_at: float
     captured_at: float
-    activity: SensorActivity
-    narration: SensorNarration
+    activity: SourceActivity
+    narration: SourceNarration
     content_blocks: list[ContentBlock] = field(default_factory=list)
     raw_payload_ref: str | None = None
     # Capture-time full text pinned for L2 (RFC #56 P3): obsidian note body, git
@@ -161,7 +161,7 @@ class SensorOutput:
         return payload
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SensorOutput:
+    def from_dict(cls, data: dict[str, Any]) -> SourceOutput:
         blocks = [
             ContentBlock(
                 kind=str(block.get("kind", "text")),
@@ -175,7 +175,7 @@ class SensorOutput:
             source_item_id=str(data["source_item_id"]),
             occurred_at=float(data["occurred_at"]),
             captured_at=float(data["captured_at"]),
-            activity=SensorActivity(
+            activity=SourceActivity(
                 source=ActivityFacet(**dict(data.get("activity", {}).get("source", {}))),
                 action=ActivityFacet(**dict(data.get("activity", {}).get("action", {}))),
                 object=(
@@ -188,7 +188,7 @@ class SensorOutput:
                     for key, value in dict(data.get("activity", {}).get("qualifiers", {})).items()
                 },
             ),
-            narration=SensorNarration(
+            narration=SourceNarration(
                 body=str(data.get("narration", {}).get("body", "")),
                 title=(
                     str(data.get("narration", {}).get("title", ""))
@@ -211,8 +211,8 @@ class SensorOutput:
 
 
 @dataclass(slots=True)
-class SensorOutputMetadata:
-    """Extracted metadata for a sensor output item."""
+class SourceOutputMetadata:
+    """Extracted metadata for a source output item."""
 
     entities: list[dict[str, Any]] = field(default_factory=list)
     # Tags are classification/search labels only. Do not use tags, weak
@@ -228,21 +228,21 @@ class SensorOutputMetadata:
     # or configuration export.
     fact_hints: list[dict[str, Any]] = field(default_factory=list)
     # Legacy/timeline compatibility path for older relation projections. New
-    # sensors should prefer fact_hints for L2 cognition so source facts pass
+    # sources should prefer fact_hints for L2 cognition so source facts pass
     # through the same evidence-governed admission and conflict handling.
     relation_candidates: list[dict[str, Any]] = field(default_factory=list)
 
 
 @runtime_checkable
 class PluginRuntimePaths(Protocol):
-    """Connection-scoped storage facade exposed to a sensor."""
+    """Connection-scoped storage facade exposed to a source."""
 
     def plugin_cache_dir(self, plugin_id: str) -> Path:
         """Return this connection's state directory for its owning plugin."""
 
 
 @dataclass(frozen=True, slots=True)
-class ScopedSensorRuntimePaths:
+class ScopedSourceRuntimePaths:
     """Expose only the host-allocated state directory of one connection."""
 
     connection_id: str
@@ -251,16 +251,16 @@ class ScopedSensorRuntimePaths:
 
     def __post_init__(self) -> None:
         if not self.state_dir.is_absolute():
-            raise ValueError("Sensor state directory must be absolute")
+            raise ValueError("Source state directory must be absolute")
 
     def plugin_cache_dir(self, plugin_id: str) -> Path:
         if plugin_id != self.plugin_id:
-            raise PermissionError("Sensor cannot access another plugin's state directory")
+            raise PermissionError("Source cannot access another plugin's state directory")
         return self.state_dir
 
 
 @dataclass(slots=True)
-class SensorSyncContext:
+class SourceSyncContext:
     """One bounded pull using an explicit connection and a semantic source type."""
 
     connection_id: str
@@ -274,18 +274,18 @@ class SensorSyncContext:
 
 
 @runtime_checkable
-class PullSyncSensor(Protocol):
-    """Protocol for sensors returning versioned source changes."""
+class PullSource(Protocol):
+    """Protocol for sources returning versioned source changes."""
 
     supports_pull_sync: bool
 
-    async def collect_items(self, context: SensorSyncContext) -> SourceChangeBatch:
+    async def collect_items(self, context: SourceSyncContext) -> SourceChangeBatch:
         """Return changes; only the host may acknowledge cursor progression."""
 
 
 @dataclass(slots=True)
 class L2BatchPolicy:
-    """Plugin-suggested L2 batching policy for one sensor output."""
+    """Plugin-suggested L2 batching policy for one source output."""
 
     owner: str | None = None
     catch_up_owner: str | None = None
@@ -295,19 +295,19 @@ class L2BatchPolicy:
     max_wait_seconds: int | None = None
 
 
-class SensorBase(ABC):
-    """Base contract for all data collection sensors."""
+class Source(ABC):
+    """Base contract for all data collection sources."""
 
-    sensor_id: str = "sensor.base"
-    display_name: str = "Sensor"
+    source_id: str = "source.base"
+    display_name: str = "Source"
     source_type: str = "unknown"
-    memory_event_type: str = "SENSOR_EVENT"
+    memory_event_type: str = "SOURCE_EVENT"
     supports_pull_sync: bool = False
     supports_watch_mode: bool = False
     polling_mode: str = "interval"
     default_interval: int = 15
     update_key_fields: tuple[str, ...] = ()
-    memory_policy: SensorMemoryPolicy = SensorMemoryPolicy()
+    memory_policy: SourceMemoryPolicy = SourceMemoryPolicy()
     relation_edge_whitelist: tuple[str, ...] = ()
     config_schema: dict[str, Any] = {}
     capabilities: dict[str, Any] = {}
@@ -329,7 +329,7 @@ class SensorBase(ABC):
     ) -> None:
         """Bind the connection authority and its private authoring context."""
         if context.connection != connection or (plugin_id and plugin_id != connection.plugin_id):
-            raise ValueError("Sensor connection context identity mismatch")
+            raise ValueError("Source connection context identity mismatch")
         self.connection = connection
         self.context = context
         self._plugin_id = connection.plugin_id
@@ -383,7 +383,7 @@ class SensorBase(ABC):
         fallback: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
-        """Look up a translated string for this sensor's plugin."""
+        """Look up a translated string for this source's plugin."""
         effective_language = language or get_current_language()
         return self.i18n.t(key, language=effective_language, fallback=fallback, **kwargs)
 
@@ -436,17 +436,17 @@ class SensorBase(ABC):
         return [item for item in items if self.source_item_version_fingerprint(item) not in known]
 
     @abstractmethod
-    async def build_output(self, item: dict[str, Any]) -> SensorOutput:
-        """Convert a source item into a domain-neutral sensor output."""
+    async def build_output(self, item: dict[str, Any]) -> SourceOutput:
+        """Convert a source item into a domain-neutral source output."""
 
-    async def extract_metadata(self, item: dict[str, Any]) -> SensorOutputMetadata:
+    async def extract_metadata(self, item: dict[str, Any]) -> SourceOutputMetadata:
         """Extract entities, tags, fact hints, and relation candidates from a source item."""
-        return SensorOutputMetadata()
+        return SourceOutputMetadata()
 
-    async def collect_items(self, context: SensorSyncContext) -> SourceChangeBatch:
-        """Pull-sync entry point for sensors that support active collection."""
+    async def collect_items(self, context: SourceSyncContext) -> SourceChangeBatch:
+        """Pull-sync entry point for sources that support active collection."""
         _ = context
-        raise NotImplementedError(f"{self.sensor_id} does not implement pull sync")
+        raise NotImplementedError(f"{self.source_id} does not implement pull sync")
 
     def build_change_batch(
         self,
@@ -474,15 +474,15 @@ class SensorBase(ABC):
         )
 
     async def clear_user_content(self, context: UserContentClearContext) -> None:
-        """Erase sensor-owned local user content during a full product clear.
+        """Erase source-owned local user content during a full product clear.
 
-        Override this when the sensor retains collected or derived payloads,
+        Override this when the source retains collected or derived payloads,
         pending batches, or other user content outside host stores. Preserve
         source-only cursors and watermarks together with plugin settings,
         credentials, and connected-account state. The hook must be local-only,
         idempotent, and must not perform network I/O.
 
-        The default is a safe no-op for stateless sensors.
+        The default is a safe no-op for stateless sources.
         """
         _ = context
 
@@ -490,13 +490,13 @@ class SensorBase(ABC):
         """Optional pre-processing/enrichment before build_output."""
         return dict(item)
 
-    def l2_batch_policy(self, output: SensorOutput) -> L2BatchPolicy | None:
-        """Return an optional advisory L2 batching policy for sensor events."""
+    def l2_batch_policy(self, output: SourceOutput) -> L2BatchPolicy | None:
+        """Return an optional advisory L2 batching policy for source events."""
         _ = output
         return None
 
-    def idempotency_key(self, output: SensorOutput) -> str | None:
-        """Return an optional business-level idempotency key for sensor events."""
+    def idempotency_key(self, output: SourceOutput) -> str | None:
+        """Return an optional business-level idempotency key for source events."""
         value = str(output.source_item_id or "").strip()
         return value or None
 
@@ -508,7 +508,7 @@ class SensorBase(ABC):
         fallback: str,
         embedding_fallback: str | None = None,
     ) -> ActivityFacet:
-        """Return one activity facet for a sensor output."""
+        """Return one activity facet for a source output."""
         return ActivityFacet(
             code=str(code).strip(),
             i18n_key=str(i18n_key).strip(),
@@ -527,8 +527,8 @@ class SensorBase(ABC):
         action: ActivityFacet,
         object: ActivityFacet | None = None,
         qualifiers: dict[str, Any] | None = None,
-    ) -> SensorActivity:
-        """Return the structured activity envelope for a sensor output."""
+    ) -> SourceActivity:
+        """Return the structured activity envelope for a source output."""
         def _coerce_qualifier_value(value: Any) -> Any:
             # Preserve JSON-native primitives. Strings get an empty-check
             # downstream; numerics/bools always round-trip cleanly through
@@ -546,7 +546,7 @@ class SensorBase(ABC):
             if isinstance(coerced, str) and not coerced.strip():
                 continue
             normalized_qualifiers[key] = coerced
-        return SensorActivity(
+        return SourceActivity(
             source=source,
             action=action,
             object=object,
@@ -558,10 +558,10 @@ class SensorBase(ABC):
         *,
         body: str,
         title: str | None = None,
-    ) -> SensorNarration:
-        """Return the factual narration envelope for a sensor output."""
+    ) -> SourceNarration:
+        """Return the factual narration envelope for a source output."""
         normalized_title = str(title).strip() if title is not None else None
-        return SensorNarration(
+        return SourceNarration(
             body=str(body).strip(),
             title=normalized_title or None,
         )
@@ -570,8 +570,8 @@ class SensorBase(ABC):
         self,
         *,
         source_item_id: str,
-        activity: SensorActivity,
-        narration: SensorNarration,
+        activity: SourceActivity,
+        narration: SourceNarration,
         occurred_at: float | None = None,
         raw_payload_ref: str | None = None,
         content_blocks: list[ContentBlock] | None = None,
@@ -579,10 +579,10 @@ class SensorBase(ABC):
         provenance: dict[str, Any] | None = None,
         domain_payload: dict[str, Any] | None = None,
         timeline_presentation: TimelinePresentation | None = None,
-    ) -> SensorOutput:
-        """Convenience builder analogous to the legacy timeline sensor helper."""
+    ) -> SourceOutput:
+        """Convenience builder analogous to the legacy timeline source helper."""
         now = time.time()
-        return SensorOutput(
+        return SourceOutput(
             source_type=self.source_type,
             source_item_id=source_item_id,
             occurred_at=float(occurred_at or now),
@@ -592,7 +592,7 @@ class SensorBase(ABC):
             raw_payload_ref=raw_payload_ref,
             content_blocks=list(content_blocks or []),
             tags=list(tags or []),
-            provenance=provenance or {"sensor_id": self.sensor_id},
+            provenance=provenance or {"source_id": self.source_id},
             domain_payload=domain_payload or {},
             timeline_presentation=timeline_presentation or TimelinePresentation(),
         )
@@ -622,16 +622,16 @@ __all__ = [
     "ContentBlock",
     "L2BatchPolicy",
     "PluginRuntimePaths",
-    "PullSyncSensor",
-    "SensorBase",
-    "SensorActivity",
-    "SensorMemoryPolicy",
-    "SensorNarration",
-    "SensorOutput",
-    "SensorOutputMetadata",
-    "SensorSpec",
-    "SensorSyncContext",
-    "ScopedSensorRuntimePaths",
+    "PullSource",
+    "Source",
+    "SourceActivity",
+    "SourceMemoryPolicy",
+    "SourceNarration",
+    "SourceOutput",
+    "SourceOutputMetadata",
+    "SourceSpec",
+    "SourceSyncContext",
+    "ScopedSourceRuntimePaths",
     "SourceChange",
     "SourceChangeBatch",
     "TimelinePresentation",

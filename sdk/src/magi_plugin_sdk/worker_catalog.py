@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-SENSOR_METHODS = frozenset(
+SOURCE_METHODS = frozenset(
     {
         "collect_items",
         "discover_changes",
@@ -22,7 +22,7 @@ SENSOR_METHODS = frozenset(
         "t",
     }
 )
-SENSOR_ATTRIBUTES = (
+SOURCE_ATTRIBUTES = (
     "source_type",
     "supports_pull_sync",
     "supports_state_flush",
@@ -110,13 +110,13 @@ class WorkerCatalog:
         ):
             catalog[name] = getattr(plugin, name)()
         for name, methods in (
-            ("get_sensors", SENSOR_METHODS),
+            ("get_sources", SOURCE_METHODS),
             ("get_history_importers", frozenset({"parse"})),
         ):
             entries = []
             for index, (identifier, obj, spec) in enumerate(getattr(plugin, name)()):
                 target = f"{name}:{index}"
-                if name == "get_sensors" and callable(
+                if name == "get_sources" and callable(
                     getattr(obj, "bind_plugin_context", None)
                 ):
                     obj.bind_plugin_context(
@@ -129,10 +129,10 @@ class WorkerCatalog:
                 attrs = (
                     {
                         key: getattr(obj, key)
-                        for key in SENSOR_ATTRIBUTES
+                        for key in SOURCE_ATTRIBUTES
                         if hasattr(obj, key)
                     }
-                    if name == "get_sensors"
+                    if name == "get_sources"
                     else {}
                 )
                 entries.append(

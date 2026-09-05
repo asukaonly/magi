@@ -27,7 +27,7 @@ from . import (
     delivery,
     history_imports,
     runtime,
-    sensors,
+    sources,
     tools,
     user_content,
     providers,
@@ -56,7 +56,7 @@ class WorkerRuntimePaths:
 # Keep this list explicit. Adding an SDK class requires boundary review.
 _TYPE_NAMES = {
     contracts: "PluginManifest ExtensionFieldOption ExtensionFieldSpec ActivationFirstContextSpec ActivationFlowSpec SettingsUIBlockSpec PluginSettingsActionSpec PluginSettingsActionResult PluginSettingsResourceSpec PluginSettingsResourcePayload TemporalSummaryFeatureBudget TemporalSummarySourceFeatures DerivedAssertionRuleSpec ExtractionProfileSpec SummaryProfileSpec ContributionType PluginCapability PluginPermissions LocalizedText Triggers SuggestionSurfaceSpec SuggestionSurfacesSpec SuggestionDescriptor PluginDisplayGroupSpec LocalRequirementFileExists LocalRequirementExecutableInPath LocalRequirementAppInstalled",
-    sensors: "SensorSpec ContentBlock ActivityFacet SensorActivity SensorNarration TimelinePresentation SensorMemoryPolicy SensorOutput SensorOutputMetadata SensorSyncContext L2BatchPolicy",
+    sources: "SourceSpec ContentBlock ActivityFacet SourceActivity SourceNarration TimelinePresentation SourceMemoryPolicy SourceOutput SourceOutputMetadata SourceSyncContext L2BatchPolicy",
     tools: "ParameterType ToolErrorCode ToolParameter ToolSchema ToolExecutionContext ToolResult ToolConfigSpec",
     channels: "ChannelTarget ChannelInboundClearStrategy ChannelProviderTimeEvidence ChannelCursorClearProof ChannelInboundClearRequest InboundMessage ChannelInboundRejectionReason ChannelInboundContext OutboundContent ChannelSessionMapping ChannelConfig ChannelMessageDispatchOutcome ChannelControlCommandResult",
     delivery: "DeliveryReceipt DeliveryChunk DeliveryContent",

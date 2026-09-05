@@ -10,7 +10,7 @@ RUN_TRIGGER_TYPES = frozenset({
     "user_retract",          # user retracted an earlier event (run is a recompute)
     "scheduled",             # scheduler fired
     "external_inbound",      # external channel (iMessage/Slack) delivered to us
-    "sensor_event",          # filesystem/calendar/monitoring event
+    "source_event",          # filesystem/calendar/monitoring event
     "agent_self",            # agent's own callback / follow-up
     "child_run_completed",   # child run finished, parent should aggregate
     "background_resume",     # background executor resuming a detached run

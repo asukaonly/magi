@@ -63,7 +63,7 @@ class ContributionType(str, Enum):
     OPERATION = "operation"
     PROVIDER = "provider"
     TOOL = "tool"
-    SENSOR = "sensor"
+    SOURCE = "source"
     CHANNEL = "channel"
     SKILL = "skill"
     HOOK = "hook"
@@ -517,7 +517,7 @@ class PluginManifest(PluginContract):
     """Optional nested dict of default settings written to
     ``~/.magi/config/plugins/{id}.yaml`` if missing.
 
-    Typically shaped as ``{"sensors": {<sensor_key>: {...}}}`` but plugins may
+    Typically shaped as ``{"sources": {<source_key>: {...}}}`` but plugins may
     place other keys here too. Read from the ``[plugin.default_settings]`` table
     in ``plugin.toml``.
     """
@@ -727,7 +727,7 @@ class SummaryProfileSpec(PluginContract):
     """Declarative L3 activity summary profile contributed by a plugin.
 
     A profile tells the host runtime that the plugin wants periodic activity
-    summaries built from L1 events of one or more sensor sources, scoped to
+    summaries built from L1 events of one or more sources, scoped to
     a stable summary category (used as the L3 ``summary_category`` column).
 
     The host scheduler turns each profile + window into a periodic job that

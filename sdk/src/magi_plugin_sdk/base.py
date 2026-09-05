@@ -23,7 +23,7 @@ from .contracts import (
 )
 from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
-from .sensors import PluginRuntimePaths, SensorSpec
+from .sources import PluginRuntimePaths, SourceSpec
 from .user_content import UserContentClearContext
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ class Plugin(ABC):
     """Base class for Magi plugin packages.
 
     Subclass this and implement one or more capability hooks to contribute
-    tools, sensors, channels, settings resources, ingress handlers, or
+    tools, sources, channels, settings resources, ingress handlers, or
     temporal summary features to the Magi runtime.
 
     The runtime calls ``configure()`` before registration, so ``self.manifest``
@@ -123,7 +123,7 @@ class Plugin(ABC):
         old one — the old instance's timers keep ticking and its
         subprocess keeps consuming resources until the backend exits. The
         symptom is "I changed the interval to 120s and now captures fire
-        every 3s" — actually four sensor instances at 12s each, stacking.
+        every 3s" — actually four source instances at 12s each, stacking.
 
         Default is a no-op. Must be idempotent: the host may call shutdown
         multiple times. Should not raise; the host will log and continue
@@ -188,8 +188,8 @@ class Plugin(ABC):
         """
         return []
 
-    def get_sensors(self) -> list[tuple[str, Any, SensorSpec]]:
-        """Return ``(sensor_id, sensor_instance, SensorSpec)`` tuples."""
+    def get_sources(self) -> list[tuple[str, Any, SourceSpec]]:
+        """Return ``(source_id, source_instance, SourceSpec)`` tuples."""
         return []
 
     def get_history_importers(
@@ -303,7 +303,7 @@ class Plugin(ABC):
     def get_summary_profiles(self) -> list[SummaryProfileSpec]:
         """Return L3 activity summary profiles contributed by this plugin.
 
-        Each profile declares a stable summary category, the sensor sources
+        Each profile declares a stable summary category, the sources
         that populate it, the time windows the host should schedule, and the
         intent verbs that route activity-summary queries to the category.
         """
