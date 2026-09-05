@@ -5,9 +5,8 @@ Configuration Sources (priority order):
     1. Runtime config files:
        - ~/.magi/config/agent.yaml
        - ~/.magi/config/llm.yaml
-    - ~/.magi/config/lifecycle.yaml
+       - ~/.magi/config/lifecycle.yaml
        - ~/.magi/config/plugins/index.yaml
-       - ~/.magi/config/plugins/<plugin_id>.yaml
     2. Pydantic model defaults (lowest priority)
 
 Directory Structure:
@@ -17,8 +16,7 @@ Directory Structure:
     │   ├── llm.yaml             # LLM override-only configuration
     │   ├── lifecycle.yaml       # Data lifecycle and cleanup policy
     │   └── plugins/
-    │       ├── index.yaml       # Plugin package state
-    │       └── <plugin>.yaml    # Per-plugin settings
+    │       └── index.yaml       # Installed package identity, trust and consent
     ├── data/
     │   ├── app/                 # Durable app-owned stores
     │   ├── chat/                # Chat-domain source of truth
@@ -31,7 +29,7 @@ Directory Structure:
 First Run:
     If ~/.magi/config/agent.yaml doesn't exist,
     it will be copied from backend/configs/config.example.yaml.
-    Plugin package metadata and settings are then materialized into split files.
+    An empty installed-package metadata index is created at plugins/index.yaml.
 """
 import logging
 from pathlib import Path
@@ -75,11 +73,6 @@ def get_plugins_config_dir() -> Path:
 def get_plugins_index_file() -> Path:
     """Get plugin index config file path."""
     return get_plugins_config_dir() / "index.yaml"
-
-
-def get_plugin_settings_file(plugin_id: str) -> Path:
-    """Get per-plugin settings file path."""
-    return get_plugins_config_dir() / f"{plugin_id}.yaml"
 
 
 def get_llm_config_file() -> Path:

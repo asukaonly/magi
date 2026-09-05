@@ -158,20 +158,13 @@ def persist_new_plugin_packages(
     for plugin_id, manifest in manifests.items():
         if plugin_id in config.plugins.packages:
             continue
-        if manifest.kind == "library":
-            enabled = True
-            trusted = True
-        else:
-            enabled = bool(manifest.official and manifest.source == "builtin")
-            trusted = enabled
-        updates[f"plugins.packages.{plugin_id}.enabled"] = enabled
+        trusted = bool(manifest.official and manifest.source == "builtin")
         updates[f"plugins.packages.{plugin_id}.trusted"] = trusted
         updates[f"plugins.packages.{plugin_id}.source"] = manifest.source
         updates[f"plugins.packages.{plugin_id}.manifest_path"] = manifest.manifest_path
         updates[f"plugins.packages.{plugin_id}.official"] = (
             bool(manifest.official) if manifest.source == "builtin" else False
         )
-        updates[f"plugins.packages.{plugin_id}.settings"] = {}
     if updates:
         save(updates)
 
@@ -185,9 +178,9 @@ def build_package_states(
     next_states: dict[str, PluginPackageState] = {}
     for plugin_id, manifest in manifests.items():
         package_cfg = coerce_package_settings(packages.get(plugin_id))
-        enabled = bool(package_cfg.enabled) if package_cfg is not None else False
+        enabled = bool(manifest.official and manifest.source == "builtin" and manifest.kind != "library")
         trusted = bool(package_cfg.trusted) if package_cfg is not None else False
-        current_settings = dict(package_cfg.settings) if package_cfg is not None else {}
+        current_settings: dict[str, Any] = {}
         previous_state = previous_states.get(plugin_id)
         identity_error = package_identity_error(manifest, package_cfg)
         if identity_error is not None:

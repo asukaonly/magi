@@ -119,6 +119,9 @@ class PluginBootstrapState:
     sensor_registry: SensorRegistry | None = None
     history_importer_registry: HistoryImporterRegistry | None = None
     user_content_clear_coordinator: PluginUserContentClearCoordinator | None = None
+    source_store: Any = None
+    operation_registry: Any = None
+    provider_registry: Any = None
 
 
 @dataclass

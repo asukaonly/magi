@@ -32,7 +32,9 @@ class HooksModule(LifecycleModule):
 
         from ..core.container import get_container
 
-        registry = HookRegistry()
+        registry = self._context.hooks.registry
+        if registry is None:
+            registry = HookRegistry()
         gateway = HookGateway(registry)
         self._context.hooks.registry = registry
         self._context.hooks.gateway = gateway

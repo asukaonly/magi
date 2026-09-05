@@ -10,10 +10,9 @@ It is the implementation-facing guide for:
 - contributors wiring new tools, timeline sensors, channels, or plugin ingress handlers
 - frontend contributors building settings surfaces for plugin-backed capabilities
 
-The manifest contract recognizes `tool`, `sensor`, `channel`, `skill`, and
-`hook`. The shared plugin registrar currently consumes tools, sensors, channels,
-and hooks. Skill loading remains separate and is not driven by a plugin's
-`get_skills()` hook today.
+The SDK is the public authoring boundary. It supports tools, operations, sources,
+channels, skills, hooks, history importers, and replaceable providers. The host
+owns registration, invocation authority, scheduling, memory admission, and UI.
 
 ## Design Goals
 
@@ -25,39 +24,34 @@ The plugin runtime exists to solve three problems:
 
 ## Runtime Model
 
-Each plugin package is a backend Python package that may contribute one or more capability types:
+A package is immutable installed code. A connection is one account, folder, or
+independently configured instance of that package. A source object has a stable
+identity and immutable revisions. An invocation records the caller, trigger,
+connection, and execution identity. These identities are never interchangeable.
 
-- tools
-- sensors
-- channels
-- skills
-- hooks
+| Extension | Public SDK surface | Host responsibility |
+| --- | --- | --- |
+| Tools and operations | `get_tools()`, `get_operations()`, `OperationSpec` | Shared authorization, schema checks, effect ledger, cancellation and progress |
+| Sources | `get_sensors()`, `SourceChangeBatch`, `ResourceRef` | Durable revision journal, checkpoint acceptance, governed L1 writes |
+| Channels | `get_channel()` and channel protocols | Per-connection sessions, ingress admission and delivery |
+| Skills | `get_skills()` and packaged `SKILL.md` | Shared index, loader, execution and owner-safe removal |
+| Hooks | `get_hooks()`, `HookContext`, `HookDecision` | Validated JSON events and existing decision precedence |
+| Providers | `get_providers()` and SDK provider requests/events | Search, model and external-agent adapters; bounded streams |
+| History imports | `get_history_importers()` | User-selected bounded input and host memory governance |
+| Configuration | Manifest fields, setup actions, resources and UI blocks | Forms, write-only credentials, optimistic revisions and setup authority |
 
-Tools, sensors, channels, and hooks register through the shared plugin lifecycle.
-Although `skill` is a recognized manifest value and the SDK exposes
-`get_skills()`, `PluginManager` does not consume that hook today. A plugin may
-also register host-routed ingress handlers through
-`get_plugin_ingress_registrations()`; those handlers are backend-dispatched events,
-not a separate `PluginContribution` type.
+Installation records package integrity and user consent. It does not create an
+account. The user creates a connection, supplies configuration or runs an
+explicit setup action, and enables the connection. Setup workers expose only
+user-triggered actions and resources declared with `requires_enabled=false`;
+they do not register normal collection or messaging contributions.
 
-A plugin package is discovered from disk, parsed from `plugin.toml`, loaded from a Python entry module, then registered into one or more runtime registries.
-
-At runtime the flow is:
-
-1. `PluginInstallService` coordinates registry, upload, update, and uninstall requests before package scanning
-2. `PluginManager` scans plugin roots for `plugin.toml`
-3. discovered packages are persisted into split plugin config files under `~/.magi/config/plugins/`
-4. packages are disabled by default unless they are official built-in packages enabled by default config
-5. enabled packages are instantiated through the shared `Plugin` base class
-6. `PluginContributionRegistrar` registers or records host-facing contributions:
-   - `ToolRegistry`
-   - `SensorRegistry`
-   - hook registry
-   - channel contribution metadata consumed by the channel lifecycle module
-7. `PluginSettingsService` serves plugin-owned settings resources and settings actions
-8. `PluginProjectionService` collects loaded plugin projection hooks for memory summaries and recall artifacts
-9. plugin ingress handlers are collected by the plugin ingress processor
-10. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
+External packages run in supervised Python workers. Only SDK values cross the
+bounded protocol; Python objects, host registries and database handles do not.
+Bundled host code remains in-process under host-authoritative discovery.
+Contribution registration is transactional and each connection has an exact
+cleanup owner. Enabling, stopping, clearing, and disconnecting are separate
+operations. Application shutdown drains all active and setup workers.
 
 ## Scan Paths
 
@@ -275,7 +269,7 @@ device-file names are reserved.
 Inspection validates package structure, manifest fields, icons, and declared
 access. It does not prove what arbitrary plugin code will do. A sideloaded
 package remains disabled and untrusted after installation; code is loaded only
-after a separate enable action. The disabled, untrusted state, cleared settings,
+after an explicitly authorized setup action or connection enable. The untrusted installation metadata,
 reviewed access, and complete-package digest are persisted before the package
 directory becomes visible to startup scanning. The digest covers every
 distributed regular file's normalized relative path and content. File
@@ -332,9 +326,9 @@ package preparation is limited to two concurrent workers.
 
 Scan, final install commit, uninstall, enable, disable, reload, and settings
 changes cannot interleave their lifecycle state transitions.
-The split plugin index is authoritative: an orphaned per-plugin settings file
-cannot recreate an uninstalled package, and package deletion restores both
-configuration files if either write fails.
+The package metadata index is authoritative. Account settings exist only in
+the connection store; orphaned per-package files are never read or migrated.
+Package deletion preserves transactional rollback of the host configuration.
 
 This file-install boundary is not an external data-ingestion API. A future
 browser extension or collector must still use its own paired, revocable
@@ -428,13 +422,13 @@ Sensors are registered into `SensorRegistry` with:
 
 - sensor instance
 - `SensorSpec`
-- owning `plugin_id`
+- owning `plugin_id` and explicit `connection_id`
 
 The most important current consumers are the generic sensor status/scheduler flow and downstream timeline ingestion.
 
 Timeline no longer owns the settings surface or operational status API for sensors. The host resolves sensor sources from `SensorRegistry`, while timeline remains a downstream read model that consumes ingested sensor outputs.
 
-Builtin timeline sensor packages that should be configurable in Settings are expected to stay plugin-enabled even when their own source-level `enabled` switch is off. In other words, package activation controls whether the plugin participates in runtime discovery, while source activation controls whether the sensor actually syncs.
+An enabled connection publishes its sensor catalog even when one sensor's source-level `enabled` switch is off. Connection enablement controls all registered contributions; a source switch controls only that sensor, preserving sibling sources in the same connection.
 
 The contracts live in:
 
@@ -659,13 +653,13 @@ Static alias lists or multi-language label tables should stay in plugin i18n res
 - `entities`: structured entity hints (list of dicts with `mention_text`, `entity_type`, `canonical_name_hint`)
 - `tags`: classification/search labels, not fact evidence
 - `fact_hints`: preferred source-owned structured facts for L2 cognition
-- `relation_candidates`: legacy/timeline-compatible relation projections
+- `relation_candidates`: domain relation projection hints; not a direct L2 persistence API
 
 Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** — they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
 
 `fact_hints` are the preferred L2 structured-fact path. They let the source describe high-confidence SPO-style facts while the host still owns evidence classification, profile allowlists, conflict handling, and persistence. Passive observations should normally emit interaction evidence (`VIEWED`, `LISTENED`, `USED`, `VISITED`) rather than direct preference claims.
 
-`relation_candidates` remain for backward compatibility with older timeline/relation projections. New sensors should not use them as the primary L2 cognition path; migrate source facts to `fact_hints` so they pass through the same admission and evidence governance.
+`relation_candidates` describe domain relation projections. They must not bypass L2 admission; sources should express cognition evidence as `fact_hints` so it follows the same evidence classification and governance.
 
 Tags are never a substitute for fact evidence. A tag, page category, or weak co-occurrence may help search or UI grouping, but it must not be promoted into a user preference unless the source has a stable, explainable signal such as an explicit favorite/subscription list, configuration export, or repeated interaction that is later aggregated by host-owned derived rules.
 
@@ -695,7 +689,7 @@ deletes it. Secret-like setting names receive the same protection even when a
 plugin declaration is incomplete.
   Classification labels
 - `relation_candidates`
-  Backward-compatibility field for older plugins and timeline projections; new L2 cognition work should use `fact_hints`
+  Domain relation projection hints; L2 cognition uses `fact_hints` and host admission
 
 Recommended `fact_hints` payload fields:
 
@@ -1087,7 +1081,7 @@ Examples:
 
 Examples:
 
-- per-plugin enable / disable / reload
+- per-connection enable / disable and per-package reload
 - per-sensor source settings
 - per-channel settings
 
@@ -1100,23 +1094,31 @@ Frontend surfaces:
 
 ## Configuration Persistence
 
-Plugin configuration is split across host config and plugin-specific files.
+Package integrity, installation source, trust and consent live in
+`~/.magi/config/plugins/index.yaml`. There are no per-package settings files or
+automatically seeded external packages. Libraries use verified installation
+metadata and never own an activation flag or account. Only bundled host code
+is trusted by discovery. Registry installation records reviewed package trust;
+local and uploaded packages remain untrusted until the user reviews their
+capabilities and execution mode and authorizes the exact package digest.
+Authorization verifies the artifact and installed seal without starting code.
+Connection settings, enabled state, revision, readiness and opaque credential
+references live in `runtime_dir/plugin-connections/state.json`. The host writes
+this fresh schema under an interprocess lock using atomic replace and fsync.
+Credentials are private host state, never returned in API payloads or field
+defaults. Each connection has separate state and resource directories.
 
-The persisted shape is:
+`runtime_dir/plugin_sources.db` stores source revisions, retained resources,
+accepted checkpoints and L1 receipts. A checkpoint advances only after the
+complete batch has confirmed governed memory outcomes. Source deletes retire
+source objects; they are not a user-forgetting operation.
 
-- `~/.magi/config/agent.yaml`
-  - `plugins.scan_paths`
-- `~/.magi/config/plugins/index.yaml`
-  - `packages.<plugin_id>.enabled`
-  - `packages.<plugin_id>.trusted`
-  - `packages.<plugin_id>.source`
-  - `packages.<plugin_id>.manifest_path`
-  - `packages.<plugin_id>.official`
-  - `packages.<plugin_id>.consented_capabilities`
-- `~/.magi/config/plugins/<plugin_id>.yaml`
-  - plugin-owned `settings`
-
-This keeps host runtime configuration separate from plugin lifecycle state and reduces churn in the main config file as plugin surfaces grow.
+Clearing one connection removes retained local content while preserving its
+settings, credentials, source progress and previously imported memory.
+Disconnecting fences source writes, drains the worker, then removes private
+connection state and credentials. Global user-content clearing continues to use
+the existing durable clear generation and barriers, including the source store.
+No historical plugin or configuration migration is provided.
 
 ## API Surface
 
@@ -1134,12 +1136,20 @@ Current endpoints:
 - `POST /api/plugins/install/registry`
 - `POST /api/plugins/install/registry/jobs`
 - `GET /api/plugins/install/jobs/{job_id}`
-- `POST /api/plugins/{plugin_id}/enable`
-- `POST /api/plugins/{plugin_id}/disable`
 - `POST /api/plugins/{plugin_id}/reload`
-- `GET /api/plugins/{plugin_id}/settings`
-- `PUT /api/plugins/{plugin_id}/settings`
-- `GET /api/plugins/{plugin_id}/settings/resources/{resource_name}`
+- `POST /api/plugins/{plugin_id}/trust` with the reviewed package digest
+- `GET, POST /api/plugins/{plugin_id}/connections`
+- `GET, PATCH, DELETE /api/plugins/{plugin_id}/connections/{connection_id}`
+- `POST /api/plugins/{plugin_id}/connections/{connection_id}/clear`
+- `GET /api/plugins/connections/{connection_id}/settings/resources/{resource_name}`
+- `POST /api/plugins/connections/{connection_id}/settings/actions/{action_id}/start`
+- `POST /api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll`
+- `POST /api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel`
+
+Source sync, flush, authorization and memory-readiness requests require a
+`connection_id`. These are authenticated product routes registered through the
+public-router allowlist. Connection updates and deletion require the current
+`expected_revision`.
 
 Timeline source status also now reflects plugin-backed sensor registration:
 
@@ -1171,23 +1181,26 @@ Current rules:
 - timeline event projections are derived from ingested sensor outputs
 - sensor definitions and sensor settings cards are derived from `SensorRegistry`
 - sensors may still declare `domain="timeline"` when their outputs should participate in timeline-oriented downstream projections
-- per-source settings are persisted through plugin package settings instead of `config.timeline.sources`
+- per-source settings belong to the explicit connection; semantic source type does not identify an account
 
 Global timeline switches still remain in the root config because they control timeline behavior at the domain level rather than at one plugin contribution.
 
-## Actions Surface Status
+## Shared Operation Execution
 
-There is no dedicated action contribution surface in the current frontend or backend
-plugin runtime.
+Tools and settings actions are authoring adapters into `PluginOperationRegistry`.
+Its invocation uses the existing `ToolInvocationService` and durable effect
+ledger; there is no second effect journal. External tools must declare effects
+and replay policy. Native tools retain their existing runtime effect
+classification. Schema validation rejects remote JSON-schema references.
 
-In the current codebase:
+Actions that time out after possible external effects return `uncertain` rather
+than inviting an automatic retry. Progress is persisted through the runtime
+trace notification path with the host-issued invocation identity. Settings
+resources use the same authorization boundary as read-only operations.
 
-- `ContributionType` contains `tool`, `sensor`, `channel`, `skill`, and `hook`
-- `PluginManager` registers tools, sensors, channels, and hooks; its `get_skills()` hook is not wired into runtime loading
-- the frontend settings UI exposes plugin-backed sections for installed plugins, timeline sources, and channels only
-- there is no `get_actions()` hook or `ActionRegistry` implementation under `backend/src/magi/`
-
-Treat action support in older documents as future-facing design, not current runtime behavior.
+Provider selection is live: unloading or replacing a provider invalidates
+model caches and tool bindings. Model and external-agent providers exchange SDK
+request/result/event types rather than backend adapters or service objects.
 
 ## Plugin Marketplace
 
@@ -1243,9 +1256,9 @@ dialog; one group member's previous consent cannot authorize another member.
 Uploaded packages are inspected before installation so the same review applies
 to sideloads.
 
-Capability declarations are disclosure and review metadata. They do not provide
-an operating-system sandbox, so runtime enforcement still depends on the host's
-existing permission and trust boundaries.
+Capability declarations describe requested access. A host-issued capability grant
+is separate, revocable authority for a scoped callback. Native-code confinement
+is determined by execution mode, never by a declaration alone.
 
 ### Dependency Integrity
 
@@ -1396,11 +1409,12 @@ Magi.
 10. Python dependencies declared by the plugin are installed from its hash-verified `requirements.lock` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
 11. The host removes Python bytecode caches and seals the full platform-specific
     installation, including `.deps`, before publishing it
-12. Fresh registry installs are enabled after their atomic install commit.
-    Registry updates preserve the plugin's previous enabled state, while uploaded
-    packages remain disabled and require a separate enable action
+12. Fresh installs publish package metadata without executing plugin code.
+    The user creates a connection, completes setup and explicitly enables it.
+    Updates preserve existing connection identities and settings, drain old
+    workers and revalidate each enabled connection against the new package.
 13. Startup and reload recompute both the upstream package identity and local
-    installation seal. Changed or legacy managed packages without both records
+    installation seal. Changed managed packages or packages without both records
     stay disabled until reinstalled
 
 Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, requires the SHA-256 digest published in the GitHub Release asset metadata, verifies it before extraction, and rejects archive traversal, unsafe links, special files, duplicate files, and expansion beyond the host-owned limits. The script writes the validated runtime to `MAGI_PLUGIN_PYTHON_SOURCE`, and sidecar staging requires that source. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
@@ -1409,24 +1423,26 @@ Packaged desktop builds stage two generated runtime resources under `frontend/sr
 
 The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Timeline & Sources reuses the same registry fingerprint and install job flow when it offers an uninstalled source.
 
-## Known Boundaries
+## Execution Modes And Boundaries
 
-The current plugin runtime is intentionally scoped.
+`trusted_process` gives process lifetime isolation, dependency isolation,
+bounded IPC and crash recovery. It is explicitly trusted native Python code
+with the local user's operating-system access; declared scopes do not confine
+that native access. All current companion packages declare this mode.
 
-It does not yet support:
+`restricted_process` currently uses a verified macOS Seatbelt profile. Startup
+fails if the confinement probe cannot prove denial outside the granted roots.
+The profile denies ungranted files, native network access and subprocesses.
+Linux and Windows restricted execution are unsupported and fail closed. Windows
+trusted worker trees use Job Objects, but their native execution requires a
+Windows validation environment; the macOS development checks cannot prove it.
 
-- plugin-owned frontend bundles
-- hot code sandboxing or permission isolation beyond trust/enable state
-- plugin-defined `action` contribution registration
-- arbitrary awareness-module sensor registration through the old awareness abstractions
-
-The current system is a local backend Python extension model. After a user
-explicitly enables a third-party plugin, that plugin runs inside the Magi
-backend process. Capability declarations and the trust switch provide review
-and activation boundaries, but they cannot contain malicious code or reliably
-recover the process from a plugin that blocks forever. Strong isolation
-requires a future supervised subprocess runtime with bounded IPC, timeouts,
-resource limits, and revocable capabilities.
+Host capability callbacks independently check exact connection, grant, scope,
+expiry and invocation lifetime in both modes. Worker shutdown revokes them.
+Only exact declared library roots are importable; package-parent paths are not
+added to the external worker's import path. Plugins do not ship frontend bundles.
+MCP remains a separate remote-tool integration and does not replace source,
+channel, lifecycle or memory-projection ownership.
 
 ## Related Files
 

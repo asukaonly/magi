@@ -140,6 +140,12 @@ class PluginContributionRegistrar:
                         raise RuntimeError("Plugin operation registry is unavailable")
                     if self._provider_registrar is not None:
                         disposers.append(self._provider_registrar.bind_tool(tool))
+                    if manifest.source == "builtin":
+                        disposers.append(self._tool_registry.register(
+                            tool_class, tool_instance=tool, owner_id=connection_id,
+                            registered_name=schema.name, plugin_id=plugin_id,
+                        ))
+                        continue
                     disposers.append(
                         self._operation_registrar.register_tool(
                             plugin_id=plugin_id,

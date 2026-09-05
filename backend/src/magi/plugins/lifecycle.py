@@ -59,15 +59,118 @@ class PluginSystemModule(LifecycleModule):
         full_clear_recovery_pending = transaction_state.status == "pending"
         self._context.runtime_commands.full_clear_recovery_pending = full_clear_recovery_pending
 
+        from ..awareness.source_store import SourceStore
+        from ..skills.indexer import SkillIndexer
+        from ..skills.loader import SkillLoader
+        from ..hooks.registry import HookRegistry
+        from .connection_content import ConnectionContentCoordinator
+        from .operations import PluginOperationRegistry
+        from .operation_authorization import InstalledOperationAuthorizer
+        from .providers import PluginProviderRegistry
+        from .skills import PluginSkillRegistry
+        from .operation_execution import run_plugin_lifecycle_operation
+        from .process_broker import bind_source_services
+        from .process_runtime import ProcessPluginProxy
+        from magi_plugin_sdk.runtime import CapabilityGrant
+        from ..config import get_config
+
+        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        source_store = SourceStore(runtime_paths.runtime_dir / "plugin_sources.db")
+        await source_store.initialize()
+        content = ConnectionContentCoordinator(source_store)
+
+        async def enqueue_source_change(payload: dict[str, Any]) -> None:
+            async def enqueue() -> None:
+                contributor = require_initialized(
+                    self._context.agent_runtime.sensor_scheduler_contrib,
+                    "sensor scheduler contributor",
+                )
+                await contributor.queue_source_change(payload)
+
+            if asyncio.get_running_loop() is runtime_loop:
+                await enqueue()
+            else:
+                await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(enqueue(), runtime_loop))
+
+        def configure_instance(manifest: Any, instance: Any) -> None:
+            if not isinstance(instance, ProcessPluginProxy):
+                return
+            connection_id = instance.connection_id
+            source_types = frozenset(
+                str(spec.metadata.get("source_type") or sensor.source_type)
+                for _sensor_id, sensor, spec in instance.get_sensors()
+            )
+            for capability, scopes in (
+                ("source.emit", sorted(source_types)),
+                ("resources.create", [connection_id]),
+                ("resources.read", [connection_id]),
+            ):
+                if scopes:
+                    instance.broker.grant(CapabilityGrant(
+                        grant_id=f"{connection_id}:{capability}", connection_id=connection_id,
+                        capability=capability, scopes=scopes,
+                    ))
+            bind_source_services(
+                instance.broker, get_connection=get_connection, source_store=source_store,
+                emit_change=enqueue_source_change, source_types=source_types,
+            )
+        indexer = SkillIndexer()
+        loader = SkillLoader(indexer)
+        self._context.skills.skill_indexer = indexer
+        self._context.skills.skill_loader = loader
+        skills = PluginSkillRegistry(self._tool_registry, indexer, loader)
+        if self._context.hooks.registry is None:
+            self._context.hooks.registry = HookRegistry()
+
+        def get_connection(connection_id: str):
+            return bindings.plugin_manager.connection_store.get(connection_id)
+
+        def operation_authorizer() -> InstalledOperationAuthorizer:
+            manager = bindings.plugin_manager
+            return InstalledOperationAuthorizer(
+                get_package=manager.get_package, connection_store=manager.connection_store,
+                config_provider=get_config,
+            )
+
+        class ConnectionAuthorizer:
+            """Resolve live manager authority after bootstrap construction."""
+
+            def __call__(self, *args: Any) -> bool:
+                return operation_authorizer()(*args)
+
+            def authorize_setup(self, *args: Any) -> bool:
+                return operation_authorizer().authorize_setup(*args)
+
+        operations = PluginOperationRegistry(
+            self._tool_registry, get_connection=get_connection, authorize=ConnectionAuthorizer(),
+            validate_resource=source_store.validate_operation_resource,
+        )
+        providers = PluginProviderRegistry(get_connection=get_connection)
+
         bindings = build_plugin_runtime(
             tool_registry=self._tool_registry,
             request_sensor_schedule_refresh=request_sensor_schedule_refresh,
-            activate_enabled=not full_clear_recovery_pending,
+            activate_enabled=False,
+            skill_registrar=skills,
+            operation_registrar=operations,
+            provider_registrar=providers,
+            content_clearer=content.clear,
+            connection_disconnector=content.disconnect,
+            configure_instance=configure_instance,
+            hook_registry_provider=lambda: self._context.hooks.registry,
         )
         self._context.plugins.plugin_manager = bindings.plugin_manager
         self._context.plugins.plugin_projection_service = bindings.plugin_projection_service
         self._context.plugins.sensor_registry = bindings.sensor_registry
         self._context.plugins.history_importer_registry = bindings.history_importer_registry
+        self._context.plugins.source_store = source_store
+        self._context.plugins.operation_registry = operations
+        self._context.plugins.provider_registry = providers
+        if not full_clear_recovery_pending:
+            await run_plugin_lifecycle_operation(
+                lambda: bindings.plugin_manager.scan(persist_discovery=True),
+            )
+            await run_plugin_lifecycle_operation(bindings.plugin_manager.activate_enabled_plugins)
         self._context.plugins.user_content_clear_coordinator = PluginUserContentClearCoordinator(
             plugin_manager=bindings.plugin_manager,
             runtime_paths=require_initialized(
@@ -85,6 +188,7 @@ class PluginSystemModule(LifecycleModule):
                 self._context.runtime_commands.runtime_command_queue,
                 "runtime command queue",
             ).read_current_clear_generation,
+            source_store=source_store,
         )
         pending_plugin_clear = await (
             self._context.plugins.user_content_clear_coordinator
@@ -107,9 +211,15 @@ class PluginSystemModule(LifecycleModule):
 
     async def shutdown(self) -> None:
         self._runtime_loop = None
+        manager = self._context.plugins.plugin_manager
+        if manager is not None:
+            await manager.shutdown()
         self._context.plugins.user_content_clear_coordinator = None
         self._context.plugins.plugin_manager = None
         self._context.plugins.plugin_projection_service = None
         self._context.plugins.sensor_registry = None
         self._context.plugins.history_importer_registry = None
+        self._context.plugins.source_store = None
+        self._context.plugins.operation_registry = None
+        self._context.plugins.provider_registry = None
         self._context.runtime_commands.full_clear_recovery_pending = False

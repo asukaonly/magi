@@ -234,12 +234,6 @@ plugins:
   scan_paths:
     - "plugins"
     - "~/.magi/plugins"
-  packages:
-    core-tools:
-      enabled: true
-      trusted: true
-      source: "builtin"
-      settings: {}
 # =============================================================================
 # Global Settings
 # =============================================================================

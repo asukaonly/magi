@@ -70,7 +70,7 @@ returned declarations are not grants. Source emission and resources are accessed
 through `magi_plugin_sdk.worker.get_host().call(...)` and remain host-validated.
 
 `trusted_process` requires explicit package trust and runs with the current
-user's OS access. Process separation is not an OS sandbox. `restricted` uses
+user's OS access. Process separation is not an OS sandbox. `restricted_process` uses
 host-enforced confinement where supported and fails closed where unavailable;
 current confinement is verified on macOS. Neither mode grants direct memory
 writes. Ordinary operations still pass the host's invocation authorization and

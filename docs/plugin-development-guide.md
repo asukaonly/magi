@@ -38,50 +38,30 @@ logger = get_logger(__name__)
 
 This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
-Both import paths below resolve to the same classes at runtime:
+Use only `magi_plugin_sdk` in an external plugin. The host backend is not
+installed in the plugin worker and is not an authoring dependency. The current
+contract is SDK `0.2.0`, protocol `2`; there is no compatibility window.
 
-```python
-from magi_plugin_sdk import Plugin, SensorSpec   # recommended for external plugins
-from magi.plugins import Plugin, SensorSpec      # also works (requires magi backend)
-```
+## Authoring Surface
 
-## Authoring Surface Status
+The SDK owns public models for tools, source changes, resources, channels,
+hooks, skills, operations and providers. Host registries, database stores,
+scheduling, final memory writes and frontend components remain private.
+Unsupported declaration fields fail validation, including nested schemas.
 
-The SDK is the long-term source of truth for plugin authoring, but the migration is still in progress.
+Every connection has a separate plugin instance. The host calls
+`configure(manifest=..., connection=..., context=...)` before use. Read settings
+from `self.settings`, identity from `self.connection`, credentials from
+`self.context.credentials`, private progress from `self.context.state_dir`, and
+retained content from `self.context.resources_dir`. Do not derive paths from
+HOME or a package name. Never read another connection's directory.
 
-Current status:
-
-- declarative plugin contracts already live in `magi-plugin-sdk`
-- tool authoring contracts already live in `magi-plugin-sdk.tools`
-- sensor authoring contracts already live in `magi-plugin-sdk.sensors`
-- channel authoring contracts already live in `magi-plugin-sdk.channels`
-- ingress authoring contracts already live in `magi-plugin-sdk.ingress`
-- the backend re-exports those contracts from `magi.plugins` for compatibility
-- runtime registries, lifecycle modules, and persistence stores remain backend-owned
-
-When writing new external plugins:
-
-- prefer `magi_plugin_sdk` imports wherever available
-- treat backend runtime imports as compatibility imports during the transition
-- avoid depending on backend host internals such as registries, scheduler services, or persistence stores
-
-## Legacy Import Migration Map
-
-Use this table when moving an existing plugin off backend-owned imports.
-
-| Legacy import / pattern | Preferred replacement |
-| --- | --- |
-| `from magi.plugins import Plugin, SensorSpec, ExtensionFieldSpec, ...` | `from magi_plugin_sdk import Plugin, SensorSpec, ExtensionFieldSpec, ...` |
-| `from magi.awareness import SensorBase, SensorOutput, SensorSyncContext, ...` | `from magi_plugin_sdk.sensors import SensorBase, SensorOutput, SensorSyncContext, ...` |
-| `from magi.channels.base import Channel` | `from magi_plugin_sdk.channels import Channel` |
-| `from magi.channels.contracts import ChannelTarget, OutboundContent, ...` | `from magi_plugin_sdk.channels import ChannelTarget, OutboundContent, ...` |
-| `from magi.channels.session_mapper import ChannelSessionMapper` for adapter typing | use injected `ChannelSessionMapperProtocol` instead of the backend concrete class |
-| `from magi.api.services.message_dispatch_service import dispatch_user_message` inside a channel adapter | use injected `ChannelMessageDispatcherProtocol` and call `dispatcher.dispatch_user_message(...)` |
-| `from magi.events.plugin_ingress import PluginIngressHandlerRegistration` | `from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration` |
-| `from magi.runtime_trace import PluginIngressEventRecord` | `from magi_plugin_sdk.ingress import PluginIngressEventRecord` |
-| `from magi.core.logger import get_logger` | `from magi_plugin_sdk import get_logger` |
-
-Compatibility paths still exist in the backend for the migration window, but new plugin code should treat the SDK column as canonical.
+The install manifest must describe `settings_fields`, `activation_flow`,
+`settings_actions`, `settings_resources` and `settings_ui_blocks` before code
+runs. Keep schema declarations consistent with the implementation. A setup
+action or resource must explicitly set `requires_enabled=false` to be available
+on a disabled connection after package consent. This permits OAuth/QR setup
+without starting collection or messaging.
 
 ## Quick Start
 
@@ -109,6 +89,9 @@ Example:
 id = "example-plugin"
 name = "Example Plugin"
 version = "0.1.0"
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 description = "Sample Magi plugin package"
 author = "Your Name"
 icon = "lucide:package"
@@ -118,7 +101,10 @@ official = false
 contribution_types = ["tool", "sensor"]
 ```
 
-You only need to declare the contribution types you actually expose.
+Declare exactly the contribution types you actually expose. A mismatch is a
+registration error. `trusted_process` requires explicit trust in native Python
+code; it is not an operating-system sandbox. Restricted execution currently
+requires verified macOS confinement and fails on unsupported platforms.
 
 Use `history_importer` for a one-shot parser of a declared platform export. Do
 not model a bounded archive as a sensor merely to reuse polling infrastructure;
@@ -150,7 +136,7 @@ are dropped.
 
 Every plugin must inherit:
 
-- [Plugin](../backend/src/magi/plugins/base.py)
+- [Plugin](../sdk/src/magi_plugin_sdk/base.py)
 
 Example:
 
@@ -169,7 +155,8 @@ class ExamplePlugin(Plugin):
         return []
 ```
 
-The runtime will call `configure()` before registration, so `self.manifest` and `self.settings` are available inside your plugin instance.
+The runtime binds `self.manifest`, `self.connection`, `self.context` and a copy
+of connection settings before registration. A package may have many instances.
 
 ### User-content clear contract
 
@@ -248,24 +235,17 @@ roots may be configured, but packages found there are source packages rather
 than host-owned installs: Magi may load or disable them, but uninstall will not
 delete their files. Remove the scan path or delete those files yourself.
 
-## 4. Rescan and enable it
+## 4. Create And Enable A Connection
 
-Use the plugin management API:
+Rescan installed packages with `POST /api/plugins/rescan`. Create one account
+with `POST /api/plugins/{plugin_id}/connections`, supplying `display_name`,
+settings and write-only credentials. Run any declared setup actions on that
+connection, then enable with `PATCH .../connections/{connection_id}` using its
+current `expected_revision`.
 
-- `POST /api/plugins/rescan`
-- `POST /api/plugins/{plugin_id}/enable`
-
-Or use the Settings page:
-
-- `Settings -> Plugins`
-
-New external plugins are discovered disabled by default.
-
-Plugin state is persisted in split config files:
-
-- host scan paths stay in `~/.magi/config/agent.yaml`
-- enable / trust / source metadata lives in `~/.magi/config/plugins/index.yaml`
-- plugin-owned settings live in `~/.magi/config/plugins/<plugin_id>.yaml`
+The Settings page renders the same connection flow from the manifest. Package
+installation and integrity records remain in host config; account settings and
+credentials live under the selected runtime root's `plugin-connections/`.
 
 ### Package an archive for file installation
 
@@ -466,7 +446,7 @@ Guidelines:
   `execute()` calls are sealed and drained before this hook runs, so tools must
   not launch untracked work that can write retained content after execution
   returns
-- legacy backend imports from `magi.tools.schema` still work during migration, but new plugin code should target `magi_plugin_sdk.tools`
+- import tool contracts from `magi_plugin_sdk.tools`; external unknown effect/replay declarations are rejected before registration
 - for plugin-local logging, use `magi_plugin_sdk.get_logger` rather than `magi.core.logger`
 
 ## Channel Plugins
@@ -567,7 +547,7 @@ Guidelines:
   not prove that remote backlog was crossed
 - keep transport-specific SDKs inside the plugin package so the core SDK stays lightweight
 - route inbound messages through the injected dispatcher instead of importing `magi.api.services.message_dispatch_service` directly
-- legacy imports from `magi.channels.base` and `magi.channels.contracts` still work during the migration window
+- channel contracts are imported only from `magi_plugin_sdk.channels`
 
 ## Plugin Settings Actions
 
@@ -668,8 +648,8 @@ Guidelines:
 - prefer `magi_plugin_sdk.ingress` for handler registrations and ingress event typing
 - type `runtime_paths` as `PluginRuntimePaths`; current external ingress usage only needs `plugin_cache_dir(...)`
 - keep event handlers host-agnostic; queue claiming, dispatch, and persistence stay in backend runtime modules
-- legacy imports from `magi.events.plugin_ingress` still work during the migration window
-- older plugins that typed events as `magi.runtime_trace.PluginIngressEventRecord` still resolve, but new code should import the SDK protocol instead
+- ingress contracts are imported only from `magi_plugin_sdk.ingress`
+- event typing uses `magi_plugin_sdk.ingress.PluginIngressEventRecord`; backend imports are not part of the external SDK
 
 ## History Importer Plugins
 
@@ -836,7 +816,7 @@ Sensors inheriting `SensorBase` from `magi_plugin_sdk.sensors` have access to th
 
 - `build_output(item)`: convert a source item into a domain-neutral `SensorOutput` (required)
 - `extract_metadata(item)`: extract `SensorOutputMetadata` containing entity hints, tags, and relation candidates
-- `collect_items(context)`: pull-sync entry point; returns `SensorSyncResult` with items, cursor, and stats
+- `collect_items(context)`: returns `SourceChangeBatch` with immutable object revisions, explicit upsert/delete changes, next cursor, watermark and stats. Use `build_change_batch()` when deriving revisions from normalized payloads; never reuse a revision for changed content.
 - `fetch_item(item)`: optional pre-processing/enrichment before `build_output`
 - `clear_user_content(context)`: remove sensor-owned local raw, derived, pending,
   and temporary content while preserving settings, credentials, connected
@@ -1098,26 +1078,21 @@ current.update(self.settings.get("sensors", {}).get("example_source", {}))
 
 ## Where Settings Persist
 
-Plugin state is persisted under:
-
-- `plugins.packages.<plugin_id>.settings`
-
-Enable and trust state are persisted under:
-
-- `plugins.packages.<plugin_id>.enabled`
-- `plugins.packages.<plugin_id>.trusted`
+Each connection owns settings, opaque credential references, an enabled flag,
+readiness and an optimistic revision. The host stores these privately under
+`runtime_dir/plugin-connections/`. Resources and retained content are separate
+from private account/cursor state. A local content clear preserves source
+progress and imported host memory; disconnecting removes connection state and
+credentials after runtime shutdown. Global forgetting is a separate host flow.
 
 ## Frontend Behavior
 
-The frontend does not run plugin code.
+Magi renders manifest field, action and resource schemas. It never loads
+plugin-owned frontend code. Numeric fields use `minimum`/`maximum`; credentials
+are write-only and never appear as masked round-trip setting values. A saved
+required credential can be explicitly removed, disabling the connection in the
+same revision-checked update. Configure multiple accounts independently.
 
-Instead it:
-
-- reads plugin packages from `/api/plugins`
-- renders fields from `ExtensionFieldSpec`
-- saves updates back through `/api/plugins/{plugin_id}/settings`
-
-If your plugin declares fields correctly, it can appear in the settings UI without additional frontend code.
 
 ## Testing Recommendations
 

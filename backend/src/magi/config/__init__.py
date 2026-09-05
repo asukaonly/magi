@@ -4,11 +4,10 @@ Configuration Module - Runtime configuration management.
 Configuration Location:
     ~/.magi/config/agent.yaml
     ~/.magi/config/plugins/index.yaml
-    ~/.magi/config/plugins/<plugin_id>.yaml
 
 First Run:
     If config file doesn't exist, it's copied from backend/configs/config.example.yaml
-    and plugin configuration is materialized into split files.
+    and an empty installed-package metadata index is created.
 
 Configuration Sources (priority order):
     1. Runtime config files under ~/.magi/config/
@@ -38,7 +37,6 @@ from .loader import (
     get_config_dir,
     get_plugins_config_dir,
     get_plugins_index_file,
-    get_plugin_settings_file,
     get_lifecycle_config_file,
     get_data_dir,
 )
@@ -112,7 +110,6 @@ __all__ = [
     "get_config_dir",
     "get_plugins_config_dir",
     "get_plugins_index_file",
-    "get_plugin_settings_file",
     "get_lifecycle_config_file",
     "get_data_dir",
 

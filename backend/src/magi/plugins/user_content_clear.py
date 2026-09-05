@@ -14,7 +14,7 @@ from magi_plugin_sdk.channels import (
     ChannelInboundClearRequest,
     ChannelInboundClearStrategy,
 )
-from magi_plugin_sdk.sensors import PluginRuntimePaths
+from magi_plugin_sdk.sensors import PluginRuntimePaths, ScopedSensorRuntimePaths
 
 from ..core.logger import get_logger
 from .manager import PluginManager, PluginUserContentTargetSnapshot
@@ -99,6 +99,7 @@ class PluginUserContentClearSession:
         checkpoint_store: PluginUserContentClearCheckpointStore,
         read_current_clear_generation: Callable[[], Awaitable[int]],
         hook_timeout_seconds: float,
+        source_store: Any | None = None,
     ) -> None:
         self._plugin_manager = plugin_manager
         self._targets = targets
@@ -106,6 +107,7 @@ class PluginUserContentClearSession:
         self._checkpoint_store = checkpoint_store
         self._read_current_clear_generation = read_current_clear_generation
         self._hook_timeout_seconds = hook_timeout_seconds
+        self._source_store = source_store
         self._active = True
         self._completed_generation: int | None = None
         self._completed_report: PluginUserContentClearReport | None = None
@@ -187,16 +189,21 @@ class PluginUserContentClearSession:
             )
             causes.append(cause)
 
-        settings_by_plugin_id = {
-            plugin_id: settings for plugin_id, _plugin, settings in self._targets.plugins
+        settings_by_connection_id = {
+            connection_id: settings for connection_id, _plugin, settings in self._targets.plugins
+        }
+        plugins_by_connection_id = {
+            connection_id: plugin for connection_id, plugin, _settings in self._targets.plugins
         }
 
-        for plugin_id, plugin, plugin_settings in self._targets.plugins:
+        for connection_id, plugin, plugin_settings in self._targets.plugins:
+            plugin_id = plugin.plugin_id
             attempted += 1
             context = UserContentClearContext(
                 request=request,
-                runtime_paths=self._runtime_paths,
+                runtime_paths=ScopedSensorRuntimePaths(connection_id, plugin_id, plugin.context.state_dir),
                 plugin_id=plugin_id,
+                connection_id=connection_id,
                 plugin_settings=plugin_settings,
             )
             failure = await self._run_hook(
@@ -215,13 +222,16 @@ class PluginUserContentClearSession:
 
         for sensor_target in self._targets.sensors:
             attempted += 1
+            connection_id = sensor_target.connection_id
+            plugin = plugins_by_connection_id[connection_id]
             context = UserContentClearContext(
                 request=request,
-                runtime_paths=self._runtime_paths,
+                runtime_paths=ScopedSensorRuntimePaths(connection_id, sensor_target.plugin_id, plugin.context.state_dir),
                 plugin_id=sensor_target.plugin_id,
+                connection_id=connection_id,
                 sensor_id=sensor_target.sensor_id,
-                plugin_settings=settings_by_plugin_id.get(
-                    sensor_target.plugin_id,
+                plugin_settings=settings_by_connection_id.get(
+                    connection_id,
                     {},
                 ),
             )
@@ -266,6 +276,9 @@ class PluginUserContentClearSession:
                 failure_record, cause = failure
                 failures.append(failure_record)
                 causes.append(cause)
+
+        if self._source_store is not None:
+            await self._source_store.clear_user_content()
 
         release_failures, release_causes = await self._release_temporary_plugins()
         attempted += len(self._targets.temporary_plugin_ids)
@@ -462,6 +475,7 @@ class PluginUserContentClearCoordinator:
         checkpoint_store: PluginUserContentClearCheckpointStore,
         read_current_clear_generation: Callable[[], Awaitable[int]],
         hook_timeout_seconds: float = 10.0,
+        source_store: Any | None = None,
     ) -> None:
         if hook_timeout_seconds <= 0:
             raise ValueError("hook_timeout_seconds must be positive")
@@ -471,6 +485,7 @@ class PluginUserContentClearCoordinator:
         self._checkpoint_store = checkpoint_store
         self._read_current_clear_generation = read_current_clear_generation
         self._hook_timeout_seconds = float(hook_timeout_seconds)
+        self._source_store = source_store
         self._suspended_executor: Any | None = None
 
     @asynccontextmanager
@@ -502,6 +517,7 @@ class PluginUserContentClearCoordinator:
                 checkpoint_store=self._checkpoint_store,
                 read_current_clear_generation=self._read_current_clear_generation,
                 hook_timeout_seconds=self._hook_timeout_seconds,
+                source_store=self._source_store,
             )
             clear_error: BaseException | None = None
             clear_traceback = None

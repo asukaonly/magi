@@ -199,9 +199,6 @@ class PluginInstallationMixin:
     def scan(self, *, persist_discovery: bool = True) -> list[PluginPackageState]:
         raise NotImplementedError
 
-    def enable_plugin(self, plugin_id: str) -> PluginPackageState:
-        raise NotImplementedError
-
     def load_plugin(self, plugin_id: str) -> PluginPackageState:
         raise NotImplementedError
 
@@ -323,6 +320,8 @@ class PluginInstallationMixin:
             _PluginInstallActivationPolicy.PRESERVE_ENABLED
             if expected_registry_update_source is not None
             else _PluginInstallActivationPolicy.ENABLE
+            if install_origin == "registry"
+            else _PluginInstallActivationPolicy.DISABLE
         )
         outcome = self._replace_plugin_package(
             plan,
@@ -373,6 +372,8 @@ class PluginInstallationMixin:
                 expected_package_sha256,
             )
             package_sha256 = expected_package_sha256
+        else:
+            package_sha256 = compute_package_sha256(manifest_file.parent)
         return _PluginInstallPlan(
             manifest=manifest,
             plugin_id=plugin_id,
@@ -607,7 +608,6 @@ class PluginInstallationMixin:
             plan,
             snapshot=snapshot,
             activation_policy=activation_policy,
-            enabled_after_swap=enabled_after_swap,
             official=official,
             consented_capabilities=consented_capabilities,
             install_origin=install_origin,
@@ -663,7 +663,7 @@ class PluginInstallationMixin:
                 _report_install_progress(
                     progress_reporter,
                     "activate",
-                    "Enabling plugin package",
+                    "Restoring enabled plugin connections",
                     94.0,
                 )
                 state = self.load_plugin(plan.plugin_id)
@@ -792,9 +792,7 @@ class PluginInstallationMixin:
             and installed_package_sha256 is not None
             and state.manifest.kind == "library"
             and state.manifest.source == "external"
-            and state.enabled
             and state.trusted
-            and configured.enabled
             and configured.trusted
             and configured.install_origin == "registry"
             and configured.registry_source == registry_source
@@ -978,9 +976,7 @@ class PluginInstallationMixin:
                     expectation = (source or "", repo_url or "", expected_digest)
                     if (
                         configured is None
-                        or not state.enabled
                         or not state.trusted
-                        or not configured.enabled
                         or not configured.trusted
                         or configured.install_origin != "registry"
                         or configured.registry_source != source
@@ -1065,15 +1061,16 @@ class PluginInstallationMixin:
         *,
         activation_policy: _PluginInstallActivationPolicy,
     ) -> bool:
-        if activation_policy is _PluginInstallActivationPolicy.ENABLE:
-            return True
         if activation_policy is _PluginInstallActivationPolicy.DISABLE:
             return False
-        if snapshot.config is None:
+        if (
+            activation_policy is _PluginInstallActivationPolicy.PRESERVE_ENABLED
+            and snapshot.config is None
+        ):
             raise PluginRegistrySourceConflictError(
                 "The installed plugin no longer has marketplace installation state"
             )
-        return snapshot.config.enabled
+        return bool(snapshot.package_state and snapshot.package_state.enabled)
 
     @staticmethod
     def _build_install_config_updates(
@@ -1081,7 +1078,6 @@ class PluginInstallationMixin:
         *,
         snapshot: _PluginInstallSnapshot,
         activation_policy: _PluginInstallActivationPolicy,
-        enabled_after_swap: bool,
         official: bool | None,
         consented_capabilities: list[PluginCapability] | None,
         install_origin: str,
@@ -1094,14 +1090,12 @@ class PluginInstallationMixin:
         prefix = f"plugins.packages.{plan.plugin_id}"
         if activation_policy is not _PluginInstallActivationPolicy.DISABLE:
             updates: dict[str, object] = {
-                f"{prefix}.enabled": enabled_after_swap,
                 f"{prefix}.trusted": True,
                 f"{prefix}.source": plan.manifest.source,
                 f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
             }
         else:
             updates = {
-                f"{prefix}.enabled": False,
                 f"{prefix}.trusted": False,
                 f"{prefix}.source": plan.manifest.source,
                 f"{prefix}.manifest_path": str(plan.dest_dir / "plugin.toml"),
@@ -1110,12 +1104,10 @@ class PluginInstallationMixin:
                     capability.model_dump(mode="json")
                     for capability in (consented_capabilities or [])
                 ],
-                f"{prefix}.settings": {},
             }
 
         if snapshot.config is None or reset_existing_config:
             updates[f"{prefix}.official"] = False
-            updates[f"{prefix}.settings"] = {}
         if official is not None:
             updates[f"{prefix}.official"] = official
         if consented_capabilities is not None:
@@ -1214,9 +1206,7 @@ class PluginInstallationMixin:
         identity_matches = bool(
             state.manifest.kind == "library"
             and state.manifest.source == "external"
-            and state.enabled
             and state.trusted
-            and configured.enabled
             and configured.trusted
             and configured.install_origin == "registry"
             and configured.registry_source == requirement.registry_source

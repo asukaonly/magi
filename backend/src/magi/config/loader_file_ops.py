@@ -37,13 +37,11 @@ class ConfigLoaderFileOpsMixin:
 
     def _snapshot_config_signature(self) -> Tuple[Tuple[str, int, int], ...]:
         """Capture a lightweight signature of split config files for cache invalidation."""
-        facade = _loader_facade()
         tracked_paths = [
             self._config_file,
             self._llm_config_file,
             self._lifecycle_config_file,
             self._plugins_index_file,
-            *sorted(facade.get_plugins_config_dir().glob("*.yaml")),
         ]
         signature: list[tuple[str, int, int]] = []
         seen_paths: set[str] = set()
@@ -127,12 +125,6 @@ class ConfigLoaderFileOpsMixin:
         }
 
         self._write_yaml_file(config_file, default_config)
-
-    def _plugins_config_dir(self) -> Path:
-        return _loader_facade().get_plugins_config_dir()
-
-    def _plugin_settings_file(self, plugin_id: str) -> Path:
-        return _loader_facade().get_plugin_settings_file(plugin_id)
 
     def _load_yaml_file(self, path: Path) -> Dict[str, Any]:
         """Load and parse a YAML file, returning an empty dict on failure."""
