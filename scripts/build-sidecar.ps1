@@ -58,6 +58,8 @@ function Stage-PluginPython {
   }
   & $PluginPython -m pip --version *> $null
   if ($LASTEXITCODE -ne 0) { throw "Plugin Python pip check failed." }
+  & $PythonExe (Join-Path $RootDir "scripts/install-plugin-worker-runtime.py") --python $PluginPython --sdk (Join-Path $RootDir "sdk")
+  if ($LASTEXITCODE -ne 0) { throw "Plugin worker SDK installation failed." }
   Write-Host "Staged plugin Python runtime: $PluginPythonStaging"
 }
 

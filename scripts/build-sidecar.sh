@@ -59,6 +59,7 @@ stage_plugin_python() {
     exit 1
   fi
   "${plugin_python}" -m pip --version >/dev/null
+  python "${ROOT_DIR}/scripts/install-plugin-worker-runtime.py" --python "${plugin_python}" --sdk "${ROOT_DIR}/sdk"
   echo "Staged plugin Python runtime: ${PLUGIN_PYTHON_STAGING}"
 }
 
