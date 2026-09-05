@@ -18,20 +18,12 @@ import pytest
 
 from magi.agent.background import (
     BackgroundTask,
-    BackgroundTaskSpec,
     BackgroundTaskStore,
-    BackgroundTaskTriggerSource,
 )
 from magi.agent.background.executor import BackgroundTaskRunResult
 from magi.agent.background.manager import BackgroundTaskManager
-from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
+from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, BatchRunIdentity, ItemOutcome
 from magi.agent.batch.driver import BatchDriver
-from magi.agent.batch.runner import (
-    build_batch_goal,
-    kickoff_next_batch,
-    on_batch_run_done,
-    parse_job_id_from_goal,
-)
 from magi.agent.batch.store import BatchStore
 from magi.agent.batch.tool_selection import default_batch_tool_names
 from magi.agent.cancel import CancelToken
@@ -94,11 +86,15 @@ def _build_batch_store(tmp_path) -> BatchStore:
 
 def _make_batch_run_fn(batch_store: BatchStore):
     """Stub the LLM agent run: read this batch's leased ('running') items off the
-    goal's job_id and mark them DONE — exactly as a real batch run would write back."""
+    persisted trigger and mark them DONE — exactly as a real batch run would write back."""
 
     async def run_fn(task: BackgroundTask, token: CancelToken) -> BackgroundTaskRunResult:
-        job_id = parse_job_id_from_goal(task.spec.goal)
-        running = await batch_store.list_by_status(job_id, BatchItemStatus.RUNNING)
+        identity = BatchRunIdentity.from_trigger(task.spec.trigger)
+        job_id = identity.job_id
+        running = [
+            item for item in await batch_store.list_by_status(job_id, BatchItemStatus.RUNNING)
+            if item.lease_owner == identity.lease_owner
+        ]
         await batch_store.update_items(job_id, [
             ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE, result={"dedup_key": i.item_id})
             for i in running
@@ -126,26 +122,12 @@ async def test_batch_self_enqueues_through_real_manager(runtime_paths_with_schem
     bg_store = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     manager = BackgroundTaskManager(store=bg_store, run_fn=_make_batch_run_fn(batch_store), max_concurrent=1)
 
-    async def enqueue_run(j, items):
-        spec = BackgroundTaskSpec(
-            user_id=j.owner, session_id=j.origin_session_id, origin_turn_id=j.origin_turn_id,
-            title=f"[batch:{j.job_id}] {j.title}",
-            goal=build_batch_goal(j.handler_config["prompt"], j, items),
-            selected_tools=["batch_item_update"],
-            trigger_source=BackgroundTaskTriggerSource.RULE,
-        )
-        await manager.enqueue(spec)
-
-    async def batch_listener(task: BackgroundTask) -> None:
-        job_id = parse_job_id_from_goal(task.spec.goal)
-        if job_id:
-            await on_batch_run_done(batch_store, job_id, enqueue_run=enqueue_run)
-
-    manager.add_listener(batch_listener)
+    driver = BatchDriver(manager, tool_registry=_FakeToolRegistry(), store_factory=lambda: batch_store)
+    manager.add_listener(driver.on_terminal)
     await manager.start()
     try:
         # kickoff the first batch; the chain self-propagates via the listener
-        await kickoff_next_batch(batch_store, job, enqueue_run=enqueue_run)
+        await driver.kickoff(job.job_id)
 
         async def _job_done() -> bool:
             j = await batch_store.get_job(job.job_id)

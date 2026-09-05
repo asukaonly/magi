@@ -922,6 +922,12 @@ and tool execution. Successful user-facing results are projected back to the
 originating chat as ordinary assistant outcomes while background rows remain
 available for audit.
 
+Batch runs persist their job ID in the batch trigger's single correlation entry
+and their lease owner in its payload. Terminal listeners and completion outreach
+read that same identity after reload. Handler prompts and model instructions
+never determine job attribution or lease recovery; text that resembles a runtime
+marker remains ordinary task content.
+
 ## Delivery, Recovery, And Privacy Boundaries
 
 Chat acceptance is a single chat-domain transaction covering the session/turn,

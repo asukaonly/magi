@@ -16,14 +16,12 @@ from typing import Any
 
 from magi_plugin_sdk.run_trigger import RunTrigger
 
-from ..background import BackgroundTaskSpec, BackgroundTaskTriggerSource
-from .contracts import BatchJobStatus
+from ..background import BackgroundTask, BackgroundTaskSpec, BackgroundTaskTriggerSource
+from .contracts import BatchJobStatus, BatchRunIdentity
 from .runner import (
     build_batch_goal,
     fill_to_concurrency,
     on_batch_run_done,
-    parse_job_id_from_goal,
-    parse_lease_owner_from_goal,
 )
 from .store import default_batch_store
 from .tool_selection import (
@@ -65,7 +63,7 @@ class BatchDriver:
                 requester=job.owner,
                 priority="background",
                 correlation=[job.job_id],
-                payload={},
+                payload={"lease_owner": items[0].lease_owner},
             ),
         )
         await self._manager.enqueue(spec)
@@ -139,13 +137,12 @@ class BatchDriver:
             resumed += 1
         return resumed
 
-    async def on_terminal(self, task: Any) -> None:
+    async def on_terminal(self, task: BackgroundTask) -> None:
         """BackgroundManager terminal listener: continue the chain or finalize."""
-        goal = getattr(getattr(task, "spec", None), "goal", "") or ""
-        job_id = parse_job_id_from_goal(goal)
-        if job_id:
+        identity = BatchRunIdentity.from_trigger(task.spec.trigger)
+        if identity is not None:
             store = self._store_factory()
-            job = await store.get_job(job_id)
+            job = await store.get_job(identity.job_id)
             if job is None:
                 return
             try:
@@ -154,7 +151,7 @@ class BatchDriver:
                 return
             await on_batch_run_done(
                 store,
-                job_id,
+                identity.job_id,
                 enqueue_run=self._enqueue_admitted(tools),
-                lease_owner=parse_lease_owner_from_goal(goal),
+                lease_owner=identity.lease_owner,
             )

@@ -4,7 +4,6 @@ import sqlite3
 import pytest
 
 from magi.agent.batch.contracts import BatchItemStatus, ItemOutcome
-from magi.agent.batch.runner import parse_job_id_from_goal
 from magi.agent.batch.store import BatchStore
 from magi.outreach.producers import background_completion as bc
 
@@ -103,8 +102,3 @@ async def test_job_done_with_review_and_failures(store):
     intent = await bc.batch_job_intent(_FakeTask(_goal(job.job_id)), job.job_id)
     assert intent is not None
     assert "need review" in intent.facts and "failed" in intent.facts
-
-
-def test_non_batch_goal_parses_none():
-    # producer routes to the normal task_to_intent path when no batch marker
-    assert parse_job_id_from_goal("a regular background task goal") is None

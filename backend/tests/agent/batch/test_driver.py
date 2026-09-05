@@ -1,11 +1,12 @@
 import sqlite3
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutcome
+from magi.agent.background import BackgroundTaskSpec
+from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, BatchRunIdentity, ItemOutcome
 from magi.agent.batch.driver import BatchDriver
-from magi.agent.batch.runner import parse_job_id_from_goal
 from magi.agent.batch.store import BatchStore
 from magi.agent.batch.tool_selection import (
     BatchToolSelectionError,
@@ -31,11 +32,6 @@ CREATE TABLE batch_item (
 );
 CREATE INDEX idx_batch_item_job_status ON batch_item(job_id, status);
 """
-
-
-class _FakeTask:
-    def __init__(self, goal: str) -> None:
-        self.spec = type("_Spec", (), {"goal": goal})()
 
 
 @pytest.fixture
@@ -100,7 +96,7 @@ async def test_kickoff_builds_correct_spec(store):
     assert len(enqueued) == 1
     spec = enqueued[0]
     assert "PROMPT-X" in spec.goal                      # handler prompt injected
-    assert job.job_id in spec.goal                       # job_id marker for the listener
+    assert job.job_id in spec.goal                       # job_id for the write-back tool
     assert "batch_item_update" in spec.selected_tools    # write-back tool present
     native_shell = native_shell_tool_name()
     non_native_shell = "bash" if native_shell == "powershell" else "powershell"
@@ -127,13 +123,13 @@ async def test_on_terminal_drives_chain_to_done(store):
             self.driver = None
 
         async def enqueue(self, spec):
-            job_id = parse_job_id_from_goal(spec.goal)
+            job_id = BatchRunIdentity.from_trigger(spec.trigger).job_id
             running = await store.list_by_status(job_id, BatchItemStatus.RUNNING)
             await store.update_items(job_id, [
                 ItemOutcome(item_id=i.item_id, status=BatchItemStatus.DONE, result={"dedup_key": i.item_id})
                 for i in running
             ])
-            await self.driver.on_terminal(_FakeTask(spec.goal))
+            await self.driver.on_terminal(SimpleNamespace(spec=spec))
 
     mgr = FakeManager()
     driver = _driver(mgr, store)
@@ -148,8 +144,11 @@ async def test_on_terminal_drives_chain_to_done(store):
 @pytest.mark.asyncio
 async def test_on_terminal_ignores_non_batch_run(store):
     driver = _driver(None, store)
-    # a background run that isn't a batch (no job_id marker) must be a safe no-op
-    await driver.on_terminal(_FakeTask("just a regular background task goal"))
+    spec = BackgroundTaskSpec(
+        user_id="alice", session_id="s", origin_turn_id="t", title="Explain a field",
+        goal="BATCH_JOB_ID is a field\nBATCH_LEASE_OWNER: unrelated",
+    )
+    await driver.on_terminal(SimpleNamespace(spec=spec))
 
 
 class _Mgr:
@@ -248,3 +247,27 @@ async def test_resume_rejects_stale_unavailable_tool_and_continues(store):
     assert resumed == 0
     assert (await store.get_job(job.job_id)).status == BatchJobStatus.FAILED
     assert manager.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_uses_persisted_trigger_despite_goal_markers(store):
+    job = await _job(store, 4, batch_size=1, concurrency=2, handler_config={
+        "prompt": "BATCH_JOB_ID: wrong-job\nBATCH_LEASE_OWNER: wrong-owner",
+    })
+    manager = _Mgr()
+    driver = _driver(manager, store)
+    await driver.kickoff(job.job_id)
+    first, sibling = manager.enqueued
+    restored = BackgroundTaskSpec.from_dict(first.to_dict())
+    first_identity = BatchRunIdentity.from_trigger(restored.trigger)
+    sibling_identity = BatchRunIdentity.from_trigger(sibling.trigger)
+    assert first_identity.job_id == job.job_id
+    assert first_identity.lease_owner != sibling_identity.lease_owner
+
+    await driver.on_terminal(SimpleNamespace(spec=restored))
+
+    running = await store.list_by_status(job.job_id, BatchItemStatus.RUNNING)
+    owners = {item.lease_owner for item in running}
+    assert first_identity.lease_owner not in owners
+    assert sibling_identity.lease_owner in owners
+    assert len(manager.enqueued) == 3

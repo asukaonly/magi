@@ -27,23 +27,13 @@ from .store import BatchStore, _now_ms
 EnqueueRun = Callable[[BatchJob, "list[BatchItem]"], Awaitable[None]]
 
 _LEASE_TTL_MS = 30 * 60 * 1000  # matches the background-run timeout
-_GOAL_JOB_MARKER = "BATCH_JOB_ID"
-_GOAL_LEASE_MARKER = "BATCH_LEASE_OWNER"
 
 
 def build_batch_goal(handler_prompt: str, job: BatchJob, items: "list[BatchItem]") -> str:
-    """Compose the goal (user message) for one batch run. task-agnostic:
-    handler prompt + the items + the write-back instruction. The job_id marker
-    lets the terminal listener attribute the run back to its job; the
-    lease_owner marker lets it reclaim exactly this run's orphaned leases (items
-    it leased but never reported). All leased items in a batch share one
-    lease_owner, so the first item's is representative."""
+    """Compose model instructions; runtime ownership lives on the run trigger."""
     payload = [{"item_id": i.item_id, "input": i.input} for i in items]
-    lease_owner = items[0].lease_owner if items else ""
     return (
         f"{handler_prompt}\n\n"
-        f"{_GOAL_JOB_MARKER}: {job.job_id}\n"
-        f"{_GOAL_LEASE_MARKER}: {lease_owner}\n"
         f"Process each of the following {len(items)} items, then report every "
         f'outcome by calling batch_item_update(job_id="{job.job_id}", updates=[...]). '
         f"Each update is {{item_id, status, result?, review_reason?, error?}}.\n"
@@ -58,25 +48,6 @@ def build_batch_goal(handler_prompt: str, job: BatchJob, items: "list[BatchItem]
         f"Choose done vs needs_review honestly: prefer needs_review over guessing.\n"
         f"Items:\n{json.dumps(payload, ensure_ascii=False)}"
     )
-
-
-def _parse_marker(goal: str, marker: str) -> str | None:
-    for line in goal.splitlines():
-        line = line.strip()
-        if line.startswith(marker):
-            return line.split(":", 1)[1].strip() or None
-    return None
-
-
-def parse_job_id_from_goal(goal: str) -> str | None:
-    """Recover the job_id a batch run was launched for (used by the listener)."""
-    return _parse_marker(goal, _GOAL_JOB_MARKER)
-
-
-def parse_lease_owner_from_goal(goal: str) -> str | None:
-    """Recover the lease_owner a batch run claimed its items under, so the
-    terminal listener can reclaim exactly this run's orphaned leases."""
-    return _parse_marker(goal, _GOAL_LEASE_MARKER)
 
 
 async def kickoff_next_batch(

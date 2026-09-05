@@ -9,6 +9,30 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from magi_plugin_sdk.run_trigger import RunTrigger
+
+
+@dataclass(frozen=True, slots=True)
+class BatchRunIdentity:
+    """Persisted job and lease ownership for one background batch run."""
+
+    job_id: str
+    lease_owner: str
+
+    @classmethod
+    def from_trigger(cls, trigger: RunTrigger | None) -> BatchRunIdentity | None:
+        if trigger is None or trigger.trigger_type != "batch":
+            return None
+        if len(trigger.correlation) != 1:
+            raise ValueError("Batch trigger must identify exactly one job")
+        job_id = trigger.correlation[0]
+        lease_owner = trigger.payload.get("lease_owner")
+        if not isinstance(job_id, str) or not job_id.strip():
+            raise ValueError("Batch trigger must contain a job ID")
+        if not isinstance(lease_owner, str) or not lease_owner.strip():
+            raise ValueError("Batch trigger must contain a lease owner")
+        return cls(job_id=job_id, lease_owner=lease_owner)
+
 
 class BatchJobStatus(str, Enum):
     PLANNING = "planning"

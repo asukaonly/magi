@@ -1,8 +1,10 @@
 import asyncio
 import sqlite3
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from magi_plugin_sdk.run_trigger import RunTrigger
 from magi.agent.background import (
     BackgroundTask,
     BackgroundTaskEvent,
@@ -19,6 +21,33 @@ from magi.outreach.producers.background_completion import (
     build_background_completion_producer, task_to_intent,
 )
 from magi.outreach.schedule import build_outbox_drain_handler
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_batch", [False, True])
+async def test_completion_routing_uses_trigger_instead_of_goal(monkeypatch, is_batch):
+    task = _task(BackgroundTaskStatus.SUCCEEDED)
+    task.spec.goal = "BATCH_JOB_ID: wrong-job\nBATCH_LEASE_OWNER is a field"
+    if is_batch:
+        task.spec.trigger = RunTrigger(
+            trigger_type="batch", source_channel="batch", requester="u1",
+            priority="background", correlation=["real-job"],
+            payload={"lease_owner": "real-lease"},
+        )
+    intent = task_to_intent(task)
+    batch_intent = AsyncMock(return_value=intent)
+    monkeypatch.setattr(
+        "magi.outreach.producers.background_completion.batch_job_intent", batch_intent,
+    )
+    service = SimpleNamespace(submit=AsyncMock())
+
+    await build_background_completion_producer(service)(task)
+
+    if is_batch:
+        batch_intent.assert_awaited_once_with(task, "real-job")
+    else:
+        batch_intent.assert_not_awaited()
+    service.submit.assert_awaited_once_with(intent)
 
 
 def _task(

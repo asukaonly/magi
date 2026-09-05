@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from ...agent.background import BackgroundTask, BackgroundTaskStatus, BackgroundTaskTriggerSource
-from ...agent.batch.runner import parse_job_id_from_goal
+from ...agent.batch.contracts import BatchRunIdentity
 from ...agent.batch.store import default_batch_store
 from ...agent.trace import now_wall_ms
 from ...core.logger import get_logger
@@ -212,12 +212,10 @@ class BackgroundCompletionProducer:
             if prepared_intent_json is not None:
                 intent = OutreachIntent.from_dict(json.loads(prepared_intent_json))
             else:
-                job_id = parse_job_id_from_goal(
-                    getattr(task.spec, "goal", "") or ""
-                )
+                identity = BatchRunIdentity.from_trigger(task.spec.trigger)
                 intent = (
-                    await batch_job_intent(task, job_id)
-                    if job_id
+                    await batch_job_intent(task, identity.job_id)
+                    if identity is not None
                     else task_to_intent(task)
                 )
                 if intent is not None and self._completion_store is not None:
