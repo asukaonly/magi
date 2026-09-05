@@ -604,3 +604,16 @@ def test_first_context_low_signal_input_cannot_write_l2(message):
     assert policy.allow_entity_extraction is False
     assert policy.allow_graph_write is False
     assert policy.allow_assertion_write is False
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("我喜欢爵士乐，你推荐什么？", "user_self_report"),
+    ("我住在杭州。你推荐什么？", "user_self_report"),
+    ("我喜欢爵士乐吗？", "user_question"),
+    ("如果我喜欢爵士乐，你推荐什么？", "user_question"),
+    ('他说“我喜欢爵士乐”，你推荐什么？', "user_question"),
+])
+def test_mixed_message_preserves_only_asserted_self_report(text, expected):
+    from magi.memory.evidence import classify_event_evidence
+    event = normalize_runtime_event(_build_user_message(message=text))
+    assert classify_event_evidence(event).evidence_class == expected

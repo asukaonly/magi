@@ -144,6 +144,11 @@ Return JSON only:
 }
 ```
 
+### Mixed statements and questions
+When a user states a fact and then asks a question, extract only the asserted clause.
+"我喜欢爵士乐，你推荐什么？" supports "我喜欢爵士乐"; the question is not evidence.
+Questions, hypotheses, and quoted statements from other speakers cannot establish a self fact.
+
 ### Preference scope
 A favorable evaluation of one meal, visit, or attempt is not a durable preference.
 "午饭吃了螺蛳粉，比上次好吃" is one-off evidence, not stable LIKES.

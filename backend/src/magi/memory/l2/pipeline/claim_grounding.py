@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from ...evidence.classifier import asserted_evidence_clauses
 from ..models import (
     L2BatchEvent,
     L2ClaimEvidenceMode,
@@ -144,6 +145,11 @@ def _event_has_grounded_evidence_occurrence(
     raw_evidence_text: str,
 ) -> bool:
     if event.event_type != HISTORY_DOCUMENT_EVENT_TYPE:
+        if str(event.author_type or "").casefold() == "user":
+            return any(
+                normalized_evidence_text in _normalize_evidence_text(clause)
+                for clause in asserted_evidence_clauses(content)
+            )
         return normalized_evidence_text in _normalize_evidence_text(content)
     return find_history_document_author_occurrence(content, raw_evidence_text) is not None
 

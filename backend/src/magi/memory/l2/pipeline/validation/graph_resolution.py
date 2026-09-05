@@ -70,6 +70,7 @@ class L2GraphEndpointResolutionMixin:
         object_id: str,
         object_type: str,
         raw_object_ref: str,
+        evidence_text: str | None = None,
     ) -> bool:
         host = self._graph_validation_host()
         if host._is_address_preference_object(
@@ -79,7 +80,7 @@ class L2GraphEndpointResolutionMixin:
             return True
         if predicate not in _PREFERENCE_PREDICATES:
             return False
-        if host._looks_like_interrogative_preference_query(event.content):
+        if host._looks_like_interrogative_preference_query(evidence_text if evidence_text is not None else event.content):
             return True
         if host._is_generic_preference_object_id(
             object_id

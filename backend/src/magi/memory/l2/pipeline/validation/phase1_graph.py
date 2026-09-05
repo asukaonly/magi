@@ -126,6 +126,7 @@ class L2Phase1GraphProjectionMixin:
             object_id=object_id,
             object_type=object_type,
             raw_object_ref=claim.object_ref,
+            evidence_text=claim.evidence_text,
         ):
             return None, "preference_domain_rejected"
         return {

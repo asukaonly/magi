@@ -2983,3 +2983,10 @@ and grounded-Claim admission. An evaluation of one meal or visit stays event-onl
 a direct general preference can be durable without an "always" keyword; an
 explicit recent preference retains a bounded lifetime. A transient desire is not
 promoted into a durable preference even if extraction labels it `LIKES`.
+
+A mixed user message may admit its asserted clauses even when it ends in a
+question. Claim grounding requires the quoted evidence to occur inside an
+asserted clause, with question marks, hypothetical context, and quoted speech
+preserved as boundaries. The graph preference guard inspects that grounded quote
+instead of rejecting the entire source message because another clause asks a
+question. The full original message remains unchanged in L1.
