@@ -9,15 +9,17 @@ Then in your plugin:
 
     from magi_plugin_sdk import Plugin, SensorSpec, ExtensionFieldSpec
 
-Or, if you prefer the canonical backend import path (works when the full
-Magi backend is installed):
-
-    from magi.plugins import Plugin, SensorSpec, ExtensionFieldSpec
-
-Both resolve to the same classes at runtime.
+External plugins import only this package. Host implementation modules are
+not part of the plugin authoring contract.
 """
 
 from .base import Plugin
+from .runtime import (
+    SDK_VERSION, PLUGIN_PROTOCOL_VERSION, PluginConnection, ConnectionStatus,
+    CapabilityGrant, InvocationIdentity, ResourceRef, SourceChange,
+    SourceChangeBatch, CapabilityReadiness, OperationSpec, OperationResult,
+    PluginHandshake,
+)
 from .control import ControlRequest
 from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
@@ -156,9 +158,13 @@ from .capabilities import (
     TracePort,
 )
 
-__version__ = "0.1.1"
+__version__ = SDK_VERSION
 
 __all__ = [
+    "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "PluginConnection", "ConnectionStatus",
+    "CapabilityGrant", "InvocationIdentity", "ResourceRef", "SourceChange",
+    "SourceChangeBatch", "CapabilityReadiness", "OperationSpec", "OperationResult",
+    "PluginHandshake",
     # Core base class
     "Plugin",
     # Delivery types (Phase G)

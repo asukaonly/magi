@@ -97,6 +97,20 @@ External plugin examples live in the separate plugin repository (`github.com/asu
 
 ## Manifest Contract
 
+The public SDK is version `0.2.0`, with plugin protocol `2`. Disk manifests
+declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
+(`restricted_process` or `trusted_process`). A package is distinct from its
+host-issued connection instances. The SDK wire contracts in
+`magi_plugin_sdk.runtime` define connection identity, invocation authority,
+resource references, versioned source changes, operation results and readiness.
+No historical plugin protocol or data-layout conversion is part of this
+unreleased redesign.
+
+Public declaration fields are checked rather than silently discarded.
+Numeric settings use `minimum` and `maximum`; unknown extraction-profile
+fields cannot alter memory policy. Connection and invocation identities are
+issued by the host, never accepted from a plugin's business input.
+
 The manifest is parsed into `PluginManifest`.
 
 Important fields:

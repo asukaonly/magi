@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal, Optional, Union
 from pydantic import (
     AfterValidator,
     BaseModel,
+    ConfigDict,
     Field,
     StringConstraints,
     field_validator,
@@ -17,6 +18,13 @@ from pydantic import (
 )
 
 from .versioning import PluginVersion
+from .runtime import SDK_VERSION
+
+
+class PluginContract(BaseModel):
+    """Public declarations reject unsupported fields instead of losing intent."""
+
+    model_config = ConfigDict(extra="forbid")
 
 _RESERVED_PLUGIN_IDENTIFIERS = {
     "aux",
@@ -67,7 +75,7 @@ class ExtensionFieldOption(BaseModel):
     value: str
 
 
-class ExtensionFieldSpec(BaseModel):
+class ExtensionFieldSpec(PluginContract):
     """Declarative settings field exposed by a plugin contribution."""
 
     key: str
@@ -86,6 +94,16 @@ class ExtensionFieldSpec(BaseModel):
     placeholder: Optional[str] = None
     depends_on_key: Optional[str] = None
     depends_on_values: list[str] = Field(default_factory=list)
+    minimum: float | None = None
+    maximum: float | None = None
+
+    @model_validator(mode="after")
+    def validate_numeric_bounds(self) -> "ExtensionFieldSpec":
+        if (self.minimum is not None or self.maximum is not None) and self.type != "number":
+            raise ValueError("Numeric bounds require a number field")
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+            raise ValueError("minimum cannot exceed maximum")
+        return self
 
 
 class ActivationFirstContextSpec(BaseModel):
@@ -261,7 +279,7 @@ class DerivedAssertionRuleSpec(BaseModel):
         return self
 
 
-class ExtractionProfileSpec(BaseModel):
+class ExtractionProfileSpec(PluginContract):
     """Declarative L2 extraction profile contributed by a plugin.
 
     Plugins declare source-local extraction and presentation preferences here.
@@ -321,15 +339,12 @@ class SuggestionSurfacesSpec(BaseModel):
     first_context: SuggestionSurfaceSpec | None = None
 
 
-class PluginCapability(BaseModel):
-    """A single self-declared capability shown to the user for install-time
-    consent. NOT enforced at runtime (no sandbox this iteration).
+class PluginCapability(PluginContract):
+    """A requested capability, never a grant of runtime authority.
 
-    ``capability`` is a permissive ``str`` for forward-compat: a newer
-    registry may declare a capability an older app doesn't know, and that must
-    not break parsing. The authoritative known set is enforced at build time in
-    magi-plugins ``scripts/build-registry.py`` and rendered with a known map +
-    graceful fallback in the frontend. Known values: screen_recording,
+    The host authorizes access for a connection separately. Unknown operations
+    cannot become executable merely by appearing in a package declaration.
+    The publication policy validates the supported set: screen_recording,
     accessibility, calendar, photos, contacts, system_media, filesystem_read,
     filesystem_write, network, subprocess.
     """
@@ -337,18 +352,16 @@ class PluginCapability(BaseModel):
     capability: str
     scope: list[str] = Field(default_factory=list)
     """For filesystem_read/write/network/subprocess: path prefixes / hosts /
-    executables. Empty = unspecified (broadest). Ignored for OS permissions."""
+    executables. Empty is an unspecified request, not an unrestricted grant."""
     optional: bool = False
     reason: str = ""
     reason_i18n: dict[str, str] = Field(default_factory=dict)
 
 
-class PluginPermissions(BaseModel):
-    """The ``[plugin.permissions]`` table. ``extra='allow'`` tolerates legacy
-    keys (``declares``, ``memory_access``) so existing manifests still parse."""
+class PluginPermissions(PluginContract):
+    """Declared access requirements reviewed before granting runtime authority."""
 
     capabilities: list[PluginCapability] = Field(default_factory=list)
-    model_config = {"extra": "allow"}
 
 
 class LocalRequirementFileExists(BaseModel):
@@ -440,7 +453,7 @@ def _validate_direct_plugin_dependencies(
         raise ValueError("Plugin package cannot depend on itself")
 
 
-class PluginManifest(BaseModel):
+class PluginManifest(PluginContract):
     """Parsed manifest for a plugin package.
 
     Plugins declare per-plugin default settings under ``[plugin.default_settings]``
@@ -481,7 +494,11 @@ class PluginManifest(BaseModel):
     The manager auto-installs missing libraries during install,
     refcount-protects them on uninstall, and injects their install-root parent
     onto ``sys.path`` before loading this plugin."""
-    min_sdk_version: str = ""
+    protocol_version: Literal[2] = 2
+    min_sdk_version: PluginVersion = SDK_VERSION
+    execution_mode: Literal["restricted_process", "trusted_process"] = "restricted_process"
+    projection_sources: list[str] = Field(default_factory=list, max_length=128)
+    """Semantic source selectors, intersected with host-authorized connection data."""
     platforms: list[str] = Field(default_factory=list)
     homepage: str = ""
     repository: str = ""
@@ -564,7 +581,7 @@ class PluginPackageState(BaseModel):
     current_settings: dict[str, Any] = Field(default_factory=dict)
 
 
-class PluginRegistryEntry(BaseModel):
+class PluginRegistryEntry(PluginContract):
     """Remote plugin registry entry describing an available plugin."""
 
     plugin_id: _PluginIdentifier
@@ -594,7 +611,10 @@ class PluginRegistryEntry(BaseModel):
     depends_on: list[_PluginIdentifier] = Field(default_factory=list, max_length=8)
     """Library registry entries this package imports from (plugin_ids)."""
     platforms: list[str] = Field(default_factory=list)
-    min_sdk_version: str = ""
+    protocol_version: Literal[2] = 2
+    min_sdk_version: PluginVersion = SDK_VERSION
+    execution_mode: Literal["restricted_process", "trusted_process"] = "restricted_process"
+    projection_sources: list[str] = Field(default_factory=list, max_length=128)
     homepage: str = ""
     repository: str = ""
     suggestion_descriptor: SuggestionDescriptor | None = None
