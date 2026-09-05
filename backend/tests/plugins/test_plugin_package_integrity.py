@@ -34,7 +34,7 @@ def _managed_manifest(
     plugin_dir.mkdir()
     manifest_path = plugin_dir / "plugin.toml"
     manifest_path.write_text(
-        f'[plugin]\nid = "{plugin_id}"\nname = "Example"\nversion = "1.0.0"\n',
+        f'[plugin]\nprotocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\nid = "{plugin_id}"\nname = "Example"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     (plugin_dir / "plugin.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -56,7 +56,6 @@ def _managed_settings(
     installed_package_sha256: str | None,
 ) -> PluginSettings:
     return PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=manifest.manifest_path,
@@ -101,7 +100,7 @@ def test_plugin_settings_rejects_invalid_package_digests(updates: dict[str, obje
         PluginSettings.model_validate(updates)
 
 
-@pytest.mark.parametrize("install_origin", ["registry", "upload"])
+@pytest.mark.parametrize("install_origin", ["registry", "upload", "local"])
 def test_managed_install_recomputes_and_accepts_exact_package(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -122,7 +121,7 @@ def test_managed_install_recomputes_and_accepts_exact_package(
     assert is_verified_registry_package(manifest, configured) is (install_origin == "registry")
 
 
-@pytest.mark.parametrize("install_origin", ["registry", "upload"])
+@pytest.mark.parametrize("install_origin", ["registry", "upload", "local"])
 def test_managed_install_without_package_digest_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -143,7 +142,7 @@ def test_managed_install_without_package_digest_fails_closed(
     assert is_verified_registry_package(manifest, configured) is False
 
 
-@pytest.mark.parametrize("install_origin", ["registry", "upload"])
+@pytest.mark.parametrize("install_origin", ["registry", "upload", "local"])
 def test_managed_install_without_local_seal_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -170,7 +169,6 @@ def test_managed_external_package_without_install_origin_fails_closed(
 ) -> None:
     manifest = _managed_manifest(monkeypatch, tmp_path)
     configured = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=manifest.manifest_path,
@@ -182,20 +180,19 @@ def test_managed_external_package_without_install_origin_fails_closed(
     assert "installation origin is missing" in error
 
 
-def test_explicit_local_managed_package_remains_a_development_path(
+def test_explicit_local_managed_package_requires_a_seal(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     manifest = _managed_manifest(monkeypatch, tmp_path)
     configured = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=manifest.manifest_path,
         install_origin="local",
     )
 
-    assert package_identity_error(manifest, configured) is None
+    assert "digest is missing" in package_identity_error(manifest, configured)
 
 
 def test_legacy_registry_fingerprints_do_not_verify_package(
@@ -203,24 +200,25 @@ def test_legacy_registry_fingerprints_do_not_verify_package(
     tmp_path: Path,
 ) -> None:
     manifest = _managed_manifest(monkeypatch, tmp_path)
-    configured = PluginSettings.model_validate(
-        {
-            "enabled": True,
-            "trusted": True,
-            "source": "external",
-            "manifest_path": manifest.manifest_path,
-            "install_origin": "registry",
-            "registry_source": REGISTRY_URL,
-            "registry_repo_url": REPOSITORY_URL,
-            "registry_entry_fingerprint": "legacy-entry",
-            "registry_manifest_fingerprint": "legacy-manifest",
-            "dependency_entry_fingerprints": {"shared-library": "legacy-dependency"},
-        }
-    )
-
-    assert configured.package_sha256 is None
-    assert package_identity_error(manifest, configured) is not None
-    assert is_verified_registry_package(manifest, configured) is False
+    with pytest.raises(ValidationError, match="Extra inputs") as error:
+        PluginSettings.model_validate(
+            {
+                "trusted": True,
+                "source": "external",
+                "manifest_path": manifest.manifest_path,
+                "install_origin": "registry",
+                "registry_source": REGISTRY_URL,
+                "registry_repo_url": REPOSITORY_URL,
+                "registry_entry_fingerprint": "legacy-entry",
+                "registry_manifest_fingerprint": "legacy-manifest",
+                "dependency_entry_fingerprints": {"shared-library": "legacy-dependency"},
+            }
+        )
+    assert {item["loc"] for item in error.value.errors()} == {
+        ("registry_entry_fingerprint",),
+        ("registry_manifest_fingerprint",),
+        ("dependency_entry_fingerprints",),
+    }
 
 
 def test_registry_package_requires_persisted_source_urls(
@@ -334,7 +332,7 @@ def test_installed_mode_ignores_only_host_generated_runtime_files(
     assert package_identity_error(manifest, configured) is not None
 
 
-def test_builtin_and_local_packages_do_not_require_managed_digest(
+def test_builtin_and_unmanaged_dev_packages_do_not_require_managed_digest(
     tmp_path: Path,
 ) -> None:
     builtin_manifest = PluginManifest(
@@ -369,7 +367,6 @@ def test_builtin_and_local_packages_do_not_require_managed_digest(
             PluginSettings(
                 source="external",
                 manifest_path=str(manifest_path),
-                install_origin="local",
             ),
         )
         is None

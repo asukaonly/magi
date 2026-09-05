@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+from magi.utils.runtime import RuntimePaths
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -21,12 +25,17 @@ def _patch_plugin_runtime(
         tool_registry: object,
         request_sensor_schedule_refresh: Callable[[], None],
         activate_enabled: bool,
+        **collaborators,
     ) -> SimpleNamespace:
         del tool_registry
         captured["request_sensor_schedule_refresh"] = request_sensor_schedule_refresh
         captured["activate_enabled"] = activate_enabled
         return SimpleNamespace(
-            plugin_manager=object(),
+            plugin_manager=SimpleNamespace(
+                scan=lambda **kwargs: captured.update(scan_called=True),
+                activate_enabled_plugins=lambda: captured.update(activated=True),
+                shutdown=AsyncMock(),
+            ),
             plugin_projection_service=object(),
             sensor_registry=object(),
             history_importer_registry=object(),
@@ -55,11 +64,9 @@ def _patch_plugin_runtime(
     return captured
 
 
-def _runtime_context() -> RuntimeBootstrapContext:
+def _runtime_context(tmp_path: Path) -> RuntimeBootstrapContext:
     context = RuntimeBootstrapContext()
-    context.core.runtime_paths = SimpleNamespace(
-        message_queue_db_path="/tmp/plugin-lifecycle-message-queue.db"
-    )
+    context.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
 
     async def read_current_clear_generation() -> int:
         return 0
@@ -80,9 +87,10 @@ def _runtime_context() -> RuntimeBootstrapContext:
 @pytest.mark.asyncio
 async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     runtime_thread_id = threading.get_ident()
     refresh_called = asyncio.Event()
     refresh_thread_ids: list[int] = []
@@ -100,7 +108,8 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     await module.init()
 
     assert "clear_checked" in captured
-    assert captured["activate_enabled"] is True
+    assert captured["activate_enabled"] is False
+    assert captured["activated"] is True
     assert context.plugins.user_content_clear_coordinator is not None
 
     worker_errors: list[BaseException] = []
@@ -123,9 +132,10 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
 @pytest.mark.asyncio
 async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
@@ -143,9 +153,10 @@ async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
 
 def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
@@ -176,10 +187,11 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
 @pytest.mark.asyncio
 async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
     captured["clear_pending"] = True
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     module = PluginSystemModule(
         context,
         tool_registry=object(),
@@ -198,10 +210,11 @@ async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
 async def test_pending_desktop_transaction_allows_runtime_to_start_for_recovery(
     monkeypatch: pytest.MonkeyPatch,
     plugin_checkpoint_pending: bool,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
     captured["clear_pending"] = plugin_checkpoint_pending
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
 
     async def read_pending_state() -> SimpleNamespace:
         return SimpleNamespace(

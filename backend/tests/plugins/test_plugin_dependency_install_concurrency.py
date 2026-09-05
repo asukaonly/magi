@@ -117,6 +117,9 @@ def _write_package(dest_root: Path, entry: PluginRegistryEntry) -> Path:
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{entry.plugin_id}"
 name = "{entry.name}"
 version = "{entry.version}"

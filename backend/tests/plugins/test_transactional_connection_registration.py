@@ -326,11 +326,11 @@ async def test_multiple_connections_and_ambiguous_package_lookup(tmp_path, monke
     second = manager.connection_store.create("a", display_name="Two", enabled=True)
     manager.load_plugin("a")
     assert len(manager.iter_loaded_plugins()) == 2
-    with pytest.raises(ValueError, match="explicit connection"):
-        manager.get_loaded_plugin("a")
+    assert not hasattr(manager, "get_loaded_plugin")
+    assert manager.get_connection_plugin(first.connection_id) is not manager.get_connection_plugin(second.connection_id)
     assert len(tools._tools) == 2
     await manager.unload_connection_async(first.connection_id)
-    assert manager.get_loaded_plugin("a") is manager.get_connection_plugin(second.connection_id)
+    assert manager.iter_loaded_plugins() == [manager.get_connection_plugin(second.connection_id)]
     await manager.shutdown()
 
 
@@ -493,8 +493,7 @@ async def test_cancelled_drain_retains_shutdown_and_blocks_load(tmp_path, monkey
 
 def test_old_package_enable_path_cannot_create_connection(tmp_path, monkeypatch):
     manager, existing, _, _ = make_manager(tmp_path, monkeypatch)
-    with pytest.raises(ValueError, match="explicit plugin connection"):
-        manager.enable_plugin("a")
+    assert not hasattr(manager, "enable_plugin")
     assert len(manager.connection_store.list()) == 1
 
 

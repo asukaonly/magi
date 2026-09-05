@@ -106,7 +106,6 @@ def _valid_config(
     snapshot: PluginRegistrySnapshot,
 ) -> PluginSettings:
     return PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=manifest.manifest_path,

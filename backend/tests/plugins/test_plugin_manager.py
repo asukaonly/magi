@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import asyncio
 import threading
 
 import pytest
+
+from magi.utils.runtime import RuntimePaths
+from runtime_fixtures import instantiate_fixture_plugin, bind_fixture_plugin
 
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import Plugin
@@ -35,6 +39,16 @@ from magi_plugin_sdk import (
     PluginPackageState,
     TemporalSummarySourceFeatures,
 )
+
+
+@pytest.fixture(autouse=True)
+def isolated_connection_store(monkeypatch, tmp_path):
+    paths = RuntimePaths(base_dir=tmp_path / "runtime")
+    monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
+
+
+def _connect(manager, plugin_id, *, enabled=True):
+    return manager.create_connection(plugin_id, display_name="Test account", enabled=enabled)
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -86,7 +100,6 @@ def _configure_registry_update(
     configured = config.plugins.packages.get(
         plugin_id,
         PluginSettings(
-            enabled=True,
             trusted=True,
             source="external",
             manifest_path=installed_manifest.manifest_path,
@@ -126,6 +139,9 @@ def _write_external_tool_plugin(base: Path) -> None:
     (plugin_dir / "plugin.toml").write_text(
         """
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "external-tool"
 name = "External Tool"
 version = "1.0.0"
@@ -148,6 +164,8 @@ class ExternalHelloTool(Tool):
             name="external-hello",
             description="Say hello",
             category="test",
+            effect_class="read_only",
+            effect_replay_policy="read_only",
         )
 
     async def execute(self, parameters, context: ToolExecutionContext) -> ToolResult:
@@ -167,6 +185,9 @@ def _write_reload_test_plugin(base: Path, *, imported_name: str, imported_value:
     (plugin_dir / "plugin.toml").write_text(
         """
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "reload-test"
 name = "Reload Test"
 version = "1.0.0"
@@ -175,7 +196,7 @@ author = "Test"
 entry_module = "plugin"
 entry_class = "ReloadTestPlugin"
 official = false
-contribution_types = ["tool"]
+contribution_types = []
 """.strip(),
         encoding="utf-8",
     )
@@ -213,6 +234,9 @@ def _write_install_test_plugin(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Install Test"
 version = "{version}"
@@ -221,7 +245,7 @@ author = "Test"
 entry_module = "plugin"
 entry_class = "InstallTestPlugin"
 official = false
-contribution_types = ["tool"]{dependencies_line}
+contribution_types = []{dependencies_line}
 """.strip(),
         encoding="utf-8",
     )
@@ -253,6 +277,9 @@ def _write_install_test_library(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Install Test Library"
 version = "{version}"
@@ -282,6 +309,9 @@ def _write_install_test_consumer(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Install Test Consumer"
 version = "1.0.0"
@@ -315,11 +345,9 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     _write_external_tool_plugin(tmp_path)
     config = AppConfig()
     config.plugins.packages["external-tool"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
-        settings={},
     )
     tool_registry = ToolRegistry()
 
@@ -329,6 +357,7 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     )
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -338,11 +367,12 @@ async def test_plugin_manager_discovers_external_plugins_and_loads_enabled_tools
     discovered = manager.scan(persist_discovery=True)
     assert [item.manifest.plugin_id for item in discovered] == ["external-tool"]
 
+    connection = _connect(manager, "external-tool")
     manager.activate_enabled_plugins()
-    assert "external-hello" in tool_registry.list_tools()
+    assert f"{connection.connection_id}:external-hello" in tool_registry.list_tools()
 
-    manager.disable_plugin("external-tool")
-    assert "external-hello" not in tool_registry.list_tools()
+    await asyncio.to_thread(manager.update_connection, connection.connection_id, expected_revision=0, enabled=False)
+    assert f"{connection.connection_id}:external-hello" not in tool_registry.list_tools()
 
 
 def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
@@ -359,6 +389,7 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     )
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -369,20 +400,18 @@ def test_plugin_manager_persists_newly_discovered_plugins_as_disabled(
     assert packages[0].enabled is False
     package_settings = config.plugins.packages["external-tool"]
     if isinstance(package_settings, dict):
-        assert package_settings["enabled"] is False
+        assert "enabled" not in package_settings
         assert package_settings["trusted"] is False
     else:
-        assert package_settings.enabled is False
+        assert "enabled" not in package_settings.model_dump()
         assert package_settings.trusted is False
 
 
 def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     config = AppConfig()
     config.plugins.packages["core-tools"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="builtin",
-        settings={},
     )
     tool_registry = ToolRegistry()
 
@@ -393,6 +422,7 @@ def test_core_tools_plugin_registers_memory_query_tool(monkeypatch: pytest.Monke
 
     builtin_plugins_root = Path(__file__).resolve().parents[3] / "plugins"
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -414,6 +444,9 @@ def _write_shutdown_test_plugin(base: Path) -> None:
     (plugin_dir / "plugin.toml").write_text(
         """
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "shutdown-test"
 name = "Shutdown Test"
 version = "1.0.0"
@@ -422,7 +455,7 @@ author = "Test"
 entry_module = "plugin"
 entry_class = "ShutdownTestPlugin"
 official = false
-contribution_types = ["tool"]
+contribution_types = []
 """.strip(),
         encoding="utf-8",
     )
@@ -454,11 +487,9 @@ async def test_unload_plugin_invokes_shutdown_hook(
     _write_shutdown_test_plugin(tmp_path)
     config = AppConfig()
     config.plugins.packages["shutdown-test"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "shutdown-test" / "plugin.toml"),
-        settings={},
     )
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
@@ -468,6 +499,7 @@ async def test_unload_plugin_invokes_shutdown_hook(
     )
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -475,28 +507,17 @@ async def test_unload_plugin_invokes_shutdown_hook(
     )
 
     manager.scan(persist_discovery=True)
+    connection = _connect(manager, "shutdown-test")
     manager.activate_enabled_plugins()
 
     # Plugin loader uses entry_module="plugin", flattens into a single
     # module under magi_plugin_<id>. Read the class through the loaded
     # instance to avoid coupling to the loader's exact module name.
-    instance = manager._plugin_instances["shutdown-test"]
+    instance = manager.get_connection_plugin(connection.connection_id)
     plugin_cls = type(instance)
     assert plugin_cls.shutdown_calls == []
 
-    manager.unload_plugin("shutdown-test")
-
-    # Drain pending shutdown tasks. unload_plugin schedules shutdown on
-    # the running loop and returns immediately; we yield so the task can
-    # run before we assert.
-    import asyncio
-
-    # Give the loop one cycle. With asyncio mode=auto, pytest-asyncio is
-    # already in an event loop here.
-    for _ in range(50):
-        if plugin_cls.shutdown_calls:
-            break
-        await asyncio.sleep(0.01)
+    await manager.unload_plugin_async("shutdown-test")
 
     assert plugin_cls.shutdown_calls == [1], "Host did not invoke plugin.shutdown() on unload"
 
@@ -508,11 +529,9 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     _write_reload_test_plugin(tmp_path, imported_name="VALUE", imported_value=1)
     config = AppConfig()
     config.plugins.packages["reload-test"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "reload-test" / "plugin.toml"),
-        settings={},
     )
     tool_registry = ToolRegistry()
 
@@ -522,6 +541,7 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     )
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -529,15 +549,16 @@ def test_plugin_manager_reload_clears_cached_plugin_submodules(
     )
 
     manager.scan(persist_discovery=True)
+    connection = _connect(manager, "reload-test")
     manager.activate_enabled_plugins()
 
-    assert manager._plugin_instances["reload-test"].marker == 1
+    assert manager.get_connection_plugin(connection.connection_id).marker == 1
     assert "magi_plugin_reload_test.reader" in sys.modules
 
     _write_reload_test_plugin(tmp_path, imported_name="DETECT_STEAM_ROOT", imported_value=2)
     manager.reload_plugin("reload-test")
 
-    assert manager._plugin_instances["reload-test"].marker == 2
+    assert manager.get_connection_plugin(connection.connection_id).marker == 2
     reader_module = sys.modules["magi_plugin_reload_test.reader"]
     assert getattr(reader_module, "DETECT_STEAM_ROOT") == 2
     assert not hasattr(reader_module, "VALUE")
@@ -570,6 +591,7 @@ def test_install_plugin_from_directory_keeps_existing_plugin_until_staging_ready
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -639,6 +661,7 @@ def test_install_plugin_from_directory_reports_progress(
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -654,12 +677,12 @@ def test_install_plugin_from_directory_reports_progress(
     )
 
     assert state.manifest.plugin_id == "progress-test"
-    assert state.enabled is True
+    assert state.enabled is False
+    assert manager.connection_store.list(state.manifest.plugin_id) == []
     assert [event[0] for event in progress_events] == [
         "validate",
         "stage",
         "scan",
-        "activate",
         "completed",
     ]
     assert progress_events[-1][2] == 100.0
@@ -691,9 +714,10 @@ def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     config_versions: list[str] = []
 
     def record_config(updates: dict[str, object]) -> bool:
-        manifest_text = (user_root / plugin_id / "plugin.toml").read_text(encoding="utf-8")
-        version = "2.0.0" if 'version = "2.0.0"' in manifest_text else "1.0.0"
-        config_versions.append(version)
+        digest = updates.get(f"plugins.packages.{plugin_id}.package_sha256")
+        if digest:
+            version = "1.0.0" if digest == compute_package_sha256(first_source) else "2.0.0"
+            config_versions.append(version)
         _apply_updates(config, updates)
         return True
 
@@ -701,6 +725,7 @@ def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     monkeypatch.setattr("magi.plugins.installation.save_config", record_config)
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -774,9 +799,12 @@ def test_plugin_lifecycle_prepares_concurrently_but_rejects_stale_commit(
     final_state = manager.get_package(plugin_id)
     assert final_state is not None
     assert final_state.manifest.version == "1.0.0"
-    assert final_state.enabled is True
-    assert final_state.trusted is True
-    assert manager.get_loaded_plugin(plugin_id).marker == "first"
+    assert final_state.enabled is False
+    assert final_state.trusted is False
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == plugin_id]
+    manager.authorize_package(plugin_id, expected_package_sha256=PluginSettings.model_validate(config.plugins.packages[plugin_id]).package_sha256)
+    connection = _connect(manager, plugin_id)
+    assert manager.get_connection_plugin(connection.connection_id).marker == "first"
     assert 'version = "1.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
         encoding="utf-8"
     )
@@ -812,6 +840,7 @@ def test_plugin_install_rejects_state_changed_during_preparation(
     monkeypatch.setattr("magi.plugins.manager.save_config", save)
     monkeypatch.setattr("magi.plugins.installation.save_config", save)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -848,7 +877,8 @@ def test_plugin_install_rejects_state_changed_during_preparation(
     install_thread = threading.Thread(target=install_update, daemon=True)
     install_thread.start()
     assert preparation_started.wait(timeout=5)
-    manager.update_plugin_settings(plugin_id, {"label": "new"})
+    config.plugins.packages[plugin_id].trusted = False
+    manager.scan(persist_discovery=False)
     release_preparation.set()
     install_thread.join(timeout=5)
 
@@ -858,7 +888,7 @@ def test_plugin_install_rejects_state_changed_during_preparation(
     state = manager.get_package(plugin_id)
     assert state is not None
     assert state.manifest.version == "1.0.0"
-    assert state.current_settings == {"label": "new"}
+    assert state.trusted is False
     assert 'version = "1.0.0"' in (user_root / plugin_id / "plugin.toml").read_text(
         encoding="utf-8"
     )
@@ -894,6 +924,7 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -908,7 +939,6 @@ def test_plugin_install_rejects_dependency_replaced_during_preparation(
     )
     consumer_package_sha256 = compute_package_sha256(incoming_consumer)
     config.plugins.packages[library_id] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(initial_library / "plugin.toml"),
@@ -976,6 +1006,7 @@ def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
     config = AppConfig()
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1003,7 +1034,11 @@ def test_sync_unload_does_not_hold_lock_while_async_shutdown_runs(
             await asyncio.to_thread(manager.scan, persist_discovery=False)
             shutdown_completed.set()
 
-    manager._plugin_instances[plugin_id] = ReentrantShutdownPlugin()
+    connection = manager.connection_store.create(plugin_id, display_name="Manual fixture", enabled=True)
+    instance = ReentrantShutdownPlugin()
+    instance.configure(manifest=manifest, connection=connection, context=manager.connection_store.context(connection.connection_id))
+    manager._plugin_instances[connection.connection_id] = instance
+    manager._instance_packages[connection.connection_id] = plugin_id
 
     manager.unload_plugin(plugin_id)
 
@@ -1014,6 +1049,7 @@ def test_package_read_snapshot_does_not_interleave_lifecycle_write(
     tmp_path: Path,
 ) -> None:
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1078,7 +1114,7 @@ def test_package_read_snapshot_does_not_interleave_lifecycle_write(
     assert [state.manifest.plugin_id for state in read_result[0]] == ["existing"]
 
 
-def test_new_plugin_load_failure_leaves_no_installed_state(
+def test_plugin_import_waits_for_explicit_connection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1095,19 +1131,26 @@ def test_new_plugin_load_failure_leaves_no_installed_state(
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
 
-    with pytest.raises(RuntimeError, match="new plugin failed to load"):
-        manager.install_plugin_from_directory(incoming_dir)
+    installed = manager.install_plugin_from_directory(incoming_dir)
+    assert installed.enabled is False
+    assert installed.loaded is False
+    assert manager.connection_store.list("new-rollback-test") == []
 
-    assert not (user_root / "new-rollback-test").exists()
-    assert "new-rollback-test" not in config.plugins.packages
-    assert manager.get_package("new-rollback-test") is None
-    assert manager.get_loaded_plugin("new-rollback-test") is None
+    manager.authorize_package("new-rollback-test", expected_package_sha256=PluginSettings.model_validate(config.plugins.packages["new-rollback-test"]).package_sha256)
+    with pytest.raises(RuntimeError, match="new plugin failed to load"):
+        manager.create_connection("new-rollback-test", display_name="Broken account", enabled=True)
+
+    assert (user_root / "new-rollback-test").is_dir()
+    assert "new-rollback-test" in config.plugins.packages
+    assert manager.get_package("new-rollback-test") is not None
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "new-rollback-test"]
     assert not list(user_root.glob(".new-rollback-test-*"))
     assert not list(tmp_path.glob(".user-plugins-new-rollback-test-*"))
 
@@ -1132,12 +1175,10 @@ def test_plugin_update_load_failure_restores_previous_install(
     )
     config = AppConfig()
     config.plugins.packages["update-rollback-test"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(existing_dir / "plugin.toml"),
         official=False,
-        settings={"preserved": "value"},
     )
     existing_manifest = load_plugin_manifest(
         existing_dir / "plugin.toml",
@@ -1153,14 +1194,16 @@ def test_plugin_update_load_failure_restores_previous_install(
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
 
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     manager.scan(persist_discovery=False)
+    connection = _connect(manager, "update-rollback-test")
     manager.activate_enabled_plugins()
-    assert manager.get_loaded_plugin("update-rollback-test").marker == "old-version"
+    assert manager.get_connection_plugin(connection.connection_id).marker == "old-version"
 
     with pytest.raises(RuntimeError, match="new plugin failed to load"):
         manager.install_plugin_from_directory(
@@ -1180,7 +1223,7 @@ def test_plugin_update_load_failure_restores_previous_install(
     assert restored_state.loaded is True
     assert restored_state.healthy is True
     assert restored_state.last_error is None
-    assert manager.get_loaded_plugin("update-rollback-test").marker == "old-version"
+    assert manager.get_connection_plugin(connection.connection_id).marker == "old-version"
     assert not list(user_root.glob(".update-rollback-test-*"))
     assert not list(tmp_path.glob(".user-plugins-update-rollback-test-*"))
 
@@ -1216,6 +1259,7 @@ def test_install_plugin_from_directory_still_rejects_builtin_overwrite(
         marker="replacement",
     )
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1263,6 +1307,7 @@ def test_local_directory_install_does_not_replace_an_existing_package_by_default
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1298,6 +1343,7 @@ def test_uninstall_refuses_a_package_from_a_custom_scan_root(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1321,7 +1367,7 @@ def test_uninstall_refuses_a_manifest_at_the_managed_root(
     managed_root.mkdir()
     manifest_path = managed_root / "plugin.toml"
     manifest_path.write_text(
-        '[plugin]\nid = "root-owned"\nname = "Root Owned"\nversion = "1.0.0"\n',
+        '[plugin]\nprotocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\nid = "root-owned"\nname = "Root Owned"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     sentinel = managed_root / "keep.txt"
@@ -1334,6 +1380,7 @@ def test_uninstall_refuses_a_manifest_at_the_managed_root(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1374,6 +1421,7 @@ def test_uninstall_refuses_a_symlinked_managed_package(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1409,6 +1457,7 @@ def test_uninstall_removes_an_exact_managed_package(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1438,10 +1487,8 @@ def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
     )
     config = AppConfig()
     config.plugins.packages[plugin_id] = PluginSettings(
-        enabled=False,
         trusted=False,
         source="builtin",
-        settings={"secret": "preserve-but-never-expose"},
         official=True,
         install_origin="registry",
         registry_source="https://example.test/registry.json",
@@ -1452,6 +1499,7 @@ def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: managed_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1459,14 +1507,14 @@ def test_enable_rejects_a_package_that_does_not_match_persisted_identity(
     )
     manager.scan(persist_discovery=False)
 
-    with pytest.raises(ValueError, match="source does not match"):
-        manager.enable_plugin(plugin_id)
+    with pytest.raises(RuntimeError, match="source does not match"):
+        manager.create_connection(plugin_id, display_name="Rejected", enabled=True)
 
     configured = config.plugins.packages[plugin_id]
     assert configured.source == "builtin"
     assert configured.manifest_path is None
-    assert configured.settings == {"secret": "preserve-but-never-expose"}
-    assert manager.get_loaded_plugin(plugin_id) is None
+    assert "settings" not in configured.model_dump()
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == plugin_id]
     assert plugin_dir.exists()
 
 
@@ -1483,14 +1531,14 @@ def test_enable_does_not_load_when_persistence_fails(
     )
     config = AppConfig()
     config.plugins.packages[plugin_id] = PluginSettings(
-        enabled=False,
-        trusted=False,
+        trusted=True,
         source="external",
         manifest_path=str(plugin_dir / "plugin.toml"),
     )
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
     monkeypatch.setattr("magi.plugins.manager.save_config", lambda _updates: False)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1498,14 +1546,18 @@ def test_enable_does_not_load_when_persistence_fails(
     )
     manager.scan(persist_discovery=False)
 
-    with pytest.raises(RuntimeError, match="Failed to persist plugin enable state"):
-        manager.enable_plugin(plugin_id)
+    def fail_persistence(_registry):
+        raise RuntimeError("Connection persistence failed")
+    monkeypatch.setattr(manager.connection_store, "_write", fail_persistence)
+    with pytest.raises(RuntimeError, match="Connection persistence failed"):
+        manager.create_connection(plugin_id, display_name="Rejected", enabled=True)
 
     state = manager.get_package(plugin_id)
     assert state is not None
     assert state.enabled is False
-    assert state.trusted is False
-    assert manager.get_loaded_plugin(plugin_id) is None
+    assert state.trusted is True
+    assert manager.connection_store.list() == []
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == plugin_id]
 
 
 def test_local_install_rejects_unbound_package_dependencies(
@@ -1522,6 +1574,7 @@ def test_local_install_rejects_unbound_package_dependencies(
     _patch_plugin_config(monkeypatch, config)
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: user_root)
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
@@ -1722,11 +1775,9 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
     _write_external_tool_plugin(tmp_path)
     config = AppConfig()
     config.plugins.packages["external-tool"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "external-tool" / "plugin.toml"),
-        settings={},
     )
 
     monkeypatch.setattr("magi.plugins.manager.get_config", lambda: config)
@@ -1735,22 +1786,25 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
     )
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [tmp_path])
 
+    bindings = build_plugin_runtime(
+        tool_registry=shared_tool_registry,
+        request_sensor_schedule_refresh=lambda: None,
+        sensor_registry=SensorRegistry(),
+        instance_factory=instantiate_fixture_plugin,
+    )
+    connection = bindings.plugin_manager.create_connection(
+        "external-tool", display_name="Runtime account", enabled=True,
+    )
     try:
-        build_plugin_runtime(
-            tool_registry=shared_tool_registry,
-            request_sensor_schedule_refresh=lambda: None,
-            sensor_registry=SensorRegistry(),
-        )
-
-        assert "external-hello" in shared_tool_registry.list_tools()
+        assert f"{connection.connection_id}:external-hello" in shared_tool_registry.list_tools()
     finally:
-        shared_tool_registry.unregister("external-hello")
+        bindings.plugin_manager.unload_plugin("external-tool")
 
 
-def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins() -> None:
+def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins(tmp_path) -> None:
     class ChromeFeaturePlugin(Plugin):
         def build_temporal_summary_features(
-            self, *, source_type, events, summary_category, period_start, period_end
+            self, *, source_type, events, summary_category, period_start, period_end, budget=None
         ):  # type: ignore[no-untyped-def]
             _ = summary_category, period_start, period_end
             assert source_type == "chrome_history"
@@ -1775,7 +1829,8 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
                 ],
             }
 
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [ChromeFeaturePlugin()])
+    plugin = bind_fixture_plugin(ChromeFeaturePlugin(), "chrome-history", root=tmp_path, source_types=["chrome_history"])
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
 
     features = service.build_temporal_summary_features(
         events=[
@@ -1784,6 +1839,9 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
                 "source": "chrome_history",
                 "content": "OpenAI docs",
                 "metadata_json": {
+                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
+                    "source_object_version": "v1",
+                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
                     "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
@@ -1797,6 +1855,9 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
                 "source": "chrome_history",
                 "content": "GitHub issues",
                 "metadata_json": {
+                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
+                    "source_object_version": "v1",
+                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
                     "activity_snapshot": {
                         "provenance": {
                             "domain": "github.com",
@@ -1810,6 +1871,9 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
                 "source": "chrome_history",
                 "content": "OpenAI pricing",
                 "metadata_json": {
+                    "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
+                    "source_object_version": "v1",
+                    "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
                     "activity_snapshot": {
                         "provenance": {
                             "domain": "openai.com",
@@ -1824,7 +1888,10 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
         period_end=1710003600.0,
     )
 
-    assert features == {
+    actual = features[f"{plugin.connection_id}:chrome_history"]
+    assert actual.pop("projection")["rule_revision"] == "1.0.0"
+    assert actual.pop("source_type") == "chrome_history"
+    assert {"chrome_history": actual} == {
         "chrome_history": {
             "feature_type": "chrome_history",
             "event_count": 3,
@@ -1847,7 +1914,7 @@ def test_plugin_projection_service_collects_temporal_summary_features_from_loade
     }
 
 
-def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plugins() -> None:
+def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plugins(tmp_path) -> None:
     class SourceProfilePlugin(Plugin):
         def get_extraction_profiles(self):  # type: ignore[no-untyped-def]
             return [
@@ -1860,7 +1927,8 @@ def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plug
                 )
             ]
 
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [SourceProfilePlugin()])
+    plugin = bind_fixture_plugin(SourceProfilePlugin(), "example", root=tmp_path, source_types=["example"])
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
 
     profiles = service.iter_extraction_profiles()
 
@@ -1869,7 +1937,7 @@ def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plug
     assert profiles[0].source_types == ["example"]
 
 
-def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks() -> None:
+def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks(tmp_path) -> None:
     class BudgetAwarePlugin(Plugin):
         def build_temporal_summary_features(
             self, *, source_type, events, summary_category, period_start, period_end, budget=None
@@ -1886,10 +1954,15 @@ def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks()
                 summary_lines=["Music listening was compacted for L3."],
             )
 
-    service = PluginProjectionService(iter_loaded_plugins=lambda: [BudgetAwarePlugin()])
+    plugin = bind_fixture_plugin(BudgetAwarePlugin(), "music", root=tmp_path, source_types=["music"])
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [plugin])
 
     features = service.build_temporal_summary_features(
-        events=[{"event_id": "evt-1", "source": "music", "content": "song"}],
+        events=[{"event_id": "evt-1", "source": "music", "content": "song", "metadata_json": {
+            "source_connection_id": plugin.connection_id, "source_plugin_id": plugin.plugin_id,
+            "source_object_version": "v1",
+            "source_evidence_ref": {"resource_id": "evidence", "connection_id": plugin.connection_id, "version": "v1"},
+        }}],
         summary_category="day",
         period_start=1.0,
         period_end=2.0,
@@ -1904,6 +1977,6 @@ def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks()
         },
     )
 
-    assert features["music"]["total_event_count"] == 10
-    assert features["music"]["covered_event_count"] == 4
-    assert features["music"]["omitted_event_count"] == 6
+    assert features[f"{plugin.connection_id}:music"]["total_event_count"] == 10
+    assert features[f"{plugin.connection_id}:music"]["covered_event_count"] == 4
+    assert features[f"{plugin.connection_id}:music"]["omitted_event_count"] == 6

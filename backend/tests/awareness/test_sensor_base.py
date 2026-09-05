@@ -165,7 +165,7 @@ class TestSensorBase:
         item = {"id": "1", "hash": "abc"}
         fp = sensor.source_item_version_fingerprint(item)
         assert isinstance(fp, str)
-        assert len(fp) == 40  # SHA1 hex
+        assert len(fp) == 64  # SHA256 hex
 
         item2 = {"id": "1", "hash": "def"}
         fp2 = sensor.source_item_version_fingerprint(item2)
@@ -206,7 +206,7 @@ class TestSensorBase:
     async def test_collect_items_not_implemented(self):
         sensor = _ConcreteSensor()
         ctx = SensorSyncContext(
-            source_type="test", manual=False,
+            connection_id="test-account", source_type="test", manual=False,
             last_cursor=None, last_success_at=None,
             limit=100, runtime_paths=None,  # type: ignore[arg-type]
         )

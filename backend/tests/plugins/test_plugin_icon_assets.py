@@ -26,6 +26,9 @@ def _write_manifest(plugin_dir: Path, icon: str) -> Path:
         "\n".join(
             [
                 "[plugin]",
+                'protocol_version = 2',
+                'min_sdk_version = "0.2.0"',
+                'execution_mode = "trusted_process"',
                 'id = "example"',
                 'name = "Example"',
                 'version = "0.1.0"',

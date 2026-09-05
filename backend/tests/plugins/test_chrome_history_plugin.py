@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import shutil
+import os
+import copy
+import sys
 import sqlite3
 import time
 from pathlib import Path
@@ -17,6 +20,8 @@ from magi.plugins.package_identity import (
 from magi.plugins.registry_client import DEFAULT_REGISTRY_URL, DEFAULT_REPO_URL
 from magi.plugins.sensors import SensorRegistry
 from magi.timeline import SensorSyncContext
+from magi_plugin_sdk.sensors import ScopedSensorRuntimePaths
+from runtime_fixtures import instantiate_fixture_plugin
 from magi.tools.registry import ToolRegistry
 from magi.utils.runtime import RuntimePaths
 
@@ -251,13 +256,11 @@ def _create_search_bursty_history_db(root: Path) -> Path:
 
 
 def _plugin_root() -> Path:
-    # Plugin sources moved to the sibling magi-plugins repo; the in-repo
-    # plugins/ dir only keeps core-tools (same fallback as the
-    # photo-library timeline-sensor test).
-    root = Path(__file__).resolve().parents[3] / "plugins"
-    if (root / "chrome-history").exists():
-        return root
-    return Path(__file__).resolve().parents[3].parent / "magi-plugins" / "plugins"
+    repository_root = Path(os.environ.get(
+        "MAGI_PLUGINS_REPO", Path(__file__).resolve().parents[4] / "magi-plugins",
+    ))
+    return repository_root / "plugins"
+
 
 
 if not (
@@ -274,6 +277,7 @@ def _build_manager(
     monkeypatch: pytest.MonkeyPatch,
     config: AppConfig,
     tmp_path: Path,
+    *, connection_settings: dict,
 ) -> tuple[PluginManager, SensorRegistry]:
     sensor_registry = SensorRegistry()
     source_plugin_root = _plugin_root()
@@ -303,6 +307,7 @@ def _build_manager(
     config.plugins.packages["chrome-history"] = configured.model_copy(
         update={
             "source": "external",
+            "trusted": True,
             "manifest_path": str(manifest_path),
             "install_origin": "registry",
             "registry_source": DEFAULT_REGISTRY_URL,
@@ -315,7 +320,6 @@ def _build_manager(
         }
     )
     config.plugins.packages["browser_history_core"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(library_manifest_path),
@@ -335,7 +339,18 @@ def _build_manager(
     monkeypatch.setattr("magi.plugins.manager.save_config", save_config_updates)
     monkeypatch.setattr("magi.plugins.installation.get_config", lambda: config)
     monkeypatch.setattr("magi.plugins.installation.save_config", save_config_updates)
+    paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
+
+    def instantiate(manifest, connection, context):
+        plugin = instantiate_fixture_plugin(manifest, connection, context)
+        source_path = connection_settings.get("sensors", {}).get("chrome_history", {}).get("source_path")
+        if source_path:
+            monkeypatch.setattr(sys.modules[type(plugin).__module__], "_default_chrome_root", lambda: source_path)
+        return plugin
+
     manager = PluginManager(
+        instance_factory=instantiate,
         tool_registry=ToolRegistry(),
         sensor_registry=sensor_registry,
         search_paths=[plugin_root],
@@ -344,23 +359,37 @@ def _build_manager(
     return manager, sensor_registry
 
 
-def test_chrome_history_plugin_is_discovered_enabled_but_source_disabled_by_default(
+def _activate(manager: PluginManager, connection_settings: dict):
+    settings = copy.deepcopy(connection_settings)
+    source_settings = settings.get("sensors", {}).get("chrome_history", {})
+    source_settings.pop("source_path", None)
+    source_settings.pop("fetch_page_content", None)
+    connection = manager.create_connection(
+        "chrome-history", display_name="Test Chrome profile", settings=settings, enabled=True,
+    )
+    manager.activate_enabled_plugins()
+    return connection
+
+
+def test_chrome_history_requires_connection_and_defaults_source_disabled(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    connection_settings = {}
     config = AppConfig()
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
 
     packages = manager.scan(persist_discovery=True)
     chrome_package = next(item for item in packages if item.manifest.plugin_id == "chrome-history")
 
-    assert chrome_package.enabled is True
+    assert chrome_package.enabled is False
+    assert manager.connection_store.list("chrome-history") == []
     # The sibling-repo source is copied into a temporary managed install root.
     assert chrome_package.manifest.source == "external"
     assert chrome_package.manifest.official is True
 
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
     assert resolved is not None
     _, _, _, spec = resolved
     assert spec.metadata["default_settings"]["enabled"] is False
@@ -388,12 +417,13 @@ def test_chrome_history_sensor_exposes_plugin_translations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    connection_settings = {}
     config = AppConfig()
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
 
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
 
     assert resolved is not None
     _, _, sensor, _ = resolved
@@ -406,12 +436,7 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     tmp_path: Path,
 ) -> None:
     chrome_root = _create_history_db(tmp_path / "chrome")
-    config = AppConfig()
-    config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
-        trusted=True,
-        source="builtin",
-        settings={
+    connection_settings = {
             "sensors": {
                 "chrome_history": {
                     "enabled": True,
@@ -424,49 +449,55 @@ async def test_chrome_history_sensor_collects_events_and_relations(
                     "fetch_page_content": False,
                 }
             }
-        },
+        }
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        trusted=True,
+        source="builtin",
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
 
     packages = manager.scan(persist_discovery=False)
     assert any(item.manifest.plugin_id == "chrome-history" for item in packages)
 
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
     assert resolved is not None
     _, _, sensor, spec = resolved
 
     result = await sensor.collect_items(
         SensorSyncContext(
+            connection_id=connection.connection_id,
             source_type="chrome_history",
             manual=True,
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=RuntimePaths(tmp_path / "runtime"),
-            plugin_settings=config.plugins.packages["chrome-history"].settings,
+            runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, sensor.context.state_dir),
+            plugin_settings=connection.settings,
         )
     )
 
     assert spec.display_name == "Chrome History"
     assert any(field.key == "sensors.chrome_history.profile" for field in spec.fields)
-    assert len(result.items) == 3
+    assert len(result.changes) == 3
     assert result.next_cursor == "103"
 
     incremental = await sensor.collect_items(
         SensorSyncContext(
+            connection_id=connection.connection_id,
             source_type="chrome_history",
             manual=False,
             last_cursor="101",
             last_success_at=result.watermark_ts,
             limit=50,
-            runtime_paths=RuntimePaths(tmp_path / "runtime-incremental"),
-            plugin_settings=config.plugins.packages["chrome-history"].settings,
+            runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, sensor.context.state_dir),
+            plugin_settings=connection.settings,
         )
     )
-    assert [item["visit_id"] for item in incremental.items] == ["102", "103"]
+    assert [item["visit_id"] for item in (change.payload for change in incremental.changes)] == ["102", "103"]
 
-    output = await sensor.build_output(result.items[1])
+    output = await sensor.build_output(result.changes[1].payload)
     assert output.source_type == "chrome_history"
     assert output.source_item_id == "102"
     assert "chrome_history" in output.tags
@@ -484,9 +515,9 @@ async def test_chrome_history_sensor_collects_events_and_relations(
     assert policy.min_ready_events == 8
     assert policy.max_wait_seconds == 300
 
-    root_metadata = await sensor.extract_metadata(result.items[0])
-    content_metadata = await sensor.extract_metadata(result.items[1])
-    noise_metadata = await sensor.extract_metadata(result.items[2])
+    root_metadata = await sensor.extract_metadata(result.changes[0].payload)
+    content_metadata = await sensor.extract_metadata(result.changes[1].payload)
+    noise_metadata = await sensor.extract_metadata(result.changes[2].payload)
 
     assert root_metadata.relation_candidates == []
     assert [candidate["predicate"] for candidate in content_metadata.relation_candidates] == [
@@ -505,12 +536,7 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
     tmp_path: Path,
 ) -> None:
     chrome_root = _create_bursty_history_db(tmp_path / "chrome-bursty")
-    config = AppConfig()
-    config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
-        trusted=True,
-        source="builtin",
-        settings={
+    connection_settings = {
             "sensors": {
                 "chrome_history": {
                     "enabled": True,
@@ -523,33 +549,38 @@ async def test_chrome_history_sensor_merges_burst_visits_and_keeps_cursor(
                     "fetch_page_content": False,
                 }
             }
-        },
+        }
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        trusted=True,
+        source="builtin",
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
     assert resolved is not None
     _, _, sensor, _ = resolved
 
     result = await sensor.collect_items(
         SensorSyncContext(
+            connection_id=connection.connection_id,
             source_type="chrome_history",
             manual=True,
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=RuntimePaths(tmp_path / "runtime-bursty"),
-            plugin_settings=config.plugins.packages["chrome-history"].settings,
+            runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, sensor.context.state_dir),
+            plugin_settings=connection.settings,
         )
     )
 
-    assert len(result.items) == 2
+    assert len(result.changes) == 2
     assert result.next_cursor == "205"
     assert result.stats["raw_count"] == 5
 
-    mermaid_item = result.items[0]
-    lastfm_item = result.items[1]
+    mermaid_item = result.changes[0].payload
+    lastfm_item = result.changes[1].payload
 
     assert mermaid_item["source_item_id"] == "201-203"
     assert mermaid_item["merged_visit_count"] == 3
@@ -585,12 +616,7 @@ async def test_chrome_history_sensor_merges_search_visits_despite_query_churn(
     tmp_path: Path,
 ) -> None:
     chrome_root = _create_search_bursty_history_db(tmp_path / "chrome-search-bursty")
-    config = AppConfig()
-    config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
-        trusted=True,
-        source="builtin",
-        settings={
+    connection_settings = {
             "sensors": {
                 "chrome_history": {
                     "enabled": True,
@@ -603,32 +629,37 @@ async def test_chrome_history_sensor_merges_search_visits_despite_query_churn(
                     "fetch_page_content": False,
                 }
             }
-        },
+        }
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        trusted=True,
+        source="builtin",
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
     assert resolved is not None
     _, _, sensor, _ = resolved
 
     result = await sensor.collect_items(
         SensorSyncContext(
+            connection_id=connection.connection_id,
             source_type="chrome_history",
             manual=True,
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=RuntimePaths(tmp_path / "runtime-search-bursty"),
-            plugin_settings=config.plugins.packages["chrome-history"].settings,
+            runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, sensor.context.state_dir),
+            plugin_settings=connection.settings,
         )
     )
 
-    assert len(result.items) == 1
+    assert len(result.changes) == 1
     assert result.next_cursor == "304"
     assert result.stats["raw_count"] == 4
 
-    item = result.items[0]
+    item = result.changes[0].payload
     assert item["source_item_id"] == "301-304"
     assert item["merged_visit_count"] == 4
     assert item["domain"] == "google.com"
@@ -640,12 +671,7 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
     tmp_path: Path,
 ) -> None:
     chrome_root = _create_history_db(tmp_path / "chrome-from-now")
-    config = AppConfig()
-    config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
-        trusted=True,
-        source="builtin",
-        settings={
+    connection_settings = {
             "sensors": {
                 "chrome_history": {
                     "enabled": True,
@@ -660,28 +686,33 @@ async def test_chrome_history_sensor_from_now_skips_initial_backfill(
                     "fetch_page_content": False,
                 }
             }
-        },
+        }
+    config = AppConfig()
+    config.plugins.packages["chrome-history"] = PluginSettings(
+        trusted=True,
+        source="builtin",
     )
-    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
-    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history")
+    connection = _activate(manager, connection_settings)
+    resolved = sensor_registry.resolve_domain_sensor("timeline", "chrome_history", connection_id=connection.connection_id)
     assert resolved is not None
     _, _, sensor, _ = resolved
 
     result = await sensor.collect_items(
         SensorSyncContext(
+            connection_id=connection.connection_id,
             source_type="chrome_history",
             manual=True,
             last_cursor=None,
             last_success_at=None,
             limit=50,
-            runtime_paths=RuntimePaths(tmp_path / "runtime-from-now"),
-            plugin_settings=config.plugins.packages["chrome-history"].settings,
+            runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, sensor.context.state_dir),
+            plugin_settings=connection.settings,
         )
     )
 
-    assert result.items == []
+    assert result.changes == []
     assert result.next_cursor == "103"
     assert result.stats["initial_sync_policy"] == "from_now"
 
@@ -690,19 +721,16 @@ def test_chrome_history_plugin_builds_temporal_summary_features(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    connection_settings = {}
     config = AppConfig()
     config.plugins.packages["chrome-history"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="builtin",
-        settings={},
     )
-    manager, _sensor_registry = _build_manager(monkeypatch, config, tmp_path)
+    manager, _sensor_registry = _build_manager(monkeypatch, config, tmp_path, connection_settings=connection_settings)
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
-    plugin = next(
-        plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "chrome-history"
-    )
+    connection = _activate(manager, connection_settings)
+    plugin = manager.get_connection_plugin(connection.connection_id)
 
     features = plugin.build_temporal_summary_features(
         source_type="chrome_history",

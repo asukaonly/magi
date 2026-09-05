@@ -12,6 +12,7 @@ def _payload(*, fingerprint, sensor_id="x"):
     return SensorEventEmitted(
         sensor_name=sensor_id, payload={}, context=TaskContext(None, None, None, "u"),
         sensor_id=sensor_id, sensor_fingerprint=fingerprint,
+        output_dict={"provenance": {"source_connection_id": "test-account"}},
     )
 
 
@@ -40,7 +41,7 @@ async def test_persists_fingerprint(fake_bus, fake_store):
     payload = _payload(fingerprint="fp-1", sensor_id="screen_time")
     await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="e"))
     await sub.drain()
-    fake_store.add_fingerprint.assert_awaited_once_with("screen_time", "fp-1")
+    fake_store.add_fingerprint.assert_awaited_once_with("test-account:screen_time", "fp-1")
 
 
 @pytest.mark.asyncio

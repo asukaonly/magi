@@ -7,6 +7,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from dataclasses import replace
+from magi.config.models import AppConfig
+from magi.plugins.connections import PluginConnectionStore
+from magi.tools.registry import ToolRegistry
+from magi.utils.runtime import RuntimePaths
+from magi_plugin_sdk import PluginManifest, PluginPackageState
+from magi_plugin_sdk.runtime import InvocationIdentity
+from runtime_fixtures import bind_fixture_plugin
+
 
 from magi.plugins.manager import PluginManager, PluginUserContentTargetSnapshot
 from magi.plugins.operation_execution import run_plugin_lifecycle_operation
@@ -24,6 +33,44 @@ from magi_plugin_sdk import (
     UserContentClearRequest,
 )
 from magi_plugin_sdk.channels import ChannelInboundClearStrategy
+
+
+_FIXTURE_ROOT = Path("/tmp/magi-clear-fixtures")
+
+@pytest.fixture(autouse=True)
+def isolated_plugin_contexts(tmp_path, monkeypatch):
+    global _FIXTURE_ROOT
+    _FIXTURE_ROOT = tmp_path
+    monkeypatch.setattr("magi.plugins.manager.get_config", lambda: AppConfig())
+
+
+def _bound_snapshot(snapshot):
+    bound = []
+    connection_ids = {}
+    for plugin_id, plugin, settings in snapshot.plugins:
+        bind_fixture_plugin(plugin, plugin_id, root=_FIXTURE_ROOT, settings=settings)
+        connection_ids[plugin_id] = plugin.connection_id
+        bound.append((plugin.connection_id, plugin, settings))
+    return replace(snapshot, plugins=tuple(bound), sensors=tuple(
+        replace(sensor, connection_id=connection_ids[sensor.plugin_id]) for sensor in snapshot.sensors
+    ))
+
+
+def _disabled_manager(plugin_id, instance_factory, settings=None):
+    paths = RuntimePaths(base_dir=_FIXTURE_ROOT)
+    store = PluginConnectionStore(runtime_paths=paths, require_package=lambda _: None,
+                                  validate_settings=lambda _: None)
+    connection = store.create(plugin_id, display_name="Disabled account", settings=settings or {})
+    state = PluginPackageState(manifest=PluginManifest(id=plugin_id,name=plugin_id,version="1.0.0",source="external"),
+                               trusted=True, enabled=False)
+    def factory(manifest, connection, context):
+        plugin = instance_factory()
+        plugin.configure(manifest=manifest,connection=connection,context=context)
+        return plugin
+    manager = PluginManager(tool_registry=ToolRegistry(), sensor_registry=SensorRegistry(),search_paths=[],
+                            request_sensor_schedule_refresh=lambda: None,connection_store=store,instance_factory=factory)
+    manager._package_states[plugin_id] = state
+    return manager, state, connection
 
 
 class _RuntimePaths:
@@ -63,7 +110,7 @@ class _Checkpoint:
 
 class _Manager:
     def __init__(self, snapshot: PluginUserContentTargetSnapshot) -> None:
-        self.snapshot = snapshot
+        self.snapshot = _bound_snapshot(snapshot)
         self.snapshot_calls = 0
 
     def snapshot_user_content_clear_targets(self) -> PluginUserContentTargetSnapshot:
@@ -281,24 +328,9 @@ async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling
             events.append("plugin:shutdown")
 
     plugin = _DisabledPlugin("disabled", events)
-    state = SimpleNamespace(
-        manifest=SimpleNamespace(
-            kind="plugin",
-            plugin_id="disabled",
-            source="external",
-            plugin_dir="/tmp/disabled",
-        ),
-        current_settings={"source": {"cursor": "keep"}},
-        trusted=True,
-        enabled=False,
-        loaded=False,
+    manager, state, connection = _disabled_manager(
+        "disabled", lambda: plugin, settings={"source": {"cursor": "keep"}},
     )
-    manager = PluginManager.__new__(PluginManager)
-    manager._lifecycle_write_lock = threading.RLock()
-    manager._package_states = {"disabled": state}
-    manager._plugin_instances = {}
-    manager._sensor_registry = SensorRegistry()
-    manager._instantiate_plugin = lambda _manifest, _settings: plugin
     checkpoint = _Checkpoint()
     executor = _Executor(events)
 
@@ -334,28 +366,9 @@ async def test_disabled_installed_plugin_and_sensor_are_cleared_without_enabling
 @pytest.mark.asyncio
 async def test_broken_disabled_plugin_keeps_clear_pending_and_collection_stopped() -> None:
     events: list[str] = []
-    state = SimpleNamespace(
-        manifest=SimpleNamespace(
-            kind="plugin",
-            plugin_id="broken",
-            source="external",
-            plugin_dir="/tmp/broken",
-        ),
-        current_settings={},
-        trusted=True,
-        enabled=False,
-        loaded=False,
-    )
-    manager = PluginManager.__new__(PluginManager)
-    manager._lifecycle_write_lock = threading.RLock()
-    manager._package_states = {"broken": state}
-    manager._plugin_instances = {}
-    manager._sensor_registry = SensorRegistry()
-
-    def fail_instantiation(_manifest, _settings):  # type: ignore[no-untyped-def]
+    def fail_instantiation():
         raise ModuleNotFoundError("missing disabled dependency")
-
-    manager._instantiate_plugin = fail_instantiation
+    manager, state, connection = _disabled_manager("broken", fail_instantiation)
     checkpoint = _Checkpoint()
     executor = _Executor(events)
 
@@ -383,7 +396,10 @@ async def test_broken_disabled_plugin_keeps_clear_pending_and_collection_stopped
     assert state.loaded is False
 
     repaired_plugin = _RecordingPlugin("repaired", events)
-    manager._instantiate_plugin = lambda _manifest, _settings: repaired_plugin
+    def repaired(manifest, connection, context):
+        repaired_plugin.configure(manifest=manifest,connection=connection,context=context)
+        return repaired_plugin
+    manager._instance_factory = repaired
     report = await coordinator.recover_pending_user_content_clear()
 
     assert report is not None
@@ -612,18 +628,27 @@ async def test_clear_waits_for_active_async_settings_action() -> None:
             await release_action.wait()
             return PluginSettingsActionResult(status="succeeded")
 
-    plugin = _SettingsPlugin()
-    service = PluginSettingsService(
-        get_package=lambda _plugin_id: None,
-        load_plugin=lambda _plugin_id: None,  # type: ignore[arg-type,return-value]
-        get_loaded_plugin=lambda _plugin_id: plugin,
-        update_plugin_settings=lambda _plugin_id, _settings: None,  # type: ignore[arg-type,return-value]
-    )
+    plugin = bind_fixture_plugin(_SettingsPlugin(), "settings", root=_FIXTURE_ROOT)
     spec = PluginSettingsActionSpec(action_id="connect", label="Connect")
-    service._resolve_settings_action = lambda _plugin_id, _action_id: (  # type: ignore[method-assign]
-        spec,
-        plugin,
+    plugin.get_settings_actions = lambda: [spec]
+    plugin.manifest.settings_actions = [spec]
+    class FixtureOperations:
+        def __init__(self):
+            self.handlers = {}
+        def register(self, *, spec, handler, **kwargs):
+            self.handlers[spec.operation_id] = handler
+            return lambda: self.handlers.pop(spec.operation_id, None)
+        async def invoke(self, connection_id, operation_id, parameters, **kwargs):
+            return await self.handlers[operation_id](parameters, None)
+    service = PluginSettingsService(
+        get_connection=lambda _: plugin.connection,
+        get_connection_plugin=lambda _: plugin,
+        get_package=lambda _: SimpleNamespace(manifest=plugin.manifest),
+        operation_registry=FixtureOperations(),
+        update_connection_settings=lambda _id, _settings, _revision: None,
     )
+    identity = InvocationIdentity(invocation_id="settings-invocation", plugin_id="settings",
+                                  connection_id=plugin.connection_id, principal_id="local_user",trigger="user")
     executor = _Executor(events)
     coordinator = _coordinator(
         snapshot=PluginUserContentTargetSnapshot(plugins=(), sensors=()),
@@ -633,7 +658,7 @@ async def test_clear_waits_for_active_async_settings_action() -> None:
     )
 
     action = asyncio.create_task(
-        service.start_plugin_settings_action("settings", "connect")
+        service.start_plugin_settings_action(plugin.connection_id, "connect", identity=identity)
     )
     await asyncio.wait_for(action_started.wait(), timeout=1)
 

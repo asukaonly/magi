@@ -1,6 +1,7 @@
 import asyncio
 import tempfile
 import time
+from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,6 +12,9 @@ from alembic import command
 from alembic.config import Config
 
 from magi.api.routers import sensors as sensors_module
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+from magi.awareness.source_store import SourceStore
+from magi_plugin_sdk.runtime import PluginConnection, SourceChange, SourceChangeBatch
 from magi.api.routers.sensors import _derive_sensor_status, sensors_router
 from magi.db import MIGRATION_TARGETS
 from magi.i18n import language_context
@@ -23,6 +27,8 @@ from magi.scheduler import (
     TriggerType,
 )
 from magi.scheduler.repository import ScheduleRepository
+
+CONNECTION_ID = "screen-account"
 
 _SCHEDULER_MIGRATION = next(t for t in MIGRATION_TARGETS if t.name == "scheduler")
 
@@ -64,7 +70,7 @@ def _build_client(
     activation_flow: dict[str, object] | None = None,
 ):
     app = FastAPI()
-    app.include_router(sensors_router, prefix="/api/sensors")
+    app.include_router(_build_public_router(sensors_router, _PUBLIC_ROUTE_METHODS["sensors"]), prefix="/api/sensors")
     monkeypatch.setattr(sensors_module, "get_config", lambda: type("Config", (), {})())
     runtime_base_dir = tempfile.mkdtemp(prefix="magi-runtime-")
     resolved_source_settings = {
@@ -73,7 +79,13 @@ def _build_client(
         "sync_interval_minutes": 5,
         **(source_settings or {}),
     }
+    connection = PluginConnection(
+        connection_id=CONNECTION_ID, plugin_id="screen-time", display_name="Work Mac", enabled=True,
+        settings={"sensors": {"screen_time": resolved_source_settings}},
+    )
     sensor_metadata = {
+        "connection_id": CONNECTION_ID,
+
         "default_settings": {
             "enabled": True,
             "sync_mode": "interval",
@@ -89,6 +101,7 @@ def _build_client(
             (),
             {
                 "base_dir": runtime_base_dir,
+                "runtime_dir": Path(runtime_base_dir) / "runtime",
                 "scheduler_db_path": f"{runtime_base_dir}/runtime/scheduler.db",
             },
         )(),
@@ -108,7 +121,8 @@ def _build_client(
     monkeypatch.setattr(
         sensors_module,
         "resolve_plugin_manager",
-        lambda: type("Manager", (), {"list_packages": lambda self: [plugin_state]})(),
+        lambda: SimpleNamespace(list_packages=lambda: [plugin_state],
+                                connection_store=SimpleNamespace(get=lambda connection_id: connection if connection_id == CONNECTION_ID else None)),
     )
     monkeypatch.setattr(
         sensors_module,
@@ -123,7 +137,7 @@ def _build_client(
                         (),
                         {
                             "plugin_id": "screen-time",
-                            "contribution_id": "timeline.screen_time",
+                            "contribution_id": "screen-account:timeline.screen_time",
                             "display_name": "App Usage",
                             "description": "Event-driven frontmost app usage aggregated into hourly summaries.",
                             "fields": [
@@ -161,14 +175,14 @@ def _build_client(
                         },
                     )()
                 ],
-                "resolve_source_sensor": lambda self, source_name: (
+                "resolve_source_sensor": lambda self, source_name, *, connection_id: (
                     (
                         "screen-time",
                         "timeline.screen_time",
-                        type("Sensor", (), {"supports_pull_sync": True, "supports_state_flush": True})(),
+                        type("Sensor", (), {"supports_pull_sync": True, "supports_state_flush": True, "connection": connection})(),
                         type("Spec", (), {"metadata": sensor_metadata})(),
                     )
-                    if source_name == "screen_time"
+                    if source_name == "screen_time" and connection_id == CONNECTION_ID
                     else None
                 ),
             },
@@ -186,17 +200,17 @@ def _build_client(
 
     async def _seed_state():
         await repository.initialize()
-        schedule_id = "sensor-sync:screen-time:screen_time"
+        schedule_id = "sensor-sync:screen-account:screen_time"
         await repository.upsert_schedule(
             ScheduleDefinition(
                 schedule_id=schedule_id,
                 target_type=ScheduledTargetType.SENSOR_SYNC,
-                target_key="screen-time:screen_time",
+                target_key="screen-account:screen_time",
                 trigger=TriggerDefinition(
                     trigger_type=TriggerType.INTERVAL,
                     config={"minutes": 5},
                 ),
-                target_payload={"source_name": "screen_time"},
+                target_payload={"source_type": "screen_time", "connection_id": CONNECTION_ID},
                 metadata={},
                 enabled=True,
                 job_id=schedule_id,
@@ -208,11 +222,11 @@ def _build_client(
         )
         await repository.acquire_target_lock(
             ScheduledTargetType.SENSOR_SYNC,
-            "screen-time:screen_time",
+            "screen-account:screen_time",
         )
         await repository.record_target_success(
             ScheduledTargetType.SENSOR_SYNC,
-            "screen-time:screen_time",
+            "screen-account:screen_time",
             result=ScheduledExecutionResult(
                 success=True,
                 message="sensor_sync_completed",
@@ -222,6 +236,7 @@ def _build_client(
         )
 
     asyncio.run(_seed_state())
+    asyncio.run(SourceStore(Path(runtime_base_dir) / "runtime" / "plugin_sources.db").initialize())
     return TestClient(app), queue, repository
 
 
@@ -235,7 +250,7 @@ def test_get_sensor_source_status(monkeypatch):
     assert body["sources"][0]["source_name"] == "screen_time"
     assert body["sources"][0]["icon"] == "lucide:monitor"
     assert body["sources"][0]["status"] == "ready"
-    assert body["sources"][0]["scheduler_job_id"] == "sensor-sync:screen-time:screen_time"
+    assert body["sources"][0]["scheduler_job_id"] == "sensor-sync:screen-account:screen_time"
     assert body["sources"][0]["supports_state_flush"] is True
     assert body["sources"][0]["settings_actions"][0]["action_id"] == "connect_github"
     assert body["sources"][0]["settings_actions"][0]["button_label"] == "Connect GitHub"
@@ -246,15 +261,16 @@ def test_get_sensor_source_status_includes_queued_backfill(monkeypatch):
 
     async def _seed_backfill_job() -> str:
         schedule = ScheduleDefinition(
-            schedule_id="sensor-sync-backfill:screen-time:screen_time:custom",
+            schedule_id="sensor-sync-backfill:screen-account:screen_time:custom",
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key="screen-time:screen_time",
+            target_key="screen-account:screen_time",
             trigger=TriggerDefinition(
                 trigger_type=TriggerType.INTERVAL,
                 config={"minutes": 5},
             ),
             target_payload={
                 "plugin_id": "screen-time",
+                "connection_id": CONNECTION_ID,
                 "source_type": "screen_time",
                 "sync_request": {
                     "mode": "backfill",
@@ -388,11 +404,12 @@ def test_derive_sensor_status_reports_never_synced_and_stale_interval_sources():
 def test_trigger_sensor_source_sync(monkeypatch):
     client, queue, _ = _build_client(monkeypatch)
 
-    response = client.post("/api/sensors/screen_time/sync")
+    response = client.post("/api/sensors/screen_time/sync?connection_id=screen-account")
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].connection_id == CONNECTION_ID
     assert queue.sensor_sync_commands[0].first_context is False
 
 
@@ -412,7 +429,7 @@ def test_trigger_sensor_source_sync_rejects_setup_required(monkeypatch):
 
     with language_context("en"):
         status_response = client.get("/api/sensors/status")
-        response = client.post("/api/sensors/screen_time/sync")
+        response = client.post("/api/sensors/screen_time/sync?connection_id=screen-account")
 
     assert status_response.status_code == 200
     assert status_response.json()["sources"][0]["activation_required"] is True
@@ -429,7 +446,7 @@ def test_trigger_sensor_source_sync_rejects_disabled_source(monkeypatch):
     )
 
     with language_context("en"):
-        response = client.post("/api/sensors/screen_time/sync")
+        response = client.post("/api/sensors/screen_time/sync?connection_id=screen-account")
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Enable this source before syncing: screen_time"
@@ -439,11 +456,12 @@ def test_trigger_sensor_source_sync_rejects_disabled_source(monkeypatch):
 def test_trigger_first_context_sensor_source_sync(monkeypatch):
     client, queue, _ = _build_client(monkeypatch)
 
-    response = client.post("/api/sensors/screen_time/sync", json={"first_context": True})
+    response = client.post("/api/sensors/screen_time/sync?connection_id=screen-account", json={"first_context": True})
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].connection_id == CONNECTION_ID
     assert queue.sensor_sync_commands[0].first_context is True
 
 
@@ -451,7 +469,7 @@ def test_trigger_sensor_source_backfill_sync(monkeypatch):
     client, queue, _ = _build_client(monkeypatch)
 
     response = client.post(
-        "/api/sensors/screen_time/sync",
+        "/api/sensors/screen_time/sync?connection_id=screen-account",
         json={"mode": "backfill", "backfill_scope": "last_30_days"},
     )
 
@@ -460,6 +478,7 @@ def test_trigger_sensor_source_backfill_sync(monkeypatch):
     assert response.json()["mode"] == "backfill"
     assert response.json()["backfill_scope"] == "last_30_days"
     assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].connection_id == CONNECTION_ID
     command = queue.sensor_sync_commands[0]
     assert command.first_context is False
     assert command.sync_mode == "backfill"
@@ -471,7 +490,7 @@ def test_trigger_sensor_source_custom_backfill_sync(monkeypatch):
     client, queue, _ = _build_client(monkeypatch)
 
     response = client.post(
-        "/api/sensors/screen_time/sync",
+        "/api/sensors/screen_time/sync?connection_id=screen-account",
         json={
             "mode": "backfill",
             "backfill_scope": "custom",
@@ -487,6 +506,7 @@ def test_trigger_sensor_source_custom_backfill_sync(monkeypatch):
     assert response.json()["backfill_start_date"] == "2026-06-01"
     assert response.json()["backfill_end_date"] == "2026-06-30"
     assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].connection_id == CONNECTION_ID
     command = queue.sensor_sync_commands[0]
     assert command.sync_mode == "backfill"
     assert command.backfill_scope == "custom"
@@ -499,7 +519,7 @@ def test_trigger_sensor_source_custom_backfill_rejects_inverted_range(monkeypatc
     client, _, _ = _build_client(monkeypatch)
 
     response = client.post(
-        "/api/sensors/screen_time/sync",
+        "/api/sensors/screen_time/sync?connection_id=screen-account",
         json={
             "mode": "backfill",
             "backfill_scope": "custom",
@@ -514,11 +534,12 @@ def test_trigger_sensor_source_custom_backfill_rejects_inverted_range(monkeypatc
 def test_trigger_sensor_source_state_flush(monkeypatch):
     client, queue, _ = _build_client(monkeypatch)
 
-    response = client.post("/api/sensors/screen_time/flush-state")
+    response = client.post("/api/sensors/screen_time/flush-state?connection_id=screen-account")
 
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_state_flush_commands) == 1
+    assert queue.sensor_state_flush_commands[0].connection_id == CONNECTION_ID
 
 
 def test_get_sensor_source_status_sanitizes_internal_runtime_error(monkeypatch):
@@ -527,13 +548,13 @@ def test_get_sensor_source_status_sanitizes_internal_runtime_error(monkeypatch):
     asyncio.run(
         repository.record_target_failure(
             ScheduledTargetType.SENSOR_SYNC,
-            "screen-time:screen_time",
+            "screen-account:screen_time",
             error=(
                 "<Queue at 0x123 maxsize=2 _queue=[MemoryEvent(event_id='evt-1', "
                 "content='https://auth.openai.com/oauth/authorize?...')] tasks=2> "
                 "is bound to a different event loop"
             ),
-            scheduler_job_id="sensor-sync:screen-time:screen_time",
+            scheduler_job_id="sensor-sync:screen-account:screen_time",
         )
     )
 
@@ -549,7 +570,7 @@ def test_trigger_sensor_source_sync_returns_localized_not_found(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
 
     with language_context("zh-CN"):
-        response = client.post("/api/sensors/missing/sync")
+        response = client.post("/api/sensors/missing/sync?connection_id=screen-account")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "未找到传感器来源"
@@ -650,15 +671,13 @@ def test_get_sensor_today_summary_rejects_invalid_day(monkeypatch):
 
 
 class _FakeReadinessL1:
-    """L1 stand-in whose ``summarize_event_sources`` honors ``source_filters``."""
+    """Apply user-visible memory lookup to accepted source receipts."""
 
     def __init__(self, rows: list[dict]):
-        self._rows = list(rows)
+        self.event_ids = [f"event-{index}" for index in range(sum(row["event_count"] for row in rows))]
 
-    async def summarize_event_sources(self, *, source_filters=None, **_):
-        if source_filters:
-            return [r for r in self._rows if r.get("source") in source_filters]
-        return list(self._rows)
+    async def get_user_visible_event(self, event_id):
+        return {"event_id": event_id} if event_id in self.event_ids else None
 
 
 class _FakeReadinessMemory:
@@ -667,41 +686,55 @@ class _FakeReadinessMemory:
         self._backlog_seq = list(backlog_sequence)
         self.flush_calls = 0
         self._flush_result = flush_result
-        self.backlog_source_filters = []
+        self.backlog_event_ids = []
 
     async def flush_l2_projection_jobs(self):
         self.flush_calls += 1
         return self._flush_result
 
-    async def get_l2_projection_backlog(self, *, source_filter=None):
-        self.backlog_source_filters.append(source_filter)
+    async def projection_backlog(self, memory, event_ids):
+        assert memory is self
+        self.backlog_event_ids.append(event_ids)
         if len(self._backlog_seq) > 1:
             return self._backlog_seq.pop(0)
         return self._backlog_seq[0]
 
 
 def _bind_readiness_memory(monkeypatch, fake):
-    monkeypatch.setattr(
-        "magi.api.routers.sensors.get_unified_memory",
-        lambda: fake,
-    )
+    monkeypatch.setattr(sensors_module, "get_unified_memory", lambda: fake)
+    monkeypatch.setattr(sensors_module, "source_projection_backlog", fake.projection_backlog)
+    store = SourceStore(sensors_module.get_runtime_paths().runtime_dir / "plugin_sources.db")
+    sensor = sensors_module.resolve_sensor_registry().resolve_source_sensor(
+        "screen_time", connection_id=CONNECTION_ID,
+    )[2]
+
+    async def seed_accepted_source_receipts():
+        checkpoint = await store.checkpoint(sensor.connection, "timeline.screen_time", "screen_time")
+        changes = [SourceChange(object_id=event_id, version="v1", payload={"text": event_id})
+                   for event_id in fake.l1.event_ids]
+        pending = await store.stage_batch(sensor.connection, checkpoint, SourceChangeBatch(changes=changes))
+        for change in changes:
+            await store.record_receipt(pending, change, event_id=change.object_id, outcome="persisted")
+        await store.accept_batch(sensor.connection, pending)
+
+    asyncio.run(seed_accepted_source_receipts())
 
 
 def test_memory_readiness_ready_when_backlog_drained(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
     fake = _FakeReadinessMemory(
-        rows=[{"source": "photo_library", "event_count": 7}],
+        rows=[{"source": "screen_time", "event_count": 7}],
         backlog_sequence=[{"pending": 0, "claimed": 0}],
     )
     _bind_readiness_memory(monkeypatch, fake)
 
     response = client.get(
-        "/api/sensors/photo_library/memory-readiness", params={"max_wait_ms": 2000}
+        "/api/sensors/screen_time/memory-readiness", params={"connection_id": CONNECTION_ID, "max_wait_ms": 2000}
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["source_name"] == "photo_library"
+    assert body["source_name"] == "screen_time"
     assert body["l1_event_count"] == 7
     assert body["l2_ready"] is True
     assert body["l2_total_count"] == 7
@@ -709,19 +742,19 @@ def test_memory_readiness_ready_when_backlog_drained(monkeypatch):
     assert body["l2_remaining_count"] == 0
     # flush is forced before polling the backlog.
     assert fake.flush_calls == 1
-    assert fake.backlog_source_filters == ["photo_library"]
+    assert fake.backlog_event_ids == [fake.l1.event_ids]
 
 
 def test_memory_readiness_not_ready_on_timeout(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
     fake = _FakeReadinessMemory(
-        rows=[{"source": "photo_library", "event_count": 3}],
+        rows=[{"source": "screen_time", "event_count": 3}],
         backlog_sequence=[{"pending": 2, "claimed": 0, "completed": 1, "failed": 0}],
     )
     _bind_readiness_memory(monkeypatch, fake)
 
     response = client.get(
-        "/api/sensors/photo_library/memory-readiness", params={"max_wait_ms": 10}
+        "/api/sensors/screen_time/memory-readiness", params={"connection_id": CONNECTION_ID, "max_wait_ms": 10}
     )
 
     assert response.status_code == 200
@@ -741,7 +774,7 @@ def test_memory_readiness_no_events_skips_flush(monkeypatch):
     )
     _bind_readiness_memory(monkeypatch, fake)
 
-    response = client.get("/api/sensors/photo_library/memory-readiness")
+    response = client.get("/api/sensors/screen_time/memory-readiness", params={"connection_id": CONNECTION_ID})
 
     assert response.status_code == 200
     body = response.json()
@@ -759,7 +792,7 @@ def test_memory_readiness_no_memory_binding(monkeypatch):
         lambda: (_ for _ in ()).throw(RuntimeError("no binding")),
     )
 
-    response = client.get("/api/sensors/photo_library/memory-readiness")
+    response = client.get("/api/sensors/screen_time/memory-readiness", params={"connection_id": CONNECTION_ID})
 
     assert response.status_code == 200
     body = response.json()

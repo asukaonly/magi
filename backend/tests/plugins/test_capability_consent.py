@@ -80,6 +80,7 @@ def test_appconfig_round_trips_consented_capabilities():
 def _make_archive(tmp_path: Path) -> Path:
     toml = (
         b"[plugin]\n"
+            b'protocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\n'
         b'id = "demo"\nname = "Demo"\nversion = "1.0.0"\n'
         b'entry_module = "plugin"\nentry_class = "Demo"\n'
         b"\n[[plugin.permissions.capabilities]]\n"

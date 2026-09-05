@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -92,10 +93,10 @@ def test_registry_package_uses_canonical_data_locality_and_optional_fields() -> 
     manifest = PluginManifest.model_validate(
         {
             **_manifest().model_dump(mode="json", by_alias=True),
-            "min_sdk_version": "0.1.0",
+            "min_sdk_version": "0.2.0",
             "suggestion_descriptor": {
                 "category": "demo",
-                "triggers": {"any": []},
+                "triggers": {},
                 "platform_support": ["darwin"],
                 "rationale": {"zh": "演示", "en": "Demo"},
                 "data_locality": "local_only",
@@ -113,7 +114,7 @@ def test_registry_package_uses_canonical_data_locality_and_optional_fields() -> 
 
 
 def test_local_plugin_registry_matches_current_manifests_when_available() -> None:
-    repository_root = Path(__file__).resolve().parents[4] / "magi-plugins"
+    repository_root = Path(os.environ.get("MAGI_PLUGINS_REPO", Path(__file__).resolve().parents[4] / "magi-plugins"))
     registry_path = repository_root / "registry.json"
     if not registry_path.is_file():
         pytest.skip("Sibling magi-plugins checkout is unavailable")

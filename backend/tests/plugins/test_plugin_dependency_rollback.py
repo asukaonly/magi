@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 import shutil
 import tempfile
+import sys
 import threading
 
 import pytest
@@ -31,6 +32,8 @@ from magi.plugins.provisional_dependencies import (
 from magi.plugins.registry_client import PluginRegistrySnapshot
 from magi.plugins.registry_provenance import registry_install_fingerprint
 from magi.plugins.sensors import SensorRegistry
+from runtime_fixtures import instantiate_fixture_plugin
+from magi.utils.runtime import RuntimePaths
 from magi.tools.registry import ToolRegistry
 
 REGISTRY_URL = "https://example.test/registry.json"
@@ -145,6 +148,9 @@ def _write_package(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{entry.plugin_id}"
 name = "{entry.name}"
 version = "{entry.version}"
@@ -162,7 +168,7 @@ platforms = []{entrypoint}
         (plugin_dir / "__init__.py").write_text("VALUE = 'library'\n", encoding="utf-8")
     elif broken:
         (plugin_dir / "plugin.py").write_text(
-            "raise RuntimeError('target load failed')\n",
+            "raise RuntimeError('target commit failed')\n",
             encoding="utf-8",
         )
     else:
@@ -245,17 +251,37 @@ def _manager(
     user_root = tmp_path / "user-plugins"
     config = AppConfig()
     _patch_config(monkeypatch, config)
+    paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
     monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
     return _new_manager(user_root), config, user_root
 
 
 def _new_manager(user_root: Path) -> PluginManager:
-    return PluginManager(
+    manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=ToolRegistry(),
         sensor_registry=SensorRegistry(),
         request_sensor_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
+    original_outcome = manager._build_directory_install_outcome
+
+    def validate_fixture_commit(plugin_id):
+        # Simulate host commit validation failure independently of worker startup.
+        state = manager.get_package(plugin_id)
+        source = Path(state.manifest.plugin_dir) / "plugin.py"
+        if source.is_file() and "target commit failed" in source.read_text():
+            raise RuntimeError("target commit failed")
+
+    def validate_outcome(state, **kwargs):
+        manager._fixture_commit_check(state.manifest.plugin_id)
+        return original_outcome(state, **kwargs)
+
+    manager._fixture_commit_check = validate_fixture_commit
+    manager._build_directory_install_outcome = validate_outcome
+
+    return manager
 
 
 def _service(
@@ -316,12 +342,11 @@ async def test_registry_update_keeps_disabled_plugin_unloaded(
         plugin_id,
         expected_fingerprint=initial_snapshot.install_fingerprint,
     )
-    assert installed.target_state.loaded is True
+    assert installed.target_state.loaded is False
+    connection = manager.create_connection(plugin_id, display_name="Disabled account", enabled=False)
+    assert connection.enabled is False
+    assert installed.target_state.trusted is True
 
-    disabled = manager.disable_plugin(plugin_id)
-    assert disabled.enabled is False
-    assert disabled.loaded is False
-    assert disabled.trusted is True
 
     updated_entry = _entry(plugin_id, version="1.1.0")
     updated_snapshot = _snapshot(updated_entry)
@@ -352,9 +377,9 @@ async def test_registry_update_keeps_disabled_plugin_unloaded(
     assert updated.enabled is False
     assert updated.loaded is False
     assert updated.trusted is True
-    assert configured.enabled is False
+    assert manager.connection_store.get(connection.connection_id).enabled is False
     assert configured.trusted is True
-    assert manager.get_loaded_plugin(plugin_id) is None
+    assert manager.get_connection_plugin(connection.connection_id) is None
     assert verification_threads
     assert event_loop_thread not in verification_threads
 
@@ -378,8 +403,10 @@ async def test_registry_update_keeps_enabled_plugin_loaded(
         plugin_id,
         expected_fingerprint=initial_snapshot.install_fingerprint,
     )
-    previous_instance = manager.get_loaded_plugin(plugin_id)
-    assert installed.target_state.loaded is True
+    assert installed.target_state.loaded is False
+    connection = manager.create_connection(plugin_id, display_name="Enabled account", enabled=True)
+    previous_instance = manager.get_connection_plugin(connection.connection_id)
+    assert manager.get_package(plugin_id).loaded is True
     assert previous_instance is not None
 
     updated_entry = _entry(plugin_id, version="1.1.0")
@@ -394,12 +421,12 @@ async def test_registry_update_keeps_enabled_plugin_loaded(
     )
 
     configured = PluginSettings.model_validate(config.plugins.packages[plugin_id])
-    current_instance = manager.get_loaded_plugin(plugin_id)
+    current_instance = manager.get_connection_plugin(connection.connection_id)
     assert updated.manifest.version == "1.1.0"
     assert updated.enabled is True
     assert updated.loaded is True
     assert updated.trusted is True
-    assert configured.enabled is True
+    assert manager.connection_store.get(connection.connection_id).enabled is True
     assert configured.trusted is True
     assert current_instance is not None
     assert current_instance is not previous_instance
@@ -578,7 +605,7 @@ async def test_failed_target_removes_new_provisional_library(
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={target.plugin_id}),
             manager,
@@ -652,7 +679,7 @@ async def test_late_workflow_reinstalls_library_after_prior_cleanup(
     manager, _, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={failed_target.plugin_id}),
             manager,
@@ -715,7 +742,7 @@ async def test_failed_target_preserves_preexisting_library(
     )
     coordinator = ProvisionalDependencyCoordinator()
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={target.plugin_id}),
             manager,
@@ -778,7 +805,7 @@ async def test_failed_and_successful_workflows_share_library_without_deletion(
         )
     )
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await failed
     assert (user_root / library.plugin_id / "plugin.toml").is_file()
 
@@ -858,7 +885,7 @@ async def test_late_workflow_claims_published_library_before_first_release(
         )
     )
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await first_task
     assert second_registry.cloned_plugin_ids == [successful_target.plugin_id]
     assert (user_root / library.plugin_id / "plugin.toml").is_file()
@@ -936,7 +963,7 @@ async def test_creator_manager_cleans_when_stale_manager_releases_last(
         )
     )
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await creator_task
     assert (user_root / library.plugin_id / "plugin.toml").is_file()
 
@@ -1027,7 +1054,7 @@ async def test_nested_libraries_are_removed_in_reverse_dependency_order(
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={target.plugin_id}),
             manager,
@@ -1099,7 +1126,7 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
     parent_manager.scan(persist_discovery=False)
     assert parent_manager.get_package(leaf.plugin_id) is not None
 
-    original_parent_load = parent_manager.load_plugin
+    original_parent_load = parent_manager._fixture_commit_check
     parent_generation_replaced = False
 
     def retain_parent_then_fail(plugin_id: str):
@@ -1114,9 +1141,9 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
             parent_generation_replaced = True
         return original_parent_load(plugin_id)
 
-    monkeypatch.setattr(parent_manager, "load_plugin", retain_parent_then_fail)
+    monkeypatch.setattr(parent_manager, "_fixture_commit_check", retain_parent_then_fail)
     try:
-        with pytest.raises(RuntimeError, match="target load failed"):
+        with pytest.raises(RuntimeError, match="target commit failed"):
             await _service(
                 _Registry(snapshot, broken_targets={parent_target.plugin_id}),
                 parent_manager,
@@ -1132,7 +1159,7 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
     assert (user_root / parent.plugin_id / "plugin.toml").is_file()
     assert (user_root / leaf.plugin_id / "plugin.toml").is_file()
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await leaf_task
 
     assert parent.plugin_id in config.plugins.packages
@@ -1154,7 +1181,7 @@ async def test_identity_change_prevents_provisional_library_deletion(
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
-    original_load = manager.load_plugin
+    original_load = manager._fixture_commit_check
 
     def mutate_identity_then_fail(plugin_id: str):
         if plugin_id == target.plugin_id:
@@ -1166,7 +1193,7 @@ async def test_identity_change_prevents_provisional_library_deletion(
             raise RuntimeError("identity changed before rollback")
         return original_load(plugin_id)
 
-    monkeypatch.setattr(manager, "load_plugin", mutate_identity_then_fail)
+    monkeypatch.setattr(manager, "_fixture_commit_check", mutate_identity_then_fail)
 
     with pytest.raises(RuntimeError, match="identity changed"):
         await _service(
@@ -1199,7 +1226,7 @@ async def test_managed_path_replacement_prevents_provisional_library_deletion(
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
-    original_load = manager.load_plugin
+    original_load = manager._fixture_commit_check
 
     def replace_managed_path_then_fail(plugin_id: str):
         if plugin_id == target.plugin_id:
@@ -1218,7 +1245,7 @@ async def test_managed_path_replacement_prevents_provisional_library_deletion(
             raise RuntimeError("managed path identity changed before rollback")
         return original_load(plugin_id)
 
-    monkeypatch.setattr(manager, "load_plugin", replace_managed_path_then_fail)
+    monkeypatch.setattr(manager, "_fixture_commit_check", replace_managed_path_then_fail)
 
     with pytest.raises(RuntimeError, match="managed path identity changed"):
         await _service(
@@ -1272,7 +1299,7 @@ async def test_generation_replaced_before_receipt_registration_is_preserved(
         replace_generation_after_commit,
     )
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={target.plugin_id}),
             manager,
@@ -1329,7 +1356,7 @@ async def test_new_consumer_prevents_provisional_library_deletion(
         install_consumer_before_target,
     )
 
-    with pytest.raises(RuntimeError, match="target load failed"):
+    with pytest.raises(RuntimeError, match="target commit failed"):
         await _service(
             _Registry(snapshot, broken_targets={target.plugin_id}),
             manager,
@@ -1348,55 +1375,25 @@ async def test_new_consumer_prevents_provisional_library_deletion(
 
 
 @pytest.mark.asyncio
-async def test_import_cache_is_purged_before_provisional_library_deletion(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+async def test_package_install_does_not_import_dependency_before_connection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
     library = _entry("runtime_cache_library", kind="library")
-    target_source = (
-        f"import {library.plugin_id}\n" "raise RuntimeError('failed after dependency import')\n"
-    )
-    target = _entry(
-        "runtime-cache-target",
-        depends_on=[library.plugin_id],
-        plugin_source=target_source,
-    )
+    target_source = f"import {library.plugin_id}\nraise RuntimeError('failed after dependency import')\n"
+    target = _entry("runtime-cache-target", depends_on=[library.plugin_id], plugin_source=target_source)
     snapshot = _snapshot(library, target)
     manager, config, user_root = _manager(monkeypatch, tmp_path)
     coordinator = ProvisionalDependencyCoordinator()
-    original_remove = manager.remove_provisional_registry_library
-    observed_import_cache: list[bool] = []
 
-    def observe_import_cache(receipt):
-        cache_dir = user_root / library.plugin_id / "__pycache__"
-        observed_import_cache.append(cache_dir.is_dir() and any(cache_dir.iterdir()))
-        return original_remove(receipt)
+    installed = await _service(
+        _Registry(snapshot, plugin_sources={target.plugin_id: target_source}), manager, coordinator,
+    ).install_from_registry(target.plugin_id, expected_fingerprint=snapshot.install_fingerprint)
 
-    monkeypatch.setattr(
-        manager,
-        "remove_provisional_registry_library",
-        observe_import_cache,
-    )
-
-    with pytest.raises(RuntimeError, match="failed after dependency import"):
-        await _service(
-            _Registry(
-                snapshot,
-                plugin_sources={
-                    target.plugin_id: target_source,
-                },
-            ),
-            manager,
-            coordinator,
-        ).install_from_registry(
-            target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
-        )
-
-    assert observed_import_cache == [False]
-    assert manager.get_package(library.plugin_id) is None
-    assert library.plugin_id not in config.plugins.packages
-    assert not (user_root / library.plugin_id).exists()
+    assert installed.target_state.loaded is False
+    assert manager.connection_store.list(target.plugin_id) == []
+    assert library.plugin_id not in sys.modules
+    assert not (user_root / library.plugin_id / "__pycache__").exists()
+    assert (user_root / library.plugin_id).is_dir()
     assert coordinator.active_claim_count == 0
 
 

@@ -77,7 +77,7 @@ def _reset_chat_read_singletons():
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_user_preferences(monkeypatch):
+def _hermetic_user_preferences(monkeypatch, tmp_path):
     """Tests must not read the developer's real runtime config.
 
     ``magi.i18n.get_preferred_language`` falls back to the process-wide user
@@ -90,6 +90,8 @@ def _hermetic_user_preferences(monkeypatch):
     """
     import magi.config.loader as config_loader
 
+    monkeypatch.setattr(config_loader, "get_magi_home", lambda: tmp_path / "host-config")
+    monkeypatch.setattr(config_loader, "_loader", config_loader.ConfigLoader())
     monkeypatch.setattr(config_loader, "get_user_preference", lambda key, default=None: default)
 
 

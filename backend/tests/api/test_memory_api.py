@@ -3054,11 +3054,12 @@ async def test_memory_clear_waits_for_sensor_command_and_purges_sensor_queue(
         SensorSyncCommand(
             source="api",
             source_name="chrome_history",
+            connection_id="chrome-work",
             sync_mode="backfill",
         )
     )
     await queue.enqueue_sensor_state_flush(
-        SensorStateFlushCommand(source="api", source_name="screen_time")
+        SensorStateFlushCommand(source="api", source_name="screen_time", connection_id="screen-work")
     )
     refresh_id = await queue.enqueue_refresh_llm_config(
         RefreshLLMConfigCommand(source="api", reason="settings_saved")

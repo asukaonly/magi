@@ -6,6 +6,8 @@ import zipfile
 
 import pytest
 
+from magi.utils.runtime import RuntimePaths
+
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins import installation as installation_module
 from magi.plugins import manager as manager_module
@@ -14,6 +16,12 @@ from magi.plugins.contracts import PluginCapability
 from magi.plugins.manager import PluginManager
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def isolated_connection_store(monkeypatch, tmp_path):
+    paths = RuntimePaths(base_dir=tmp_path / "runtime")
+    monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
 
 
 def _write_archive(
@@ -33,12 +41,15 @@ def _write_archive(
     )
     manifest = f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Archive Policy Test"
 version = "{version}"
 entry_module = "plugin"
 entry_class = "ArchivePolicyPlugin"
-contribution_types = ["tool"]
+contribution_types = []
 {dependencies_line}
 
 [[plugin.permissions.capabilities]]
@@ -166,7 +177,7 @@ def test_archive_install_commits_reviewed_state_as_disabled(
     assert state.enabled is False
     assert state.trusted is False
     assert state.loaded is False
-    assert package_config.enabled is False
+    assert "enabled" not in package_config.model_dump()
     assert package_config.trusted is False
     assert package_config.official is False
     assert package_config.consented_capabilities == consent
@@ -186,11 +197,9 @@ def test_archive_install_does_not_inherit_orphaned_package_state(
     archive_path = _write_archive(tmp_path / "archives")
     config = AppConfig()
     config.plugins.packages["archive-policy-test"] = PluginSettings(
-        enabled=True,
         trusted=True,
         official=True,
         consented_capabilities=[PluginCapability(capability="filesystem_read")],
-        settings={"keep": "value"},
     )
     _patch_config(monkeypatch, config)
     monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
@@ -208,11 +217,11 @@ def test_archive_install_does_not_inherit_orphaned_package_state(
     assert state.trusted is False
     assert state.loaded is False
     assert state.current_settings == {}
-    assert package_config.enabled is False
+    assert "enabled" not in package_config.model_dump()
     assert package_config.trusted is False
     assert package_config.official is False
     assert package_config.consented_capabilities == consent
-    assert package_config.settings == {}
+    assert "settings" not in package_config.model_dump()
 
 
 def test_archive_install_rolls_back_when_reviewed_state_cannot_be_saved(
@@ -236,7 +245,7 @@ def test_archive_install_rolls_back_when_reviewed_state_cannot_be_saved(
     assert not (user_root / "archive-policy-test").exists()
     assert "archive-policy-test" not in config.plugins.packages
     assert manager.get_package("archive-policy-test") is None
-    assert manager.get_loaded_plugin("archive-policy-test") is None
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "archive-policy-test"]
 
 
 def test_archive_install_restores_config_when_post_publish_validation_fails(
@@ -320,9 +329,10 @@ def test_archive_install_rejects_host_reserved_package_ids(
     user_root = tmp_path / "plugins"
     archive_path = _write_archive(
         tmp_path / "archives",
-        plugin_id="calendar",
+        plugin_id="core-tools",
     )
     config = AppConfig()
+    config.plugins.packages["core-tools"] = PluginSettings(source="builtin", trusted=True)
     _patch_config(monkeypatch, config)
     monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
     manager = _manager(user_root)
@@ -334,7 +344,7 @@ def test_archive_install_rejects_host_reserved_package_ids(
             consented_capabilities=[PluginCapability(capability="network", scope=["example.com"])],
         )
 
-    assert not (user_root / "calendar").exists()
+    assert not (user_root / "core-tools").exists()
 
 
 def test_archive_install_rejects_unbound_package_dependencies(

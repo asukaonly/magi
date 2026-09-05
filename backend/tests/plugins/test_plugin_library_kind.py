@@ -30,6 +30,9 @@ from magi.plugins.package_identity import (
 )
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry
+from magi.plugins import manager as manager_module
+from magi.utils.runtime import RuntimePaths
+from runtime_fixtures import instantiate_fixture_plugin
 
 # --- helpers -----------------------------------------------------------------
 
@@ -40,6 +43,9 @@ def _use_test_directory_as_managed_plugin_root(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(package_files_module, "user_plugins_root", lambda: tmp_path)
+    paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
+    monkeypatch.syspath_prepend(str(tmp_path))
 
 
 def _apply_updates(config: AppConfig, updates: dict[str, object]) -> None:
@@ -78,12 +84,22 @@ def _patch_config(monkeypatch: pytest.MonkeyPatch, config: AppConfig) -> None:
 
 
 def _make_manager(search_path: Path) -> PluginManager:
-    return PluginManager(
-        tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        search_paths=[search_path],
-        request_sensor_schedule_refresh=lambda: None,
+    def instantiate(manifest, connection, context):
+        configured = manager_module.get_config().plugins.packages[manifest.plugin_id]
+        configured = PluginSettings.model_validate(configured)
+        manager._capture_plugin_dependencies(
+            manifest, registry_source=configured.registry_source,
+            registry_repo_url=configured.registry_repo_url,
+            dependency_package_sha256=configured.dependency_package_sha256,
+        )
+        return instantiate_fixture_plugin(manifest, connection, context)
+
+    manager = PluginManager(
+        instance_factory=instantiate,
+        tool_registry=ToolRegistry(), sensor_registry=SensorRegistry(),
+        search_paths=[search_path], request_sensor_schedule_refresh=lambda: None,
     )
+    return manager
 
 
 def _set_registry_dependency_provenance(
@@ -106,7 +122,6 @@ def _set_registry_dependency_provenance(
     library_installed_package_sha256 = compute_installed_package_sha256(library_dir)
     consumer_installed_package_sha256 = compute_installed_package_sha256(consumer_dir)
     config.plugins.packages[library_id] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=library_state.manifest.manifest_path,
@@ -117,7 +132,6 @@ def _set_registry_dependency_provenance(
         installed_package_sha256=library_installed_package_sha256,
     )
     config.plugins.packages[consumer_id] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=consumer_state.manifest.manifest_path,
@@ -148,6 +162,9 @@ def _write_library(
     (lib_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{lib_id}"
 name = "Library Under Test"
 version = "1.0.0"
@@ -180,6 +197,9 @@ def _write_consumer(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Consumer"
 version = "1.0.0"
@@ -206,6 +226,8 @@ class ReportTool(Tool):
             name="report-from-library",
             description="returns the value imported from the library",
             category="test",
+            effect_class="read_only",
+            effect_replay_policy="read_only",
         )
 
     async def execute(self, parameters, context: ToolExecutionContext) -> ToolResult:
@@ -236,6 +258,9 @@ def _write_dependency_only_plugin(
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Dependency Consumer"
 version = "1.0.0"
@@ -267,6 +292,9 @@ def _write_broken_plugin(base: Path, *, plugin_id: str) -> None:
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Broken"
 version = "1.0.0"
@@ -300,6 +328,9 @@ def _write_simple_tool_plugin(base: Path, *, plugin_id: str, tool_name: str) -> 
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{plugin_id}"
 name = "Simple"
 version = "1.0.0"
@@ -323,6 +354,8 @@ class SimpleTool(Tool):
             name="{tool_name}",
             description="simple",
             category="test",
+            effect_class="read_only",
+            effect_replay_policy="read_only",
         )
 
     async def execute(self, parameters, context: ToolExecutionContext) -> ToolResult:
@@ -340,11 +373,10 @@ class SimplePlugin(Plugin):
 # --- tests -------------------------------------------------------------------
 
 
-def test_library_is_persisted_as_enabled_and_trusted(
+def test_discovered_external_library_requires_reviewed_trust(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Newly-discovered library packages must default to enabled+trusted so
-    consumers can rely on them without the user having to toggle anything."""
+    """Discovering an external library does not grant trust or activation."""
     _write_library(tmp_path, lib_id="testlib_a")
     monkeypatch.setattr(
         package_files_module,
@@ -358,8 +390,8 @@ def test_library_is_persisted_as_enabled_and_trusted(
     packages = manager.scan(persist_discovery=True)
 
     assert len(packages) == 1
-    assert packages[0].enabled is True
-    assert packages[0].trusted is True
+    assert packages[0].enabled is False
+    assert packages[0].trusted is False
     assert packages[0].manifest.kind == "library"
 
 
@@ -379,7 +411,11 @@ def test_library_load_does_not_instantiate_plugin_class(
 
     manager = _make_manager(tmp_path)
     manager.scan(persist_discovery=True)
-    manager.activate_enabled_plugins()
+    config.plugins.packages["testlib_b"] = PluginSettings(
+        trusted=True, source="external", manifest_path=str(tmp_path / "testlib_b" / "plugin.toml"),
+    )
+    manager.scan(persist_discovery=False)
+    manager.load_plugin("testlib_b")
 
     state = manager.get_package("testlib_b")
     assert state is not None
@@ -415,12 +451,12 @@ def test_consumer_with_depends_on_imports_library(
         library_id="testlib_c",
     )
     manager.scan(persist_discovery=False)
-    manager.activate_enabled_plugins()
+    connection = manager.create_connection("consumer-c", display_name="Library consumer", enabled=True)
 
     consumer_state = manager.get_package("consumer-c")
     assert consumer_state is not None, "consumer was not discovered"
     assert consumer_state.healthy is True, f"consumer load failed: {consumer_state.last_error!r}"
-    instance = manager._plugin_instances["consumer-c"]
+    instance = manager.get_connection_plugin(connection.connection_id)
     assert instance.captured == "from-library"
     # And the lib's parent dir really did land on sys.path.
     assert str(tmp_path) in sys.path
@@ -446,7 +482,6 @@ def test_missing_dep_yields_clear_error_not_crash(
     orphan_state = manager.get_package("orphan-consumer")
     assert orphan_state is not None
     config.plugins.packages["orphan-consumer"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=orphan_state.manifest.manifest_path,
@@ -462,14 +497,9 @@ def test_missing_dep_yields_clear_error_not_crash(
         dependency_package_sha256={"missing_lib": "0" * 64},
     )
     manager.scan(persist_discovery=False)
-    # Must not raise — startup keeps going, plugin is marked unhealthy.
-    manager.activate_enabled_plugins()
-
-    state = manager.get_package("orphan-consumer")
-    assert state is not None
-    assert state.healthy is False
-    assert state.last_error is not None
-    assert "missing_lib" in state.last_error
+    with pytest.raises((ValueError, RuntimeError), match="missing_lib"):
+        manager.create_connection("orphan-consumer", display_name="Missing dependency", enabled=True)
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "orphan-consumer"]
 
 
 def test_broken_plugin_does_not_crash_other_plugins(
@@ -490,6 +520,7 @@ def test_broken_plugin_does_not_crash_other_plugins(
 
     tool_registry = ToolRegistry()
     manager = PluginManager(
+        instance_factory=instantiate_fixture_plugin,
         tool_registry=tool_registry,
         sensor_registry=SensorRegistry(),
         search_paths=[tmp_path],
@@ -497,36 +528,38 @@ def test_broken_plugin_does_not_crash_other_plugins(
     )
     manager.scan(persist_discovery=True)
     config.plugins.packages["broken-plugin"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "broken-plugin" / "plugin.toml"),
-        settings={},
     )
     config.plugins.packages["healthy-plugin"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(tmp_path / "healthy-plugin" / "plugin.toml"),
-        settings={},
     )
     manager.scan(persist_discovery=False)
-    # Used to raise; now it must complete and leave broken-plugin unhealthy.
+    broken_connection = manager.connection_store.create(
+        "broken-plugin", display_name="Broken account", enabled=True,
+    )
+    healthy_connection = manager.connection_store.create(
+        "healthy-plugin", display_name="Healthy account", enabled=True,
+    )
+    manager.scan(persist_discovery=False)
     manager.activate_enabled_plugins()
 
     broken = manager.get_package("broken-plugin")
     healthy = manager.get_package("healthy-plugin")
     assert broken is not None and broken.healthy is False
     assert broken.last_error is not None
+    assert manager.get_connection_plugin(broken_connection.connection_id) is None
     assert healthy is not None and healthy.healthy is True
-    assert "healthy-hello" in tool_registry.list_tools()
+    assert f"{healthy_connection.connection_id}:healthy-hello" in tool_registry.list_tools()
 
 
-def test_enable_and_disable_reject_libraries(
+def test_libraries_reject_connection_creation(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Libraries have no enable/disable semantics — toggles must error,
-    not silently no-op (which would mask programming bugs in callers)."""
+    """Library packages have no independently configured runtime instances."""
     _write_library(tmp_path, lib_id="testlib_d")
     config = AppConfig()
     _patch_config(monkeypatch, config)
@@ -535,9 +568,9 @@ def test_enable_and_disable_reject_libraries(
     manager.scan(persist_discovery=True)
 
     with pytest.raises(ValueError, match="library"):
-        manager.enable_plugin("testlib_d")
-    with pytest.raises(ValueError, match="library"):
-        manager.disable_plugin("testlib_d")
+        manager.create_connection("testlib_d", display_name="Invalid library account")
+    assert not hasattr(manager, "enable_plugin")
+    assert not hasattr(manager, "disable_plugin")
 
 
 def test_iter_consumers_finds_dependents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -705,7 +738,6 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
         nested_consumer_dir
     )
     config.plugins.packages["library-b"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=library_b.manifest.manifest_path,
@@ -716,7 +748,6 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
         installed_package_sha256=library_b_installed_package_sha256,
     )
     config.plugins.packages["library-a"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=library_a.manifest.manifest_path,
@@ -728,7 +759,6 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
         dependency_package_sha256={"library-b": library_b_package_sha256},
     )
     config.plugins.packages["nested-consumer"] = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=nested_consumer.manifest.manifest_path,
@@ -741,11 +771,6 @@ def test_startup_rejects_invalid_transitive_dependency_provenance(
     )
     manager.scan(persist_discovery=False)
 
-    manager.activate_enabled_plugins()
-
-    consumer = manager.get_package("nested-consumer")
-    assert consumer is not None
-    assert consumer.healthy is False
-    assert consumer.loaded is False
-    assert consumer.last_error is not None
-    assert "library-b" in consumer.last_error
+    with pytest.raises((ValueError, RuntimeError), match="library-b"):
+        manager.create_connection("nested-consumer", display_name="Invalid dependency", enabled=True)
+    assert not [plugin for plugin in manager.iter_loaded_plugins() if plugin.plugin_id == "nested-consumer"]

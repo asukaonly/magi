@@ -119,7 +119,7 @@ def test_plugins_missing_package_uses_chinese(monkeypatch: pytest.MonkeyPatch) -
     )
     client = _localized_client(plugins_router, prefix="/api/plugins")
 
-    response = client.get("/api/plugins/ghost/settings", headers={"Accept-Language": "zh-CN"})
+    response = client.get("/api/plugins/ghost/connections", headers={"Accept-Language": "zh-CN"})
 
     assert response.status_code == 404
     assert response.json()["detail"] == "未找到插件"
