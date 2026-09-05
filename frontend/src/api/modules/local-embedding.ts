@@ -27,10 +27,12 @@ export interface LocalEmbeddingModelInfo {
 }
 
 export interface DiscoveredModel {
-  model_id: string;
+  dir_name: string;
   path: string;
   has_onnx: boolean;
   has_tokenizer: boolean;
+  has_config: boolean;
+  dimension: number | null;
 }
 
 export interface DownloadStatusResponse {
@@ -42,7 +44,7 @@ export interface DownloadStatusResponse {
 
 export const localEmbeddingApi = {
   async listModels(): Promise<LocalEmbeddingModelInfo[]> {
-    const res = await apiClient.get('/local-embedding/models');
+    const res = await apiClient.get<LocalEmbeddingModelInfo[]>('/local-embedding/models');
     return res.data;
   },
 
@@ -56,7 +58,7 @@ export const localEmbeddingApi = {
   },
 
   async getDownloadStatus(modelId: string): Promise<DownloadStatusResponse> {
-    const res = await apiClient.get(`/local-embedding/models/${encodeURIComponent(modelId)}/status`);
+    const res = await apiClient.get<DownloadStatusResponse>(`/local-embedding/models/${encodeURIComponent(modelId)}/status`);
     return res.data;
   },
 
@@ -65,7 +67,7 @@ export const localEmbeddingApi = {
   },
 
   async discoverModels(): Promise<DiscoveredModel[]> {
-    const res = await apiClient.get('/local-embedding/discovered');
+    const res = await apiClient.get<DiscoveredModel[]>('/local-embedding/discovered');
     return res.data;
   },
 };

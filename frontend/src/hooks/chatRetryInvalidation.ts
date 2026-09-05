@@ -70,7 +70,7 @@ export const invalidateChatRetryTurn = (
   if (!normalizedSessionId || !normalizedTurnId) {
     return;
   }
-  const turns = turnEpochsBySession.get(normalizedSessionId) ?? new Map();
+  const turns = turnEpochsBySession.get(normalizedSessionId) ?? new Map<string, number>();
   turns.set(normalizedTurnId, (turns.get(normalizedTurnId) ?? 0) + 1);
   turnEpochsBySession.set(normalizedSessionId, turns);
 };

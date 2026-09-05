@@ -113,7 +113,7 @@ export const coerceKnowledgeEventIds = (value: unknown): string[] => {
   }
 
   try {
-    const parsed = JSON.parse(trimmed);
+    const parsed: unknown = JSON.parse(trimmed);
     if (parsed !== value) {
       return coerceKnowledgeEventIds(parsed);
     }

@@ -253,6 +253,13 @@ assert "/install/upload/inspect" in {r.path for r in public.routes}
 - AI-generated comments/log/error text must be English.
 - UI copy language is product-driven and may be non-English.
 
+### Frontend type boundaries
+- Production TypeScript must pass the type-aware ESLint rules in `frontend/eslint.config.mjs`: no explicit `any` or unsafe access, calls, arguments, assignments, and returns.
+- Treat external and persisted data as `unknown`, then validate or narrow it at its owning boundary. Do not replace checks with double assertions or fabricated defaults.
+- `@ts-ignore` and `@ts-nocheck` are prohibited in production; any necessary `@ts-expect-error` must explain the exact constraint and remains compiler checked.
+- Keep generated response types and validators synchronized with production contracts. Generated code is excluded from lint, not from compilation or regeneration checks. Existing test-only typing cleanup is incremental.
+- Run `npm run check` for static gates and `npm run check:full` for the complete frontend gate before delivery.
+
 ### Frontend i18n (Mandatory for UI text)
 - New user-facing copy must use i18n keys (`t(...)`), not hardcoded strings.
 - Keep locale files under `frontend/src/i18n/locales/<lang>/`.

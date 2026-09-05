@@ -413,7 +413,7 @@ export interface PersonaDetail {
   name: string;
   slug: string;
   locale: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   avatar_path: string;
   group_name: string;
   sort_order: number;

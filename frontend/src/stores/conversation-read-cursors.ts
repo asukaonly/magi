@@ -30,7 +30,7 @@ export const loadReadCursors = (): Record<string, ReadCursor> => {
     if (!raw) {
       return {};
     }
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return {};
     }

@@ -214,6 +214,14 @@ describe('MCPServersSection', () => {
     await user.click(await screen.findByText('settings.mcp.actions.edit'));
     await user.click(await screen.findByText('settings.mcp.editor.advancedShow'));
 
+    const overrides = screen.getByRole('textbox', { name: /settings\.mcp\.editor\.toolOverrides/ });
+    fireEvent.change(overrides, { target: { value: '{"write":{"dangerous":"false"}}' } });
+    await user.click(screen.getByText('settings.mcp.editor.save'));
+    expect(await screen.findByText('settings.mcp.editor.errors.tool_overrides')).toBeTruthy();
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(overrides).toHaveValue('{"write":{"dangerous":"false"}}');
+    fireEvent.change(overrides, { target: { value: '{"write":{"risk":"high"}}' } });
+
     const writeLabel = (await screen.findByText('write')).closest('label');
     const writeCheckbox = writeLabel?.querySelector('input[type="checkbox"]');
     expect(writeCheckbox).toBeTruthy();

@@ -276,9 +276,9 @@ const createApiClient = (): AxiosInstance => {
       }
       registerKnownLogSecrets({
         auth: config.auth,
-        data: config.data,
+        data: config.data as unknown,
         headers: config.headers,
-        params: config.params,
+        params: config.params as unknown,
       });
       return config;
     },

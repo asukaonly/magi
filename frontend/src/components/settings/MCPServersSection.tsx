@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { getErrorMessage } from '@/utils/error-handler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -147,12 +148,12 @@ const parseKVText = (text: string): Record<string, string> => {
 
 const buildPayload = (
   draft: DraftState,
-): { payload: MCPServerCreatePayload; error?: string } => {
+): { payload: MCPServerCreatePayload; error?: never } | { payload: null; error: 'command' | 'url' | 'tool_overrides' } => {
   let transport: MCPTransport;
   if (draft.transportKind === 'stdio') {
     const args = draft.argsText.trim().split(/\s+/).filter(Boolean);
     if (!draft.command.trim()) {
-      return { payload: null as unknown as MCPServerCreatePayload, error: 'command' };
+      return { payload: null, error: 'command' };
     }
     transport = {
       kind: 'stdio',
@@ -163,7 +164,7 @@ const buildPayload = (
     };
   } else {
     if (!draft.url.trim()) {
-      return { payload: null as unknown as MCPServerCreatePayload, error: 'url' };
+      return { payload: null, error: 'url' };
     }
     transport = {
       kind: 'http',
@@ -175,9 +176,13 @@ const buildPayload = (
   let toolOverrides: MCPServerCreatePayload['tool_overrides'];
   if (draft.toolOverridesJson.trim() && draft.toolOverridesJson.trim() !== '{}') {
     try {
-      toolOverrides = JSON.parse(draft.toolOverridesJson);
+      const parsed: unknown = JSON.parse(draft.toolOverridesJson);
+      toolOverrides = z.record(z.string(), z.object({
+        dangerous: z.boolean().nullish(),
+        risk: z.enum(['low', 'medium', 'high', 'destructive']).nullish(),
+      }).strict()).parse(parsed);
     } catch {
-      return { payload: null as unknown as MCPServerCreatePayload, error: 'tool_overrides' };
+      return { payload: null, error: 'tool_overrides' };
     }
   }
 
@@ -915,7 +920,7 @@ export const MCPServersSection: React.FC = () => {
   const handleImportFile = async (file: File) => {
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text);
+      const parsed: unknown = JSON.parse(text);
       const drafts = draftsFromImportJson(parsed);
       if (drafts.length === 0) {
         alert(t('settings.mcp.import.parseEmpty'));

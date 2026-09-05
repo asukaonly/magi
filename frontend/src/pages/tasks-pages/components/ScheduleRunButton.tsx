@@ -1,3 +1,4 @@
+import { isRecord } from '@/utils/value-guards';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -87,14 +88,14 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
       onRun(schedule);
       return;
     }
-    let parsed: Record<string, unknown>;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(trimmed);
     } catch (err) {
       setParamsError(getErrorMessage(err) || 'invalid JSON');
       return;
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (!isRecord(parsed)) {
       setParamsError('params must be a JSON object');
       return;
     }

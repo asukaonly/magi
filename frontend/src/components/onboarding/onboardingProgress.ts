@@ -203,7 +203,7 @@ function normalizeCounts(
     return {};
   }
   const counts: Record<string, number | null> = {};
-  for (const [pluginId, count] of Object.entries(raw)) {
+  for (const [pluginId, count] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof count === "number" || count === null) {
       counts[pluginId] = count;
     }

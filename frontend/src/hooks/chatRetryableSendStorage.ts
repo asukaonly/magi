@@ -175,7 +175,7 @@ const isJsonValue = (value: unknown, depth = 0): value is JsonValue => {
   if (!value || typeof value !== 'object') {
     return false;
   }
-  const prototype = Object.getPrototypeOf(value);
+  const prototype: unknown = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
     return false;
   }

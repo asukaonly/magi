@@ -35,7 +35,7 @@ export interface RerankerDownloadStatusResponse {
 
 export const localRerankerApi = {
   async listModels(): Promise<LocalRerankerModelInfo[]> {
-    const res = await apiClient.get('/local-reranker/models');
+    const res = await apiClient.get<LocalRerankerModelInfo[]>('/local-reranker/models');
     return res.data;
   },
 
@@ -49,7 +49,7 @@ export const localRerankerApi = {
   },
 
   async getDownloadStatus(modelId: string): Promise<RerankerDownloadStatusResponse> {
-    const res = await apiClient.get(`/local-reranker/models/${encodeURIComponent(modelId)}/status`);
+    const res = await apiClient.get<RerankerDownloadStatusResponse>(`/local-reranker/models/${encodeURIComponent(modelId)}/status`);
     return res.data;
   },
 

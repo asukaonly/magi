@@ -302,7 +302,7 @@ export function DelegationCard({
 
 
 function renderEventLabel(event: RunEvent): string {
-  const payload = event.payload as Record<string, any>;
+  const payload = event.payload;
   if (event.kind === 'assistant_text' && typeof payload?.text === 'string') {
     return payload.text.slice(0, 80);
   }
@@ -313,7 +313,7 @@ function renderEventLabel(event: RunEvent): string {
     return `status: ${payload.event}`;
   }
   if (event.kind === 'error') {
-    return `error: ${payload?.message ?? '(no message)'}`;
+    return `error: ${typeof payload.message === 'string' ? payload.message : '(no message)'}`;
   }
   if (event.kind === 'stdout' && typeof payload?.line === 'string') {
     return payload.line.slice(0, 80);

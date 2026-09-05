@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -111,7 +112,7 @@ function shiftToEventAt(shift: TimeShift, anchor: Date = new Date()): number {
   }
 }
 
-function shiftLabel(shift: TimeShift, t: (k: string, opts?: any) => string): string {
+function shiftLabel(shift: TimeShift, t: TFunction): string {
   const preset = TIME_SHIFT_PRESETS.find((p) => p.id === shift.kind);
   if (!preset) return '';
   if (shift.kind === 'custom') {

@@ -87,7 +87,7 @@ function isMaskedApiKey(value?: string | null): boolean {
 
 function updateCommonBaseUrl(provider: LLMProviderConfig, baseUrl: string): void {
   provider.base_url = baseUrl;
-  for (const service of Object.values(provider.services)) {
+  for (const service of [provider.services.chat, provider.services.embedding, provider.services.image_generation, provider.services.tts]) {
     service.base_url = '';
   }
 }
@@ -628,7 +628,7 @@ export function LLMSetupStep({
           const apiKey = event.target.value;
           updateActiveProvider((provider) => {
             provider.api_key = apiKey;
-            for (const service of Object.values(provider.services)) {
+            for (const service of [provider.services.chat, provider.services.embedding, provider.services.image_generation, provider.services.tts]) {
               service.api_key = apiKey;
             }
           });
