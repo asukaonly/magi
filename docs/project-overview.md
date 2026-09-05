@@ -114,6 +114,10 @@ Fresh example configuration leaves managed paths to the host defaults. Desktop
 candidate verification uses a new empty root and a distinct application identifier
 so both app data and WebView preferences are isolated from a regular installation.
 
+The gateway compiles its provider template and preset embedding-model catalog
+from the same versioned YAML sources bundled with Python. Native reads never
+resolve these immutable catalogs through a build-machine repository path.
+
 ### Gateway-visible API contract
 
 The frontend talks to the Rust gateway, not directly to the Python FastAPI app. The gateway-visible contract is therefore the union of Rust-native routes, Rust static mounts, and Python routes that are reached through the IPC proxy fallback.

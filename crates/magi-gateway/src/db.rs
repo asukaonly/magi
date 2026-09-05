@@ -76,17 +76,6 @@ pub fn magi_base_dir_override_test_lock() -> MutexGuard<'static, ()> {
         .expect("lock Magi base dir override test mutex")
 }
 
-/// Path to the backend configs directory.
-pub fn backend_configs_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("backend")
-        .join("configs")
-}
-
 pub fn embedding_models_dir() -> PathBuf {
     magi_base_dir().join("cache").join("models").join("embed")
 }

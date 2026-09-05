@@ -1,13 +1,14 @@
 use axum::Json;
 use serde_json::{json, Value};
 
-use crate::db::backend_configs_dir;
+const PROVIDER_REGISTRY: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../backend/configs/llm_providers.yaml"
+));
 
 /// Load llm_providers.yaml as a generic JSON Value.
 fn load_llm_providers_yaml() -> Option<Value> {
-    let path = backend_configs_dir().join("llm_providers.yaml");
-    let content = std::fs::read_to_string(&path).ok()?;
-    serde_yaml::from_str(&content).ok()
+    serde_yaml::from_str(PROVIDER_REGISTRY).ok()
 }
 
 /// GET /api/llm/providers/custom-template
@@ -69,4 +70,20 @@ pub async fn get_custom_template() -> Json<Value> {
     .await
     .unwrap_or_else(|_| json!({"success": false, "message": "Internal error"}));
     Json(result)
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn bundled_provider_registry_produces_custom_template() {
+        let axum::Json(response) = super::get_custom_template().await;
+        assert_eq!(response["success"], true);
+        assert!(response["data"]["template"].is_object());
+        assert!(response["data"]["template"]["limits"].is_object());
+        assert_eq!(response["data"]["defaults"]["api_format"], "openai");
+        assert!(!super::load_llm_providers_yaml().unwrap()["providers"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
 }

@@ -2,16 +2,16 @@ use axum::Json;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-use crate::db::{backend_configs_dir, embedding_models_dir};
+use crate::db::embedding_models_dir;
+
+const PRESET_MODELS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../backend/configs/local_embedding_models.yaml"
+));
 
 /// Load preset model IDs from local_embedding_models.yaml.
 fn load_preset_model_ids() -> HashSet<String> {
-    let yaml_path = backend_configs_dir().join("local_embedding_models.yaml");
-    let content = match std::fs::read_to_string(&yaml_path) {
-        Ok(c) => c,
-        Err(_) => return HashSet::new(),
-    };
-    let data: Value = match serde_yaml::from_str(&content) {
+    let data: Value = match serde_yaml::from_str(PRESET_MODELS) {
         Ok(d) => d,
         Err(_) => return HashSet::new(),
     };
@@ -100,4 +100,13 @@ pub async fn discover_external_models() -> Json<Value> {
     .await
     .unwrap_or_else(|_| json!([]));
     Json(result)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn bundled_preset_registry_excludes_known_models_from_discovery() {
+        let presets = super::load_preset_model_ids();
+        assert!(presets.contains("bge-small-zh-v1.5"));
+    }
 }
