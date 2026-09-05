@@ -10,16 +10,85 @@ import zipfile
 import pytest
 
 from magi.memory.history_imports.store import HistoryImportStore
+from magi.memory.l4.storage.records import soft_delete_skill
+from magi.memory.manual_entries.store import ManualEntryStore
 import magi.memory.portability.backup as backup_module
 import magi.memory.portability.storage as storage_module
 from magi.memory.portability.backup import build_memory_backup
 from magi.memory.portability.crypto import decrypt_backup_payload, is_encrypted_backup
 from magi.memory.portability.errors import MemoryPortabilityError
 from magi.memory.portability.export import build_readable_export
+from magi.memory.portability.models import SnapshotFile
 from magi.memory.portability.storage import create_memory_snapshot, discard_snapshot
 from magi.utils.runtime import RuntimePaths
 
 from ._helpers import FakeUnifiedMemory, migrate_memory_databases, seed_memory
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pending_delete", [False, True])
+async def test_readable_export_omits_deleted_content_and_owned_assets(
+    tmp_path: Path, pending_delete: bool,
+) -> None:
+    paths = RuntimePaths(tmp_path / "runtime")
+    migrate_memory_databases(paths)
+    digest, _ = seed_memory(paths)
+    _seed_restorable_layers_and_operational_rows(paths)
+    with sqlite3.connect(paths.l1_memory_db_path) as connection:
+        connection.execute("UPDATE fact_events SET content = 'deleted-event-secret', deleted_at = 2")
+        connection.execute(
+            "INSERT INTO l1_event_payload(event_id, content, created_at) "
+            "VALUES ('event-1', 'deleted-payload-secret', 1)"
+        )
+    with sqlite3.connect(paths.memory_db_path) as connection:
+        connection.execute(
+            "UPDATE manual_entries SET body = 'deleted-manual-secret', delete_requested_at = 2"
+        )
+        connection.execute("UPDATE procedural_skills SET optimized_prompt = 'deleted-procedure-secret'")
+        connection.execute(
+            "INSERT INTO l4_execution_traces(trace_id, skill_id, event_id, success, "
+            "input_summary, created_at) VALUES ('trace-1', 'skill-keep', 'event-1', 1, "
+            "'deleted-trace-secret', 1)"
+        )
+        connection.execute(
+            "INSERT INTO memory_source_event_tombstones(event_id, reason, created_at) "
+            "VALUES ('event-1', 'user_delete', 2)"
+        )
+    if not pending_delete:
+        assert await ManualEntryStore(db_path=str(paths.memory_db_path)).finalize_delete(
+            "entry-1", deleted_at=2,
+        )
+    await soft_delete_skill(db_path=str(paths.memory_db_path), skill_id="skill-keep", now=2)
+    snapshot = await create_memory_snapshot(
+        runtime_paths=paths, archive_dir=paths.memory_dir / "archive",
+        unified_memory=None, include_l0=False,
+    )
+    # A backup may retain an asset owned only by a non-exported draft.
+    snapshot.files.append(SnapshotFile(
+        source_path=paths.manual_entry_assets_dir / digest[:2] / f"{digest}.png",
+        archive_path=f"assets/manual_entries/{digest[:2]}/{digest}.png",
+        purpose="manual_entry_asset",
+    ))
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    try:
+        output_path, manifest = build_readable_export(
+            snapshot=snapshot, output_directory=output_dir, include_l0=False,
+        )
+        with zipfile.ZipFile(output_path) as archive:
+            content = b"\n".join(archive.read(name) for name in archive.namelist())
+            for secret in (b"deleted-event-secret", b"deleted-payload-secret", b"deleted-manual-secret",
+                           b"deleted-procedure-secret", b"deleted-trace-secret"):
+                assert secret not in content
+            assert digest not in "\n".join(archive.namelist())
+            assert json.loads(archive.read("governance/forgotten_source_events.jsonl"))["source_event_id"] == "event-1"
+            for name in ("l1/events.jsonl", "l1/source_payloads.jsonl", "l2/manual_entries.jsonl",
+                         "l4/procedures.jsonl", "l4/execution_traces.jsonl"):
+                assert archive.read(name) == b""
+                assert manifest["files"][name]["record_count"] == 0
+            assert b"Kept Entity" in archive.read("l2/entities.jsonl")
+    finally:
+        discard_snapshot(snapshot)
 
 
 def _seed_restorable_layers_and_operational_rows(paths: RuntimePaths) -> None:

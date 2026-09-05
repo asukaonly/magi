@@ -191,6 +191,13 @@ highwaters, cache tables, experience drafts, indexes, leases, and jobs are not
 public memory DTOs and remain excluded. The readable export cannot be restored
 into Magi; `.magibackup` is the only restore artifact.
 
+Readable export excludes soft-deleted L1 events, manual entries, and L4
+procedures, including their owned source payloads, facets, and procedure traces.
+Manual entries must also pass the same pending-deletion, replacement, and
+time-range visibility barriers as their managed assets. Archived L1 payloads
+marked deleted are omitted. Content-free forgetting markers remain in the
+governance files; retaining a tombstone never permits exporting deleted text.
+
 The restorable scope is persisted L0-L4, not every file under `~/.magi`.
 Persisted L0 sessions and attention items are included in backup and restored;
 in-flight execution state is not. Durable L0 forget cutoffs and tombstones remain

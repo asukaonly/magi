@@ -440,6 +440,13 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
     _seed_public_memory_contract(paths)
     archive_dir = paths.memory_dir / "archive"
     _seed_archive(archive_dir)
+    with sqlite3.connect(archive_dir / "2026-08-18.db") as connection:
+        connection.execute(
+            "INSERT INTO archived_l1_events "
+            "SELECT 'deleted-archive', archived_date, archived_at, event_timestamp, "
+            "event_type, source, session_id, user_id, ? FROM archived_l1_events",
+            (json.dumps({"content": "deleted-archive-secret", "deleted_at": 101}),),
+        )
     snapshot = await create_memory_snapshot(
         runtime_paths=paths,
         archive_dir=archive_dir,
@@ -611,6 +618,7 @@ async def test_readable_export_is_a_fixed_versioned_public_dto_contract(
                 b"procedural_skills-storage-secret",
                 b"memory_corrections-storage-secret",
                 b"archive-payload-secret",
+                b"deleted-archive-secret",
                 b"history_import_jobs",
                 b"embedding_rebuild_jobs",
             ):

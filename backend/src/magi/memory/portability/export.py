@@ -18,6 +18,7 @@ import zipfile
 
 from ..event_contracts import AuthorType, ContentType, MemoryDomain, RetentionClass
 from ..evidence import EvidenceClass, EvidenceStatus, L1RetrievalScope
+from ..source_event_governance import source_occurrence_visible_predicate
 from .backup import (
     _fsync_directory,
     _fsync_file,
@@ -74,6 +75,7 @@ class _ExportSpec:
     fields: tuple[_ExportField, ...]
     order_by: tuple[str, ...]
     table_optional: bool = False
+    visibility_sql: str = "1"
 
 
 def _field(
@@ -182,6 +184,7 @@ _CURRENT_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
         database="l1",
         archive_path="l1/events.jsonl",
         table="fact_events",
+        visibility_sql="deleted_at IS NULL",
         record_type="l1_event",
         layer="L1",
         description="Durable source events and their evidence classification.",
@@ -238,6 +241,7 @@ _CURRENT_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
         database="l1",
         archive_path="l1/source_payloads.jsonl",
         table="l1_event_payload",
+        visibility_sql="event_id IN (SELECT event_id FROM fact_events WHERE deleted_at IS NULL)",
         record_type="l1_source_payload",
         layer="L1",
         description="Pinned source text retained for an L1 event.",
@@ -252,6 +256,7 @@ _CURRENT_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
         database="l1",
         archive_path="l1/event_entities.jsonl",
         table="l1_event_entities",
+        visibility_sql="event_id IN (SELECT event_id FROM fact_events WHERE deleted_at IS NULL)",
         record_type="l1_event_entity",
         layer="L1",
         description="Entity links attached directly to an L1 event.",
@@ -268,6 +273,7 @@ _CURRENT_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
         database="l1",
         archive_path="l1/source_facets.jsonl",
         table="l1_source_facets",
+        visibility_sql="event_id IN (SELECT event_id FROM fact_events WHERE deleted_at IS NULL)",
         record_type="l1_source_facet",
         layer="L1",
         description="Typed source attributes associated with an L1 event.",
@@ -837,6 +843,11 @@ _CURRENT_EXPORT_SPECS += (
         database="memory",
         archive_path="l2/manual_entries.jsonl",
         table="manual_entries",
+        visibility_sql=(
+            "deleted_at IS NULL AND delete_requested_at IS NULL "
+            "AND (pending_l1_event_id IS NULL OR pending_l1_predecessor_event_id IS NULL) "
+            f"AND {source_occurrence_visible_predicate('manual_entries.event_at')}"
+        ),
         record_type="l2_manual_entry",
         layer="L2",
         description="User-authored manual memories and managed asset references.",
@@ -1020,6 +1031,7 @@ _CURRENT_EXPORT_SPECS += (
         database="memory",
         archive_path="l4/procedures.jsonl",
         table="procedural_skills",
+        visibility_sql="deleted_at IS NULL",
         record_type="l4_procedure",
         layer="L4",
         description="Learned procedures and their source-event lineage.",
@@ -1051,6 +1063,7 @@ _CURRENT_EXPORT_SPECS += (
         database="memory",
         archive_path="l4/execution_traces.jsonl",
         table="l4_execution_traces",
+        visibility_sql="skill_id IN (SELECT skill_id FROM procedural_skills WHERE deleted_at IS NULL)",
         record_type="l4_execution_trace",
         layer="L4",
         description="Outcomes used to learn and evaluate a procedure.",
@@ -1073,6 +1086,7 @@ _CURRENT_EXPORT_SPECS += (
         database="memory",
         archive_path="l4/procedure_evidence.jsonl",
         table="l4_skill_event_links",
+        visibility_sql="skill_id IN (SELECT skill_id FROM procedural_skills WHERE deleted_at IS NULL)",
         record_type="l4_procedure_evidence",
         layer="L4",
         description="Source-event evidence linked to a learned procedure.",
@@ -1428,6 +1442,7 @@ _ARCHIVE_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
         database="archive",
         archive_path="archives/{date}/l1_events.jsonl",
         table="archived_l1_events",
+        visibility_sql="json_extract(payload_json, '$.deleted_at') IS NULL",
         record_type="archived_l1_event",
         layer="L1",
         description="Archived L1 events using a fixed subset of the archived payload.",
@@ -1534,6 +1549,7 @@ def build_readable_export(
             ) as archive,
         ):
             export_files: dict[str, dict[str, object]] = {}
+            referenced_assets: set[str] = set()
             database_paths = {
                 "l1": _snapshot_file(snapshot, "databases/l1_events.db"),
                 "memory": _snapshot_file(snapshot, "databases/memory.db"),
@@ -1545,6 +1561,7 @@ def build_readable_export(
                     database_paths[spec.database],
                     spec,
                     spec.archive_path,
+                    referenced_assets,
                 )
             for item in snapshot.files:
                 if item.purpose == "archive":
@@ -1556,8 +1573,10 @@ def build_readable_export(
                             Path(item.source_path),
                             spec,
                             archive_path,
+                            referenced_assets,
                         )
-                elif item.purpose == "manual_entry_asset":
+            for item in snapshot.files:
+                if item.purpose == "manual_entry_asset" and item.archive_path in referenced_assets:
                     _write_asset(archive, item.archive_path, Path(item.source_path))
             manifest["files"] = export_files
             _write_text(
@@ -1636,6 +1655,7 @@ def _write_spec_jsonl(
     database_path: Path,
     spec: _ExportSpec,
     archive_path: str,
+    referenced_assets: set[str],
 ) -> dict[str, object]:
     identifiers = {spec.table, *spec.order_by, *(field.source for field in spec.fields)}
     if any(re.fullmatch(r"[a-z0-9_]+", identifier) is None for identifier in identifiers):
@@ -1661,7 +1681,10 @@ def _write_spec_jsonl(
             raise _schema_mismatch(spec, missing_columns)
         select_list = ", ".join(f'"{column}"' for column in source_columns)
         order_by = ", ".join(f'"{column}"' for column in spec.order_by)
-        cursor = connection.execute(f'SELECT {select_list} FROM "{spec.table}" ORDER BY {order_by}')
+        cursor = connection.execute(
+            f'SELECT {select_list} FROM "{spec.table}" '
+            f'WHERE {spec.visibility_sql} ORDER BY {order_by}'
+        )
         info = zipfile.ZipInfo(archive_path)
         info.compress_type = zipfile.ZIP_DEFLATED
         info.external_attr = 0o100600 << 16
@@ -1684,6 +1707,18 @@ def _write_spec_jsonl(
                 handle.write(
                     (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
                 )
+                for name in ("asset_references", "user_cover_asset_ref", "representative_asset_ref"):
+                    value = payload.get(name)
+                    for reference in value if isinstance(value, list) else [value]:
+                        if not isinstance(reference, str):
+                            continue
+                        match = re.fullmatch(
+                            r"manual-entry-asset://([0-9a-f]{64}\.(?:gif|jpg|png|webp))",
+                            reference,
+                        )
+                        if match is not None:
+                            filename = match.group(1)
+                            referenced_assets.add(f"assets/manual_entries/{filename[:2]}/{filename}")
                 count += 1
     return _file_contract(spec, record_count=count)
 
@@ -1766,6 +1801,8 @@ def _export_readme(
         "chat attachments, runtime logs, product tasks, models, plugins, credentials, "
         "configuration, and persona state are not included. Original chat evidence "
         "referenced by an L1 event may not exist on another device.\n\n"
+        "Deleted memories and their owned source payloads or procedure traces are omitted. "
+        "Content-free forgetting markers remain in the governance files.\n\n"
         f"{l0_note}\n\n"
         "JSONL field guide\n" + "\n".join(field_guide) + "\n"
     )
