@@ -61,6 +61,14 @@ describe('memoryPortabilityApi contract', () => {
     });
     expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/exports', {
       destination_directory: '/private/readable export',
+      include_l0: false,
+    });
+    await memoryPortabilityApi.createExport({
+      destinationDirectory: '/private/with attention',
+      includeL0: true,
+    });
+    expect(postSpy).toHaveBeenLastCalledWith('/memory/portability/exports', {
+      destination_directory: '/private/with attention',
       include_l0: true,
     });
   });

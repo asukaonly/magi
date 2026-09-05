@@ -479,6 +479,8 @@ actions with different guarantees:
 - **Export readable data** writes a versioned, documented JSONL ZIP for people
   and external tools. It may include persisted L0 only when explicitly selected,
   excludes indexes and runtime jobs, and is never accepted by the restore flow.
+  The export dialog resets its separate short-term-attention checkbox to off on
+  every opening; the API also defaults to excluding L0 when the field is omitted.
 - **Restore backup** first inspects an existing `.magibackup` and shows its
   creation time, Magi and format versions, encrypted state, scope, record counts,
   compatibility, and warnings. A password is requested only for an encrypted

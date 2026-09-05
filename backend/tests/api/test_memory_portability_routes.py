@@ -64,8 +64,24 @@ def _client(monkeypatch: pytest.MonkeyPatch, service: _FakeService) -> TestClien
         lambda: service,
     )
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(
+        _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]),
+        prefix="/api/memory",
+    )
     return TestClient(app)
+
+
+@pytest.mark.parametrize("selection", [None, False, True])
+def test_readable_export_requires_explicit_l0_selection(
+    monkeypatch: pytest.MonkeyPatch, selection: bool | None,
+) -> None:
+    service = _FakeService()
+    body = {"destination_directory": "/tmp"}
+    if selection is not None:
+        body["include_l0"] = selection
+    response = _client(monkeypatch, service).post("/api/memory/portability/exports", json=body)
+    assert response.status_code == 202
+    assert service.calls[0][1]["include_l0"] is (selection is True)
 
 
 def test_memory_portability_routes_are_publicly_reachable() -> None:

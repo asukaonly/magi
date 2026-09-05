@@ -39,6 +39,7 @@ export function MemoryExportDialog({
   const { t } = useTranslation('app');
   const [destinationDirectory, setDestinationDirectory] = useState('');
   const [readabilityConfirmed, setReadabilityConfirmed] = useState(false);
+  const [includeL0, setIncludeL0] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pickingDirectory, setPickingDirectory] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export function MemoryExportDialog({
     }
     setDestinationDirectory('');
     setReadabilityConfirmed(false);
+    setIncludeL0(false);
     setSubmitting(false);
     setPickingDirectory(false);
     setError(null);
@@ -89,7 +91,7 @@ export function MemoryExportDialog({
 
     setSubmitting(true);
     try {
-      const operation = await memoryPortabilityApi.createExport({ destinationDirectory });
+      const operation = await memoryPortabilityApi.createExport({ destinationDirectory, includeL0 });
       onStarted(operation);
       onOpenChange(false);
     } catch (requestError) {
@@ -154,6 +156,19 @@ export function MemoryExportDialog({
           <div className="rounded-xl border border-border/70 bg-muted/25 px-4 py-3 text-xs leading-5 text-muted-foreground">
             {t('settings.memory.dataManagement.export.contentsDescription')}
           </div>
+
+          <label className="flex items-start gap-3 rounded-xl border border-border/70 px-4 py-3 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-input accent-[hsl(var(--settings-nav-active))]"
+              checked={includeL0}
+              disabled={submitting}
+              onChange={(event) => setIncludeL0(event.target.checked)}
+            />
+            <span className="leading-6 text-foreground/90">
+              {t('settings.memory.dataManagement.export.includeL0')}
+            </span>
+          </label>
 
           <label className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-sm">
             <input

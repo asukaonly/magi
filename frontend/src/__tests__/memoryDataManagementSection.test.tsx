@@ -284,7 +284,7 @@ describe('MemoryDataManagementSection', () => {
     });
   });
 
-  it('requires a privacy acknowledgement before starting a readable export', async () => {
+  it.each([false, true])('exports with explicit short-term attention selection %s', async (includeL0) => {
     const user = userEvent.setup();
     pickDirectoryMock.mockResolvedValue('/tmp/readable export');
     createExportMock.mockResolvedValue(createOperation({ kind: 'export' }));
@@ -296,6 +296,13 @@ describe('MemoryDataManagementSection', () => {
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.export.action',
     }));
+    const attentionCheckbox = screen.getByRole('checkbox', {
+      name: 'settings.memory.dataManagement.export.includeL0',
+    });
+    expect(attentionCheckbox).not.toBeChecked();
+    if (includeL0) {
+      await user.click(attentionCheckbox);
+    }
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.common.chooseDirectory',
     }));
@@ -313,7 +320,28 @@ describe('MemoryDataManagementSection', () => {
 
     expect(createExportMock).toHaveBeenCalledWith({
       destinationDirectory: '/tmp/readable export',
+      includeL0,
     });
+  });
+
+  it('resets short-term attention consent when the export dialog reopens', async () => {
+    const user = userEvent.setup();
+    render(<MemoryDataManagementSection />);
+    const openExport = () => screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.export.action',
+    });
+    await waitFor(() => expect(openExport()).toBeEnabled());
+    await user.click(openExport());
+    await user.click(screen.getByRole('checkbox', {
+      name: 'settings.memory.dataManagement.export.includeL0',
+    }));
+    await user.click(screen.getByRole('button', {
+      name: 'settings.memory.dataManagement.common.cancel',
+    }));
+    await user.click(openExport());
+    expect(screen.getByRole('checkbox', {
+      name: 'settings.memory.dataManagement.export.includeL0',
+    })).not.toBeChecked();
   });
 
   it('reconciles an accepted export when its 202 response is lost', async () => {

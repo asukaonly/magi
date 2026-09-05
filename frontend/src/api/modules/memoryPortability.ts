@@ -68,6 +68,7 @@ export interface CreateMemoryBackupInput {
 
 export interface CreateMemoryExportInput {
   destinationDirectory: string;
+  includeL0?: boolean;
 }
 
 export interface InspectMemoryRestoreInput {
@@ -93,7 +94,7 @@ export const memoryPortabilityApi = {
       '/memory/portability/exports',
       {
         destination_directory: input.destinationDirectory,
-        include_l0: true,
+        include_l0: input.includeL0 ?? false,
       },
     );
     return unwrapGatewayPayload(response);

@@ -35,7 +35,7 @@ class CreateMemoryExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     destination_directory: str
-    include_l0: bool = True
+    include_l0: bool = False
 
 
 class InspectMemoryRestoreRequest(BaseModel):
