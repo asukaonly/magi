@@ -506,3 +506,33 @@ async def test_inactive_skill_relearns_but_replay_and_forgetting_do_not_revive(t
     await store.forget_source_events([first.event_id])
     assert await store.record_memory_event(first) is None
     assert await store.count_skills() == 0
+
+
+@pytest.mark.asyncio
+async def test_strategy_publication_consumes_only_sample_and_updates_search(tmp_path):
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.strategy_extraction import ExtractedStrategy
+    from magi.memory.l4.strategy_operations import persist_strategy, stratified_traces
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    skill_id = await store.record_memory_event(_tool_event(event_id="trace:sample", success=True, timestamp=1710000000))
+    sampled = await stratified_traces(db_path=store.db_path, skill_id=skill_id)
+    snapshot = await store._skill_embedding_snapshot(skill_id=skill_id, display_skill_name="browser.open")
+    await store.record_memory_event(_tool_event(event_id="trace:later", success=True, timestamp=1710000001))
+    strategy = ExtractedStrategy(recommended_approach="quartzrecovery", confidence=0.8)
+    assert await persist_strategy(
+        db_path=store.db_path, skill_id=skill_id, strategy=strategy, expected_revision=0,
+        covered_trace_ids=[trace["trace_id"] for trace in sampled],
+    )
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT pending_trace_count, strategy_revision FROM procedural_skills").fetchone() == (1, 1)
+        assert db.execute("SELECT event_id FROM l4_execution_traces WHERE strategy_processed_at IS NULL").fetchall() == [("trace:later",)]
+    assert (await store.query_strategies(query="quartzrecovery", limit=5))[0]["skill_id"] == skill_id
+    assert not await store._skill_embedding_snapshot_is_current(snapshot)
+    assert not await persist_strategy(
+        db_path=store.db_path, skill_id=skill_id,
+        strategy=ExtractedStrategy(recommended_approach="stale overwrite", confidence=0.9),
+        expected_revision=0, covered_trace_ids=[trace["trace_id"] for trace in sampled],
+    )
+    skill = await store.get_skill(skill_name="browser.open", skill_category="tool")
+    assert "quartzrecovery" in skill["optimized_prompt"]
+    assert skill["pending_trace_count"] == 1

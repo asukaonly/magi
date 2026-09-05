@@ -407,7 +407,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v48_history_import_l2_reimport` | release stale L2 queue and event-rule identities only for durable explicit history reimports, then make any affected active import ledger resumable |
+| `memory_shared` | `v49_l4_strategy_revisions` | add strategy revision and per-trace consumption markers for fenced procedural learning; no historical data repair |
 
 `chat_task_execution_budgets` is owned by the accepted root turn. Its
 `root_turn_id` is a non-null primary key and a foreign key to `chat_turns`, with

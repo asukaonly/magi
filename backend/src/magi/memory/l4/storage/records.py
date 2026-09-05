@@ -35,8 +35,8 @@ async def insert_new_skill_record(
             circuit_breaker_state, circuit_breaker_opened_at, circuit_breaker_failure_count,
             circuit_breaker_success_count, optimized_prompt, optimized_params, optimization_score,
             context_affinity, source_event_ids, last_used_at, last_success_at, last_failure_at,
-            embedding_chunk_count, last_embedded_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            embedding_chunk_count, last_embedded_at, created_at, updated_at, pending_trace_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
         """,
         (
             skill_id,
@@ -88,6 +88,8 @@ async def update_skill_record(
             avg_execution_time_ms = ?, min_execution_time_ms = ?, max_execution_time_ms = ?, p95_execution_time_ms = ?,
             circuit_breaker_state = ?, circuit_breaker_opened_at = ?, circuit_breaker_failure_count = ?,
             circuit_breaker_success_count = ?, optimized_prompt = COALESCE(?, optimized_prompt),
+            strategy_revision = strategy_revision + CASE WHEN ? IS NOT NULL AND ? IS NOT optimized_prompt THEN 1 ELSE 0 END,
+            embedding_status = CASE WHEN ? IS NOT NULL AND ? IS NOT optimized_prompt AND embedding_status != 'disabled' THEN 'pending' ELSE embedding_status END,
             source_event_ids = ?, last_used_at = ?, last_success_at = ?, last_failure_at = ?, updated_at = ?,
             pending_trace_count = COALESCE(pending_trace_count, 0) + 1,
             deleted_at = NULL
@@ -108,6 +110,7 @@ async def update_skill_record(
             record_state.failure_streak,
             record_state.recovery_count,
             optimized_prompt,
+            optimized_prompt, optimized_prompt, optimized_prompt, optimized_prompt,
             json.dumps(record_state.source_event_ids[-100:], ensure_ascii=False),
             event_timestamp,
             record_state.last_success_at,

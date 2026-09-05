@@ -40,7 +40,7 @@ async def insert_execution_trace(
 
 
 async def _prune_old_traces_on_connection(db: aiosqlite.Connection, *, skill_id: str) -> None:
-    await db.execute(
+    deleted = await db.execute(
         f"""
         DELETE FROM {EXECUTION_TRACES_TABLE}
         WHERE skill_id = ? AND trace_id NOT IN (
@@ -50,6 +50,11 @@ async def _prune_old_traces_on_connection(db: aiosqlite.Connection, *, skill_id:
         """,
         (skill_id, skill_id, MAX_TRACES_PER_SKILL),
     )
+    if deleted.rowcount:
+        await db.execute(
+            f"UPDATE procedural_skills SET pending_trace_count = (SELECT COUNT(*) FROM {EXECUTION_TRACES_TABLE} WHERE skill_id = ? AND strategy_processed_at IS NULL) WHERE skill_id = ?",
+            (skill_id, skill_id),
+        )
 
 
 async def prune_old_traces(*, db_path: str, skill_id: str) -> None:

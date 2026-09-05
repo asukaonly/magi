@@ -3008,3 +3008,11 @@ independent execution: recording can find the inactive row and revive it without
 violating name/category uniqueness. Replaying an already linked old event leaves
 it inactive. This lookup still enforces source tombstones and projection blocks;
 user-forgotten evidence cannot revive a retired skill.
+
+L4 strategy publication atomically updates the strategy revision and full-text
+index, then schedules vector refresh. Vector publication checks the captured
+revision and content; pending vectors are excluded from semantic retrieval.
+Strategy extraction consumes only the sampled, unprocessed trace IDs under an
+expected revision. Executions arriving during extraction remain pending, and a
+slower extraction cannot overwrite a newer strategy. The first execution counts
+as pending; trace pruning reconciles the retained pending backlog.

@@ -258,8 +258,8 @@ class TestStrategyExtractionIntegration:
         store._strategy_extractor = MagicMock()
         store._strategy_extractor.extract_strategy = AsyncMock(return_value=mock_strategy)
 
-        # Record threshold + 1 events (1 insert + threshold updates)
-        for i in range(threshold + 1):
+        # Record exactly the threshold of independent executions.
+        for i in range(threshold):
             await store.record_memory_event(
                 _make_action_event("api_tool", success=(i % 3 != 0))
             )

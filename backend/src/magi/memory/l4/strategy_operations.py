@@ -12,6 +12,7 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from .source_event_governance import active_skill_predicate
 from .storage.schema import EXECUTION_TRACES_TABLE
+from .storage.records import sync_skill_fts
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 from .traces.analysis import (
     apply_recovery_annotations,
@@ -43,6 +44,7 @@ async def stratified_traces(
             JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
             WHERE traces.skill_id = ? AND traces.success = 0
               AND {active_skill_predicate("skills")}
+              AND traces.strategy_processed_at IS NULL
             ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, bucket_size),
@@ -56,6 +58,7 @@ async def stratified_traces(
             JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
             WHERE traces.skill_id = ? AND traces.success = 1
               AND {active_skill_predicate("skills")}
+              AND traces.strategy_processed_at IS NULL
             ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, bucket_size),
@@ -69,6 +72,7 @@ async def stratified_traces(
             JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
             WHERE traces.skill_id = ?
               AND {active_skill_predicate("skills")}
+              AND traces.strategy_processed_at IS NULL
             ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, limit),
@@ -92,13 +96,18 @@ async def maybe_extract_strategy(
     skill_category: str,
     total_attempts: int,
     success_rate: float,
-) -> None:
+) -> bool:
     """Conditionally run LLM strategy extraction and persist the result."""
     if strategy_extractor is None:
-        return
+        return False
+    async with sqlite_connection_async(db_path) as db:
+        async with db.execute("SELECT strategy_revision FROM procedural_skills WHERE skill_id = ?", (skill_id,)) as cursor:
+            snapshot = await cursor.fetchone()
+    if snapshot is None:
+        return False
     traces = await stratified_traces(db_path=db_path, skill_id=skill_id, limit=20)
     if not traces:
-        return
+        return False
 
     duration_baseline = await get_duration_baseline(db_path=db_path, skill_id=skill_id)
     await enrich_with_recovery(db_path=db_path, traces=traces, current_skill_id=skill_id)
@@ -112,8 +121,12 @@ async def maybe_extract_strategy(
         duration_baseline=duration_baseline,
     )
     if strategy is None:
-        return
-    await persist_strategy(db_path=db_path, skill_id=skill_id, strategy=strategy)
+        return False
+    return await persist_strategy(
+        db_path=db_path, skill_id=skill_id, strategy=strategy,
+        expected_revision=int(snapshot[0]),
+        covered_trace_ids=[str(trace["trace_id"]) for trace in traces],
+    )
 
 
 async def get_duration_baseline(*, db_path: str, skill_id: str) -> Dict[str, float]:
@@ -172,35 +185,44 @@ async def persist_strategy(
     db_path: str,
     skill_id: str,
     strategy: ExtractedStrategy,
-) -> None:
-    """Write extracted strategy to the procedural_skills row and reset pending count."""
+    expected_revision: int | None = None,
+    covered_trace_ids: list[str] | None = None,
+) -> bool:
+    """Publish one strategy and mark only its sampled traces as consumed."""
     now = time.time()
     strategy_json = strategy.to_json()
-    context_affinity_json = json.dumps(strategy.context_preferences, ensure_ascii=False)
     async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
         await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            f"SELECT * FROM procedural_skills AS skills WHERE skill_id = ? AND {active_skill_predicate('skills')}",
+            (skill_id,),
+        ) as cursor:
+            current = await cursor.fetchone()
+        if current is None or (expected_revision is not None and int(current["strategy_revision"]) != expected_revision):
+            await db.rollback()
+            return False
+        trace_ids = list(dict.fromkeys(covered_trace_ids or []))
+        if trace_ids:
+            await db.execute(
+                f"UPDATE {EXECUTION_TRACES_TABLE} SET strategy_processed_at = ? WHERE skill_id = ? AND strategy_processed_at IS NULL AND trace_id IN (SELECT value FROM json_each(?))",
+                (now, skill_id, json.dumps(trace_ids)),
+            )
         await db.execute(
             f"""
-            UPDATE procedural_skills AS skills
-            SET optimized_prompt = ?,
-                context_affinity = ?,
-                optimization_score = ?,
-                pending_trace_count = 0,
-                updated_at = ?
-            WHERE skills.skill_id = ?
-              AND {active_skill_predicate("skills")}
+            UPDATE procedural_skills SET optimized_prompt = ?, context_affinity = ?,
+                optimization_score = ?, strategy_revision = strategy_revision + 1,
+                embedding_status = CASE WHEN embedding_status = 'disabled' THEN 'disabled' ELSE 'pending' END,
+                pending_trace_count = (SELECT COUNT(*) FROM {EXECUTION_TRACES_TABLE} WHERE skill_id = ? AND strategy_processed_at IS NULL),
+                updated_at = ? WHERE skill_id = ?
             """,
-            (
-                strategy_json,
-                context_affinity_json,
-                strategy.confidence,
-                now,
-                skill_id,
-            ),
+            (strategy_json, json.dumps(strategy.context_preferences, ensure_ascii=False), strategy.confidence, skill_id, now, skill_id),
+        )
+        await sync_skill_fts(
+            db, skill_id=skill_id, skill_name=str(current["skill_name"]),
+            skill_category=str(current["skill_category"]), optimized_prompt=strategy_json,
+            replace_existing=True,
         )
         await db.commit()
-    logger.info(
-        "L4 strategy persisted for skill %s (confidence=%.2f)",
-        skill_id,
-        strategy.confidence,
-    )
+    logger.info("L4 strategy persisted for skill %s (confidence=%.2f)", skill_id, strategy.confidence)
+    return True
