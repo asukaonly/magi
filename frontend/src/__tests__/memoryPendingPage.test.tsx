@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { MemoryRouter } from 'react-router';
 
 import { MemoryPendingPage } from '@/pages/memory-pages/MemoryPendingPage';
 import { memoryApi } from '@/api/modules/memory';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import { listNotifications, resolveConflict } from '@/api/modules/notifications';
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -711,4 +714,48 @@ describe('MemoryPendingPage', () => {
     expect(await screen.findByText('现在没有需要处理的内容')).toBeInTheDocument();
     expect(screen.getByText('Magi 有新的判断或经历线索时会放到这里。')).toBeInTheDocument();
   });
+  it('keeps loaded sections visible and retries only the failed section', async () => {
+    vi.mocked(memoryStoriesApi.list).mockRejectedValueOnce(new Error('unavailable'));
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByRole('alert')).toHaveTextContent('memory.pending.loadFailed');
+    expect(screen.queryByText('现在没有需要处理的内容')).not.toBeInTheDocument();
+    expect(screen.getByText('我整理出一个关于你的判断：「本地优先的记忆系统」')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'memory.pending.retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
+    expect(memoryStoriesApi.list).toHaveBeenCalledTimes(2);
+    expect(memoryApi.getDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an item available and reports failed confirmation', async () => {
+    vi.mocked(memoryApi.submitAssertionFeedback).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderPage();
+    const card = await screen.findByTestId('pending-assertion-assert-1');
+    await user.click(within(card).getByRole('button', { name: '是的' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('memory.pending.actionFailed'));
+    expect(card).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '是的' })).toBeEnabled();
+  });
+
+  it('preserves an unsaved edit when saving fails', async () => {
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [{
+      review_id: 'review-edit-failed', kind: 'goal_currentness', reason_code: 'goal_ambiguous_time',
+      proposed: { trait_value: '原来的计划' }, claim_ids: [], version: 1,
+    }], total: 1 } as never);
+    vi.mocked(memoryApi.resolvePendingReview).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderPage();
+    const card = await screen.findByTestId('pending-review-review-edit-failed');
+    await user.click(within(card).getByRole('button', { name: '修改' }));
+    const input = await screen.findByLabelText('记忆内容');
+    await user.clear(input);
+    await user.type(input, '明年春天去海边');
+    await user.click(screen.getByRole('button', { name: '确认并写入' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('memory.pending.actionFailed'));
+    expect(input).toHaveValue('明年春天去海边');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
 });

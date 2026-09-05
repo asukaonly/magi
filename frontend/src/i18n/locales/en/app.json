@@ -3254,6 +3254,10 @@
       }
     },
     "pending": {
+      "loadFailed": "Could not load {{section}}. Other loaded items remain available.",
+      "actionFailed": "The action did not finish. Your content and selection are saved; please retry.",
+      "retry": "Retry",
+      "loadSections": {"reviews": "memory reviews", "assertions": "judgments", "stories": "summaries", "seeds": "experience signals", "conflicts": "conflicts"},
       "title": "Pending",
       "subtitle": "Memory signals that need your judgment live here.",
       "totalCount": "{{count}} item(s)",

@@ -3252,6 +3252,10 @@
       }
     },
     "pending": {
+      "loadFailed": "{{section}}加载失败，已加载的内容仍可查看。",
+      "actionFailed": "操作未完成，内容和选择已保留，请重试。",
+      "retry": "重试",
+      "loadSections": {"reviews": "待确认记忆", "assertions": "待确认判断", "stories": "总结", "seeds": "经历线索", "conflicts": "冲突"},
       "title": "待确认",
       "subtitle": "需要你判断的记忆线索都在这里。",
       "totalCount": "{{count}} 条",

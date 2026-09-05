@@ -3016,3 +3016,9 @@ Strategy extraction consumes only the sampled, unprocessed trace IDs under an
 expected revision. Executions arriving during extraction remain pending, and a
 slower extraction cannot overwrite a newer strategy. The first execution counts
 as pending; trace pruning reconciles the retained pending backlog.
+
+Pending review loading is independent per section. A failed request displays a
+section-specific retry and cannot masquerade as an empty inbox or discard other
+loaded sections. Failed single-item and edit actions preserve the item, current
+selection, and unsaved edit, with a visible error. Batch actions retain failed
+selections and report partial success.
