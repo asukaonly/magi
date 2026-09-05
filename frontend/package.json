@@ -32,8 +32,10 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "check": "npm run type-check && npm run lint && npm run check:boundaries",
-    "check:full": "npm run check && npm run test:ci && npm run build"
+    "check": "npm run type-check && npm run lint && npm run check:boundaries && npm run contracts:check",
+    "check:full": "npm run check && npm run test:ci && npm run build",
+    "contracts:generate": "node scripts/generate-config-contracts.mjs",
+    "contracts:check": "node scripts/generate-config-contracts.mjs --check"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -94,12 +96,14 @@
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@vitejs/plugin-react": "^6.0.2",
+    "ajv": "^8.20.0",
     "autoprefixer": "^10.4.16",
     "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^16.5.0",
     "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.24",
     "typescript": "^5.3.3",
     "typescript-eslint": "^8.65.0",

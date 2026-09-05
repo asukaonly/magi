@@ -125,6 +125,9 @@ jobs:
       - name: Check SQLite ownership contract
         run: python scripts/check-sqlite-ownership.py
 
+      - name: Check frontend configuration contracts
+        run: python scripts/export-frontend-contracts.py --check
+
       - name: Export Python OpenAPI contract
         run: python scripts/export-python-openapi.py --output /tmp/magi-python-openapi.json
 

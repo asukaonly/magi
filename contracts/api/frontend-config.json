@@ -1,0 +1,2436 @@
+{
+  "components": {
+    "schemas": {
+      "AgentConfigModel": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "Magi AI Agent Framework",
+            "title": "Description"
+          },
+          "name": {
+            "default": "magi-agent",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "AgentConfigModel",
+        "type": "object"
+      },
+      "BootstrapConfigModel": {
+        "properties": {
+          "max_rounds": {
+            "default": 3,
+            "title": "Max Rounds",
+            "type": "integer"
+          },
+          "opening_examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Opening Examples",
+            "type": "array"
+          },
+          "opening_line": {
+            "default": "",
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "style_instruction": {
+            "default": "",
+            "title": "Style Instruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "style_instruction",
+          "opening_line",
+          "max_rounds",
+          "opening_examples"
+        ],
+        "title": "BootstrapConfigModel",
+        "type": "object"
+      },
+      "ConfigResponse": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "data"
+        ],
+        "title": "ConfigResponse",
+        "type": "object"
+      },
+      "CrossEncoderConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "managed_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Managed Model Id"
+          }
+        },
+        "required": [
+          "enabled",
+          "managed_model_id"
+        ],
+        "title": "CrossEncoderConfigModel",
+        "type": "object"
+      },
+      "DiagnosticsConfigModel": {
+        "properties": {
+          "full_content_logging_enabled": {
+            "default": true,
+            "title": "Full Content Logging Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "full_content_logging_enabled"
+        ],
+        "title": "DiagnosticsConfigModel",
+        "type": "object"
+      },
+      "DismissalKind": {
+        "description": "How the user dismissed a suggestion. Determines the TTL applied.",
+        "enum": [
+          "transient",
+          "explicit",
+          "never"
+        ],
+        "title": "DismissalKind",
+        "type": "string"
+      },
+      "DismissalRecord": {
+        "properties": {
+          "dedupe_key": {
+            "title": "Dedupe Key",
+            "type": "string"
+          },
+          "dismissed_at": {
+            "format": "date-time",
+            "title": "Dismissed At",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DismissalKind"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          }
+        },
+        "required": [
+          "dedupe_key",
+          "dismissed_at",
+          "kind",
+          "title"
+        ],
+        "title": "DismissalRecord",
+        "type": "object"
+      },
+      "EmbeddingConfigModel": {
+        "properties": {
+          "local": {
+            "$ref": "#/components/schemas/EmbeddingLocalConfigModel"
+          },
+          "mode": {
+            "default": "remote",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "local"
+        ],
+        "title": "EmbeddingConfigModel",
+        "type": "object"
+      },
+      "EmbeddingLocalConfigModel": {
+        "properties": {
+          "idle_timeout_seconds": {
+            "default": 1800,
+            "minimum": 60,
+            "title": "Idle Timeout Seconds",
+            "type": "integer"
+          },
+          "managed_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Managed Model Id"
+          },
+          "model_dir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Dir Path"
+          },
+          "model_source": {
+            "default": "managed",
+            "title": "Model Source",
+            "type": "string"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Variant"
+          }
+        },
+        "required": [
+          "model_source",
+          "managed_model_id",
+          "model_dir_path",
+          "idle_timeout_seconds",
+          "variant"
+        ],
+        "title": "EmbeddingLocalConfigModel",
+        "type": "object"
+      },
+      "EntitySemanticEdgeConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EntitySemanticEdgeConfigModel",
+        "type": "object"
+      },
+      "GraphSpreadingConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "GraphSpreadingConfigModel",
+        "type": "object"
+      },
+      "IdentityCoreModel": {
+        "properties": {
+          "attention_biases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Attention Biases",
+            "type": "array"
+          },
+          "identity_statement": {
+            "default": "",
+            "title": "Identity Statement",
+            "type": "string"
+          },
+          "values_loved": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values Loved",
+            "type": "array"
+          },
+          "values_rejected": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values Rejected",
+            "type": "array"
+          }
+        },
+        "required": [
+          "identity_statement",
+          "values_loved",
+          "values_rejected",
+          "attention_biases"
+        ],
+        "title": "IdentityCoreModel",
+        "type": "object"
+      },
+      "IdiolectModel": {
+        "properties": {
+          "chattiness": {
+            "default": 0.5,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Chattiness",
+            "type": "number"
+          },
+          "sentence_style": {
+            "default": "",
+            "title": "Sentence Style",
+            "type": "string"
+          },
+          "structural_quirks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Structural Quirks",
+            "type": "array"
+          },
+          "vocab_available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Vocab Available",
+            "type": "array"
+          },
+          "vocab_avoided": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Vocab Avoided",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sentence_style",
+          "vocab_available",
+          "vocab_avoided",
+          "structural_quirks",
+          "chattiness"
+        ],
+        "title": "IdiolectModel",
+        "type": "object"
+      },
+      "LLMCapabilitiesSettings": {
+        "description": "Declared capability flags for the active LLM.",
+        "properties": {
+          "embedding": {
+            "default": false,
+            "title": "Embedding",
+            "type": "boolean"
+          },
+          "image_output": {
+            "default": false,
+            "title": "Image Output",
+            "type": "boolean"
+          },
+          "reasoning": {
+            "default": true,
+            "title": "Reasoning",
+            "type": "boolean"
+          },
+          "tool_calling": {
+            "default": true,
+            "title": "Tool Calling",
+            "type": "boolean"
+          },
+          "vision": {
+            "default": false,
+            "title": "Vision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vision",
+          "image_output",
+          "tool_calling",
+          "reasoning",
+          "embedding"
+        ],
+        "title": "LLMCapabilitiesSettings",
+        "type": "object"
+      },
+      "LLMCapabilityOverridesSettings": {
+        "description": "Per-model capability overrides applied on top of registry metadata.",
+        "properties": {
+          "embedding": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Embedding"
+          },
+          "image_output": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Output"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reasoning"
+          },
+          "tool_calling": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tool Calling"
+          },
+          "vision": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Vision"
+          }
+        },
+        "required": [
+          "vision",
+          "image_output",
+          "tool_calling",
+          "reasoning",
+          "embedding"
+        ],
+        "title": "LLMCapabilityOverridesSettings",
+        "type": "object"
+      },
+      "LLMConcurrencyOverrideSettings": {
+        "description": "Shared concurrency override for a concrete provider-model family.",
+        "properties": {
+          "max_concurrency": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Concurrency"
+          }
+        },
+        "required": [
+          "max_concurrency"
+        ],
+        "title": "LLMConcurrencyOverrideSettings",
+        "type": "object"
+      },
+      "LLMConfigModel": {
+        "properties": {
+          "model_runtime_overrides": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LLMConcurrencyOverrideSettings"
+            },
+            "title": "Model Runtime Overrides",
+            "type": "object"
+          },
+          "providers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LLMProviderConfigModel"
+            },
+            "title": "Providers",
+            "type": "object"
+          },
+          "selections": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LLMSelectionConfigModel"
+            },
+            "title": "Selections",
+            "type": "object"
+          }
+        },
+        "required": [
+          "providers",
+          "selections",
+          "model_runtime_overrides"
+        ],
+        "title": "LLMConfigModel",
+        "type": "object"
+      },
+      "LLMLimitsOverrideSettings": {
+        "description": "Per-model numeric limit overrides applied on top of registry metadata.",
+        "properties": {
+          "context_window": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Context Window"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Output Tokens"
+          },
+          "max_schema_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Schema Tokens"
+          },
+          "max_tool_schemas": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tool Schemas"
+          }
+        },
+        "required": [
+          "context_window",
+          "max_output_tokens",
+          "max_tool_schemas",
+          "max_schema_tokens"
+        ],
+        "title": "LLMLimitsOverrideSettings",
+        "type": "object"
+      },
+      "LLMModelCostModel": {
+        "description": "Provider-published pricing metadata for a model.",
+        "properties": {
+          "cache_write_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cache Write Per Million Tokens"
+          },
+          "cached_input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cached Input Per Million Tokens"
+          },
+          "currency": {
+            "default": "USD",
+            "title": "Currency",
+            "type": "string"
+          },
+          "input_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Per Million Tokens"
+          },
+          "output_per_million_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Per Million Tokens"
+          },
+          "per_image": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Per Image"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Note"
+          }
+        },
+        "required": [
+          "currency",
+          "input_per_million_tokens",
+          "cached_input_per_million_tokens",
+          "cache_write_per_million_tokens",
+          "output_per_million_tokens",
+          "per_image",
+          "source",
+          "source_note"
+        ],
+        "title": "LLMModelCostModel",
+        "type": "object"
+      },
+      "LLMModelMetadataOverrideSettings": {
+        "description": "User-defined metadata override for any provider model.",
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/LLMCapabilityOverridesSettings"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMModelCostModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description"
+          },
+          "dimensions": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dimensions"
+          },
+          "hidden": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Hidden"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Icon"
+          },
+          "input_modalities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Modalities"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LLMLimitsOverrideSettings"
+          },
+          "output_modalities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Modalities"
+          },
+          "preferred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Preferred"
+          },
+          "provider_options_example": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Options Example"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Note"
+          },
+          "vendor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelVendor"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Behavioral vendor override. Set this on custom-gateway models (OneAPI etc.) so the runtime picks the correct reasoning / tool-calling payload shape rather than guessing from URL."
+          }
+        },
+        "required": [
+          "label",
+          "description",
+          "icon",
+          "vendor",
+          "capabilities",
+          "limits",
+          "input_modalities",
+          "output_modalities",
+          "provider_options_example",
+          "cost",
+          "hidden",
+          "preferred",
+          "source_note",
+          "dimensions"
+        ],
+        "title": "LLMModelMetadataOverrideSettings",
+        "type": "object"
+      },
+      "LLMProviderConfigModel": {
+        "properties": {
+          "api_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Format"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Url"
+          },
+          "custom_default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Custom Default Model"
+          },
+          "custom_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Custom Models",
+            "type": "array"
+          },
+          "display_name": {
+            "default": "OpenAI",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model_metadata_overrides": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LLMModelMetadataOverrideSettings"
+            },
+            "title": "Model Metadata Overrides",
+            "type": "object"
+          },
+          "provider_plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provider Plan"
+          },
+          "provider_type": {
+            "default": "openai",
+            "title": "Provider Type",
+            "type": "string"
+          },
+          "services": {
+            "$ref": "#/components/schemas/LLMProviderServicesConfigModel"
+          }
+        },
+        "required": [
+          "enabled",
+          "provider_type",
+          "display_name",
+          "provider_plan",
+          "api_key",
+          "base_url",
+          "services",
+          "api_format",
+          "custom_models",
+          "custom_default_model",
+          "model_metadata_overrides"
+        ],
+        "title": "LLMProviderConfigModel",
+        "type": "object"
+      },
+      "LLMProviderConnectionConfigModel": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Url"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "api_key",
+          "base_url"
+        ],
+        "title": "LLMProviderConnectionConfigModel",
+        "type": "object"
+      },
+      "LLMProviderImageGenerationConfigModel": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Url"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "native_protocol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Native Protocol"
+          },
+          "timeout": {
+            "default": 180,
+            "minimum": 1,
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "api_key",
+          "base_url",
+          "timeout",
+          "native_protocol"
+        ],
+        "title": "LLMProviderImageGenerationConfigModel",
+        "type": "object"
+      },
+      "LLMProviderServicesConfigModel": {
+        "properties": {
+          "chat": {
+            "$ref": "#/components/schemas/LLMProviderConnectionConfigModel"
+          },
+          "embedding": {
+            "$ref": "#/components/schemas/LLMProviderConnectionConfigModel"
+          },
+          "image_generation": {
+            "$ref": "#/components/schemas/LLMProviderImageGenerationConfigModel"
+          },
+          "tts": {
+            "$ref": "#/components/schemas/LLMProviderTTSConfigModel"
+          }
+        },
+        "required": [
+          "chat",
+          "embedding",
+          "image_generation",
+          "tts"
+        ],
+        "title": "LLMProviderServicesConfigModel",
+        "type": "object"
+      },
+      "LLMProviderTTSConfigModel": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Api Key"
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Base Url"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "response_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Response Format"
+          },
+          "voice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voice"
+          }
+        },
+        "required": [
+          "enabled",
+          "api_key",
+          "base_url",
+          "model",
+          "voice",
+          "response_format"
+        ],
+        "title": "LLMProviderTTSConfigModel",
+        "type": "object"
+      },
+      "LLMSelectionConfigModel": {
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/LLMCapabilitiesSettings"
+          },
+          "capability_override_enabled": {
+            "default": false,
+            "title": "Capability Override Enabled",
+            "type": "boolean"
+          },
+          "embedding_dimension": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Embedding Dimension"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LLMSelectionLimitsSettings"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "provider_id": {
+            "default": "",
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "provider_options": {
+            "additionalProperties": true,
+            "title": "Provider Options",
+            "type": "object"
+          }
+        },
+        "required": [
+          "provider_id",
+          "model",
+          "embedding_dimension",
+          "capability_override_enabled",
+          "capabilities",
+          "limits",
+          "provider_options"
+        ],
+        "title": "LLMSelectionConfigModel",
+        "type": "object"
+      },
+      "LLMSelectionLimitsSettings": {
+        "description": "Per-scenario numeric limits that remain local to scenario selection.",
+        "properties": {
+          "context_window": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Context Window"
+          },
+          "max_output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Output Tokens"
+          },
+          "max_schema_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Schema Tokens"
+          },
+          "max_tool_schemas": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Tool Schemas"
+          }
+        },
+        "required": [
+          "context_window",
+          "max_output_tokens",
+          "max_tool_schemas",
+          "max_schema_tokens"
+        ],
+        "title": "LLMSelectionLimitsSettings",
+        "type": "object"
+      },
+      "LayerModifiersModel": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "MemoryConfigModel": {
+        "properties": {
+          "archive_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "~/.magi/data/memory/archive",
+            "title": "Archive Path"
+          },
+          "db_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "~/.magi/data/memory",
+            "title": "Db Path"
+          },
+          "embedding": {
+            "$ref": "#/components/schemas/EmbeddingConfigModel"
+          },
+          "entity_semantic_edges": {
+            "$ref": "#/components/schemas/EntitySemanticEdgeConfigModel"
+          },
+          "graph_spreading": {
+            "$ref": "#/components/schemas/GraphSpreadingConfigModel"
+          },
+          "history_behavior": {
+            "default": "delete",
+            "title": "History Behavior",
+            "type": "string"
+          },
+          "l0": {
+            "$ref": "#/components/schemas/MemoryL0ConfigModel"
+          },
+          "l1": {
+            "$ref": "#/components/schemas/MemoryL1ConfigModel"
+          },
+          "l2": {
+            "$ref": "#/components/schemas/MemoryL2ConfigModel"
+          },
+          "l3": {
+            "$ref": "#/components/schemas/MemoryL3ConfigModel"
+          },
+          "l4": {
+            "$ref": "#/components/schemas/MemoryL4ConfigModel"
+          },
+          "query_expansion": {
+            "$ref": "#/components/schemas/QueryExpansionConfigModel"
+          },
+          "reranker": {
+            "$ref": "#/components/schemas/MemoryRerankerConfigModel"
+          },
+          "retention_days": {
+            "default": 90,
+            "minimum": 1,
+            "title": "Retention Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "db_path",
+          "retention_days",
+          "history_behavior",
+          "archive_path",
+          "embedding",
+          "reranker",
+          "query_expansion",
+          "graph_spreading",
+          "entity_semantic_edges",
+          "l0",
+          "l1",
+          "l2",
+          "l3",
+          "l4"
+        ],
+        "title": "MemoryConfigModel",
+        "type": "object"
+      },
+      "MemoryL0ConfigModel": {
+        "properties": {
+          "attention_update_idle_seconds": {
+            "default": 30,
+            "maximum": 300,
+            "minimum": 1,
+            "title": "Attention Update Idle Seconds",
+            "type": "integer"
+          },
+          "attention_update_max_delay_seconds": {
+            "default": 90,
+            "maximum": 600,
+            "minimum": 1,
+            "title": "Attention Update Max Delay Seconds",
+            "type": "integer"
+          },
+          "attention_update_turn_threshold": {
+            "default": 3,
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Attention Update Turn Threshold",
+            "type": "integer"
+          },
+          "checkpoint_interval_seconds": {
+            "default": 30,
+            "minimum": 1,
+            "title": "Checkpoint Interval Seconds",
+            "type": "integer"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "checkpoint_interval_seconds",
+          "attention_update_turn_threshold",
+          "attention_update_idle_seconds",
+          "attention_update_max_delay_seconds"
+        ],
+        "title": "MemoryL0ConfigModel",
+        "type": "object"
+      },
+      "MemoryL1ConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "retention_days": {
+            "default": 30,
+            "minimum": 1,
+            "title": "Retention Days",
+            "type": "integer"
+          },
+          "vectors_enabled": {
+            "default": true,
+            "title": "Vectors Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "retention_days",
+          "vectors_enabled"
+        ],
+        "title": "MemoryL1ConfigModel",
+        "type": "object"
+      },
+      "MemoryL2ConfigModel": {
+        "properties": {
+          "auto_extract_relations": {
+            "default": true,
+            "title": "Auto Extract Relations",
+            "type": "boolean"
+          },
+          "batch_flush_interval_seconds": {
+            "default": 60,
+            "minimum": 30,
+            "title": "Batch Flush Interval Seconds",
+            "type": "integer"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "portrait_projection_refresh_delay_seconds": {
+            "default": 120.0,
+            "minimum": 0.0,
+            "title": "Portrait Projection Refresh Delay Seconds",
+            "type": "number"
+          },
+          "shadow_conflict_notification_enabled": {
+            "default": true,
+            "title": "Shadow Conflict Notification Enabled",
+            "type": "boolean"
+          },
+          "vectors_enabled": {
+            "default": true,
+            "title": "Vectors Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "vectors_enabled",
+          "batch_flush_interval_seconds",
+          "auto_extract_relations",
+          "shadow_conflict_notification_enabled",
+          "portrait_projection_refresh_delay_seconds"
+        ],
+        "title": "MemoryL2ConfigModel",
+        "type": "object"
+      },
+      "MemoryL3ConfigModel": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "llm_summary_enabled": {
+            "default": true,
+            "title": "Llm Summary Enabled",
+            "type": "boolean"
+          },
+          "retention_days": {
+            "default": 180,
+            "minimum": 1,
+            "title": "Retention Days",
+            "type": "integer"
+          },
+          "temporal_llm_min_event_count": {
+            "default": 2,
+            "minimum": 1,
+            "title": "Temporal Llm Min Event Count",
+            "type": "integer"
+          },
+          "temporal_llm_timeout_seconds": {
+            "default": 3.0,
+            "minimum": 0.1,
+            "title": "Temporal Llm Timeout Seconds",
+            "type": "number"
+          },
+          "vectors_enabled": {
+            "default": true,
+            "title": "Vectors Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "retention_days",
+          "vectors_enabled",
+          "llm_summary_enabled",
+          "temporal_llm_timeout_seconds",
+          "temporal_llm_min_event_count"
+        ],
+        "title": "MemoryL3ConfigModel",
+        "type": "object"
+      },
+      "MemoryL4ConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "inactive_skill_min_attempts": {
+            "default": 5,
+            "minimum": 1,
+            "title": "Inactive Skill Min Attempts",
+            "type": "integer"
+          },
+          "inactive_skill_retention_days": {
+            "default": 30,
+            "minimum": 1,
+            "title": "Inactive Skill Retention Days",
+            "type": "integer"
+          },
+          "vectors_enabled": {
+            "default": true,
+            "title": "Vectors Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "vectors_enabled",
+          "inactive_skill_retention_days",
+          "inactive_skill_min_attempts"
+        ],
+        "title": "MemoryL4ConfigModel",
+        "type": "object"
+      },
+      "MemoryRerankerConfigModel": {
+        "properties": {
+          "cross_encoder": {
+            "$ref": "#/components/schemas/CrossEncoderConfigModel"
+          },
+          "top_k": {
+            "default": 8,
+            "minimum": 1,
+            "title": "Top K",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "top_k",
+          "cross_encoder"
+        ],
+        "title": "MemoryRerankerConfigModel",
+        "type": "object"
+      },
+      "ModelVendor": {
+        "description": "The behavioral vendor a model belongs to.\n\n``provider`` is *who hosts the endpoint* (which can be an OneAPI-style\ngateway). ``vendor`` is *who built the model* and therefore decides\npayload shape: how reasoning is expressed, how tool-calling is\nserialized, where system prompts live, etc.\n\nA single OneAPI gateway may proxy ``glm-4-plus`` (vendor=GLM),\n``qwen-max`` (vendor=DASHSCOPE), and ``claude-sonnet-4-6``\n(vendor=ANTHROPIC) under the same ``provider``. Routing dialects off\nprovider name would misroute each of these; routing off vendor is\ncorrect.\n\n``GENERIC`` means \"OpenAI-compatible transport, no vendor-specific\nextensions\"; reasoning / thinking knobs are not injected.",
+        "enum": [
+          "openai",
+          "deepseek",
+          "anthropic",
+          "glm",
+          "dashscope",
+          "grok",
+          "gemini",
+          "kimi",
+          "minimax",
+          "generic"
+        ],
+        "title": "ModelVendor",
+        "type": "string"
+      },
+      "NetworkProxyConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "host": {
+            "default": "127.0.0.1",
+            "title": "Host",
+            "type": "string"
+          },
+          "password": {
+            "default": "",
+            "title": "Password",
+            "type": "string"
+          },
+          "port": {
+            "default": 7890,
+            "maximum": 65535,
+            "minimum": 1,
+            "title": "Port",
+            "type": "integer"
+          },
+          "proxy_type": {
+            "default": "http",
+            "title": "Proxy Type",
+            "type": "string"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "proxy_type",
+          "host",
+          "port",
+          "username",
+          "password"
+        ],
+        "title": "NetworkProxyConfigModel",
+        "type": "object"
+      },
+      "OnboardingStatusDataModel": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "completed"
+        ],
+        "title": "OnboardingStatusDataModel",
+        "type": "object"
+      },
+      "OnboardingStatusResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OnboardingStatusDataModel"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "data"
+        ],
+        "title": "OnboardingStatusResponse",
+        "type": "object"
+      },
+      "OnboardingTemplateDataModel": {
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/SystemConfigModel"
+          }
+        },
+        "required": [
+          "config"
+        ],
+        "title": "OnboardingTemplateDataModel",
+        "type": "object"
+      },
+      "OnboardingTemplateResponse": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OnboardingTemplateDataModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message",
+          "data"
+        ],
+        "title": "OnboardingTemplateResponse",
+        "type": "object"
+      },
+      "PersonaLayerModel": {
+        "properties": {
+          "layer_id": {
+            "default": "",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "modifiers": {
+            "$ref": "#/components/schemas/LayerModifiersModel"
+          },
+          "unlock_condition": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Unlock Condition"
+          }
+        },
+        "required": [
+          "layer_id",
+          "unlock_condition",
+          "modifiers"
+        ],
+        "title": "PersonaLayerModel",
+        "type": "object"
+      },
+      "PersonalityConfigModel": {
+        "properties": {
+          "appearance_prompt": {
+            "default": "",
+            "title": "Appearance Prompt",
+            "type": "string"
+          },
+          "avatar": {
+            "default": "",
+            "title": "Avatar",
+            "type": "string"
+          },
+          "bootstrap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "dynamic_state_rules": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Dynamic State Rules",
+            "type": "object"
+          },
+          "identity_core": {
+            "$ref": "#/components/schemas/IdentityCoreModel"
+          },
+          "idiolect": {
+            "$ref": "#/components/schemas/IdiolectModel"
+          },
+          "interim_lines": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Interim Lines",
+            "type": "object"
+          },
+          "milestone_conditions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Milestone Conditions",
+            "type": "object"
+          },
+          "name": {
+            "default": "AI Assistant",
+            "title": "Name",
+            "type": "string"
+          },
+          "persona_layers": {
+            "items": {
+              "$ref": "#/components/schemas/PersonaLayerModel"
+            },
+            "title": "Persona Layers",
+            "type": "array"
+          },
+          "quiet_hours": {
+            "items": {
+              "$ref": "#/components/schemas/QuietHourModel"
+            },
+            "title": "Quiet Hours",
+            "type": "array"
+          },
+          "registers": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RegisterModel"
+            },
+            "title": "Registers",
+            "type": "object"
+          },
+          "signature_triggers": {
+            "items": {
+              "$ref": "#/components/schemas/SignatureTriggerModel"
+            },
+            "title": "Signature Triggers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "avatar",
+          "description",
+          "appearance_prompt",
+          "identity_core",
+          "idiolect",
+          "registers",
+          "quiet_hours",
+          "signature_triggers",
+          "persona_layers",
+          "dynamic_state_rules",
+          "milestone_conditions",
+          "interim_lines",
+          "bootstrap"
+        ],
+        "title": "PersonalityConfigModel",
+        "type": "object"
+      },
+      "PersonalitySettingsModel": {
+        "properties": {
+          "deep_persona_enabled": {
+            "default": true,
+            "title": "Deep Persona Enabled",
+            "type": "boolean"
+          },
+          "state_memory_enabled": {
+            "default": true,
+            "title": "State Memory Enabled",
+            "type": "boolean"
+          },
+          "state_transition_enabled": {
+            "default": true,
+            "title": "State Transition Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state_memory_enabled",
+          "state_transition_enabled",
+          "deep_persona_enabled"
+        ],
+        "title": "PersonalitySettingsModel",
+        "type": "object"
+      },
+      "QueryExpansionConfigModel": {
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "max_expansions": {
+            "default": 2,
+            "maximum": 5,
+            "minimum": 1,
+            "title": "Max Expansions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "max_expansions"
+        ],
+        "title": "QueryExpansionConfigModel",
+        "type": "object"
+      },
+      "QuietHourModel": {
+        "properties": {
+          "clamps": {
+            "additionalProperties": true,
+            "title": "Clamps",
+            "type": "object"
+          },
+          "condition": {
+            "default": "",
+            "title": "Condition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "condition",
+          "clamps"
+        ],
+        "title": "QuietHourModel",
+        "type": "object"
+      },
+      "RegisterModel": {
+        "properties": {
+          "behavior": {
+            "default": "",
+            "title": "Behavior",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "examples": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "description",
+          "behavior",
+          "examples"
+        ],
+        "title": "RegisterModel",
+        "type": "object"
+      },
+      "SignatureTriggerModel": {
+        "properties": {
+          "activates_when": {
+            "default": "",
+            "title": "Activates When",
+            "type": "string"
+          },
+          "behavior_shift": {
+            "default": "",
+            "title": "Behavior Shift",
+            "type": "string"
+          },
+          "exit_behavior": {
+            "default": "",
+            "title": "Exit Behavior",
+            "type": "string"
+          },
+          "intensity_levels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Intensity Levels",
+            "type": "object"
+          },
+          "trigger_id": {
+            "default": "",
+            "title": "Trigger Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trigger_id",
+          "activates_when",
+          "behavior_shift",
+          "intensity_levels",
+          "exit_behavior"
+        ],
+        "title": "SignatureTriggerModel",
+        "type": "object"
+      },
+      "SystemConfigModel": {
+        "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/AgentConfigModel"
+          },
+          "diagnostics": {
+            "$ref": "#/components/schemas/DiagnosticsConfigModel"
+          },
+          "llm": {
+            "$ref": "#/components/schemas/LLMConfigModel"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/MemoryConfigModel"
+          },
+          "network": {
+            "$ref": "#/components/schemas/NetworkProxyConfigModel"
+          },
+          "personality": {
+            "$ref": "#/components/schemas/PersonalityConfigModel"
+          },
+          "personalitySettings": {
+            "$ref": "#/components/schemas/PersonalitySettingsModel"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/UserPreferencesModel"
+          },
+          "skills": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skills",
+            "type": "array"
+          },
+          "timeline": {
+            "$ref": "#/components/schemas/TimelineConfigModel"
+          }
+        },
+        "required": [
+          "agent",
+          "llm",
+          "memory",
+          "preferences",
+          "network",
+          "diagnostics",
+          "personality",
+          "personalitySettings",
+          "skills",
+          "timeline"
+        ],
+        "title": "SystemConfigModel",
+        "type": "object"
+      },
+      "TimelineConfigModel": {
+        "properties": {
+          "sources": {
+            "$ref": "#/components/schemas/TimelineSourcesConfigModel"
+          }
+        },
+        "required": [
+          "sources"
+        ],
+        "title": "TimelineConfigModel",
+        "type": "object"
+      },
+      "TimelineSourceConfigModel": {
+        "properties": {
+          "default_retention_mode": {
+            "default": "analyze_only",
+            "title": "Default Retention Mode",
+            "type": "string"
+          },
+          "edge_whitelist": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Edge Whitelist",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "fetch_page_content": {
+            "default": false,
+            "title": "Fetch Page Content",
+            "type": "boolean"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Path"
+          },
+          "storage_mode": {
+            "default": "managed",
+            "title": "Storage Mode",
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "default": 15,
+            "minimum": 1,
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          },
+          "sync_mode": {
+            "default": "interval",
+            "title": "Sync Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "sync_mode",
+          "sync_interval_minutes",
+          "default_retention_mode",
+          "storage_mode",
+          "source_path",
+          "fetch_page_content",
+          "edge_whitelist"
+        ],
+        "title": "TimelineSourceConfigModel",
+        "type": "object"
+      },
+      "TimelineSourcesConfigModel": {
+        "properties": {
+          "calendar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "chrome_history": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "git_activity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "netease_music": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "photo_library": {
+            "$ref": "#/components/schemas/TimelineSourceConfigModel"
+          },
+          "screen_time": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "terminal_history": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelineSourceConfigModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "photo_library",
+          "calendar",
+          "chrome_history",
+          "git_activity",
+          "screen_time",
+          "terminal_history",
+          "netease_music"
+        ],
+        "title": "TimelineSourcesConfigModel",
+        "type": "object"
+      },
+      "UserPreferencesModel": {
+        "properties": {
+          "allow_ask_in_background": {
+            "default": false,
+            "title": "Allow Ask In Background",
+            "type": "boolean"
+          },
+          "allow_interjection": {
+            "default": false,
+            "title": "Allow Interjection",
+            "type": "boolean"
+          },
+          "allow_media_grounding_for_conversation": {
+            "default": true,
+            "title": "Allow Media Grounding For Conversation",
+            "type": "boolean"
+          },
+          "auto_start_enabled": {
+            "default": false,
+            "title": "Auto Start Enabled",
+            "type": "boolean"
+          },
+          "close_to_tray_enabled": {
+            "default": true,
+            "title": "Close To Tray Enabled",
+            "type": "boolean"
+          },
+          "conversation_rhythm_enabled": {
+            "default": true,
+            "title": "Conversation Rhythm Enabled",
+            "type": "boolean"
+          },
+          "conversation_rhythm_mode": {
+            "default": "natural",
+            "title": "Conversation Rhythm Mode",
+            "type": "string"
+          },
+          "default_chat_workspace_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "~/.magi/chat-workspace",
+            "title": "Default Chat Workspace Path"
+          },
+          "desktop_notification_previews_enabled": {
+            "default": true,
+            "title": "Desktop Notification Previews Enabled",
+            "type": "boolean"
+          },
+          "desktop_notifications_enabled": {
+            "default": true,
+            "title": "Desktop Notifications Enabled",
+            "type": "boolean"
+          },
+          "first_conversation_completed": {
+            "default": false,
+            "description": "Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.",
+            "title": "First Conversation Completed",
+            "type": "boolean"
+          },
+          "language": {
+            "default": "zh",
+            "title": "Language",
+            "type": "string"
+          },
+          "onboarding_completed": {
+            "default": false,
+            "title": "Onboarding Completed",
+            "type": "boolean"
+          },
+          "product_tour_completed": {
+            "default": false,
+            "description": "True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.",
+            "title": "Product Tour Completed",
+            "type": "boolean"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Scenario"
+          },
+          "skip_quit_confirmation": {
+            "default": false,
+            "title": "Skip Quit Confirmation",
+            "type": "boolean"
+          },
+          "start_minimized": {
+            "default": false,
+            "title": "Start Minimized",
+            "type": "boolean"
+          },
+          "streaming_chat_enabled": {
+            "default": false,
+            "title": "Streaming Chat Enabled",
+            "type": "boolean"
+          },
+          "suggestion_dismissals": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DismissalRecord"
+            },
+            "description": "Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.",
+            "title": "Suggestion Dismissals",
+            "type": "object"
+          },
+          "user_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "User Mode"
+          }
+        },
+        "required": [
+          "onboarding_completed",
+          "first_conversation_completed",
+          "product_tour_completed",
+          "suggestion_dismissals",
+          "user_mode",
+          "scenario",
+          "language",
+          "close_to_tray_enabled",
+          "desktop_notifications_enabled",
+          "desktop_notification_previews_enabled",
+          "auto_start_enabled",
+          "start_minimized",
+          "skip_quit_confirmation",
+          "default_chat_workspace_path",
+          "streaming_chat_enabled",
+          "conversation_rhythm_enabled",
+          "conversation_rhythm_mode",
+          "allow_media_grounding_for_conversation",
+          "allow_interjection",
+          "allow_ask_in_background"
+        ],
+        "title": "UserPreferencesModel",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi configuration response contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

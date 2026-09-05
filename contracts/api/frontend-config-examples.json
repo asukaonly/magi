@@ -1,0 +1,644 @@
+{
+  "config": {
+    "data": {
+      "agent": {
+        "description": "Magi AI Agent Framework",
+        "name": "magi-agent"
+      },
+      "diagnostics": {
+        "full_content_logging_enabled": true
+      },
+      "llm": {
+        "model_runtime_overrides": {},
+        "providers": {
+          "openai": {
+            "api_format": null,
+            "api_key": null,
+            "base_url": null,
+            "custom_default_model": null,
+            "custom_models": [],
+            "display_name": "OpenAI",
+            "enabled": true,
+            "model_metadata_overrides": {},
+            "provider_plan": null,
+            "provider_type": "openai",
+            "services": {
+              "chat": {
+                "api_key": null,
+                "base_url": null,
+                "enabled": true
+              },
+              "embedding": {
+                "api_key": null,
+                "base_url": null,
+                "enabled": true
+              },
+              "image_generation": {
+                "api_key": null,
+                "base_url": null,
+                "enabled": false,
+                "native_protocol": null,
+                "timeout": 180
+              },
+              "tts": {
+                "api_key": null,
+                "base_url": null,
+                "enabled": false,
+                "model": null,
+                "response_format": null,
+                "voice": null
+              }
+            }
+          }
+        },
+        "selections": {
+          "auxiliary": {
+            "capabilities": {
+              "embedding": false,
+              "image_output": false,
+              "reasoning": true,
+              "tool_calling": true,
+              "vision": false
+            },
+            "capability_override_enabled": false,
+            "embedding_dimension": null,
+            "limits": {
+              "context_window": null,
+              "max_output_tokens": null,
+              "max_schema_tokens": null,
+              "max_tool_schemas": null
+            },
+            "model": "fixture-model",
+            "provider_id": "openai",
+            "provider_options": {}
+          },
+          "core": {
+            "capabilities": {
+              "embedding": false,
+              "image_output": false,
+              "reasoning": true,
+              "tool_calling": true,
+              "vision": false
+            },
+            "capability_override_enabled": false,
+            "embedding_dimension": null,
+            "limits": {
+              "context_window": null,
+              "max_output_tokens": null,
+              "max_schema_tokens": null,
+              "max_tool_schemas": null
+            },
+            "model": "fixture-model",
+            "provider_id": "openai",
+            "provider_options": {}
+          },
+          "embedding": {
+            "capabilities": {
+              "embedding": true,
+              "image_output": false,
+              "reasoning": false,
+              "tool_calling": false,
+              "vision": false
+            },
+            "capability_override_enabled": false,
+            "embedding_dimension": null,
+            "limits": {
+              "context_window": null,
+              "max_output_tokens": null,
+              "max_schema_tokens": null,
+              "max_tool_schemas": null
+            },
+            "model": "fixture-model",
+            "provider_id": "openai",
+            "provider_options": {}
+          },
+          "image_generation": {
+            "capabilities": {
+              "embedding": false,
+              "image_output": true,
+              "reasoning": false,
+              "tool_calling": false,
+              "vision": false
+            },
+            "capability_override_enabled": false,
+            "embedding_dimension": null,
+            "limits": {
+              "context_window": null,
+              "max_output_tokens": null,
+              "max_schema_tokens": null,
+              "max_tool_schemas": null
+            },
+            "model": "fixture-model",
+            "provider_id": "openai",
+            "provider_options": {}
+          },
+          "memory_summarizer": {
+            "capabilities": {
+              "embedding": false,
+              "image_output": false,
+              "reasoning": true,
+              "tool_calling": true,
+              "vision": false
+            },
+            "capability_override_enabled": false,
+            "embedding_dimension": null,
+            "limits": {
+              "context_window": null,
+              "max_output_tokens": null,
+              "max_schema_tokens": null,
+              "max_tool_schemas": null
+            },
+            "model": "fixture-model",
+            "provider_id": "openai",
+            "provider_options": {}
+          }
+        }
+      },
+      "memory": {
+        "archive_path": "~/.magi/data/memory/archive",
+        "db_path": "~/.magi/data/memory",
+        "embedding": {
+          "local": {
+            "idle_timeout_seconds": 1800,
+            "managed_model_id": null,
+            "model_dir_path": null,
+            "model_source": "managed",
+            "variant": null
+          },
+          "mode": "remote"
+        },
+        "entity_semantic_edges": {
+          "enabled": false
+        },
+        "graph_spreading": {
+          "enabled": true
+        },
+        "history_behavior": "delete",
+        "l0": {
+          "attention_update_idle_seconds": 30,
+          "attention_update_max_delay_seconds": 90,
+          "attention_update_turn_threshold": 3,
+          "checkpoint_interval_seconds": 30,
+          "enabled": true
+        },
+        "l1": {
+          "enabled": true,
+          "retention_days": 30,
+          "vectors_enabled": true
+        },
+        "l2": {
+          "auto_extract_relations": true,
+          "batch_flush_interval_seconds": 60,
+          "enabled": true,
+          "portrait_projection_refresh_delay_seconds": 120.0,
+          "shadow_conflict_notification_enabled": true,
+          "vectors_enabled": true
+        },
+        "l3": {
+          "enabled": true,
+          "llm_summary_enabled": true,
+          "retention_days": 180,
+          "temporal_llm_min_event_count": 2,
+          "temporal_llm_timeout_seconds": 3.0,
+          "vectors_enabled": true
+        },
+        "l4": {
+          "enabled": true,
+          "inactive_skill_min_attempts": 5,
+          "inactive_skill_retention_days": 30,
+          "vectors_enabled": true
+        },
+        "query_expansion": {
+          "enabled": true,
+          "max_expansions": 2
+        },
+        "reranker": {
+          "cross_encoder": {
+            "enabled": false,
+            "managed_model_id": null
+          },
+          "top_k": 8
+        },
+        "retention_days": 90
+      },
+      "network": {
+        "enabled": false,
+        "host": "127.0.0.1",
+        "password": "",
+        "port": 7890,
+        "proxy_type": "http",
+        "username": ""
+      },
+      "personality": {
+        "appearance_prompt": "",
+        "avatar": "",
+        "bootstrap": null,
+        "description": "",
+        "dynamic_state_rules": {},
+        "identity_core": {
+          "attention_biases": [],
+          "identity_statement": "",
+          "values_loved": [],
+          "values_rejected": []
+        },
+        "idiolect": {
+          "chattiness": 0.5,
+          "sentence_style": "",
+          "structural_quirks": [],
+          "vocab_available": [],
+          "vocab_avoided": []
+        },
+        "interim_lines": {},
+        "milestone_conditions": {},
+        "name": "AI Assistant",
+        "persona_layers": [],
+        "quiet_hours": [],
+        "registers": {},
+        "signature_triggers": []
+      },
+      "personalitySettings": {
+        "deep_persona_enabled": true,
+        "state_memory_enabled": true,
+        "state_transition_enabled": true
+      },
+      "preferences": {
+        "allow_ask_in_background": false,
+        "allow_interjection": false,
+        "allow_media_grounding_for_conversation": true,
+        "auto_start_enabled": false,
+        "close_to_tray_enabled": true,
+        "conversation_rhythm_enabled": true,
+        "conversation_rhythm_mode": "natural",
+        "default_chat_workspace_path": "~/.magi/chat-workspace",
+        "desktop_notification_previews_enabled": true,
+        "desktop_notifications_enabled": true,
+        "first_conversation_completed": false,
+        "language": "zh",
+        "onboarding_completed": false,
+        "product_tour_completed": false,
+        "scenario": null,
+        "skip_quit_confirmation": false,
+        "start_minimized": false,
+        "streaming_chat_enabled": false,
+        "suggestion_dismissals": {},
+        "user_mode": null
+      },
+      "skills": [],
+      "timeline": {
+        "sources": {
+          "calendar": null,
+          "chrome_history": null,
+          "git_activity": null,
+          "netease_music": null,
+          "photo_library": {
+            "default_retention_mode": "analyze_only",
+            "edge_whitelist": [
+              "CAPTURED",
+              "RELATED_TO",
+              "INTERACTED_WITH",
+              "CREATED"
+            ],
+            "enabled": false,
+            "fetch_page_content": false,
+            "source_path": null,
+            "storage_mode": "external_reference",
+            "sync_interval_minutes": 60,
+            "sync_mode": "manual"
+          },
+          "screen_time": null,
+          "terminal_history": null
+        }
+      }
+    },
+    "message": "OK",
+    "success": true
+  },
+  "failure": {
+    "data": null,
+    "message": "Configuration unavailable",
+    "success": false
+  },
+  "onboardingStatus": {
+    "data": {
+      "completed": false
+    },
+    "message": "OK",
+    "success": true
+  },
+  "onboardingTemplate": {
+    "data": {
+      "config": {
+        "agent": {
+          "description": "Magi AI Agent Framework",
+          "name": "magi-agent"
+        },
+        "diagnostics": {
+          "full_content_logging_enabled": true
+        },
+        "llm": {
+          "model_runtime_overrides": {},
+          "providers": {
+            "openai": {
+              "api_format": null,
+              "api_key": null,
+              "base_url": null,
+              "custom_default_model": null,
+              "custom_models": [],
+              "display_name": "OpenAI",
+              "enabled": true,
+              "model_metadata_overrides": {},
+              "provider_plan": null,
+              "provider_type": "openai",
+              "services": {
+                "chat": {
+                  "api_key": null,
+                  "base_url": null,
+                  "enabled": true
+                },
+                "embedding": {
+                  "api_key": null,
+                  "base_url": null,
+                  "enabled": true
+                },
+                "image_generation": {
+                  "api_key": null,
+                  "base_url": null,
+                  "enabled": false,
+                  "native_protocol": null,
+                  "timeout": 180
+                },
+                "tts": {
+                  "api_key": null,
+                  "base_url": null,
+                  "enabled": false,
+                  "model": null,
+                  "response_format": null,
+                  "voice": null
+                }
+              }
+            }
+          },
+          "selections": {
+            "auxiliary": {
+              "capabilities": {
+                "embedding": false,
+                "image_output": false,
+                "reasoning": true,
+                "tool_calling": true,
+                "vision": false
+              },
+              "capability_override_enabled": false,
+              "embedding_dimension": null,
+              "limits": {
+                "context_window": null,
+                "max_output_tokens": null,
+                "max_schema_tokens": null,
+                "max_tool_schemas": null
+              },
+              "model": "fixture-model",
+              "provider_id": "openai",
+              "provider_options": {}
+            },
+            "core": {
+              "capabilities": {
+                "embedding": false,
+                "image_output": false,
+                "reasoning": true,
+                "tool_calling": true,
+                "vision": false
+              },
+              "capability_override_enabled": false,
+              "embedding_dimension": null,
+              "limits": {
+                "context_window": null,
+                "max_output_tokens": null,
+                "max_schema_tokens": null,
+                "max_tool_schemas": null
+              },
+              "model": "fixture-model",
+              "provider_id": "openai",
+              "provider_options": {}
+            },
+            "embedding": {
+              "capabilities": {
+                "embedding": true,
+                "image_output": false,
+                "reasoning": false,
+                "tool_calling": false,
+                "vision": false
+              },
+              "capability_override_enabled": false,
+              "embedding_dimension": null,
+              "limits": {
+                "context_window": null,
+                "max_output_tokens": null,
+                "max_schema_tokens": null,
+                "max_tool_schemas": null
+              },
+              "model": "fixture-model",
+              "provider_id": "openai",
+              "provider_options": {}
+            },
+            "image_generation": {
+              "capabilities": {
+                "embedding": false,
+                "image_output": true,
+                "reasoning": false,
+                "tool_calling": false,
+                "vision": false
+              },
+              "capability_override_enabled": false,
+              "embedding_dimension": null,
+              "limits": {
+                "context_window": null,
+                "max_output_tokens": null,
+                "max_schema_tokens": null,
+                "max_tool_schemas": null
+              },
+              "model": "fixture-model",
+              "provider_id": "openai",
+              "provider_options": {}
+            },
+            "memory_summarizer": {
+              "capabilities": {
+                "embedding": false,
+                "image_output": false,
+                "reasoning": true,
+                "tool_calling": true,
+                "vision": false
+              },
+              "capability_override_enabled": false,
+              "embedding_dimension": null,
+              "limits": {
+                "context_window": null,
+                "max_output_tokens": null,
+                "max_schema_tokens": null,
+                "max_tool_schemas": null
+              },
+              "model": "fixture-model",
+              "provider_id": "openai",
+              "provider_options": {}
+            }
+          }
+        },
+        "memory": {
+          "archive_path": "~/.magi/data/memory/archive",
+          "db_path": "~/.magi/data/memory",
+          "embedding": {
+            "local": {
+              "idle_timeout_seconds": 1800,
+              "managed_model_id": null,
+              "model_dir_path": null,
+              "model_source": "managed",
+              "variant": null
+            },
+            "mode": "remote"
+          },
+          "entity_semantic_edges": {
+            "enabled": false
+          },
+          "graph_spreading": {
+            "enabled": true
+          },
+          "history_behavior": "delete",
+          "l0": {
+            "attention_update_idle_seconds": 30,
+            "attention_update_max_delay_seconds": 90,
+            "attention_update_turn_threshold": 3,
+            "checkpoint_interval_seconds": 30,
+            "enabled": true
+          },
+          "l1": {
+            "enabled": true,
+            "retention_days": 30,
+            "vectors_enabled": true
+          },
+          "l2": {
+            "auto_extract_relations": true,
+            "batch_flush_interval_seconds": 60,
+            "enabled": true,
+            "portrait_projection_refresh_delay_seconds": 120.0,
+            "shadow_conflict_notification_enabled": true,
+            "vectors_enabled": true
+          },
+          "l3": {
+            "enabled": true,
+            "llm_summary_enabled": true,
+            "retention_days": 180,
+            "temporal_llm_min_event_count": 2,
+            "temporal_llm_timeout_seconds": 3.0,
+            "vectors_enabled": true
+          },
+          "l4": {
+            "enabled": true,
+            "inactive_skill_min_attempts": 5,
+            "inactive_skill_retention_days": 30,
+            "vectors_enabled": true
+          },
+          "query_expansion": {
+            "enabled": true,
+            "max_expansions": 2
+          },
+          "reranker": {
+            "cross_encoder": {
+              "enabled": false,
+              "managed_model_id": null
+            },
+            "top_k": 8
+          },
+          "retention_days": 90
+        },
+        "network": {
+          "enabled": false,
+          "host": "127.0.0.1",
+          "password": "",
+          "port": 7890,
+          "proxy_type": "http",
+          "username": ""
+        },
+        "personality": {
+          "appearance_prompt": "",
+          "avatar": "",
+          "bootstrap": null,
+          "description": "",
+          "dynamic_state_rules": {},
+          "identity_core": {
+            "attention_biases": [],
+            "identity_statement": "",
+            "values_loved": [],
+            "values_rejected": []
+          },
+          "idiolect": {
+            "chattiness": 0.5,
+            "sentence_style": "",
+            "structural_quirks": [],
+            "vocab_available": [],
+            "vocab_avoided": []
+          },
+          "interim_lines": {},
+          "milestone_conditions": {},
+          "name": "AI Assistant",
+          "persona_layers": [],
+          "quiet_hours": [],
+          "registers": {},
+          "signature_triggers": []
+        },
+        "personalitySettings": {
+          "deep_persona_enabled": true,
+          "state_memory_enabled": true,
+          "state_transition_enabled": true
+        },
+        "preferences": {
+          "allow_ask_in_background": false,
+          "allow_interjection": false,
+          "allow_media_grounding_for_conversation": true,
+          "auto_start_enabled": false,
+          "close_to_tray_enabled": true,
+          "conversation_rhythm_enabled": true,
+          "conversation_rhythm_mode": "natural",
+          "default_chat_workspace_path": "~/.magi/chat-workspace",
+          "desktop_notification_previews_enabled": true,
+          "desktop_notifications_enabled": true,
+          "first_conversation_completed": false,
+          "language": "zh",
+          "onboarding_completed": false,
+          "product_tour_completed": false,
+          "scenario": null,
+          "skip_quit_confirmation": false,
+          "start_minimized": false,
+          "streaming_chat_enabled": false,
+          "suggestion_dismissals": {},
+          "user_mode": null
+        },
+        "skills": [],
+        "timeline": {
+          "sources": {
+            "calendar": null,
+            "chrome_history": null,
+            "git_activity": null,
+            "netease_music": null,
+            "photo_library": {
+              "default_retention_mode": "analyze_only",
+              "edge_whitelist": [
+                "CAPTURED",
+                "RELATED_TO",
+                "INTERACTED_WITH",
+                "CREATED"
+              ],
+              "enabled": false,
+              "fetch_page_content": false,
+              "source_path": null,
+              "storage_mode": "external_reference",
+              "sync_interval_minutes": 60,
+              "sync_mode": "manual"
+            },
+            "screen_time": null,
+            "terminal_history": null
+          }
+        }
+      }
+    },
+    "message": "OK",
+    "success": true
+  }
+}

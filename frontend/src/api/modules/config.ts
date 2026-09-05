@@ -2,14 +2,12 @@
  * Config management API and type definitions.
  */
 import { api, unwrapGatewayPayload, type GatewayResponse } from '../client';
+import type { components } from '../generated/config-types';
+import { parseConfigResponse, parseOnboardingStatusResponse, parseOnboardingTemplateResponse } from '../config-contract';
 import type { PersonalityConfig } from './personas';
 import { DEFAULT_PERSONALITY_CONFIG } from './personas';
 
-export interface PersonalitySettingsConfig {
-  state_memory_enabled: boolean;
-  state_transition_enabled: boolean;
-  deep_persona_enabled: boolean;
-}
+export type PersonalitySettingsConfig = components['schemas']['PersonalitySettingsModel'];
 
 export const DEFAULT_PERSONALITY_SETTINGS_CONFIG: PersonalitySettingsConfig = {
   state_memory_enabled: true,
@@ -74,9 +72,7 @@ export interface NetworkProxyConfig {
   password: string;
 }
 
-export interface DiagnosticsConfig {
-  full_content_logging_enabled: boolean;
-}
+export type DiagnosticsConfig = components['schemas']['DiagnosticsConfigModel'];
 
 export interface LLMProviderConfig {
   enabled: boolean;
@@ -123,7 +119,7 @@ export interface LLMSelectionConfig {
   capability_override_enabled: boolean;
   capabilities: LLMCapabilities;
   limits: LLMLimits;
-  provider_options: Record<string, any>;
+  provider_options: Record<string, unknown>;
 }
 
 export interface LLMConfig {
@@ -132,13 +128,7 @@ export interface LLMConfig {
   model_runtime_overrides: Record<string, LLMConcurrencyOverrideConfig>;
 }
 
-export interface LLMCapabilities {
-  vision: boolean;
-  image_output: boolean;
-  tool_calling: boolean;
-  reasoning: boolean;
-  embedding: boolean;
-}
+export type LLMCapabilities = components['schemas']['LLMCapabilitiesSettings'];
 
 export interface LLMLimits {
   context_window?: number | null;
@@ -173,16 +163,7 @@ export interface LLMModelCost {
   source_note?: string | null;
 }
 
-export type ModelVendor =
-  | 'openai'
-  | 'deepseek'
-  | 'anthropic'
-  | 'glm'
-  | 'dashscope'
-  | 'grok'
-  | 'kimi'
-  | 'minimax'
-  | 'generic';
+export type ModelVendor = components['schemas']['ModelVendor'];
 
 export interface LLMModelMetadataOverride {
   label?: string | null;
@@ -193,7 +174,7 @@ export interface LLMModelMetadataOverride {
   limits?: LLMLimitsOverride;
   input_modalities?: string[] | null;
   output_modalities?: string[] | null;
-  provider_options_example?: Record<string, any> | null;
+  provider_options_example?: Record<string, unknown> | null;
   cost?: LLMModelCost | null;
   hidden?: boolean | null;
   preferred?: boolean | null;
@@ -268,7 +249,7 @@ export interface LLMCustomProviderMeta {
   fields?: Record<string, LLMProviderFieldConfig>;
   capabilities?: LLMCapabilities;
   limits?: LLMLimits;
-  provider_options_example?: Record<string, any>;
+  provider_options_example?: Record<string, unknown>;
 }
 
 export interface LLMChatCapabilities {
@@ -285,7 +266,7 @@ export interface LLMChatModelMeta {
   capabilities: LLMChatCapabilities;
   limits: LLMLimits;
   cost?: LLMModelCost | null;
-  provider_options_example?: Record<string, any>;
+  provider_options_example?: Record<string, unknown>;
 }
 
 export type LLMResolvedModelSource = 'builtin' | 'manual';
@@ -312,7 +293,7 @@ export interface LLMResolvedImageGenerationModelMeta {
   limits: LLMLimits;
   input_modalities: string[];
   output_modalities: string[];
-  provider_options_example?: Record<string, any>;
+  provider_options_example?: Record<string, unknown>;
   cost?: LLMModelCost | null;
   supported_sizes?: string[];
   supported_qualities?: string[];
@@ -329,7 +310,7 @@ export interface LLMEmbeddingModelMeta {
   dimensions: number[];
   limits?: LLMLimits;
   cost?: LLMModelCost | null;
-  provider_options_example?: Record<string, any>;
+  provider_options_example?: Record<string, unknown>;
 }
 
 export interface LLMResolvedEmbeddingModelMeta extends LLMEmbeddingModelMeta {
@@ -347,7 +328,7 @@ export interface LLMGenerationModelMeta {
   id: string;
   label?: string;
   cost?: LLMModelCost | null;
-  provider_options_example?: Record<string, any>;
+  provider_options_example?: Record<string, unknown>;
   supported_sizes?: string[];
   supported_qualities?: string[];
   supports_seed?: boolean;
@@ -406,64 +387,23 @@ export interface TestLLMProviderConnectionResponse {
 // Re-export PersonalityConfig from personality module
 export type { PersonalityConfig };
 
-export interface MemoryL0Config {
-  enabled: boolean;
-  checkpoint_interval_seconds: number;
-  attention_update_turn_threshold: number;
-  attention_update_idle_seconds: number;
-  attention_update_max_delay_seconds: number;
-}
+export type MemoryL0Config = components['schemas']['MemoryL0ConfigModel'];
 
-export interface MemoryL1Config {
-  enabled: boolean;
-  retention_days: number;
-  vectors_enabled: boolean;
-}
+export type MemoryL1Config = components['schemas']['MemoryL1ConfigModel'];
 
-export interface MemoryL2Config {
-  enabled: boolean;
-  vectors_enabled: boolean;
-  batch_flush_interval_seconds: number;
-  auto_extract_relations: boolean;
-  shadow_conflict_notification_enabled: boolean;
-  portrait_projection_refresh_delay_seconds: number;
-}
+export type MemoryL2Config = components['schemas']['MemoryL2ConfigModel'];
 
-export interface MemoryL3Config {
-  enabled: boolean;
-  retention_days: number;
-  vectors_enabled: boolean;
-  llm_summary_enabled: boolean;
-  temporal_llm_timeout_seconds: number;
-  temporal_llm_min_event_count: number;
-}
+export type MemoryL3Config = components['schemas']['MemoryL3ConfigModel'];
 
-export interface MemoryL4Config {
-  enabled: boolean;
-  vectors_enabled: boolean;
-  inactive_skill_retention_days: number;
-  inactive_skill_min_attempts: number;
-}
+export type MemoryL4Config = components['schemas']['MemoryL4ConfigModel'];
 
-export interface CrossEncoderConfig {
-  enabled: boolean;
-  managed_model_id: string | null;
-  variant: string | null;
-}
+export type CrossEncoderConfig = components['schemas']['CrossEncoderConfigModel'];
 
-export interface MemoryRerankerConfig {
-  top_k: number;
-  cross_encoder: CrossEncoderConfig;
-}
+export type MemoryRerankerConfig = components['schemas']['MemoryRerankerConfigModel'];
 
-export interface QueryExpansionConfig {
-  enabled: boolean;
-  max_expansions: number;
-}
+export type QueryExpansionConfig = components['schemas']['QueryExpansionConfigModel'];
 
-export interface GraphSpreadingConfig {
-  enabled: boolean;
-}
+export type GraphSpreadingConfig = components['schemas']['GraphSpreadingConfigModel'];
 
 export type EmbeddingMode = 'off' | 'remote' | 'local';
 export type LocalEmbeddingModelSource = 'managed' | 'external';
@@ -490,6 +430,7 @@ export interface MemoryConfig {
   reranker: MemoryRerankerConfig;
   query_expansion: QueryExpansionConfig;
   graph_spreading: GraphSpreadingConfig;
+  entity_semantic_edges: components['schemas']['EntitySemanticEdgeConfigModel'];
   l0: MemoryL0Config;
   l1: MemoryL1Config;
   l2: MemoryL2Config;
@@ -591,9 +532,7 @@ export interface OnboardingConfigUpdate {
   llm: LLMConfig;
 }
 
-export interface OnboardingStatus {
-  completed: boolean;
-}
+export type OnboardingStatus = components['schemas']['OnboardingStatusDataModel'];
 
 export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
   vision: false,
@@ -721,13 +660,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       cross_encoder: {
         enabled: false,
         managed_model_id: null,
-        variant: null,
       },
     },
     query_expansion: {
       enabled: true,
       max_expansions: 2,
     },
+    entity_semantic_edges: { enabled: false },
     graph_spreading: {
       enabled: true,
     },
@@ -820,13 +759,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 export const configApi = {
-  get: () => api.get<SystemConfig>('/config'),
-  update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
+  get: () => api.get<unknown>('/config').then(parseConfigResponse),
+  update: (config: Partial<SystemConfig>) => api.put<unknown>('/config', config).then(parseConfigResponse),
   updateLanguagePreference: (language: LanguageCode) =>
-    api.put<SystemConfig>('/config/preferences/language', { language }),
+    api.put<unknown>('/config/preferences/language', { language }).then(parseConfigResponse),
   embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
     unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', config)),
-  getTemplate: () => api.get<SystemConfig>('/config/template'),
+  getTemplate: () => api.get<unknown>('/config/template').then(parseConfigResponse),
   test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
   getLLMProviderCatalog: async (): Promise<LLMProviderCatalog> =>
     unwrapConfigResponse(await api.get<LLMProviderCatalog>('/llm/providers/catalog')),
@@ -838,12 +777,12 @@ export const configApi = {
     unwrapConfigResponse(await api.post<DiscoverLLMProviderModelsResponse>('/llm/providers/discover-models', payload)),
   testLLMProviderConnection: async (payload: TestLLMProviderConnectionRequest): Promise<TestLLMProviderConnectionResponse> =>
     unwrapConfigResponse(await api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload)),
-  getOnboardingStatus: () => api.get<OnboardingStatus>('/config/onboarding-status'),
-  getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
+  getOnboardingStatus: () => api.get<unknown>('/config/onboarding-status').then(parseOnboardingStatusResponse),
+  getOnboardingTemplate: () => api.get<unknown>('/config/onboarding-template').then(parseOnboardingTemplateResponse),
   updateOnboardingDraft: (config: OnboardingConfigUpdate) =>
-    api.put<SystemConfig>('/config/onboarding-draft', config),
+    api.put<unknown>('/config/onboarding-draft', config).then(parseConfigResponse),
   completeOnboarding: (config: OnboardingConfigUpdate) =>
-    api.post<SystemConfig>('/config/onboarding-complete', config),
+    api.post<unknown>('/config/onboarding-complete', config).then(parseConfigResponse),
   testTelegramConnection: (payload: { bot_token: string; proxy?: string }) =>
     api.post<{ success: boolean; message: string; bot_username?: string; bot_id?: number }>(
       '/config/channels/telegram/test',

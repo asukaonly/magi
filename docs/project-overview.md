@@ -112,6 +112,18 @@ The machine-readable route ownership manifest lives at `contracts/api/gateway_ro
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
 
+Configuration and onboarding response contracts are exported by
+`python scripts/export-frontend-contracts.py` to `contracts/api/frontend-config.json`,
+with fixtures serialized from the production Pydantic models. The exporter checks
+that the corresponding response models remain reachable through the public router.
+After changing these models, run the exporter and `npm run contracts:generate` in
+`frontend/`. CI checks both the Python export and generated frontend output for drift.
+The frontend validates responses with precompiled validators before mapping generated
+wire types to editable UI models. Invalid or incomplete successful responses raise
+a contract error; they must not become empty/default configuration. The validators
+do not evaluate code or compile schemas inside the desktop WebView. Python model
+validators remain authoritative for cross-field business rules.
+
 When adding or moving a product API route, update the route implementation, the manifest, and the relevant contract tests in the same task. FastAPI OpenAPI is useful for Python-proxied routes only; it is not sufficient as the complete desktop API contract because Rust-native routes are registered outside Python.
 
 The Rust gateway's direct SQLite write surface is tracked separately in `contracts/sqlite/gateway_writes.json`. `scripts/check-sqlite-ownership.py` scans production Rust gateway SQL and fails when a write or gateway-created index is not declared in that ownership contract.

@@ -9,6 +9,7 @@ export default defineConfig([
   {
     ignores: [
       'dist/',
+      'src/api/generated/',
       'node_modules/',
       'src-tauri/target/',
       'src-tauri/gen/',
