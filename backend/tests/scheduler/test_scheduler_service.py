@@ -23,10 +23,10 @@ from magi.scheduler import (
 async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_path):
     service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
     handler = AsyncMock(side_effect=[
-        ScheduledExecutionResult(success=True, message="ok", next_cursor="accepted"),
+        ScheduledExecutionResult(success=True, message="ok", next_cursor="accepted", watermark_ts=100.0),
         ScheduledExecutionResult(
-            success=False, message="maintenance_failed", next_cursor="invalid",
-            stats={"error": "Storage unavailable"},
+            success=False, message="maintenance_failed", next_cursor="invalid", watermark_ts=999.0,
+            stats={"error": "Storage unavailable", "processed": 2},
         ),
     ])
     service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
@@ -44,9 +44,14 @@ async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_pa
         assert result.success is False
         assert executions[0]["status"] == "failed"
         assert executions[0]["error"] == "Storage unavailable"
+        assert executions[0]["stats"] == {"error": "Storage unavailable", "processed": 2}
+        assert executions[0]["next_cursor"] is None
+        assert executions[0]["watermark_ts"] is None
         assert state.last_error == "Storage unavailable"
         assert state.last_success_at == successful_state.last_success_at
         assert state.last_cursor == "accepted"
+        assert state.watermark_ts == 100.0
+        assert state.stats == {"error": "Storage unavailable", "processed": 2}
         assert state.running is False
     finally:
         await service.stop()

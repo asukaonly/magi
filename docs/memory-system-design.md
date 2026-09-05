@@ -3063,8 +3063,9 @@ understood or repair historical records.
 unavailable, insufficient-evidence, ready, and failed states. The response uses
 persisted scheduler results plus the current projection backlog. Partial failures
 retain generated output and diagnostic counts. A returned unsuccessful scheduler
-result records a failed execution and preserves its statistics; it does not
-advance the last-success timestamp. Model-budget exhaustion defers unprocessed
+result records a failed execution and preserves its statistics and error detail;
+it does not advance the last-success timestamp, accepted cursor, or watermark.
+Model-budget exhaustion defers unprocessed
 seeds without rejecting them. The experiences page can request another bounded
 check, retry a failed status read, and refresh results after a run completes.
 
