@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-import inspect
+from copy import deepcopy
 import logging
 from typing import Any
-
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
 from .base import Plugin
 from .contracts import ExtractionProfileSpec, SummaryProfileSpec, TemporalSummaryFeatureBudget
@@ -55,7 +53,7 @@ class PluginProjectionService:
         events_by_source: dict[str, list[dict[str, Any]]] = {}
         normalized_filter = {str(s).strip() for s in source_filter or [] if str(s).strip()}
         for event in events:
-            source_type = str(event.get("source") or "").strip()
+            source_type = self._event_source(event)
             if not source_type:
                 continue
             if normalized_filter and source_type not in normalized_filter:
@@ -67,8 +65,10 @@ class PluginProjectionService:
 
         for plugin in self.iter_loaded_plugins():
             for source_type, source_events in events_by_source.items():
-                if source_type in features_by_source:
+                source_events = self._authorized_events(plugin, source_type, source_events)
+                if not source_events:
                     continue
+                projection_provenance = self._projection_provenance(plugin, source_events)
                 try:
                     kwargs: dict[str, Any] = {
                         "source_type": source_type,
@@ -77,12 +77,10 @@ class PluginProjectionService:
                         "period_start": period_start,
                         "period_end": period_end,
                     }
-                    if self._plugin_accepts_temporal_budget(plugin):
-                        budget = (feature_budgets or {}).get(source_type)
-                        if isinstance(budget, dict):
-                            budget = TemporalSummaryFeatureBudget(**budget)
-                        if budget is not None:
-                            kwargs["budget"] = budget
+                    budget = (feature_budgets or {}).get(source_type)
+                    if isinstance(budget, dict):
+                        budget = TemporalSummaryFeatureBudget(**budget)
+                    kwargs["budget"] = budget
                     features = plugin.build_temporal_summary_features(**kwargs)
                 except Exception as exc:
                     logger.warning(
@@ -92,20 +90,58 @@ class PluginProjectionService:
                     continue
                 if features:
                     dumper = getattr(features, "model_dump", None)
-                    features_by_source[source_type] = dumper() if callable(dumper) else features
+                    value = dumper() if callable(dumper) else dict(features)
+                    value["projection"] = projection_provenance
+                    value["source_type"] = source_type
+                    features_by_source[f"{plugin.connection.connection_id}:{source_type}"] = value
         return features_by_source
 
     @staticmethod
-    def _plugin_accepts_temporal_budget(plugin: Plugin) -> bool:
-        """Return whether a plugin hook can accept the optional budget keyword."""
-        try:
-            signature = inspect.signature(plugin.build_temporal_summary_features)
-        except (TypeError, ValueError):
-            return False
-        return any(
-            parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "budget"
-            for name, parameter in signature.parameters.items()
-        )
+    def _event_source(event: dict[str, Any]) -> str:
+        return str(event.get("source") or "").strip()
+
+    @staticmethod
+    def _declared_sources(plugin: Plugin) -> set[str]:
+        if plugin.manifest is None or plugin.connection is None or not plugin.connection.enabled:
+            return set()
+        if plugin.connection.plugin_id != plugin.manifest.plugin_id:
+            return set()
+        return set(plugin.manifest.projection_sources)
+
+    def _authorized_events(
+        self, plugin: Plugin, source_type: str, events: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """A selector is a declaration, never permission to read another instance."""
+        if source_type not in self._declared_sources(plugin):
+            return []
+        accepted = []
+        for event in events:
+            metadata = event.get("metadata_json")
+            if not isinstance(metadata, dict):
+                continue
+            evidence = metadata.get("source_evidence_ref")
+            if (
+                metadata.get("source_connection_id") == plugin.connection.connection_id
+                and metadata.get("source_plugin_id") == plugin.connection.plugin_id
+                and isinstance(evidence, dict)
+                and evidence.get("connection_id") == plugin.connection.connection_id
+                and evidence.get("version") == metadata.get("source_object_version")
+                and evidence.get("resource_id")
+            ):
+                accepted.append(deepcopy(event))
+        return accepted
+
+    @staticmethod
+    def _projection_provenance(plugin: Plugin, events: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "plugin_id": plugin.plugin_id,
+            "connection_id": plugin.connection.connection_id,
+            "rule_revision": plugin.manifest.version,
+            "evidence": [
+                {"event_id": event.get("event_id"), "reference": deepcopy(event["metadata_json"]["source_evidence_ref"])}
+                for event in events
+            ],
+        }
 
     def iter_summary_profiles(self) -> list[SummaryProfileSpec]:
         """Aggregate ``SummaryProfileSpec`` entries from all loaded plugins."""
@@ -127,6 +163,10 @@ class PluginProjectionService:
             for spec in items:
                 if not isinstance(spec, SummaryProfileSpec):
                     continue
+                allowed_sources = [source for source in spec.source_types if source in self._declared_sources(plugin)]
+                if not allowed_sources:
+                    continue
+                spec = spec.model_copy(update={"source_types": allowed_sources})
                 if spec.profile_id in seen:
                     continue
                 seen.add(spec.profile_id)
@@ -163,6 +203,10 @@ class PluginProjectionService:
                         extra={"plugin_id": plugin.plugin_id, "error": str(exc)},
                     )
                     continue
+                allowed_sources = [source for source in spec.source_types if source in self._declared_sources(plugin)]
+                if not allowed_sources:
+                    continue
+                spec = spec.model_copy(update={"source_types": allowed_sources})
                 if spec.profile_id in seen:
                     logger.warning(
                         "Duplicate plugin extraction profile ignored",
@@ -236,10 +280,7 @@ class PluginProjectionService:
         artifacts: dict[str, Any] = {"entity_refs": [], "asset_refs": []}
         events_by_source: dict[str, list[dict[str, Any]]] = {}
         for event in events:
-            source_type = str(event.get("source") or "").strip()
-            metadata = event.get("metadata_json") if isinstance(event.get("metadata_json"), dict) else {}
-            activity_snapshot = activity_snapshot_from_metadata(metadata)
-            source_type = str(activity_snapshot.get("source_type") or source_type).strip()
+            source_type = self._event_source(event)
             if not source_type:
                 continue
             events_by_source.setdefault(source_type, []).append(event)
@@ -252,6 +293,10 @@ class PluginProjectionService:
             if not callable(builder):
                 continue
             for source_type, source_events in events_by_source.items():
+                source_events = self._authorized_events(plugin, source_type, source_events)
+                if not source_events:
+                    continue
+                projection_provenance = self._projection_provenance(plugin, source_events)
                 try:
                     features = builder(
                         source_type=source_type,
@@ -270,5 +315,9 @@ class PluginProjectionService:
                 for key in ("entity_refs", "asset_refs"):
                     value = features.get(key)
                     if isinstance(value, list):
-                        artifacts[key].extend(item for item in value if isinstance(item, dict))
+                        provenance = projection_provenance
+                        artifacts[key].extend(
+                            {**item, "projection": deepcopy(provenance)}
+                            for item in value if isinstance(item, dict)
+                        )
         return artifacts

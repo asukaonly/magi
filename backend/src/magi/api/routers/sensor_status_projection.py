@@ -182,18 +182,24 @@ async def _build_source_status(
 ) -> dict[str, Any]:
     source_name = _source_name(item)
     package = packages.get(item.plugin_id)
-    current_settings = package.current_settings if package is not None else {}
+    connection_id = str(item.metadata.get("connection_id") or "")
+    if not connection_id:
+        raise RuntimeError("Sensor contribution is missing its connection identity")
     i18n = _load_plugin_i18n(item, package)
     plugin_id_normalized = normalize_plugin_id(item.plugin_id)
     entry_id_for_translation = str(item.metadata.get("entry_id") or source_name)
-    resolved = sensor_registry.resolve_source_sensor(source_name)
-    sensor = resolved[2] if resolved is not None else None
+    resolved = sensor_registry.resolve_source_sensor(source_name, connection_id=connection_id)
+    if resolved is None:
+        raise RuntimeError("Sensor contribution has no matching connection")
+    sensor = resolved[2]
+    current_settings = sensor.connection.settings
     state, schedule, recurring_binding, latest_sync_job = await _load_scheduler_state(
         repository,
-        plugin_id=item.plugin_id,
+        connection_id=connection_id,
         source_name=source_name,
     )
     source_settings = _resolve_source_settings(item, current_settings, source_name)
+    source_settings["enabled"] = sensor.connection.enabled and source_settings["enabled"]
     capabilities = _resolve_sensor_capabilities(sensor, state)
     sync_activity = _serialize_sensor_sync_activity(latest_sync_job)
 
@@ -216,6 +222,9 @@ async def _build_source_status(
             sync_activity=sync_activity,
         ),
         "sync_activity": sync_activity,
+        "connection_id": connection_id,
+        "connection_display_name": sensor.connection.display_name,
+        "connection_revision": sensor.connection.revision,
         **_source_schedule_payload(
             recurring_binding=recurring_binding,
             schedule=schedule,
@@ -379,11 +388,11 @@ def _load_plugin_i18n(item: Any, package: Any):
 async def _load_scheduler_state(
     repository: ScheduleRepository,
     *,
-    plugin_id: str,
+    connection_id: str,
     source_name: str,
 ) -> tuple[Any, Any, Any, Any]:
-    target_key = build_sensor_target_key(plugin_id, source_name)
-    schedule_id = build_sensor_schedule_id(plugin_id, source_name)
+    target_key = build_sensor_target_key(connection_id, source_name)
+    schedule_id = build_sensor_schedule_id(connection_id, source_name)
     state = await repository.get_target_state(ScheduledTargetType.SENSOR_SYNC, target_key)
     schedule = await repository.get_schedule(schedule_id)
     recurring_binding = await repository.get_recurring_target_binding(

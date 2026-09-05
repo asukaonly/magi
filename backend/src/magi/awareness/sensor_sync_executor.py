@@ -19,7 +19,7 @@ from ..scheduler.repository import ScheduleRepository
 logger = get_logger(__name__)
 
 SensorSyncJobRunner = Callable[[dict[str, object]], Awaitable[ScheduledExecutionResult]]
-SensorStateFlushRunner = Callable[[str], Awaitable[dict[str, Any]]]
+SensorStateFlushRunner = Callable[..., Awaitable[dict[str, Any]]]
 _ResultT = TypeVar("_ResultT")
 
 _POST_SYNC_L3_BACKFILL_MAX_PERIODS = 4
@@ -562,22 +562,22 @@ class SensorSyncExecutor:
         except RuntimeError:
             return False
 
-    async def flush_sensor_state(self, source_name: str) -> dict[str, Any]:
+    async def flush_sensor_state(self, source_name: str, *, connection_id: str) -> dict[str, Any]:
         if self._flush_state is None:
             raise RuntimeError("Sensor sync executor does not support state flush")
         loop = self._loop
         if loop is None:
             raise RuntimeError("Sensor sync executor loop is not running")
         future = asyncio.run_coroutine_threadsafe(
-            self._flush_sensor_state_on_executor(source_name),
+            self._flush_sensor_state_on_executor(source_name, connection_id=connection_id),
             loop,
         )
         return await asyncio.wrap_future(future)
 
-    async def _flush_sensor_state_on_executor(self, source_name: str) -> dict[str, Any]:
+    async def _flush_sensor_state_on_executor(self, source_name: str, *, connection_id: str) -> dict[str, Any]:
         if self._flush_state is None:
             raise RuntimeError("Sensor sync executor does not support state flush")
-        return await self._run_with_execution_lock(self._run_on_owner_loop(self._flush_state(source_name)))
+        return await self._run_with_execution_lock(self._run_on_owner_loop(self._flush_state(source_name, connection_id=connection_id)))
 
     async def _run_with_execution_lock(
         self,

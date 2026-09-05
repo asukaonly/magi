@@ -14,11 +14,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
 
 from ...config import get_config
+from ...awareness.source_store import SourceStore
+from ...awareness.source_readiness import visible_source_event_ids, source_projection_backlog
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
 from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory
 from ...plugins.provider import resolve_plugin_manager, resolve_sensor_registry
+from ...plugins.operation_execution import plugin_runtime_operation, run_plugin_callback_operation
 from ...utils.runtime import get_runtime_paths
 from .sensor_status_projection import (
     _derive_sensor_status,
@@ -99,33 +102,15 @@ def _normalize_sensor_sync_request(
     )
 
 
-def _plugin_current_settings(plugin_id: str) -> dict[str, Any]:
-    manager = resolve_plugin_manager()
-    get_package = getattr(manager, "get_package", None)
-    package = get_package(plugin_id) if callable(get_package) else None
-    if package is None:
-        package = next(
-            (
-                item
-                for item in manager.list_packages()
-                if str(getattr(getattr(item, "manifest", None), "plugin_id", ""))
-                == plugin_id
-            ),
-            None,
-        )
-    current_settings = getattr(package, "current_settings", {}) if package is not None else {}
-    return current_settings if isinstance(current_settings, dict) else {}
-
-
 def _validate_source_sync_readiness(
     *,
     source_name: str,
-    plugin_id: str,
+    connection: Any,
     spec: Any,
 ) -> None:
     source_settings = _resolve_source_settings(
         spec,
-        _plugin_current_settings(plugin_id),
+        connection.settings,
         source_name,
     )
     if source_settings["activation_required"]:
@@ -137,7 +122,7 @@ def _validate_source_sync_readiness(
                 source_name=source_name,
             ),
         )
-    if not source_settings["enabled"]:
+    if not connection.enabled or not source_settings["enabled"]:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=core_i18n.t(
@@ -168,10 +153,11 @@ async def get_sensor_source_status():
 async def trigger_sensor_source_sync(
     source_name: str,
     request: SensorSourceSyncRequest | None = None,
+    connection_id: str = Query(..., min_length=1, max_length=128),
 ):
     _ = get_config()
     sensor_registry = resolve_sensor_registry()
-    resolved = sensor_registry.resolve_source_sensor(source_name)
+    resolved = sensor_registry.resolve_source_sensor(source_name, connection_id=connection_id)
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -191,7 +177,7 @@ async def trigger_sensor_source_sync(
         )
     _validate_source_sync_readiness(
         source_name=source_name,
-        plugin_id=plugin_id,
+        connection=sensor.connection,
         spec=spec,
     )
     try:
@@ -208,6 +194,7 @@ async def trigger_sensor_source_sync(
         SensorSyncCommand(
             source="api.sensors",
             source_name=source_name,
+            connection_id=connection_id,
             first_context=bool(request and request.first_context),
             sync_mode=sync_request.mode,
             backfill_scope=sync_request.backfill_scope,
@@ -219,6 +206,7 @@ async def trigger_sensor_source_sync(
     response = {
         "queued": True,
         "source_name": source_name,
+        "connection_id": connection_id,
         "command_id": command_id,
         "mode": sync_request.mode,
     }
@@ -234,10 +222,10 @@ async def trigger_sensor_source_sync(
 
 
 @sensors_router.post("/{source_name}/flush-state")
-async def trigger_sensor_state_flush(source_name: str):
+async def trigger_sensor_state_flush(source_name: str, connection_id: str = Query(..., min_length=1, max_length=128)):
     _ = get_config()
     sensor_registry = resolve_sensor_registry()
-    resolved = sensor_registry.resolve_source_sensor(source_name)
+    resolved = sensor_registry.resolve_source_sensor(source_name, connection_id=connection_id)
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -268,16 +256,17 @@ async def trigger_sensor_state_flush(source_name: str):
         SensorStateFlushCommand(
             source="api.sensors",
             source_name=source_name,
+            connection_id=connection_id,
         )
     )
-    return {"queued": True, "source_name": source_name, "command_id": command_id}
+    return {"queued": True, "source_name": source_name, "connection_id": connection_id, "command_id": command_id}
 
 
 @sensors_router.post("/{source_name}/authorize")
-async def authorize_sensor_source(source_name: str, request: SensorSourceAuthorizationRequest):
+async def authorize_sensor_source(source_name: str, request: SensorSourceAuthorizationRequest, connection_id: str = Query(..., min_length=1, max_length=128)):
     _ = get_config()
     sensor_registry = resolve_sensor_registry()
-    resolved = sensor_registry.resolve_source_sensor(source_name)
+    resolved = sensor_registry.resolve_source_sensor(source_name, connection_id=connection_id)
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -297,9 +286,10 @@ async def authorize_sensor_source(source_name: str, request: SensorSourceAuthori
             ),
         )
 
-    result = authorize(dict(request.field_values))
-    if inspect.isawaitable(result):
-        result = await result
+    async with plugin_runtime_operation():
+        result = await run_plugin_callback_operation(lambda: authorize(dict(request.field_values)))
+        if inspect.isawaitable(result):
+            result = await result
     if not isinstance(result, dict):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -397,13 +387,15 @@ def _sensor_today_metadata() -> dict[str, dict[str, Any]]:
         manager = None
     if manager is not None:
         sensor_registry = resolve_sensor_registry()
-        packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
         for item in sensor_registry.list_contributions():
             source_name = str(
                 item.metadata.get("source_type") or item.contribution_id.split(".")[-1]
             )
-            package_state = packages.get(item.plugin_id)
-            current_settings = package_state.current_settings if package_state is not None else {}
+            connection_id = str(item.metadata.get("connection_id") or "")
+            if not connection_id:
+                raise RuntimeError("Sensor contribution is missing its connection identity")
+            connection = manager.connection_store.get(connection_id)
+            current_settings = connection.settings
             enabled = bool(
                 _get_nested_value(
                     current_settings,
@@ -411,11 +403,10 @@ def _sensor_today_metadata() -> dict[str, dict[str, Any]]:
                     item.metadata.get("default_settings", {}).get("enabled", True),
                 )
             )
-            sensor_metadata[source_name] = {
-                "plugin_id": item.plugin_id,
-                "display_name": item.display_name,
-                "enabled": enabled,
-            }
+            entry = sensor_metadata.setdefault(source_name, {
+                "plugin_id": item.plugin_id, "display_name": item.display_name, "enabled": False,
+            })
+            entry["enabled"] = entry["enabled"] or (connection.enabled and enabled)
     return sensor_metadata
 
 
@@ -480,6 +471,7 @@ def _sensor_today_source_entry(
 
 
 class MemoryReadinessResponse(BaseModel):
+    connection_id: str
     source_name: str
     l1_event_count: int
     l2_ready: bool
@@ -491,6 +483,7 @@ class MemoryReadinessResponse(BaseModel):
 @sensors_router.get("/{source_name}/memory-readiness", response_model=MemoryReadinessResponse)
 async def get_sensor_memory_readiness(
     source_name: str,
+    connection_id: str = Query(..., min_length=1, max_length=128),
     max_wait_ms: int = Query(
         default=20000,
         ge=0,
@@ -500,18 +493,22 @@ async def get_sensor_memory_readiness(
 ):
     """Count source L1 events, claim pending L2 projections, then poll
     the projection backlog until it drains (or the bounded wait elapses)."""
+    resolved = resolve_sensor_registry().resolve_source_sensor(source_name, connection_id=connection_id)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Sensor source connection not found")
     try:
         unified_memory = get_unified_memory()
     except RuntimeError:
         unified_memory = None
 
     if unified_memory is None or getattr(unified_memory, "l1", None) is None:
-        return MemoryReadinessResponse(source_name=source_name, l1_event_count=0, l2_ready=False)
+        return MemoryReadinessResponse(connection_id=connection_id, source_name=source_name, l1_event_count=0, l2_ready=False)
 
-    rows = await unified_memory.l1.summarize_event_sources(source_filters=[source_name])
-    l1_count = sum(int((r or {}).get("event_count") or 0) for r in (rows or []))
+    store = SourceStore(get_runtime_paths().runtime_dir / "plugin_sources.db")
+    event_ids = await visible_source_event_ids(store, unified_memory, connection_id=connection_id, source_type=source_name)
+    l1_count = len(event_ids)
     if l1_count == 0:
-        return MemoryReadinessResponse(source_name=source_name, l1_event_count=0, l2_ready=False)
+        return MemoryReadinessResponse(connection_id=connection_id, source_name=source_name, l1_event_count=0, l2_ready=False)
 
     # Claim durable projection jobs now instead of waiting for the poll worker.
     try:
@@ -522,7 +519,7 @@ async def get_sensor_memory_readiness(
     deadline = time.monotonic() + (max_wait_ms / 1000.0)
     l2_ready = False
     while True:
-        backlog = await unified_memory.get_l2_projection_backlog(source_filter=source_name)
+        backlog = await source_projection_backlog(unified_memory, event_ids)
         pending = int((backlog or {}).get("pending", 0))
         claimed = int((backlog or {}).get("claimed", 0))
         if pending == 0 and claimed == 0:
@@ -534,6 +531,7 @@ async def get_sensor_memory_readiness(
 
     progress = _build_memory_readiness_progress(l1_count=l1_count, backlog=backlog)
     return MemoryReadinessResponse(
+        connection_id=connection_id,
         source_name=source_name,
         l1_event_count=l1_count,
         l2_ready=l2_ready,

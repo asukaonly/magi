@@ -1,6 +1,6 @@
 """Timeline domain exports."""
 
-from ..awareness.sensor_sync import PullSyncSensor, SensorSyncContext, SensorSyncResult
+from ..awareness.sensor_sync import PullSyncSensor, SensorSyncContext, SourceChangeBatch
 from .adapter import TimelineAdapter
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
@@ -13,7 +13,7 @@ from .viewport_builder import TimelineViewportBuilder
 __all__ = [
     "PullSyncSensor",
     "SensorSyncContext",
-    "SensorSyncResult",
+    "SourceChangeBatch",
     "TimelineAdapter",
     "TimelineClusterBuilder",
     "TimelineContextBundleBuilder",

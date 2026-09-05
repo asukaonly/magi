@@ -49,7 +49,11 @@ class SensorStateUpdateSubscriber:
         if not payload.sensor_fingerprint:
             return
         try:
-            await self._writer.add_fingerprint(payload.sensor_id, payload.sensor_fingerprint)
+            provenance = dict((payload.output_dict or {}).get("provenance") or {})
+            connection_id = provenance.get("source_connection_id")
+            if not connection_id:
+                raise ValueError("Sensor fingerprint requires a host-issued connection identity")
+            await self._writer.add_fingerprint(f"{connection_id}:{payload.sensor_id}", payload.sensor_fingerprint)
         except Exception:
             logger.exception(
                 "sensor_state enqueue fingerprint failed (sensor=%s)", payload.sensor_id,

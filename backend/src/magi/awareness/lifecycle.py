@@ -90,6 +90,7 @@ class SensorScheduleRegistrationModule(LifecycleModule):
             runtime_paths=runtime_paths,
             get_config=get_config,
             ingestion_gateway=ingestion_gateway,
+            source_store=require_initialized(self._context.plugins.source_store, "source store"),
         )
         self._context.agent_runtime.sensor_scheduler_contrib = self._contrib
         await self._contrib.register_schedules(scheduler_service)
@@ -107,6 +108,7 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         self,
         source_type: str,
         *,
+        connection_id: str,
         first_context: bool = False,
         sync_mode: str = "latest",
         backfill_scope: str | None = None,
@@ -119,6 +121,7 @@ class SensorScheduleRegistrationModule(LifecycleModule):
             raise RuntimeError("sensor scheduler contributor is not initialized")
         return await self._contrib.queue_manual_sync(
             source_type,
+            connection_id=connection_id,
             first_context=first_context,
             sync_mode=sync_mode,
             backfill_scope=backfill_scope,

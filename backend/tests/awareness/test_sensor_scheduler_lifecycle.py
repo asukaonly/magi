@@ -15,7 +15,11 @@ from magi.awareness.sensor_output import (
     SensorNarration,
 )
 from magi.awareness.scheduler_contrib import SensorSchedulerContrib
-from magi.awareness.sensor_sync import PullSyncSensor, SensorSyncResult
+from magi.awareness.sensor_sync import PullSyncSensor
+from magi.awareness.source_store import SourceStore, SourceCheckpointConflict
+from magi_plugin_sdk.context import PluginContext
+from magi_plugin_sdk.runtime import PluginConnection, SourceChangeBatch
+from types import SimpleNamespace
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.memory.sensor_ingestion import SensorIngestionBoundary
 from magi.plugins.sensors import SensorRegistry, SensorSpec
@@ -40,24 +44,17 @@ class _FakeTimelineService:
         return None
 
 
+CONNECTION_ID = "pull-account"
+CONNECTION = PluginConnection(
+    connection_id=CONNECTION_ID, plugin_id="pull-plugin", display_name="Pull account", enabled=True,
+    settings={"sensors": {"pull_history": {"enabled": True, "sync_mode": "interval",
+        "sync_interval_minutes": 5, "edge_whitelist": ["LIKES"]}}},
+)
+
+
 class _FakePluginManager:
     def __init__(self) -> None:
-        self.package = type(
-            "Package",
-            (),
-            {
-                "current_settings": {
-                    "sensors": {
-                        "pull_history": {
-                            "enabled": True,
-                            "sync_mode": "interval",
-                            "sync_interval_minutes": 5,
-                            "edge_whitelist": ["LIKES"],
-                        }
-                    }
-                }
-            },
-        )()
+        self.package = SimpleNamespace(manifest=SimpleNamespace(version="0.2.0"))
 
     def get_package(self, plugin_id: str):
         return self.package if plugin_id == "pull-plugin" else None
@@ -115,10 +112,11 @@ class _PullHistorySensor(SensorBase, PullSyncSensor):
     display_name = "Pull History"
     source_type = "pull_history"
     supports_pull_sync = True
+    update_key_fields = ("item_id",)
     memory_policy = SensorMemoryPolicy()
 
     async def collect_items(self, context):
-        return SensorSyncResult(
+        return self.build_change_batch(
             items=[
                 {
                     "item_id": "item-1",
@@ -163,6 +161,7 @@ class _PullHistorySensor(SensorBase, PullSyncSensor):
 
 class _EpochBoundarySensor(_PullHistorySensor):
     def __init__(self, *, clear_phase: str, advance_epoch) -> None:  # type: ignore[no-untyped-def]
+        super().__init__()
         self._clear_phase = clear_phase
         self._advance_epoch = advance_epoch
         self._clear_triggered = False
@@ -175,7 +174,7 @@ class _EpochBoundarySensor(_PullHistorySensor):
 
     async def collect_items(self, context):
         self._trigger_clear("collect_items")
-        return SensorSyncResult(
+        return self.build_change_batch(
             items=[
                 {
                     "item_id": f"item-{index}",
@@ -207,7 +206,7 @@ class _EpochBoundarySensor(_PullHistorySensor):
 
 class _OpaqueCursorSensor(_PullHistorySensor):
     async def collect_items(self, context):
-        return SensorSyncResult(
+        return self.build_change_batch(
             items=[
                 {
                     "item_id": f"item-{idx}",
@@ -227,18 +226,17 @@ class _OpaqueCursorSensor(_PullHistorySensor):
 class _ModifiedCursorSensor(_OpaqueCursorSensor):
     async def collect_items(self, context):
         result = await super().collect_items(context)
-        result.next_cursor = "cursor-final"
-        result.stats = {"count": 55, "cursor_kind": "modified_at"}
-        return result
+        return result.model_copy(update={"next_cursor": "cursor-final", "stats": {"count": 55}})
 
 
 class _ContextRecordingSensor(_PullHistorySensor):
     def __init__(self) -> None:
+        super().__init__()
         self.contexts: list[object] = []
 
     async def collect_items(self, context):
         self.contexts.append(context)
-        return SensorSyncResult(
+        return self.build_change_batch(
             items=[],
             next_cursor=None,
             watermark_ts=None,
@@ -246,55 +244,24 @@ class _ContextRecordingSensor(_PullHistorySensor):
         )
 
 
-def _build_sensor_registry() -> SensorRegistry:
-    sensor_registry = SensorRegistry()
-    sensor_registry.register(
-        "pull-plugin",
-        "timeline.pull_history",
-        _PullHistorySensor(),
-        SensorSpec(
-            sensor_id="timeline.pull_history",
-            display_name="Pull History",
-            description="Pull-capable sensor",
-            domain="timeline",
-            surface="timeline",
-            sync_mode="interval",
-            metadata={
-                "source_type": "pull_history",
-                "default_settings": {
-                    "enabled": True,
-                    "sync_mode": "interval",
-                    "sync_interval_minutes": 5,
-                    "edge_whitelist": ["LIKES"],
-                },
-            },
-        ),
-    )
-    return sensor_registry
+def _build_sensor_registry(tmp_path) -> SensorRegistry:
+    return _build_sensor_registry_with_sensor(_PullHistorySensor(), tmp_path)
 
 
-def _build_sensor_registry_with_sensor(sensor: SensorBase) -> SensorRegistry:
+def _build_sensor_registry_with_sensor(sensor: SensorBase, tmp_path) -> SensorRegistry:
+    context = PluginContext(CONNECTION, tmp_path / "state", tmp_path / "resources", MagicMock())
+    context.state_dir.mkdir(parents=True, exist_ok=True)
+    context.resources_dir.mkdir(parents=True, exist_ok=True)
+    sensor.bind_plugin_context(connection=CONNECTION, context=context)
     sensor_registry = SensorRegistry()
+    registered_id = f"{CONNECTION_ID}:{sensor.sensor_id}"
     sensor_registry.register(
-        "pull-plugin",
-        "timeline.pull_history",
-        sensor,
+        "pull-plugin", registered_id, sensor,
         SensorSpec(
-            sensor_id="timeline.pull_history",
-            display_name="Pull History",
-            description="Pull-capable sensor",
-            domain="timeline",
-            surface="timeline",
-            sync_mode="interval",
-            metadata={
-                "source_type": "pull_history",
-                "default_settings": {
-                    "enabled": True,
-                    "sync_mode": "interval",
-                    "sync_interval_minutes": 5,
-                    "edge_whitelist": ["LIKES"],
-                },
-            },
+            sensor_id=registered_id, display_name="Pull History",
+            description="Pull-capable sensor", domain="timeline", surface="timeline", sync_mode="interval",
+            metadata={"source_type": "pull_history", "connection_id": CONNECTION_ID,
+                      "local_sensor_id": sensor.sensor_id, "default_settings": CONNECTION.settings["sensors"]["pull_history"]},
         ),
     )
     return sensor_registry
@@ -344,7 +311,9 @@ class _FakeIngestionGateway:
         allowed_edge_whitelist=None,
         boundary=None,
         allow_pre_clear_events=False,
+        host_idempotency_key=None,
     ):  # type: ignore[no-untyped-def]
+        assert host_idempotency_key
         self.attempt_count += 1
         assert boundary is not None
         self.expected_epochs.append(boundary.expected_epoch)
@@ -399,7 +368,8 @@ async def test_sensor_schedule_registration_module_registers_handler_and_syncs_s
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
+    context.plugins.sensor_registry = _build_sensor_registry(tmp_path)
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
@@ -416,7 +386,7 @@ async def test_sensor_schedule_registration_module_registers_handler_and_syncs_s
     assert context.scheduler.scheduler_service.interval_calls[0][
         "schedule_id"
     ] == build_sensor_schedule_id(
-        "pull-plugin",
+        CONNECTION_ID,
         "pull_history",
     )
     assert context.agent_runtime.sensor_scheduler_contrib is not None
@@ -431,7 +401,8 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
+    context.plugins.sensor_registry = _build_sensor_registry(tmp_path)
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
@@ -442,9 +413,9 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
     module = SensorScheduleRegistrationModule(context)
     await module.init()
 
-    schedule = await module.queue_manual_sync("pull_history")
+    schedule = await module.queue_manual_sync("pull_history", connection_id=CONNECTION_ID)
 
-    assert schedule.schedule_id.startswith("sensor-sync-manual:pull-plugin:pull_history:")
+    assert schedule.schedule_id.startswith("sensor-sync-manual:pull-account:pull_history:")
     assert context.scheduler.scheduler_service.once_calls[0]["run_at"] <= time.time() + 1.0
 
     await module.shutdown()
@@ -458,7 +429,8 @@ async def test_sensor_schedule_registration_module_queues_backfill_with_stable_s
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
+    context.plugins.sensor_registry = _build_sensor_registry(tmp_path)
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
@@ -471,18 +443,20 @@ async def test_sensor_schedule_registration_module_queues_backfill_with_stable_s
 
     first = await module.queue_manual_sync(
         "pull_history",
+        connection_id=CONNECTION_ID,
         sync_mode="backfill",
         backfill_scope="last_30_days",
         backfill_days=30,
     )
     second = await module.queue_manual_sync(
         "pull_history",
+        connection_id=CONNECTION_ID,
         sync_mode="backfill",
         backfill_scope="last_30_days",
         backfill_days=30,
     )
 
-    assert first.schedule_id == "sensor-sync-backfill:pull-plugin:pull_history:last_30_days"
+    assert first.schedule_id == "sensor-sync-backfill:pull-account:pull_history:last_30_days"
     assert second.schedule_id == first.schedule_id
     once_call = context.scheduler.scheduler_service.once_calls[0]
     assert once_call["target_payload"]["sync_request"] == {
@@ -507,7 +481,8 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
 
     context = RuntimeBootstrapContext()
     context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
-    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
+    context.plugins.sensor_registry = _build_sensor_registry(tmp_path)
     context.plugins.plugin_manager = _FakePluginManager()
     context.timeline.timeline_service = _FakeTimelineService()
     context.scheduler.scheduler_service = _FakeSchedulerService()
@@ -520,6 +495,7 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
 
     first = await module.queue_manual_sync(
         "pull_history",
+        connection_id=CONNECTION_ID,
         sync_mode="backfill",
         backfill_scope="custom",
         backfill_start_date="2026-06-01",
@@ -527,6 +503,7 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
     )
     second = await module.queue_manual_sync(
         "pull_history",
+        connection_id=CONNECTION_ID,
         sync_mode="backfill",
         backfill_scope="custom",
         backfill_start_date="2026-06-01",
@@ -535,7 +512,7 @@ async def test_sensor_schedule_registration_module_queues_custom_backfill_with_s
 
     assert (
         first.schedule_id
-        == "sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30"
+        == "sensor-sync-backfill:pull-account:pull_history:custom:2026-06-01:2026-06-30"
     )
     assert second.schedule_id == first.schedule_id
     once_call = context.scheduler.scheduler_service.once_calls[0]
@@ -562,7 +539,7 @@ async def test_sensor_sync_backfill_request_uses_initial_history_context(tmp_pat
     sensor = _ContextRecordingSensor()
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        sensor_registry=_build_sensor_registry_with_sensor(sensor, tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -570,17 +547,18 @@ async def test_sensor_sync_backfill_request_uses_initial_history_context(tmp_pat
     )
 
     await contrib._run_sensor_sync(
-        schedule_id="sensor-sync-backfill:pull-plugin:pull_history:last_30_days",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync-backfill:pull-account:pull_history:last_30_days",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=True,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
             last_cursor="existing-cursor",
             last_success_at=1710000000.0,
         ),
         sync_payload={
+            "connection_id": CONNECTION_ID,
             "sync_request": {
                 "mode": "backfill",
                 "backfill_scope": "last_30_days",
@@ -604,7 +582,7 @@ async def test_sensor_sync_custom_backfill_request_uses_custom_history_context(t
     sensor = _ContextRecordingSensor()
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        sensor_registry=_build_sensor_registry_with_sensor(sensor, tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -612,17 +590,18 @@ async def test_sensor_sync_custom_backfill_request_uses_custom_history_context(t
     )
 
     await contrib._run_sensor_sync(
-        schedule_id="sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync-backfill:pull-account:pull_history:custom:2026-06-01:2026-06-30",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=True,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
             last_cursor="existing-cursor",
             last_success_at=1710000000.0,
         ),
         sync_payload={
+            "connection_id": CONNECTION_ID,
             "sync_request": {
                 "mode": "backfill",
                 "backfill_scope": "custom",
@@ -648,25 +627,33 @@ async def test_sensor_sync_backfill_continuation_keeps_backfill_cursor(tmp_path)
     sensor = _ContextRecordingSensor()
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        sensor_registry=_build_sensor_registry_with_sensor(sensor, tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
         ingestion_gateway=ingestion_gateway,
     )
 
+    accepted_cursor = '{"version":1,"mode":"backfill","capture_before":1718409600}'
+    checkpoint = await contrib.source_store.checkpoint(CONNECTION, sensor.sensor_id, sensor.source_type)
+    pending = await contrib.source_store.stage_batch(
+        CONNECTION, checkpoint, SourceChangeBatch(changes=[], next_cursor=accepted_cursor),
+    )
+    await contrib.source_store.accept_batch(CONNECTION, pending)
+
     await contrib._run_sensor_sync(
-        schedule_id="sensor-sync-continuation:pull-plugin:pull_history:abc123",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync-continuation:pull-account:pull_history:abc123",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=True,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
-            last_cursor='{"version":1,"mode":"backfill","capture_before":1718409600}',
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
+            last_cursor="stale-scheduler-cursor",
             last_success_at=1710000000.0,
         ),
         sync_payload={
+            "connection_id": CONNECTION_ID,
             "sync_request": {
                 "mode": "backfill",
                 "backfill_scope": "custom",
@@ -689,7 +676,7 @@ async def test_sensor_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) ->
     ingestion_gateway = _FakeIngestionGateway()
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_OpaqueCursorSensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_OpaqueCursorSensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -697,16 +684,17 @@ async def test_sensor_sync_opaque_cursor_skips_mid_batch_checkpoint(tmp_path) ->
     )
 
     result = await contrib._run_sensor_sync(
-        schedule_id="sensor-sync:pull-plugin:pull_history",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync:pull-account:pull_history",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=False,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
             last_cursor=None,
             last_success_at=None,
         ),
+        sync_payload={"connection_id": CONNECTION_ID},
     )
 
     assert result.next_cursor == '{"version":1,"mode":"backfill","page":2}'
@@ -727,7 +715,7 @@ async def test_sensor_sync_does_not_checkpoint_unconfirmed_item(
     )
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -736,16 +724,17 @@ async def test_sensor_sync_does_not_checkpoint_unconfirmed_item(
 
     with pytest.raises((OSError, RuntimeError)):
         await contrib._run_sensor_sync(
-            schedule_id="sensor-sync:pull-plugin:pull_history",
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            schedule_id="sensor-sync:pull-account:pull_history",
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
             source_type="pull_history",
             manual=False,
             target_state=ScheduledTargetState(
                 target_type=ScheduledTargetType.SENSOR_SYNC,
-                target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+                target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
                 last_cursor="cursor-before-run",
                 last_success_at=1710000000.0,
             ),
+            sync_payload={"connection_id": CONNECTION_ID},
         )
 
     assert ingestion_gateway.attempt_count == 50
@@ -754,13 +743,13 @@ async def test_sensor_sync_does_not_checkpoint_unconfirmed_item(
 
 
 @pytest.mark.asyncio
-async def test_sensor_sync_keeps_only_confirmed_mid_batch_checkpoint(tmp_path) -> None:
+async def test_sensor_sync_retains_receipts_without_partial_checkpoint(tmp_path) -> None:
     scheduler_service = _FakeSchedulerService()
     ingestion_gateway = _FakeIngestionGateway(fail_on_attempt=51)
-    target_key = build_sensor_target_key("pull-plugin", "pull_history")
+    target_key = build_sensor_target_key(CONNECTION_ID, "pull_history")
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_ModifiedCursorSensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -769,7 +758,7 @@ async def test_sensor_sync_keeps_only_confirmed_mid_batch_checkpoint(tmp_path) -
 
     with pytest.raises(OSError, match="L1 unavailable"):
         await contrib._run_sensor_sync(
-            schedule_id="sensor-sync:pull-plugin:pull_history",
+            schedule_id="sensor-sync:pull-account:pull_history",
             target_key=target_key,
             source_type="pull_history",
             manual=False,
@@ -779,18 +768,19 @@ async def test_sensor_sync_keeps_only_confirmed_mid_batch_checkpoint(tmp_path) -
                 last_cursor="cursor-before-run",
                 last_success_at=1710000000.0,
             ),
+            sync_payload={"connection_id": CONNECTION_ID},
         )
 
     assert ingestion_gateway.attempt_count == 51
     assert len(ingestion_gateway.items) == 50
-    assert scheduler_service.cursor_updates == [
-        {
-            "target_type": ScheduledTargetType.SENSOR_SYNC,
-            "target_key": target_key,
-            "cursor": "1710000049.0",
-            "watermark_ts": 1710000049.0,
-        }
-    ]
+    assert scheduler_service.cursor_updates == []
+    checkpoint = await contrib.source_store.checkpoint(CONNECTION, "timeline.pull_history", "pull_history")
+    assert checkpoint.cursor is None
+    pending = await contrib.source_store.pending(checkpoint)
+    assert pending is not None
+    versions = [await contrib.source_store.version(checkpoint, change) for change in pending.batch.changes]
+    assert sum(version["receipt"] is not None for version in versions) == 50
+
 
 
 @pytest.mark.asyncio
@@ -811,31 +801,34 @@ async def test_sensor_sync_discards_stale_batch_when_clear_crosses_sensor_phase(
     )
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        sensor_registry=_build_sensor_registry_with_sensor(sensor, tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
         ingestion_gateway=ingestion_gateway,
     )
 
-    result = await contrib._run_sensor_sync(
-        schedule_id="sensor-sync:pull-plugin:pull_history",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
-        source_type="pull_history",
-        manual=False,
-        target_state=ScheduledTargetState(
-            target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
-            last_cursor="cursor-before-clear",
-            last_success_at=1710000000.0,
-        ),
-    )
+    with pytest.raises(SourceCheckpointConflict, match="Memory was cleared"):
+        await contrib._run_sensor_sync(
+            schedule_id="sensor-sync:pull-account:pull_history",
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
+            source_type="pull_history",
+            manual=False,
+            target_state=ScheduledTargetState(
+                target_type=ScheduledTargetType.SENSOR_SYNC,
+                target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
+                last_cursor="cursor-before-clear",
+                last_success_at=1710000000.0,
+            ),
+            sync_payload={"connection_id": CONNECTION_ID},
+        )
 
-    assert result.success is True
-    assert result.next_cursor == "cursor-after-clear"
+    checkpoint = await contrib.source_store.checkpoint(CONNECTION, sensor.sensor_id, sensor.source_type)
+    assert checkpoint.cursor is None
+    assert scheduler_service.cursor_updates == []
     assert ingestion_gateway.memory_epoch_capture_count == 1
-    assert ingestion_gateway.expected_epochs == [initial_epoch, initial_epoch]
-    assert ingestion_gateway.governed_skip_count == 2
+    assert ingestion_gateway.expected_epochs == [initial_epoch]
+    assert ingestion_gateway.governed_skip_count == 1
     assert ingestion_gateway.items == []
 
 
@@ -850,28 +843,31 @@ async def test_sensor_sync_keeps_batch_epoch_between_item_iterations(tmp_path) -
     )
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        sensor_registry=_build_sensor_registry_with_sensor(sensor, tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
         ingestion_gateway=ingestion_gateway,
     )
 
-    result = await contrib._run_sensor_sync(
-        schedule_id="sensor-sync:pull-plugin:pull_history",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
-        source_type="pull_history",
-        manual=False,
-        target_state=ScheduledTargetState(
-            target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
-            last_cursor="cursor-before-clear",
-            last_success_at=1710000000.0,
-        ),
-    )
+    with pytest.raises(SourceCheckpointConflict, match="Memory was cleared"):
+        await contrib._run_sensor_sync(
+            schedule_id="sensor-sync:pull-account:pull_history",
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
+            source_type="pull_history",
+            manual=False,
+            target_state=ScheduledTargetState(
+                target_type=ScheduledTargetType.SENSOR_SYNC,
+                target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
+                last_cursor="cursor-before-clear",
+                last_success_at=1710000000.0,
+            ),
+            sync_payload={"connection_id": CONNECTION_ID},
+        )
 
-    assert result.success is True
-    assert result.next_cursor == "cursor-after-clear"
+    checkpoint = await contrib.source_store.checkpoint(CONNECTION, sensor.sensor_id, sensor.source_type)
+    assert checkpoint.cursor is None
+    assert scheduler_service.cursor_updates == []
     assert ingestion_gateway.memory_epoch_capture_count == 1
     assert ingestion_gateway.expected_epochs == [initial_epoch, initial_epoch]
     assert ingestion_gateway.governed_skip_count == 1
@@ -886,7 +882,7 @@ async def test_automatic_sensor_sync_advances_past_pre_clear_history(tmp_path) -
     ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -894,15 +890,16 @@ async def test_automatic_sensor_sync_advances_past_pre_clear_history(tmp_path) -
     )
 
     result = await contrib._run_sensor_sync(
-        schedule_id="sensor-sync:pull-plugin:pull_history",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync:pull-account:pull_history",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=False,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         ),
         admitted_at=1_800_000_001.0,
+        sync_payload={"connection_id": CONNECTION_ID},
     )
 
     assert result.success is True
@@ -920,7 +917,7 @@ async def test_manual_sensor_sync_requested_after_clear_can_restore_history(tmp_
     ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -928,15 +925,16 @@ async def test_manual_sensor_sync_requested_after_clear_can_restore_history(tmp_
     )
 
     await contrib._run_sensor_sync(
-        schedule_id="sensor-sync-manual:pull-plugin:pull_history:test",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync-manual:pull-account:pull_history:test",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=True,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         ),
         admitted_at=1_800_000_001.0,
+        sync_payload={"connection_id": CONNECTION_ID},
     )
 
     assert len(ingestion_gateway.items) == 1
@@ -951,7 +949,7 @@ async def test_manual_sensor_sync_queued_before_clear_cannot_restore_history(tmp
     ingestion_gateway.clear_cutoff_at = 1_800_000_000.0
     contrib = SensorSchedulerContrib(
         scheduler_service=scheduler_service,
-        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor()),
+        sensor_registry=_build_sensor_registry_with_sensor(_PullHistorySensor(), tmp_path),
         plugin_manager=_FakePluginManager(),
         runtime_paths=RuntimePaths(tmp_path / "runtime"),
         get_config=lambda: None,
@@ -959,15 +957,16 @@ async def test_manual_sensor_sync_queued_before_clear_cannot_restore_history(tmp
     )
 
     await contrib._run_sensor_sync(
-        schedule_id="sensor-sync-manual:pull-plugin:pull_history:test",
-        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        schedule_id="sensor-sync-manual:pull-account:pull_history:test",
+        target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         source_type="pull_history",
         manual=True,
         target_state=ScheduledTargetState(
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            target_key=build_sensor_target_key(CONNECTION_ID, "pull_history"),
         ),
         admitted_at=1_799_999_999.0,
+        sync_payload={"connection_id": CONNECTION_ID},
     )
 
     assert ingestion_gateway.items == []

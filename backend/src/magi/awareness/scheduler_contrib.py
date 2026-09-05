@@ -25,11 +25,14 @@ from ..scheduler.contracts import (
 )
 from ..scheduler.service import SchedulerService
 from ..utils.runtime import RuntimePaths
-from .sensor_sync import SensorSyncContext
+from magi_plugin_sdk.runtime import SourceChange, SourceChangeBatch
+from ..plugins.operation_execution import plugin_runtime_operation
+from .sensor_sync import SensorSyncContext, ScopedSensorRuntimePaths
+from .source_store import SourceCheckpointConflict, SourceStore, source_change_digest
+from .source_ingestion import SourceBatchIngestor
 
 if TYPE_CHECKING:
-    from ..memory.sensor_ingestion import SensorIngestionBoundary
-    from .ingestion_gateway import SensorIngestionGateway, SensorIngestionResult
+    from .ingestion_gateway import SensorIngestionGateway
 
 logger = get_logger(__name__)
 
@@ -93,6 +96,7 @@ class SensorSchedulerContrib:
         runtime_paths: RuntimePaths,
         get_config: Callable[[], Any],
         ingestion_gateway: SensorIngestionGateway,
+        source_store: SourceStore | None = None,
     ) -> None:
         self._scheduler_service = scheduler_service
         self._sensor_registry = sensor_registry
@@ -100,6 +104,9 @@ class SensorSchedulerContrib:
         self._runtime_paths = runtime_paths
         self._get_config = get_config
         self._ingestion_gateway = ingestion_gateway
+        self.source_store = source_store or SourceStore(runtime_paths.runtime_dir / "plugin_sources.db")
+        self._source_ingestor = SourceBatchIngestor(store=self.source_store, gateway=ingestion_gateway)
+        self._source_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._registered_schedule_ids: set[str] = set()
 
     async def register_schedules(self, scheduler: SchedulerService) -> None:
@@ -122,21 +129,24 @@ class SensorSchedulerContrib:
         self._registered_schedule_ids.clear()
 
     async def sync_schedules(self) -> None:
+        desired_schedule_ids: set[str] = set()
         for contribution in self._sensor_registry.list_contributions():
             source_type = str(
                 contribution.metadata.get("source_type")
                 or contribution.contribution_id.split(".")[-1]
             )
-            resolved = self._sensor_registry.resolve_source_sensor(source_type)
+            connection_id = str(contribution.metadata.get("connection_id") or "")
+            if not connection_id:
+                raise RuntimeError("Sensor contribution is missing its connection identity")
+            resolved = self._sensor_registry.resolve_source_sensor(source_type, connection_id=connection_id)
             if resolved is None:
                 continue
             plugin_id, _, sensor, spec = resolved
-            schedule_id = build_sensor_schedule_id(plugin_id, source_type)
-            package_state = self._plugin_manager.get_package(plugin_id)
-            current_settings = package_state.current_settings if package_state is not None else {}
+            schedule_id = build_sensor_schedule_id(connection_id, source_type)
+            current_settings = sensor.connection.settings
             default_settings = dict(spec.metadata.get("default_settings", {}))
             source_settings = dict(current_settings.get("sensors", {}).get(source_type, {}))
-            enabled = bool(source_settings.get("enabled", default_settings.get("enabled", True)))
+            enabled = sensor.connection.enabled and bool(source_settings.get("enabled", default_settings.get("enabled", True)))
             sync_mode = str(
                 source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode))
             )
@@ -150,7 +160,7 @@ class SensorSchedulerContrib:
                 await self._scheduler_service.unschedule(
                     schedule_id,
                     target_type=ScheduledTargetType.SENSOR_SYNC,
-                    target_key=build_sensor_target_key(plugin_id, source_type),
+                    target_key=build_sensor_target_key(connection_id, source_type),
                 )
                 self._registered_schedule_ids.discard(schedule_id)
                 continue
@@ -159,21 +169,27 @@ class SensorSchedulerContrib:
             await self._scheduler_service.schedule_interval(
                 schedule_id=schedule_id,
                 target_type=ScheduledTargetType.SENSOR_SYNC,
-                target_key=build_sensor_target_key(plugin_id, source_type),
+                target_key=build_sensor_target_key(connection_id, source_type),
                 seconds=max(1.0, interval_minutes * 60.0),
                 target_payload={
                     "plugin_id": plugin_id,
+                    "connection_id": connection_id,
                     "source_type": source_type,
                     "manual": False,
                 },
-                metadata={"source_type": source_type, "plugin_id": plugin_id},
+                metadata={"source_type": source_type, "plugin_id": plugin_id, "connection_id": connection_id},
             )
             self._registered_schedule_ids.add(schedule_id)
+            desired_schedule_ids.add(schedule_id)
+        for removed_id in self._registered_schedule_ids - desired_schedule_ids:
+            await self._scheduler_service.unschedule(removed_id, target_type=ScheduledTargetType.SENSOR_SYNC, target_key="")
+        self._registered_schedule_ids.intersection_update(desired_schedule_ids)
 
     async def queue_manual_sync(
         self,
         source_type: str,
         *,
+        connection_id: str,
         first_context: bool = False,
         sync_mode: str = "latest",
         backfill_scope: str | None = None,
@@ -181,7 +197,7 @@ class SensorSchedulerContrib:
         backfill_start_date: str | None = None,
         backfill_end_date: str | None = None,
     ) -> ScheduleDefinition:
-        resolved = self._sensor_registry.resolve_source_sensor(source_type)
+        resolved = self._sensor_registry.resolve_source_sensor(source_type, connection_id=connection_id)
         if resolved is None:
             raise KeyError(source_type)
         plugin_id, _, sensor, _ = resolved
@@ -195,15 +211,16 @@ class SensorSchedulerContrib:
             schedule_suffix = normalized_scope
             if normalized_scope == "custom" and normalized_start_date and normalized_end_date:
                 schedule_suffix = f"custom:{normalized_start_date}:{normalized_end_date}"
-            schedule_id = f"sensor-sync-backfill:{plugin_id}:{source_type}:{schedule_suffix}"
+            schedule_id = f"sensor-sync-backfill:{connection_id}:{source_type}:{schedule_suffix}"
         else:
-            schedule_id = f"sensor-sync-manual:{plugin_id}:{source_type}:{uuid.uuid4().hex}"
+            schedule_id = f"sensor-sync-manual:{connection_id}:{source_type}:{uuid.uuid4().hex}"
         target_payload = {
             "plugin_id": plugin_id,
+            "connection_id": connection_id,
             "source_type": source_type,
             "manual": True,
         }
-        metadata = {"manual": True, "source_type": source_type, "plugin_id": plugin_id}
+        metadata = {"manual": True, "source_type": source_type, "plugin_id": plugin_id, "connection_id": connection_id}
         if first_context:
             target_payload["first_context"] = True
             metadata["first_context"] = True
@@ -223,7 +240,7 @@ class SensorSchedulerContrib:
         return await self._scheduler_service.schedule_once(
             schedule_id=schedule_id,
             target_type=ScheduledTargetType.SENSOR_SYNC,
-            target_key=build_sensor_target_key(plugin_id, source_type),
+            target_key=build_sensor_target_key(connection_id, source_type),
             run_at=time.time(),
             target_payload=target_payload,
             metadata=metadata,
@@ -244,6 +261,28 @@ class SensorSchedulerContrib:
             admitted_at=context.triggered_at,
         )
 
+    async def queue_source_change(self, payload: dict[str, Any]) -> ScheduleDefinition:
+        """Durably queue broker-bound source ingress without reentering its worker."""
+        connection_id = str(payload.get("connection_id") or "")
+        source_type = str(payload.get("source_type") or "")
+        if not connection_id or not source_type:
+            raise ValueError("Source ingress requires connection and source identities")
+        change = SourceChange.model_validate(payload.get("source_change"))
+        target = self._resolve_sensor_sync_target(source_type, connection_id=connection_id, require_pull=False)
+        self._sensor_sync_settings(connection=target.sensor.connection, source_type=source_type, spec=target.spec)
+        return await self._scheduler_service.schedule_once(
+            schedule_id=f"sensor-ingress:{connection_id}:{uuid.uuid4().hex}",
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key(connection_id, source_type),
+            run_at=time.time(),
+            target_payload={
+                "plugin_id": target.plugin_id, "connection_id": connection_id,
+                "source_type": source_type, "manual": False,
+                "source_change": change.model_dump(mode="json"),
+            },
+            metadata={"connection_id": connection_id, "source_type": source_type, "trigger": "ingress"},
+        )
+
     async def execute_sensor_sync_job(self, job: dict[str, object]) -> ScheduledExecutionResult:
         target_state = await self._scheduler_service.get_target_state(
             ScheduledTargetType(str(job["target_type"])),
@@ -259,18 +298,22 @@ class SensorSchedulerContrib:
             admitted_at=float(job.get("created_at") or 0.0),
         )
 
-    async def flush_sensor_state(self, source_type: str) -> dict[str, Any]:
-        resolved = self._sensor_registry.resolve_source_sensor(source_type)
+    async def flush_sensor_state(self, source_type: str, *, connection_id: str) -> dict[str, Any]:
+        async with plugin_runtime_operation():
+            return await self._flush_admitted_sensor_state(source_type, connection_id=connection_id)
+
+    async def _flush_admitted_sensor_state(self, source_type: str, *, connection_id: str) -> dict[str, Any]:
+        resolved = self._sensor_registry.resolve_source_sensor(source_type, connection_id=connection_id)
         if resolved is None:
             raise RuntimeError(f"Sensor source not found: {source_type}")
-        plugin_id, _, sensor, _ = resolved
+        plugin_id, _, sensor, spec = resolved
+        self._sensor_sync_settings(connection=sensor.connection, source_type=source_type, spec=spec)
         flush_state = getattr(sensor, "flush_runtime_state", None)
         if not callable(flush_state):
             raise RuntimeError(f"Sensor source does not support state flush: {source_type}")
-        package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = package_state.current_settings if package_state is not None else {}
         return await flush_state(
-            runtime_paths=self._runtime_paths, plugin_settings=package_settings
+            runtime_paths=ScopedSensorRuntimePaths(connection_id, plugin_id, sensor.context.state_dir),
+            plugin_settings=copy.deepcopy(sensor.connection.settings),
         )
 
     async def _run_sensor_sync(
@@ -284,21 +327,46 @@ class SensorSchedulerContrib:
         sync_payload: dict[str, Any] | None = None,
         admitted_at: float = 0.0,
     ) -> ScheduledExecutionResult:
-        target = self._resolve_sensor_sync_target(source_type)
+        connection_id = str((sync_payload or {}).get("connection_id") or "")
+        if not connection_id:
+            raise ValueError("Sensor sync requires an explicit connection identity")
+        lock = self._source_locks.setdefault((connection_id, source_type), asyncio.Lock())
+        async with plugin_runtime_operation(), lock:
+            return await self._run_admitted_sensor_sync(
+                schedule_id=schedule_id, target_key=target_key, source_type=source_type,
+                connection_id=connection_id, manual=manual, target_state=target_state,
+                sync_payload=sync_payload, admitted_at=admitted_at,
+            )
+
+    async def _run_admitted_sensor_sync(
+        self, *, schedule_id: str, target_key: str, source_type: str,
+        connection_id: str, manual: bool, target_state: Any,
+        sync_payload: dict[str, Any] | None, admitted_at: float,
+    ) -> ScheduledExecutionResult:
+        pushed_change = (
+            SourceChange.model_validate(sync_payload["source_change"])
+            if sync_payload and "source_change" in sync_payload else None
+        )
+        target = self._resolve_sensor_sync_target(source_type, connection_id=connection_id, require_pull=pushed_change is None)
+        connection = target.sensor.connection
         settings = self._sensor_sync_settings(
-            plugin_id=target.plugin_id,
-            source_type=source_type,
-            spec=target.spec,
+            connection=connection, source_type=source_type, spec=target.spec,
         )
         sync_request = _extract_backfill_sync_request(sync_payload)
-        last_cursor = target_state.last_cursor
+        checkpoint = await self.source_store.checkpoint(connection, target.sensor.sensor_id, source_type)
+        pending = await self.source_store.pending(checkpoint)
+        if pushed_change is not None and pending is not None:
+            if len(pending.batch.changes) != 1 or (
+                pending.batch.changes[0].object_id, pending.batch.changes[0].version
+            ) != (pushed_change.object_id, pushed_change.version):
+                raise SourceCheckpointConflict("A preceding source batch must finish before ingress can proceed")
+            version = await self.source_store.version(checkpoint, pushed_change)
+            if version["digest"] != source_change_digest(pushed_change):
+                raise ValueError("A source object revision cannot be reused for different content")
+        last_cursor = checkpoint.cursor
         if sync_request is not None:
-            settings = _apply_backfill_sync_request(
-                settings=settings,
-                source_type=source_type,
-                sync_request=sync_request,
-            )
-            if not schedule_id.startswith("sensor-sync-continuation:"):
+            settings = _apply_backfill_sync_request(settings=settings, source_type=source_type, sync_request=sync_request)
+            if pending is None and not schedule_id.startswith("sensor-sync-continuation:"):
                 last_cursor = None
         preferred_language = get_preferred_language()
         if preferred_language:
@@ -306,78 +374,71 @@ class SensorSchedulerContrib:
         previous_language = get_plugin_current_language()
         set_plugin_current_language(preferred_language or None)
         try:
-            ingestion_boundary = (
-                await self._ingestion_gateway.capture_ingestion_boundary()
-            )
-            allow_pre_clear_events = bool(
-                manual
-                and (
-                    ingestion_boundary.clear_generation == 0
-                    or admitted_at > ingestion_boundary.clear_cutoff_at
-                )
-            )
-            pull_context = SensorSyncContext(
-                source_type=source_type,
-                manual=manual,
-                last_cursor=last_cursor,
-                last_success_at=target_state.last_success_at,
-                limit=settings.limit,
-                runtime_paths=self._runtime_paths,
-                plugin_settings=settings.package_settings,
-            )
-            result = await target.sensor.collect_items(pull_context)
-            clear_boundary_crossed = await self._ingest_sensor_sync_items(
-                sensor=target.sensor,
-                result=result,
-                schedule_id=schedule_id,
-                target_key=target_key,
-                manual=manual,
+            ingestion_boundary = await self._ingestion_gateway.capture_ingestion_boundary()
+            allow_pre_clear_events = bool(manual and (
+                ingestion_boundary.clear_generation == 0 or admitted_at > ingestion_boundary.clear_cutoff_at
+            ))
+            if pending is None:
+                if pushed_change is not None:
+                    result = SourceChangeBatch(changes=[pushed_change], next_cursor=checkpoint.cursor)
+                else:
+                    result = await target.sensor.collect_items(SensorSyncContext(
+                        connection_id=connection.connection_id,
+                        source_type=source_type, manual=manual, last_cursor=last_cursor,
+                        last_success_at=target_state.last_success_at, limit=settings.limit,
+                        runtime_paths=ScopedSensorRuntimePaths(connection.connection_id, connection.plugin_id, target.sensor.context.state_dir),
+                        plugin_settings=settings.package_settings,
+                    ))
+                if not isinstance(result, SourceChangeBatch):
+                    raise TypeError("Sensors must return SourceChangeBatch")
+                if not result.complete and result.next_cursor == last_cursor:
+                    raise ValueError("Incomplete source batch must advance its opaque cursor")
+                pending = await self.source_store.stage_batch(connection, checkpoint, result)
+            result = pending.batch
+            package = self._plugin_manager.get_package(target.plugin_id)
+            if package is None:
+                raise RuntimeError("Source plugin package is no longer installed")
+            accepted = await self._source_ingestor.ingest(
+                connection=connection, sensor=target.sensor, pending=pending,
+                boundary=ingestion_boundary, rule_revision=package.manifest.version,
                 allowed_edge_whitelist=settings.allowed_edge_whitelist,
-                ingestion_boundary=ingestion_boundary,
                 allow_pre_clear_events=allow_pre_clear_events,
+                provenance={"scheduler_schedule_id": schedule_id, "scheduler_target_key": target_key,
+                            "sensor_sync_mode": "manual" if manual else "scheduled"},
             )
             stats = dict(_merge_sync_request_stats(result.stats, sync_request) or {})
-            if clear_boundary_crossed:
-                stats.update(
-                    {
-                        "memory_clear_skipped": True,
-                        "has_more": False,
-                        "continue_sync": False,
-                        "backfill_has_more": False,
-                    }
-                )
+            stats.update({"has_more": not result.complete, "continue_sync": not result.complete,
+                          "backfill_has_more": not result.complete, "connection_id": connection.connection_id})
             return ScheduledExecutionResult(
-                success=True,
-                message="sensor_sync_completed",
-                next_cursor=result.next_cursor,
-                watermark_ts=result.watermark_ts,
-                stats=stats,
+                success=True, message="sensor_sync_completed", next_cursor=accepted.cursor,
+                watermark_ts=result.watermark_ts, stats=stats,
             )
         finally:
             set_plugin_current_language(previous_language or None)
 
-    def _resolve_sensor_sync_target(self, source_type: str) -> _ResolvedSensorSyncTarget:
-        resolved = self._sensor_registry.resolve_source_sensor(source_type)
+    def _resolve_sensor_sync_target(self, source_type: str, *, connection_id: str, require_pull: bool = True) -> _ResolvedSensorSyncTarget:
+        resolved = self._sensor_registry.resolve_source_sensor(source_type, connection_id=connection_id)
         if resolved is None:
             raise RuntimeError(f"Sensor source not found: {source_type}")
         plugin_id, _, sensor, spec = resolved
-        if not bool(getattr(sensor, "supports_pull_sync", False)):
+        if require_pull and not bool(getattr(sensor, "supports_pull_sync", False)):
             raise RuntimeError(f"Sensor source does not support pull sync: {source_type}")
         return _ResolvedSensorSyncTarget(plugin_id=plugin_id, sensor=sensor, spec=spec)
 
     def _sensor_sync_settings(
         self,
         *,
-        plugin_id: str,
+        connection: Any,
         source_type: str,
         spec: Any,
     ) -> _SensorSyncSettings:
-        package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = (
-            copy.deepcopy(package_state.current_settings) if package_state is not None else {}
-        )
+        if not connection.enabled:
+            raise PermissionError("Source connection is disabled")
+        package_settings = copy.deepcopy(connection.settings)
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
         default_settings = spec.metadata.get("default_settings", {})
+        if not source_settings.get("enabled", default_settings.get("enabled", True)):
+            raise PermissionError("Source sensor is disabled")
         allowed_edge_whitelist = [
             str(edge_type)
             for edge_type in source_settings.get(
@@ -390,115 +451,6 @@ class SensorSchedulerContrib:
             allowed_edge_whitelist=allowed_edge_whitelist,
             limit=int(source_settings.get("max_items_per_sync", 200)),
         )
-
-    async def _ingest_sensor_sync_items(
-        self,
-        *,
-        sensor: Any,
-        result: Any,
-        schedule_id: str,
-        target_key: str,
-        manual: bool,
-        allowed_edge_whitelist: list[str],
-        ingestion_boundary: SensorIngestionBoundary,
-        allow_pre_clear_events: bool,
-    ) -> bool:
-        sorted_items = sorted(
-            result.items,
-            key=lambda it: float(it.get("modified_at") or 0.0),
-        )
-        checkpoint_modified_cursor = _should_checkpoint_modified_cursor(result.stats)
-        total_items = len(sorted_items)
-        clear_boundary_crossed = False
-        for idx, item in enumerate(sorted_items):
-            ingestion_result = await self._ingest_sensor_sync_item(
-                sensor=sensor,
-                item=item,
-                schedule_id=schedule_id,
-                target_key=target_key,
-                manual=manual,
-                allowed_edge_whitelist=allowed_edge_whitelist,
-                ingestion_boundary=ingestion_boundary,
-                allow_pre_clear_events=allow_pre_clear_events,
-            )
-            if ingestion_result.stats.get("skip_reason") == "memory_clear_epoch_changed":
-                clear_boundary_crossed = True
-            await self._checkpoint_sensor_sync_cursor(
-                item=item,
-                item_index=idx,
-                total_items=total_items,
-                target_key=target_key,
-                checkpoint_modified_cursor=checkpoint_modified_cursor,
-            )
-        return clear_boundary_crossed
-
-    async def _ingest_sensor_sync_item(
-        self,
-        *,
-        sensor: Any,
-        item: dict[str, Any],
-        schedule_id: str,
-        target_key: str,
-        manual: bool,
-        allowed_edge_whitelist: list[str],
-        ingestion_boundary: SensorIngestionBoundary,
-        allow_pre_clear_events: bool,
-    ) -> SensorIngestionResult:
-        fetched = await sensor.fetch_item(item)
-        output = await sensor.build_output(fetched)
-        metadata = await sensor.extract_metadata(fetched)
-        output.provenance.update(
-            {
-                "scheduler_schedule_id": schedule_id,
-                "scheduler_target_key": target_key,
-                "sensor_sync_mode": "manual" if manual else "scheduled",
-            }
-        )
-        ingestion_result = await self._ingestion_gateway.ingest(
-            sensor,
-            output,
-            metadata,
-            allowed_edge_whitelist=allowed_edge_whitelist,
-            boundary=ingestion_boundary,
-            allow_pre_clear_events=allow_pre_clear_events,
-        )
-        if not ingestion_result.ingested:
-            raise RuntimeError(f"Sensor ingestion was not confirmed: {sensor.sensor_id}")
-        return ingestion_result
-
-    async def _checkpoint_sensor_sync_cursor(
-        self,
-        *,
-        item: dict[str, Any],
-        item_index: int,
-        total_items: int,
-        target_key: str,
-        checkpoint_modified_cursor: bool,
-    ) -> None:
-        checkpoint_interval = 50
-        if not checkpoint_modified_cursor or (item_index + 1) % checkpoint_interval != 0:
-            return
-        if item_index + 1 >= total_items:
-            return
-        item_mtime = float(item.get("modified_at") or 0.0)
-        if item_mtime <= 0:
-            return
-        try:
-            await self._scheduler_service.update_target_cursor(
-                ScheduledTargetType.SENSOR_SYNC,
-                target_key,
-                cursor=str(item_mtime),
-                watermark_ts=item_mtime,
-            )
-        except Exception:
-            logger.debug("Mid-batch cursor save failed", target_key=target_key)
-
-
-def _should_checkpoint_modified_cursor(stats: Any) -> bool:
-    stats_dict = dict(stats or {})
-    cursor_kind = str(stats_dict.get("cursor_kind") or "modified_at").strip().lower()
-    return cursor_kind in {"modified_at", "mtime", "timestamp"}
-
 
 def _extract_backfill_sync_request(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(payload, dict):

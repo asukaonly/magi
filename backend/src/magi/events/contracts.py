@@ -77,6 +77,7 @@ class SensorSyncCommand:
 
     source: str
     source_name: str
+    connection_id: str
     first_context: bool = False
     sync_mode: str = "latest"
     backfill_scope: str | None = None
@@ -85,6 +86,10 @@ class SensorSyncCommand:
     backfill_end_date: str | None = None
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def __post_init__(self) -> None:
+        if not self.connection_id.strip():
+            raise ValueError("Sensor command requires an explicit connection identity")
 
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,8 +101,13 @@ class SensorStateFlushCommand:
 
     source: str
     source_name: str
+    connection_id: str
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def __post_init__(self) -> None:
+        if not self.connection_id.strip():
+            raise ValueError("Sensor command requires an explicit connection identity")
 
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)

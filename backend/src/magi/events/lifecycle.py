@@ -401,6 +401,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         )
         await sensor_scheduler.queue_manual_sync(
             sensor_sync.source_name,
+            connection_id=sensor_sync.connection_id,
             first_context=sensor_sync.first_context,
             sync_mode=sensor_sync.sync_mode,
             backfill_scope=sensor_sync.backfill_scope,
@@ -415,7 +416,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             self._context.agent_runtime.sensor_sync_executor,
             "sensor sync executor",
         )
-        await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name)
+        await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name, connection_id=sensor_flush.connection_id)
 
 
 class PluginIngressProcessorModule(LifecycleModule):

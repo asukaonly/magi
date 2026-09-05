@@ -73,6 +73,7 @@ class SensorIngestionGateway:
         allowed_edge_whitelist: list[str] | None = None,
         boundary: SensorIngestionBoundary | None = None,
         allow_pre_clear_events: bool = False,
+        host_idempotency_key: str | None = None,
     ) -> SensorIngestionResult:
         captured_boundary = boundary or await self.capture_ingestion_boundary()
         event_id = str(ULID())
@@ -82,6 +83,8 @@ class SensorIngestionGateway:
             metadata=metadata,
             allowed_edge_whitelist=allowed_edge_whitelist,
         )
+        if host_idempotency_key is not None:
+            payload = replace(payload, idempotency_key=host_idempotency_key)
         event = Event(
             type=EventTypes.SENSOR_EVENT_EMITTED,
             data=payload,

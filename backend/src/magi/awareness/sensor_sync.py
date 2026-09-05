@@ -4,12 +4,16 @@ from magi_plugin_sdk.sensors import (  # noqa: F401
     PluginRuntimePaths,
     PullSyncSensor,
     SensorSyncContext,
-    SensorSyncResult,
+    ScopedSensorRuntimePaths,
+    SourceChange,
+    SourceChangeBatch,
 )
 
 __all__ = [
     "PluginRuntimePaths",
     "PullSyncSensor",
     "SensorSyncContext",
-    "SensorSyncResult",
+    "ScopedSensorRuntimePaths",
+    "SourceChange",
+    "SourceChangeBatch",
 ]

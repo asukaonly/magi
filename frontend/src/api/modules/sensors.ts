@@ -9,6 +9,7 @@ import type {
 
 /** Honest memory-readiness signal for one sensor source (see backend GET /sensors/{source}/memory-readiness). */
 export interface MemoryReadinessResponse {
+  connection_id: string;
   source_name: string;
   l1_event_count: number;
   l2_ready: boolean;
@@ -34,6 +35,9 @@ export interface SensorSyncActivity {
 
 export interface SensorSourceStatusItem {
   source_name: string;
+  connection_id: string;
+  connection_display_name: string;
+  connection_revision: number;
   plugin_id: string;
   contribution_id: string;
   icon?: string | null;
@@ -131,6 +135,7 @@ export interface SensorSyncRequestOptions {
 }
 
 export interface SensorSyncResponse {
+  connection_id: string;
   queued: boolean;
   source_name: string;
   command_id?: number;
@@ -157,17 +162,19 @@ export const sensorsApi = {
 
   getMemoryReadiness: async (
     sourceName: string,
+    connectionId: string,
     opts?: { maxWaitMs?: number },
   ): Promise<MemoryReadinessResponse> => {
-    const qs = opts?.maxWaitMs != null ? `?max_wait_ms=${opts.maxWaitMs}` : '';
     const response = await api.get<MemoryReadinessResponse>(
-      `/sensors/${encodeURIComponent(sourceName)}/memory-readiness${qs}`,
+      `/sensors/${encodeURIComponent(sourceName)}/memory-readiness`,
+      { params: { connection_id: connectionId, ...(opts?.maxWaitMs != null ? { max_wait_ms: opts.maxWaitMs } : {}) } },
     );
     return unwrapGatewayPayload(response);
   },
 
   requestSync: async (
     sourceName: string,
+    connectionId: string,
     opts?: SensorSyncRequestOptions,
   ): Promise<SensorSyncResponse> => {
     const payload: Record<string, unknown> = {};
@@ -185,24 +192,27 @@ export const sensorsApi = {
       }
     }
     const response = await api.post<SensorSyncResponse>(
-      `/sensors/${sourceName}/sync`,
+      `/sensors/${encodeURIComponent(sourceName)}/sync`,
       payload,
+      { params: { connection_id: connectionId } },
     );
     return unwrapGatewayPayload(response);
   },
 
-  requestStateFlush: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
-    const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/flush-state`, {});
+  requestStateFlush: async (sourceName: string, connectionId: string): Promise<{ queued: boolean; source_name: string }> => {
+    const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${encodeURIComponent(sourceName)}/flush-state`, {}, { params: { connection_id: connectionId } });
     return unwrapGatewayPayload(response);
   },
 
   requestAuthorization: async (
     sourceName: string,
+    connectionId: string,
     fieldValues: Record<string, any>
   ): Promise<SensorSourceAuthorizationResponse> => {
     const response = await api.post<SensorSourceAuthorizationResponse>(
-      `/sensors/${sourceName}/authorize`,
-      { field_values: fieldValues }
+      `/sensors/${encodeURIComponent(sourceName)}/authorize`,
+      { field_values: fieldValues },
+      { params: { connection_id: connectionId } }
     );
     return unwrapGatewayPayload(response);
   },
