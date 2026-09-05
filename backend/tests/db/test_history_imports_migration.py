@@ -89,6 +89,7 @@ def test_history_import_migration_creates_job_and_record_tables() -> None:
             "source_ids_json",
             "included_source_ids_json",
             "self_participant_ids_json",
+            "connection_id",
             "importer_plugin_id",
             "importer_id",
             "importer_format_version",

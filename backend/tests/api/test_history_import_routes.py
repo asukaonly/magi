@@ -21,6 +21,7 @@ async def test_importer_list_preserves_localized_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     importer = SimpleNamespace(
+        connection_id="archive-connection",
         plugin_id="platform-history",
         importer_id="account-export",
         spec=HistoryImporterSpec(
@@ -34,12 +35,14 @@ async def test_importer_list_preserves_localized_metadata(
             participant_identity_scope="export",
         ),
     )
-    service = SimpleNamespace(list_importers=lambda: [importer])
+    service = SimpleNamespace(list_importers=lambda: [importer], connection_display_name=lambda connection_id: "Personal archive")
     monkeypatch.setattr(history_import_routes, "_require_service", lambda: service)
 
     result = await history_import_routes.list_history_importers()
 
     assert len(result) == 1
+    assert result[0].connection_id == "archive-connection"
+    assert result[0].connection_display_name == "Personal archive"
     assert result[0].display_name == "Account history"
     assert result[0].display_name_i18n == {"zh-CN": "账户历史"}
     assert result[0].description_i18n == {"zh-CN": "导入官方导出文件。"}
@@ -126,3 +129,24 @@ def test_history_import_scope_rejects_unbounded_source_lists() -> None:
         history_import_routes.HistoryImportConfirmBody(
             self_participant_ids=source_ids,
         )
+
+
+def test_public_preview_route_requires_and_forwards_connection_id(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    preview = AsyncMock(side_effect=HistoryImportValidationError("selected-connection"))
+    monkeypatch.setattr(history_import_routes, "_require_service", lambda: SimpleNamespace(preview_importer_paths=preview))
+    app = FastAPI()
+    app.include_router(_build_public_router(history_import_routes.memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    with TestClient(app) as client:
+        path = "/api/memory/history-imports/importers/platform-history/account-export/preview"
+        missing = client.post(path, json={"paths": ["/tmp/export.zip"]})
+        assert missing.status_code == 422
+        preview.assert_not_called()
+        response = client.post(path, json={"connection_id": "second-account", "paths": ["/tmp/export.zip"]})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "selected-connection"
+        preview.assert_awaited_once_with(plugin_id="platform-history", importer_id="account-export", connection_id="second-account", paths=["/tmp/export.zip"])

@@ -70,6 +70,7 @@ async def test_reserved_session_prefixes_are_loaded_in_bounded_batches() -> None
 
     loaded = await _load_reserved_session_prefixes(
         database,
+        connection_id="archive-connection",
         importer_plugin_id="archive",
         importer_id="export",
         importer_format_version="1",
@@ -77,4 +78,4 @@ async def test_reserved_session_prefixes_are_loaded_in_bounded_batches() -> None
     )
 
     assert loaded == {}
-    assert [len(call) for call in database.calls] == [603, 603, 413]
+    assert [len(call) for call in database.calls] == [604, 604, 414]

@@ -38,11 +38,18 @@ class HistoryImportsModule(LifecycleModule):
             self._context.plugins.history_importer_registry,
             "history importer registry",
         )
+        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+
+        def connection_name(connection_id: str) -> str | None:
+            plugin = plugin_manager.get_connection_plugin(connection_id)
+            return plugin.connection.display_name if plugin is not None and plugin.connection is not None else None
+
         store = HistoryImportStore(db_path=str(runtime_paths.memory_db_path))
         service = HistoryImportService(
             store=store,
             memory=memory,
             importer_registry=importer_registry,
+            connection_name_resolver=connection_name,
         )
         if not self._context.runtime_commands.full_clear_recovery_pending:
             await service.start()

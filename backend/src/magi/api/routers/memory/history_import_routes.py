@@ -105,6 +105,7 @@ class HistoryImportJobResponse(BaseModel):
     imported_count: int
     projected_count: int
     self_participant_ids: list[str]
+    connection_id: str | None
     importer_plugin_id: str | None
     importer_id: str | None
     warning_summary: HistoryImportWarningSummaryResponse
@@ -124,6 +125,8 @@ class HistoryImportAppendResponse(BaseModel):
 
 
 class HistoryImporterResponse(BaseModel):
+    connection_display_name: str | None
+    connection_id: str
     plugin_id: str
     importer_id: str
     display_name: str
@@ -136,6 +139,7 @@ class HistoryImporterResponse(BaseModel):
 
 
 class HistoryImporterPreviewBody(BaseModel):
+    connection_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
     paths: list[str] = Field(min_length=1, max_length=10)
 
 
@@ -162,6 +166,7 @@ def _response(job: Any) -> HistoryImportJobResponse:
         imported_count=job.imported_count,
         projected_count=job.projected_count,
         self_participant_ids=list(job.self_participant_ids),
+        connection_id=job.connection_id,
         importer_plugin_id=job.importer_plugin_id,
         importer_id=job.importer_id,
         warning_summary=_warning_summary(job.warnings),
@@ -325,9 +330,11 @@ async def append_markdown_history(
     response_model=list[HistoryImporterResponse],
 )
 async def list_history_importers() -> list[HistoryImporterResponse]:
+    service = _require_service()
     return [
         HistoryImporterResponse(
-            plugin_id=item.plugin_id,
+            connection_id=item.connection_id,
+            connection_display_name=service.connection_display_name(item.connection_id),            plugin_id=item.plugin_id,
             importer_id=item.importer_id,
             display_name=item.spec.display_name,
             display_name_i18n=dict(item.spec.display_name_i18n),
@@ -337,7 +344,7 @@ async def list_history_importers() -> list[HistoryImporterResponse]:
             participant_identity_scope=item.spec.participant_identity_scope,
             export_help_url=item.spec.export_help_url,
         )
-        for item in _require_service().list_importers()
+        for item in service.list_importers()
     ]
 
 
@@ -354,6 +361,7 @@ async def preview_importer_history(
         job = await _require_service().preview_importer_paths(
             plugin_id=plugin_id,
             importer_id=importer_id,
+            connection_id=body.connection_id,
             paths=body.paths,
         )
     except Exception as exc:

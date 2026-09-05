@@ -380,6 +380,7 @@ async def platform_service(tmp_path: Path):
     registry = HistoryImporterRegistry()
     importer = _ArchiveImporter()
     registry.register(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         importer=importer,
@@ -408,6 +409,7 @@ async def _preview_branch(
     export = tmp_path / f"{branch}.json"
     export.write_text(branch, encoding="utf-8")
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="branching-archive",
         importer_id="export",
         paths=[str(export)],
@@ -440,6 +442,7 @@ async def test_platform_preview_selects_session_and_host_confirms_self_identity(
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -480,6 +483,7 @@ async def test_concurrent_confirm_reserves_one_divergent_session_append(
 ) -> None:
     service, _importer, _memory, tmp_path = platform_service
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="branching-archive",
         importer_id="export",
         importer=_BranchingArchiveImporter(),
@@ -514,6 +518,7 @@ async def test_concurrent_confirm_allows_an_identical_session_append(
 ) -> None:
     service, _importer, _memory, tmp_path = platform_service
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="branching-archive",
         importer_id="export",
         importer=_BranchingArchiveImporter(),
@@ -549,6 +554,7 @@ async def test_source_scoped_participants_do_not_merge_reused_raw_speaker_ids(
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -580,6 +586,7 @@ async def test_export_scoped_participants_merge_reused_raw_speaker_ids(
     service, importer, memory, tmp_path = platform_service
     importer.include_second_source = True
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="export-scoped-archive",
         importer_id="export",
         importer=importer,
@@ -595,6 +602,7 @@ async def test_export_scoped_participants_merge_reused_raw_speaker_ids(
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="export-scoped-archive",
         importer_id="export",
         paths=[str(export)],
@@ -646,6 +654,7 @@ async def test_platform_importer_cannot_use_reserved_document_participant_id(
             )
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="reserved-participant",
         importer_id="export",
         importer=_ReservedParticipantImporter(),
@@ -661,6 +670,7 @@ async def test_platform_importer_cannot_use_reserved_document_participant_id(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="reserved-participant",
             importer_id="export",
             paths=[str(export)],
@@ -678,6 +688,7 @@ async def test_incremental_export_reuses_old_message_identity_and_anchors_missin
     export.write_text('{"version":1}', encoding="utf-8")
     os.utime(export, (1_600_000_000, 1_600_000_000))
     first = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -692,6 +703,7 @@ async def test_incremental_export_reuses_old_message_identity_and_anchors_missin
     export.write_text('{"version":2}', encoding="utf-8")
     os.utime(export, (1_600_000_100, 1_600_000_100))
     second = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -717,6 +729,7 @@ async def test_platform_timestamp_contract_anchors_only_untimed_records(
     service, _importer, _memory, tmp_path = platform_service
     importer = _TimestampContractImporter()
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="timestamp-archive",
         importer_id="export",
         importer=importer,
@@ -731,6 +744,7 @@ async def test_platform_timestamp_contract_anchors_only_untimed_records(
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="timestamp-archive",
         importer_id="export",
         paths=[str(export)],
@@ -763,6 +777,7 @@ async def test_platform_import_preserves_source_order_when_timestamps_regress(
 ) -> None:
     service, _importer, memory, tmp_path = platform_service
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="out-of-order-archive",
         importer_id="export",
         importer=_OutOfOrderTimestampImporter(),
@@ -777,6 +792,7 @@ async def test_platform_import_preserves_source_order_when_timestamps_regress(
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="out-of-order-archive",
         importer_id="export",
         paths=[str(export)],
@@ -807,6 +823,7 @@ async def test_platform_quick_selection_prefers_recent_sessions_then_source_orde
 ) -> None:
     service, _importer, _memory, tmp_path = platform_service
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="recent-sessions-archive",
         importer_id="export",
         importer=_RecentSessionsImporter(),
@@ -821,6 +838,7 @@ async def test_platform_quick_selection_prefers_recent_sessions_then_source_orde
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="recent-sessions-archive",
         importer_id="export",
         paths=[str(export)],
@@ -849,6 +867,7 @@ async def test_changed_inferred_timestamp_for_stable_message_identity_is_rejecte
     service, _importer, _memory, tmp_path = platform_service
     importer = _TimestampContractImporter()
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="timestamp-archive",
         importer_id="export",
         importer=importer,
@@ -862,6 +881,7 @@ async def test_changed_inferred_timestamp_for_stable_message_identity_is_rejecte
     export = tmp_path / "timestamps.json"
     export.write_text('{"version":1}', encoding="utf-8")
     await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="timestamp-archive",
         importer_id="export",
         paths=[str(export)],
@@ -871,6 +891,7 @@ async def test_changed_inferred_timestamp_for_stable_message_identity_is_rejecte
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="timestamp-archive",
             importer_id="export",
             paths=[str(export)],
@@ -887,6 +908,7 @@ async def test_incremental_export_rejects_non_append_message_order_changes(
     export = tmp_path / "export.json"
     export.write_text('{"version":1}', encoding="utf-8")
     first = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -910,6 +932,7 @@ async def test_incremental_export_rejects_non_append_message_order_changes(
     export.write_text('{"version":2}', encoding="utf-8")
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="chat-archive",
             importer_id="export",
             paths=[str(export)],
@@ -932,6 +955,7 @@ async def test_display_labels_and_host_timezone_do_not_change_message_identity(
         lambda: "Asia/Shanghai",
     )
     first = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -950,6 +974,7 @@ async def test_display_labels_and_host_timezone_do_not_change_message_identity(
         lambda: "America/Los_Angeles",
     )
     second = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -973,6 +998,7 @@ async def test_same_session_and_message_keys_in_different_sources_do_not_collide
     export.write_text("{}", encoding="utf-8")
 
     preview = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -1001,6 +1027,7 @@ async def test_changed_content_for_stable_message_identity_is_rejected(
     export = tmp_path / "export.json"
     export.write_text('{"version":1}', encoding="utf-8")
     await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -1010,6 +1037,7 @@ async def test_changed_content_for_stable_message_identity_is_rejected(
 
     with pytest.raises(HistoryImportValidationError, match="history_importer_invalid_output"):
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="chat-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1024,6 +1052,7 @@ async def test_changed_exact_timestamp_for_stable_message_identity_is_rejected(
     export = tmp_path / "export.json"
     export.write_text('{"version":1}', encoding="utf-8")
     await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -1033,6 +1062,7 @@ async def test_changed_exact_timestamp_for_stable_message_identity_is_rejected(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="chat-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1064,6 +1094,7 @@ async def test_importer_preview_times_out_with_stable_reason(
         heartbeat_seen.set()
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="slow-archive",
         importer_id="export",
         importer=_SlowImporter(),
@@ -1084,6 +1115,7 @@ async def test_importer_preview_times_out_with_stable_reason(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="slow-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1129,6 +1161,7 @@ async def test_importer_preview_limits_timed_out_workers_to_two(
                         all_workers_finished.set()
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="blocking-archive",
         importer_id="export",
         importer=_BlockingImporter(),
@@ -1148,6 +1181,7 @@ async def test_importer_preview_limits_timed_out_workers_to_two(
     previews = [
         asyncio.create_task(
             service.preview_importer_paths(
+                connection_id="archive-connection",
                 plugin_id="blocking-archive",
                 importer_id="export",
                 paths=[str(export)],
@@ -1200,6 +1234,7 @@ async def test_importer_output_budget_is_checked_before_deep_revalidation(
             return HistoryImportParseResult.model_construct(sources=[source], warnings=[])
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="oversized-archive",
         importer_id="export",
         importer=_OverBudgetImporter(),
@@ -1216,6 +1251,7 @@ async def test_importer_output_budget_is_checked_before_deep_revalidation(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="oversized-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1247,6 +1283,7 @@ async def test_importer_output_revalidation_runs_in_parser_worker(
     export.write_text("{}", encoding="utf-8")
 
     await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(export)],
@@ -1285,6 +1322,7 @@ async def test_importer_preview_rejects_a_file_changed_during_parse(
             )
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="mutating-archive",
         importer_id="export",
         importer=_MutatingImporter(),
@@ -1300,6 +1338,7 @@ async def test_importer_preview_rejects_a_file_changed_during_parse(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="mutating-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1340,6 +1379,7 @@ async def test_importer_parse_does_not_block_clear_and_rejects_stale_result(
             )
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="paused-archive",
         importer_id="export",
         importer=_PausedImporter(),
@@ -1354,6 +1394,7 @@ async def test_importer_parse_does_not_block_clear_and_rejects_stale_result(
     export.write_text("{}", encoding="utf-8")
     preview_task = asyncio.create_task(
         service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="paused-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1403,6 +1444,7 @@ async def test_stop_generation_fences_an_inflight_importer_result_after_restart(
             )
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="stopped-archive",
         importer_id="export",
         importer=_PausedImporter(),
@@ -1422,6 +1464,7 @@ async def test_stop_generation_fences_an_inflight_importer_result_after_restart(
     export.write_text("{}", encoding="utf-8")
     preview_task = asyncio.create_task(
         service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="stopped-archive",
             importer_id="export",
             paths=[str(export)],
@@ -1453,11 +1496,13 @@ async def test_importer_preview_fingerprint_is_independent_of_picker_order(
     second_path.write_text('{"part":2}', encoding="utf-8")
 
     first = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(first_path), str(second_path)],
     )
     second = await service.preview_importer_paths(
+        connection_id="archive-connection",
         plugin_id="chat-archive",
         importer_id="export",
         paths=[str(second_path), str(first_path)],
@@ -1488,6 +1533,7 @@ async def test_importer_failures_are_mapped_to_stable_host_reasons(
             return parse_result
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="boundary",
         importer_id="export",
         importer=_BoundaryImporter(),
@@ -1503,6 +1549,7 @@ async def test_importer_failures_are_mapped_to_stable_host_reasons(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="boundary",
             importer_id="export",
             paths=[str(export)],
@@ -1578,6 +1625,7 @@ async def test_importer_preview_deeply_revalidates_pydantic_results(
             return result
 
     service._importer_registry.register(
+        connection_id="archive-connection",
         plugin_id="corrupted-model",
         importer_id="export",
         importer=_CorruptedModelImporter(),
@@ -1593,9 +1641,48 @@ async def test_importer_preview_deeply_revalidates_pydantic_results(
 
     with pytest.raises(HistoryImportValidationError) as exc_info:
         await service.preview_importer_paths(
+            connection_id="archive-connection",
             plugin_id="corrupted-model",
             importer_id="export",
             paths=[str(export)],
         )
 
     assert exc_info.value.reason == expected_reason
+
+
+@pytest.mark.asyncio
+async def test_same_package_importers_keep_connection_data_separate(platform_service) -> None:
+    service, first_importer, _memory, tmp_path = platform_service
+    archive = tmp_path / "same-export.json"
+    archive.write_text("{}")
+    second_importer = _ArchiveImporter()
+    second_importer.change_first_message = True
+    first_registration = service._importer_registry.get(
+        "chat-archive", "export", connection_id="archive-connection"
+    )
+    service._importer_registry.register(
+        plugin_id="chat-archive", importer_id="export", connection_id="second-account",
+        importer=second_importer, spec=first_registration.spec,
+    )
+    first = await service.preview_importer_paths(
+        plugin_id="chat-archive", importer_id="export", connection_id="archive-connection",
+        paths=[str(archive)],
+    )
+    second = await service.preview_importer_paths(
+        plugin_id="chat-archive", importer_id="export", connection_id="second-account",
+        paths=[str(archive)],
+    )
+    assert first.connection_id == "archive-connection"
+    assert second.connection_id == "second-account"
+    assert first.job_id != second.job_id
+    assert first.source_fingerprint != second.source_fingerprint
+    assert [record.content for record in first.preview_records] != [record.content for record in second.preview_records]
+    assert first.preview_records[0].session_id != second.preview_records[0].session_id
+    assert first.preview_records[0].source_record_key != second.preview_records[0].source_record_key
+    assert first.preview_records[0].speaker_id != second.preview_records[0].speaker_id
+    assert (await service.get_job(second.job_id)).connection_id == "second-account"
+    with pytest.raises(HistoryImportValidationError, match="history_importer_not_available"):
+        await service.preview_importer_paths(
+            plugin_id="chat-archive", importer_id="export", connection_id="unknown-account",
+            paths=[str(archive)],
+        )

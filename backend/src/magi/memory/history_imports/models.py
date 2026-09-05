@@ -113,6 +113,7 @@ class HistoryImportJob:
     quick_ready: bool
     created_at: float
     updated_at: float
+    connection_id: str | None = None
     importer_plugin_id: str | None = None
     importer_id: str | None = None
     importer_format_version: str | None = None
@@ -121,6 +122,10 @@ class HistoryImportJob:
     participants: list[HistoryImportParticipant] = field(default_factory=list)
     sources: list[HistoryImportSourceSummary] = field(default_factory=list)
     preview_records: list[HistoryImportRecord] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.importer_plugin_id is not None and not self.connection_id:
+            raise ValueError("External history imports require a connection id")
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
