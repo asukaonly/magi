@@ -65,6 +65,9 @@ export interface UseSettingsReturn {
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 
   // Plugins
+  pluginsError: string | null;
+  timelineStatusesError: string | null;
+  pluginRegistryError: string | null;
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
   pluginRegistryEntries: PluginRegistryEntry[];
@@ -172,6 +175,7 @@ export function useSettings(): UseSettingsReturn {
   const {
     plugins,
     pluginsLoading,
+    pluginsError, timelineStatusesError, pluginRegistryError,
     pluginRegistryEntries,
     pluginRegistryFingerprint,
     pluginRegistryLoading,
@@ -368,6 +372,7 @@ export function useSettings(): UseSettingsReturn {
     // Plugins
     plugins,
     pluginsLoading,
+    pluginsError, timelineStatusesError, pluginRegistryError,
     pluginRegistryEntries,
     pluginRegistryFingerprint,
     pluginRegistryLoading,

@@ -38,6 +38,11 @@ def build_contract() -> dict:
         OnboardingStatusResponse,
         OnboardingTemplateResponse,
     )
+    from magi.api.routers.tools import (
+        ToolConfigResponse,
+        ToolsListResponse,
+        tools_router,
+    )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
     public = _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"])
@@ -58,9 +63,14 @@ def build_contract() -> dict:
         if route.response_model_exclude_none or route.response_model_exclude_unset or route.response_model_exclude_defaults:
             raise RuntimeError(f"Configuration response must serialize complete fields: {method} {path}")
 
+    public_tools = _build_public_router(tools_router, _PUBLIC_ROUTE_METHODS["tools"])
+    for path, model in [("/config", ToolsListResponse), ("/{tool_name}/config", ToolConfigResponse)]:
+        if not any(route.path == path and "GET" in route.methods and route.response_model is model for route in public_tools.routes):
+            raise RuntimeError(f"Tool configuration contract is not exposed: {path}")
+
     _, document = models_json_schema(
         [(model, "serialization") for model in (
-            ConfigResponse, OnboardingStatusResponse, OnboardingTemplateResponse,
+            ConfigResponse, OnboardingStatusResponse, OnboardingTemplateResponse, ToolConfigResponse, ToolsListResponse,
         )],
         schema_generator=ResponseJsonSchema,
         ref_template="#/components/schemas/{model}",
@@ -83,6 +93,7 @@ def build_examples() -> dict:
         OnboardingTemplateResponse,
         SystemConfigModel,
     )
+    from magi.api.routers.tools import ToolConfigResponse, ToolConfigSpecResponse
 
     config = SystemConfigModel()
     config.llm.providers["openai"] = LLMProviderConfigModel()
@@ -90,6 +101,11 @@ def build_examples() -> dict:
         selection.provider_id = "openai"
         selection.model = "fixture-model"
     return {
+        "tool": ToolConfigResponse(
+            name="fixture-tool", display_name="Fixture tool", description="Contract fixture", category="file",
+            config_specs=[ToolConfigSpecResponse(path="limit", type="integer", default=5)],
+            current_values={"limit": 5},
+        ).model_dump(mode="json"),
         "config": ConfigResponse(success=True, message="OK", data=config).model_dump(mode="json"),
         "failure": ConfigResponse(success=False, message="Configuration unavailable").model_dump(mode="json"),
         "onboardingStatus": OnboardingStatusResponse(

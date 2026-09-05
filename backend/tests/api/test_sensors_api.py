@@ -765,3 +765,18 @@ def test_memory_readiness_no_memory_binding(monkeypatch):
     body = response.json()
     assert body["l1_event_count"] == 0
     assert body["l2_ready"] is False
+
+
+def test_public_source_status_reports_unavailable_manager(monkeypatch):
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    def unavailable():
+        raise RuntimeError("Plugin manager unavailable")
+
+    monkeypatch.setattr(sensors_module, "get_config", lambda: None)
+    monkeypatch.setattr(sensors_module, "resolve_plugin_manager", unavailable)
+    app = FastAPI()
+    app.include_router(_build_public_router(sensors_router, _PUBLIC_ROUTE_METHODS["sensors"]), prefix="/api/sensors")
+    response = TestClient(app).get("/api/sensors/status")
+    assert response.status_code == 503
+    assert "sources" not in response.json()

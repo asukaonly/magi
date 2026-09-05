@@ -949,8 +949,9 @@ describe('PersonaPreviewChat', () => {
         stages: [],
       } as any);
     const updateToolSpy = vi.spyOn(toolsApi, 'updateToolConfig').mockResolvedValue({
-      success: true,
-      message: 'ok',
+      name: 'web-fetch', display_name: 'Web Fetch', description: '', category: 'web', version: '1',
+      enabled: true, is_ready: true, is_multi_provider: false, providers: [], config_specs: [],
+      current_values: { allow_rfc2544_benchmark_range: true },
     });
 
     renderPersonaPreview({ previews, stayInPicker: true });

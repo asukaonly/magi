@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -12,6 +12,9 @@ import {
 } from '@/utils/settings-helpers';
 
 interface UseSettingsPluginsTimelineReturn {
+  pluginsError: string | null;
+  timelineStatusesError: string | null;
+  pluginRegistryError: string | null;
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
   pluginRegistryEntries: PluginRegistryEntry[];
@@ -38,6 +41,16 @@ interface UseSettingsPluginsTimelineReturn {
 
 export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const { t } = useTranslation('app');
+  const processingPluginIds = useRef(new Set<string>());
+  const requestIds = useRef({ plugins: 0, sources: 0, registry: 0 });
+  useEffect(() => () => {
+    requestIds.current.plugins += 1;
+    requestIds.current.sources += 1;
+    requestIds.current.registry += 1;
+  }, []);
+  const [pluginsError, setPluginsError] = useState<string | null>(null);
+  const [timelineStatusesError, setTimelineStatusesError] = useState<string | null>(null);
+  const [pluginRegistryError, setPluginRegistryError] = useState<string | null>(null);
   const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
@@ -51,39 +64,51 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
 
   const fetchTimelineStatuses = useCallback(async () => {
+    const requestId = ++requestIds.current.sources;
     setTimelineStatusesLoading(true);
     try {
       const response = await sensorsApi.getStatus();
-      const nextStatuses = response.sources || [];
+      if (requestId !== requestIds.current.sources) return;
+      if (!Array.isArray(response.sources)) throw new Error('Invalid source status response');
+      setTimelineStatusesError(null);
+      const nextStatuses = response.sources;
       const nextSnapshot = buildPluginDraftSnapshotFromSensors(nextStatuses);
       setTimelineStatuses(nextStatuses);
       setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
       setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.timeline.errors.statusLoadFailed', { message }));
-      setTimelineStatuses([]);
+      if (requestId !== requestIds.current.sources) return;
+      const errorText = t('settings.timeline.errors.statusLoadFailed', { message });
+      setTimelineStatusesError(errorText);
+      toast.error(errorText);
     } finally {
-      setTimelineStatusesLoading(false);
+      if (requestId === requestIds.current.sources) setTimelineStatusesLoading(false);
     }
   }, [t]);
 
   const loadPlugins = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const requestId = ++requestIds.current.plugins;
     if (!silent) {
       setPluginsLoading(true);
     }
     try {
       const response = await pluginsApi.list();
-      const nextPlugins = response.plugins || [];
+      if (requestId !== requestIds.current.plugins) return;
+      setPluginsError(null);
+      const nextPlugins = response.plugins;
       const nextSnapshot = buildPluginDraftSnapshotFromPackages(nextPlugins);
       setPlugins(nextPlugins);
       setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
       setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.pluginPackages.errors.loadFailed', { message }));
+      if (requestId !== requestIds.current.plugins) return;
+      const errorText = t('settings.pluginPackages.errors.loadFailed', { message });
+      setPluginsError(errorText);
+      toast.error(errorText);
     } finally {
-      if (!silent) {
+      if (requestId === requestIds.current.plugins) {
         setPluginsLoading(false);
       }
     }
@@ -93,22 +118,26 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     silent = false,
     force = false,
   }: { silent?: boolean; force?: boolean } = {}) => {
+    const requestId = ++requestIds.current.registry;
     if (!silent) {
       setPluginRegistryLoading(true);
     }
     try {
       const response = await pluginsApi.getRegistry({ force });
-      setPluginRegistryEntries(response.plugins || []);
+      if (requestId !== requestIds.current.registry) return;
+      setPluginRegistryError(null);
+      setPluginRegistryEntries(response.plugins);
       setPluginRegistryFingerprint(response.install_fingerprint);
-    } catch {
-      setPluginRegistryEntries([]);
-      setPluginRegistryFingerprint(null);
+    } catch (error) {
+      if (requestId !== requestIds.current.registry) return;
+      const message = error instanceof Error ? error.message : 'unknown';
+      setPluginRegistryError(t('settings.pluginPackages.errors.loadFailed', { message }));
     } finally {
-      if (!silent) {
+      if (requestId === requestIds.current.registry) {
         setPluginRegistryLoading(false);
       }
     }
-  }, []);
+  }, [t]);
 
   const loadPluginsAndSensors = useCallback(async () => {
     await loadPlugins();
@@ -169,6 +198,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   }, []);
 
   const handlePluginAction = useCallback(async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
+    if (processingPluginIds.current.has(pluginId)) return;
+    processingPluginIds.current.add(pluginId);
     setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
     try {
       const next =
@@ -187,6 +218,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       const message = error instanceof Error ? error.message : 'unknown';
       toast.error(t('settings.pluginPackages.errors.actionFailed', { message }));
     } finally {
+      processingPluginIds.current.delete(pluginId);
       setPluginProcessingIds((prev) => {
         const next = { ...prev };
         delete next[pluginId];
@@ -196,6 +228,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   }, [t, fetchTimelineStatuses]);
 
   const handleReloadActionPlugin = useCallback(async (pluginId: string) => {
+    if (processingPluginIds.current.has(pluginId)) return;
+    processingPluginIds.current.add(pluginId);
     setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: true }));
     try {
       const next = await pluginsApi.reload(pluginId);
@@ -209,11 +243,13 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       const message = error instanceof Error ? error.message : 'unknown';
       toast.error(t('settings.actionsConfig.errors.reloadFailed', { message }));
     } finally {
+      processingPluginIds.current.delete(pluginId);
       setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: false }));
     }
   }, [t, fetchTimelineStatuses]);
 
   return {
+    pluginsError, timelineStatusesError, pluginRegistryError,
     plugins,
     pluginsLoading,
     pluginRegistryEntries,

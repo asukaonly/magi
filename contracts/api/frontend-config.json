@@ -2271,6 +2271,275 @@
         "title": "TimelineSourcesConfigModel",
         "type": "object"
       },
+      "ToolConfigResponse": {
+        "description": "Tool configuration response",
+        "properties": {
+          "category": {
+            "description": "Tool category",
+            "title": "Category",
+            "type": "string"
+          },
+          "config_specs": {
+            "description": "Config specifications",
+            "items": {
+              "$ref": "#/components/schemas/ToolConfigSpecResponse"
+            },
+            "title": "Config Specs",
+            "type": "array"
+          },
+          "current_values": {
+            "additionalProperties": true,
+            "description": "Current config values (non-sensitive)",
+            "title": "Current Values",
+            "type": "object"
+          },
+          "description": {
+            "description": "Tool description",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Human-readable tool name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "description": "Whether tool is enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_multi_provider": {
+            "default": false,
+            "description": "Whether this is a multi-provider tool",
+            "title": "Is Multi Provider",
+            "type": "boolean"
+          },
+          "is_ready": {
+            "default": true,
+            "description": "Whether tool is configured and ready",
+            "title": "Is Ready",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Tool name",
+            "title": "Name",
+            "type": "string"
+          },
+          "providers": {
+            "description": "Available providers",
+            "items": {
+              "$ref": "#/components/schemas/ToolProviderInfo"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "version": {
+            "default": "1.0.0",
+            "description": "Tool version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "description",
+          "category",
+          "version",
+          "enabled",
+          "is_ready",
+          "is_multi_provider",
+          "providers",
+          "config_specs",
+          "current_values"
+        ],
+        "title": "ToolConfigResponse",
+        "type": "object"
+      },
+      "ToolConfigSpecResponse": {
+        "description": "Tool config spec for API response",
+        "properties": {
+          "default": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Default value",
+            "title": "Default"
+          },
+          "description": {
+            "default": "",
+            "description": "Config item description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enum": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Enum values for selection",
+            "title": "Enum"
+          },
+          "is_template": {
+            "default": false,
+            "description": "Whether this is a template path (e.g., providers.{provider}.api_key)",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "Config path (relative to tool namespace)",
+            "title": "Path",
+            "type": "string"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Input placeholder hint",
+            "title": "Placeholder"
+          },
+          "providers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Providers that this spec applies to",
+            "title": "Providers"
+          },
+          "read_only": {
+            "default": false,
+            "description": "Cannot be changed",
+            "title": "Read Only",
+            "type": "boolean"
+          },
+          "required": {
+            "default": false,
+            "description": "Whether this config is required",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "sensitive": {
+            "default": false,
+            "description": "Can be set but not read",
+            "title": "Sensitive",
+            "type": "boolean"
+          },
+          "type": {
+            "default": "string",
+            "description": "Config value type",
+            "enum": [
+              "string",
+              "integer",
+              "float",
+              "boolean",
+              "array",
+              "object"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "type",
+          "description",
+          "sensitive",
+          "read_only",
+          "required",
+          "default",
+          "enum",
+          "placeholder",
+          "is_template",
+          "providers"
+        ],
+        "title": "ToolConfigSpecResponse",
+        "type": "object"
+      },
+      "ToolProviderInfo": {
+        "description": "Provider information for multi-provider tools",
+        "properties": {
+          "display_name": {
+            "description": "Human-readable provider name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "is_ready": {
+            "description": "Whether provider is configured and ready",
+            "title": "Is Ready",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Provider identifier",
+            "title": "Name",
+            "type": "string"
+          },
+          "required_config": {
+            "description": "Required config paths",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Config",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "display_name",
+          "is_ready",
+          "required_config"
+        ],
+        "title": "ToolProviderInfo",
+        "type": "object"
+      },
+      "ToolsListResponse": {
+        "description": "Tools list response with config info",
+        "properties": {
+          "tools": {
+            "description": "List of tools with config info",
+            "items": {
+              "$ref": "#/components/schemas/ToolConfigResponse"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "total": {
+            "description": "Total number of tools",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tools",
+          "total"
+        ],
+        "title": "ToolsListResponse",
+        "type": "object"
+      },
       "UserPreferencesModel": {
         "properties": {
           "allow_ask_in_background": {

@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -21,6 +21,8 @@ interface UseSettingsToolsReturn {
 
 export function useSettingsTools(): UseSettingsToolsReturn {
   const { t } = useTranslation('app');
+  const requestIdRef = useRef(0);
+  useEffect(() => () => { requestIdRef.current += 1; }, []);
   const [tools, setTools] = useState<ToolConfig[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
@@ -28,13 +30,16 @@ export function useSettingsTools(): UseSettingsToolsReturn {
   const [draftToolDrafts, setDraftToolDrafts] = useState<ToolDraftMap>({});
 
   const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const requestId = ++requestIdRef.current;
     if (!silent) {
       setToolsLoading(true);
       setToolsError(null);
     }
     try {
       const response = await toolsApi.listWithConfig();
-      const nextTools = response.tools || [];
+      if (requestId !== requestIdRef.current) return;
+      setToolsError(null);
+      const nextTools = response.tools;
       const nextDrafts = buildToolDraftSnapshot(nextTools);
       setTools(nextTools);
       setSavedToolDrafts(nextDrafts);
@@ -55,11 +60,12 @@ export function useSettingsTools(): UseSettingsToolsReturn {
         return merged;
       });
     } catch (error: unknown) {
+      if (requestId !== requestIdRef.current) return;
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       setToolsError(t('settings.loadToolsFailed', { message }));
       toast.error(t('settings.loadToolsFailed', { message }));
     } finally {
-      if (!silent) {
+      if (requestId === requestIdRef.current) {
         setToolsLoading(false);
       }
     }

@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from 'react';
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
@@ -97,8 +97,14 @@ export function useSettingsPersistence({
 }: UseSettingsPersistenceParams): UseSettingsPersistenceReturn {
   const { t } = useTranslation('app');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [embeddingPreflightPrompt, setEmbeddingPreflightPrompt] = useState<EmbeddingPreflightPrompt | null>(null);
   const embeddingPreflightResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
+
+  useEffect(() => () => {
+    embeddingPreflightResolverRef.current?.(false);
+    embeddingPreflightResolverRef.current = null;
+  }, []);
 
   const requestEmbeddingPreflightConfirmation = useCallback((prompt: EmbeddingPreflightPrompt) => {
     return new Promise<boolean>((resolve) => {
@@ -138,6 +144,7 @@ export function useSettingsPersistence({
   }, [t]);
 
   const handleSaveChanges = useCallback(async () => {
+    if (savingRef.current) return;
     const llmValidationIssue = validateLLMCustomProviderReadiness(draftConfig.llm)[0];
     if (llmValidationIssue) {
       toast.warning(formatLlmValidationIssue(llmValidationIssue));
@@ -187,6 +194,7 @@ export function useSettingsPersistence({
       }
     }
 
+    savingRef.current = true;
     setSaving(true);
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
@@ -243,10 +251,13 @@ export function useSettingsPersistence({
           if (Object.keys(updates).length === 0 && !enabledChanged) {
             continue;
           }
-          await toolsApi.updateToolConfig(tool.name, {
+          const persistedTool = await toolsApi.updateToolConfig(tool.name, {
             updates,
             enabled: enabledChanged ? draftSnapshot.enabled : undefined,
           });
+          const canonical = { enabled: persistedTool.enabled, values: persistedTool.current_values };
+          setSavedToolDrafts(current => ({ ...current, [tool.name]: structuredClone(canonical) }));
+          setDraftToolDrafts(current => ({ ...current, [tool.name]: structuredClone(canonical) }));
         }
       }
 
@@ -259,7 +270,10 @@ export function useSettingsPersistence({
           if (Object.keys(updates).length === 0) {
             continue;
           }
-          await pluginsApi.updateSettings(pluginId, updates);
+          const persistedPlugin = await pluginsApi.updateSettings(pluginId, updates);
+          if (persistedPlugin.manifest.plugin_id !== pluginId) throw new Error('Plugin configuration identity mismatch');
+          setSavedPluginDrafts(current => ({ ...current, [pluginId]: structuredClone(persistedPlugin.current_settings) }));
+          setDraftPluginDrafts(current => ({ ...current, [pluginId]: structuredClone(persistedPlugin.current_settings) }));
         }
       }
 
@@ -278,13 +292,12 @@ export function useSettingsPersistence({
         loadTools({ silent: true }),
       ]);
 
-      setSavedPluginDrafts(structuredClone(draftPluginDrafts));
-      setSavedToolDrafts(structuredClone(draftToolDrafts));
       toast.success(t('settings.saveSuccess'));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
       toast.error(t('settings.saveFailed', { message }));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }, [
@@ -299,9 +312,11 @@ export function useSettingsPersistence({
     setDraftControlSettings,
     savedPluginDrafts,
     setSavedPluginDrafts,
+    setDraftPluginDrafts,
     draftPluginDrafts,
     savedToolDrafts,
     setSavedToolDrafts,
+    setDraftToolDrafts,
     draftToolDrafts,
     savedThemeMode,
     setSavedThemeMode,

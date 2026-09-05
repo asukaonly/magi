@@ -1075,6 +1075,187 @@ export interface components {
             /** @default null */
             terminal_history: components["schemas"]["TimelineSourceConfigModel"] | null;
         };
+        /**
+         * ToolConfigResponse
+         * @description Tool configuration response
+         */
+        ToolConfigResponse: {
+            /**
+             * Category
+             * @description Tool category
+             */
+            category: string;
+            /**
+             * Config Specs
+             * @description Config specifications
+             */
+            config_specs: components["schemas"]["ToolConfigSpecResponse"][];
+            /**
+             * Current Values
+             * @description Current config values (non-sensitive)
+             */
+            current_values: {
+                [key: string]: unknown;
+            };
+            /**
+             * Description
+             * @description Tool description
+             */
+            description: string;
+            /**
+             * Display Name
+             * @description Human-readable tool name
+             */
+            display_name: string;
+            /**
+             * Enabled
+             * @description Whether tool is enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Is Multi Provider
+             * @description Whether this is a multi-provider tool
+             * @default false
+             */
+            is_multi_provider: boolean;
+            /**
+             * Is Ready
+             * @description Whether tool is configured and ready
+             * @default true
+             */
+            is_ready: boolean;
+            /**
+             * Name
+             * @description Tool name
+             */
+            name: string;
+            /**
+             * Providers
+             * @description Available providers
+             */
+            providers: components["schemas"]["ToolProviderInfo"][];
+            /**
+             * Version
+             * @description Tool version
+             * @default 1.0.0
+             */
+            version: string;
+        };
+        /**
+         * ToolConfigSpecResponse
+         * @description Tool config spec for API response
+         */
+        ToolConfigSpecResponse: {
+            /**
+             * Default
+             * @description Default value
+             * @default null
+             */
+            default: unknown | null;
+            /**
+             * Description
+             * @description Config item description
+             * @default
+             */
+            description: string;
+            /**
+             * Enum
+             * @description Enum values for selection
+             * @default null
+             */
+            enum: unknown[] | null;
+            /**
+             * Is Template
+             * @description Whether this is a template path (e.g., providers.{provider}.api_key)
+             * @default false
+             */
+            is_template: boolean;
+            /**
+             * Path
+             * @description Config path (relative to tool namespace)
+             */
+            path: string;
+            /**
+             * Placeholder
+             * @description Input placeholder hint
+             * @default null
+             */
+            placeholder: string | null;
+            /**
+             * Providers
+             * @description Providers that this spec applies to
+             * @default null
+             */
+            providers: string[] | null;
+            /**
+             * Read Only
+             * @description Cannot be changed
+             * @default false
+             */
+            read_only: boolean;
+            /**
+             * Required
+             * @description Whether this config is required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Sensitive
+             * @description Can be set but not read
+             * @default false
+             */
+            sensitive: boolean;
+            /**
+             * Type
+             * @description Config value type
+             * @default string
+             * @enum {string}
+             */
+            type: "string" | "integer" | "float" | "boolean" | "array" | "object";
+        };
+        /**
+         * ToolProviderInfo
+         * @description Provider information for multi-provider tools
+         */
+        ToolProviderInfo: {
+            /**
+             * Display Name
+             * @description Human-readable provider name
+             */
+            display_name: string;
+            /**
+             * Is Ready
+             * @description Whether provider is configured and ready
+             */
+            is_ready: boolean;
+            /**
+             * Name
+             * @description Provider identifier
+             */
+            name: string;
+            /**
+             * Required Config
+             * @description Required config paths
+             */
+            required_config: string[];
+        };
+        /**
+         * ToolsListResponse
+         * @description Tools list response with config info
+         */
+        ToolsListResponse: {
+            /**
+             * Tools
+             * @description List of tools with config info
+             */
+            tools: components["schemas"]["ToolConfigResponse"][];
+            /**
+             * Total
+             * @description Total number of tools
+             */
+            total: number;
+        };
         /** UserPreferencesModel */
         UserPreferencesModel: {
             /**

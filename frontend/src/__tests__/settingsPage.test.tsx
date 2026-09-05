@@ -592,7 +592,7 @@ const pluginsListFixture = {
   total: 2,
 };
 
-const toolsFixture = {
+const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
   tools: [
     {
       name: 'weather',
@@ -799,10 +799,12 @@ describe('settings page draft saving', () => {
     } as any);
     vi.mocked(skillsApi.list).mockResolvedValue(skillsFixture as any);
     vi.mocked(toolsApi.listWithConfig).mockResolvedValue(toolsFixture as any);
-    vi.mocked(toolsApi.updateToolConfig).mockResolvedValue({
-      success: true,
-      message: 'ok',
-    } as any);
+    vi.mocked(toolsApi.updateToolConfig).mockImplementation(async (name, updates) => {
+      const tool = structuredClone(toolsFixture.tools.find(tool => tool.name === name)!);
+      Object.assign(tool.current_values, updates.updates);
+      tool.enabled = updates.enabled ?? tool.enabled;
+      return tool;
+    });
   });
 
   afterEach(() => {
@@ -1068,6 +1070,30 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('shows a source load error and recovers through retry', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockRejectedValueOnce(new Error('Unavailable'));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    expect(await screen.findByText(/settings.timeline.errors.statusLoadFailed/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.actions.retry' }));
+    await waitFor(() => expect(screen.queryByText(/settings.timeline.errors.statusLoadFailed/)).not.toBeInTheDocument());
+    expect(await screen.findByTestId('timeline-nav-source-chrome_history')).toBeInTheDocument();
+  });
+
+  it('retains a tool draft when persistence cannot be confirmed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(toolsApi.updateToolConfig).mockRejectedValueOnce(new Error('Readback failed'));
+    render(<SettingsPage />);
+    const control = await screen.findByRole('switch', { name: 'settings.fakeIpCompatibility' });
+    await waitFor(() => expect(control).toBeEnabled());
+    await user.click(control);
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await waitFor(() => expect(toolsApi.updateToolConfig).toHaveBeenCalledOnce());
+    expect(control).toHaveAttribute('data-state', 'unchecked');
+    expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
+  });
+
   it('saves web-fetch compatibility through tools and preserves it when saving ordinary settings', async () => {
     const user = userEvent.setup();
     const persistedTools = structuredClone(toolsFixture);
@@ -1075,7 +1101,7 @@ describe('settings page draft saving', () => {
     vi.mocked(toolsApi.updateToolConfig).mockImplementation(async (toolName, payload) => {
       const tool = persistedTools.tools.find((item) => item.name === toolName)!;
       Object.assign(tool.current_values, payload.updates);
-      return { success: true, message: 'ok' };
+      return structuredClone(tool);
     });
     render(<SettingsPage />);
 
@@ -1933,7 +1959,6 @@ describe('settings page draft saving', () => {
     const sensorsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.timeline' });
 
     expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
 
     await user.click(sensorsGroupButton);
 
@@ -1943,7 +1968,6 @@ describe('settings page draft saving', () => {
     await user.click(sensorsGroupButton);
 
     expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
   });
 
   it('does not force advanced model settings open by default', async () => {

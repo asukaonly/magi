@@ -154,8 +154,8 @@ async def get_sensor_source_status():
     runtime_paths = get_runtime_paths()
     try:
         manager = resolve_plugin_manager()
-    except RuntimeError:
-        return []
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Source status unavailable") from exc
     sensor_registry = resolve_sensor_registry()
     return await build_sensor_source_status_payload(
         runtime_paths=runtime_paths,

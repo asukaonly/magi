@@ -2,50 +2,27 @@
  * Tools API - Tool configuration management
  */
 import { api } from '../client';
-import type { ApiResponse } from '../client';
+import { z } from 'zod';
+import { ApiContractError } from '../config-contract';
+import type { components } from '../generated/config-types';
+import { validateToolConfigResponse, validateToolsListResponse } from '../generated/config-validators';
 
 // ============ Types ============
 
-export type ConfigValueType = 'string' | 'integer' | 'float' | 'boolean' | 'array' | 'object';
+type Wire = components['schemas'];
+export type ConfigValueType = Wire['ToolConfigSpecResponse']['type'];
+export type ToolProviderInfo = Wire['ToolProviderInfo'];
+export type ToolConfigSpec = Omit<Wire['ToolConfigSpecResponse'], 'enum' | 'placeholder' | 'providers' | 'default'> & {
+  default?: unknown; enum?: unknown[]; placeholder?: string; providers?: string[];
+};
+export type ToolConfig = Omit<Wire['ToolConfigResponse'], 'config_specs'> & { config_specs: ToolConfigSpec[] };
+export interface ToolsListResponse { tools: ToolConfig[]; total: number; }
 
-export interface ToolProviderInfo {
-  name: string;
-  display_name: string;
-  is_ready: boolean;
-  required_config: string[];
-}
-
-export interface ToolConfigSpec {
-  path: string;
-  type: ConfigValueType;
-  description: string;
-  sensitive: boolean;
-  read_only: boolean;
-  required: boolean;
-  default?: unknown;
-  enum?: unknown[];
-  placeholder?: string;
-  is_template: boolean;
-  providers?: string[];
-}
-
-export interface ToolConfig {
-  name: string;
-  display_name: string;
-  description: string;
-  category: string;
-  version: string;
-  enabled: boolean;
-  is_ready: boolean;
-  is_multi_provider: boolean;
-  providers: ToolProviderInfo[];
-  config_specs: ToolConfigSpec[];
-  current_values: Record<string, unknown>;
-}
-
-export interface ToolsListResponse {
-  tools: ToolConfig[];
-  total: number;
+function parseToolConfig(value: unknown): ToolConfig {
+  if (!validateToolConfigResponse(value)) throw new ApiContractError('Invalid tool configuration');
+  return { ...value, config_specs: value.config_specs.map(spec => ({
+    ...spec, enum: spec.enum ?? undefined, placeholder: spec.placeholder ?? undefined, providers: spec.providers ?? undefined,
+  })) };
 }
 
 export interface ToolConfigUpdateRequest {
@@ -59,31 +36,25 @@ export const toolsApi = {
   /**
    * Get all tools with configuration info
    */
-  listWithConfig: async () => {
-    const response = await api.get<ToolsListResponse>('/tools/config');
-    const payload = response as ToolsListResponse | ApiResponse<ToolsListResponse>;
-
-    if (Array.isArray((payload as ToolsListResponse).tools)) {
-      return payload as ToolsListResponse;
-    }
-
-    return (payload as ApiResponse<ToolsListResponse>).data ?? { tools: [], total: 0 };
+  listWithConfig: async (): Promise<ToolsListResponse> => {
+    const response = await api.get<unknown>('/tools/config');
+    if (!validateToolsListResponse(response)) throw new ApiContractError('Invalid tools list');
+    return { tools: response.tools.map(parseToolConfig), total: response.total };
   },
 
-  /**
-   * Get single tool configuration
-   */
-  getToolConfig: (toolName: string) =>
-    api.get<ToolConfig>(`/tools/${toolName}/config`),
+  getToolConfig: async (toolName: string): Promise<ToolConfig> => {
+    const tool = parseToolConfig(await api.get<unknown>(`/tools/${encodeURIComponent(toolName)}/config`));
+    if (tool.name !== toolName) throw new ApiContractError('Tool configuration identity mismatch');
+    return tool;
+  },
 
-  /**
-   * Update tool configuration
-   */
-  updateToolConfig: (toolName: string, updates: ToolConfigUpdateRequest) =>
-    api.put<{ success: boolean; message: string; updated_keys?: string[] }>(
-      `/tools/${toolName}/config`,
-      updates
-    ),
+  /** Confirm the write, then read the persisted configuration as the saved baseline. */
+  updateToolConfig: async (toolName: string, updates: ToolConfigUpdateRequest): Promise<ToolConfig> => {
+    const response = await api.put<unknown>(`/tools/${encodeURIComponent(toolName)}/config`, updates);
+    const confirmed = z.object({ success: z.literal(true), message: z.string() }).safeParse(response);
+    if (!confirmed.success) throw new ApiContractError('Tool configuration was not saved');
+    return toolsApi.getToolConfig(toolName);
+  },
 };
 
 export default toolsApi;

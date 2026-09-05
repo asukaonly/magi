@@ -679,6 +679,8 @@ Expected product behavior:
 - skill selection remains a separate `skills` field in system configuration, persisted only to the runtime `tools.skills` path
 - general settings and persona research retries use the same tool API for the web-fetch fake-IP setting; saving unrelated settings must preserve every previously saved tool value
 - tool configuration responses omit sensitive values, while system configuration responses mask only their own LLM and proxy credentials
+- settings save baselines come from confirmed server state: plugin updates use the returned package, and tool writes require a successful acknowledgment followed by canonical readback. A partial failure preserves the unsaved drafts without relabeling them as saved; each completed resource retains its confirmed baseline. Duplicate save and plugin actions are guarded while pending.
+- source and installed-plugin fetch failures have explicit retryable errors and preserve the last snapshot. Older responses and callbacks after unmount cannot overwrite newer state. Registry refresh failure remains visible separately from installed source availability.
 
 Tool-specific expectations:
 

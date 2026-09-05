@@ -94,6 +94,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     updateMemoryToggle,
     plugins,
     pluginsLoading,
+    pluginsError, timelineStatusesError, pluginRegistryError,
     pluginRegistryEntries,
     pluginRegistryFingerprint,
     pluginProcessingIds,
@@ -247,6 +248,16 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     const hasEmbeddingModel = !!(embeddingSelection?.provider_id && embeddingSelection?.model);
     const hasCrossEncoderModel = !!(draftConfig.memory.reranker?.cross_encoder?.managed_model_id);
 
+    const sectionError = effectiveActiveSection === 'timeline'
+      ? timelineStatusesError
+      : ['pluginsInstalled', 'channels'].includes(effectiveActiveSection) ? pluginsError : null;
+    if (sectionError) {
+      return <div role="alert" className="space-y-3 p-4">
+        <p className="text-sm text-destructive">{sectionError}</p>
+        <Button variant="outline" onClick={() => { void loadPluginsAndSensors(); }}>{t('settings.actions.retry')}</Button>
+      </div>;
+    }
+
     switch (effectiveActiveSection) {
       case 'preferences':
         return (
@@ -331,6 +342,8 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       case 'timeline':
         return (
+          <>
+          {pluginRegistryError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-destructive"><span>{pluginRegistryError}</span><Button variant="outline" onClick={() => { void loadPluginsAndSensors(); }}>{t('settings.actions.retry')}</Button></div> : null}
           <TimelineSourcesSection
             userMode={draftConfig.preferences.user_mode}
             statuses={sortedTimelineStatuses}
@@ -345,6 +358,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onPluginFieldChange={handlePluginDraftChange}
             onPluginFieldsChange={handlePluginDraftChanges}
           />
+          </>
         );
 
       case 'mcpServers':

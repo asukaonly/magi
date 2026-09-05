@@ -640,5 +640,34 @@
     },
     "message": "OK",
     "success": true
+  },
+  "tool": {
+    "category": "file",
+    "config_specs": [
+      {
+        "default": 5,
+        "description": "",
+        "enum": null,
+        "is_template": false,
+        "path": "limit",
+        "placeholder": null,
+        "providers": null,
+        "read_only": false,
+        "required": false,
+        "sensitive": false,
+        "type": "integer"
+      }
+    ],
+    "current_values": {
+      "limit": 5
+    },
+    "description": "Contract fixture",
+    "display_name": "Fixture tool",
+    "enabled": true,
+    "is_multi_provider": false,
+    "is_ready": true,
+    "name": "fixture-tool",
+    "providers": [],
+    "version": "1.0.0"
   }
 }

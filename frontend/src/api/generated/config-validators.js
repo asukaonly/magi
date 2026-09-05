@@ -9142,3 +9142,777 @@ validate160.errors = vErrors;
 return errors === 0;
 }
 validate160.evaluated = {"props":{"data":true,"message":true,"success":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateToolConfigResponse = validate164;
+const schema73 = {"description":"Tool configuration response","properties":{"category":{"description":"Tool category","title":"Category","type":"string"},"config_specs":{"description":"Config specifications","items":{"$ref":"#/components/schemas/ToolConfigSpecResponse"},"title":"Config Specs","type":"array"},"current_values":{"additionalProperties":true,"description":"Current config values (non-sensitive)","title":"Current Values","type":"object"},"description":{"description":"Tool description","title":"Description","type":"string"},"display_name":{"description":"Human-readable tool name","title":"Display Name","type":"string"},"enabled":{"default":true,"description":"Whether tool is enabled","title":"Enabled","type":"boolean"},"is_multi_provider":{"default":false,"description":"Whether this is a multi-provider tool","title":"Is Multi Provider","type":"boolean"},"is_ready":{"default":true,"description":"Whether tool is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Tool name","title":"Name","type":"string"},"providers":{"description":"Available providers","items":{"$ref":"#/components/schemas/ToolProviderInfo"},"title":"Providers","type":"array"},"version":{"default":"1.0.0","description":"Tool version","title":"Version","type":"string"}},"required":["name","display_name","description","category","version","enabled","is_ready","is_multi_provider","providers","config_specs","current_values"],"title":"ToolConfigResponse","type":"object"};
+const schema74 = {"description":"Tool config spec for API response","properties":{"default":{"anyOf":[{},{"type":"null"}],"default":null,"description":"Default value","title":"Default"},"description":{"default":"","description":"Config item description","title":"Description","type":"string"},"enum":{"anyOf":[{"items":{},"type":"array"},{"type":"null"}],"default":null,"description":"Enum values for selection","title":"Enum"},"is_template":{"default":false,"description":"Whether this is a template path (e.g., providers.{provider}.api_key)","title":"Is Template","type":"boolean"},"path":{"description":"Config path (relative to tool namespace)","title":"Path","type":"string"},"placeholder":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"description":"Input placeholder hint","title":"Placeholder"},"providers":{"anyOf":[{"items":{"type":"string"},"type":"array"},{"type":"null"}],"default":null,"description":"Providers that this spec applies to","title":"Providers"},"read_only":{"default":false,"description":"Cannot be changed","title":"Read Only","type":"boolean"},"required":{"default":false,"description":"Whether this config is required","title":"Required","type":"boolean"},"sensitive":{"default":false,"description":"Can be set but not read","title":"Sensitive","type":"boolean"},"type":{"default":"string","description":"Config value type","enum":["string","integer","float","boolean","array","object"],"title":"Type","type":"string"}},"required":["path","type","description","sensitive","read_only","required","default","enum","placeholder","is_template","providers"],"title":"ToolConfigSpecResponse","type":"object"};
+
+function validate165(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate165.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((((((((data.path === undefined) && (missing0 = "path")) || ((data.type === undefined) && (missing0 = "type"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.sensitive === undefined) && (missing0 = "sensitive"))) || ((data.read_only === undefined) && (missing0 = "read_only"))) || ((data.required === undefined) && (missing0 = "required"))) || ((data.default === undefined) && (missing0 = "default"))) || ((data.enum === undefined) && (missing0 = "enum"))) || ((data.placeholder === undefined) && (missing0 = "placeholder"))) || ((data.is_template === undefined) && (missing0 = "is_template"))) || ((data.providers === undefined) && (missing0 = "providers"))){
+validate165.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.default !== undefined){
+const _errs1 = errors;
+const _errs2 = errors;
+let valid1 = false;
+var _valid0 = true;
+valid1 = valid1 || _valid0;
+const _errs3 = errors;
+if(data.default !== null){
+const err0 = {instancePath:instancePath+"/default",schemaPath:"#/properties/default/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var _valid0 = _errs3 === errors;
+valid1 = valid1 || _valid0;
+if(!valid1){
+const err1 = {instancePath:instancePath+"/default",schemaPath:"#/properties/default/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+validate165.errors = vErrors;
+return false;
+}
+else {
+errors = _errs2;
+if(vErrors !== null){
+if(_errs2){
+vErrors.length = _errs2;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.description !== undefined){
+const _errs5 = errors;
+if(typeof data.description !== "string"){
+validate165.errors = [{instancePath:instancePath+"/description",schemaPath:"#/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs5 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.enum !== undefined){
+let data2 = data.enum;
+const _errs7 = errors;
+const _errs8 = errors;
+let valid2 = false;
+const _errs9 = errors;
+if(errors === _errs9){
+if(!(Array.isArray(data2))){
+const err2 = {instancePath:instancePath+"/enum",schemaPath:"#/properties/enum/anyOf/0/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+}
+var _valid1 = _errs9 === errors;
+valid2 = valid2 || _valid1;
+const _errs11 = errors;
+if(data2 !== null){
+const err3 = {instancePath:instancePath+"/enum",schemaPath:"#/properties/enum/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+var _valid1 = _errs11 === errors;
+valid2 = valid2 || _valid1;
+if(!valid2){
+const err4 = {instancePath:instancePath+"/enum",schemaPath:"#/properties/enum/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+validate165.errors = vErrors;
+return false;
+}
+else {
+errors = _errs8;
+if(vErrors !== null){
+if(_errs8){
+vErrors.length = _errs8;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs7 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.is_template !== undefined){
+const _errs13 = errors;
+if(typeof data.is_template !== "boolean"){
+validate165.errors = [{instancePath:instancePath+"/is_template",schemaPath:"#/properties/is_template/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs13 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.path !== undefined){
+const _errs15 = errors;
+if(typeof data.path !== "string"){
+validate165.errors = [{instancePath:instancePath+"/path",schemaPath:"#/properties/path/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs15 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.placeholder !== undefined){
+let data5 = data.placeholder;
+const _errs17 = errors;
+const _errs18 = errors;
+let valid3 = false;
+const _errs19 = errors;
+if(typeof data5 !== "string"){
+const err5 = {instancePath:instancePath+"/placeholder",schemaPath:"#/properties/placeholder/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+var _valid2 = _errs19 === errors;
+valid3 = valid3 || _valid2;
+const _errs21 = errors;
+if(data5 !== null){
+const err6 = {instancePath:instancePath+"/placeholder",schemaPath:"#/properties/placeholder/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+var _valid2 = _errs21 === errors;
+valid3 = valid3 || _valid2;
+if(!valid3){
+const err7 = {instancePath:instancePath+"/placeholder",schemaPath:"#/properties/placeholder/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+validate165.errors = vErrors;
+return false;
+}
+else {
+errors = _errs18;
+if(vErrors !== null){
+if(_errs18){
+vErrors.length = _errs18;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs17 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.providers !== undefined){
+let data6 = data.providers;
+const _errs23 = errors;
+const _errs24 = errors;
+let valid4 = false;
+const _errs25 = errors;
+if(errors === _errs25){
+if(Array.isArray(data6)){
+var valid5 = true;
+const len0 = data6.length;
+for(let i0=0; i0<len0; i0++){
+const _errs27 = errors;
+if(typeof data6[i0] !== "string"){
+const err8 = {instancePath:instancePath+"/providers/" + i0,schemaPath:"#/properties/providers/anyOf/0/items/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+var valid5 = _errs27 === errors;
+if(!valid5){
+break;
+}
+}
+}
+else {
+const err9 = {instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/anyOf/0/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+var _valid3 = _errs25 === errors;
+valid4 = valid4 || _valid3;
+const _errs29 = errors;
+if(data6 !== null){
+const err10 = {instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+var _valid3 = _errs29 === errors;
+valid4 = valid4 || _valid3;
+if(!valid4){
+const err11 = {instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+validate165.errors = vErrors;
+return false;
+}
+else {
+errors = _errs24;
+if(vErrors !== null){
+if(_errs24){
+vErrors.length = _errs24;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs23 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.read_only !== undefined){
+const _errs31 = errors;
+if(typeof data.read_only !== "boolean"){
+validate165.errors = [{instancePath:instancePath+"/read_only",schemaPath:"#/properties/read_only/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs31 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.required !== undefined){
+const _errs33 = errors;
+if(typeof data.required !== "boolean"){
+validate165.errors = [{instancePath:instancePath+"/required",schemaPath:"#/properties/required/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs33 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.sensitive !== undefined){
+const _errs35 = errors;
+if(typeof data.sensitive !== "boolean"){
+validate165.errors = [{instancePath:instancePath+"/sensitive",schemaPath:"#/properties/sensitive/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs35 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.type !== undefined){
+let data11 = data.type;
+const _errs37 = errors;
+if(typeof data11 !== "string"){
+validate165.errors = [{instancePath:instancePath+"/type",schemaPath:"#/properties/type/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(!((((((data11 === "string") || (data11 === "integer")) || (data11 === "float")) || (data11 === "boolean")) || (data11 === "array")) || (data11 === "object"))){
+validate165.errors = [{instancePath:instancePath+"/type",schemaPath:"#/properties/type/enum",keyword:"enum",params:{allowedValues: schema74.properties.type.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+var valid0 = _errs37 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate165.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate165.errors = vErrors;
+return errors === 0;
+}
+validate165.evaluated = {"props":{"default":true,"description":true,"enum":true,"is_template":true,"path":true,"placeholder":true,"providers":true,"read_only":true,"required":true,"sensitive":true,"type":true},"dynamicProps":false,"dynamicItems":false};
+
+const schema75 = {"description":"Provider information for multi-provider tools","properties":{"display_name":{"description":"Human-readable provider name","title":"Display Name","type":"string"},"is_ready":{"description":"Whether provider is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Provider identifier","title":"Name","type":"string"},"required_config":{"description":"Required config paths","items":{"type":"string"},"title":"Required Config","type":"array"}},"required":["name","display_name","is_ready","required_config"],"title":"ToolProviderInfo","type":"object"};
+
+function validate167(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate167.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((((data.name === undefined) && (missing0 = "name")) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.required_config === undefined) && (missing0 = "required_config"))){
+validate167.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.display_name !== undefined){
+const _errs1 = errors;
+if(typeof data.display_name !== "string"){
+validate167.errors = [{instancePath:instancePath+"/display_name",schemaPath:"#/properties/display_name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.is_ready !== undefined){
+const _errs3 = errors;
+if(typeof data.is_ready !== "boolean"){
+validate167.errors = [{instancePath:instancePath+"/is_ready",schemaPath:"#/properties/is_ready/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.name !== undefined){
+const _errs5 = errors;
+if(typeof data.name !== "string"){
+validate167.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs5 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.required_config !== undefined){
+let data3 = data.required_config;
+const _errs7 = errors;
+if(errors === _errs7){
+if(Array.isArray(data3)){
+var valid1 = true;
+const len0 = data3.length;
+for(let i0=0; i0<len0; i0++){
+const _errs9 = errors;
+if(typeof data3[i0] !== "string"){
+validate167.errors = [{instancePath:instancePath+"/required_config/" + i0,schemaPath:"#/properties/required_config/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid1 = _errs9 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate167.errors = [{instancePath:instancePath+"/required_config",schemaPath:"#/properties/required_config/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs7 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+else {
+validate167.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate167.errors = vErrors;
+return errors === 0;
+}
+validate167.evaluated = {"props":{"display_name":true,"is_ready":true,"name":true,"required_config":true},"dynamicProps":false,"dynamicItems":false};
+
+
+function validate164(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate164.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((((((((data.name === undefined) && (missing0 = "name")) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.category === undefined) && (missing0 = "category"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.enabled === undefined) && (missing0 = "enabled"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.is_multi_provider === undefined) && (missing0 = "is_multi_provider"))) || ((data.providers === undefined) && (missing0 = "providers"))) || ((data.config_specs === undefined) && (missing0 = "config_specs"))) || ((data.current_values === undefined) && (missing0 = "current_values"))){
+validate164.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.category !== undefined){
+const _errs1 = errors;
+if(typeof data.category !== "string"){
+validate164.errors = [{instancePath:instancePath+"/category",schemaPath:"#/properties/category/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.config_specs !== undefined){
+let data1 = data.config_specs;
+const _errs3 = errors;
+if(errors === _errs3){
+if(Array.isArray(data1)){
+var valid1 = true;
+const len0 = data1.length;
+for(let i0=0; i0<len0; i0++){
+const _errs5 = errors;
+if(!(validate165(data1[i0], {instancePath:instancePath+"/config_specs/" + i0,parentData:data1,parentDataProperty:i0,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate165.errors : vErrors.concat(validate165.errors);
+errors = vErrors.length;
+}
+var valid1 = _errs5 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate164.errors = [{instancePath:instancePath+"/config_specs",schemaPath:"#/properties/config_specs/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.current_values !== undefined){
+let data3 = data.current_values;
+const _errs6 = errors;
+if(errors === _errs6){
+if(data3 && typeof data3 == "object" && !Array.isArray(data3)){
+}
+else {
+validate164.errors = [{instancePath:instancePath+"/current_values",schemaPath:"#/properties/current_values/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+var valid0 = _errs6 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.description !== undefined){
+const _errs9 = errors;
+if(typeof data.description !== "string"){
+validate164.errors = [{instancePath:instancePath+"/description",schemaPath:"#/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.display_name !== undefined){
+const _errs11 = errors;
+if(typeof data.display_name !== "string"){
+validate164.errors = [{instancePath:instancePath+"/display_name",schemaPath:"#/properties/display_name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs11 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.enabled !== undefined){
+const _errs13 = errors;
+if(typeof data.enabled !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/enabled",schemaPath:"#/properties/enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs13 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.is_multi_provider !== undefined){
+const _errs15 = errors;
+if(typeof data.is_multi_provider !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/is_multi_provider",schemaPath:"#/properties/is_multi_provider/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs15 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.is_ready !== undefined){
+const _errs17 = errors;
+if(typeof data.is_ready !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/is_ready",schemaPath:"#/properties/is_ready/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs17 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.name !== undefined){
+const _errs19 = errors;
+if(typeof data.name !== "string"){
+validate164.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs19 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.providers !== undefined){
+let data10 = data.providers;
+const _errs21 = errors;
+if(errors === _errs21){
+if(Array.isArray(data10)){
+var valid2 = true;
+const len1 = data10.length;
+for(let i1=0; i1<len1; i1++){
+const _errs23 = errors;
+if(!(validate167(data10[i1], {instancePath:instancePath+"/providers/" + i1,parentData:data10,parentDataProperty:i1,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate167.errors : vErrors.concat(validate167.errors);
+errors = vErrors.length;
+}
+var valid2 = _errs23 === errors;
+if(!valid2){
+break;
+}
+}
+}
+else {
+validate164.errors = [{instancePath:instancePath+"/providers",schemaPath:"#/properties/providers/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs21 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.version !== undefined){
+const _errs24 = errors;
+if(typeof data.version !== "string"){
+validate164.errors = [{instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs24 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate164.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate164.errors = vErrors;
+return errors === 0;
+}
+validate164.evaluated = {"props":{"category":true,"config_specs":true,"current_values":true,"description":true,"display_name":true,"enabled":true,"is_multi_provider":true,"is_ready":true,"name":true,"providers":true,"version":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateToolsListResponse = validate169;
+const schema76 = {"description":"Tools list response with config info","properties":{"tools":{"description":"List of tools with config info","items":{"$ref":"#/components/schemas/ToolConfigResponse"},"title":"Tools","type":"array"},"total":{"description":"Total number of tools","title":"Total","type":"integer"}},"required":["tools","total"],"title":"ToolsListResponse","type":"object"};
+
+function validate169(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate169.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((data.tools === undefined) && (missing0 = "tools")) || ((data.total === undefined) && (missing0 = "total"))){
+validate169.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.tools !== undefined){
+let data0 = data.tools;
+const _errs1 = errors;
+if(errors === _errs1){
+if(Array.isArray(data0)){
+var valid1 = true;
+const len0 = data0.length;
+for(let i0=0; i0<len0; i0++){
+const _errs3 = errors;
+if(!(validate164(data0[i0], {instancePath:instancePath+"/tools/" + i0,parentData:data0,parentDataProperty:i0,rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate164.errors : vErrors.concat(validate164.errors);
+errors = vErrors.length;
+}
+var valid1 = _errs3 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate169.errors = [{instancePath:instancePath+"/tools",schemaPath:"#/properties/tools/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.total !== undefined){
+let data2 = data.total;
+const _errs4 = errors;
+if(!((typeof data2 == "number") && (!(data2 % 1) && !isNaN(data2)))){
+validate169.errors = [{instancePath:instancePath+"/total",schemaPath:"#/properties/total/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+var valid0 = _errs4 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+else {
+validate169.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate169.errors = vErrors;
+return errors === 0;
+}
+validate169.evaluated = {"props":{"tools":true,"total":true},"dynamicProps":false,"dynamicItems":false};
