@@ -12,10 +12,8 @@ from magi.utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...models import L2EventWindow
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
-    ENTITY_RECONCILE_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
     render_batch_entity_resolution_prompt,
-    render_entity_reconcile_prompt,
     render_entity_resolution_prompt,
 )
 
@@ -502,11 +500,9 @@ __all__ = [
     "PHASE1_EXTRACT_SYSTEM_PROMPT",
     "PHASE2_INTEGRATE_SYSTEM_PROMPT",
     "build_phase2_integrate_system_prompt",
-    "ENTITY_RECONCILE_SYSTEM_PROMPT",
     "ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "render_phase1_extract_prompt",
     "render_phase2_integrate_prompt",
-    "render_entity_reconcile_prompt",
     "render_entity_resolution_prompt",
     "BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT",
     "render_batch_entity_resolution_prompt",

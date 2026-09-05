@@ -345,65 +345,6 @@ class L2BatchEntityResolutionItem:
         }
 
 
-@dataclass(slots=True)
-class L2ReconcileEntity:
-    """Typed entity payload used for reconcile prompts."""
-
-    entity_id: str
-    entity_type: str
-
-    def __post_init__(self) -> None:
-        self.entity_id = _non_empty_text(self.entity_id, field_name="entity_id")
-        self.entity_type = _non_empty_text(self.entity_type, field_name="entity_type")
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
-class L2ReconcileGraphFact:
-    """Typed graph-fact payload used for reconcile prompts."""
-
-    predicate: str
-    object_id: str
-    subject_id: str = ""
-    status: str = ""
-    confidence: float = 0.0
-
-    def __post_init__(self) -> None:
-        self.predicate = _non_empty_text(self.predicate, field_name="predicate")
-        self.object_id = _non_empty_text(self.object_id, field_name="object_id")
-        self.subject_id = _optional_text(self.subject_id) or ""
-        self.status = _optional_text(self.status) or ""
-        self.confidence = float(self.confidence or 0.0)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass(slots=True)
-class L2ReconcileAssertion:
-    """Typed assertion payload used for reconcile prompts."""
-
-    trait_name: str
-    trait_value: str
-    validation_state: str = ""
-    confidence: float = 0.0
-    evidence_event_ids: list[str] = field(default_factory=list)
-
-    def __post_init__(self) -> None:
-        self.trait_name = _non_empty_text(self.trait_name, field_name="trait_name")
-        self.trait_value = str(self.trait_value)
-        self.validation_state = _optional_text(self.validation_state) or ""
-        self.confidence = float(self.confidence or 0.0)
-        self.evidence_event_ids = [
-            str(item).strip() for item in self.evidence_event_ids if str(item).strip()
-        ]
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
 __all__ = [
     "L2BatchEntityResolutionItem",
     "L2EntityCandidate",
@@ -412,9 +353,6 @@ __all__ = [
     "L2ExistingRecord",
     "L2FocalEntityRef",
     "L2KnowledgeEdgeWrite",
-    "L2ReconcileAssertion",
-    "L2ReconcileEntity",
-    "L2ReconcileGraphFact",
     "L2SourceEvent",
     "L2TomAssertionWrite",
     "ResolvedEntityMention",

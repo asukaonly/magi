@@ -815,36 +815,6 @@ async def test_extract_queue_rejects_jobs_without_projection_leases():
             await pipeline._enqueue_extract_job(job)
 
 
-def test_reconcile_prompt_rendering_is_deterministic():
-    from magi.memory.l2.models import (
-        L2ReconcileAssertion,
-        L2ReconcileEntity,
-        L2ReconcileGraphFact,
-        L2SourceEvent,
-    )
-    from magi.memory.l2.pipeline.prompts import (
-        render_entity_reconcile_prompt,
-    )
-
-    reconcile_prompt = render_entity_reconcile_prompt(
-        entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-        graph_facts=[L2ReconcileGraphFact(predicate="LIKES", object_id="food:sushi")],
-        assertions=[L2ReconcileAssertion(trait_name="stress_level", trait_value="high")],
-        recent_events=[
-            L2SourceEvent(
-                event_id="evt-1",
-                timestamp=1710000000.0,
-                source="chat",
-                event_type="UserMessage",
-                content="I am stressed.",
-            )
-        ],
-    )
-
-    assert '"entity_id": "user:u1"' in reconcile_prompt
-    assert '"trait_name": "stress_level"' in reconcile_prompt
-
-
 @pytest.mark.asyncio
 async def test_low_confidence_resolution_is_returned_as_unresolved():
     from magi.memory.l2.llm_service import L2LLMService
@@ -1020,21 +990,19 @@ async def test_batch_entity_resolution_fills_missing_keys():
 
 
 @pytest.mark.asyncio
-async def test_invalid_json_from_reconcile_llm_fails_closed():
+async def test_invalid_json_from_entity_resolution_llm_fails_closed():
     from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
-        L2ReconcileEntity,
+        L2EntityResolutionMention,
     )
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
     with pytest.raises(L2InvalidJsonResponseError):
-        await service.reconcile_entity_state(
-            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-            graph_facts=[],
-            assertions=[],
-            recent_events=[],
+        await service.resolve_entity(
+            mention=L2EntityResolutionMention(mention_text="Quiet Cafe", entity_type="place"),
+            candidate_entities=[],
         )
 
 

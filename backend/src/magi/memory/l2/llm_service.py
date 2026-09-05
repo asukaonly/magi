@@ -7,7 +7,6 @@ from .llm_common import L2LLMCommonMixin
 from .llm_entity_resolution import L2LLMEntityResolutionMixin
 from .llm_extraction import L2LLMExtractionMixin
 from .llm_json_client import L2LLMJsonClientMixin
-from .llm_reconcile import L2LLMReconcileMixin
 
 
 class L2LLMService(
@@ -15,7 +14,6 @@ class L2LLMService(
     L2LLMCommonMixin,
     L2LLMExtractionMixin,
     L2LLMEntityResolutionMixin,
-    L2LLMReconcileMixin,
 ):
     """Executes L2 prompts with conservative failure handling."""
 
@@ -28,5 +26,4 @@ __all__ = [
     "L2LLMCommonMixin",
     "L2LLMExtractionMixin",
     "L2LLMEntityResolutionMixin",
-    "L2LLMReconcileMixin",
 ]
