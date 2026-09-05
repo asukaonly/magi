@@ -264,6 +264,20 @@ def _normalize_preference_scope(claim: dict[str, object]) -> None:
     if str(claim.get("predicate") or "").upper() not in {"LIKES", "DISLIKES"}:
         return
     evidence = str(claim.get("evidence_text") or "")
+    preference_clauses = [
+        clause for clause in re.split(r"[，,。.;；!?！？]", evidence)
+        if _DIRECT_PREFERENCE.search(clause)
+    ]
+    if len(preference_clauses) == 1:
+        local_cues = _temporal_cues_in_text(preference_clauses[0])
+        # An explicit horizon belongs to the preference clause, not to a nearby
+        # listening episode or another activity in the same evidence quote.
+        if L2TemporalCue.ONE_OFF not in local_cues:
+            for cue in (L2TemporalCue.RECENT, L2TemporalCue.RECURRING, L2TemporalCue.STABLE):
+                if cue in local_cues:
+                    claim["temporal_cue"] = cue.value
+                    claim["fact_kind"] = "stable_preference"
+                    return
     cues = _temporal_cues_in_text(evidence)
     if L2TemporalCue.ONE_OFF in cues or not _DIRECT_PREFERENCE.search(evidence):
         claim["temporal_cue"] = L2TemporalCue.ONE_OFF.value

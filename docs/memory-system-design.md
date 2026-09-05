@@ -3088,3 +3088,49 @@ The overview's headline now counts original L1 records. Extracted statements,
 including pending statements, and summaries remain separate. The API calls the
 cross-layer storage inventory `stored_records`; it is not a count of unique
 memories, understanding, or personal facts. Today deltas use the same units.
+
+### Chinese journey regression and live evaluation
+
+`backend/tests/memory/journeys/test_chinese_memory_journey.py` runs a fresh-store
+journey from raw `UserMessage` ingestion through L1, the durable L2 workers,
+grounded Claims, the public correction and portrait routes, the production
+`UserProfileService`/prompt assembler, and `MemoryQueryTool` with its host query
+port. It imports an authored Markdown document through `HistoryImportService`,
+rejects a proposed L3 summary, forgets source events, closes/reopens the stores,
+and redelivers the original events. Checks cover Chinese names, mixed questions,
+negation, one-meal evaluations, durable/recent preferences, hypothetical text,
+correction visibility, summary rejection, and forbidden-source replay.
+
+The durable preference horizon is taken from its own explicitly timed clause.
+For example, “我一直很喜欢 DIIV，最近又把《Oshin》听了几遍” preserves the durable
+preference; the nearby listening episode does not shorten its lifetime.
+
+Default execution uses a scripted provider transport with deliberately unsafe
+candidate Claims. Storage, governance, public routing, retrieval, and prompt
+consumption are real. Its generated replies assert transport/context wiring;
+passing this suite is **not** a model-quality percentage or a complete desktop
+`ChatTaskAgent`/delivery evaluation. The existing runtime tests cover those
+runtime wiring boundaries separately. Retrieval `found` means candidate evidence
+exists; it does not establish that an arbitrary requested claim is true.
+
+Run from `backend` with the project environment and an isolated test HOME:
+
+```sh
+PYTHONPATH=src:../sdk/src python -m pytest tests/memory/journeys \
+  tests/memory/history_imports/test_history_import_l2_quality.py -q
+```
+
+For a live extraction/answer run, explicitly supply `MAGI_EVAL_API_KEY`,
+`MAGI_EVAL_MODEL`, and optionally `MAGI_EVAL_BASE_URL` in the environment, then:
+
+```sh
+MAGI_LIVE_MEMORY_EVAL=1 PYTHONPATH=src:../sdk/src python -m pytest \
+  tests/memory/journeys/test_chinese_memory_journey.py \
+  -k live -q --junitxml=/tmp/magi-live-memory-journey.xml
+```
+
+Without explicit provider configuration the live case is skipped, not counted
+as passed. The fixture is synthetic; tests never consume the user's actual
+conversation database. Live results should be reported with model, test revision,
+case failures, and the boundary above. This small regression baseline is not a
+replacement for a representative model-quality benchmark.
