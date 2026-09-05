@@ -305,6 +305,10 @@ Expected behavior:
 
 ## LLM Configuration
 
+The local embedding idle timeout keeps blank input as an invalid draft instead
+of silently restoring a default. It accepts at least 60 whole seconds (displayed
+in minutes); both the field and Save validation explain invalid values.
+
 The LLM configuration layer defines how Magi talks to language models.
 
 Current product expectations:

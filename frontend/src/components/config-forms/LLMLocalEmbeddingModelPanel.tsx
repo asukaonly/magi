@@ -5,6 +5,7 @@ import type { EmbeddingConfig } from '@/api/modules/config';
 import type { LocalEmbeddingModelInfo } from '@/api/modules/local-embedding';
 import { SelectField } from '@/components/config-forms/fields';
 import { Button } from '@/components/ui/button';
+import { isEmbeddingIdleTimeoutValid } from '@/utils/memory-settings-validation';
 
 interface LLMLocalEmbeddingModelPanelProps {
   embeddingConfig: EmbeddingConfig;
@@ -217,17 +218,20 @@ export function LLMLocalEmbeddingModelPanel({
           className={inputClassName}
           type="number"
           min={1}
-          step={1}
-          value={String(Math.round(embeddingConfig.local.idle_timeout_seconds / 60))}
+          step="any"
+          aria-invalid={!isEmbeddingIdleTimeoutValid(embeddingConfig.local.idle_timeout_seconds)}
+          aria-describedby={!isEmbeddingIdleTimeoutValid(embeddingConfig.local.idle_timeout_seconds) ? 'embedding-idle-timeout-error' : undefined}
+          value={Number.isFinite(embeddingConfig.local.idle_timeout_seconds) ? String(embeddingConfig.local.idle_timeout_seconds / 60) : ''}
           onChange={(event) => {
             const nextValue = event.target.value.trim();
             onEmbeddingConfigChange((embeddingConfig) => {
-              embeddingConfig.local.idle_timeout_seconds = nextValue ? Number(nextValue) * 60 : 1800;
+              embeddingConfig.local.idle_timeout_seconds = nextValue ? Number(nextValue) * 60 : Number.NaN;
             });
           }}
         />
       </label>
 
+      {!isEmbeddingIdleTimeoutValid(embeddingConfig.local.idle_timeout_seconds) && <p id="embedding-idle-timeout-error" role="alert" className="text-xs text-destructive">{tApp('settings.memory.validation.embeddingIdleTimeout')}</p>}
       <p className="text-xs leading-5 text-muted-foreground">
         {tApp('settings.memory.fields.embedding_local_managed_cache_path.description')}
       </p>

@@ -36,3 +36,7 @@ export function validateMemoryL0Config(
 
   return null;
 }
+
+export function isEmbeddingIdleTimeoutValid(seconds: number): boolean {
+  return Number.isInteger(seconds) && seconds >= 60;
+}

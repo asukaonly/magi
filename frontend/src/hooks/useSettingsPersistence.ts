@@ -19,7 +19,7 @@ import {
   serialize,
 } from '@/utils/settings-helpers';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
-import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
+import { validateMemoryL0Config, isEmbeddingIdleTimeoutValid } from '@/utils/memory-settings-validation';
 import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 interface UseSettingsPersistenceParams {
@@ -148,6 +148,10 @@ export function useSettingsPersistence({
     const llmValidationIssue = validateLLMCustomProviderReadiness(draftConfig.llm)[0];
     if (llmValidationIssue) {
       toast.warning(formatLlmValidationIssue(llmValidationIssue));
+      return;
+    }
+    if (!isEmbeddingIdleTimeoutValid(draftConfig.memory.embedding.local.idle_timeout_seconds)) {
+      toast.warning(t('settings.memory.validation.embeddingIdleTimeout'));
       return;
     }
     const memoryL0ValidationIssue = validateMemoryL0Config(draftConfig.memory.l0);

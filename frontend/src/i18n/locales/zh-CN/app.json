@@ -2329,6 +2329,7 @@
         }
       },
       "validation": {
+        "embeddingIdleTimeout": "请输入至少 1 分钟，换算后须为整数秒。",
         "attentionUpdatePositiveInteger": "关注更新的三个数值都必须是大于 0 的整数。",
         "attentionUpdateOutOfRange": "累计轮数应为 1–20，空闲等待应为 1–300 秒，最长等待应为 1–600 秒。",
         "attentionUpdateMaxDelayTooShort": "最长等待时间不能小于空闲等待时间。"

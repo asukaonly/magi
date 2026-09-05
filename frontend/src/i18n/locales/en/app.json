@@ -2330,6 +2330,7 @@
         }
       },
       "validation": {
+        "embeddingIdleTimeout": "Enter at least 1 minute, with a value equal to a whole number of seconds.",
         "attentionUpdatePositiveInteger": "All three attention update values must be positive integers.",
         "attentionUpdateOutOfRange": "Turns must be 1–20, idle wait 1–300 seconds, and maximum wait 1–600 seconds.",
         "attentionUpdateMaxDelayTooShort": "The maximum wait cannot be shorter than the idle wait."
