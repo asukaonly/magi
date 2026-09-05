@@ -791,13 +791,13 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
-Preference Claims follow the same stability boundary. An explicit `LIKES` or
-`DISLIKES` Claim marked `one_off` may still authorize an Assertion for cautious
-profile interpretation, but it cannot authorize a durable knowledge-graph edge.
-The semantic route contract owns this distinction and Phase 1 graph projection
-reuses that contract-level policy. Route-contract reprojection removes only the
-obsolete relationship authority from older Claims; it preserves the Assertion,
-shared Claim support, and independent user-correction authority.
+Preference Claims follow the same stability boundary. The host normalizes a
+single-experience evaluation to an `explicit_fact` with a `one_off` cue, retaining
+the event/Claim evidence without treating it as a reusable profile preference.
+A direct general preference remains eligible for profile interpretation; an
+explicit recent preference retains a bounded horizon. Graph projection also
+enforces the semantic route contract's independent exclusion of `one_off`
+preference edges. User-correction authority remains independent of extraction.
 
 Phase 1 must choose the most specific evidence-supported type from the canonical
 entity registry. Named collectives belong to `group`, named creative works belong
@@ -807,11 +807,12 @@ type; unfamiliarity alone is not a reason to use it. The host still validates th
 type against the registry, but it does not guess a replacement type from an entity
 name when the evidence cannot support that semantic decision.
 
-New named entity IDs use a stable fingerprint of the complete Unicode-normalized
-name and entity type. Display slugs never determine identity. Replay keeps the
-same identity; changing a catalog name requires explicit rename authority and
-must preserve that identity. Ingestion cannot overwrite an existing identity
-with an unrelated name.
+Reusable concept IDs use a stable fingerprint of the complete Unicode-normalized
+name and entity type. Concrete entities use a source-owned key or an unresolved
+mention's evidence scope, so matching display names do not establish identity.
+Display slugs never determine identity. Replay keeps the same identity; changing
+a catalog name requires explicit rename authority and must preserve that identity.
+Ingestion cannot overwrite an existing identity with an unrelated name.
 
 Knowledge graph endpoints must resolve through the entity catalog before they are
 persisted. The LLM is not an authority for inventing `entity_id` values. Every
@@ -1037,8 +1038,9 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
-Assertion-backed portrait items display the accepted `natural_summary` when one
-exists and retain the typed `trait_value` as the correction payload; this prevents
+Assertion-backed portrait items display host-rendered `natural_summary` when one
+exists, or a localized structured behavior expression for inferred observations,
+and retain the typed `trait_value` as the correction payload; this prevents
 distinct preferences that share an enum-like value such as `like` from collapsing
 into one review item. This display rule does not make review Assertions prompt
 facts: only their independently grounded Claim may use the tentative path above.
@@ -2948,6 +2950,8 @@ The identity model must always be clear:
 - `event_id` — Stable external reference
 - `source_item_id` — Source-side identity
 - `idempotency_key` — Business idempotency key
+
+## Memory Correctness and Consumption Contracts
 
 Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
 positive polarity means an explicit dislike; negative `LIKES` never becomes
