@@ -1427,6 +1427,11 @@
     "preferencesDesc": "Configure interface language, theme, and desktop behavior",
     "conversationDesc": "Configure the default workspace used for new conversations",
     "codeAgent": {
+      "loadFailed": "Unable to load code tool settings.",
+      "userScope": "User defaults. A project configuration can override these settings for that project.",
+      "invalidTimeout": "Enter a whole number from 60 to 3600 seconds.",
+      "saved": "Saved",
+      "unsaved": "Unsaved changes",
       "loading": "Loading…",
       "rescan": "Rescan",
       "titleEnable": "Enable",

@@ -27,7 +27,7 @@ def _load_toml(text: str) -> dict[str, Any]:
 
 
 class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class ClaudeCodeSettings(_Frozen):
@@ -55,7 +55,7 @@ class ConstraintsSettings(_Frozen):
     )
     forbid_git_commit: bool = True
     forbid_git_push: bool = True
-    default_timeout_s: int = 600
+    default_timeout_s: int = Field(default=600, ge=60, le=3600)
 
 
 class CodeAgentSettings(_Frozen):
@@ -90,10 +90,6 @@ def load_settings(*, workspace_root: Path | str | None = None) -> CodeAgentSetti
         ws = Path(workspace_root)
         project_data = _read_optional_toml(ws / ".magi" / "code_agent.toml")
     merged = _deep_merge(user_data, project_data)
-
-    raw_default = str(merged.get("default_adapter", "")).strip()
-    if raw_default not in ("auto", "claude_code", "codex"):
-        merged["default_adapter"] = "auto"
 
     return CodeAgentSettings.model_validate(merged)
 

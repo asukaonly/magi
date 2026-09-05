@@ -7,64 +7,34 @@ import type { components as EventComponents } from '../generated/events-types';
  */
 import { api } from '../client';
 import type { ApiResponse } from '../client';
+import type { components as ConfigComponents } from '../generated/config-types';
+import { validateCodeAgentSettingsResponse, validateCodeAgentProbeResponse } from '../generated/config-validators';
+import { ApiContractError } from '../config-contract';
 
-export type AdapterName = 'claude_code' | 'codex';
-export type DefaultAdapterName = 'auto' | AdapterName;
+type ConfigWire = ConfigComponents['schemas'];
+export type CodeAgentSettings = ConfigWire['CodeAgentSettings'];
+export type AdapterName = ConfigWire['ProbeResult']['name'];
+export type DefaultAdapterName = CodeAgentSettings['default_adapter'];
+export type ProbeResult = ConfigWire['ProbeResult'];
+export type ConstraintsSettings = CodeAgentSettings['constraints'];
+export type ClaudeCodeSettings = CodeAgentSettings['claude_code'];
+export type CodexSettings = CodeAgentSettings['codex'];
+export type ProbeResponse = ConfigWire['CodeAgentProbeResponse'];
+export type SettingsResponse = ConfigWire['CodeAgentSettingsResponse'];
 
-export interface ProbeResult {
-  name: AdapterName;
-  installed: boolean;
-  binary_path: string | null;
-  version: string | null;
-  detected_at: number;
-  error: string | null;
-  extras: Record<string, unknown>;
+function readSettings(value: unknown): SettingsResponse {
+  if (!validateCodeAgentSettingsResponse(value)) throw new ApiContractError('code tool settings');
+  return value;
 }
-
-export interface ConstraintsSettings {
-  forbid_paths: string[];
-  forbid_git_commit: boolean;
-  forbid_git_push: boolean;
-  default_timeout_s: number;
-}
-
-export interface ClaudeCodeSettings {
-  binary_path: string;
-  default_model: string;
-  extra_args: string[];
-  max_budget_usd: number;
-  allowed_tools: string;
-  disallowed_tools: string;
-}
-
-export interface CodexSettings {
-  binary_path: string;
-  default_model: string;
-  extra_args: string[];
-  sandbox: string;
-  ask_for_approval: string;
-}
-
-export interface CodeAgentSettings {
-  enabled: boolean;
-  default_adapter: DefaultAdapterName;
-  claude_code: ClaudeCodeSettings;
-  codex: CodexSettings;
-  constraints: ConstraintsSettings;
-  auto_apply: boolean;
-}
-
-export interface ProbeResponse {
-  results: Record<AdapterName, ProbeResult>;
-}
-
-export interface SettingsResponse {
-  settings: CodeAgentSettings;
-  workspace_used: string | null;
+function readProbe(value: unknown): ProbeResponse {
+  if (!validateCodeAgentProbeResponse(value)
+    || value.results.claude_code.name !== 'claude_code'
+    || value.results.codex.name !== 'codex') throw new ApiContractError('code tool probe');
+  return value;
 }
 
 type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
+  [K in keyof T]?: T[K] extends unknown[] ? T[K] : T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
 export type CodeAgentSettingsPatch = DeepPartial<CodeAgentSettings>;
@@ -84,23 +54,23 @@ const unwrap = <T>(payload: T | ApiResponse<T>): T => {
 
 export const codeAgentApi = {
   probe: async (force = false): Promise<ProbeResponse> => {
-    const response = await api.get<ProbeResponse>(
+    const response = await api.get<unknown>(
       `/code_agent/probe${force ? '?force=true' : ''}`,
     );
-    return unwrap(response as ProbeResponse | ApiResponse<ProbeResponse>);
+    return readProbe(response);
   },
 
   rescan: async (): Promise<ProbeResponse> => {
-    const response = await api.post<ProbeResponse>('/code_agent/rescan', {});
-    return unwrap(response as ProbeResponse | ApiResponse<ProbeResponse>);
+    const response = await api.post<unknown>('/code_agent/rescan', {});
+    return readProbe(response);
   },
 
   getSettings: async (workspace: string | null): Promise<SettingsResponse> => {
     const url = workspace
       ? `/code_agent/settings?workspace=${encodeURIComponent(workspace)}`
       : '/code_agent/settings';
-    const response = await api.get<SettingsResponse>(url);
-    return unwrap(response as SettingsResponse | ApiResponse<SettingsResponse>);
+    const response = await api.get<unknown>(url);
+    return readSettings(response);
   },
 
   patchSettings: async (
@@ -108,12 +78,12 @@ export const codeAgentApi = {
     patch: CodeAgentSettingsPatch,
     workspace: string | null,
   ): Promise<SettingsResponse> => {
-    const response = await api.patch<SettingsResponse>('/code_agent/settings', {
+    const response = await api.patch<unknown>('/code_agent/settings', {
       level,
       patch,
       workspace,
     });
-    return unwrap(response as SettingsResponse | ApiResponse<SettingsResponse>);
+    return readSettings(response);
   },
 
   resetProject: async (workspace: string): Promise<{ ok: boolean }> => {

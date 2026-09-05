@@ -1,4 +1,61 @@
 {
+  "codeAgentProbe": {
+    "results": {
+      "claude_code": {
+        "binary_path": null,
+        "detected_at": 1,
+        "error": null,
+        "extras": {},
+        "installed": false,
+        "name": "claude_code",
+        "version": null
+      },
+      "codex": {
+        "binary_path": null,
+        "detected_at": 1,
+        "error": null,
+        "extras": {},
+        "installed": false,
+        "name": "codex",
+        "version": null
+      }
+    }
+  },
+  "codeAgentSettings": {
+    "settings": {
+      "auto_apply": false,
+      "claude_code": {
+        "allowed_tools": "Read Edit Write Grep Glob Bash(git diff*) Bash(git status*) Bash(pytest*)",
+        "binary_path": "",
+        "default_model": "",
+        "disallowed_tools": "Bash(git push*) Bash(git commit*) Bash(rm*)",
+        "extra_args": [],
+        "max_budget_usd": 5.0
+      },
+      "codex": {
+        "ask_for_approval": "never",
+        "binary_path": "",
+        "default_model": "",
+        "extra_args": [],
+        "sandbox": "workspace-write"
+      },
+      "constraints": {
+        "default_timeout_s": 600,
+        "forbid_git_commit": true,
+        "forbid_git_push": true,
+        "forbid_paths": [
+          ".env",
+          ".env.*",
+          "secrets/",
+          "*.pem",
+          "id_rsa*"
+        ]
+      },
+      "default_adapter": "auto",
+      "enabled": true
+    },
+    "workspace_used": null
+  },
   "config": {
     "data": {
       "agent": {

@@ -282,6 +282,14 @@ The code agent settings area controls whether Magi may hand larger code changes 
 
 Expected behavior:
 
+- this screen edits user defaults independently of the selected chat workspace;
+  project TOML overrides still take precedence when a task uses that project
+- changes stay in an editable draft until Save; failure retains the draft and
+  successful saves display the validated canonical response
+- detected executable paths are hints, separate from an explicitly saved override;
+  clearing an override restores automatic detection
+- timeouts must be whole seconds from 60 through 3600; writers validate the merged
+  model before touching TOML and reject invalid adapters or unknown settings
 - users can disable external code tooling from settings
 - users can choose a preferred tool or let Magi automatically pick an installed tool
 - the default preferred tool should be automatic selection

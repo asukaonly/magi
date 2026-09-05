@@ -62,6 +62,190 @@
         "title": "BootstrapConfigModel",
         "type": "object"
       },
+      "ClaudeCodeSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_tools": {
+            "default": "Read Edit Write Grep Glob Bash(git diff*) Bash(git status*) Bash(pytest*)",
+            "title": "Allowed Tools",
+            "type": "string"
+          },
+          "binary_path": {
+            "default": "",
+            "title": "Binary Path",
+            "type": "string"
+          },
+          "default_model": {
+            "default": "",
+            "title": "Default Model",
+            "type": "string"
+          },
+          "disallowed_tools": {
+            "default": "Bash(git push*) Bash(git commit*) Bash(rm*)",
+            "title": "Disallowed Tools",
+            "type": "string"
+          },
+          "extra_args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Args",
+            "type": "array"
+          },
+          "max_budget_usd": {
+            "default": 5.0,
+            "title": "Max Budget Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "binary_path",
+          "default_model",
+          "extra_args",
+          "max_budget_usd",
+          "allowed_tools",
+          "disallowed_tools"
+        ],
+        "title": "ClaudeCodeSettings",
+        "type": "object"
+      },
+      "CodeAgentProbeResponse": {
+        "properties": {
+          "results": {
+            "$ref": "#/components/schemas/CodeAgentProbeResults"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "CodeAgentProbeResponse",
+        "type": "object"
+      },
+      "CodeAgentProbeResults": {
+        "properties": {
+          "claude_code": {
+            "$ref": "#/components/schemas/ProbeResult"
+          },
+          "codex": {
+            "$ref": "#/components/schemas/ProbeResult"
+          }
+        },
+        "required": [
+          "claude_code",
+          "codex"
+        ],
+        "title": "CodeAgentProbeResults",
+        "type": "object"
+      },
+      "CodeAgentSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "auto_apply": {
+            "default": false,
+            "title": "Auto Apply",
+            "type": "boolean"
+          },
+          "claude_code": {
+            "$ref": "#/components/schemas/ClaudeCodeSettings"
+          },
+          "codex": {
+            "$ref": "#/components/schemas/CodexSettings"
+          },
+          "constraints": {
+            "$ref": "#/components/schemas/ConstraintsSettings"
+          },
+          "default_adapter": {
+            "default": "auto",
+            "enum": [
+              "auto",
+              "claude_code",
+              "codex"
+            ],
+            "title": "Default Adapter",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "default_adapter",
+          "claude_code",
+          "codex",
+          "constraints",
+          "auto_apply"
+        ],
+        "title": "CodeAgentSettings",
+        "type": "object"
+      },
+      "CodeAgentSettingsResponse": {
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/CodeAgentSettings"
+          },
+          "workspace_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Used"
+          }
+        },
+        "required": [
+          "settings",
+          "workspace_used"
+        ],
+        "title": "CodeAgentSettingsResponse",
+        "type": "object"
+      },
+      "CodexSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "ask_for_approval": {
+            "default": "never",
+            "title": "Ask For Approval",
+            "type": "string"
+          },
+          "binary_path": {
+            "default": "",
+            "title": "Binary Path",
+            "type": "string"
+          },
+          "default_model": {
+            "default": "",
+            "title": "Default Model",
+            "type": "string"
+          },
+          "extra_args": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extra Args",
+            "type": "array"
+          },
+          "sandbox": {
+            "default": "workspace-write",
+            "title": "Sandbox",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binary_path",
+          "default_model",
+          "extra_args",
+          "sandbox",
+          "ask_for_approval"
+        ],
+        "title": "CodexSettings",
+        "type": "object"
+      },
       "ConfigResponse": {
         "properties": {
           "data": {
@@ -90,6 +274,43 @@
           "data"
         ],
         "title": "ConfigResponse",
+        "type": "object"
+      },
+      "ConstraintsSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "default_timeout_s": {
+            "default": 600,
+            "maximum": 3600,
+            "minimum": 60,
+            "title": "Default Timeout S",
+            "type": "integer"
+          },
+          "forbid_git_commit": {
+            "default": true,
+            "title": "Forbid Git Commit",
+            "type": "boolean"
+          },
+          "forbid_git_push": {
+            "default": true,
+            "title": "Forbid Git Push",
+            "type": "boolean"
+          },
+          "forbid_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Forbid Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "forbid_paths",
+          "forbid_git_commit",
+          "forbid_git_push",
+          "default_timeout_s"
+        ],
+        "title": "ConstraintsSettings",
         "type": "object"
       },
       "CrossEncoderConfigModel": {
@@ -1945,6 +2166,77 @@
           "deep_persona_enabled"
         ],
         "title": "PersonalitySettingsModel",
+        "type": "object"
+      },
+      "ProbeResult": {
+        "additionalProperties": false,
+        "properties": {
+          "binary_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binary Path"
+          },
+          "detected_at": {
+            "minimum": 0,
+            "title": "Detected At",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "extras": {
+            "additionalProperties": true,
+            "title": "Extras",
+            "type": "object"
+          },
+          "installed": {
+            "title": "Installed",
+            "type": "boolean"
+          },
+          "name": {
+            "enum": [
+              "claude_code",
+              "codex"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "name",
+          "installed",
+          "binary_path",
+          "version",
+          "detected_at",
+          "error",
+          "extras"
+        ],
+        "title": "ProbeResult",
         "type": "object"
       },
       "QueryExpansionConfigModel": {

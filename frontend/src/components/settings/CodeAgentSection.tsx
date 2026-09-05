@@ -1,5 +1,5 @@
 import { asEventHandler } from '@/utils/as-event-handler';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 
@@ -20,7 +20,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useConversationStore } from '@/stores/conversation-store';
 
 const CLI_ADAPTERS: AdapterName[] = ['claude_code', 'codex'];
 const DEFAULT_ADAPTERS: DefaultAdapterName[] = ['auto', ...CLI_ADAPTERS];
@@ -38,13 +37,6 @@ const ADAPTER_LABELS: Record<AdapterName, string> = {
 export function CodeAgentSection(): JSX.Element {
   const { t } = useTranslation('app');
 
-  const workspace = useConversationStore((state) => {
-    const id = state.currentSessionId;
-    if (!id) return null;
-    const session = state.sessionsById[id];
-    return session?.workspace_path ?? null;
-  });
-
   const [settings, setSettings] = useState<CodeAgentSettings | null>(null);
   const [probeMap, setProbeMap] = useState<Record<AdapterName, ProbeResult> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +44,17 @@ export function CodeAgentSection(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forbidPathDraft, setForbidPathDraft] = useState('');
+  const [timeoutDraft, setTimeoutDraft] = useState('');
+  const [savedSettings, setSavedSettings] = useState<CodeAgentSettings | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const requestGeneration = useRef(0);
+  const savePending = useRef(false);
+  const rescanPending = useRef(false);
+  const timeout = timeoutDraft.trim() ? Number(timeoutDraft) : Number.NaN;
+  const timeoutValid = Number.isInteger(timeout) && timeout >= 60 && timeout <= 3600;
+  const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings)
+    || timeoutDraft !== String(savedSettings?.constraints.default_timeout_s ?? '');
 
   const defaultAdapterOptions = useMemo(
     () =>
@@ -63,77 +66,109 @@ export function CodeAgentSection(): JSX.Element {
   );
 
   useEffect(() => {
-    let cancelled = false;
+    const generation = ++requestGeneration.current;
     void (async () => {
       setLoading(true);
       try {
         const [probe, settingsResp] = await Promise.all([
           codeAgentApi.probe(false),
-          codeAgentApi.getSettings(workspace),
+          codeAgentApi.getSettings(null),
         ]);
-        if (cancelled) return;
+        if (generation !== requestGeneration.current) return;
         setProbeMap(probe.results);
         setSettings(settingsResp.settings);
+        setSavedSettings(settingsResp.settings);
+        setTimeoutDraft(String(settingsResp.settings.constraints.default_timeout_s));
         setError(null);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (generation === requestGeneration.current) setLoading(false);
       }
     })();
     return () => {
-      cancelled = true;
+      requestGeneration.current += 1;
     };
-  }, [workspace]);
+  }, [loadAttempt]);
 
   const onRescan = async () => {
+    if (rescanPending.current) return;
+    rescanPending.current = true;
+    const generation = requestGeneration.current;
     setRescanning(true);
     try {
       const out = await codeAgentApi.rescan();
-      setProbeMap(out.results);
+      if (generation === requestGeneration.current) setProbeMap(out.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setRescanning(false);
+      rescanPending.current = false;
+      if (generation === requestGeneration.current) setRescanning(false);
     }
   };
 
-  const persistUserPatch = async (patch: CodeAgentSettingsPatch) => {
+  const updateDraft = (patch: CodeAgentSettingsPatch) => {
+    setSaved(false);
+    setSettings((previous) => previous ? {
+      ...previous, ...patch,
+      claude_code: { ...previous.claude_code, ...patch.claude_code },
+      codex: { ...previous.codex, ...patch.codex },
+      constraints: { ...previous.constraints, ...patch.constraints },
+    } : previous);
+  };
+
+  const saveSettings = async () => {
+    if (!settings || !timeoutValid || savePending.current) return;
+    savePending.current = true;
+    const generation = requestGeneration.current;
     setSaving(true);
+    setSaved(false);
     try {
-      const out = await codeAgentApi.patchSettings('user', patch, workspace);
+      const out = await codeAgentApi.patchSettings('user', {
+        ...settings, constraints: { ...settings.constraints, default_timeout_s: timeout },
+      }, null);
+      if (generation !== requestGeneration.current) return;
       setSettings(out.settings);
+      setSavedSettings(out.settings);
+      setTimeoutDraft(String(out.settings.constraints.default_timeout_s));
       setError(null);
+      setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSaving(false);
+      savePending.current = false;
+      if (generation === requestGeneration.current) setSaving(false);
     }
   };
 
-  if (loading || !settings || !probeMap) {
-    return (
-      <div className="flex items-center gap-2 px-6 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t('settings.codeAgent.loading')}
-      </div>
-    );
+  if (loading) {
+    return <div role="status" className="flex items-center gap-2 px-6 py-8 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" />{t('settings.codeAgent.loading')}
+    </div>;
+  }
+  if (!settings || !probeMap) {
+    return <div className="space-y-3 px-6 py-8">
+      <p role="alert">{t('settings.codeAgent.loadFailed')}{error ? `: ${error}` : ''}</p>
+      <Button onClick={() => setLoadAttempt((attempt) => attempt + 1)}>{t('common.retry')}</Button>
+    </div>;
   }
 
   return (
     <SettingsSectionShell className="space-y-0">
       {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
 
+      <p className="text-xs text-muted-foreground">{t('settings.codeAgent.userScope')}</p>
+      <fieldset disabled={saving} className="min-w-0 space-y-8 border-0 p-0">
       <SettingsSwitchRow
         title={t('settings.codeAgent.enableTitle')}
         description={t('settings.codeAgent.enableDesc')}
         ariaLabel={t('settings.codeAgent.enableTitle')}
         checked={settings.enabled}
-        onCheckedChange={asEventHandler((checked) => persistUserPatch({ enabled: checked }))}
+        onCheckedChange={asEventHandler((checked) => updateDraft({ enabled: checked }))}
       />
 
       <SettingsSwitchRow
@@ -141,7 +176,7 @@ export function CodeAgentSection(): JSX.Element {
         description={t('settings.codeAgent.autoApplyDesc')}
         ariaLabel={t('settings.codeAgent.autoApply')}
         checked={settings.auto_apply}
-        onCheckedChange={asEventHandler((checked) => persistUserPatch({ auto_apply: checked }))}
+        onCheckedChange={asEventHandler((checked) => updateDraft({ auto_apply: checked }))}
       />
 
       <SettingsGroup
@@ -150,7 +185,7 @@ export function CodeAgentSection(): JSX.Element {
       >
         <SelectField
           value={settings.default_adapter}
-          onChange={asEventHandler((value) => persistUserPatch({ default_adapter: value as DefaultAdapterName }))}
+          onChange={asEventHandler((value) => updateDraft({ default_adapter: value === 'auto' || value === 'claude_code' || value === 'codex' ? value : settings.default_adapter }))}
           options={defaultAdapterOptions}
           allowEmpty={false}
           ariaLabel={t('settings.codeAgent.defaultAdapter')}
@@ -187,7 +222,7 @@ export function CodeAgentSection(): JSX.Element {
               name={name}
               probe={probeMap[name]}
               settings={settings}
-              onPatch={persistUserPatch}
+              onPatch={updateDraft}
               t={t}
             />
           ))}
@@ -204,7 +239,7 @@ export function CodeAgentSection(): JSX.Element {
           ariaLabel={t('settings.codeAgent.blockGitCommit')}
           checked={settings.constraints.forbid_git_commit}
           onCheckedChange={asEventHandler((checked) =>
-            persistUserPatch({ constraints: { forbid_git_commit: checked } }))
+            updateDraft({ constraints: { forbid_git_commit: checked } }))
           }
         />
         <SettingsSwitchRow
@@ -213,12 +248,12 @@ export function CodeAgentSection(): JSX.Element {
           ariaLabel={t('settings.codeAgent.blockGitPush')}
           checked={settings.constraints.forbid_git_push}
           onCheckedChange={asEventHandler((checked) =>
-            persistUserPatch({ constraints: { forbid_git_push: checked } }))
+            updateDraft({ constraints: { forbid_git_push: checked } }))
           }
         />
 
         <div className="space-y-2 pt-2">
-          <label className="text-sm font-medium text-foreground">
+          <label htmlFor="code-agent-forbidden-path" className="text-sm font-medium text-foreground">
             {t('settings.codeAgent.forbidPaths')}
           </label>
           <p className="text-xs leading-6 text-muted-foreground">
@@ -236,7 +271,7 @@ export function CodeAgentSection(): JSX.Element {
                   aria-label={t('settings.codeAgent.removePath', { path: p })}
                   className="text-muted-foreground hover:text-foreground"
                   onClick={asEventHandler(() =>
-                    void persistUserPatch({
+                    updateDraft({
                       constraints: {
                         forbid_paths: settings.constraints.forbid_paths.filter(
                           (item) => item !== p,
@@ -257,6 +292,7 @@ export function CodeAgentSection(): JSX.Element {
           </ul>
           <div className="flex gap-2">
             <Input
+              id="code-agent-forbidden-path"
               value={forbidPathDraft}
               onChange={(e) => setForbidPathDraft(e.target.value)}
               placeholder={t('settings.codeAgent.forbidPathsPlaceholder')}
@@ -275,7 +311,7 @@ export function CodeAgentSection(): JSX.Element {
                   setForbidPathDraft('');
                   return;
                 }
-                void persistUserPatch({
+                updateDraft({
                   constraints: {
                     forbid_paths: [...settings.constraints.forbid_paths, value],
                   },
@@ -289,7 +325,7 @@ export function CodeAgentSection(): JSX.Element {
         </div>
 
         <div className="space-y-2 pt-2">
-          <label className="text-sm font-medium text-foreground">
+          <label htmlFor="code-agent-timeout" className="text-sm font-medium text-foreground">
             {t('settings.codeAgent.defaultTimeout')}
           </label>
           <p className="text-xs leading-6 text-muted-foreground">
@@ -300,13 +336,12 @@ export function CodeAgentSection(): JSX.Element {
               type="number"
               min={60}
               max={3600}
-              value={settings.constraints.default_timeout_s}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 60 && v <= 3600) {
-                  void persistUserPatch({ constraints: { default_timeout_s: v } });
-                }
-              }}
+              id="code-agent-timeout"
+              step={1}
+              value={timeoutDraft}
+              aria-invalid={!timeoutValid}
+              aria-describedby={!timeoutValid ? 'code-agent-timeout-error' : undefined}
+              onChange={(e) => { setTimeoutDraft(e.target.value); setSaved(false); }}
               className={`${SETTINGS_INPUT_CLASS} w-32`}
             />
             <span className="text-xs text-muted-foreground">{t('settings.codeAgent.seconds')}</span>
@@ -314,9 +349,15 @@ export function CodeAgentSection(): JSX.Element {
         </div>
       </SettingsGroup>
 
-      {saving && (
-        <div className="text-xs text-muted-foreground">{t('settings.codeAgent.saving')}</div>
-      )}
+      </fieldset>
+      {!timeoutValid && <p id="code-agent-timeout-error" role="alert" className="text-sm text-destructive">{t('settings.codeAgent.invalidTimeout')}</p>}
+      <div className="flex items-center gap-3 pt-4">
+        <Button disabled={saving || !dirty || !timeoutValid} onClick={asEventHandler(saveSettings)}>
+          {t(saving ? 'settings.codeAgent.saving' : 'common.save')}
+        </Button>
+        {saved && <p role="status">{t('settings.codeAgent.saved')}</p>}
+        {dirty && <p className="text-xs text-muted-foreground">{t('settings.codeAgent.unsaved')}</p>}
+      </div>
     </SettingsSectionShell>
   );
 }
@@ -325,27 +366,27 @@ interface ProbeCardProps {
   name: AdapterName;
   probe: ProbeResult;
   settings: CodeAgentSettings;
-  onPatch: (patch: CodeAgentSettingsPatch) => Promise<void>;
+  onPatch: (patch: CodeAgentSettingsPatch) => void;
   t: ReturnType<typeof useTranslation>['t'];
 }
 
 function ProbeCard({ name, probe, settings, onPatch, t }: ProbeCardProps): JSX.Element {
   const adapterSettings = name === 'claude_code' ? settings.claude_code : settings.codex;
   const installed = probe.installed && !probe.error;
-  const binaryPathValue = adapterSettings.binary_path || probe.binary_path || '';
+  const binaryPathValue = adapterSettings.binary_path;
 
-  const updateBinaryPath = async (value: string) => {
+  const updateBinaryPath = (value: string) => {
     if (name === 'claude_code') {
-      await onPatch({ claude_code: { binary_path: value } });
+      onPatch({ claude_code: { binary_path: value } });
     } else {
-      await onPatch({ codex: { binary_path: value } });
+      onPatch({ codex: { binary_path: value } });
     }
   };
-  const updateModel = async (value: string) => {
+  const updateModel = (value: string) => {
     if (name === 'claude_code') {
-      await onPatch({ claude_code: { default_model: value } });
+      onPatch({ claude_code: { default_model: value } });
     } else {
-      await onPatch({ codex: { default_model: value } });
+      onPatch({ codex: { default_model: value } });
     }
   };
 
@@ -364,21 +405,23 @@ function ProbeCard({ name, probe, settings, onPatch, t }: ProbeCardProps): JSX.E
 
       <div className="grid gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,0.9fr)]">
         <div>
-          <label className="text-xs font-medium text-muted-foreground">
+          <label htmlFor={`code-agent-${name}-binary`} className="text-xs font-medium text-muted-foreground">
             {t('settings.codeAgent.binaryPathOverride')}
           </label>
           <Input
+            id={`code-agent-${name}-binary`}
             value={binaryPathValue}
             onChange={asEventHandler((e) => updateBinaryPath(e.target.value))}
-            placeholder={t('settings.codeAgent.binaryPathOverridePlaceholder')}
+            placeholder={probe.binary_path || t('settings.codeAgent.binaryPathOverridePlaceholder')}
             className={SETTINGS_MONO_INPUT_CLASS}
           />
         </div>
         <div>
-          <label className="text-xs font-medium text-muted-foreground">
+          <label htmlFor={`code-agent-${name}-model`} className="text-xs font-medium text-muted-foreground">
             {t('settings.codeAgent.defaultModel')}
           </label>
           <Input
+            id={`code-agent-${name}-model`}
             value={adapterSettings.default_model}
             onChange={asEventHandler((e) => updateModel(e.target.value))}
             placeholder={t('settings.codeAgent.defaultModelPlaceholder')}

@@ -9916,3 +9916,1004 @@ validate169.errors = vErrors;
 return errors === 0;
 }
 validate169.evaluated = {"props":{"tools":true,"total":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateCodeAgentSettingsResponse = validate171;
+const schema77 = {"properties":{"settings":{"$ref":"#/components/schemas/CodeAgentSettings"},"workspace_used":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Workspace Used"}},"required":["settings","workspace_used"],"title":"CodeAgentSettingsResponse","type":"object"};
+const schema78 = {"additionalProperties":false,"properties":{"auto_apply":{"default":false,"title":"Auto Apply","type":"boolean"},"claude_code":{"$ref":"#/components/schemas/ClaudeCodeSettings"},"codex":{"$ref":"#/components/schemas/CodexSettings"},"constraints":{"$ref":"#/components/schemas/ConstraintsSettings"},"default_adapter":{"default":"auto","enum":["auto","claude_code","codex"],"title":"Default Adapter","type":"string"},"enabled":{"default":true,"title":"Enabled","type":"boolean"}},"required":["enabled","default_adapter","claude_code","codex","constraints","auto_apply"],"title":"CodeAgentSettings","type":"object"};
+const schema79 = {"additionalProperties":false,"properties":{"allowed_tools":{"default":"Read Edit Write Grep Glob Bash(git diff*) Bash(git status*) Bash(pytest*)","title":"Allowed Tools","type":"string"},"binary_path":{"default":"","title":"Binary Path","type":"string"},"default_model":{"default":"","title":"Default Model","type":"string"},"disallowed_tools":{"default":"Bash(git push*) Bash(git commit*) Bash(rm*)","title":"Disallowed Tools","type":"string"},"extra_args":{"items":{"type":"string"},"title":"Extra Args","type":"array"},"max_budget_usd":{"default":5,"title":"Max Budget Usd","type":"number"}},"required":["binary_path","default_model","extra_args","max_budget_usd","allowed_tools","disallowed_tools"],"title":"ClaudeCodeSettings","type":"object"};
+
+function validate173(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate173.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((((((data.binary_path === undefined) && (missing0 = "binary_path")) || ((data.default_model === undefined) && (missing0 = "default_model"))) || ((data.extra_args === undefined) && (missing0 = "extra_args"))) || ((data.max_budget_usd === undefined) && (missing0 = "max_budget_usd"))) || ((data.allowed_tools === undefined) && (missing0 = "allowed_tools"))) || ((data.disallowed_tools === undefined) && (missing0 = "disallowed_tools"))){
+validate173.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+const _errs1 = errors;
+for(const key0 in data){
+if(!((((((key0 === "allowed_tools") || (key0 === "binary_path")) || (key0 === "default_model")) || (key0 === "disallowed_tools")) || (key0 === "extra_args")) || (key0 === "max_budget_usd"))){
+validate173.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs1 === errors){
+if(data.allowed_tools !== undefined){
+const _errs2 = errors;
+if(typeof data.allowed_tools !== "string"){
+validate173.errors = [{instancePath:instancePath+"/allowed_tools",schemaPath:"#/properties/allowed_tools/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.binary_path !== undefined){
+const _errs4 = errors;
+if(typeof data.binary_path !== "string"){
+validate173.errors = [{instancePath:instancePath+"/binary_path",schemaPath:"#/properties/binary_path/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs4 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.default_model !== undefined){
+const _errs6 = errors;
+if(typeof data.default_model !== "string"){
+validate173.errors = [{instancePath:instancePath+"/default_model",schemaPath:"#/properties/default_model/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs6 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.disallowed_tools !== undefined){
+const _errs8 = errors;
+if(typeof data.disallowed_tools !== "string"){
+validate173.errors = [{instancePath:instancePath+"/disallowed_tools",schemaPath:"#/properties/disallowed_tools/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs8 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.extra_args !== undefined){
+let data4 = data.extra_args;
+const _errs10 = errors;
+if(errors === _errs10){
+if(Array.isArray(data4)){
+var valid1 = true;
+const len0 = data4.length;
+for(let i0=0; i0<len0; i0++){
+const _errs12 = errors;
+if(typeof data4[i0] !== "string"){
+validate173.errors = [{instancePath:instancePath+"/extra_args/" + i0,schemaPath:"#/properties/extra_args/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid1 = _errs12 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate173.errors = [{instancePath:instancePath+"/extra_args",schemaPath:"#/properties/extra_args/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs10 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.max_budget_usd !== undefined){
+const _errs14 = errors;
+if(!(typeof data.max_budget_usd == "number")){
+validate173.errors = [{instancePath:instancePath+"/max_budget_usd",schemaPath:"#/properties/max_budget_usd/type",keyword:"type",params:{type: "number"},message:"must be number"}];
+return false;
+}
+var valid0 = _errs14 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate173.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate173.errors = vErrors;
+return errors === 0;
+}
+validate173.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema80 = {"additionalProperties":false,"properties":{"ask_for_approval":{"default":"never","title":"Ask For Approval","type":"string"},"binary_path":{"default":"","title":"Binary Path","type":"string"},"default_model":{"default":"","title":"Default Model","type":"string"},"extra_args":{"items":{"type":"string"},"title":"Extra Args","type":"array"},"sandbox":{"default":"workspace-write","title":"Sandbox","type":"string"}},"required":["binary_path","default_model","extra_args","sandbox","ask_for_approval"],"title":"CodexSettings","type":"object"};
+
+function validate175(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate175.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((data.binary_path === undefined) && (missing0 = "binary_path")) || ((data.default_model === undefined) && (missing0 = "default_model"))) || ((data.extra_args === undefined) && (missing0 = "extra_args"))) || ((data.sandbox === undefined) && (missing0 = "sandbox"))) || ((data.ask_for_approval === undefined) && (missing0 = "ask_for_approval"))){
+validate175.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+const _errs1 = errors;
+for(const key0 in data){
+if(!(((((key0 === "ask_for_approval") || (key0 === "binary_path")) || (key0 === "default_model")) || (key0 === "extra_args")) || (key0 === "sandbox"))){
+validate175.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs1 === errors){
+if(data.ask_for_approval !== undefined){
+const _errs2 = errors;
+if(typeof data.ask_for_approval !== "string"){
+validate175.errors = [{instancePath:instancePath+"/ask_for_approval",schemaPath:"#/properties/ask_for_approval/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.binary_path !== undefined){
+const _errs4 = errors;
+if(typeof data.binary_path !== "string"){
+validate175.errors = [{instancePath:instancePath+"/binary_path",schemaPath:"#/properties/binary_path/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs4 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.default_model !== undefined){
+const _errs6 = errors;
+if(typeof data.default_model !== "string"){
+validate175.errors = [{instancePath:instancePath+"/default_model",schemaPath:"#/properties/default_model/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs6 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.extra_args !== undefined){
+let data3 = data.extra_args;
+const _errs8 = errors;
+if(errors === _errs8){
+if(Array.isArray(data3)){
+var valid1 = true;
+const len0 = data3.length;
+for(let i0=0; i0<len0; i0++){
+const _errs10 = errors;
+if(typeof data3[i0] !== "string"){
+validate175.errors = [{instancePath:instancePath+"/extra_args/" + i0,schemaPath:"#/properties/extra_args/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid1 = _errs10 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate175.errors = [{instancePath:instancePath+"/extra_args",schemaPath:"#/properties/extra_args/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs8 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.sandbox !== undefined){
+const _errs12 = errors;
+if(typeof data.sandbox !== "string"){
+validate175.errors = [{instancePath:instancePath+"/sandbox",schemaPath:"#/properties/sandbox/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs12 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate175.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate175.errors = vErrors;
+return errors === 0;
+}
+validate175.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+const schema81 = {"additionalProperties":false,"properties":{"default_timeout_s":{"default":600,"maximum":3600,"minimum":60,"title":"Default Timeout S","type":"integer"},"forbid_git_commit":{"default":true,"title":"Forbid Git Commit","type":"boolean"},"forbid_git_push":{"default":true,"title":"Forbid Git Push","type":"boolean"},"forbid_paths":{"items":{"type":"string"},"title":"Forbid Paths","type":"array"}},"required":["forbid_paths","forbid_git_commit","forbid_git_push","default_timeout_s"],"title":"ConstraintsSettings","type":"object"};
+
+function validate177(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate177.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((((data.forbid_paths === undefined) && (missing0 = "forbid_paths")) || ((data.forbid_git_commit === undefined) && (missing0 = "forbid_git_commit"))) || ((data.forbid_git_push === undefined) && (missing0 = "forbid_git_push"))) || ((data.default_timeout_s === undefined) && (missing0 = "default_timeout_s"))){
+validate177.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+const _errs1 = errors;
+for(const key0 in data){
+if(!((((key0 === "default_timeout_s") || (key0 === "forbid_git_commit")) || (key0 === "forbid_git_push")) || (key0 === "forbid_paths"))){
+validate177.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs1 === errors){
+if(data.default_timeout_s !== undefined){
+let data0 = data.default_timeout_s;
+const _errs2 = errors;
+if(!((typeof data0 == "number") && (!(data0 % 1) && !isNaN(data0)))){
+validate177.errors = [{instancePath:instancePath+"/default_timeout_s",schemaPath:"#/properties/default_timeout_s/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs2){
+if(typeof data0 == "number"){
+if(data0 > 3600 || isNaN(data0)){
+validate177.errors = [{instancePath:instancePath+"/default_timeout_s",schemaPath:"#/properties/default_timeout_s/maximum",keyword:"maximum",params:{comparison: "<=", limit: 3600},message:"must be <= 3600"}];
+return false;
+}
+else {
+if(data0 < 60 || isNaN(data0)){
+validate177.errors = [{instancePath:instancePath+"/default_timeout_s",schemaPath:"#/properties/default_timeout_s/minimum",keyword:"minimum",params:{comparison: ">=", limit: 60},message:"must be >= 60"}];
+return false;
+}
+}
+}
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.forbid_git_commit !== undefined){
+const _errs4 = errors;
+if(typeof data.forbid_git_commit !== "boolean"){
+validate177.errors = [{instancePath:instancePath+"/forbid_git_commit",schemaPath:"#/properties/forbid_git_commit/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs4 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.forbid_git_push !== undefined){
+const _errs6 = errors;
+if(typeof data.forbid_git_push !== "boolean"){
+validate177.errors = [{instancePath:instancePath+"/forbid_git_push",schemaPath:"#/properties/forbid_git_push/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs6 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.forbid_paths !== undefined){
+let data3 = data.forbid_paths;
+const _errs8 = errors;
+if(errors === _errs8){
+if(Array.isArray(data3)){
+var valid1 = true;
+const len0 = data3.length;
+for(let i0=0; i0<len0; i0++){
+const _errs10 = errors;
+if(typeof data3[i0] !== "string"){
+validate177.errors = [{instancePath:instancePath+"/forbid_paths/" + i0,schemaPath:"#/properties/forbid_paths/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid1 = _errs10 === errors;
+if(!valid1){
+break;
+}
+}
+}
+else {
+validate177.errors = [{instancePath:instancePath+"/forbid_paths",schemaPath:"#/properties/forbid_paths/type",keyword:"type",params:{type: "array"},message:"must be array"}];
+return false;
+}
+}
+var valid0 = _errs8 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+else {
+validate177.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate177.errors = vErrors;
+return errors === 0;
+}
+validate177.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+
+function validate172(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate172.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((((((data.enabled === undefined) && (missing0 = "enabled")) || ((data.default_adapter === undefined) && (missing0 = "default_adapter"))) || ((data.claude_code === undefined) && (missing0 = "claude_code"))) || ((data.codex === undefined) && (missing0 = "codex"))) || ((data.constraints === undefined) && (missing0 = "constraints"))) || ((data.auto_apply === undefined) && (missing0 = "auto_apply"))){
+validate172.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+const _errs1 = errors;
+for(const key0 in data){
+if(!((((((key0 === "auto_apply") || (key0 === "claude_code")) || (key0 === "codex")) || (key0 === "constraints")) || (key0 === "default_adapter")) || (key0 === "enabled"))){
+validate172.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs1 === errors){
+if(data.auto_apply !== undefined){
+const _errs2 = errors;
+if(typeof data.auto_apply !== "boolean"){
+validate172.errors = [{instancePath:instancePath+"/auto_apply",schemaPath:"#/properties/auto_apply/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.claude_code !== undefined){
+const _errs4 = errors;
+if(!(validate173(data.claude_code, {instancePath:instancePath+"/claude_code",parentData:data,parentDataProperty:"claude_code",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate173.errors : vErrors.concat(validate173.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs4 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.codex !== undefined){
+const _errs5 = errors;
+if(!(validate175(data.codex, {instancePath:instancePath+"/codex",parentData:data,parentDataProperty:"codex",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate175.errors : vErrors.concat(validate175.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs5 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.constraints !== undefined){
+const _errs6 = errors;
+if(!(validate177(data.constraints, {instancePath:instancePath+"/constraints",parentData:data,parentDataProperty:"constraints",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate177.errors : vErrors.concat(validate177.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs6 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.default_adapter !== undefined){
+let data4 = data.default_adapter;
+const _errs7 = errors;
+if(typeof data4 !== "string"){
+validate172.errors = [{instancePath:instancePath+"/default_adapter",schemaPath:"#/properties/default_adapter/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(!(((data4 === "auto") || (data4 === "claude_code")) || (data4 === "codex"))){
+validate172.errors = [{instancePath:instancePath+"/default_adapter",schemaPath:"#/properties/default_adapter/enum",keyword:"enum",params:{allowedValues: schema78.properties.default_adapter.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+var valid0 = _errs7 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.enabled !== undefined){
+const _errs9 = errors;
+if(typeof data.enabled !== "boolean"){
+validate172.errors = [{instancePath:instancePath+"/enabled",schemaPath:"#/properties/enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate172.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate172.errors = vErrors;
+return errors === 0;
+}
+validate172.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+
+function validate171(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate171.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((data.settings === undefined) && (missing0 = "settings")) || ((data.workspace_used === undefined) && (missing0 = "workspace_used"))){
+validate171.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.settings !== undefined){
+const _errs1 = errors;
+if(!(validate172(data.settings, {instancePath:instancePath+"/settings",parentData:data,parentDataProperty:"settings",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate172.errors : vErrors.concat(validate172.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.workspace_used !== undefined){
+let data1 = data.workspace_used;
+const _errs2 = errors;
+const _errs3 = errors;
+let valid1 = false;
+const _errs4 = errors;
+if(typeof data1 !== "string"){
+const err0 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var _valid0 = _errs4 === errors;
+valid1 = valid1 || _valid0;
+const _errs6 = errors;
+if(data1 !== null){
+const err1 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+var _valid0 = _errs6 === errors;
+valid1 = valid1 || _valid0;
+if(!valid1){
+const err2 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+validate171.errors = vErrors;
+return false;
+}
+else {
+errors = _errs3;
+if(vErrors !== null){
+if(_errs3){
+vErrors.length = _errs3;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+else {
+validate171.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate171.errors = vErrors;
+return errors === 0;
+}
+validate171.evaluated = {"props":{"settings":true,"workspace_used":true},"dynamicProps":false,"dynamicItems":false};
+
+export const validateCodeAgentProbeResponse = validate180;
+const schema82 = {"properties":{"results":{"$ref":"#/components/schemas/CodeAgentProbeResults"}},"required":["results"],"title":"CodeAgentProbeResponse","type":"object"};
+const schema83 = {"properties":{"claude_code":{"$ref":"#/components/schemas/ProbeResult"},"codex":{"$ref":"#/components/schemas/ProbeResult"}},"required":["claude_code","codex"],"title":"CodeAgentProbeResults","type":"object"};
+const schema84 = {"additionalProperties":false,"properties":{"binary_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Binary Path"},"detected_at":{"minimum":0,"title":"Detected At","type":"integer"},"error":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error"},"extras":{"additionalProperties":true,"title":"Extras","type":"object"},"installed":{"title":"Installed","type":"boolean"},"name":{"enum":["claude_code","codex"],"title":"Name","type":"string"},"version":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Version"}},"required":["name","installed","binary_path","version","detected_at","error","extras"],"title":"ProbeResult","type":"object"};
+
+function validate182(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate182.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((((((((data.name === undefined) && (missing0 = "name")) || ((data.installed === undefined) && (missing0 = "installed"))) || ((data.binary_path === undefined) && (missing0 = "binary_path"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.detected_at === undefined) && (missing0 = "detected_at"))) || ((data.error === undefined) && (missing0 = "error"))) || ((data.extras === undefined) && (missing0 = "extras"))){
+validate182.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+const _errs1 = errors;
+for(const key0 in data){
+if(!(((((((key0 === "binary_path") || (key0 === "detected_at")) || (key0 === "error")) || (key0 === "extras")) || (key0 === "installed")) || (key0 === "name")) || (key0 === "version"))){
+validate182.errors = [{instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"}];
+return false;
+break;
+}
+}
+if(_errs1 === errors){
+if(data.binary_path !== undefined){
+let data0 = data.binary_path;
+const _errs2 = errors;
+const _errs3 = errors;
+let valid1 = false;
+const _errs4 = errors;
+if(typeof data0 !== "string"){
+const err0 = {instancePath:instancePath+"/binary_path",schemaPath:"#/properties/binary_path/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var _valid0 = _errs4 === errors;
+valid1 = valid1 || _valid0;
+const _errs6 = errors;
+if(data0 !== null){
+const err1 = {instancePath:instancePath+"/binary_path",schemaPath:"#/properties/binary_path/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+var _valid0 = _errs6 === errors;
+valid1 = valid1 || _valid0;
+if(!valid1){
+const err2 = {instancePath:instancePath+"/binary_path",schemaPath:"#/properties/binary_path/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+validate182.errors = vErrors;
+return false;
+}
+else {
+errors = _errs3;
+if(vErrors !== null){
+if(_errs3){
+vErrors.length = _errs3;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.detected_at !== undefined){
+let data1 = data.detected_at;
+const _errs8 = errors;
+if(!((typeof data1 == "number") && (!(data1 % 1) && !isNaN(data1)))){
+validate182.errors = [{instancePath:instancePath+"/detected_at",schemaPath:"#/properties/detected_at/type",keyword:"type",params:{type: "integer"},message:"must be integer"}];
+return false;
+}
+if(errors === _errs8){
+if(typeof data1 == "number"){
+if(data1 < 0 || isNaN(data1)){
+validate182.errors = [{instancePath:instancePath+"/detected_at",schemaPath:"#/properties/detected_at/minimum",keyword:"minimum",params:{comparison: ">=", limit: 0},message:"must be >= 0"}];
+return false;
+}
+}
+}
+var valid0 = _errs8 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.error !== undefined){
+let data2 = data.error;
+const _errs10 = errors;
+const _errs11 = errors;
+let valid2 = false;
+const _errs12 = errors;
+if(typeof data2 !== "string"){
+const err3 = {instancePath:instancePath+"/error",schemaPath:"#/properties/error/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+var _valid1 = _errs12 === errors;
+valid2 = valid2 || _valid1;
+const _errs14 = errors;
+if(data2 !== null){
+const err4 = {instancePath:instancePath+"/error",schemaPath:"#/properties/error/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+var _valid1 = _errs14 === errors;
+valid2 = valid2 || _valid1;
+if(!valid2){
+const err5 = {instancePath:instancePath+"/error",schemaPath:"#/properties/error/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+validate182.errors = vErrors;
+return false;
+}
+else {
+errors = _errs11;
+if(vErrors !== null){
+if(_errs11){
+vErrors.length = _errs11;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs10 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.extras !== undefined){
+let data3 = data.extras;
+const _errs16 = errors;
+if(errors === _errs16){
+if(data3 && typeof data3 == "object" && !Array.isArray(data3)){
+}
+else {
+validate182.errors = [{instancePath:instancePath+"/extras",schemaPath:"#/properties/extras/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+var valid0 = _errs16 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.installed !== undefined){
+const _errs19 = errors;
+if(typeof data.installed !== "boolean"){
+validate182.errors = [{instancePath:instancePath+"/installed",schemaPath:"#/properties/installed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs19 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.name !== undefined){
+let data5 = data.name;
+const _errs21 = errors;
+if(typeof data5 !== "string"){
+validate182.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+if(!((data5 === "claude_code") || (data5 === "codex"))){
+validate182.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/enum",keyword:"enum",params:{allowedValues: schema84.properties.name.enum},message:"must be equal to one of the allowed values"}];
+return false;
+}
+var valid0 = _errs21 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.version !== undefined){
+let data6 = data.version;
+const _errs23 = errors;
+const _errs24 = errors;
+let valid3 = false;
+const _errs25 = errors;
+if(typeof data6 !== "string"){
+const err6 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+var _valid2 = _errs25 === errors;
+valid3 = valid3 || _valid2;
+const _errs27 = errors;
+if(data6 !== null){
+const err7 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+var _valid2 = _errs27 === errors;
+valid3 = valid3 || _valid2;
+if(!valid3){
+const err8 = {instancePath:instancePath+"/version",schemaPath:"#/properties/version/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+validate182.errors = vErrors;
+return false;
+}
+else {
+errors = _errs24;
+if(vErrors !== null){
+if(_errs24){
+vErrors.length = _errs24;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs23 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+}
+}
+}
+}
+}
+}
+else {
+validate182.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate182.errors = vErrors;
+return errors === 0;
+}
+validate182.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
+
+
+function validate181(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate181.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if(((data.claude_code === undefined) && (missing0 = "claude_code")) || ((data.codex === undefined) && (missing0 = "codex"))){
+validate181.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.claude_code !== undefined){
+const _errs1 = errors;
+if(!(validate182(data.claude_code, {instancePath:instancePath+"/claude_code",parentData:data,parentDataProperty:"claude_code",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate182.errors : vErrors.concat(validate182.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs1 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.codex !== undefined){
+const _errs2 = errors;
+if(!(validate182(data.codex, {instancePath:instancePath+"/codex",parentData:data,parentDataProperty:"codex",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate182.errors : vErrors.concat(validate182.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs2 === errors;
+}
+else {
+var valid0 = true;
+}
+}
+}
+}
+else {
+validate181.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate181.errors = vErrors;
+return errors === 0;
+}
+validate181.evaluated = {"props":{"claude_code":true,"codex":true},"dynamicProps":false,"dynamicItems":false};
+
+
+function validate180(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
+let vErrors = null;
+let errors = 0;
+const evaluated0 = validate180.evaluated;
+if(evaluated0.dynamicProps){
+evaluated0.props = undefined;
+}
+if(evaluated0.dynamicItems){
+evaluated0.items = undefined;
+}
+if(errors === 0){
+if(data && typeof data == "object" && !Array.isArray(data)){
+let missing0;
+if((data.results === undefined) && (missing0 = "results")){
+validate180.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
+return false;
+}
+else {
+if(data.results !== undefined){
+if(!(validate181(data.results, {instancePath:instancePath+"/results",parentData:data,parentDataProperty:"results",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate181.errors : vErrors.concat(validate181.errors);
+errors = vErrors.length;
+}
+}
+}
+}
+else {
+validate180.errors = [{instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+return false;
+}
+}
+validate180.errors = vErrors;
+return errors === 0;
+}
+validate180.evaluated = {"props":{"results":true},"dynamicProps":false,"dynamicItems":false};

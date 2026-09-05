@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from magi.tools.code_agent.settings import load_settings
 from magi.tools.code_agent.settings_writer import (
@@ -43,14 +44,18 @@ def test_write_user_settings_deep_merges_existing(isolated_magi_home: Path, tmp_
     assert s.claude_code.default_model == "opus"
 
 
-def test_write_user_settings_unknown_adapter_falls_back_via_loader(
-    isolated_magi_home: Path,
-) -> None:
-    write_user_settings({"default_adapter": "not-a-tool"})
-    workspace = isolated_magi_home / "ws"
-    workspace.mkdir()
-    s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "auto"
+@pytest.mark.parametrize("patch", [
+    {"default_adapter": "not-a-tool"}, {"constraints": {"default_timeout_s": 0}},
+    {"constraints": {"default_timeout_s": 3601}}, {"constraints": {"default_timeout_s": 60.5}},
+    {"enabled": None}, {"invented": True},
+])
+def test_invalid_user_patch_preserves_existing_file(isolated_magi_home: Path, patch: dict) -> None:
+    target = write_user_settings({"default_adapter": "codex"})
+    original = target.read_bytes()
+    with pytest.raises(ValidationError):
+        write_user_settings(patch)
+    assert target.read_bytes() == original
+
 
 
 def test_write_project_settings_lives_under_workspace_magi(

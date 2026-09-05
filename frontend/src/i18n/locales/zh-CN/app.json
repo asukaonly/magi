@@ -1426,6 +1426,11 @@
     "preferencesDesc": "配置界面语言、主题和桌面行为",
     "conversationDesc": "配置新对话默认使用的工作目录",
     "codeAgent": {
+      "loadFailed": "无法加载代码工具设置。",
+      "userScope": "这里编辑用户默认设置；项目内的配置可以覆盖这些默认值。",
+      "invalidTimeout": "请输入 60 到 3600 之间的整数秒数。",
+      "saved": "已保存",
+      "unsaved": "有未保存的修改",
       "loading": "加载中…",
       "rescan": "重新探测",
       "titleEnable": "启用",

@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.code_agent import code_agent_router
+from magi.api.routes import _build_public_router, _PUBLIC_ROUTE_METHODS
 
 
 @pytest.fixture
@@ -21,7 +22,7 @@ def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.fixture
 def client(isolated_magi_home: Path) -> TestClient:
     app = FastAPI()
-    app.include_router(code_agent_router, prefix="/api/code_agent")
+    app.include_router(_build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"]), prefix="/api/code_agent")
     return TestClient(app)
 
 
@@ -359,3 +360,13 @@ def test_get_delegation_rejects_symlinked_artifact_file(
     )
 
     assert res.status_code == 400
+
+
+@pytest.mark.parametrize("level", ["user", "project"])
+def test_invalid_patch_does_not_persist(client: TestClient, tmp_path: Path, level: str) -> None:
+    request = {"level": level, "workspace": str(tmp_path / "workspace"), "patch": {"constraints": {"default_timeout_s": 120}}}
+    assert client.patch("/api/code_agent/settings", json=request).status_code == 200
+    request["patch"] = {"constraints": {"default_timeout_s": 0}}
+    assert client.patch("/api/code_agent/settings", json=request).status_code == 422
+    response = client.get("/api/code_agent/settings", params={"workspace": request["workspace"]})
+    assert response.json()["settings"]["constraints"]["default_timeout_s"] == 120

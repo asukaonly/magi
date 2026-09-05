@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...core.code_agent_artifacts import (
     CodeAgentArtifactLocator,
@@ -29,7 +29,8 @@ from ...core.logger import get_logger
 from ...tools.code_agent.apply_diff import apply_delegation, discard_delegation
 from ...tools.code_agent.probe import probe_all
 from ...tools.code_agent.service import CodeAgentService
-from ...tools.code_agent.settings import load_settings
+from ...tools.code_agent.settings import CodeAgentSettings, load_settings
+from ...tools.code_agent.contracts import ProbeResult
 from ...tools.code_agent.settings_writer import (
     reset_project_settings,
     write_project_settings,
@@ -41,19 +42,33 @@ logger = get_logger(__name__)
 code_agent_router = APIRouter()
 
 
-@code_agent_router.get("/probe")
+class CodeAgentProbeResults(BaseModel):
+    claude_code: ProbeResult
+    codex: ProbeResult
+
+
+class CodeAgentProbeResponse(BaseModel):
+    results: CodeAgentProbeResults
+
+
+class CodeAgentSettingsResponse(BaseModel):
+    settings: CodeAgentSettings
+    workspace_used: str | None
+
+
+@code_agent_router.get("/probe", response_model=CodeAgentProbeResponse)
 def get_probe(force: bool = False) -> dict[str, Any]:
     results = probe_all(force=force)
     return {"results": {name: r.model_dump() for name, r in results.items()}}
 
 
-@code_agent_router.post("/rescan")
+@code_agent_router.post("/rescan", response_model=CodeAgentProbeResponse)
 def post_rescan() -> dict[str, Any]:
     results = probe_all(force=True)
     return {"results": {name: r.model_dump() for name, r in results.items()}}
 
 
-@code_agent_router.get("/settings")
+@code_agent_router.get("/settings", response_model=CodeAgentSettingsResponse)
 def get_settings(workspace: Optional[str] = None) -> dict[str, Any]:
     workspace_path: Optional[Path] = Path(workspace) if workspace else None
     s = load_settings(workspace_root=workspace_path)
@@ -69,7 +84,7 @@ class _PatchSettingsBody(BaseModel):
     workspace: Optional[str] = None
 
 
-@code_agent_router.patch("/settings")
+@code_agent_router.patch("/settings", response_model=CodeAgentSettingsResponse)
 def patch_settings(body: _PatchSettingsBody) -> dict[str, Any]:
     if body.level == "project" and not body.workspace:
         raise HTTPException(
@@ -82,11 +97,14 @@ def patch_settings(body: _PatchSettingsBody) -> dict[str, Any]:
             detail="patch must be an object",
         )
 
-    if body.level == "user":
-        write_user_settings(body.patch)
-    else:
-        assert body.workspace is not None
-        write_project_settings(Path(body.workspace), body.patch)
+    try:
+        if body.level == "user":
+            write_user_settings(body.patch)
+        else:
+            assert body.workspace is not None
+            write_project_settings(Path(body.workspace), body.patch)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="Invalid code agent settings") from exc
 
     workspace_path = Path(body.workspace) if body.workspace else None
     s = load_settings(workspace_root=workspace_path)

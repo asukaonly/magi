@@ -45,6 +45,17 @@ def build_contract() -> dict:
     )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
+    from magi.api.routers.code_agent import (
+        code_agent_router, CodeAgentSettingsResponse, CodeAgentProbeResponse,
+    )
+    public_code = _build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"])
+    for method, path, model in [
+        ("GET", "/settings", CodeAgentSettingsResponse), ("PATCH", "/settings", CodeAgentSettingsResponse),
+        ("GET", "/probe", CodeAgentProbeResponse), ("POST", "/rescan", CodeAgentProbeResponse),
+    ]:
+        if not any(route.path == path and method in route.methods and route.response_model is model for route in public_code.routes):
+            raise RuntimeError(f"Code tool settings contract is not exposed: {method} {path}")
+
     public = _build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"])
     contracts = {
         ("GET", "/"): ConfigResponse,
@@ -71,6 +82,7 @@ def build_contract() -> dict:
     _, document = models_json_schema(
         [(model, "serialization") for model in (
             ConfigResponse, OnboardingStatusResponse, OnboardingTemplateResponse, ToolConfigResponse, ToolsListResponse,
+            CodeAgentSettingsResponse, CodeAgentProbeResponse,
         )],
         schema_generator=ResponseJsonSchema,
         ref_template="#/components/schemas/{model}",
@@ -95,12 +107,21 @@ def build_examples() -> dict:
     )
     from magi.api.routers.tools import ToolConfigResponse, ToolConfigSpecResponse
 
+    from magi.api.routers.code_agent import CodeAgentSettingsResponse, CodeAgentProbeResponse, CodeAgentProbeResults
+    from magi.tools.code_agent.settings import CodeAgentSettings
+    from magi.tools.code_agent.contracts import ProbeResult
+
     config = SystemConfigModel()
     config.llm.providers["openai"] = LLMProviderConfigModel()
     for selection in config.llm.selections.values():
         selection.provider_id = "openai"
         selection.model = "fixture-model"
     return {
+        "codeAgentSettings": CodeAgentSettingsResponse(settings=CodeAgentSettings(), workspace_used=None).model_dump(mode="json"),
+        "codeAgentProbe": CodeAgentProbeResponse(results=CodeAgentProbeResults(**{
+            name: ProbeResult(name=name, installed=False, binary_path=None, version=None, detected_at=1, error=None, extras={})
+            for name in ("claude_code", "codex")
+        })).model_dump(mode="json"),
         "tool": ToolConfigResponse(
             name="fixture-tool", display_name="Fixture tool", description="Contract fixture", category="file",
             config_specs=[ToolConfigSpecResponse(path="limit", type="integer", default=5)],

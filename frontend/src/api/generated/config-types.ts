@@ -36,6 +36,98 @@ export interface components {
              */
             style_instruction: string;
         };
+        /** ClaudeCodeSettings */
+        ClaudeCodeSettings: {
+            /**
+             * Allowed Tools
+             * @default Read Edit Write Grep Glob Bash(git diff*) Bash(git status*) Bash(pytest*)
+             */
+            allowed_tools: string;
+            /**
+             * Binary Path
+             * @default
+             */
+            binary_path: string;
+            /**
+             * Default Model
+             * @default
+             */
+            default_model: string;
+            /**
+             * Disallowed Tools
+             * @default Bash(git push*) Bash(git commit*) Bash(rm*)
+             */
+            disallowed_tools: string;
+            /** Extra Args */
+            extra_args: string[];
+            /**
+             * Max Budget Usd
+             * @default 5
+             */
+            max_budget_usd: number;
+        };
+        /** CodeAgentProbeResponse */
+        CodeAgentProbeResponse: {
+            results: components["schemas"]["CodeAgentProbeResults"];
+        };
+        /** CodeAgentProbeResults */
+        CodeAgentProbeResults: {
+            claude_code: components["schemas"]["ProbeResult"];
+            codex: components["schemas"]["ProbeResult"];
+        };
+        /** CodeAgentSettings */
+        CodeAgentSettings: {
+            /**
+             * Auto Apply
+             * @default false
+             */
+            auto_apply: boolean;
+            claude_code: components["schemas"]["ClaudeCodeSettings"];
+            codex: components["schemas"]["CodexSettings"];
+            constraints: components["schemas"]["ConstraintsSettings"];
+            /**
+             * Default Adapter
+             * @default auto
+             * @enum {string}
+             */
+            default_adapter: "auto" | "claude_code" | "codex";
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+        };
+        /** CodeAgentSettingsResponse */
+        CodeAgentSettingsResponse: {
+            settings: components["schemas"]["CodeAgentSettings"];
+            /** Workspace Used */
+            workspace_used: string | null;
+        };
+        /** CodexSettings */
+        CodexSettings: {
+            /**
+             * Ask For Approval
+             * @default never
+             */
+            ask_for_approval: string;
+            /**
+             * Binary Path
+             * @default
+             */
+            binary_path: string;
+            /**
+             * Default Model
+             * @default
+             */
+            default_model: string;
+            /** Extra Args */
+            extra_args: string[];
+            /**
+             * Sandbox
+             * @default workspace-write
+             */
+            sandbox: string;
+        };
         /** ConfigResponse */
         ConfigResponse: {
             /** @default null */
@@ -44,6 +136,26 @@ export interface components {
             message: string;
             /** Success */
             success: boolean;
+        };
+        /** ConstraintsSettings */
+        ConstraintsSettings: {
+            /**
+             * Default Timeout S
+             * @default 600
+             */
+            default_timeout_s: number;
+            /**
+             * Forbid Git Commit
+             * @default true
+             */
+            forbid_git_commit: boolean;
+            /**
+             * Forbid Git Push
+             * @default true
+             */
+            forbid_git_push: boolean;
+            /** Forbid Paths */
+            forbid_paths: string[];
         };
         /** CrossEncoderConfigModel */
         CrossEncoderConfigModel: {
@@ -933,6 +1045,28 @@ export interface components {
              * @default true
              */
             state_transition_enabled: boolean;
+        };
+        /** ProbeResult */
+        ProbeResult: {
+            /** Binary Path */
+            binary_path: string | null;
+            /** Detected At */
+            detected_at: number;
+            /** Error */
+            error: string | null;
+            /** Extras */
+            extras: {
+                [key: string]: unknown;
+            };
+            /** Installed */
+            installed: boolean;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "claude_code" | "codex";
+            /** Version */
+            version: string | null;
         };
         /** QueryExpansionConfigModel */
         QueryExpansionConfigModel: {

@@ -15,6 +15,7 @@ import tomli_w
 
 from magi_plugin_sdk.fs import atomic_write_text
 from ._user_paths import code_agent_settings_path
+from .settings import CodeAgentSettings
 
 
 def _load_toml_text(text: str) -> dict[str, Any]:
@@ -51,6 +52,7 @@ def write_user_settings(patch: dict[str, Any]) -> Path:
     """Deep-merge ``patch`` into ``~/.magi/code_agent.toml``."""
     target = code_agent_settings_path()
     merged = _deep_merge(_read_optional(target), patch)
+    CodeAgentSettings.model_validate(merged)
     _write_toml(target, merged)
     return target
 
@@ -63,6 +65,7 @@ def write_project_settings(workspace_root: Path | str, patch: dict[str, Any]) ->
     """Deep-merge ``patch`` into ``<workspace>/.magi/code_agent.toml``."""
     target = _project_path(workspace_root)
     merged = _deep_merge(_read_optional(target), patch)
+    CodeAgentSettings.model_validate(merged)
     _write_toml(target, merged)
     return target
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from magi.tools.code_agent.settings import (
     CodeAgentSettings,
@@ -79,7 +80,7 @@ def test_invalid_toml_raises(isolated_magi_home: Path, tmp_path: Path) -> None:
         load_settings(workspace_root=workspace)
 
 
-def test_unknown_adapter_in_default_adapter_falls_back_to_auto(
+def test_unknown_adapter_is_reported(
     isolated_magi_home: Path, tmp_path: Path
 ) -> None:
     (isolated_magi_home / "code_agent.toml").write_text(
@@ -87,8 +88,8 @@ def test_unknown_adapter_in_default_adapter_falls_back_to_auto(
     )
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    s = load_settings(workspace_root=workspace)
-    assert s.default_adapter == "auto"
+    with pytest.raises(ValidationError):
+        load_settings(workspace_root=workspace)
 
 
 def test_constraints_paths_are_lists(isolated_magi_home: Path, tmp_path: Path) -> None:
