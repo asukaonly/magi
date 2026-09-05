@@ -20,6 +20,39 @@ from magi.scheduler import (
 
 
 @pytest.mark.asyncio
+async def test_handler_reported_failure_preserves_last_success_and_cursor(tmp_path):
+    service = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    handler = AsyncMock(side_effect=[
+        ScheduledExecutionResult(success=True, message="ok", next_cursor="accepted"),
+        ScheduledExecutionResult(
+            success=False, message="maintenance_failed", next_cursor="invalid",
+            stats={"error": "Storage unavailable"},
+        ),
+    ])
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start()
+    try:
+        await service.schedule_interval(
+            schedule_id="maintenance", target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="global", seconds=3600, target_payload={},
+        )
+        await service.trigger_now("maintenance")
+        successful_state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
+        result = await service.execute_schedule("maintenance", manual=True)
+        state = await service.get_target_state(ScheduledTargetType.MEMORY_L2_MAINTENANCE, "global")
+        executions = await service.repository.list_executions(schedule_id="maintenance")
+        assert result.success is False
+        assert executions[0]["status"] == "failed"
+        assert executions[0]["error"] == "Storage unavailable"
+        assert state.last_error == "Storage unavailable"
+        assert state.last_success_at == successful_state.last_success_at
+        assert state.last_cursor == "accepted"
+        assert state.running is False
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_scheduler_can_prepare_jobs_before_activation(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"

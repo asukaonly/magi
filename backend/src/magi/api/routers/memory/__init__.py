@@ -29,6 +29,7 @@ from .router import memory_router
 
 # Import route modules for registration side effects.
 from . import dashboard_routes as _dashboard_routes  # noqa: F401
+from . import maintenance_routes as _maintenance_routes  # noqa: F401
 from . import overview_routes as _overview_routes  # noqa: F401
 from . import search_routes as _search_routes  # noqa: F401
 from .eval import routes as _eval_routes  # noqa: F401

@@ -31,10 +31,12 @@ describe('memory governance i18n', () => {
     const zh = flatten({
       categories: zhCnApp.memory.governance.categories,
       assertions: zhCnApp.memory.governance.assertions,
+      tasks: zhCnApp.memory.governance.tasks,
     });
     const en = flatten({
       categories: enApp.memory.governance.categories,
       assertions: enApp.memory.governance.assertions,
+      tasks: enApp.memory.governance.tasks,
     });
 
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort());
@@ -52,6 +54,7 @@ describe('memory governance i18n', () => {
     const en = flatten({
       categories: enApp.memory.governance.categories,
       assertions: enApp.memory.governance.assertions,
+      tasks: enApp.memory.governance.tasks,
     });
 
     expect(Object.values(en).filter((value) => /[\u3400-\u9fff]/u.test(value))).toEqual([]);
