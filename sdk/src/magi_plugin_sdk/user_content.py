@@ -20,12 +20,20 @@ class UserContentClearRequest:
     is not a plugin-local counter and plugins must not advance it themselves.
     """
 
-    clear_generation: int
+    clear_generation: int | None = None
     reason: str = "user_clear_all_data"
+    connection_id: str | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.clear_generation, bool) or self.clear_generation < 1:
-            raise ValueError("clear_generation must be a positive integer")
+        if self.connection_id is None:
+            if (
+                isinstance(self.clear_generation, bool)
+                or not isinstance(self.clear_generation, int)
+                or self.clear_generation < 1
+            ):
+                raise ValueError("Global clear generation must be a positive integer")
+        elif not self.connection_id.strip() or self.clear_generation is not None:
+            raise ValueError("Connection clear requires an identity and no global generation")
         normalized_reason = str(self.reason or "").strip()
         if not normalized_reason:
             raise ValueError("reason must not be empty")
@@ -48,6 +56,7 @@ class UserContentClearContext:
     plugin_id: str
     sensor_id: str | None = None
     plugin_settings: Mapping[str, Any] = field(default_factory=dict)
+    connection_id: str | None = None
 
     network_access_allowed: ClassVar[Literal[False]] = False
     preserve_configuration: ClassVar[Literal[True]] = True
@@ -56,6 +65,8 @@ class UserContentClearContext:
     preserve_source_progress: ClassVar[Literal[True]] = True
 
     def __post_init__(self) -> None:
+        if self.request.connection_id is not None and self.connection_id != self.request.connection_id:
+            raise ValueError("Clear context must match the requested connection")
         normalized_plugin_id = str(self.plugin_id or "").strip()
         if not normalized_plugin_id:
             raise ValueError("plugin_id must not be empty")

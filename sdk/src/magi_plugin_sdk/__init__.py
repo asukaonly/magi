@@ -14,6 +14,13 @@ not part of the plugin authoring contract.
 """
 
 from .base import Plugin
+from .context import PluginContext, PluginCredentials
+from .hooks import HookContext, HookDecision, HookEventType, HookOutcome, HookHandler
+from .providers import (
+    ProviderUsage, ProviderToolCall, ModelRequest, ModelResult, ModelEvent,
+    ExternalAgentRequest, ExternalAgentResult, ExternalAgentEvent,
+    ModelProvider, ExternalAgentProvider,
+)
 from .runtime import (
     SDK_VERSION, PLUGIN_PROTOCOL_VERSION, PluginConnection, ConnectionStatus,
     CapabilityGrant, InvocationIdentity, ResourceRef, SourceChange,
@@ -125,7 +132,6 @@ from .sensors import (
     SensorOutputMetadata,
     SensorSpec,
     SensorSyncContext,
-    SensorSyncResult,
     TimelinePresentation,
 )
 from .subprocess import (
@@ -161,6 +167,23 @@ from .capabilities import (
 __version__ = SDK_VERSION
 
 __all__ = [
+    "PluginContext",
+    "PluginCredentials",
+    "HookContext",
+    "HookDecision",
+    "HookEventType",
+    "HookOutcome",
+    "HookHandler",
+    "ProviderUsage",
+    "ProviderToolCall",
+    "ModelRequest",
+    "ModelResult",
+    "ModelEvent",
+    "ExternalAgentRequest",
+    "ExternalAgentResult",
+    "ExternalAgentEvent",
+    "ModelProvider",
+    "ExternalAgentProvider",
     "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "PluginConnection", "ConnectionStatus",
     "CapabilityGrant", "InvocationIdentity", "ResourceRef", "SourceChange",
     "SourceChangeBatch", "CapabilityReadiness", "OperationSpec", "OperationResult",
@@ -217,7 +240,6 @@ __all__ = [
     "SensorOutputMetadata",
     "SensorSpec",
     "SensorSyncContext",
-    "SensorSyncResult",
     "TimelinePresentation",
     # Field / settings specs
     "ExtensionFieldOption",

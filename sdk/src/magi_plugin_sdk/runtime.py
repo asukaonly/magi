@@ -10,7 +10,7 @@ import math
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, field_validator, model_validator
 
 SDK_VERSION = "0.2.0"
 PLUGIN_PROTOCOL_VERSION = 2
@@ -140,7 +140,23 @@ class OperationSpec(RuntimeModel):
     required_capabilities: list[str] = Field(default_factory=list)
     effect: Literal["read_only", "local_write", "external_write", "destructive"]
     replay: Literal["read_only", "idempotent", "idempotent_with_key", "non_idempotent", "reconcilable"]
+    idempotency_key_parameter: str | None = Field(default=None, min_length=1, max_length=128)
     timeout_seconds: float = Field(default=30, gt=0, le=3600)
+
+    @model_validator(mode="after")
+    def validate_replay_contract(self) -> "OperationSpec":
+        if self.replay == "idempotent_with_key":
+            if not self.idempotency_key_parameter:
+                raise ValueError("Idempotent operations must declare a key parameter")
+            properties = self.input_schema.get("properties", {})
+            required = self.input_schema.get("required", [])
+            if self.idempotency_key_parameter not in properties or self.idempotency_key_parameter not in required:
+                raise ValueError("Idempotency key must be a required input property")
+        elif self.idempotency_key_parameter is not None:
+            raise ValueError("Idempotency key requires idempotent_with_key replay")
+        if (self.effect == "read_only") != (self.replay == "read_only"):
+            raise ValueError("Read-only effect and replay declarations must agree")
+        return self
 
 
 class OperationResult(RuntimeModel):

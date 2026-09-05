@@ -1,105 +1,83 @@
 # magi-plugin-sdk
 
-Lightweight SDK for building [Magi](https://github.com/asukaonly/magi) plugins.
+Magi's standalone Python SDK, version **0.2**, protocol **2**. External plugins
+import only `magi_plugin_sdk`; the Magi backend is not a plugin dependency.
+The SDK requires Python 3.10+ and Pydantic 2.5+.
 
-Install this package when developing external plugins — it contains only the
-plugin contracts (`Plugin`, `SensorSpec`, `ExtensionFieldSpec`, …) and has a
-single dependency: `pydantic`.  You do **not** need the full Magi backend.
+## Package and connection
 
-## Installation
-
-```bash
-pip install magi-plugin-sdk
-```
-
-## Quick start
-
-```python
-# plugin.py
-from magi_plugin_sdk import ExtensionFieldSpec, Plugin, SensorSpec, get_logger
-
-
-logger = get_logger(__name__)
-
-
-class MyPlugin(Plugin):
-    def get_tools(self):
-        return [MyTool]
-
-    def get_sensors(self):
-        from .sensor import MySensor
-        return [MySensor()]
-```
+A package declares code and capabilities. A `PluginConnection` identifies one
+configured account or source, with its own settings, credential references,
+revision and enabled state. Installing a package does not execute it. Create a
+connection, complete setup and explicitly enable it to publish its capabilities.
+Libraries do not own connections.
 
 ```toml
-# plugin.toml
 [plugin]
-id = "my-plugin"
-name = "My Plugin"
+id = "example"
+name = "Example"
 version = "0.1.0"
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 entry_module = "plugin"
-entry_class = "MyPlugin"
-contribution_types = ["tool", "sensor"]
+entry_class = "ExamplePlugin"
+contribution_types = ["operation"]
+
+[[plugin.settings_fields]]
+key = "token"
+label = "API token"
+type = "secret"
+required = true
 ```
 
-## Import compatibility
+`Plugin.configure(manifest=..., connection=..., context=...)` is host-owned.
+Implementations use `self.connection_id`, `self.settings` and `self.context`.
+`PluginContext` supplies private state/resources directories and scoped
+credentials; it does not expose Magi's database paths or dependency container.
+Secret fields are sent separately, never returned in settings, and read through
+`context.credentials.get("token")` using the exact declared field key.
 
-When the full Magi backend is installed, `magi.plugins` re-exports everything
-from this SDK.  Both import paths resolve to the **same classes**:
+## Public capabilities
 
-```python
-from magi_plugin_sdk import Plugin     # recommended for external plugins
-from magi.plugins import Plugin        # also works (requires magi backend)
-```
-
-For existing plugins migrating off backend internals, use these replacements:
-
-| Legacy import / pattern | Preferred replacement |
+| Surface | Contract and purpose |
 | --- | --- |
-| `magi.core.logger.get_logger` | `magi_plugin_sdk.get_logger` |
-| `magi.runtime_trace.PluginIngressEventRecord` | `magi_plugin_sdk.ingress.PluginIngressEventRecord` |
-| `magi.api.services.message_dispatch_service.dispatch_user_message` in channel adapters | injected `ChannelMessageDispatcherProtocol.dispatch_user_message(...)` |
-| `magi.channels.session_mapper.ChannelSessionMapper` for adapter typing | injected `ChannelSessionMapperProtocol` |
+| Operations and tools | `OperationSpec`, `InvocationIdentity`, `OperationResult`; schemas, effects, cancellation, idempotency and bounded output. Existing `BaseTool` declarations normalize into the same operation execution path. |
+| Sources | `SensorBase`, `SensorSyncContext`, `SourceChangeBatch`, `SourceChange`, `SourceObjectRef`; stable connection-local object IDs, revisions, checkpoints and evidence. |
+| Historical imports | `HistoryImporter`, `HistoryImporterSpec`; connection-scoped file or account history transformed through host ingestion. |
+| Channels | `Channel`, host-injected session mapping, message dispatch and inbound admission contracts. |
+| Providers | Web search, model generation/streaming and external agent contracts; host-owned provider selection. |
+| Skills | `Plugin.get_skills()` returns named skill directories, indexed with connection ownership. |
+| Hooks | `HookEventType`, `HookContext`, `HookDecision`; validated event payloads and bounded hook decisions. |
+| Memory projections | Declared source selectors with extraction/summary profiles; advisory structured results governed and persisted by the host. |
+| Settings | Manifest `settings_fields`, `activation_flow`, `settings_actions`, `settings_resources`, `settings_ui_blocks`; host-rendered connection setup and operation-backed actions. |
+| Resources | `ResourceRef` and scoped host create/read calls; bounded opaque references instead of arbitrary host file access. |
+| Lifecycle | Connection enable/disable, revision-checked updates, readiness, disconnect and `clear_user_content`. |
 
-## Public API
+`get_sensors()` returns `(sensor_id, sensor, SensorSpec)` tuples.
+`get_operations()` returns `OperationSpec` declarations; implement
+`invoke_operation(operation_id, arguments, identity)` for execution.
+Read-only settings catalogs are declared in the manifest so setup can render
+before code execution. Setup actions/resources that work while disabled must
+explicitly set `requires_enabled = false`; they do not expose ordinary tools.
 
-| Symbol | Description |
-|--------|-------------|
-| `Plugin` | Base class for all plugin packages |
-| `SensorSpec` | Declarative metadata for a sensor contribution |
-| `SensorBase` | Base class for sensor implementations |
-| `SensorSyncContext` | Pull-sync context passed to sensors |
-| `SensorSyncResult` | Pull-sync result returned by sensors |
-| `ExtensionFieldSpec` | Declarative settings field |
-| `ExtensionFieldOption` | Option entry for select-type fields |
-| `ActivationFlowSpec` | First-enable wizard spec |
-| `Channel` | Base class for channel adapters |
-| `ChannelInboundClearStrategy` | Required channel admission strategy declaration |
-| `ChannelProviderTimeEvidence` | Provider-issued event-time admission proof |
-| `ChannelCursorClearProof` | Durable cursor-generation admission proof |
-| `ChannelInboundClearRequest` | Host request passed to external channel clear hooks |
-| `ChannelInboundContext` | Host-issued context reused for every inbound mutation |
-| `ChannelTarget` | Normalized outbound channel target |
-| `OutboundContent` | Normalized outbound message payload |
-| `ChannelSessionMapperProtocol` | Injected channel session-mapping host contract |
-| `ChannelMessageDispatcherProtocol` | Injected inbound message dispatch host contract |
-| `ChannelMessageDispatchOutcome` | Result returned by the host dispatcher |
-| `PluginIngressHandlerRegistration` | Static ingress routing registration |
-| `PluginIngressEventRecord` | Host-provided ingress event envelope protocol |
-| `SettingsUIBlockSpec` | Custom settings block spec |
-| `PluginSettingsResourceSpec` | Read-only settings resource |
-| `PluginSettingsResourcePayload` | Resolved resource payload |
-| `PluginSettingsActionSpec` | Host-rendered settings action spec |
-| `PluginSettingsActionResult` | Settings action session result |
-| `ContributionType` | Enum: `tool`, `sensor`, `channel` |
-| `PluginManifest` | Parsed `plugin.toml` manifest model |
-| `PluginContribution` | Runtime contribution descriptor |
-| `PluginPackageState` | Runtime state for a plugin package |
-| `PluginI18n` | Per-plugin translation helper |
-| `get_current_language` | Read the active context language |
-| `set_current_language` | Set the active context language |
-| `get_logger` | Lightweight stdlib logger helper for plugin code |
-| `configure_basic_logging` | Install a minimal default logging config when needed |
+## Execution and authority
+
+External code runs in an isolated Python worker importing only the SDK, that
+package and its exact declared libraries. Framed, typed RPC uses no pickle.
+Host callbacks validate the connection, capability grants and resource scope;
+returned declarations are not grants. Source emission and resources are accessed
+through `magi_plugin_sdk.worker.get_host().call(...)` and remain host-validated.
+
+`trusted_process` requires explicit package trust and runs with the current
+user's OS access. Process separation is not an OS sandbox. `restricted` uses
+host-enforced confinement where supported and fails closed where unavailable;
+current confinement is verified on macOS. Neither mode grants direct memory
+writes. Ordinary operations still pass the host's invocation authorization and
+existing effect ledger.
+
+SDK contracts reject unknown fields and non-finite JSON numbers. Protocol 1,
+package-global account configuration and old source result types are unsupported.
 
 ## Destructive-clear-safe channel ingress
 

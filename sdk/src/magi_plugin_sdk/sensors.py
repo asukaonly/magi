@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import json
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 try:
     import tomllib
@@ -17,6 +18,10 @@ except ModuleNotFoundError:  # pragma: no cover
 from .contracts import ExtensionFieldSpec
 from .i18n import PluginI18n, get_current_language
 from .user_content import UserContentClearContext
+from .runtime import PluginConnection, SourceChange, SourceChangeBatch
+
+if TYPE_CHECKING:
+    from .context import PluginContext
 
 
 @dataclass(slots=True)
@@ -179,7 +184,7 @@ class SensorOutput:
                     else None
                 ),
                 qualifiers={
-                    str(key): str(value)
+                    str(key): value if isinstance(value, (str, int, float, bool)) else str(value)
                     for key, value in dict(data.get("activity", {}).get("qualifiers", {})).items()
                 },
             ),
@@ -230,21 +235,35 @@ class SensorOutputMetadata:
 
 @runtime_checkable
 class PluginRuntimePaths(Protocol):
-    """Minimal host path facade exposed to plugin sensors.
-
-    This protocol intentionally keeps compatibility with existing sensor code
-    that calls ``context.runtime_paths.plugin_cache_dir(plugin_id)`` while
-    avoiding a dependency on the backend's concrete ``RuntimePaths`` type.
-    """
+    """Connection-scoped storage facade exposed to a sensor."""
 
     def plugin_cache_dir(self, plugin_id: str) -> Path:
-        """Return the cache directory for a plugin-owned runtime state bucket."""
+        """Return this connection's state directory for its owning plugin."""
+
+
+@dataclass(frozen=True, slots=True)
+class ScopedSensorRuntimePaths:
+    """Expose only the host-allocated state directory of one connection."""
+
+    connection_id: str
+    plugin_id: str
+    state_dir: Path
+
+    def __post_init__(self) -> None:
+        if not self.state_dir.is_absolute():
+            raise ValueError("Sensor state directory must be absolute")
+
+    def plugin_cache_dir(self, plugin_id: str) -> Path:
+        if plugin_id != self.plugin_id:
+            raise PermissionError("Sensor cannot access another plugin's state directory")
+        return self.state_dir
 
 
 @dataclass(slots=True)
 class SensorSyncContext:
-    """Context passed to pull-sync capable sensors."""
+    """One bounded pull using an explicit connection and a semantic source type."""
 
+    connection_id: str
     source_type: str
     manual: bool
     last_cursor: Optional[str]
@@ -254,24 +273,14 @@ class SensorSyncContext:
     plugin_settings: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
-class SensorSyncResult:
-    """Normalized result returned by pull-sync sensors."""
-
-    items: list[dict[str, Any]] = field(default_factory=list)
-    next_cursor: Optional[str] = None
-    watermark_ts: Optional[float] = None
-    stats: dict[str, Any] = field(default_factory=dict)
-
-
 @runtime_checkable
 class PullSyncSensor(Protocol):
-    """Protocol for sensors that can actively pull source data."""
+    """Protocol for sensors returning versioned source changes."""
 
     supports_pull_sync: bool
 
-    async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
-        """Collect normalized source items for ingestion."""
+    async def collect_items(self, context: SensorSyncContext) -> SourceChangeBatch:
+        """Return changes; only the host may acknowledge cursor progression."""
 
 
 @dataclass(slots=True)
@@ -307,15 +316,23 @@ class SensorBase(ABC):
         self._plugin_id: str | None = None
         self._plugin_dir: Path | None = None
         self._i18n: PluginI18n | None = None
+        self.connection: PluginConnection | None = None
+        self.context: PluginContext | None = None
 
     def bind_plugin_context(
         self,
         *,
+        connection: PluginConnection,
+        context: PluginContext,
         plugin_id: str | None = None,
         plugin_dir: str | Path | None = None,
     ) -> None:
-        """Bind plugin metadata needed for sensor-local translations."""
-        self._plugin_id = plugin_id or self._plugin_id
+        """Bind the connection authority and its private authoring context."""
+        if context.connection != connection or (plugin_id and plugin_id != connection.plugin_id):
+            raise ValueError("Sensor connection context identity mismatch")
+        self.connection = connection
+        self.context = context
+        self._plugin_id = connection.plugin_id
         self._plugin_dir = Path(plugin_dir) if plugin_dir is not None else self._plugin_dir
         self._i18n = None
 
@@ -406,8 +423,8 @@ class SensorBase(ABC):
 
     def source_item_version_fingerprint(self, item: dict[str, Any]) -> str:
         """Return a fingerprint used to detect changes in seen items."""
-        version_parts = [str(item.get(field_name, "")) for field_name in self.update_key_fields]
-        return hashlib.sha1("|".join(version_parts).encode("utf-8")).hexdigest()
+        payload = json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     async def discover_changes(
         self,
@@ -426,10 +443,35 @@ class SensorBase(ABC):
         """Extract entities, tags, fact hints, and relation candidates from a source item."""
         return SensorOutputMetadata()
 
-    async def collect_items(self, context: SensorSyncContext) -> SensorSyncResult:
+    async def collect_items(self, context: SensorSyncContext) -> SourceChangeBatch:
         """Pull-sync entry point for sensors that support active collection."""
         _ = context
         raise NotImplementedError(f"{self.sensor_id} does not implement pull sync")
+
+    def build_change_batch(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        next_cursor: str | None = None,
+        complete: bool = True,
+        watermark_ts: float | None = None,
+        stats: dict[str, Any] | None = None,
+    ) -> SourceChangeBatch:
+        """Build explicit upserts using the source's stable identity and version."""
+        return SourceChangeBatch(
+            changes=[
+                SourceChange(
+                    object_id=self.source_item_identity(item),
+                    version=self.source_item_version_fingerprint(item),
+                    payload=item,
+                )
+                for item in items
+            ],
+            next_cursor=next_cursor,
+            complete=complete,
+            watermark_ts=watermark_ts,
+            stats=dict(stats or {}),
+        )
 
     async def clear_user_content(self, context: UserContentClearContext) -> None:
         """Erase sensor-owned local user content during a full product clear.
@@ -589,6 +631,8 @@ __all__ = [
     "SensorOutputMetadata",
     "SensorSpec",
     "SensorSyncContext",
-    "SensorSyncResult",
+    "ScopedSensorRuntimePaths",
+    "SourceChange",
+    "SourceChangeBatch",
     "TimelinePresentation",
 ]

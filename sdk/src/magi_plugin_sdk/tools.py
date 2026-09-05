@@ -8,10 +8,13 @@ and provider implementations remain backend-owned.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
+
+from .runtime import InvocationIdentity, OperationResult, PluginConnection, ResourceRef
 
 
 class ParameterType(str, Enum):
@@ -108,6 +111,12 @@ class ToolSchema(BaseModel):
     parameters: List[ToolParameter] = Field(
         default_factory=list, description="Parameter list"
     )
+    input_schema: dict[str, JsonValue] | None = None
+    output_schema: dict[str, JsonValue] = Field(
+        default_factory=lambda: {
+            "type": ["object", "array", "string", "number", "boolean", "null"],
+        }
+    )
     examples: List[Dict[str, Any]] = Field(
         default_factory=list, description="Usage examples"
     )
@@ -161,11 +170,49 @@ class ToolSchema(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Tags")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Other metadata")
 
+    def json_input_schema(self) -> dict[str, JsonValue]:
+        """Return the complete JSON Schema consumed by invocation and model APIs."""
+        if self.input_schema is not None:
+            return self.input_schema
+        properties: dict[str, JsonValue] = {}
+        required: list[JsonValue] = []
+        types = {"float": "number", "file": "string"}
+        for parameter in self.parameters:
+            prop: dict[str, JsonValue] = {
+                "type": types.get(parameter.type.value, parameter.type.value),
+                "description": parameter.description,
+            }
+            if parameter.type == ParameterType.ARRAY:
+                item_type = parameter.array_item_type or ParameterType.STRING
+                prop["items"] = {"type": types.get(item_type.value, item_type.value)}
+            if parameter.enum is not None:
+                prop["enum"] = parameter.enum
+            if parameter.min_value is not None:
+                prop["minimum"] = parameter.min_value
+            if parameter.max_value is not None:
+                prop["maximum"] = parameter.max_value
+            if parameter.default is not None:
+                prop["default"] = parameter.default
+            properties[parameter.name] = prop
+            if parameter.required:
+                required.append(parameter.name)
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": False,
+        }
+
 
 class ToolExecutionContext(BaseModel):
     """Tool execution context."""
 
     agent_id: str
+    invocation: InvocationIdentity | None = None
+    connection: PluginConnection | None = None
+    progress: Any = Field(
+        default=None, description="Host-bound async progress publisher"
+    )
     task_id: Optional[str] = None
     workspace: str = Field(default="./workspace", description="Working directory")
     env_vars: Dict[str, str] = Field(
@@ -198,6 +245,22 @@ class ToolResult(BaseModel):
     error_code: Optional[str] = None
     execution_time: float = 0.0
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    resources: list[ResourceRef] = Field(default_factory=list)
+    operation_status: (
+        Literal["succeeded", "failed", "cancelled", "uncertain"] | None
+    ) = None
+
+    @classmethod
+    def from_operation(cls, result: OperationResult) -> "ToolResult":
+        """Preserve uncertain and cancelled outcomes across tool transports."""
+        return cls(
+            success=result.status == "succeeded",
+            data=result.value,
+            error=result.message,
+            error_code=result.error_code,
+            resources=result.resources,
+            operation_status=result.status,
+        )
 
 
 class ToolConfigSpec(BaseModel):
@@ -337,6 +400,8 @@ class Tool(ABC):
             "dangerous": self.schema.dangerous if self.schema else False,
             "tags": list(self.schema.tags) if self.schema else [],
             "metadata": dict(self.schema.metadata) if self.schema else {},
+            "input_schema": self.schema.json_input_schema() if self.schema else {},
+            "output_schema": self.schema.output_schema if self.schema else {},
         }
 
     def to_claude_format(self) -> Dict[str, Any]:
@@ -344,41 +409,10 @@ class Tool(ABC):
         if not self.schema:
             return {}
 
-        properties = {}
-        required = []
-
-        for param in self.schema.parameters:
-            prop_def = {
-                "type": param.type.value,
-                "description": param.description,
-            }
-            if param.type == ParameterType.ARRAY:
-                item_type = param.array_item_type or ParameterType.STRING
-                prop_def["items"] = {"type": item_type.value}
-            if param.default is not None:
-                prop_def["default"] = param.default
-            if param.enum:
-                prop_def["enum"] = param.enum
-            if param.min_value is not None:
-                prop_def["min"] = param.min_value
-            if param.max_value is not None:
-                prop_def["max"] = param.max_value
-
-            properties[param.name] = prop_def
-            if param.required:
-                required.append(param.name)
-
-        input_schema = {
-            "type": "object",
-            "properties": properties,
-        }
-        if required:
-            input_schema["required"] = required
-
         return {
             "name": self.schema.name,
             "description": self.schema.description,
-            "input_schema": input_schema,
+            "input_schema": self.schema.json_input_schema(),
         }
 
     def is_ready(self) -> bool:
@@ -466,7 +500,30 @@ class MultiProviderTool(Tool):
     def __init__(self):
         super().__init__()
         self._providers: Dict[str, Any] = {}
+        self._provider_registry: Any = None
+        self._provider_kind: str = "web_search"
         self._register_providers()
+
+    def bind_provider_registry(self, registry: Any, *, kind: str) -> Callable[[], None]:
+        """Attach the host's live provider selection seam."""
+        binding = (registry, kind, object())
+        self._provider_binding = binding
+        self._provider_registry = registry
+        self._provider_kind = kind
+
+        def dispose() -> None:
+            if self._provider_binding is binding:
+                self._provider_registry = None
+
+        return dispose
+
+    @property
+    def provider_revision(self) -> Any:
+        return (
+            self._provider_registry.revision
+            if self._provider_registry is not None
+            else None
+        )
 
     @abstractmethod
     def _register_providers(self) -> None:
@@ -480,18 +537,29 @@ class MultiProviderTool(Tool):
     def _get_default_provider(self) -> str:
         """Return the default provider name."""
 
-    def register_provider(self, provider: Any) -> None:
-        """Register a provider implementation."""
+    def register_provider(self, provider: Any) -> Callable[[], None]:
+        """Register a provider implementation and return its exact-owner disposer."""
         self._providers[provider.name] = provider
+
+        def dispose() -> None:
+            if self._providers.get(provider.name) is provider:
+                del self._providers[provider.name]
+
+        return dispose
 
     def get_provider(self, name: str) -> Optional[Any]:
         """Get a provider by name."""
+        if self._provider_registry is not None:
+            provider = self._provider_registry.get(self._provider_kind, name)
+            if provider is not None:
+                return provider
         return self._providers.get(name)
 
     def get_available_providers(self) -> List[str]:
         """Get provider names that are currently ready to use."""
         available = []
-        for name, provider in self._providers.items():
+        for name in self.get_all_provider_names():
+            provider = self.get_provider(name)
             config = self._get_provider_config(name)
             if provider.is_ready(config):
                 available.append(name)
@@ -499,7 +567,10 @@ class MultiProviderTool(Tool):
 
     def get_all_provider_names(self) -> List[str]:
         """Get all registered provider names."""
-        return list(self._providers.keys())
+        names = list(self._providers)
+        if self._provider_registry is not None:
+            names.extend(self._provider_registry.names(self._provider_kind))
+        return list(dict.fromkeys(names))
 
     def is_ready(self) -> bool:
         """Check if at least one provider is ready."""

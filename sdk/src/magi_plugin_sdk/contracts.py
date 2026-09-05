@@ -24,7 +24,7 @@ from .runtime import SDK_VERSION
 class PluginContract(BaseModel):
     """Public declarations reject unsupported fields instead of losing intent."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 _RESERVED_PLUGIN_IDENTIFIERS = {
     "aux",
@@ -60,6 +60,8 @@ PluginIdentifier = _PluginIdentifier
 class ContributionType(str, Enum):
     """Supported plugin contribution categories."""
 
+    OPERATION = "operation"
+    PROVIDER = "provider"
     TOOL = "tool"
     SENSOR = "sensor"
     CHANNEL = "channel"
@@ -68,7 +70,7 @@ class ContributionType(str, Enum):
     HISTORY_IMPORTER = "history_importer"
 
 
-class ExtensionFieldOption(BaseModel):
+class ExtensionFieldOption(PluginContract):
     """Option for a select-like plugin field."""
 
     label: str
@@ -106,7 +108,7 @@ class ExtensionFieldSpec(PluginContract):
         return self
 
 
-class ActivationFirstContextSpec(BaseModel):
+class ActivationFirstContextSpec(PluginContract):
     """First-run-only activation settings applied by the host onboarding UI."""
 
     max_items_per_sync: int | None = Field(default=None, ge=1)
@@ -114,7 +116,7 @@ class ActivationFirstContextSpec(BaseModel):
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
-class ActivationFlowSpec(BaseModel):
+class ActivationFlowSpec(PluginContract):
     """Declarative first-enable flow rendered by the host UI."""
 
     title: str
@@ -128,7 +130,7 @@ class ActivationFlowSpec(BaseModel):
     first_context: ActivationFirstContextSpec | None = None
 
 
-class SettingsUIBlockSpec(BaseModel):
+class SettingsUIBlockSpec(PluginContract):
     """Host-rendered custom settings block declared by a plugin.
 
     Blocks are read-only or selection widgets whose underlying data comes from a
@@ -153,7 +155,7 @@ class SettingsUIBlockSpec(BaseModel):
     depends_on_values: list[str] = Field(default_factory=list)
 
 
-class PluginSettingsActionSpec(BaseModel):
+class PluginSettingsActionSpec(PluginContract):
     """Host-rendered settings action declared by a plugin.
 
     The host owns routing and UI chrome, while the plugin owns the action
@@ -171,32 +173,33 @@ class PluginSettingsActionSpec(BaseModel):
     order: int = 0
     destructive: bool = False
     requires_enabled: bool = True
-    poll_interval_ms: int = 2_000
-    timeout_ms: int = 480_000
+    poll_interval_ms: int = Field(default=2_000, ge=100, le=60_000)
+    timeout_ms: int = Field(default=480_000, ge=1, le=3_600_000)
     persist_settings_on_success: bool = False
     depends_on_key: Optional[str] = None
     depends_on_values: list[str] = Field(default_factory=list)
 
 
-class PluginSettingsActionResult(BaseModel):
+class PluginSettingsActionResult(PluginContract):
     """Result returned by a plugin settings action invocation."""
 
-    status: Literal["pending", "succeeded", "failed", "cancelled"] = "succeeded"
+    status: Literal["pending", "succeeded", "failed", "cancelled", "uncertain"] = "succeeded"
     message: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
     settings_updates: dict[str, Any] = Field(default_factory=dict)
 
 
-class PluginSettingsResourceSpec(BaseModel):
+class PluginSettingsResourceSpec(PluginContract):
     """Read-only settings resource exposed by a plugin."""
 
     resource_name: str
     resource_type: Literal["collection", "channel_status"] = "collection"
+    requires_enabled: bool = True
     description: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PluginSettingsResourcePayload(BaseModel):
+class PluginSettingsResourcePayload(PluginContract):
     """Resolved payload returned by a plugin settings resource."""
 
     plugin_id: _PluginIdentifier
@@ -205,7 +208,7 @@ class PluginSettingsResourcePayload(BaseModel):
     data: Any = None
 
 
-class TemporalSummaryFeatureBudget(BaseModel):
+class TemporalSummaryFeatureBudget(PluginContract):
     """Host-provided budget for a plugin temporal feature builder.
 
     The host may pass only a bounded event sample to a plugin. These fields let
@@ -224,7 +227,7 @@ class TemporalSummaryFeatureBudget(BaseModel):
     selection_policy: str = "source_aware_compaction_v1"
 
 
-class TemporalSummarySourceFeatures(BaseModel):
+class TemporalSummarySourceFeatures(PluginContract):
     """Structured source-local evidence contributed to generic L3 summaries.
 
     Plugins should return source-specific facts and compact observations, not a
@@ -246,7 +249,7 @@ class TemporalSummarySourceFeatures(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class DerivedAssertionRuleSpec(BaseModel):
+class DerivedAssertionRuleSpec(PluginContract):
     """Domain signal semantics for host-owned graph-to-assertion promotion."""
 
     rule_id: str
@@ -304,7 +307,7 @@ class ExtractionProfileSpec(PluginContract):
     )
 
 
-class Triggers(BaseModel):
+class Triggers(PluginContract):
     """Conditions under which a plugin should be auto-suggested.
 
     All three categories are OR-combined: any matching intent, entity, or keyword
@@ -317,14 +320,14 @@ class Triggers(BaseModel):
     """Locale (e.g., 'zh', 'en') to keyword list mapping."""
 
 
-class LocalizedText(BaseModel):
+class LocalizedText(PluginContract):
     """Per-locale strings; both zh and en are required."""
 
     zh: str
     en: str
 
 
-class SuggestionSurfaceSpec(BaseModel):
+class SuggestionSurfaceSpec(PluginContract):
     """Plugin-owned presentation for one recommendation surface."""
 
     order: int = Field(default=100, ge=0)
@@ -332,7 +335,7 @@ class SuggestionSurfaceSpec(BaseModel):
     scope: LocalizedText | None = None
 
 
-class SuggestionSurfacesSpec(BaseModel):
+class SuggestionSurfacesSpec(PluginContract):
     """Recommendation surfaces where the plugin opts in to appear."""
 
     empty_state: SuggestionSurfaceSpec | None = None
@@ -364,7 +367,7 @@ class PluginPermissions(PluginContract):
     capabilities: list[PluginCapability] = Field(default_factory=list)
 
 
-class LocalRequirementFileExists(BaseModel):
+class LocalRequirementFileExists(PluginContract):
     """Requires a file to exist at the platform-specific path."""
 
     check_kind: Literal["file_exists"] = "file_exists"
@@ -374,7 +377,7 @@ class LocalRequirementFileExists(BaseModel):
     is absent, the requirement is considered failed."""
 
 
-class LocalRequirementExecutableInPath(BaseModel):
+class LocalRequirementExecutableInPath(PluginContract):
     """Requires at least one named executable to be reachable via PATH."""
 
     check_kind: Literal["executable_in_path"] = "executable_in_path"
@@ -382,7 +385,7 @@ class LocalRequirementExecutableInPath(BaseModel):
     """Any-one-of executable names searched via shutil.which()."""
 
 
-class LocalRequirementAppInstalled(BaseModel):
+class LocalRequirementAppInstalled(PluginContract):
     """Requires an application identified by a platform-native identifier to be installed."""
 
     check_kind: Literal["app_installed"] = "app_installed"
@@ -402,7 +405,7 @@ LocalRequirement = Annotated[
 ]
 
 
-class SuggestionDescriptor(BaseModel):
+class SuggestionDescriptor(PluginContract):
     """Declares how this plugin should be surfaced to users who lack it.
 
     See docs/plugin-suggestion-descriptor.md for the author guide.
@@ -425,7 +428,7 @@ class SuggestionDescriptor(BaseModel):
     """Plugin-owned empty-state and first-context presentation metadata."""
 
 
-class PluginDisplayGroupSpec(BaseModel):
+class PluginDisplayGroupSpec(PluginContract):
     """User-facing grouping metadata for marketplace and installed plugin UIs."""
 
     id: str
@@ -492,13 +495,18 @@ class PluginManifest(PluginContract):
     """Library packages this plugin imports from. Each entry is a
     ``plugin_id`` whose registry entry must declare ``kind = "library"``.
     The manager auto-installs missing libraries during install,
-    refcount-protects them on uninstall, and injects their install-root parent
-    onto ``sys.path`` before loading this plugin."""
+    refcount-protects them on uninstall, and exposes only the declared library
+    package roots inside the plugin worker."""
     protocol_version: Literal[2] = 2
     min_sdk_version: PluginVersion = SDK_VERSION
     execution_mode: Literal["restricted_process", "trusted_process"] = "restricted_process"
     projection_sources: list[str] = Field(default_factory=list, max_length=128)
-    """Semantic source selectors, intersected with host-authorized connection data."""
+    """Semantic selectors intersected with host-authorized connection data."""
+    settings_fields: list[ExtensionFieldSpec] = Field(default_factory=list, max_length=512)
+    activation_flow: ActivationFlowSpec | None = None
+    settings_actions: list[PluginSettingsActionSpec] = Field(default_factory=list, max_length=128)
+    settings_resources: list[PluginSettingsResourceSpec] = Field(default_factory=list, max_length=128)
+    settings_ui_blocks: list[SettingsUIBlockSpec] = Field(default_factory=list, max_length=128)
     platforms: list[str] = Field(default_factory=list)
     homepage: str = ""
     repository: str = ""
@@ -555,7 +563,7 @@ class PluginManifest(PluginContract):
         return self.permissions.capabilities if self.permissions else []
 
 
-class PluginContribution(BaseModel):
+class PluginContribution(PluginContract):
     """Contribution descriptor returned to APIs and UIs."""
 
     plugin_id: _PluginIdentifier
@@ -568,7 +576,7 @@ class PluginContribution(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PluginPackageState(BaseModel):
+class PluginPackageState(PluginContract):
     """Current runtime state for a plugin package."""
 
     manifest: PluginManifest
@@ -615,6 +623,12 @@ class PluginRegistryEntry(PluginContract):
     min_sdk_version: PluginVersion = SDK_VERSION
     execution_mode: Literal["restricted_process", "trusted_process"] = "restricted_process"
     projection_sources: list[str] = Field(default_factory=list, max_length=128)
+    """Semantic selectors intersected with host-authorized connection data."""
+    settings_fields: list[ExtensionFieldSpec] = Field(default_factory=list, max_length=512)
+    activation_flow: ActivationFlowSpec | None = None
+    settings_actions: list[PluginSettingsActionSpec] = Field(default_factory=list, max_length=128)
+    settings_resources: list[PluginSettingsResourceSpec] = Field(default_factory=list, max_length=128)
+    settings_ui_blocks: list[SettingsUIBlockSpec] = Field(default_factory=list, max_length=128)
     homepage: str = ""
     repository: str = ""
     suggestion_descriptor: SuggestionDescriptor | None = None
@@ -694,7 +708,7 @@ def _validate_registry_dependency_graph(
         raise ValueError("Plugin registry dependency cycle detected")
 
 
-class PluginRegistryIndex(BaseModel):
+class PluginRegistryIndex(PluginContract):
     """Response model for the remote plugin registry listing."""
 
     plugins: list[PluginRegistryEntry] = Field(default_factory=list, max_length=4096)
@@ -709,7 +723,7 @@ class PluginRegistryIndex(BaseModel):
         return self
 
 
-class SummaryProfileSpec(BaseModel):
+class SummaryProfileSpec(PluginContract):
     """Declarative L3 activity summary profile contributed by a plugin.
 
     A profile tells the host runtime that the plugin wants periodic activity
