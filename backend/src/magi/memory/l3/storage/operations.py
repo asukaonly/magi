@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import time
@@ -557,6 +558,28 @@ class L3SummaryPersistenceMixin:
             now=now,
             summary_overrides=summary_overrides,
         )
+        fingerprint = hashlib.sha256(json.dumps({
+            "category": summary["summary_category"],
+            "type": summary["summary_type"],
+            "insight_key": insight_key,
+            "event_ids": sorted(set((summary_overrides or {}).get("source_event_ids", candidate.source_event_ids))),
+            "task_ids": sorted(set(source_task_ids)),
+        }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        summary["insight_metadata"]["generation_input_fingerprint"] = fingerprint
+        async with db.execute(
+            """
+            SELECT * FROM summaries
+            WHERE EXISTS (
+                SELECT 1 FROM json_each(summaries.insight_metadata, '$.rejected_input_fingerprints')
+                WHERE value = ?
+            )
+            LIMIT 1
+            """,
+            (fingerprint,),
+        ) as cursor:
+            rejected_input = await cursor.fetchone()
+        if rejected_input is not None:
+            return self._row_to_dict(rejected_input)
         await self._store_summary_on_connection(db, summary)
         await self._replace_candidate_links_on_connection(
             db,

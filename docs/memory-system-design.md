@@ -2970,3 +2970,10 @@ and child summaries. `insight_metadata.cited_event_ids` retains the smaller
 citation sample; `dependency_summary_ids` records transitive summary inputs.
 These host-owned fields cannot be overwritten by model output. Forgetting or
 blocking any dependency invalidates the complete derived summary.
+
+A rejected L3 summary remains review history but is excluded from retrieval,
+prompt material, and future summary context. Summaries derived from a rejected
+summary are excluded as well. Replaying the same category, insight, and complete
+source set returns the prior rejected record rather than creating a new pending
+item. New evidence can produce a new review candidate. Rejection does not delete
+or suppress the underlying L1 facts.
