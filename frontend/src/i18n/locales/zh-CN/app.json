@@ -2920,6 +2920,15 @@
     }
   },
   "memory": {
+    "provenance": {
+      "user_confirmed": "你已确认",
+      "direct_report": "你直接说过",
+      "inferred": "根据行为推测",
+      "unknown": "依据尚未分类",
+      "sources": "{{count}} 条来源记录",
+      "behavior_recent": "根据近期活动推测，你可能关注「{{value}}」。",
+      "behavior_repeated": "根据多次活动推测，你可能关注「{{value}}」。"
+    },
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {

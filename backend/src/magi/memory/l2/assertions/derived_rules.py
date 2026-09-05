@@ -18,6 +18,7 @@ from .occurrence_stats import summarize_occurrence_times
 from .profile_worthiness import profile_evidence_reason
 from ...evidence.independence import independent_evidence_key
 from .state_machine import compute_confidence
+from ..factual_rendering import render_behavior_observation
 from .promotion import (
     AssertionPromotionInput,
     PromotionHorizon,
@@ -658,7 +659,7 @@ def _build_derived_assertion_candidate(
         "memory_subdomain": (
             "state" if promotion.horizon is PromotionHorizon.RECENT else "semantic"
         ),
-        "natural_summary": f"Recurring {context.predicate.lower()} signal for {trait_value}",
+        "natural_summary": render_behavior_observation(trait_value, recent=promotion.horizon is PromotionHorizon.RECENT),
     }
 
 

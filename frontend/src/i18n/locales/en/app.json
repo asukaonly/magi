@@ -2921,6 +2921,15 @@
     }
   },
   "memory": {
+    "provenance": {
+      "user_confirmed": "Confirmed by you",
+      "direct_report": "Stated by you",
+      "inferred": "Inferred from activity",
+      "unknown": "Basis not classified",
+      "sources": "{{count}} source records",
+      "behavior_recent": "Your recent activity suggests you may be interested in {{value}}.",
+      "behavior_repeated": "Your repeated activity suggests you may be interested in {{value}}."
+    },
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {

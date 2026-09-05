@@ -48,3 +48,24 @@ def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = Non
         label = "原文时间" if zh else "Time as stated"
         text += f" {label}: {claim.raw_time_expression}"
     return text
+
+
+def render_behavior_observation(value: str, *, recent: bool, language: str | None = None) -> str:
+    """Describe behavioral evidence as an inference, never a declared preference."""
+    zh = (language or effective_app_language_code()).startswith("zh")
+    if zh:
+        horizon = "近期" if recent else "多次"
+        return f"根据{horizon}活动推测，你可能关注「{value}」。"
+    horizon = "recent" if recent else "repeated"
+    return f"Your {horizon} activity suggests you may be interested in {value}."
+
+
+def assertion_evidence_basis(assertion: dict) -> str:
+    """Classify product provenance independently of confidence and validation rank."""
+    if assertion.get("user_feedback") == "confirmed":
+        return "user_confirmed"
+    if assertion.get("inference_depth") in {"direct", "explicit"}:
+        return "direct_report"
+    if assertion.get("inference_depth"):
+        return "inferred"
+    return "unknown"
