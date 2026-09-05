@@ -9,6 +9,9 @@ from ...tools.system_tools import resolve_resident_system_tools
 from .tool_metadata import ToolEffectClass, resolve_tool_capability_metadata
 
 
+_DEFAULT_CAPABILITY_TOOLS = ("web-search", "web-fetch")
+
+
 @dataclass(frozen=True, slots=True)
 class CapabilityRejection:
     """One requested capability omitted by a stable runtime guard."""
@@ -27,6 +30,7 @@ class CapabilityResolution:
     candidate_tools: tuple[str, ...]
     initial_exposed_tools: tuple[str, ...]
     resident_tools: tuple[str, ...]
+    default_tools: tuple[str, ...] = ()
     pinned_tools: tuple[str, ...] = ()
     required_tools: tuple[str, ...] = ()
     continuity_pinned_tools: tuple[str, ...] = ()
@@ -37,6 +41,7 @@ class CapabilityResolution:
             "candidate_tools": list(self.candidate_tools),
             "initial_exposed_tools": list(self.initial_exposed_tools),
             "resident_tools": list(self.resident_tools),
+            "default_tools": list(self.default_tools),
             "pinned_tools": list(self.pinned_tools),
             "required_tools": list(self.required_tools),
             "continuity_pinned_tools": list(self.continuity_pinned_tools),
@@ -45,7 +50,7 @@ class CapabilityResolution:
 
 
 class CapabilityResolver:
-    """Build a bounded, message-independent initial tool catalog."""
+    """Build a bounded, message-independent initial tool catalog for chat."""
 
     def __init__(self, tool_registry: Any) -> None:
         self._registry = tool_registry
@@ -73,13 +78,14 @@ class CapabilityResolver:
             resolve_resident_system_tools(self._registry),
             registered,
         )
+        defaults = _ordered_registered(_DEFAULT_CAPABILITY_TOOLS, registered_tools)
         continuity = _continuity_tools(recent_tool_errors, registered)
         pinned_requested = _dedupe(pinned_tools)
         required_requested = _dedupe(required_tools)
         requested = _dedupe([*pinned_requested, *required_requested, *continuity])
         hard_required = [name for name in required_requested if name in registered]
         if not model_supports_tool_calls:
-            candidates = _dedupe([*resident, *requested])
+            candidates = _dedupe([*resident, *defaults, *requested])
             return CapabilityResolution(
                 candidate_tools=tuple(candidates),
                 initial_exposed_tools=(),
@@ -106,16 +112,17 @@ class CapabilityResolver:
             for name in pinned
         ):
             validation_tools.append("verify")
-        candidates = _dedupe([*resident, *requested, *validation_tools])
+        candidates = _dedupe([*resident, *defaults, *requested, *validation_tools])
 
-        # Resident, explicitly pinned, and validation capabilities cannot be
-        # displaced. The active model's schema limits make the final fail-closed
-        # decision instead of silently removing a capability required by policy.
-        exposed = _dedupe([*resident, *pinned, *validation_tools])
+        # Keep the deterministic initial catalog intact here. The active model's
+        # schema limits make the final fail-closed decision instead of silently
+        # removing a capability to satisfy a soft tool-count target.
+        exposed = _dedupe([*resident, *defaults, *pinned, *validation_tools])
         return CapabilityResolution(
             candidate_tools=tuple(candidates),
             initial_exposed_tools=tuple(exposed),
             resident_tools=tuple(resident),
+            default_tools=tuple(defaults),
             pinned_tools=tuple(pinned),
             required_tools=tuple(hard_required),
             continuity_pinned_tools=tuple(name for name in continuity if name in exposed),

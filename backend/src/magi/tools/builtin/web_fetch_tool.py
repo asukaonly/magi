@@ -141,8 +141,9 @@ class WebFetchTool(MultiProviderTool):
             "requires_known_target": True,
             "cost": "medium",
             "tool_hint": (
-                "Use after web-search has identified candidate URLs and only "
-                "when you need full-page details, verification, or source text."
+                "Fetch a known URL from the user, prior context, or search results "
+                "when you need full-page details, verification, or source text. "
+                "A prior web-search call is not required."
             ),
         }
 

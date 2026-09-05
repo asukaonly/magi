@@ -243,7 +243,7 @@ responsibilities: `admit_context`, `resolve_capabilities`,
 - every ordinary model-facing run deterministically requests a collapsible trace
   entry, while fact-only domain events keep trace display disabled; this
   presentation policy does not depend on semantic intent classification;
-- `CapabilityResolver` exposes resident, explicitly pinned,
+- `CapabilityResolver` exposes resident, default web, explicitly pinned,
   attachment-required, and bounded continuity capabilities without predicting
   a chat/code/explore class;
 - `ExecutionMode` therefore describes only deterministic domain-event handling,
@@ -259,6 +259,8 @@ output previously duplicated decisions the main model had to make again.
 the first model call. Its inputs are deterministic:
 
 - resident system tools;
+- default web capabilities (`web-search` and `web-fetch`) when registered,
+  enabled, and model-invocable under the active feature flags;
 - base tool names referenced by an inline skill's pre-approval rules;
 - attachment resolver tools required by current/replied-to assets;
 - a bounded continuity pin for a recent failed tool;
@@ -271,6 +273,15 @@ the same name-sorted tool schemas, so keywords or negation cannot perturb the
 provider prompt-cache prefix. The initial surface changes only for an explicit
 skill, current/replied-to attachments, bounded failed-tool continuity, model or
 feature availability, or registry/configuration changes.
+
+Default web tools let ordinary chat search directly or read an already-known
+URL without a discovery call or a child run. They remain capability tools,
+separate from resident runtime-control tools, and are recorded in `default_tools`
+in the capability-resolution trace. Exposure does not execute a network request
+or bypass provider configuration, permission checks, or fetch network policy.
+`web-fetch` accepts known URLs from the user, prior context, or search results;
+search is not a prerequisite. The model should fetch when page details,
+verification, or source text are needed.
 
 A local-write or unknown-effect pinned capability also causes `verify` to be
 exposed when available. It is a policy companion and cannot be silently removed
