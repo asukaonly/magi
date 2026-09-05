@@ -49,6 +49,16 @@ describe('selection keyboard controls', () => {
   });
 });
 
+it('keeps selection usable inside the settings dialog focus boundary', async () => {
+  const user = userEvent.setup(); const onChange = vi.fn();
+  render(<Dialog defaultOpen><DialogContent><DialogTitle>Settings</DialogTitle><DialogDescription>Tool settings</DialogDescription><SelectField ariaLabel="Choose tool" value="a" allowEmpty={false} onChange={onChange} options={[{label:'Tool A',value:'a'},{label:'Tool B',value:'b'}]} /></DialogContent></Dialog>);
+  await user.click(screen.getByRole('button', { name:'Choose tool' }));
+  await user.keyboard('{ArrowDown}{Enter}');
+  expect(onChange).toHaveBeenCalledWith('b');
+  expect(screen.getByRole('button', { name:'Choose tool' })).toHaveFocus();
+  expect(screen.getByRole('dialog', { name:'Settings' })).toBeInTheDocument();
+});
+
 it('labels array controls and lets Enter add a tag', async () => {
   await i18n.changeLanguage('en'); const user = userEvent.setup();
   function Editor() { const [value,setValue]=useState<unknown>(['initial']); return <DynamicConfigField spec={{ path:'tags', type:'array', description:'Allowed paths', sensitive:false, read_only:false, required:false, is_template:false }} value={value} onChange={setValue} />; }

@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Check, ChevronDown } from 'lucide-react';
-import { useState, useRef, useEffect, useLayoutEffect, useId, type CSSProperties, type KeyboardEvent } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useRef, useEffect, useId, type KeyboardEvent } from 'react';
+import * as PopoverPrimitive from '@radix-ui/react-popover';
 
 interface OptionItem {
   label: string;
@@ -48,11 +48,9 @@ export function SelectField({
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
-  const [openUpward, setOpenUpward] = useState(false);
+  const returnFocusRef = useRef(false);
   const showSearch = searchable && options.length > searchThreshold;
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const visibleOptions = normalizedQuery
@@ -73,88 +71,24 @@ export function SelectField({
     }
   }, [open, searchQuery]);
 
-  useEffect(() => {
-    const handleClickOutside = (event: Event) => {
-      const target = event.target as Node;
-      const clickedTrigger = rootRef.current?.contains(target);
-      const clickedMenu = menuRef.current?.contains(target);
-      if (!clickedTrigger && !clickedMenu) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('focusin', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('focusin', handleClickOutside);
-    };
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const updateMenuPosition = () => {
-      const trigger = triggerRef.current;
-      if (!trigger) {
-        return;
-      }
-
-      const rect = trigger.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const padding = 8;
-      const sideOffset = 4;
-      const preferredMaxHeight = 240;
-
-      const availableBelow = viewportHeight - rect.bottom - padding - sideOffset;
-      const availableAbove = rect.top - padding - sideOffset;
-      const shouldOpenUpward = availableBelow < 160 && availableAbove > availableBelow;
-      const availableHeight = shouldOpenUpward ? availableAbove : availableBelow;
-      const maxHeight = Math.max(120, Math.min(preferredMaxHeight, availableHeight));
-
-      const width = Math.min(rect.width, viewportWidth - padding * 2);
-      const left = Math.max(padding, Math.min(rect.left, viewportWidth - padding - width));
-
-      setOpenUpward(shouldOpenUpward);
-      setMenuStyle({
-        position: 'fixed',
-        left,
-        width,
-        maxHeight,
-        zIndex: 1000,
-        top: shouldOpenUpward ? rect.top - sideOffset : rect.bottom + sideOffset,
-        transform: shouldOpenUpward ? 'translateY(-100%)' : undefined,
-      });
-    };
-
-    updateMenuPosition();
-    window.addEventListener('resize', updateMenuPosition);
-    window.addEventListener('scroll', updateMenuPosition, true);
-    return () => {
-      window.removeEventListener('resize', updateMenuPosition);
-      window.removeEventListener('scroll', updateMenuPosition, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
+  const focusInitialChoice = () => {
+    returnFocusRef.current = false;
     const menu = menuRef.current;
     const initial = showSearch ? menu?.querySelector<HTMLInputElement>('input')
       : menu?.querySelector<HTMLButtonElement>('[data-select-option][aria-pressed="true"]:not(:disabled)')
         ?? menu?.querySelector<HTMLButtonElement>('[data-select-option]:not(:disabled)');
     initial?.focus();
-  }, [open, showSearch]);
+  };
 
   const closeAndReturnFocus = () => {
+    returnFocusRef.current = true;
     setOpen(false);
     triggerRef.current?.focus();
   };
 
   const handleMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAndReturnFocus(); return; }
-    if (event.key === 'Tab') { closeAndReturnFocus(); return; }
+    if (event.key === 'Tab') { closeAndReturnFocus(); returnFocusRef.current = false; return; }
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
     if (event.target instanceof HTMLInputElement && ['Home', 'End'].includes(event.key)) return;
     const choices = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[data-select-option]:not(:disabled)') ?? [])];
@@ -174,11 +108,12 @@ export function SelectField({
   };
 
   return (
-    <div ref={rootRef} className={cn('relative', className)}>
+    <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+    <div className={cn('relative', className)}>
+      <PopoverPrimitive.Trigger asChild>
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => !disabled && setOpen(!open)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); if (!disabled) setOpen(true); }
         }}
@@ -198,20 +133,27 @@ export function SelectField({
         <span>{selectedOption?.label || placeholder}</span>
         <ChevronDown className="h-4 w-4 opacity-50" />
       </button>
-
-      {open && (
-        createPortal(
-          <div
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
             ref={menuRef}
             data-select-field-menu=""
             id={menuId}
             role="dialog"
             aria-label={ariaLabel ?? placeholder}
             onKeyDown={handleMenuKeyDown}
-            style={menuStyle}
+            sideOffset={4}
+            align="start"
+            collisionPadding={8}
+            onOpenAutoFocus={(event) => { event.preventDefault(); focusInitialChoice(); }}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              if (returnFocusRef.current) triggerRef.current?.focus();
+            }}
+            style={{ zIndex: 1000, width: 'var(--radix-popover-trigger-width)', maxHeight: 'min(240px, var(--radix-popover-content-available-height))' }}
             className={cn(
               'overflow-auto rounded-md border border-border bg-background shadow-[0_12px_24px_rgba(15,23,42,0.08)]',
-              openUpward ? 'origin-bottom' : 'origin-top',
+              'data-[side=top]:origin-bottom data-[side=bottom]:origin-top',
               menuClassName
             )}
           >
@@ -265,11 +207,10 @@ export function SelectField({
             {visibleOptions.length === 0 ? (
               <div className="px-3 py-2 text-sm text-muted-foreground">{noResultsText}</div>
             ) : null}
-          </div>,
-          document.body
-        )
-      )}
+          </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
     </div>
+    </PopoverPrimitive.Root>
   );
 }
 
