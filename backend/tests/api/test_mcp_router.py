@@ -1,6 +1,6 @@
 """REST API tests for the MCP router.
 
-Mounts the router directly on a fresh FastAPI app and uses a stub
+Mounts the filtered public router on a fresh FastAPI app and uses a stub
 MCPConnection so tests don't depend on real subprocess MCP servers.
 """
 
@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.mcp import mcp_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+from magi.mcp.config import MCPServerConfig
 from magi.mcp import lifecycle as mcp_lifecycle
 from magi.mcp.connection import ConnectionState, MCPConnection
 from magi.mcp.manager import MCPManager
@@ -91,7 +93,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(mcp_lifecycle, "_active_manager", manager)
 
     app = FastAPI()
-    app.include_router(mcp_router, prefix="/api/mcp")
+    app.include_router(
+        _build_public_router(mcp_router, _PUBLIC_ROUTE_METHODS["mcp"]),
+        prefix="/api/mcp",
+    )
     yield TestClient(app), manager
 
     monkeypatch.setattr(mcp_lifecycle, "_active_manager", None)
@@ -177,6 +182,54 @@ def test_explicit_tool_include_controls_registration_and_round_trips(client, tmp
     [loaded] = MCPConfigLoader(cfg_path.parent).load_all()
     assert loaded.tools.include == []
     assert loaded.tool_overrides["echo"].risk == "medium"
+
+
+@pytest.mark.parametrize(
+    "transport",
+    [
+        {"kind": "stdio", "command": "echo", "env": {"demo.token": "synthetic-secret"}},
+        {
+            "kind": "http",
+            "url": "https://example.com/mcp",
+            "headers": {"X.Custom.Token": "synthetic-secret"},
+        },
+    ],
+    ids=["stdio-env", "http-headers"],
+)
+def test_create_and_update_preserve_toml_keys_and_risk_overrides(client, tmp_path, transport):
+    from magi.mcp.loader import MCPConfigLoader
+
+    c, _ = client
+    body = {
+        "server": {
+            "id": "quoted-keys",
+            "name": 'Demo "server"',
+            "description": "Line one\nLine two\tC:\\mcp",
+        },
+        "transport": transport,
+        "tools": {"include": []},
+        "tool_overrides": {
+            "search.web": {"risk": "high"},
+            'lookup"item': {"risk": "medium"},
+            "查找文档": {"dangerous": False},
+        },
+    }
+    loader = MCPConfigLoader(tmp_path / "config" / "mcp")
+
+    created = c.post("/api/mcp/servers", json=body)
+
+    assert created.status_code == 201, created.text
+    [loaded] = loader.load_all()
+    assert loaded == MCPServerConfig.model_validate(body)
+
+    body["server"]["name"] = "Updated server"
+    body["tool_overrides"]["search.web"]["risk"] = "destructive"
+    body["tools"]["include"] = ["search.web"]
+    updated = c.patch("/api/mcp/servers/quoted-keys", json=body)
+
+    assert updated.status_code == 200, updated.text
+    [loaded] = loader.load_all()
+    assert loaded == MCPServerConfig.model_validate(body)
 
 
 def test_create_rejects_duplicate_id(client):

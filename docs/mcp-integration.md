@@ -11,11 +11,10 @@ This document is the maintainer-facing reference.
   - `connection.py` — `MCPConnection` base, `StdioConnection`, `HttpConnection` (Streamable HTTP, MCP 2025-03-26)
   - `config.py` — pydantic models (`MCPServerConfig`, transports, runtime, `ToolOverride`)
   - `loader.py` — TOML loader for `~/.magi/config/mcp/<id>.toml` with `${env:VAR}` expansion
-  - `_toml_writer.py` — minimal serializer for round-tripping configs
   - `tool_adapter.py` — `build_adapter_class` wraps a remote tool into a `Tool` subclass named `mcp__<server>__<tool>`
   - `manager.py` — `MCPManager`: lifecycle, handshake (`initialize` → `initialized`), `tools/list` / `resources/list` reconciliation, change notifications, exponential-backoff reconnect watchdog
   - `lifecycle.py` — `MCPModule` registered after `runtime_tools` in the worker bootstrap
-- **REST API** — `backend/src/magi/api/routers/mcp.py` — mounted at `/api/mcp` (server CRUD, start/stop, logs, resources)
+- **REST API** — `backend/src/magi/api/routers/mcp.py` — mounted at `/api/mcp` (server CRUD, start/stop, logs, resources); persists configs with the shared `tomli_w` serializer
 - **Frontend** — `frontend/src/components/settings/MCPServersSection.tsx` (settings tab), `frontend/src/api/modules/mcp.ts` (typed client). Tab id: `mcpServers`. i18n keys under `settings.mcp.*`.
 
 ## Adding a server
@@ -92,6 +91,10 @@ risk = "high"
 Accepted levels are `low`, `medium`, `high`, and `destructive`. The older
 `dangerous = true|false` form remains accepted and maps to `high|low`; when both
 fields are present, `risk` wins.
+
+Quote remote tool names that contain dots or other TOML key punctuation, for
+example `[tool_overrides."search.web"]`. Settings saves quote these keys
+automatically so reloading preserves the exact tool name and risk override.
 
 ## Tool naming and permission gating
 

@@ -19,13 +19,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import tomli_w
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
 
 from ... import i18n as core_i18n
 from ...core.logger import get_logger
-from ...mcp import _toml_writer
 from ...mcp.config import MCPServerConfig
 from ...mcp.connection import ConnectionState, StdioConnection
 from ...mcp.lifecycle import get_active_manager
@@ -167,7 +167,7 @@ def _config_to_toml_dict(cfg: MCPServerConfig) -> dict[str, Any]:
 def _persist(cfg: MCPServerConfig) -> None:
     path = _config_path(cfg.server.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_toml_writer.dumps(_config_to_toml_dict(cfg)), encoding="utf-8")
+    path.write_text(tomli_w.dumps(_config_to_toml_dict(cfg)), encoding="utf-8")
 
 
 class CreateOrUpdatePayload(BaseModel):
