@@ -210,7 +210,7 @@ def _build_client(
             ScheduledTargetType.SENSOR_SYNC,
             "screen-time:screen_time",
         )
-        await repository.record_target_success(
+        await repository.record_target_result(
             ScheduledTargetType.SENSOR_SYNC,
             "screen-time:screen_time",
             result=ScheduledExecutionResult(

@@ -22,6 +22,7 @@ def build_experience_seed_selector(
     scenario_llm_pool: ScenarioLLMPool | None,
     enabled: bool,
     timeout_seconds: float,
+    diagnostics: dict[str, int] | None = None,
 ) -> Any | None:
     """Build a SelectionProvider when LLM seed selection is enabled."""
     if not enabled or scenario_llm_pool is None:
@@ -30,6 +31,7 @@ def build_experience_seed_selector(
         enabled=enabled,
         llm_timeout_seconds=timeout_seconds,
         scenario_llm_pool=scenario_llm_pool,
+        diagnostics=diagnostics,
     )
     return service.select
 
@@ -52,7 +54,9 @@ class ExperienceSeedSelectionLLMService:
         enabled: bool = True,
         llm_timeout_seconds: float = 30.0,
         scenario_llm_pool: ScenarioLLMPool | None = None,
+        diagnostics: dict[str, int] | None = None,
     ) -> None:
+        self._diagnostics = diagnostics if diagnostics is not None else {}
         self._enabled = bool(enabled)
         self._llm_timeout_seconds = float(llm_timeout_seconds)
         self._scenario_llm_pool = scenario_llm_pool
@@ -65,12 +69,14 @@ class ExperienceSeedSelectionLLMService:
         """Return a validated selector mapping, falling back on any unsafe output."""
         if not self._enabled or self._scenario_llm_pool is None:
             return self._default(seed, evidence_pack)
+        self._diagnostics["calls"] = self._diagnostics.get("calls", 0) + 1
         try:
             payload = await asyncio.wait_for(
                 self._call_selector_model(seed, evidence_pack),
                 timeout=self._llm_timeout_seconds,
             )
         except Exception as exc:
+            self._diagnostics["failures"] = self._diagnostics.get("failures", 0) + 1
             logger.warning("L2 experience seed selection LLM failed", extra={"error": str(exc)})
             return self._default(seed, evidence_pack)
         return self._validated_payload(payload, seed=seed, evidence_pack=evidence_pack)
@@ -124,7 +130,9 @@ class ExperienceSeedSelectionLLMService:
                 if adapter is not None:
                     return adapter
             except Exception as exc:
-                logger.debug("Experience seed selector adapter unavailable for %s: %s", scenario, exc)
+                logger.debug(
+                    "Experience seed selector adapter unavailable for %s: %s", scenario, exc
+                )
         return None
 
     def _get_llm_target(self) -> tuple[Any, LLMProviderBridge] | None:
@@ -202,8 +210,8 @@ class ExperienceSeedSelectionLLMService:
             ),
         }
 
-    @staticmethod
-    def _default(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> dict[str, Any]:
+    def _default(self, seed: dict[str, Any], evidence_pack: dict[str, Any]) -> dict[str, Any]:
+        self._diagnostics["fallbacks"] = self._diagnostics.get("fallbacks", 0) + 1
         return asdict(_default_selection(seed, evidence_pack))
 
 
@@ -250,7 +258,9 @@ def _render_user_prompt(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> 
             "title": "short concrete title",
             "one_sentence_review": "one grounded sentence",
             "included_episode_ids": ["episode id"],
-            "excluded_refs": [{"ref_type": "episode", "ref_id": "episode id", "reason": "why excluded"}],
+            "excluded_refs": [
+                {"ref_type": "episode", "ref_id": "episode id", "reason": "why excluded"}
+            ],
             "time_start": 0,
             "time_end": 0,
             "confidence": 0.8,
@@ -274,7 +284,7 @@ def _candidate_episode_map(evidence_pack: dict[str, Any]) -> dict[str, dict[str,
 def _ordered_strings(values: Any) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
-    for value in (values if isinstance(values, list) else []):
+    for value in values if isinstance(values, list) else []:
         text = str(value or "").strip()
         if text and text not in seen:
             seen.add(text)
@@ -294,11 +304,13 @@ def _valid_excluded_refs(
         ref_id = str(item.get("ref_id") or "").strip()
         if ref_type != "episode" or ref_id not in candidate_episodes:
             continue
-        result.append({
-            "ref_type": ref_type,
-            "ref_id": ref_id,
-            "reason": str(item.get("reason") or "").strip(),
-        })
+        result.append(
+            {
+                "ref_type": ref_type,
+                "ref_id": ref_id,
+                "reason": str(item.get("reason") or "").strip(),
+            }
+        )
     return result
 
 

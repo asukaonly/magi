@@ -51,6 +51,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/episodes/{episode_id}/split-preview": {"POST"},
         "/l2/episodes/{episode_id}/split": {"POST"},
         "/l2/episodes/reconsolidate": {"POST"},
+        "/l2/consolidation": {"GET", "POST"},
         "/l2/experience-seeds": {"GET", "POST"},
         "/l2/experience-seeds/{seed_id}/promote": {"POST"},
         "/l2/experience-seeds/{seed_id}/reject": {"POST"},

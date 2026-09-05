@@ -9,6 +9,7 @@ import {
   type L2ExperienceSeed,
   type L2ExperienceWithReview,
 } from '@/api/modules/memory';
+import { MemoryConsolidationStatus } from '@/components/memory/MemoryConsolidationStatus';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -153,6 +154,7 @@ export const MemoryEpisodesPage = () => {
       className="max-w-[1180px] gap-5 px-4 py-5"
       contentClassName="pb-8"
     >
+      <MemoryConsolidationStatus onCompleted={refresh} />
       {loading ? (
         <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
       ) : (

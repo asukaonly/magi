@@ -32,10 +32,7 @@ def _build_config(
 def test_scheduled_target_type_includes_memory_l2_consolidate():
     """MEMORY_L2_CONSOLIDATE must be a valid ScheduledTargetType member."""
     assert ScheduledTargetType.MEMORY_L2_CONSOLIDATE == "memory_l2_consolidate"
-    assert (
-        ScheduledTargetType("memory_l2_consolidate")
-        is ScheduledTargetType.MEMORY_L2_CONSOLIDATE
-    )
+    assert ScheduledTargetType("memory_l2_consolidate") is ScheduledTargetType.MEMORY_L2_CONSOLIDATE
 
 
 @pytest.mark.asyncio
@@ -55,13 +52,17 @@ async def test_l2_consolidation_contrib_registers_handler_and_schedule():
         def register_handler(self, target_type, handler):
             registered_handlers[target_type] = handler
 
-        async def schedule_interval(self, *, schedule_id, target_type, target_key, seconds, target_payload):
-            scheduled_intervals.append({
-                "schedule_id": schedule_id,
-                "target_type": target_type,
-                "target_key": target_key,
-                "seconds": seconds,
-            })
+        async def schedule_interval(
+            self, *, schedule_id, target_type, target_key, seconds, target_payload
+        ):
+            scheduled_intervals.append(
+                {
+                    "schedule_id": schedule_id,
+                    "target_type": target_type,
+                    "target_key": target_key,
+                    "seconds": seconds,
+                }
+            )
 
         async def unschedule(self, schedule_id, *, target_type, target_key):
             pass
@@ -90,15 +91,19 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     from magi.memory.l2.consolidation_schedule import handle_l2_consolidation
 
     l2_store = MagicMock()
-    l2_store.get_experience = AsyncMock(return_value={
-        "experience_id": "exp-a",
-        "title": "Launch week",
-        "time_start": 1,
-        "time_end": 2,
-    })
-    l2_store.list_experience_members = AsyncMock(return_value=[
-        {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.8}
-    ])
+    l2_store.get_experience = AsyncMock(
+        return_value={
+            "experience_id": "exp-a",
+            "title": "Launch week",
+            "time_start": 1,
+            "time_end": 2,
+        }
+    )
+    l2_store.list_experience_members = AsyncMock(
+        return_value=[
+            {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.8}
+        ]
+    )
     l2_store.update_experience = AsyncMock(return_value=True)
     l1_store = MagicMock()
     l3_store = MagicMock()
@@ -106,10 +111,12 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
         return_value={"generated": 2, "errors": ["ep-b: timeout"]}
     )
     l3_store.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    l3_store.generate_experience_summary = AsyncMock(return_value={
-        "summary_id": "sum-exp-a",
-        "content": "Experience recap",
-    })
+    l3_store.generate_experience_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum-exp-a",
+            "content": "Experience recap",
+        }
+    )
 
     pipeline_mock = MagicMock()
     pipeline_mock._cognition_store = l2_store
@@ -124,22 +131,31 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     consolidation_stats = EpisodeConsolidationStats(promoted=2)
     consolidation_stats.promoted_episode_ids = ["ep-a", "ep-b"]
     consolidate_mock = AsyncMock(return_value=consolidation_stats)
-    promote_mock = AsyncMock(return_value=ExperiencePromotionStats(
-        candidates=1,
-        promoted=1,
-        promoted_experience_ids=["exp-a"],
-    ))
+    promote_mock = AsyncMock(
+        return_value=ExperiencePromotionStats(
+            candidates=1,
+            promoted=1,
+            promoted_experience_ids=["exp-a"],
+        )
+    )
 
     with (
-        patch("magi.memory.l2.consolidation_schedule.get_unified_memory", return_value=unified_mock),
+        patch(
+            "magi.memory.l2.consolidation_schedule.get_unified_memory", return_value=unified_mock
+        ),
         patch("magi.memory.l2.consolidation_schedule.get_config", return_value=_build_config()),
         patch("magi.memory.l2.episode_formation.consolidate_episodes", new=consolidate_mock),
-        patch("magi.memory.l2.experiences.promotion.promote_experiences_from_episodes", new=promote_mock),
+        patch(
+            "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
+            new=promote_mock,
+        ),
     ):
         result = await handle_l2_consolidation(_make_dummy_context())
 
-    assert result.success is True
-    assert result.message == "consolidation_ok"
+    assert result.success is False
+    assert result.message == "consolidation_partial_failure"
+    assert result.stats["episodic_summary_errors"] == ["ep-b: timeout"]
+    assert result.stats["duration_seconds"] >= 0
     consolidate_mock.assert_awaited_once_with(l2_store)
     promote_mock.assert_awaited_once()
     promote_kwargs = promote_mock.await_args.kwargs
@@ -164,7 +180,10 @@ async def test_consolidation_handler_respects_config_gate():
     """consolidation_enabled=False skips the task without touching L2."""
     from magi.memory.l2.consolidation_schedule import handle_l2_consolidation
 
-    with patch("magi.memory.l2.consolidation_schedule.get_config", return_value=_build_config(consolidation_enabled=False)):
+    with patch(
+        "magi.memory.l2.consolidation_schedule.get_config",
+        return_value=_build_config(consolidation_enabled=False),
+    ):
         result = await handle_l2_consolidation(_make_dummy_context())
 
     assert result.success is True

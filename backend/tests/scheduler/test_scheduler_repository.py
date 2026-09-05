@@ -575,7 +575,7 @@ async def test_clear_user_data_removes_user_schedules_and_execution_content(
         manual=False,
         started_at=102.0,
     )
-    await repository.complete_execution_success(
+    await repository.complete_execution_result(
         user_execution_id,
         result=ScheduledExecutionResult(
             success=True,

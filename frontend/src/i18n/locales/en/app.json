@@ -2921,6 +2921,26 @@
     }
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "Processing status is unavailable. Try again.",
+      "lastRun": "Last checked: {{time}}",
+      "modelUnavailable": "Model selection is unavailable. Evidence rules still apply without lowering the quality threshold.",
+      "request": "Check and organize",
+      "reasons": {
+        "loading": "Reading processing status…",
+        "disabled": "Automatic organization is disabled.",
+        "unavailable": "The organization service is not ready.",
+        "queued": "Organization is scheduled and will start shortly.",
+        "running": "Reviewing fragments, forming experiences and writing recaps…",
+        "partial_failure": "Some steps failed. Existing results are preserved; you can retry.",
+        "failed": "Organization failed. You can retry.",
+        "processing_events": "Imported records are still being extracted; experience clues may not be ready.",
+        "not_run": "Experiences have not been checked yet. You can start a check.",
+        "model_budget": "This run reached its model limit. Unprocessed candidates are preserved.",
+        "ready": "This check is complete. Results appear below or in the review inbox.",
+        "insufficient_evidence": "There is not enough coherent evidence to form a new experience yet."
+      }
+    },
     "provenance": {
       "user_confirmed": "Confirmed by you",
       "direct_report": "Stated by you",

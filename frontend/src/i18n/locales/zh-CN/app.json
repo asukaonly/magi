@@ -2920,6 +2920,26 @@
     }
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "暂时无法读取整理进度，请重试。",
+      "lastRun": "上次检查：{{time}}",
+      "modelUnavailable": "模型整理暂不可用；仍按证据规则判断，不会为了产出经历而降低门槛。",
+      "request": "检查并整理",
+      "reasons": {
+        "loading": "正在读取整理进度…",
+        "disabled": "自动整理已关闭。",
+        "unavailable": "整理服务暂未就绪。",
+        "queued": "已安排整理，稍后开始。",
+        "running": "正在检查片段、形成经历并生成回顾…",
+        "partial_failure": "部分整理步骤失败，已有结果保留，可重试。",
+        "failed": "本次整理失败，可重试。",
+        "processing_events": "导入的记录仍在提取，经历线索可能尚未形成。",
+        "not_run": "还没有进行经历整理，可以先检查一次。",
+        "model_budget": "本轮整理额度已用完，未处理的候选继续保留。",
+        "ready": "本轮整理完成，结果已显示在下方或待确认列表。",
+        "insufficient_evidence": "目前没有足够连贯的线索形成新经历。"
+      }
+    },
     "provenance": {
       "user_confirmed": "你已确认",
       "direct_report": "你直接说过",

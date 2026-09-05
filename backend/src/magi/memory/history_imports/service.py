@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -112,7 +112,9 @@ class HistoryImportService:
         store: HistoryImportStore,
         memory: Any,
         importer_registry: HistoryImporterRegistry | None = None,
+        consolidation_request: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
+        self._consolidation_request = consolidation_request
         self._store = store
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -1064,6 +1066,11 @@ class HistoryImportService:
                         job=completed_job,
                     )
                     await self._log_integrity_audit(checkpoint="completed")
+            if self._consolidation_request is not None:
+                try:
+                    await self._consolidation_request()
+                except Exception:
+                    logger.exception("History import consolidation request failed")
         except asyncio.CancelledError:
             logger.info(
                 "History import background task cancelled",

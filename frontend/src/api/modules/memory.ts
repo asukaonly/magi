@@ -142,6 +142,16 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
+export interface MemoryConsolidationStatus {
+  state: 'disabled' | 'unavailable' | 'queued' | 'running' | 'failed' | 'waiting' | 'ready' | 'insufficient_evidence';
+  reason_code: string;
+  pending_events: number;
+  last_run_at?: number | null;
+  last_success_at?: number | null;
+  model_selection?: 'enabled' | 'disabled' | 'unavailable';
+  stats: Record<string, unknown>;
+}
+
 export interface PaginationParams {
   limit?: number;
   offset?: number;
@@ -1072,6 +1082,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  getConsolidationStatus: async (): Promise<MemoryConsolidationStatus> =>
+    unwrapMemoryResponse(await api.get<MemoryConsolidationStatus>('/memory/l2/consolidation')),
+  requestConsolidation: async (): Promise<{ scheduled: boolean }> =>
+    unwrapMemoryResponse(await api.post<{ scheduled: boolean }>('/memory/l2/consolidation')),
   listExperiences: async (params?: PaginationParams & {
     status?: string;
     time_start?: number;

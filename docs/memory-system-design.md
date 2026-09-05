@@ -3046,3 +3046,20 @@ The unified store injects an active L1 evidence reader into assertion write and 
 ### Readable profile expressions and provenance
 
 Behavior-derived assertions use controlled localized wording (“activity suggests …”) instead of predicate identifiers or claims of an explicit preference. Portrait items carry an evidence-basis enum (`user_confirmed`, `direct_report`, `inferred`, `unknown`), source-event references, source-record count and an optional structured behavior expression. The frontend renders that expression in the active locale, labels provenance alongside the item, and does not equate a stable validation rank with user confirmation. Source-record counts describe traceable records, not independent corroboration or accuracy percentages.
+
+### Experience processing status and bounded requests
+
+History-import completion requests one coalesced L2 consolidation run after a
+30-second settling window. Manual requests use the same durable request schedule
+and target lock as periodic consolidation. Requests preserve the configured
+per-run model budget and existing promotion gates; they do not declare an import
+understood or repair historical records.
+
+`GET /memory/l2/consolidation` exposes waiting, queued, running, disabled,
+unavailable, insufficient-evidence, ready, and failed states. The response uses
+persisted scheduler results plus the current projection backlog. Partial failures
+retain generated output and diagnostic counts. A returned unsuccessful scheduler
+result records a failed execution and preserves its statistics; it does not
+advance the last-success timestamp. Model-budget exhaustion defers unprocessed
+seeds without rejecting them. The experiences page can request another bounded
+check, retry a failed status read, and refresh results after a run completes.
