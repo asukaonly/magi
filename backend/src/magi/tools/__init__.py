@@ -18,7 +18,6 @@ from .schema import (
 from .registry import ToolRegistry, tool_registry
 from .tool_hint_resolver import ToolHintResolver
 from .recommender import ToolRecommender, ScenarioType
-from .version_manager import ToolVersionManager, ToolVersion, VersionCompatibility
 
 # Import built-in tools
 from .builtin.bash_tool import BashTool
@@ -71,11 +70,6 @@ __all__ = [
     # Recommendation engine
     "ToolRecommender",
     "ScenarioType",
-
-    # Version management
-    "ToolVersionManager",
-    "ToolVersion",
-    "VersionCompatibility",
 
     # Dynamic tool
     "DynamicTool",
