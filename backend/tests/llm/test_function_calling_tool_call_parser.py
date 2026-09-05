@@ -1208,6 +1208,13 @@ async def test_execute_with_tools_repairs_parameters_after_failed_batch() -> Non
     assert [failure["error_code"] for failure in result.tool_failures] == [
         "INVALID_PARAMETERS", "INVALID_PARAMETERS",
     ]
+    repaired = next(
+        message for message in llm_requests[-1]["messages"]
+        if message.get("tool_call_id") == "corrected"
+    )
+    assert "Verified report" in repaired["content"]
+    assert not repaired["content"].startswith("{")
+    assert repaired["_magi_tool_result"]["success"] is True
 
 
 @pytest.mark.asyncio

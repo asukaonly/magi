@@ -369,8 +369,24 @@ completion checks, trace UI, and replay. `FunctionCallingPostprocessor` renders
 successful web searches as source links and snippets, and fetched pages as text
 with source identity and truncation notices. Web content shares a bounded total
 observation budget instead of silently reducing each page to a generic preview.
-Failure observations retain error codes, retry/terminal flags, and recovery
-guidance in JSON. Other structured capabilities keep their JSON observation.
+Web failures and permission/parameter failures retain error codes,
+retry/terminal flags, and recovery guidance in JSON. Other structured
+capabilities keep their JSON observation.
+
+The same text-observation boundary covers `file_read`, `file_list`, `glob`,
+`grep`, `file_diff`, native shell output (`bash` or `powershell`), and text from
+`read_chat_attachment`. Renderers retain file paths, match line numbers and
+requested context, command exit/timeout status and both output streams, diff
+errors, and explicit omission notices. Attachment continuation offsets refer to
+the text actually exposed to the model, including any observation-budget cut.
+Image attachment references remain structured and do not imply pixel inspection.
+
+Control plans, child/background/scheduled task handles, tool discovery,
+memory/trace queries, settings, weather/time/file metadata, write/rollback
+receipts, validation reports, and generated asset references remain JSON because
+their identifiers, typed values, and state relationships are useful to subsequent
+calls. Native tool execution contracts and direct programmatic consumers keep
+the original structured output regardless of model presentation.
 
 Tool messages carry a small runtime-only `ToolResultMetadata` record with
 success, a bounded activity summary, and the evidence reference. Chat persists

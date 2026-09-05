@@ -14,6 +14,7 @@ from ..tool_context_formatters import (
     ToolContextFormatterRegistry,
 )
 from ..web_tool_rendering import render_web_result
+from ..local_tool_rendering import render_local_result
 from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY, ToolResultMetadata
 
 
@@ -41,7 +42,13 @@ class FunctionCallingPostprocessor:
         success = bool(getattr(result, "success", False))
         data = getattr(result, "data", None)
         content = None
-        if success and isinstance(data, dict):
+        if isinstance(data, dict):
+            content = render_local_result(
+                tool_name, data, success=success, error_code=getattr(result, "error_code", None),
+                max_items=self.max_items, max_text_chars=self.max_text_chars,
+                max_chars=self.max_payload_chars,
+            )
+        if content is None and success and isinstance(data, dict):
             content = render_web_result(
                 tool_name, data, max_items=self.max_items,
                 max_text_chars=self.max_text_chars, max_chars=self.max_payload_chars,
