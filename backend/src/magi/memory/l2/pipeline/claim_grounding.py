@@ -43,7 +43,7 @@ _EXPLICIT_CONFIRMATIONS = frozenset(
 
 _TEMPORAL_CUE_PATTERNS: dict[L2TemporalCue, tuple[re.Pattern[str], ...]] = {
     L2TemporalCue.ONE_OFF: (
-        re.compile(r"昨晚|昨天|刚刚|刚才|这一次|这次|只.{0,4}一次|首次|第一次|最后一次"),
+        re.compile(r"昨晚|昨天|今天|今早|今晚|(?:^|[，,。])(?:早饭|午饭|晚饭|早餐|午餐|晚餐)(?:吃|是|后|时)|这顿|那顿|这一次|这次|比上次|刚刚|刚才|只.{0,4}一次|首次|第一次|最后一次"),
         re.compile(r"\b(?:last night|yesterday|just now|this time|only once|once|first time)\b"),
         re.compile(r"\b(?:today|now)\b"),
     ),
@@ -101,6 +101,10 @@ def ground_phase1_fact_claims(
         if grounded_event_ids != valid_original_ids and original_event_ids:
             rebound_count += 1
         claim.supporting_event_ids = grounded_event_ids
+        preference = claim.to_dict()
+        _normalize_preference_scope(preference)
+        claim.temporal_cue = L2TemporalCue.from_value(preference["temporal_cue"])
+        claim.fact_kind = type(claim.fact_kind).from_value(preference["fact_kind"])
         claim.claim_id = f"claim:{claim_index}"
         grounded_claims.append(claim)
 
@@ -153,6 +157,9 @@ def normalize_phase1_claim_contract(
     """Normalize safe metadata and drop invalid claims without failing the batch."""
     normalizations = normalize_phase1_claim_temporal_cues(payload)
     normalizations.extend(normalize_phase1_claim_raw_time_expressions(payload))
+    for raw_claim in payload.get("fact_claims", []) if isinstance(payload.get("fact_claims"), list) else []:
+        if isinstance(raw_claim, dict):
+            _normalize_preference_scope(raw_claim)
     raw_claims = payload.get("fact_claims")
     if not isinstance(raw_claims, list):
         return normalizations
@@ -238,6 +245,28 @@ def _missing_semantic_field(claim: L2Phase1FactClaim) -> str | None:
         (field_name for field_name, value in required.items() if not str(value or "").strip()),
         None,
     )
+
+
+_DIRECT_PREFERENCE = re.compile(
+    r"(?:我|本人)(?:很|好|太|挺|超级|尤其|非常|特别|比较|更|最|不|并不|一点|一直|平时|通常|最近|长期|现在|还是|也|真的){0,4}(?:喜欢|讨厌|偏爱|爱吃|爱喝|不爱)|"
+    r"^(?:喜欢|讨厌|偏爱|爱吃|爱喝)|\bI\s+(?:(?:really|always|usually|recently|still|do\s+not|don't)\s+)*(?:like|love|prefer|hate|dislike)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_preference_scope(claim: dict[str, object]) -> None:
+    """Separate a direct preference from an evaluation of one experience."""
+    if str(claim.get("predicate") or "").upper() not in {"LIKES", "DISLIKES"}:
+        return
+    evidence = str(claim.get("evidence_text") or "")
+    cues = _temporal_cues_in_text(evidence)
+    if L2TemporalCue.ONE_OFF in cues or not _DIRECT_PREFERENCE.search(evidence):
+        claim["temporal_cue"] = L2TemporalCue.ONE_OFF.value
+        claim["fact_kind"] = "explicit_fact"
+        return
+    claim["fact_kind"] = "stable_preference"
+    if L2TemporalCue.RECENT in cues:
+        claim["temporal_cue"] = L2TemporalCue.RECENT.value
 
 
 def normalize_phase1_claim_temporal_cues(

@@ -144,6 +144,12 @@ Return JSON only:
 }
 ```
 
+### Preference scope
+A favorable evaluation of one meal, visit, or attempt is not a durable preference.
+"午饭吃了螺蛳粉，比上次好吃" is one-off evidence, not stable LIKES.
+"我喜欢螺蛳粉" is a direct general preference without requiring words like always.
+"最近喜欢螺蛳粉" is recent; "今天想吃螺蛳粉" is an intent, not a preference.
+
 ### Polarity
 Polarity negates the predicate; it does not label negative sentiment.
 "我讨厌鱼" = DISLIKES + positive; "我并不讨厌鱼" = DISLIKES + negative.

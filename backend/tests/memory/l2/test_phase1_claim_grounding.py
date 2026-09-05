@@ -650,3 +650,28 @@ def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
 
     assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
     assert result.fact_claims == []
+
+
+@pytest.mark.parametrize("text,scope", [
+    ("午饭吃了螺蛳粉，比上次好吃", "one_off"),
+    ("这家螺蛳粉味道不错", "one_off"),
+    ("今天想吃螺蛳粉", "one_off"),
+    ("我喜欢螺蛳粉", "unspecified"),
+    ("我好喜欢螺蛳粉", "unspecified"),
+    ("我喜欢早餐吃螺蛳粉", "unspecified"),
+    ("最近我喜欢螺蛳粉", "recent"),
+])
+def test_preference_scope_is_grounded_in_actual_statement(text, scope):
+    payload = {"fact_claims": [{
+        "subject_ref": "user:self", "predicate": "LIKES", "object_ref": "螺蛳粉",
+        "object_type": "food", "fact_kind": "stable_preference", "temporal_cue": "stable",
+        "evidence_text": text, "supporting_event_ids": ["evt-scope"],
+    }]}
+    window = _window(("evt-scope", text))
+    normalize_phase1_claim_contract(payload, window)
+    result = L2Phase1Result.from_dict(payload)
+    assert ground_phase1_fact_claims(result, window)["kept"] == 1
+    claim = result.fact_claims[0]
+    assert claim.temporal_cue == scope
+    if scope == "one_off":
+        assert claim.fact_kind == "explicit_fact"

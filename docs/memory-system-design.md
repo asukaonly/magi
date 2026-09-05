@@ -2977,3 +2977,9 @@ summary are excluded as well. Replaying the same category, insight, and complete
 source set returns the prior rejected record rather than creating a new pending
 item. New evidence can produce a new review candidate. Rejection does not delete
 or suppress the underlying L1 facts.
+
+Preference scope is checked against the supporting statement at normalization
+and grounded-Claim admission. An evaluation of one meal or visit stays event-only;
+a direct general preference can be durable without an "always" keyword; an
+explicit recent preference retains a bounded lifetime. A transient desire is not
+promoted into a durable preference even if extraction labels it `LIKES`.
