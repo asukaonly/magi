@@ -6,6 +6,9 @@
  */
 
 import { listen } from '@tauri-apps/api/event';
+import { z } from 'zod';
+
+import { getErrorMessage } from '@/utils/error-handler';
 
 import type { RealtimeMessage } from './provider';
 import { normalizeRealtimeStreamEvent } from './stream-events';
@@ -52,52 +55,87 @@ const BRIDGE_EVENTS = [
 const denormalizeBridgeEventName = (name: string): string =>
   name.startsWith('control:') ? name.replace(/:/g, '.') : name;
 
-interface BridgePayload {
-  channel: string;
-  user_id: string;
-  session_id: string;
-  turn_id?: string;
-  data: Record<string, unknown>;
-}
+export const bridgePayloadSchema = z.object({
+  channel: z.string(),
+  user_id: z.string(),
+  session_id: z.string(),
+  turn_id: z.string().nullable(),
+  data: z.record(z.string(), z.unknown()),
+});
 
 export class TauriBridgeClient {
   private listeners = new Set<RealtimeListener>();
   private statusListeners = new Set<RealtimeStatusListener>();
   private unlisten: Array<() => void> = [];
   private connected = false;
+  private generation = 0;
+  private connection: Promise<void> | undefined;
+  private lastError: string | null = null;
 
-  async connect(): Promise<void> {
-    if (this.connected) return;
+  connect(): Promise<void> {
+    if (this.connected) return Promise.resolve();
+    if (this.connection) return this.connection;
+    const generation = ++this.generation;
+    this.lastError = null;
+    this.connection = this.attach(generation);
+    return this.connection;
+  }
 
-    // Previously dynamic-imported to fail gracefully outside Tauri, but
-    // @tauri-apps/api/event is now statically pulled into the eager bundle
-    // anyway (via api/window etc.), so the dynamic form only produced a
-    // Vite/Rolldown ineffective-dynamic-import warning without any chunk
-    // savings. Static import is fine — listen() itself only does work
-    // when the Tauri runtime is present.
-    for (const eventName of BRIDGE_EVENTS) {
-      const unlistenFn = await listen<BridgePayload>(eventName, (event) => {
-        const payload = event.payload;
-        const data = payload.data;
-        const dispatchedName = denormalizeBridgeEventName(eventName);
-        const message: RealtimeMessage = {
-          event: dispatchedName,
-          data,
-          streamEvent: dispatchedName === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(data) : null,
-        };
-        this.listeners.forEach((listener) => listener(message));
-      });
-      this.unlisten.push(unlistenFn);
+  private async attach(generation: number): Promise<void> {
+    const subscriptions: Array<() => void> = [];
+    this.unlisten = subscriptions;
+    try {
+      for (const eventName of BRIDGE_EVENTS) {
+        const release = await listen<unknown>(eventName, (event) => {
+          if (generation !== this.generation) return;
+          const parsed = bridgePayloadSchema.safeParse(event.payload);
+          if (!parsed.success) {
+            this.lastError = 'Invalid desktop notification payload';
+            this.emitStatus();
+            return;
+          }
+          const data = parsed.data.data;
+          const dispatchedName = denormalizeBridgeEventName(eventName);
+          const message: RealtimeMessage = {
+            event: dispatchedName,
+            data,
+            streamEvent: dispatchedName === 'agent_response_chunk' ? normalizeRealtimeStreamEvent(data) : null,
+          };
+          for (const listener of this.listeners) {
+            try {
+              listener(message);
+            } catch (error) {
+              console.error('Realtime notification listener failed', error);
+            }
+          }
+        });
+        if (generation !== this.generation) {
+          release();
+          return;
+        }
+        subscriptions.push(release);
+      }
+      this.connected = true;
+      this.emitStatus();
+    } catch (error) {
+      for (const release of subscriptions) release();
+      subscriptions.length = 0;
+      if (generation === this.generation) {
+        this.connected = false;
+        this.lastError = getErrorMessage(error) || 'Desktop event connection failed';
+        this.emitStatus();
+      }
+      throw error;
+    } finally {
+      if (generation === this.generation) this.connection = undefined;
     }
-
-    this.connected = true;
-    this.emitStatus();
   }
 
   disconnect(): void {
-    for (const fn of this.unlisten) {
-      fn();
-    }
+    this.generation += 1;
+    this.connection = undefined;
+    for (const release of this.unlisten) release();
+    this.unlisten.length = 0;
     this.unlisten = [];
     this.connected = false;
     this.emitStatus();
@@ -122,7 +160,7 @@ export class TauriBridgeClient {
     return {
       connected: this.connected,
       reconnectAttempts: 0,
-      lastError: null,
+      lastError: this.lastError,
     };
   }
 

@@ -392,6 +392,7 @@ not a substitute for durable-memory confirmation.
 Important rules:
 
 - Rust native writes must stay narrow, product-facing, and table-scoped. If a write requires runtime services, LLM calls, memory cognition, plugin execution, or scheduler execution semantics, it belongs in Python behind IPC.
+- Desktop event subscriptions are owned by a connection generation: disconnect releases pending registrations when they resolve, partial connection failures clean up, and late callbacks cannot mutate a newer connection. Incoming Tauri envelopes are validated before dispatch.
 - Runtime notifications are not transcript truth. They are live fan-out of already committed state and may be replayed or compacted independently.
 - Startup index creation from Rust is allowed only for idempotent performance indexes documented above. It must not create or migrate source-of-truth table schemas.
 - Memory writes, vector writes, persona registry writes, plugin state writes, and runtime command claiming remain Python-owned unless this document is updated with a new explicit owner.
