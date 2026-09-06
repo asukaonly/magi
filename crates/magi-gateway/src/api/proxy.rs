@@ -316,6 +316,25 @@ fn build_response_from_ipc(result: Value) -> Response {
     let status = result.get("status").and_then(|s| s.as_u64()).unwrap_or(200) as u16;
 
     let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let is_json = result
+        .get("headers")
+        .and_then(Value::as_object)
+        .and_then(|headers| {
+            headers.iter().find_map(|(key, value)| {
+                key.eq_ignore_ascii_case("content-type")
+                    .then(|| value.as_str())
+                    .flatten()
+            })
+        })
+        .is_some_and(|content_type| {
+            let media_type = content_type
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            media_type == "application/json" || media_type.ends_with("+json")
+        });
 
     let body_bytes = match result.get("body_encoding").and_then(|s| s.as_str()) {
         Some("base64") => result
@@ -328,6 +347,7 @@ fn build_response_from_ipc(result: Value) -> Response {
             })
             .unwrap_or_default(),
         _ => match result.get("body") {
+            Some(value) if is_json => serde_json::to_vec(value).unwrap_or_default(),
             Some(Value::String(text)) => text.as_bytes().to_vec(),
             Some(Value::Null) | None => Vec::new(),
             Some(other) => serde_json::to_vec(other).unwrap_or_default(),
@@ -429,6 +449,33 @@ mod tests {
         assert_eq!(params.get("body"), Some(&json!({"ok": true})));
         assert!(params.get("body_file_path").is_none());
         assert!(staged_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn preserves_json_scalars_and_empty_http_bodies() {
+        for (payload, expected_status, expected_body) in [
+            (
+                json!({"status": 200, "headers": {"content-type": "application/json"}, "body": null}),
+                200,
+                "null",
+            ),
+            (
+                json!({"status": 200, "headers": {"Content-Type": "application/problem+json; charset=utf-8"}, "body": "failure"}),
+                200,
+                "\"failure\"",
+            ),
+            (
+                json!({"status": 200, "headers": {"content-type": "text/plain"}, "body": "plain text"}),
+                200,
+                "plain text",
+            ),
+            (json!({"status": 204}), 204, ""),
+        ] {
+            let response = build_response_from_ipc(payload);
+            assert_eq!(response.status().as_u16(), expected_status);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(&body[..], expected_body.as_bytes());
+        }
     }
 
     #[tokio::test]
