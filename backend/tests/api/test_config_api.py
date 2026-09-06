@@ -228,10 +228,11 @@ def test_resolved_image_generation_models_include_capability_metadata():
     assert image_model.native_protocol == "openai_images"
 
 
-def test_system_config_defaults_include_memory_lifecycle_settings():
+def test_system_config_defaults_include_memory_lifecycle_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAGI_HOME", str(tmp_path))
     config = SystemConfigModel()
 
-    assert config.memory.db_path == "~/.magi/data/memory"
+    assert config.memory.db_path == str(tmp_path / "data/memory")
     assert config.memory.reranker.top_k == 8
     assert config.memory.reranker.cross_encoder.enabled is False
     assert config.memory.reranker.cross_encoder.managed_model_id is None
@@ -242,7 +243,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l4.enabled is True
     assert config.memory.retention_days == 90
     assert config.memory.history_behavior == "delete"
-    assert config.memory.archive_path == "~/.magi/data/memory/archive"
+    assert config.memory.archive_path == str(tmp_path / "data/memory/archive")
     assert config.memory.l0.checkpoint_interval_seconds == 30
     assert config.memory.l0.attention_update_turn_threshold == 3
     assert config.memory.l0.attention_update_idle_seconds == 30
@@ -310,14 +311,15 @@ def test_memory_l0_api_response_round_trips_attention_update_settings():
     assert response.attention_update_max_delay_seconds == 240
 
 
-def test_system_config_defaults_include_close_to_tray_enabled_preference():
+def test_system_config_defaults_include_close_to_tray_enabled_preference(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAGI_HOME", str(tmp_path))
     config = SystemConfigModel()
 
     assert config.preferences.close_to_tray_enabled is True
     assert config.preferences.desktop_notifications_enabled is True
     assert config.preferences.desktop_notification_previews_enabled is True
     assert config.preferences.allow_media_grounding_for_conversation is True
-    assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
+    assert config.preferences.default_chat_workspace_path == str(tmp_path / "chat-workspace")
     assert config.diagnostics.full_content_logging_enabled is True
 
 

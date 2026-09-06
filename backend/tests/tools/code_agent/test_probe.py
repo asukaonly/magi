@@ -19,9 +19,10 @@ from magi.tools.code_agent.probe import (
 
 @pytest.fixture
 def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("MAGI_HOME", str(tmp_path))
+    data_root = tmp_path / "magi"
+    monkeypatch.setenv("MAGI_HOME", str(data_root))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    return tmp_path
+    return data_root
 
 
 def _make_fake_binary(dir_path: Path, name: str, exit_code: int = 0, stdout: str = "1.2.3") -> Path:
