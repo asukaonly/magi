@@ -693,6 +693,18 @@ def test_venv_runtime_paths_work_without_site_startup(tmp_path):
     )
     paths = _interpreter_paths(str(executable))
     assert all(str(tmp_path / "venv") in path for path in paths["paths"])
+    from pathlib import Path
+
+    library = Path(paths["paths"][0])
+    library.mkdir(parents=True, exist_ok=True)
+    (library / "runtime_probe.py").write_text("VALUE = 'environment-only'")
+    (library / "sitecustomize.py").write_text("raise RuntimeError('Unexpected site startup')")
+    probe = (
+        f"import sys;sys.path[:0]={paths['paths']!r};"
+        "import runtime_probe;assert runtime_probe.VALUE == 'environment-only';"
+        "assert 'sitecustomize' not in sys.modules"
+    )
+    subprocess.run([paths["executable"], "-I", "-S", "-c", probe], check=True)
 
 
 @pytest.mark.asyncio

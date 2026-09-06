@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
@@ -32,7 +32,8 @@ def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
         "import sys,sysconfig;from pathlib import Path;"
         "exe=Path(sys.executable).absolute();"
         "venv=next((p for p in (exe.parent,exe.parent.parent) if (p/'pyvenv.cfg').is_file()),None);"
-        "paths=sysconfig.get_paths(vars={'base':str(venv),'platbase':str(venv)}) if venv else sysconfig.get_paths();"
+        "scheme='nt' if sys.platform=='win32' else 'posix_prefix';"
+        "paths=sysconfig.get_paths(scheme=scheme,vars={'base':str(venv),'platbase':str(venv)}) if venv else sysconfig.get_paths();"
         "sys.path[:0]=list(dict.fromkeys([paths['purelib'],paths['platlib']]));"
         "from magi_plugin_sdk.runtime import SDK_VERSION,PLUGIN_PROTOCOL_VERSION;"
         "from magi_plugin_sdk.worker import main;"

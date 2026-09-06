@@ -48,6 +48,12 @@ they do not register normal collection or messaging contributions.
 
 External packages run in supervised Python workers. Only SDK values cross the
 bounded protocol; Python objects, host registries and database handles do not.
+Workers start with isolated imports and without Python site initialization.
+When the configured interpreter belongs to a virtual environment, dependency
+paths use that environment's platform installation scheme, including on macOS
+framework builds; system-wide site packages must not replace its dependencies.
+macOS framework builds launch their real interpreter directly and grant read
+access to its framework library, without permitting an extra launcher process.
 Bundled host code remains in-process under host-authoritative discovery.
 Contribution registration is transactional and each connection has an exact
 cleanup owner. Enabling, stopping, clearing, and disconnecting are separate

@@ -100,8 +100,11 @@ def _interpreter_paths(executable: str) -> dict[str, Any]:
         "import json,sys,sysconfig;from pathlib import Path;"
         "exe=Path(sys.executable).absolute();"
         "venv=next((p for p in (exe.parent,exe.parent.parent) if (p/'pyvenv.cfg').is_file()),None);"
-        "paths=sysconfig.get_paths(vars={'base':str(venv),'platbase':str(venv)}) if venv else sysconfig.get_paths();"
-        "print(json.dumps({'paths':list(dict.fromkeys([paths['purelib'],paths['platlib']])), 'stdlib':sysconfig.get_path('stdlib'), 'prefix':sys.base_prefix, 'executable':sys.executable}))"
+        "scheme='nt' if sys.platform=='win32' else 'posix_prefix';"
+        "paths=sysconfig.get_paths(scheme=scheme,vars={'base':str(venv),'platbase':str(venv)}) if venv else sysconfig.get_paths();"
+        "framework=sysconfig.get_config_var('PYTHONFRAMEWORK');"
+        "framework_exe=Path(sys.base_prefix)/'Resources'/f'{framework}.app'/'Contents'/'MacOS'/framework if framework else None;"
+        "print(json.dumps({'paths':list(dict.fromkeys([paths['purelib'],paths['platlib']])), 'stdlib':sysconfig.get_path('stdlib'), 'prefix':sys.base_prefix, 'executable':str(framework_exe) if framework_exe and framework_exe.is_file() else sys.executable, 'framework_library':str(Path(sys.base_prefix)/framework) if framework else None}))"
     )
     try:
         completed = subprocess.run(
@@ -197,7 +200,8 @@ class ProcessPluginProxy(Plugin):
         # are inserted only after trusted SDK import inside the child.
         import_roots = list(dict.fromkeys([*sdk_roots, *runtime["paths"]]))
         launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main()"
-        command = [executable, "-I", "-S", "-u", "-c", launch_code]
+        # Launch the interpreter directly; framework launchers re-exec outside confinement.
+        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code]
         state_dir, resources_dir = (
             self.context.state_dir.resolve(),
             self.context.resources_dir.resolve(),
@@ -217,6 +221,10 @@ class ProcessPluginProxy(Plugin):
         runtime_lib = Path(runtime["prefix"]) / "lib"
         if runtime_lib.is_dir():
             read_roots.append(runtime_lib)
+        # Framework interpreters load their shared library beside lib/ on macOS.
+        framework_library = runtime["framework_library"]
+        if framework_library and Path(framework_library).is_file():
+            read_roots.append(Path(framework_library))
         self._confinement = plan_confinement(
             command,
             mode=self.manifest.execution_mode,
