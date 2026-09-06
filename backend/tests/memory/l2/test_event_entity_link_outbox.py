@@ -830,7 +830,9 @@ async def test_successful_early_return_stages_empty_but_waits_for_completion(
         event_id,
     )
 
-    plan = SimpleNamespace(skip_result=None, primary=SimpleNamespace(), decisions=[])
+    plan = SimpleNamespace(
+        skip_result=None, primary=SimpleNamespace(), decisions=[], eligible_decisions=[]
+    )
     monkeypatch.setattr(extraction_module, "build_l2_extraction_plan", lambda _events: plan)
     pipeline._load_batch_events = AsyncMock(return_value=[])  # type: ignore[method-assign]
     result = {"skipped": True, "skip_reason": branch}

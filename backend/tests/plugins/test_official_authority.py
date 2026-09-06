@@ -92,7 +92,6 @@ def test_canonical_managed_registry_package_can_be_official(
         manifest_path=str(manifest_path),
     )
     configured = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(manifest_path),
@@ -272,7 +271,6 @@ def test_marketplace_source_projection_uses_last_verified_trust_without_scanning
         manifest_path=str(manifest_path),
     )
     configured = PluginSettings(
-        enabled=True,
         trusted=True,
         source="external",
         manifest_path=str(manifest_path),

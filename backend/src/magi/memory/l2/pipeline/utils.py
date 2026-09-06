@@ -7,6 +7,7 @@ import uuid
 from typing import Any, Optional, cast
 
 from ..models import L2BatchEvent, L2Phase1FactClaim, L2Phase1Result
+from ..entities.identity import canonical_entity_id
 from ..ontology import PROFILE_SIGNAL_PREDICATES, coerce_unknown_entity_type
 from ..ontology_aliases import canonicalize_predicate
 
@@ -248,8 +249,7 @@ class L2PipelineUtilityMixin:
         return self._slugify(subject_suffix) == object_suffix
 
     def _build_canonical_entity_id(self, *, entity_type: str, canonical_name: str) -> str:
-        slug = self._slugify(canonical_name)
-        return f"{entity_type}:{slug}"
+        return canonical_entity_id(entity_type, canonical_name)
 
     def _slugify(self, value: str) -> str:
         normalized = value.strip().casefold()

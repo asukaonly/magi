@@ -1,4 +1,4 @@
-"""Contracts for awareness-owned sensor and action runtime primitives."""
+"""Contracts for awareness-owned source and action runtime primitives."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ import uuid
 
 
 @dataclass
-class SensorEvent:
-    """Normalized event emitted by sensor hub."""
+class SourceEvent:
+    """Normalized event emitted by source hub."""
 
-    sensor_name: str
+    source_name: str
     event_type: str
     payload: Dict[str, Any]
     timestamp: float = field(default_factory=time.time)

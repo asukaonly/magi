@@ -6,7 +6,7 @@ import mimetypes
 from typing import Any, Optional
 from urllib.parse import unquote
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from .. import i18n as core_i18n
 from ..core.sqlite import sqlite_connection_async
@@ -209,7 +209,7 @@ class TimelineService:
         relation_candidates: Optional[list[dict]] = None,
         allowed_edge_whitelist: Optional[list[str]] = None,
     ) -> str:
-        # Sensor outputs are already persisted into L1 by SensorIngestionGateway.
+        # Source outputs are already persisted into L1 by SourceIngestionGateway.
         # Re-ingesting them here would create a second derived memory record and
         # enqueue duplicate L2 work for the same source item.
         event.processing_status["stored"] = True

@@ -272,9 +272,9 @@ def test_timestamp_quality_is_normalized_per_evidence_source() -> None:
         event_type="UserMessage",
         metadata={},
     )
-    unknown_sensor = resolve_source_time_semantics(
-        source="unknown_sensor",
-        event_type="SENSOR_EVENT",
+    unknown_source = resolve_source_time_semantics(
+        source="unknown_source",
+        event_type="SOURCE_EVENT",
         metadata={"timestamp_confidence": "exact"},
     )
     frontmatter = resolve_source_time_semantics(
@@ -294,7 +294,7 @@ def test_timestamp_quality_is_normalized_per_evidence_source() -> None:
     )
 
     assert (live_chat.timestamp_confidence, live_chat.timestamp_quality) == ("exact", "exact")
-    assert (unknown_sensor.timestamp_confidence, unknown_sensor.timestamp_quality) == (
+    assert (unknown_source.timestamp_confidence, unknown_source.timestamp_quality) == (
         "unknown",
         "low",
     )

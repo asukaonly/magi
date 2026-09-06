@@ -73,13 +73,7 @@ def _try_plugin_manager():
 
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
-    """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
-    manager = _try_plugin_manager()
-    if manager is not None:
-        get_loaded_plugin = getattr(manager, "get_loaded_plugin", None)
-        plugin_instance = get_loaded_plugin(plugin_id) if callable(get_loaded_plugin) else None
-        if plugin_instance:
-            return plugin_instance.i18n
+    """Read package translations without selecting or executing a connection."""
     return PluginI18n(plugin_id, Path(plugin_dir))
 
 
@@ -101,6 +95,17 @@ def _serialize_manifest(
     )
 
     return PluginManifestResponse(
+        protocol_version=manifest.protocol_version,
+        min_sdk_version=manifest.min_sdk_version,
+        execution_mode=manifest.execution_mode,
+        activation_flow=_serialize_activation_flow(manifest.activation_flow.model_dump(), i18n, manifest.plugin_id) if manifest.activation_flow else None,
+        settings_actions=[_serialize_settings_action(item.model_dump(), i18n, manifest.plugin_id) for item in manifest.settings_actions],
+        settings_resources=[item.model_dump() for item in manifest.settings_resources],
+        settings_ui_blocks=[_serialize_settings_ui_block(item.model_dump(), i18n, manifest.plugin_id) for item in manifest.settings_ui_blocks],
+        settings_fields=[
+            _serialize_field(field, i18n, manifest.plugin_id, manifest.plugin_id)
+            for field in manifest.settings_fields
+        ],
         plugin_id=manifest.plugin_id,
         name=translated_name or manifest.name,
         version=manifest.version,
@@ -318,7 +323,7 @@ def _serialize_settings_layout(
     return out
 
 
-def _serialize_sensor_capability(
+def _serialize_source_capability(
     metadata: dict[str, Any],
     i18n: PluginI18n | None,
     *,
@@ -327,7 +332,7 @@ def _serialize_sensor_capability(
     fallback_display_name: str,
     fallback_description: str,
 ) -> dict[str, Any]:
-    """Serialize the capability/entry grouping metadata for one sensor source."""
+    """Serialize the capability/entry grouping metadata for one source."""
     plugin_id_normalized = normalize_plugin_id(plugin_id)
     capability_id = str(metadata.get("capability_id") or fallback_source_name)
     entry_id = str(metadata.get("entry_id") or fallback_source_name)
@@ -444,6 +449,9 @@ def _serialize_activation_flow(
 
 def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPackageResponse:
     i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
+    if packages is None:
+        packages = get_config().plugins.packages
+    package_config = packages.get(state.manifest.plugin_id)
 
     return PluginPackageResponse(
         manifest=_serialize_manifest(
@@ -453,6 +461,7 @@ def _serialize_package(state: PluginPackageState, *, packages=None) -> PluginPac
         ),
         enabled=state.enabled,
         trusted=state.trusted,
+        package_sha256=getattr(package_config, "package_sha256", None),
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,
@@ -470,6 +479,14 @@ def _serialize_package_lightweight(
         packages = get_config().plugins.packages
     return PluginPackageResponse(
         manifest=PluginManifestResponse(
+            protocol_version=manifest.protocol_version,
+            min_sdk_version=manifest.min_sdk_version,
+            execution_mode=manifest.execution_mode,
+            settings_fields=[{**item.model_dump(), **({"default": ""} if item.type == "secret" else {})} for item in manifest.settings_fields],
+            activation_flow=manifest.activation_flow.model_dump() if manifest.activation_flow else None,
+            settings_actions=[item.model_dump() for item in manifest.settings_actions],
+            settings_resources=[item.model_dump() for item in manifest.settings_resources],
+            settings_ui_blocks=[item.model_dump() for item in manifest.settings_ui_blocks],
             plugin_id=manifest.plugin_id,
             name=manifest.name,
             version=manifest.version,
@@ -495,6 +512,7 @@ def _serialize_package_lightweight(
         ),
         enabled=state.enabled,
         trusted=state.trusted,
+        package_sha256=getattr(packages.get(manifest.plugin_id), "package_sha256", None),
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,
@@ -513,7 +531,7 @@ __all__ = [
     "_serialize_manifest",
     "_serialize_package",
     "_serialize_package_lightweight",
-    "_serialize_sensor_capability",
+    "_serialize_source_capability",
     "_serialize_settings_action",
     "_serialize_settings_layout",
     "_serialize_settings_ui_block",

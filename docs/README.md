@@ -22,11 +22,11 @@ ownership, or module boundaries.
 
 4. [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
   Read this when working on bootstrap, unified agent execution, task agents,
-  child runs, scheduler registration, sensor sync execution, or service and
+  child runs, scheduler registration, source sync execution, or service and
   transport boundaries.
 
 5. [Timeline Domain Architecture](./timeline-domain-architecture.md)
-  Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or sensor-to-timeline data flow.
+  Read this when working on timeline viewport assembly, clustering, state bands, insight extraction, or source-to-timeline data flow.
 
 6. [Memory System Design](./memory-system-design.md)
   Maintainer-level implementation design for the lifecycle-based memory model.

@@ -272,12 +272,12 @@
         "assetHint": "示例：{\"days\": 7} 为最近 7 天补充代表图片。"
       },
       "pageTitle": "调度配置",
-      "pageSubtitle": "管理周期性运行的任务、传感器同步与系统作业。",
+      "pageSubtitle": "管理周期性运行的任务、数据来源同步与系统作业。",
       "defaultDisplayName": "未命名调度",
       "categories": {
         "all": "全部",
         "user": "用户自定义",
-        "sensor": "传感器同步",
+        "source": "数据来源同步",
         "memory": "记忆维护",
         "timeline": "时间线维护",
         "other": "其他"
@@ -328,7 +328,7 @@
       },
       "sections": {
         "enabled": "已开启的调度任务",
-        "enabledHint": "当前启用的周期、一次性和系统维护调度。传感器同步请到设置页更新。",
+        "enabledHint": "当前启用的周期、一次性和系统维护调度。数据来源同步请到设置页更新。",
         "activity": "执行中与即将执行",
         "activityHint": "只显示最近 1 小时内运行中、排队中或即将执行的调度任务。"
       },
@@ -346,7 +346,7 @@
         "actions": "操作"
       },
       "targetTypes": {
-        "sensor_sync": "传感器同步",
+        "source_sync": "数据来源同步",
         "memory_l2_maintenance": "L2 记忆维护",
         "memory_l3_summary": "L3 摘要生成",
         "user_agent_task": "Agent 任务"
@@ -392,7 +392,7 @@
         "more": "更多操作",
         "openSettings": "去设置更新",
         "openInfo": "查看说明",
-        "sensorEditTitle": "传感器调度请在设置中更新",
+        "sourceEditTitle": "数据来源调度请在设置中更新",
         "stop": "停止",
         "stopUnavailable": "当前执行项暂不支持直接停止",
         "save": "保存",
@@ -905,7 +905,7 @@
     },
     "today": {
       "loading": "正在汇总今日感知…",
-      "idle": "今天还没有传感器数据",
+      "idle": "今天还没有数据来源活动",
       "retry": "重新加载",
       "tooltip": "今日感知 · 共 {{total}} 条来自 {{count}} 个来源"
     },
@@ -1412,7 +1412,7 @@
       "memoryKnowledge": "知识记忆",
       "memoryReflection": "摘要反思记忆",
       "memorySkills": "工具技能记忆",
-      "timeline": "传感器",
+      "timeline": "数据来源",
       "plugins": "插件",
       "pluginsInstalled": "已安装",
       "pluginsMarketplace": "插件市场",
@@ -2659,8 +2659,8 @@
         "healthTitle": "健康快照",
         "healthDesc": "快速看清哪些来源状态正常，哪些来源需要处理。",
         "empty": "当前还没有注册任何时间线来源。",
-        "emptyTitle": "还没有传感器来源",
-        "emptyDescription": "安装一个传感器插件后，Magi 才能把浏览、照片、日历等活动接入时间线。",
+        "emptyTitle": "还没有数据来源",
+        "emptyDescription": "安装一个数据来源插件后，Magi 才能把浏览、照片、日历等活动接入时间线。",
         "emptyAction": "去插件市场安装",
         "metricsSummary": "总数 · 启用 · 支持拉取：{{summary}}",
         "lastSync": "最近同步于 {{time}}",
@@ -2670,7 +2670,7 @@
         "entriesTitle": "同步入口",
         "entriesDesc": "每个入口独立启用、同步和记录状态。",
         "availableEntriesTitle": "还可以添加",
-        "availableEntriesDesc": "这些入口属于同一组传感器，安装后会出现在上面的入口选择里。",
+        "availableEntriesDesc": "这些入口属于同一组数据来源，安装后会出现在上面的入口选择里。",
         "sourceStatusTitle": "运行状态",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
@@ -2801,6 +2801,7 @@
         "cancel": "取消"
       },
       "feedback": {
+        "uncertain": "结果尚不确定，请先检查连接服务中的状态再重试。",
         "succeeded": "插件操作已完成",
         "failed": "插件操作失败",
         "failedWithMessage": "插件操作失败：{{message}}",
@@ -2888,13 +2889,13 @@
       },
       "filter": {
         "all": "全部",
-        "sensor": "传感器",
+        "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
       },
       "contributionType": {
-        "sensor": "传感器",
+        "source": "数据来源",
         "tool": "工具",
         "action": "执行器",
         "channel": "消息渠道"
@@ -3010,6 +3011,35 @@
     "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。"
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "暂时无法读取整理进度，请重试。",
+      "lastRun": "上次检查：{{time}}",
+      "modelUnavailable": "自动整理暂时受限，已有内容和待处理线索会继续保留。",
+      "request": "检查并整理",
+      "reasons": {
+        "loading": "正在读取整理进度…",
+        "disabled": "自动整理已关闭。",
+        "unavailable": "整理服务暂未就绪。",
+        "queued": "已安排整理，稍后开始。",
+        "running": "正在检查片段、形成经历并生成回顾…",
+        "partial_failure": "部分整理步骤失败，已有结果保留，可重试。",
+        "failed": "本次整理失败，可重试。",
+        "processing_events": "导入的记录仍在提取，经历线索可能尚未形成。",
+        "not_run": "还没有进行经历整理，可以先检查一次。",
+        "model_budget": "本轮整理已结束，还有部分线索等待处理。",
+        "ready": "本轮整理完成，结果已显示在下方或待确认列表。",
+        "insufficient_evidence": "目前没有足够连贯的线索形成新经历。"
+      }
+    },
+    "provenance": {
+      "user_confirmed": "你已确认",
+      "direct_report": "你直接说过",
+      "inferred": "根据行为推测",
+      "unknown": "依据尚未分类",
+      "sources": "{{count}} 条来源记录",
+      "behavior_recent": "根据近期活动推测，你可能关注「{{value}}」。",
+      "behavior_repeated": "根据多次活动推测，你可能关注「{{value}}」。"
+    },
     "title": "记忆查看",
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
@@ -3036,6 +3066,8 @@
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
       "summaryLabel": "记忆概况",
       "metrics": {
+        "sourceRecords": "原始记录",
+        "profileCandidates": "提取的信息（含待确认）",
         "totalMemories": "记忆总量",
         "understanding": "关于你的理解",
         "summaries": "回顾与总结",
@@ -3106,6 +3138,8 @@
       }
     },
     "sourcesPage": {
+      "chooseConnection": "请选择连接，再同步或调整这个来源。",
+      "connectionScope": "记录与数量包含此来源的所有连接；操作仅作用于所选连接。",
       "title": "来源",
       "subtitle": "看看 Magi 今天从哪里形成记忆。",
       "loading": "正在整理来源。",
@@ -3344,6 +3378,11 @@
       }
     },
     "pending": {
+      "loadMore": "继续加载{{section}}",
+      "loadFailed": "{{section}}加载失败，已加载的内容仍可查看。",
+      "actionFailed": "操作未完成，内容和选择已保留，请重试。",
+      "retry": "重试",
+      "loadSections": {"reviews": "待确认记忆", "assertions": "待确认判断", "stories": "总结", "seeds": "经历线索", "conflicts": "冲突"},
       "title": "待确认",
       "subtitle": "需要你判断的记忆线索都在这里。",
       "totalCount": "{{count}} 条",
@@ -3402,7 +3441,7 @@
       "planBatch": {
         "title": "哪些计划现在仍然有效？",
         "body": "选择仍然有效的计划。未选择的会继续保留在这里，不会被当作否定。",
-        "selectAll": "全选",
+        "selectAll": "选择已加载的计划",
         "clearSelection": "取消全选",
         "confirmSelected": "确认选中的 {{count}} 项",
         "selectLabel": "选择计划：{{value}}",
@@ -4169,7 +4208,7 @@
         "codingAgentHistory": "编程助手记录"
       },
       "eventTypes": {
-        "sensorEvent": "采集事件",
+        "sourceEvent": "采集事件",
         "chatMessage": "对话消息",
         "toolCall": "工具调用",
         "toolResult": "工具结果",
@@ -4828,7 +4867,7 @@
       "l4": "L4"
     },
     "eventTypes": {
-      "sensor_event": "传感器事件",
+      "source_event": "数据来源事件",
       "user_message": "用户消息",
       "ai_response": "助手回复",
       "assistant_final": "助手回复",
@@ -5360,5 +5399,55 @@
       "japanese": "日本語"
     },
     "noAvatar": "未设置头像"
+  },
+  "plugins": {
+    "trust": {
+      "title": "允许“{{name}}”运行？",
+      "review": "审阅运行权限",
+      "confirm": "允许运行",
+      "nativeAccess": "此插件可按当前用户的权限读写本机文件、访问网络和启动进程。下方列出的是插件声明的用途。",
+      "authorized": "已允许运行。现在可以配置并启用连接。",
+      "failed": "未能授权此插件，请刷新列表后重新审阅。",
+      "reinstall": "请重新安装此插件，再授权运行。"
+    },
+    "connections": {
+      "selectConnection": "选择 {{name}}",
+      "choose": "选择一个连接",
+      "title": "连接实例",
+      "description": "分别配置每个账号或目录。",
+      "add": "添加连接",
+      "name": "连接名称",
+      "edit": "编辑",
+      "enable": "启用",
+      "disable": "停用",
+      "clear": "清除本地内容",
+      "disconnect": "断开连接",
+      "refresh": "刷新",
+      "loading": "正在加载连接…",
+      "empty": "尚未添加连接。",
+      "loadFailed": "无法加载连接，请刷新重试。",
+      "saveFailed": "未能保存此更改。",
+      "conflict": "此连接已在其他位置更改，请重新加载后重试。",
+      "authorizationRequired": "请先授权已安装的插件，再启用连接。",
+      "reloadEditor": "重新加载已保存配置",
+      "credentialsHelp": "已保存凭据不会显示。可输入新凭据替换，或单独移除已保存凭据。",
+      "credentialSaved": "已保存凭据",
+      "removeCredential": "移除凭据",
+      "credentialRemovalPending": "保存后将移除此凭据。",
+      "removalDisables": "移除此必需凭据后，保存时会同时停用连接。",
+      "cancel": "取消",
+      "save": "保存",
+      "saving": "正在保存…",
+      "clearScope": "清除此连接在本地保留的内容，保留账号配置、凭据和来源进度。已导入的记忆及远端数据不受影响。",
+      "disconnectScope": "停止此连接并移除其本地状态和凭据。保留已安装插件、已导入记忆和远端数据。",
+      "status": {
+        "disabled": "已停用",
+        "setup_required": "待配置",
+        "auth_required": "待授权",
+        "ready": "可用",
+        "degraded": "部分可用",
+        "failed": "失败"
+      }
+    }
   }
 }

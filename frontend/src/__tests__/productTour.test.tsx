@@ -10,9 +10,9 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (k: string) => k, i18n: { language: "zh-CN" } }),
 }));
 
-const mockUseInstallableSensors = vi.fn();
-vi.mock("@/hooks/useInstallableSensors", () => ({
-  useInstallableSensors: () => mockUseInstallableSensors(),
+const mockUseInstallableSources = vi.fn();
+vi.mock("@/hooks/useInstallableSources", () => ({
+  useInstallableSources: () => mockUseInstallableSources(),
 }));
 
 function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
@@ -42,8 +42,8 @@ function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
 describe("ProductTour", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockUseInstallableSensors.mockReset();
-    mockUseInstallableSensors.mockReturnValue({
+    mockUseInstallableSources.mockReset();
+    mockUseInstallableSources.mockReturnValue({
       items: [item()],
       loading: false,
       refresh: vi.fn(),

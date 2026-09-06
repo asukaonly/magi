@@ -54,7 +54,7 @@ import {
   type MarketplacePluginDisplayItem,
 } from '@/utils/plugin-display-groups';
 
-const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
+const CONTRIBUTION_TYPE_FILTERS = ['all', 'source', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
 
 interface EntryPickerState {
@@ -93,6 +93,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [entryPicker, setEntryPicker] = useState<EntryPickerState | null>(null);
   const [consent, setConsent] = useState<{
     mode: ConsentMode;
+    executionMode?: PluginRegistryEntry["execution_mode"];
     name: string;
     pluginId?: string;
     icon?: string | null;
@@ -251,6 +252,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       version: item.primary.version,
       official: installableEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(installableEntries),
+      executionMode: installableEntries.some(entry => entry.execution_mode === "trusted_process") ? "trusted_process" : "restricted_process",
       proceed: () => runInstall(item, expectedFingerprint, installableEntries),
     });
   };
@@ -298,6 +300,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       version: item.primary.version,
       official: selectedEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(selectedEntries),
+      executionMode: selectedEntries.some(entry => entry.execution_mode === "trusted_process") ? "trusted_process" : "restricted_process",
       proceed: () => runInstall(item, expectedFingerprint, selectedEntries),
     });
   };
@@ -377,7 +380,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           );
         }),
     );
-    if (newCaps.length === 0) {
+    const executionAccessChanged = item.entries.some((entry) =>
+      entry.execution_mode === 'trusted_process'
+      && installedPlugins.find((plugin) => plugin.manifest.plugin_id === entry.plugin_id)?.manifest.execution_mode !== 'trusted_process');
+    if (newCaps.length === 0 && !executionAccessChanged) {
       void runUpdate(item, expectedFingerprint);
       return;
     }
@@ -389,6 +395,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       version: item.primary.version,
       official: item.entries.every((entry) => entry.official),
       capabilities: declared,
+      executionMode: item.entries.some(entry => entry.execution_mode === "trusted_process") ? "trusted_process" : "restricted_process",
       newCapabilities: newCaps,
       proceed: () => runUpdate(item, expectedFingerprint),
     });
@@ -445,6 +452,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       icon: manifest.icon,
       version: manifest.version,
       capabilities: manifest.capabilities ?? [],
+      executionMode: manifest.execution_mode,
       proceed: () => runCandidateInstall(candidate),
       cancel: () => pluginsApi.discardInstallCandidate(candidate.candidate_id),
     });
@@ -929,6 +937,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
         <PluginConsentDialog
           open
           mode={consent.mode}
+          executionMode={consent.executionMode}
           pluginName={consent.name}
           pluginIcon={consent.icon}
           version={consent.version}

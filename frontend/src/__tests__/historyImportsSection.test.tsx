@@ -67,6 +67,7 @@ function completedJob(): HistoryImportJob {
   return {
     job_id: "him-1",
     source_type: "markdown",
+    connection_id: null,
     importer_plugin_id: null,
     importer_id: null,
     source_ids: ["journal/2026-07-01.md", "notes.md"],
@@ -221,6 +222,7 @@ describe("HistoryImportsSection", () => {
         source_type: "platform_chat",
         detected_kind: "chat",
         importer_plugin_id: "platform-history",
+        connection_id: "archive-connection",
         importer_id: "account-export",
       },
     ]);

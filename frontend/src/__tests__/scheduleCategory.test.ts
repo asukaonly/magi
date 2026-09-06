@@ -5,8 +5,8 @@ describe('scheduleCategory', () => {
   it('maps user_agent_task to user', () => {
     expect(scheduleCategory('user_agent_task')).toBe('user');
   });
-  it('maps sensor_sync to sensor', () => {
-    expect(scheduleCategory('sensor_sync')).toBe('sensor');
+  it('maps source_sync to source', () => {
+    expect(scheduleCategory('source_sync')).toBe('source');
   });
   it.each([
     'memory_l2_maintenance',

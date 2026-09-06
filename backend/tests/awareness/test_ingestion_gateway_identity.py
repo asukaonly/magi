@@ -1,49 +1,49 @@
-"""SensorIngestionGateway ingress canonicalization (identity layer #5).
+"""SourceIngestionGateway ingress canonicalization (identity layer #5).
 
 The gateway resolves a memory owner ``user_id`` from each
-SensorOutput's provenance / domain_payload. Before identity-layer
-hardening, a sensor could stash any string there and it would land
+SourceOutput's provenance / domain_payload. Before identity-layer
+hardening, a source could stash any string there and it would land
 verbatim in memory L1 — a quiet bypass of the four formal ingress
 sites. This test pins the contract that ``_resolve_memory_owner_user_id``
 always returns a canonical ``MagiUserID`` value, no matter what the
-sensor stuffed in.
+source stuffed in.
 """
 from __future__ import annotations
 
-from magi.awareness.ingestion_gateway import SensorIngestionGateway
-from magi.awareness.sensor_output import (
+from magi.awareness.ingestion_gateway import SourceIngestionGateway
+from magi.awareness.source_output import (
     ActivityFacet,
-    SensorActivity,
-    SensorNarration,
-    SensorOutput,
+    SourceActivity,
+    SourceNarration,
+    SourceOutput,
 )
 from magi.identity import CANONICAL_LOCAL_USER
 
 
-def _make_output(*, provenance: dict | None = None, domain_payload: dict | None = None) -> SensorOutput:
-    return SensorOutput(
-        source_type="test_sensor",
+def _make_output(*, provenance: dict | None = None, domain_payload: dict | None = None) -> SourceOutput:
+    return SourceOutput(
+        source_type="test_source",
         source_item_id="item-1",
         occurred_at=1700000000.0,
         captured_at=1700000000.0,
-        activity=SensorActivity(
+        activity=SourceActivity(
             source=ActivityFacet(code="test", i18n_key="test"),
             action=ActivityFacet(code="observed", i18n_key="observed"),
         ),
-        narration=SensorNarration(body="test event"),
+        narration=SourceNarration(body="test event"),
         provenance=provenance or {},
         domain_payload=domain_payload or {},
     )
 
 
 def test_canonicalizes_channel_prefixed_user_id_from_provenance():
-    """Legacy or third-party sensor leaks ``channel_weixin_*`` →
+    """Legacy or third-party source leaks ``channel_weixin_*`` →
     collapses to canonical local user, doesn't reach memory verbatim."""
     output = _make_output(
         provenance={"user_id": "channel_weixin_o9cq805VkoHSU8CcaDYe0iaJa-DM@im.wechat"},
     )
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output)
+        SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == str(CANONICAL_LOCAL_USER)
     )
 
@@ -55,7 +55,7 @@ def test_canonicalizes_channel_prefixed_user_id_from_domain_payload():
         domain_payload={"memory_owner_user_id": "channel_telegram_42"},
     )
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output)
+        SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == str(CANONICAL_LOCAL_USER)
     )
 
@@ -65,7 +65,7 @@ def test_empty_output_falls_back_to_canonical_local_user():
     Matches the historical DEFAULT_USER_ID fallback semantics."""
     output = _make_output()
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output)
+        SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == str(CANONICAL_LOCAL_USER)
     )
 
@@ -75,7 +75,7 @@ def test_canonical_user_id_passes_through_unchanged():
     as canonical (single-user mode honors a canonical-shaped value)."""
     output = _make_output(provenance={"user_id": "local_user"})
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output)
+        SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == str(CANONICAL_LOCAL_USER)
     )
 
@@ -89,7 +89,7 @@ def test_provenance_takes_precedence_over_domain_payload():
     )
     # alice is not channel-prefixed → single-user mode honors as-is.
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output) == "alice"
+        SourceIngestionGateway._resolve_memory_owner_user_id(output) == "alice"
     )
 
 
@@ -104,6 +104,6 @@ def test_first_recognized_key_wins_within_container():
         },
     )
     assert (
-        SensorIngestionGateway._resolve_memory_owner_user_id(output)
+        SourceIngestionGateway._resolve_memory_owner_user_id(output)
         == "first_choice"
     )

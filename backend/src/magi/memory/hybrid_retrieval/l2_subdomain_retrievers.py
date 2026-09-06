@@ -273,7 +273,7 @@ async def retrieve_episodes(
 
     Episodes participate in recall as the time-anchored narrative substrate
     only. Content-based recall is deliberately delegated to L1 event search
-    and experiences: episode summaries are folded sensor digests, so letting
+    and experiences: episode summaries are folded source digests, so letting
     them match on content mostly spends token budget on noise.
     """
     tc = plan.temporal_context

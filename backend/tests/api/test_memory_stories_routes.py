@@ -381,7 +381,7 @@ def test_evidence_temporal_uses_time_window(app_factory):
                 "event_id": "e1",
                 "timestamp": 1700010000.0,
                 "source": "chrome_history",
-                "event_type": "SENSOR_EVENT",
+                "event_type": "SOURCE_EVENT",
                 "memory_domain": "external_activity",
                 "content": "visited example.com",
             },
@@ -427,7 +427,7 @@ def test_evidence_temporal_prefers_source_event_ids(app_factory):
                 "event_id": "evt-a",
                 "timestamp": 1700010000.0,
                 "source": "terminal-history",
-                "event_type": "SENSOR_EVENT",
+                "event_type": "SOURCE_EVENT",
                 "memory_domain": "external_activity",
                 "content": "fixed CI",
             },
@@ -435,7 +435,7 @@ def test_evidence_temporal_prefers_source_event_ids(app_factory):
                 "event_id": "evt-b",
                 "timestamp": 1700020000.0,
                 "source": "chrome_history",
-                "event_type": "SENSOR_EVENT",
+                "event_type": "SOURCE_EVENT",
                 "memory_domain": "external_activity",
                 "content": "read model notes",
             },
@@ -788,3 +788,17 @@ def test_story_feed_hides_rule_fallback_temporal_summaries(app_factory):
     ids = [item["summary_id"] for item in body["items"]]
     assert "llm-day" in ids
     assert "rule-day" not in ids
+
+
+def test_pending_filter_precedes_pagination_and_counts_complete_projection(app_factory):
+    rows = [{"summary_id": f"s{i}", "summary_type": "insight", "summary_category": "state_change",
+             "content": f"最近在学习课程{i}", "period_end": float(1000-i),
+             "review_state": "pending_confirmation" if i >= 150 else "confirmed"} for i in range(211)]
+    unified = _stub_memory(insights=rows)
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        page = client.get("/api/memory/stories?review_state=pending_confirmation&group=memory_update&limit=25&offset=50").json()
+    assert page["total"] == 61
+    assert len(page["items"]) == 11
+    assert all(item["review_state"] == "pending_confirmation" for item in page["items"])
+    assert all(call.kwargs["limit"] is None for call in unified.l3.list_summaries_by_category.await_args_list)

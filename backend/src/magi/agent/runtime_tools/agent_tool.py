@@ -10,6 +10,7 @@ from ..workers import (
 )
 from ..workers.worker_state import WORKER_TOOL_TIMEOUT_SECONDS
 from ..workers.worker_schema import (
+    AGENT_TOOL_DESCRIPTION,
     build_worker_schema_examples,
     build_worker_schema_parameters,
 )
@@ -43,10 +44,7 @@ class AgentTool(Tool):
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="agent",
-            description=(
-                "Launch and control bounded child agent runs. Select a capability "
-                "preset, then use status, await, or cancel with returned child ids."
-            ),
+            description=AGENT_TOOL_DESCRIPTION,
             category="agent",
             version="1.0.0",
             author="Magi Team",
@@ -138,17 +136,12 @@ def _agent_tool_schema_examples() -> list[dict[str, object]]:
 
 def _agent_tool_schema_metadata() -> dict[str, object]:
     return {
-        "task_intents": ["delegate_task", "explore_codebase", "research_external"],
-        "domains": ["orchestration", "codebase", "web"],
+        "task_intents": ["delegate_task"],
+        "domains": ["orchestration"],
         "operations": ["delegate"],
-        "query_shapes": ["multi_step_task", "parallelizable_research"],
+        "query_shapes": ["self_contained_subtask"],
         "followed_by": [],
-        "avoid_task_intents": ["verify_source_claim"],
         "cost": "high",
-        "tool_hint": (
-            "Use when the task is large enough to justify a worker, parallel "
-            "exploration, or independent background execution; avoid for simple local checks."
-        ),
     }
 
 

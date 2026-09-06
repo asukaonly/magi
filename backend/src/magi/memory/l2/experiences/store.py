@@ -1083,7 +1083,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         status: str | None = None,
         statuses: list[str] | None = None,
         seed_type: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         """List experience seeds with optional filters."""
@@ -1112,7 +1112,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 if str(row["status"] or "") not in _DERIVABLE_SEED_STATUSES
                 or await _seed_row_is_active(db, row)
             ]
-        page = active_rows[max(0, int(offset)) : max(0, int(offset)) + max(1, int(limit))]
+        page = active_rows[max(0, int(offset)) : None if limit is None else max(0, int(offset)) + max(1, int(limit))]
         return [self._experience_seed_row_to_dict(row) for row in page]
 
     async def update_experience_seed(

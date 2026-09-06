@@ -190,7 +190,7 @@ def _chrome_event(*, event_id: str, ts: float, domain: str) -> dict:
         "source": "chrome_history",
         "metadata": {
             "activity_snapshot": {
-                # The shape the Chrome sensor actually writes today —
+                # The shape the Chrome source actually writes today —
                 # source-name tag + the visited domain. cluster_builder
                 # must filter out the source-name and surface the domain.
                 "tags": ["chrome_history", domain],

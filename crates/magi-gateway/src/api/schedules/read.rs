@@ -339,11 +339,11 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
         }
     }
 
-    // 1) Outstanding sensor sync jobs (queued/running) — first page only.
+    // 1) Outstanding source sync jobs (queued/running) — first page only.
     if live_only_on_first_page {
         if let Ok(mut stmt) = conn.prepare(
         "SELECT job_id, schedule_id, target_type, target_key, source_type, status, created_at, started_at, error \
-         FROM sensor_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
+         FROM source_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
     ) {
         let jobs = stmt
             .query_map(rusqlite::params![limit], |row| {
@@ -357,7 +357,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
                 let started_at: Option<f64> = row.get(7)?;
                 let error: Option<String> = row.get(8)?;
                 Ok(json!({
-                    "activity_id": format!("sensor_job:{job_id}"),
+                    "activity_id": format!("source_job:{job_id}"),
                     "schedule_id": schedule_id,
                     "title": source_type,
                     "target_type": target_type,
@@ -368,7 +368,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
                     "finished_at": Value::Null,
                     "duration_ms": Value::Null,
                     "cancellable": status == "queued",
-                    "cancel_kind": if status == "queued" { Value::String("sensor_sync_job".to_string()) } else { Value::Null },
+                    "cancel_kind": if status == "queued" { Value::String("source_sync_job".to_string()) } else { Value::Null },
                     "error": error,
                     "background_task_id": Value::Null,
                     "result_message": Value::Null,
@@ -381,9 +381,9 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             .unwrap_or_default();
         activities.extend(jobs);
     }
-    } // end live_only_on_first_page (sensor jobs)
+    } // end live_only_on_first_page (source jobs)
 
-    // 2) Currently running non-sensor schedules — first page only.
+    // 2) Currently running non-source schedules — first page only.
     // Upcoming (next_run_at) snapshots are intentionally NOT surfaced — the
     // schedule config page already shows "next run" per row, and upcoming rows
     // have no actions to take, so they'd just be duplicate noise.
@@ -401,7 +401,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
                 .get("target_type")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            if !running || target_type == "sensor_sync" {
+            if !running || target_type == "source_sync" {
                 continue;
             }
             let schedule_id = schedule
@@ -560,7 +560,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     }
 
     // 4) Apply the target_types / statuses filters across the merged set so
-    // sensor jobs and currently-running rows respect them too.
+    // source jobs and currently-running rows respect them too.
     let allowed_types: Option<std::collections::HashSet<&str>> = if filters.target_types.is_empty()
     {
         None
@@ -649,11 +649,11 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
         }
     }
 
-    // Live rows: count current sensor jobs (queued/running) and currently-
-    // running non-sensor schedules. These are state snapshots, not time-bound,
+    // Live rows: count current source jobs (queued/running) and currently-
+    // running non-source schedules. These are state snapshots, not time-bound,
     // so they always count regardless of the time window.
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT target_type, status, COUNT(*) FROM sensor_sync_jobs \
+        "SELECT target_type, status, COUNT(*) FROM source_sync_jobs \
          WHERE status IN ('queued', 'running') GROUP BY target_type, status",
     ) {
         let rows = stmt.query_map([], |row| {
@@ -680,7 +680,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             .get("target_type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if running && target_type != "sensor_sync" {
+        if running && target_type != "source_sync" {
             *target_type_counts
                 .entry(target_type.to_string())
                 .or_insert(0) += 1;

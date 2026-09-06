@@ -14,6 +14,7 @@ STATEMENTS = (
     "ALTER TABLE history_import_jobs RENAME COLUMN included_files_json TO included_source_ids_json",
     "ALTER TABLE history_import_jobs RENAME COLUMN self_participants_json TO self_participant_ids_json",
     "ALTER TABLE history_import_jobs ADD COLUMN importer_plugin_id TEXT",
+    "ALTER TABLE history_import_jobs ADD COLUMN connection_id TEXT",
     "ALTER TABLE history_import_jobs ADD COLUMN importer_id TEXT",
     "ALTER TABLE history_import_jobs ADD COLUMN importer_format_version TEXT",
     "ALTER TABLE history_import_source_records ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
@@ -38,7 +39,7 @@ SET source_order = (
     """
 CREATE INDEX IF NOT EXISTS idx_history_import_jobs_importer_state
 ON history_import_jobs(
-    importer_plugin_id, importer_id, importer_format_version,
+    connection_id, importer_plugin_id, importer_id, importer_format_version,
     status, deleted_at, job_id
 )
 """.strip(),
@@ -76,6 +77,7 @@ def downgrade() -> None:
     op.execute("ALTER TABLE history_import_source_records DROP COLUMN source_id")
     op.execute("ALTER TABLE history_import_jobs DROP COLUMN importer_format_version")
     op.execute("ALTER TABLE history_import_jobs DROP COLUMN importer_id")
+    op.execute("ALTER TABLE history_import_jobs DROP COLUMN connection_id")
     op.execute("ALTER TABLE history_import_jobs DROP COLUMN importer_plugin_id")
     op.execute(
         "ALTER TABLE history_import_jobs "

@@ -244,7 +244,7 @@ vi.mock('@/api', () => ({
     run: vi.fn(),
     runSkillAsBackground: vi.fn(),
   },
-  sensorsApi: {
+  sourcesApi: {
     getStatus: vi.fn().mockResolvedValue({ sources: [] }),
     getTodaySummary: vi.fn().mockResolvedValue({
       date: '2026-05-16',

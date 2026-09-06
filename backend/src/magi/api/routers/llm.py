@@ -19,6 +19,10 @@ from ...config.llm_registry import (
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
 from ..services.config_secrets import normalize_masked_llm_provider_secrets
+from ..services.llm_plugin_providers import (
+    PluginModelProviderCatalogEntry,
+    list_plugin_model_providers,
+)
 from .config_schemas import (
     LLMProviderConfigModel,
     LLMProviderConnectionConfigModel,
@@ -42,6 +46,7 @@ logger = get_logger(__name__)
 
 class LLMProviderCatalogDataModel(BaseModel):
     providers: list[LLMProviderCatalogEntryModel] = Field(default_factory=list)
+    plugin_providers: list[PluginModelProviderCatalogEntry] = Field(default_factory=list)
 
 
 class LLMProviderCatalogResponseModel(BaseModel):
@@ -96,7 +101,9 @@ async def get_llm_provider_catalog():
     return LLMProviderCatalogResponseModel(
         success=True,
         message=core_i18n.t("llm.providers.catalog.loaded", fallback="LLM provider catalog loaded"),
-        data=LLMProviderCatalogDataModel(providers=catalog),
+        data=LLMProviderCatalogDataModel(
+            providers=catalog, plugin_providers=list_plugin_model_providers()
+        ),
     )
 
 
@@ -116,7 +123,9 @@ async def resolve_llm_provider_catalog(payload: LLMProviderCatalogResolveRequest
         message=core_i18n.t(
             "llm.providers.catalog.resolved", fallback="LLM provider catalog resolved"
         ),
-        data=LLMProviderCatalogDataModel(providers=catalog),
+        data=LLMProviderCatalogDataModel(
+            providers=catalog, plugin_providers=list_plugin_model_providers()
+        ),
     )
 
 

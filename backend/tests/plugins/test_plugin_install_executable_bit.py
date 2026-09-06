@@ -7,7 +7,7 @@ the tar member's mode. ZIP install called
 zipfile.extractall() which also drops Unix permissions.
 
 The result: shipped helper binaries (e.g. screenshot_timeline's Swift helper)
-landed as -rw-r--r-- and could never be spawned, so sensors that depended on
+landed as -rw-r--r-- and could never be spawned, so sources that depended on
 them silently failed.
 """
 from __future__ import annotations

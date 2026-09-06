@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import type { PluginContribution } from '@/api/modules/plugins';
-import type { SensorSourceStatusItem } from '@/api/modules/sensors';
+import type { SourceStatusItem } from '@/api/modules/sources';
 import { isNavGroup } from '@/constants/settings';
 import { cn } from '@/lib/utils';
 import type { NavItem } from '@/types/settings';
@@ -15,7 +15,7 @@ interface SettingsNavigationSidebarProps {
   getGroupExpanded: (groupId: string) => boolean;
   setGroupExpanded: (groupId: string, expanded: boolean) => void;
   handleNavItemClick: (itemId: string, isGroup: boolean, firstChildId?: string) => void;
-  sortedTimelineStatuses: SensorSourceStatusItem[];
+  sortedTimelineStatuses: SourceStatusItem[];
   timelineSelection: string | null;
   setTimelineSelection: Dispatch<SetStateAction<string | null>>;
   channelContributions: Array<{ contribution: PluginContribution }>;

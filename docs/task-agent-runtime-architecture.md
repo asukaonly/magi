@@ -135,7 +135,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 29. `runtime_skills`
 30. `runtime_mcp`
 31. `runtime_personality`
-32. `runtime_sensor_hub`
+32. `runtime_source_hub`
 33. `runtime_context`
 34. `runtime_agent_core`
 
@@ -147,10 +147,10 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 38. `runtime_timeline`
 39. `runtime_timeline_subscriber`
 40. `runtime_kg_subscriber`
-41. `runtime_sensor_state_subscriber`
+41. `runtime_source_state_subscriber`
 42. `runtime_scheduler`
 43. `runtime_agent_schedule_registration`
-44. `runtime_sensor_scheduler`
+44. `runtime_source_scheduler`
 
 ### Phase 4: exports and maintenance registration
 
@@ -169,7 +169,7 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 57. `runtime_channels`
 58. `runtime_outreach`
 59. `runtime_scheduler_activation`
-60. `runtime_sensor_sync_executor`
+60. `runtime_source_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. The
 scheduler engine is infrastructure even though it starts after services that
@@ -243,7 +243,7 @@ responsibilities: `admit_context`, `resolve_capabilities`,
 - every ordinary model-facing run deterministically requests a collapsible trace
   entry, while fact-only domain events keep trace display disabled; this
   presentation policy does not depend on semantic intent classification;
-- `CapabilityResolver` exposes resident, explicitly pinned,
+- `CapabilityResolver` exposes resident, default web, explicitly pinned,
   attachment-required, and bounded continuity capabilities without predicting
   a chat/code/explore class;
 - `ExecutionMode` therefore describes only deterministic domain-event handling,
@@ -259,6 +259,8 @@ output previously duplicated decisions the main model had to make again.
 the first model call. Its inputs are deterministic:
 
 - resident system tools;
+- default web capabilities (`web-search` and `web-fetch`) when registered,
+  enabled, and model-invocable under the active feature flags;
 - base tool names referenced by an inline skill's pre-approval rules;
 - attachment resolver tools required by current/replied-to assets;
 - a bounded continuity pin for a recent failed tool;
@@ -271,6 +273,15 @@ the same name-sorted tool schemas, so keywords or negation cannot perturb the
 provider prompt-cache prefix. The initial surface changes only for an explicit
 skill, current/replied-to attachments, bounded failed-tool continuity, model or
 feature availability, or registry/configuration changes.
+
+Default web tools let ordinary chat search directly or read an already-known
+URL without a discovery call or a child run. They remain capability tools,
+separate from resident runtime-control tools, and are recorded in `default_tools`
+in the capability-resolution trace. Exposure does not execute a network request
+or bypass provider configuration, permission checks, or fetch network policy.
+`web-fetch` accepts known URLs from the user, prior context, or search results;
+search is not a prerequisite. The model should fetch when page details,
+verification, or source text are needed.
 
 A local-write or unknown-effect pinned capability also causes `verify` to be
 exposed when available. It is a policy companion and cannot be silently removed
@@ -351,6 +362,47 @@ owns model-shape validation and attachment grounding;
 projection; and `FunctionCallingToolBatchJournal` owns requested-tool,
 tool-result, evidence, and child-run projection. Tool execution, cancellation,
 suppression, and retry policy stay in `FunctionCallingToolBatchExecutor`.
+
+Tool execution results and model observations are separate projections.
+`ToolCallResult` and journal evidence retain structured results for permissions,
+completion checks, trace UI, and replay. `FunctionCallingPostprocessor` renders
+successful web searches as source links and snippets, and fetched pages as text
+with source identity and truncation notices. Web content shares a bounded total
+observation budget instead of silently reducing each page to a generic preview.
+Web failures and permission/parameter failures retain error codes,
+retry/terminal flags, and recovery guidance in JSON. Other structured
+capabilities keep their JSON observation.
+
+The same text-observation boundary covers `file_read`, `file_list`, `glob`,
+`grep`, `file_diff`, native shell output (`bash` or `powershell`), and text from
+`read_chat_attachment`. Renderers retain file paths, match line numbers and
+requested context, command exit/timeout status and both output streams, diff
+errors, and explicit omission notices. Attachment continuation offsets refer to
+the text actually exposed to the model, including any observation-budget cut.
+Image attachment references remain structured and do not imply pixel inspection.
+
+Control plans, child/background/scheduled task handles, tool discovery,
+memory/trace queries, settings, weather/time/file metadata, write/rollback
+receipts, validation reports, and generated asset references remain JSON because
+their identifiers, typed values, and state relationships are useful to subsequent
+calls. Native tool execution contracts and direct programmatic consumers keep
+the original structured output regardless of model presentation.
+
+Tool messages carry a small runtime-only `ToolResultMetadata` record with
+success, a bounded activity summary, and the evidence reference. Chat persists
+it in model-context item metadata and restores it only for runtime reuse;
+provider requests exclude it. Historical tool-block compaction reads this
+record instead of parsing externally sourced observation text as JSON. Missing
+status remains unknown and cannot be promoted to success or failure by text
+inside a web page. The exact model observation is still journaled for replay.
+
+An `INVALID_PARAMETERS` result rejects that invocation, not the tool for the
+whole run. Corrected arguments remain eligible even when several calls in one
+model response fail validation before the model can see the errors. Identical
+failed calls are still blocked by their argument fingerprints; consecutive
+failed model iterations and the run budget bound further repair attempts.
+Provider challenges, missing provider configuration, and other terminal tool
+conditions retain their existing suppression policy.
 
 There is no `DirectLLMHandler`, `TaskOrchestrator`, `ExploreTaskAgent`, route
 graph, or route-derived handler registry for ordinary turns. A simple chat still
@@ -632,7 +684,23 @@ truth outside `run_plans`.
 ## Child Runs
 
 The parent model decides whether decomposition is useful by calling the `agent`
-tool. `ChildRunCoordinator` owns the mechanics:
+tool. Its model-facing description recommends delegation for a concrete,
+self-contained subtask when parallel progress, isolation of substantial work,
+or an independent review offers a clear benefit. Simple lookups, single-page
+reads, short checks, and immediate blocking steps should use the relevant tools
+directly; missing tools should be discovered through `find-relevant-tools`.
+Tool metadata describes delegation rather than broadly recommending children
+for external research or code exploration.
+
+Assignments must include their goal, context, scope, and expected output. The
+parent should avoid duplicating the delegated work and review the evidence
+before integrating the result. Children receive no parent conversation by
+default; `inherit_context=true` adds a bounded summary, not the full history.
+Foreground launch waits for results. Background launch returns child IDs and is
+appropriate when the parent can continue useful independent work before using
+`status`, `await`, or `cancel`.
+
+`ChildRunCoordinator` owns the mechanics:
 
 - `launch`, `status`, `await`, and `cancel` actions;
 - single or batch children, optionally parallel;
@@ -787,7 +855,7 @@ attachment observations.
   completion intents, and budgets;
 - memory databases — governed memory facts and lifecycle state, never the
   source of truth for active execution recovery;
-- `scheduler.db` — schedules, target state, execution records, and sensor jobs.
+- `scheduler.db` — schedules, target state, execution records, and source jobs.
 
 The retired `orchestration_id` column has been removed from chat, trace, and
 background current schemas. `run_id`, `parent_run_id`, turn identity, and task

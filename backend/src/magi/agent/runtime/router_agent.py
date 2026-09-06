@@ -1,4 +1,4 @@
-"""RouterAgent: infinite loop dispatcher for sensor events."""
+"""RouterAgent: infinite loop dispatcher for source events."""
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +6,7 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-from ...awareness.sensor_hub import SensorHub
+from ...awareness.source_hub import SourceHub
 from ...core.logger import get_logger
 from .contracts import FactRecord
 from .task_agent_manager import TaskAgentManager
@@ -28,17 +28,17 @@ class RouterAgentStats:
 
 
 class RouterAgent:
-    """Continuously pulls sensor batches and dispatches facts to runtime agents."""
+    """Continuously pulls source batches and dispatches facts to runtime agents."""
 
     def __init__(
         self,
-        sensor_hub: SensorHub,
+        source_hub: SourceHub,
         task_agent_manager: TaskAgentManager,
         batch_size: int = 16,
         poll_timeout_seconds: float = 0.2,
         restart_backoff_seconds: float = 1.0,
     ) -> None:
-        self._sensor_hub = sensor_hub
+        self._source_hub = source_hub
         self._task_agent_manager = task_agent_manager
         self._batch_size = batch_size
         self._poll_timeout_seconds = poll_timeout_seconds
@@ -77,7 +77,7 @@ class RouterAgent:
     async def _loop(self) -> None:
         while self._running:
             try:
-                batch = await self._sensor_hub.get_batch(
+                batch = await self._source_hub.get_batch(
                     max_items=self._batch_size,
                     timeout_seconds=self._poll_timeout_seconds,
                 )
@@ -86,21 +86,21 @@ class RouterAgent:
                 self._stats.batches += 1
                 self._stats.events += len(batch)
 
-                for sensor_event in batch:
+                for source_event in batch:
                     try:
-                        targets = self._task_agent_manager.resolve_targets(sensor_event)
+                        targets = self._task_agent_manager.resolve_targets(source_event)
                         for target_type, target_id in targets:
                             fact = FactRecord(
                                 agent_id=build_task_agent_key(target_type, target_id),
                                 agent_type=get_task_agent_type_value(target_type),
                                 agent_instance_id=target_id,
-                                event_type=sensor_event.event_type,
-                                payload=sensor_event.payload,
-                                timestamp=sensor_event.timestamp,
-                                correlation_id=sensor_event.correlation_id,
-                                user_message_generation=sensor_event.user_message_generation,
-                                delivery_attempt_no=sensor_event.delivery_attempt_no,
-                                runtime_command_id=sensor_event.runtime_command_id,
+                                event_type=source_event.event_type,
+                                payload=source_event.payload,
+                                timestamp=source_event.timestamp,
+                                correlation_id=source_event.correlation_id,
+                                user_message_generation=source_event.user_message_generation,
+                                delivery_attempt_no=source_event.delivery_attempt_no,
+                                runtime_command_id=source_event.runtime_command_id,
                             )
                             success = await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
                             if success:

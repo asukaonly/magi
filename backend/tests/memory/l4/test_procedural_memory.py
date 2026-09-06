@@ -451,3 +451,88 @@ async def test_l4_rebuild_keyset_does_not_skip_after_first_skill_is_deleted(tmp_
 
     assert processed == 2
     assert seen == skill_ids
+
+
+@pytest.mark.asyncio
+async def test_execution_replay_does_not_change_counts_or_breaker(tmp_path):
+    import asyncio
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    event = _tool_event(event_id="execution:1", success=False, timestamp=1710000000.0)
+    event.turn_id = "turn:one"
+    await store.record_memory_event(event)
+    await asyncio.gather(*[store.record_memory_event(event) for _ in range(5)])
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts, failure_count, circuit_breaker_failure_count FROM procedural_skills").fetchone() == (1, 1, 1)
+        assert db.execute("SELECT COUNT(*) FROM l4_execution_traces").fetchone() == (1,)
+    second = _tool_event(event_id="execution:2", success=True, timestamp=1710000001.0)
+    second.turn_id = event.turn_id
+    await store.record_memory_event(second)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts, success_count FROM procedural_skills").fetchone() == (2, 1)
+        assert db.execute("SELECT COUNT(*) FROM l4_execution_traces").fetchone() == (2,)
+
+
+@pytest.mark.asyncio
+async def test_trace_failure_rolls_back_learning(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    event = _tool_event(event_id="execution:rollback", success=True, timestamp=1710000000.0)
+    with monkeypatch.context() as scoped:
+        scoped.setattr("magi.memory.l4.recording.insert_execution_trace", AsyncMock(side_effect=RuntimeError("trace unavailable")))
+        with pytest.raises(RuntimeError, match="trace unavailable"):
+            await store.record_memory_event(event)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM procedural_skills").fetchone() == (0,)
+    await store.record_memory_event(event)
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT total_attempts FROM procedural_skills").fetchone() == (1,)
+
+
+@pytest.mark.asyncio
+async def test_inactive_skill_relearns_but_replay_and_forgetting_do_not_revive(tmp_path):
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.storage.records import soft_delete_skill
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    first = _tool_event(event_id="execution:first", success=True, timestamp=1710000000.0)
+    skill_id = await store.record_memory_event(first)
+    await soft_delete_skill(db_path=store.db_path, skill_id=skill_id, now=1710000001.0)
+    assert await store.record_memory_event(first) is None
+    assert await store.count_skills() == 0
+    second = _tool_event(event_id="execution:second", success=True, timestamp=1710000002.0)
+    assert await store.record_memory_event(second) == skill_id
+    assert await store.count_skills() == 1
+    await store.forget_source_events([first.event_id])
+    assert await store.record_memory_event(first) is None
+    assert await store.count_skills() == 0
+
+
+@pytest.mark.asyncio
+async def test_strategy_publication_consumes_only_sample_and_updates_search(tmp_path):
+    from magi.memory.l4.procedural_memory import L4ProceduralMemoryStore
+    from magi.memory.l4.strategy_extraction import ExtractedStrategy
+    from magi.memory.l4.strategy_operations import persist_strategy, stratified_traces
+    store = L4ProceduralMemoryStore(db_path=str(tmp_path / "l4.db"), vector_enabled=False)
+    skill_id = await store.record_memory_event(_tool_event(event_id="trace:sample", success=True, timestamp=1710000000))
+    sampled = await stratified_traces(db_path=store.db_path, skill_id=skill_id)
+    snapshot = await store._skill_embedding_snapshot(skill_id=skill_id, display_skill_name="browser.open")
+    await store.record_memory_event(_tool_event(event_id="trace:later", success=True, timestamp=1710000001))
+    strategy = ExtractedStrategy(recommended_approach="quartzrecovery", confidence=0.8)
+    assert await persist_strategy(
+        db_path=store.db_path, skill_id=skill_id, strategy=strategy, expected_revision=0,
+        covered_trace_ids=[trace["trace_id"] for trace in sampled],
+    )
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT pending_trace_count, strategy_revision FROM procedural_skills").fetchone() == (1, 1)
+        assert db.execute("SELECT event_id FROM l4_execution_traces WHERE strategy_processed_at IS NULL").fetchall() == [("trace:later",)]
+    assert (await store.query_strategies(query="quartzrecovery", limit=5))[0]["skill_id"] == skill_id
+    assert not await store._skill_embedding_snapshot_is_current(snapshot)
+    assert not await persist_strategy(
+        db_path=store.db_path, skill_id=skill_id,
+        strategy=ExtractedStrategy(recommended_approach="stale overwrite", confidence=0.9),
+        expected_revision=0, covered_trace_ids=[trace["trace_id"] for trace in sampled],
+    )
+    skill = await store.get_skill(skill_name="browser.open", skill_category="tool")
+    assert "quartzrecovery" in skill["optimized_prompt"]
+    assert skill["pending_trace_count"] == 1

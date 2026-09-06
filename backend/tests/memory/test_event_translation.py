@@ -7,7 +7,7 @@ from magi.events.domain_payloads import (
     ToolError,
     UserMessageReceived,
     AssistantResponseProduced,
-    SensorEventEmitted,
+    SourceEventEmitted,
 )
 from magi.memory.event_translation import translate
 from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
@@ -153,20 +153,20 @@ def test_assistant_response_produced_translation():
     assert me.content == "reply"
 
 
-def test_sensor_event_emitted_translation():
-    """C producer (with policy_dict) is the only supported sensor shape."""
-    from magi_plugin_sdk.sensors import SensorMemoryPolicy
+def test_source_event_emitted_translation():
+    """C producer (with policy_dict) is the only supported source shape."""
+    from magi_plugin_sdk.sources import SourceMemoryPolicy
 
-    payload = SensorEventEmitted(
-        sensor_name="screen_time",
+    payload = SourceEventEmitted(
+        source_name="screen_time",
         payload={"app": "chrome", "duration": 60},
         context=TaskContext(None, None, None, "u"),
-        sensor_id="screen_time",
-        policy_dict=SensorMemoryPolicy().to_dict(),
+        source_id="screen_time",
+        policy_dict=SourceMemoryPolicy().to_dict(),
     )
-    me = translate(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload))
+    me = translate(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload))
     assert me is not None
-    assert me.event_type == "SENSOR_EVENT"
+    assert me.event_type == "SOURCE_EVENT"
 
 
 def test_unknown_event_type_returns_none():
@@ -310,15 +310,15 @@ def test_span_completed_task_lifecycle_error_translates_to_task_failed():
     assert me.event_type == EventTypes.TASK_FAILED
 
 
-def test_sensor_main_path_uses_build_sensor_memory_event():
-    """C producer (with policy_dict) goes through build_sensor_memory_event."""
-    from magi_plugin_sdk.sensors import SensorMemoryPolicy
+def test_source_main_path_uses_build_source_memory_event():
+    """C producer (with policy_dict) goes through build_source_memory_event."""
+    from magi_plugin_sdk.sources import SourceMemoryPolicy
 
-    payload = SensorEventEmitted(
-        sensor_name="screen_time",
+    payload = SourceEventEmitted(
+        source_name="screen_time",
         payload={},
         context=TaskContext(None, None, None, "user-1"),
-        sensor_id="screen_time",
+        source_id="screen_time",
         output_dict={
             "source_type": "external_activity",
             "source_item_id": "win-app-foo",
@@ -332,7 +332,7 @@ def test_sensor_main_path_uses_build_sensor_memory_event():
             "content_blocks": [],
         },
         metadata_dict={},
-        policy_dict=SensorMemoryPolicy().to_dict(),
+        policy_dict=SourceMemoryPolicy().to_dict(),
         projection_dict={
             "title": "T",
             "summary": "S",
@@ -345,7 +345,7 @@ def test_sensor_main_path_uses_build_sensor_memory_event():
         idempotency_key="ik-1",
     )
     ev = Event(
-        type=EventTypes.SENSOR_EVENT_EMITTED,
+        type=EventTypes.SOURCE_EVENT_EMITTED,
         data=payload,
         event_id="evt-X",
         correlation_id="corr-X",
@@ -354,7 +354,7 @@ def test_sensor_main_path_uses_build_sensor_memory_event():
     assert me is not None
     assert me.event_id == "evt-X"
     assert me.correlation_id == "corr-X"
-    assert me.event_type == "SENSOR_EVENT"
+    assert me.event_type == "SOURCE_EVENT"
     assert me.source == "external_activity"
     assert me.idempotency_key == "ik-1"
     assert me.user_id == "user-1"

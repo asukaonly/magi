@@ -225,7 +225,7 @@ class L4SkillEmbeddingMixin:
             async with db.execute(
                 f"""
                 SELECT skills.skill_id, skills.skill_name, skills.skill_category,
-                       skills.optimized_prompt, skills.updated_at
+                       skills.optimized_prompt, skills.updated_at, skills.strategy_revision
                 FROM procedural_skills AS skills
                 WHERE skills.skill_id = ?
                   AND {active_skill_predicate("skills")}
@@ -242,6 +242,7 @@ class L4SkillEmbeddingMixin:
             "skill_category": str(row["skill_category"]),
             "optimized_prompt": row["optimized_prompt"],
             "updated_at": float(row["updated_at"]),
+            "strategy_revision": int(row["strategy_revision"]),
         }
 
     async def _skill_embedding_snapshot_is_current(
@@ -253,7 +254,7 @@ class L4SkillEmbeddingMixin:
             async with db.execute(
                 f"""
                 SELECT skills.skill_name, skills.skill_category,
-                       skills.optimized_prompt, skills.updated_at
+                       skills.optimized_prompt, skills.updated_at, skills.strategy_revision
                 FROM procedural_skills AS skills
                 WHERE skills.skill_id = ?
                   AND {active_skill_predicate("skills")}
@@ -279,7 +280,7 @@ class L4SkillEmbeddingMixin:
                 async with db.execute(
                     f"""
                     SELECT skills.skill_name, skills.skill_category,
-                           skills.optimized_prompt, skills.updated_at
+                           skills.optimized_prompt, skills.updated_at, skills.strategy_revision
                     FROM procedural_skills AS skills
                     WHERE skills.skill_id = ?
                       AND {active_skill_predicate("skills")}
@@ -447,4 +448,5 @@ def _skill_embedding_parent_is_current(
         str(current["skill_name"]) == str(snapshot["stored_skill_name"])
         and str(current["skill_category"]) == str(snapshot["skill_category"])
         and current["optimized_prompt"] == snapshot.get("optimized_prompt")
+        and int(current["strategy_revision"]) == int(snapshot["strategy_revision"])
     )

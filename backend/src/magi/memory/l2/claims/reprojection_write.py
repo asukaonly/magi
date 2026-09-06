@@ -187,6 +187,7 @@ async def _load_route_candidate(
             claims.subject_type,
             claims.canonical_predicate,
             claims.fact_kind,
+            claims.polarity,
             claims.object_type,
             claims.object_value_json,
             claims.temporal_cue,
@@ -228,6 +229,7 @@ def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecisi
             subject_type=str(candidate["subject_type"]),
             canonical_predicate=str(candidate["canonical_predicate"]),
             fact_kind=str(candidate["fact_kind"]),
+            polarity=str(candidate["polarity"]),
             object_type=str(candidate["object_type"]),
             object_value=_decode_json(candidate.get("object_value_json")),
             object_entity_id=(

@@ -16,6 +16,7 @@ import { create } from 'zustand';
 export type PluginInstallPanelContext = 'default' | 'first_context' | 'history_import';
 
 export interface PluginInstallDoneInfo {
+  connectionId: string | null;
   pluginId: string;
   sourceName?: string;
   firstContextCount?: number | null;

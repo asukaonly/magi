@@ -170,14 +170,14 @@ class TaskAgent(Generic[ContextT, AdmissionT, CapabilitiesT, RequestT, ResultT])
         self._max_fact_memory = 200
         self._batch_size = 16
         self._task_agent_manager = None
-        self._sensor_hub = None
+        self._source_hub = None
 
-    async def start(self, event_emitter, task_agent_manager=None, sensor_hub=None) -> None:
+    async def start(self, event_emitter, task_agent_manager=None, source_hub=None) -> None:
         if self._running:
             return
         self._event_emitter = event_emitter
         self._task_agent_manager = task_agent_manager
-        self._sensor_hub = sensor_hub
+        self._source_hub = source_hub
         self._running = True
         if not self._fact_queue.empty():
             self._facts_available.set()
@@ -195,7 +195,7 @@ class TaskAgent(Generic[ContextT, AdmissionT, CapabilitiesT, RequestT, ResultT])
                 pass
             self._task = None
         self._task_agent_manager = None
-        self._sensor_hub = None
+        self._source_hub = None
         logger.info(f"TaskAgent stopped | key={self.runtime_key}")
 
     async def add_fact(self, fact: FactRecord) -> bool:

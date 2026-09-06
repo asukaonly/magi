@@ -627,6 +627,7 @@ async def test_entity_rebuild_does_not_overwrite_a_newer_normal_embedding():
                 canonical_name="New Name",
                 entity_type="organization",
                 entity_id="organization:subject",
+                allow_rename=True,
             )
             assert index.items["organization:subject"].vector == [0.0, 1.0]
         finally:

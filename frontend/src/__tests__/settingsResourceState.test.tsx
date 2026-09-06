@@ -10,7 +10,7 @@ const { list, getStatus, getRegistry } = vi.hoisted(() => ({
   getRegistry: vi.fn(),
 }));
 vi.mock('@/api/modules/plugins', async importOriginal => ({ ...await importOriginal<typeof import('@/api/modules/plugins')>(), pluginsApi: { list, getRegistry } }));
-vi.mock('@/api/modules/sensors', () => ({ sensorsApi: { getStatus } }));
+vi.mock('@/api/modules/sources', () => ({ sourcesApi: { getStatus } }));
 vi.mock('react-i18next', async importOriginal => ({ ...await importOriginal<typeof import('react-i18next')>(), useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 

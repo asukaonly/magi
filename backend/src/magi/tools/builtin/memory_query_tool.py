@@ -396,15 +396,10 @@ class MemoryQueryTool(Tool):
         mq: Any,
         payload_dict: Dict[str, Any],
     ) -> dict[str, str] | None:
-        db_path_attr = getattr(mq, "memory_db_path", None) or getattr(mq, "_memory_db_path", None)
-        db_path = db_path_attr if isinstance(db_path_attr, str) else None
-        if not db_path:
-            return None
-
         entity_ids = self._collect_entity_ids(payload_dict)
         if not entity_ids:
             return {}
-        return await mq.get_canonical_names(db_path, entity_ids)
+        return await mq.get_canonical_names(entity_ids)
 
     @staticmethod
     def _collect_entity_ids(payload_dict: Dict[str, Any]) -> set[str]:

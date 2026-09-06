@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from .. import i18n as core_i18n
 

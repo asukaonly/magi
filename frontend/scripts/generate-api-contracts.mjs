@@ -13,8 +13,11 @@ async function generate(domain, names) {
   const ajv = new Ajv({ strict: false, inlineRefs: false, allErrors: false, formats: { 'date-time': true }, code: { source: true, esm: true, lines: true } });
   // Compile ahead of time: desktop WebViews never need eval or a runtime schema compiler.
   ajv.addSchema({ $id: 'magi-config', components: schema.components });
+  // JSON Schema lengths count Unicode code points; keep that helper self-contained in the WebView.
   const validators = header + standaloneCode(ajv, Object.fromEntries(names.map((name) =>
-    ['validate' + name, 'magi-config#/components/schemas/' + name])));
+    ['validate' + name, 'magi-config#/components/schemas/' + name])))
+    .replaceAll('require("ajv/dist/runtime/ucs2length").default',
+      '(function(value) { let length = 0; for (const character of value) { length += 1; } return length; })');
   if (/\brequire\s*\(|\beval\s*\(|\bnew Function\b/.test(validators)) {
     throw new Error('Generated validators must run without Node imports or dynamic evaluation');
   }
@@ -36,7 +39,7 @@ async function generate(domain, names) {
 }
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
-await generate('plugins', ['PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
+await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent']);
 

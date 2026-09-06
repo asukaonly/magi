@@ -128,24 +128,12 @@ class _HostMemoryQueryPort:
             self._service = get_hybrid_retrieval_service()
         return self._service
 
-    @property
-    def memory_db_path(self):
-        """Delegate to HybridRetrievalService.memory_db_path.
-
-        This is the path that memory_query_tool reads when resolving canonical
-        entity names (Phase 5 canonical-names resolution).  The old code
-        reached this path via HybridRetrievalService directly; after the Phase 2
-        cluster-G port indirection the tool must obtain it through the adapter,
-        not from the service object it no longer holds a reference to.
-        """
-        return self._get_service().memory_db_path
-
     async def query(self, request):
         return await self._get_service().query(request)
 
-    async def get_canonical_names(self, db_path, entity_ids):
+    async def get_canonical_names(self, entity_ids):
         from magi.memory.l2.entities.catalog.lookup import get_canonical_names
-        return await get_canonical_names(db_path, entity_ids)
+        return await get_canonical_names(self._get_service().memory_db_path, entity_ids)
 
     def project_historical_recall(
         self,
@@ -167,19 +155,17 @@ class _HostMemoryQueryPort:
         from magi.memory.hybrid_retrieval.models import ConversationTurn
         return ConversationTurn(**kwargs)
 
-    def get_l4_store(self):
-        """Return UnifiedMemoryStore.l4, or None if memory is unavailable.
-
-        Lazy import of get_unified_memory keeps this adapter free of top-level
-        host-memory imports.  The tool receives None on any failure and must
-        handle that gracefully.
-        """
+    async def get_tool_advisory(self, *, tool_names, task_context):
+        """Read advisory data while keeping memory persistence host-owned."""
         try:
             from magi.memory.provider import get_unified_memory
             unified_memory = get_unified_memory()
         except Exception:
-            return None
-        return getattr(unified_memory, "l4", None)
+            return []
+        store = getattr(unified_memory, "l4", None)
+        if store is None:
+            return []
+        return await store.get_tool_advisory(tool_names=tool_names, task_context=task_context)
 
 
 class _HostChatPort:

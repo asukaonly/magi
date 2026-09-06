@@ -18,7 +18,7 @@ class ChatRuntimeForgetResult:
     """Counts produced while removing pending runtime work."""
 
     purged_commands: int = 0
-    purged_sensor_events: int = 0
+    purged_source_events: int = 0
     cancelled_agent: bool = False
 
 
@@ -115,7 +115,7 @@ class ChatRuntimeForgettingCoordinator:
         *,
         runtime_command_queue: Any,
         task_agent_manager: _TaskAgentManagerProtocol | None,
-        sensor_hub: Any | None,
+        source_hub: Any | None,
         chat_read_service: Any,
         delivery_scheduler: Any,
         l0_store: _L0WorkbenchStoreProtocol | None = None,
@@ -124,7 +124,7 @@ class ChatRuntimeForgettingCoordinator:
     ) -> None:
         self._runtime_command_queue = runtime_command_queue
         self._task_agent_manager = task_agent_manager
-        self._sensor_hub = sensor_hub
+        self._source_hub = source_hub
         self._chat_read_service = chat_read_service
         self._delivery_scheduler = delivery_scheduler
         self._l0_store = l0_store
@@ -368,11 +368,11 @@ class ChatRuntimeForgettingCoordinator:
                     "Failed to cancel chat run before message deletion"
                 ) from hold.cancellation_error
 
-            purged_sensor_events = 0
-            if self._sensor_hub is not None:
+            purged_source_events = 0
+            if self._source_hub is not None:
                 for scoped_message_id in message_scope_ids:
-                    purged_sensor_events += int(
-                        await self._sensor_hub.discard_user_message_scope(
+                    purged_source_events += int(
+                        await self._source_hub.discard_user_message_scope(
                             user_id=user_id,
                             session_id=session_id,
                             turn_id=None,
@@ -383,8 +383,8 @@ class ChatRuntimeForgettingCoordinator:
                     *terminal_turn_ids,
                     *replay_turn_ids,
                 ):
-                    purged_sensor_events += int(
-                        await self._sensor_hub.discard_user_message_scope(
+                    purged_source_events += int(
+                        await self._source_hub.discard_user_message_scope(
                             user_id=user_id,
                             session_id=session_id,
                             turn_id=runtime_turn_id,
@@ -393,7 +393,7 @@ class ChatRuntimeForgettingCoordinator:
                     )
             yield ChatRuntimeForgetResult(
                 purged_commands=purged_commands,
-                purged_sensor_events=purged_sensor_events,
+                purged_source_events=purged_source_events,
                 cancelled_agent=hold.cancelled_agent,
             )
             if survivors:
@@ -511,11 +511,11 @@ class ChatRuntimeForgettingCoordinator:
                     or cancelled_agent
                 )
 
-        purged_sensor_events = 0
-        if self._sensor_hub is not None:
+        purged_source_events = 0
+        if self._source_hub is not None:
             for turn_id in normalized_turn_ids:
-                purged_sensor_events += int(
-                    await self._sensor_hub.discard_user_message_scope(
+                purged_source_events += int(
+                    await self._source_hub.discard_user_message_scope(
                         user_id=user_id,
                         session_id=session_id,
                         turn_id=turn_id,
@@ -523,8 +523,8 @@ class ChatRuntimeForgettingCoordinator:
                     )
                 )
             for message_id in sorted(normalized_message_ids):
-                purged_sensor_events += int(
-                    await self._sensor_hub.discard_user_message_scope(
+                purged_source_events += int(
+                    await self._source_hub.discard_user_message_scope(
                         user_id=user_id,
                         session_id=session_id,
                         turn_id=None,
@@ -533,7 +533,7 @@ class ChatRuntimeForgettingCoordinator:
                 )
         return ChatRuntimeForgetResult(
             purged_commands=purged_commands,
-            purged_sensor_events=purged_sensor_events,
+            purged_source_events=purged_source_events,
             cancelled_agent=cancelled_agent,
         )
 
@@ -608,10 +608,10 @@ class ChatRuntimeForgettingCoordinator:
             turn_ids=[turn_id] if turn_id else None,
             reason=reason,
         )
-        purged_sensor_events = 0
-        if self._sensor_hub is not None:
-            purged_sensor_events = int(
-                await self._sensor_hub.discard_user_message_scope(
+        purged_source_events = 0
+        if self._source_hub is not None:
+            purged_source_events = int(
+                await self._source_hub.discard_user_message_scope(
                     user_id=user_id,
                     session_id=session_id,
                     turn_id=turn_id,
@@ -621,7 +621,7 @@ class ChatRuntimeForgettingCoordinator:
 
         return ChatRuntimeForgetResult(
             purged_commands=purged_commands,
-            purged_sensor_events=purged_sensor_events,
+            purged_source_events=purged_source_events,
             cancelled_agent=cancelled_agent,
         )
 

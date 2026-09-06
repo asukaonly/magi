@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -249,20 +248,12 @@ class FunctionCallingToolBatchJournal:
         *,
         evidence: ToolExecutionEvidence,
     ) -> None:
-        payload = self._driver.postprocessor.build_tool_message_payload(
+        message = self._driver.postprocessor.build_tool_message(
             tool_name=record.tool_call.name,
             result=record.result,
+            evidence_ref=evidence.evidence_id,
         )
-        if isinstance(payload, dict):
-            payload["_runtime_evidence_ref"] = evidence.evidence_id
-        self._driver._append_message(
-            state.messages,
-            {
-                "role": "tool",
-                "tool_call_id": record.tool_call.id,
-                "content": json.dumps(payload, ensure_ascii=False),
-            },
-        )
+        self._driver._append_message(state.messages, message)
 
     @staticmethod
     async def _append_child_run_events(

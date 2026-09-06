@@ -1,11 +1,11 @@
-"""Project SensorEventEmitted relation candidates into the knowledge graph."""
+"""Project SourceEventEmitted relation candidates into the knowledge graph."""
 from __future__ import annotations
 import logging
 from typing import Any, Mapping, Optional
 
 from magi.awareness.kg_write_queue import KnowledgeGraphEdgeWrite
 from magi.events.events import Event, EventTypes
-from magi.events.domain_payloads import SensorEventEmitted
+from magi.events.domain_payloads import SourceEventEmitted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 from ..insight_pipeline import ALLOWED_EDGE_TYPES
@@ -24,7 +24,7 @@ class KGSubscriber:
         await self._writer.start()
         try:
             self._sub_id = await self._bus.subscribe(
-                EventTypes.SENSOR_EVENT_EMITTED, self._on_event,
+                EventTypes.SOURCE_EVENT_EMITTED, self._on_event,
             )
         except Exception:
             await self._writer.stop()
@@ -47,7 +47,7 @@ class KGSubscriber:
 
     async def _on_event(self, event: Event) -> None:
         try:
-            payload = expect_payload(event, SensorEventEmitted)
+            payload = expect_payload(event, SourceEventEmitted)
         except PayloadTypeError:
             return
         if not payload.relation_candidates or not payload.allowed_edge_whitelist:

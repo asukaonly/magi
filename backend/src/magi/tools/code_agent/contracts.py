@@ -1,20 +1,31 @@
 """Pydantic contracts shared across code_agent components."""
+
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from ...core.code_agent_artifacts import (
     normalize_code_agent_delegation_id,
 )
 from ...core.chat_assets.paths import normalize_chat_asset_component
 
-
-AdapterName = Literal["claude_code", "codex"]
+AdapterName = Annotated[
+    str,
+    StringConstraints(
+        min_length=1, max_length=256, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$"
+    ),
+]
 RunEventKind = Literal[
-    "stdout", "stderr", "tool_call", "tool_result",
-    "assistant_text", "thinking", "status", "error",
+    "stdout",
+    "stderr",
+    "tool_call",
+    "tool_result",
+    "assistant_text",
+    "thinking",
+    "status",
+    "error",
 ]
 
 
@@ -23,7 +34,7 @@ class _Frozen(BaseModel):
 
 
 class ProbeResult(_Frozen):
-    name: AdapterName
+    name: Literal["claude_code", "codex"]
     installed: bool
     binary_path: Optional[str]
     version: Optional[str]

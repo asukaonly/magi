@@ -191,6 +191,7 @@ const CUSTOM_PERSONA_ID = "11111111-1111-4111-8111-111111111111";
 const stubHistoryImportJob = (quickReady = false): HistoryImportJob => ({
   job_id: "him-onboarding",
   source_type: "markdown",
+  connection_id: null,
   importer_plugin_id: null,
   importer_id: null,
   source_ids: ["journal.md"],
@@ -2037,7 +2038,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(screen.getByText("firstContext.activity.title")).toBeInTheDocument();
 
     const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
-    onDone?.({ pluginId: "chrome-history", firstContextCount: 42 });
+    onDone?.({ pluginId: "chrome-history", connectionId: "chrome-connection", firstContextCount: 42 });
 
     await waitFor(() =>
       expect(

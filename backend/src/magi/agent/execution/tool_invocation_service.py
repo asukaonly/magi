@@ -17,8 +17,9 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
+from magi_plugin_sdk.runtime import InvocationIdentity
 
 from magi.events.domain_payloads import TaskContext, ToolError
 from magi.events.tracing import current_trace_context, start_async_span
@@ -68,6 +69,7 @@ class InvocationContext:
     task_context: TaskContext
     execution_context: Any
     authorize_call: Callable[[ToolCall], Awaitable[Any | None]] | None = None
+    trigger: str = "model"
 
 
 @dataclass(slots=True)
@@ -123,6 +125,10 @@ class ToolInvocationService:
         self._require_effect_ledger = bool(require_effect_ledger)
 
     async def invoke(self, call: ToolCall, ctx: InvocationContext):
+        resolver = getattr(self._tool_registry, "resolve_tool_name", None)
+        canonical_name = resolver(call.name) if callable(resolver) else call.name
+        if isinstance(canonical_name, str) and canonical_name != call.name:
+            call = replace(call, name=canonical_name)
         # NOTE: per the Claude Code Skills spec, ``allowed-tools`` is a
         # *pre-approval* list, not a hard deny list. The pre-approval
         # short-circuit lives in
@@ -130,12 +136,23 @@ class ToolInvocationService:
         # outside the list still flow through the normal permission
         # gateway (kill list, cached rules, user prompts, …) without
         # being summarily blocked here.
+        getter = getattr(self._tool_registry, "get_tool", None)
+        tool = getter(call.name) if callable(getter) else None
+        from magi.plugins.operations import _BoundOperationTool
+
+        operation_tool = tool if isinstance(tool, _BoundOperationTool) else None
+        if operation_tool is not None:
+            ctx = operation_tool.prepare_invocation(ctx)
         runtime = _build_invocation_runtime(ctx)
         hook_result = await _apply_pre_tool_hook(call, runtime)
         if hook_result.denied_result is not None:
             return hook_result.denied_result
         if hook_result.modified_call is not None:
-            if ctx.authorize_call is None and hook_result.modified_call.args != call.args:
+            if (
+                ctx.authorize_call is None
+                and operation_tool is None
+                and hook_result.modified_call.args != call.args
+            ):
                 return _effect_denied_result(
                     call,
                     error_code="HOOK_ARGUMENTS_NOT_AUTHORIZED",
@@ -145,6 +162,11 @@ class ToolInvocationService:
 
         if ctx.authorize_call is not None:
             denial = await ctx.authorize_call(call)
+            if denial is not None:
+                return denial
+
+        if operation_tool is not None:
+            denial = await operation_tool.admit_operation(dict(call.args), ctx)
             if denial is not None:
                 return denial
 
@@ -195,7 +217,9 @@ class ToolInvocationService:
 
         ledger, required = self._resolve_effect_ledger()
         if ledger is None:
-            if required:
+            if required or isinstance(
+                getattr(ctx.execution_context, "invocation", None), InvocationIdentity
+            ):
                 return None, _effect_denied_result(
                     call,
                     error_code="TOOL_EFFECT_LEDGER_UNAVAILABLE",
@@ -221,6 +245,16 @@ class ToolInvocationService:
                 "scope_id": scope_id,
                 "tool_name": canonical_tool_name,
                 "arguments_digest": arguments_digest,
+                "connection_id": getattr(
+                    getattr(ctx.execution_context, "invocation", None),
+                    "connection_id",
+                    None,
+                ),
+                "principal_id": getattr(
+                    getattr(ctx.execution_context, "invocation", None),
+                    "principal_id",
+                    None,
+                ),
             }
         )
         intent = ToolEffectIntent(
@@ -281,7 +315,7 @@ class ToolInvocationService:
         if callable(resolver):
             resolved = resolver()
             if isinstance(resolved, tuple) and len(resolved) == 2:
-                return resolved[0], bool(resolved[1])
+                return resolved[0], bool(resolved[1]) or self._require_effect_ledger
         return None, self._require_effect_ledger
 
 
@@ -507,6 +541,9 @@ def _resolve_effect_scope(
     ctx: InvocationContext,
     runtime: _InvocationRuntime,
 ) -> str | None:
+    identity = getattr(ctx.execution_context, "invocation", None)
+    if isinstance(identity, InvocationIdentity):
+        return f"operation:{identity.connection_id}:{identity.task_id or ctx.task_context.turn_id or identity.invocation_id}"
     task_id = str(ctx.task_context.task_id or "").strip() if ctx.task_context is not None else ""
     if task_id:
         return f"task:{task_id}"
@@ -602,6 +639,8 @@ async def _finish_effect_from_result(
 
 
 def _effect_state_from_result(result: Any) -> ToolEffectState:
+    if getattr(result, "operation_status", None) == "uncertain":
+        return ToolEffectState.UNCERTAIN
     if bool(getattr(result, "success", False)):
         return ToolEffectState.SUCCEEDED
     metadata = getattr(result, "metadata", None)

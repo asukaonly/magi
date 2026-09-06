@@ -32,7 +32,7 @@ def _chrome_event() -> dict[str, object]:
         "content": "Chrome browse Tailscale - subnet routers",
         "timestamp": 1687860000.0,
         "source": "chrome_history",
-        "event_type": "SensorObservation",
+        "event_type": "SourceObservation",
         "author_type": "external",
     }
 
@@ -165,7 +165,7 @@ def test_phase1_drops_ambiguous_external_dialogue_user_self_in_mixed_batch() -> 
     assert phase1.fact_claims == []
 
 
-def test_phase1_leaves_non_dialogue_external_sensor_events_unchanged() -> None:
+def test_phase1_leaves_non_dialogue_external_source_events_unchanged() -> None:
     phase1 = L2Phase1Result(
         fact_claims=[
             L2Phase1FactClaim(

@@ -1,7 +1,7 @@
 """Aggregate repeated INTERESTED_IN graph edges into recent interest assertions.
 
 This fills the gap where ``INTERESTED_IN`` edges (produced by behavioral
-sensors such as chrome_history) never reached the snapshot, whereas
+sources such as chrome_history) never reached the snapshot, whereas
 ``LIKES``/``DISLIKES`` do via ``_add_relation_preferences``.
 
 Design:

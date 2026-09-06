@@ -10,6 +10,7 @@ import pytest
 
 from magi.api.routers.plugins_common import _serialize_contribution
 from magi.api.routers.plugins import plugins_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.plugins import ContributionType, ExtensionFieldSpec, PluginContribution
 
 
@@ -26,6 +27,12 @@ class _FakeManager:
                     "Manifest",
                     (),
                     {
+                        "protocol_version": 2,
+                        "min_sdk_version": "0.2.0",
+                        "execution_mode": "trusted_process",
+                        "settings_fields": [], "settings_actions": [],
+                        "settings_resources": [], "settings_ui_blocks": [],
+                        "activation_flow": None,
                         "plugin_id": "core-tools",
                         "name": "Core Tools",
                         "version": "1.0.0",
@@ -185,7 +192,7 @@ def test_registry_install_rejects_invalid_plugin_id_before_work(
     plugin_id: str,
 ) -> None:
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
 
     response = TestClient(app).post(
         "/api/plugins/install/registry",
@@ -205,7 +212,7 @@ def test_registry_update_rejects_invalid_plugin_id_before_work(
     suffix: str,
 ) -> None:
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
 
     response = TestClient(app).post(
         f"/api/plugins/{plugin_id}/{suffix}",
@@ -215,9 +222,9 @@ def test_registry_update_rejects_invalid_plugin_id_before_work(
     assert response.status_code == 422
 
 
-def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
+def test_plugins_api_lists_declared_package_metadata(monkeypatch):
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
@@ -231,17 +238,10 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     assert response.json()["plugins"][0]["manifest"]["plugin_id"] == "core-tools"
     assert response.json()["plugins"][0]["manifest"]["icon"] == "lucide:wrench"
 
-    update_response = client.put(
-        "/api/plugins/core-tools/settings", json={"updates": {"display.label": "Core"}}
-    )
-    assert update_response.status_code == 200
-    assert update_response.json()["current_settings"]["display.label"] == "Core"
-    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_updated"]
-
 
 def test_plugin_secret_settings_are_write_only(monkeypatch):
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     manager = _FakeManager()
     manager.state.current_settings = {
         "auth.token": "stored-plugin-secret",
@@ -277,30 +277,10 @@ def test_plugin_secret_settings_are_write_only(monkeypatch):
     assert "stored-plugin-secret" not in listed.text
     assert "must-not-be-returned" not in listed.text
 
-    kept = client.put(
-        "/api/plugins/core-tools/settings",
-        json={"updates": {"auth.token": "***", "display.label": "Renamed"}},
-    )
-    assert kept.status_code == 200
-    assert manager.last_settings_updates == {
-        "auth.token": "stored-plugin-secret",
-        "display.label": "Renamed",
-    }
-    assert kept.json()["current_settings"]["auth.token"] == "***"
-    assert "stored-plugin-secret" not in kept.text
-
-    cleared = client.put(
-        "/api/plugins/core-tools/settings",
-        json={"updates": {"auth.token": ""}},
-    )
-    assert cleared.status_code == 200
-    assert manager.last_settings_updates == {"auth.token": ""}
-    assert cleared.json()["current_settings"]["auth.token"] == ""
-
 
 def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     manager = _FakeManager()
     assets = tmp_path / "assets"
     assets.mkdir()
@@ -320,9 +300,9 @@ def test_plugins_api_resolves_packaged_icon(monkeypatch, tmp_path):
     )
 
 
-def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypatch):
+def test_plugins_api_supports_reload_and_rescan(monkeypatch):
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
     monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
@@ -330,18 +310,6 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
         "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
     )
     client = TestClient(app)
-
-    disable_response = client.post("/api/plugins/core-tools/disable")
-    assert disable_response.status_code == 200
-    assert disable_response.json()["enabled"] is False
-
-    settings_response = client.get("/api/plugins/core-tools/settings")
-    assert settings_response.status_code == 200
-    assert settings_response.json()["enabled"] is False
-
-    enable_response = client.post("/api/plugins/core-tools/enable")
-    assert enable_response.status_code == 200
-    assert enable_response.json()["enabled"] is True
 
     reload_response = client.post("/api/plugins/core-tools/reload")
     assert reload_response.status_code == 200
@@ -352,21 +320,8 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
     assert rescan_response.json()["total"] == 1
     assert rescan_response.json()["plugins"][0]["enabled"] is True
 
-    assert manager.calls == [
-        "get:core-tools",
-        "disable:core-tools",
-        "get:core-tools",
-        "get:core-tools",
-        "enable:core-tools",
-        "get:core-tools",
-        "reload:core-tools",
-        "rescan",
-    ]
-    assert queue.refresh_channel_reasons == [
-        "plugin_core-tools_disabled",
-        "plugin_core-tools_enabled",
-        "plugin_core-tools_reloaded",
-    ]
+    assert manager.calls == ["get:core-tools", "reload:core-tools", "rescan"]
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_reloaded"]
 
 
 @pytest.mark.asyncio
@@ -374,16 +329,16 @@ async def test_plugin_lifecycle_route_does_not_block_the_event_loop(
     monkeypatch,
 ) -> None:
     app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
+    app.include_router(_build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
     operation_started = threading.Event()
     release_operation = threading.Event()
 
     class _BlockingManager(_FakeManager):
-        def enable_plugin(self, plugin_id: str):
+        def reload_plugin(self, plugin_id: str):
             operation_started.set()
             if not release_operation.wait(timeout=2):
                 raise TimeoutError("Timed out waiting to release plugin lifecycle operation")
-            return super().enable_plugin(plugin_id)
+            return super().reload_plugin(plugin_id)
 
     manager = _BlockingManager()
     queue = _FakeRuntimeQueue()
@@ -401,7 +356,7 @@ async def test_plugin_lifecycle_route_does_not_block_the_event_loop(
         transport=transport,
         base_url="http://test",
     ) as client:
-        request_task = asyncio.create_task(client.post("/api/plugins/core-tools/enable"))
+        request_task = asyncio.create_task(client.post("/api/plugins/core-tools/reload"))
         deadline = asyncio.get_running_loop().time() + 1
         while not operation_started.is_set():
             assert asyncio.get_running_loop().time() < deadline
@@ -416,77 +371,7 @@ async def test_plugin_lifecycle_route_does_not_block_the_event_loop(
         response = await request_task
 
     assert response.status_code == 200
-    assert queue.refresh_channel_reasons == ["plugin_core-tools_enabled"]
-
-
-def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
-    app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
-    manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    client = TestClient(app)
-
-    response = client.get("/api/plugins/core-tools/settings/resources/calendar_lists")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["plugin_id"] == "core-tools"
-    assert payload["resource_name"] == "calendar_lists"
-    assert payload["resource_type"] == "collection"
-    assert payload["data"]["groups"][0]["items"][0]["item_id"] == "calendar-personal"
-    # Phase 4: the resource route additionally resolves any ``*_i18n_key`` references
-    # in the payload, which involves looking up the plugin package to find its i18n
-    # bundle. That extra ``get_package`` call is expected and harmless when no keys match.
-    assert manager.calls == [
-        "get:core-tools",
-        "resource:core-tools:calendar_lists",
-        "get:core-tools",
-    ]
-
-
-def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
-    app = FastAPI()
-    app.include_router(plugins_router, prefix="/api/plugins")
-    manager = _FakeManager()
-    queue = _FakeRuntimeQueue()
-    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
-    monkeypatch.setattr(
-        "magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue
-    )
-    client = TestClient(app)
-
-    start_response = client.post(
-        "/api/plugins/core-tools/settings/actions/qr_login/start",
-        json={"field_values": {"state_dir": "/tmp/magi"}},
-    )
-    assert start_response.status_code == 200
-    assert start_response.json()["session_id"] == "session-1"
-    assert start_response.json()["status"] == "pending"
-    assert start_response.json()["data"]["qr_code_url"].startswith("data:image/png")
-
-    poll_response = client.post(
-        "/api/plugins/core-tools/settings/actions/qr_login/sessions/session-1/poll",
-        json={"field_values": {"state_dir": "/tmp/magi"}},
-    )
-    assert poll_response.status_code == 200
-    assert poll_response.json()["status"] == "succeeded"
-    assert poll_response.json()["settings_updates"] == {"account_id": "account-1"}
-
-    cancel_response = client.post(
-        "/api/plugins/core-tools/settings/actions/qr_login/sessions/session-1/cancel",
-    )
-    assert cancel_response.status_code == 200
-    assert cancel_response.json()["status"] == "cancelled"
-
-    assert manager.calls == [
-        "get:core-tools",
-        "start_action:core-tools:qr_login:{'state_dir': '/tmp/magi'}",
-        "get:core-tools",
-        "poll_action:core-tools:qr_login:session-1:{'state_dir': '/tmp/magi'}",
-        "get:core-tools",
-        "cancel_action:core-tools:qr_login:session-1",
-    ]
-    assert queue.refresh_channel_reasons == ["plugin_core-tools_settings_action_qr_login_succeeded"]
+    assert queue.refresh_channel_reasons == ["plugin_core-tools_reloaded"]
 
 
 def test_plugins_api_translates_settings_action_metadata():

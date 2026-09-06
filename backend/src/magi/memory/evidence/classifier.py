@@ -232,7 +232,7 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
     _EvidenceRule(
         name="external_source",
         evidence_class=EvidenceClass.EXTERNAL_OBSERVATION,
-        matches=lambda ctx: ctx.author_role in {"external", "sensor"},
+        matches=lambda ctx: ctx.author_role in {"external", "source"},
     ),
     _EvidenceRule(
         name="user_authored_history_archive",
@@ -387,7 +387,7 @@ def _grounding_type(
         return "freeform_generated"
     if event.memory_domain == MemoryDomain.RUNTIME_TELEMETRY or author_role == "system":
         return "observed"
-    if author_role in {"external", "sensor", "tool"}:
+    if author_role in {"external", "source", "tool"}:
         return "observed"
     return "observed"
 
@@ -397,7 +397,7 @@ def _semantic_owner(author_role: str | None) -> str | None:
         return "user"
     if author_role == "assistant":
         return "assistant"
-    if author_role in {"external", "sensor", "system", "tool"}:
+    if author_role in {"external", "source", "system", "tool"}:
         return "world"
     return None
 
@@ -409,7 +409,54 @@ def _normalized(value: str | None) -> str | None:
     return text or None
 
 
+_SELF_STATEMENT = re.compile(r"(?:我|本人|\bI\b|\bmy\b)", re.IGNORECASE)
+_NON_ASSERTION = re.compile(
+    r"^(?:假如|假设|如果|要是|例如|比如|他(?:说|问)|她(?:说|问)|据说|以下.{0,8}(?:引用|示例)|"
+    r"if\b|suppose\b|imagine\b|for example\b)|(?:他说|她说|said|says)\s*[:：]?\s*$",
+    re.IGNORECASE,
+)
+_QUOTED_SPAN = re.compile(r'"[^"\n]*"|“[^”]*”|‘[^’]*’|`[^`]*`')
+
+
+def asserted_evidence_clauses(content: str | None) -> list[str]:
+    """Return statement clauses while preserving question marks and quote scope."""
+    text = str(content or "")
+    text = _QUOTED_SPAN.sub(
+        lambda match: " " * len(match.group()) if _SELF_STATEMENT.search(match.group()) else match.group(),
+        text,
+    )
+    clauses = re.findall(r"[^，,。；;！？!?\n]+[，,。；;！？!?]?", text)
+    runs: list[str] = []
+    current: list[str] = []
+    hypothetical = False
+    for raw_clause in clauses:
+        clause = raw_clause.strip()
+        hypothetical = hypothetical or bool(_NON_ASSERTION.search(clause))
+        asserted = (
+            bool(clause)
+            and not hypothetical
+            and not clause.startswith((">", "```", "~~~"))
+            and _detect_clause_intent(clause.rstrip("，,；;")) is None
+        )
+        if asserted:
+            current.append(clause)
+        elif current:
+            runs.append("".join(current))
+            current = []
+        if clause.endswith(("。", "！", "!", "？", "?", ".")):
+            hypothetical = False
+    if current:
+        runs.append("".join(current))
+    return runs
+
+
 def _detect_user_intent(content: str | None) -> str | None:
+    if any(_SELF_STATEMENT.search(clause) for clause in asserted_evidence_clauses(content)):
+        return None
+    return _detect_clause_intent(content)
+
+
+def _detect_clause_intent(content: str | None) -> str | None:
     """Heuristically detect whether a user message is a question or request.
 
     Returns ``"question"``, ``"request"``, or ``None`` (treat as

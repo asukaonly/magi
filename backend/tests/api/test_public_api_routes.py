@@ -38,18 +38,18 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/personalities/" in paths
     assert "/api/plugins" in paths
     assert "/api/plugins/{plugin_id}/update" in paths
-    assert "/api/plugins/{plugin_id}/settings/resources/{resource_name}" in paths
-    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/start" in paths
+    assert "/api/plugins/connections/{connection_id}/settings/resources/{resource_name}" in paths
+    assert "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/start" in paths
     assert (
-        "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll" in paths
+        "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll" in paths
     )
     assert (
-        "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel"
+        "/api/plugins/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel"
         in paths
     )
-    assert "/api/sensors/status" in paths
-    assert "/api/sensors/{source_name}/flush-state" in paths
-    assert "/api/sensors/{source_name}/authorize" in paths
+    assert "/api/sources/status" in paths
+    assert "/api/sources/{source_name}/flush-state" in paths
+    assert "/api/sources/{source_name}/authorize" in paths
     assert "/api/timeline/viewport" in paths
     assert "/api/timeline/cover" in paths
     assert "/api/timeline/context/{anchor_id}" in paths
@@ -130,7 +130,7 @@ def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None
     assert "/api/metrics/agents" not in paths
     assert "/api/metrics/performance" not in paths
 
-    assert "/api/messages/sensor/status" not in paths
+    assert "/api/messages/source/status" not in paths
     assert "/api/messages/worker/{worker_id}" not in paths
 
     assert "/api/skills/{skill_name}" not in paths

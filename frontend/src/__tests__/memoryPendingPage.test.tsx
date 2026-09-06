@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { MemoryRouter } from 'react-router';
 
 import { MemoryPendingPage } from '@/pages/memory-pages/MemoryPendingPage';
 import { memoryApi } from '@/api/modules/memory';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import { listNotifications, resolveConflict } from '@/api/modules/notifications';
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -268,7 +271,7 @@ const notificationPayload = {
       read_at_ms: null,
     },
   ],
-  unread_count: 1,
+  total: 1, unread_count: 1,
 };
 
 const renderPage = () =>
@@ -283,16 +286,18 @@ describe('MemoryPendingPage', () => {
     vi.clearAllMocks();
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
     vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [], total: 0 });
-    vi.mocked(memoryApi.resolvePendingReview).mockResolvedValue({
-      review_id: 'review-1',
-      status: 'confirmed',
-      version: 2,
-      assertion_id: 'assert-review-1',
+    vi.mocked(memoryApi.resolvePendingReview).mockImplementation(async (id) => {
+      const page = await memoryApi.listPendingReviews();
+      vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: page.items.filter((item) => item.review_id !== id), total: page.total - 1 });
+      return { review_id: id, status: 'confirmed', version: 2, assertion_id: 'assert-review-1' };
     });
-    vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as never);
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({ ...storyPayload, items: storyPayload.items.filter((item) => item.summary_id === 'story-1'), total: 1 } as never);
     vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue(seedPayload as never);
     vi.mocked(listNotifications).mockResolvedValue(notificationPayload as never);
-    vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as never);
+    vi.mocked(memoryApi.submitAssertionFeedback).mockImplementation(async () => {
+      vi.mocked(memoryApi.getDashboard).mockResolvedValue({ ...dashboardPayload, pending_assertions: { items: [], total: 0 } } as never);
+      return dashboardPayload.pending_assertions.items[0] as never;
+    });
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction-1',
@@ -304,17 +309,17 @@ describe('MemoryPendingPage', () => {
       derivation_state: 'completed',
       created: true,
     });
-    vi.mocked(resolveConflict).mockResolvedValue(undefined);
-    vi.mocked(memoryStoriesApi.review).mockResolvedValue({
-      ok: true,
-      summary_id: 'story-1',
-      review_state: 'confirmed',
+    vi.mocked(resolveConflict).mockImplementation(async () => {
+      vi.mocked(listNotifications).mockResolvedValue({ items: [], total: 0, unread_count: 0 });
     });
-    vi.mocked(memoryApi.promoteExperienceSeed).mockResolvedValue({
-      seed_id: 'seed-1',
-      promoted_experience_id: 'exp-1',
-      experience: null,
-    } as never);
+    vi.mocked(memoryStoriesApi.review).mockImplementation(async () => {
+      vi.mocked(memoryStoriesApi.list).mockResolvedValue({ ...storyPayload, items: [], total: 0 } as never);
+      return { ok: true, summary_id: 'story-1', review_state: 'confirmed' };
+    });
+    vi.mocked(memoryApi.promoteExperienceSeed).mockImplementation(async () => {
+      vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue({ ...seedPayload, items: [], total: 0 } as never);
+      return { seed_id: 'seed-1', promoted_experience_id: 'exp-1', experience: null } as never;
+    });
     vi.mocked(memoryApi.rejectExperienceSeed).mockResolvedValue({
       seed_id: 'seed-1',
       seed: { ...seedPayload.items[0], status: 'rejected' },
@@ -338,10 +343,10 @@ describe('MemoryPendingPage', () => {
     expect(screen.getByRole('heading', { name: '整理经历' })).toBeInTheDocument();
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
     expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
-    expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25 });
-    expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(100);
-    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0, surface: 'all' });
-    expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 50, offset: 0 });
+    expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25, pending_offset: 0 });
+    expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(25, 0);
+    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 25, offset: 0, surface: 'all', group: 'memory_update', review_state: 'pending_confirmation' });
+    expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 25, offset: 0 });
     expect(listNotifications).toHaveBeenCalled();
   });
 
@@ -477,6 +482,7 @@ describe('MemoryPendingPage', () => {
     vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: reviews, total: 2 } as never);
     vi.mocked(memoryApi.resolvePendingReview).mockImplementation(async (reviewId) => {
       if (reviewId === 'review-plan-failed') throw new Error('stale review');
+      vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: reviews.filter((item) => item.review_id !== reviewId), total: 1 } as never);
       return { review_id: reviewId, status: 'confirmed', version: 2, assertion_id: 'assert-ok' };
     });
     const user = userEvent.setup();
@@ -693,7 +699,7 @@ describe('MemoryPendingPage', () => {
     } as never);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       ...storyPayload,
-      items: storyPayload.items.filter((item) => item.review_state !== 'pending_confirmation'),
+      items: [], total: 0,
     } as never);
     vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue({
       items: [],
@@ -703,7 +709,7 @@ describe('MemoryPendingPage', () => {
     } as never);
     vi.mocked(listNotifications).mockResolvedValue({
       items: [],
-      unread_count: 0,
+      total: 0, unread_count: 0,
     } as never);
 
     renderPage();
@@ -711,4 +717,63 @@ describe('MemoryPendingPage', () => {
     expect(await screen.findByText('现在没有需要处理的内容')).toBeInTheDocument();
     expect(screen.getByText('Magi 有新的判断或经历线索时会放到这里。')).toBeInTheDocument();
   });
+  it('keeps loaded sections visible and retries only the failed section', async () => {
+    vi.mocked(memoryStoriesApi.list).mockRejectedValueOnce(new Error('unavailable'));
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByRole('alert')).toHaveTextContent('memory.pending.loadFailed');
+    expect(screen.queryByText('现在没有需要处理的内容')).not.toBeInTheDocument();
+    expect(screen.getByText('我整理出一个关于你的判断：「本地优先的记忆系统」')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'memory.pending.retry' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
+    expect(memoryStoriesApi.list).toHaveBeenCalledTimes(2);
+    expect(memoryApi.getDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an item available and reports failed confirmation', async () => {
+    vi.mocked(memoryApi.submitAssertionFeedback).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderPage();
+    const card = await screen.findByTestId('pending-assertion-assert-1');
+    await user.click(within(card).getByRole('button', { name: '是的' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('memory.pending.actionFailed'));
+    expect(card).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '是的' })).toBeEnabled();
+  });
+
+  it('preserves an unsaved edit when saving fails', async () => {
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [{
+      review_id: 'review-edit-failed', kind: 'goal_currentness', reason_code: 'goal_ambiguous_time',
+      proposed: { trait_value: '原来的计划' }, claim_ids: [], version: 1,
+    }], total: 1 } as never);
+    vi.mocked(memoryApi.resolvePendingReview).mockRejectedValueOnce(new Error('offline'));
+    const user = userEvent.setup();
+    renderPage();
+    const card = await screen.findByTestId('pending-review-review-edit-failed');
+    await user.click(within(card).getByRole('button', { name: '修改' }));
+    const input = await screen.findByLabelText('记忆内容');
+    await user.clear(input);
+    await user.type(input, '明年春天去海边');
+    await user.click(screen.getByRole('button', { name: '确认并写入' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('memory.pending.actionFailed'));
+    expect(input).toHaveValue('明年春天去海边');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('loads the next page and refills after confirming without losing the total', async () => {
+    let rows = Array.from({ length: 61 }, (_, i) => ({ ...seedPayload.items[0], seed_id: `seed-${i}`, display_title: `Experience ${i}` }));
+    vi.mocked(memoryApi.listExperienceSeeds).mockImplementation(async (params) => ({ items: rows.slice(params?.offset ?? 0, (params?.offset ?? 0) + (params?.limit ?? 25)), total: rows.length, limit: 25, offset: params?.offset ?? 0 } as never));
+    vi.mocked(memoryApi.promoteExperienceSeed).mockImplementation(async (id) => { rows = rows.filter((row) => row.seed_id !== id); return {} as never; });
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByText('Experience 24')).toBeInTheDocument();
+    expect(screen.queryByText('Experience 25')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'memory.pending.loadMore' }));
+    expect(await screen.findByText('Experience 49')).toBeInTheDocument();
+    await user.click(within(screen.getByTestId('pending-experience-seed-0')).getByRole('button', { name: '保存为经历' }));
+    expect(await screen.findByText('Experience 50')).toBeInTheDocument();
+    expect(screen.queryByText('Experience 0')).not.toBeInTheDocument();
+  });
+
 });

@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover
     pytest = _PytestFallback()
 
 from magi.awareness.event_emitter import RuntimeEventEmitter
-from magi.awareness.sensor_hub import SensorHub
+from magi.awareness.source_hub import SourceHub
 from magi.agent.runtime import (
     AgentRuntime,
     RouterAgent,
@@ -86,16 +86,16 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
     await message_bus.start()
 
     fake_chat = _FakeChatTaskAgent()
-    sensor_hub = SensorHub(message_bus=message_bus)
+    source_hub = SourceHub(message_bus=message_bus)
     event_emitter = RuntimeEventEmitter(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: fake_chat
         if agent_id == "s-chat"
         else _FakeChatTaskAgent(),
     )
-    router_agent = RouterAgent(sensor_hub=sensor_hub, task_agent_manager=manager)
+    router_agent = RouterAgent(source_hub=source_hub, task_agent_manager=manager)
     orchestrator = AgentRuntime(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         router_agent=router_agent,
         task_agent_manager=manager,
         event_emitter=event_emitter,
@@ -129,12 +129,12 @@ async def test_runtime_chat_dispatch_from_message_bus(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sensor_hub_preserves_runtime_namespace_from_user_messages(tmp_path):
+async def test_source_hub_preserves_runtime_namespace_from_user_messages(tmp_path):
     message_bus = InMemoryMessageBusBackend(num_workers=1)
     await message_bus.start()
 
-    sensor_hub = SensorHub(message_bus=message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus=message_bus)
+    await source_hub.start()
     try:
         await message_bus.publish(
             Event(
@@ -151,9 +151,9 @@ async def test_sensor_hub_preserves_runtime_namespace_from_user_messages(tmp_pat
             )
         )
 
-        batch = await sensor_hub.get_batch(timeout_seconds=0.4)
+        batch = await source_hub.get_batch(timeout_seconds=0.4)
     finally:
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
 
     assert len(batch) == 1

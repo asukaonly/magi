@@ -28,9 +28,9 @@ if TYPE_CHECKING:
     )
     from ..location.store import LocationSampleStore
     from ..scheduler.service import SchedulerService
-    from ..plugins import PluginManager, PluginProjectionService, SensorRegistry
+    from ..plugins import PluginManager, PluginProjectionService, SourceRegistry
     from ..runtime_trace import RuntimeTraceStore
-    from ..awareness.scheduler_contrib import SensorSchedulerContrib
+    from ..awareness.scheduler_contrib import SourceSchedulerContrib
 
 
 def _create_chat_read_service():
@@ -102,11 +102,11 @@ class Container(containers.DeclarativeContainer):
     manual_entry_weather_fetcher: providers.Singleton[WeatherFetcher] = providers.Singleton(object)
     history_import_service: providers.Singleton[Any] = providers.Singleton(object)
     scheduler_service: providers.Singleton[SchedulerService] = providers.Singleton(object)
-    sensor_scheduler_contrib: providers.Singleton[SensorSchedulerContrib] = providers.Singleton(object)
+    source_scheduler_contrib: providers.Singleton[SourceSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)
     plugin_manager: providers.Singleton[PluginManager] = providers.Singleton(object)
     plugin_projection_service: providers.Singleton[PluginProjectionService] = providers.Singleton(object)
-    sensor_registry: providers.Singleton[SensorRegistry] = providers.Singleton(object)
+    source_registry: providers.Singleton[SourceRegistry] = providers.Singleton(object)
     runtime_trace_store: providers.Singleton[RuntimeTraceStore] = providers.Singleton(object)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)

@@ -73,7 +73,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_skills",
         "runtime_mcp",
         "runtime_personality",
-        "runtime_sensor_hub",
+        "runtime_source_hub",
         "runtime_context",
         "runtime_agent_core",
         "runtime_chat_delivery_recovery",
@@ -82,10 +82,10 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_timeline",
         "runtime_timeline_subscriber",
         "runtime_kg_subscriber",
-        "runtime_sensor_state_subscriber",
+        "runtime_source_state_subscriber",
         "runtime_scheduler",
         "runtime_agent_schedule_registration",
-        "runtime_sensor_scheduler",
+        "runtime_source_scheduler",
         "runtime_exports",
         "runtime_control_plane",
         "runtime_l1_maintenance_scheduler",
@@ -101,12 +101,12 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_channels",
         "runtime_outreach",
         "runtime_scheduler_activation",
-        "runtime_sensor_sync_executor",
+        "runtime_source_sync_executor",
     ]
 
 
 def test_background_schedule_execution_starts_after_all_registrations() -> None:
-    """Keep schedule writers ahead of scheduler and sensor execution."""
+    """Keep schedule writers ahead of scheduler and source execution."""
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.bootstrap.lifecycle import ModuleLifecycleOrchestrator
@@ -118,7 +118,7 @@ def test_background_schedule_execution_starts_after_all_registrations() -> None:
         )._modules
     ]
     activation_index = resolved.index("runtime_scheduler_activation")
-    executor_index = resolved.index("runtime_sensor_sync_executor")
+    executor_index = resolved.index("runtime_source_sync_executor")
     schedule_registrations = [
         name
         for name in resolved
@@ -252,22 +252,22 @@ def test_awareness_lifecycle_owns_action_runtime_primitives() -> None:
     source = awareness_lifecycle.read_text(encoding="utf-8")
 
     assert "core.runtime.action_executor" not in source
-    assert "from ..core.runtime import SensorHub" not in source
-    assert "from .sensor_hub import SensorHub" in source
+    assert "from ..core.runtime import SourceHub" not in source
+    assert "from .source_hub import SourceHub" in source
 
 
-def test_bootstrap_builder_uses_sensor_module_name() -> None:
+def test_bootstrap_builder_uses_source_module_name() -> None:
     builder_source = (Path(__file__).resolve().parents[2] / "src/magi/bootstrap/builder.py").read_text(encoding="utf-8")
     runtime_worker_builder_source = (
         Path(__file__).resolve().parents[2] / "src/magi/bootstrap/runtime_worker_builder.py"
     ).read_text(encoding="utf-8")
     awareness_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/lifecycle.py").read_text(encoding="utf-8")
 
-    assert "SensorHubModule" not in builder_source
-    assert "SensorHubModule" not in runtime_worker_builder_source
-    assert "class SensorHubModule" not in awareness_source
-    assert "SensorModule" in runtime_worker_builder_source
-    assert "class SensorModule" in awareness_source
+    assert "SourceHubModule" not in builder_source
+    assert "SourceHubModule" not in runtime_worker_builder_source
+    assert "class SourceHubModule" not in awareness_source
+    assert "SourceModule" in runtime_worker_builder_source
+    assert "class SourceModule" in awareness_source
     assert "core.runtime.action_scheduler_contrib" not in awareness_source
 
 
@@ -290,13 +290,13 @@ def test_agent_runtime_package_owns_runtime_primitives() -> None:
     assert "FactRecord" in source
 
 
-def test_awareness_package_owns_sensor_hub_and_sensor_event() -> None:
-    """Verify awareness package owns sensor-hub runtime primitives."""
-    sensor_hub_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/sensor_hub.py").read_text(encoding="utf-8")
+def test_awareness_package_owns_source_hub_and_source_event() -> None:
+    """Verify awareness package owns source-hub runtime primitives."""
+    source_hub_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/source_hub.py").read_text(encoding="utf-8")
     contracts_source = (Path(__file__).resolve().parents[2] / "src/magi/awareness/contracts.py").read_text(encoding="utf-8")
 
-    assert "class SensorHub" in sensor_hub_source
-    assert "class SensorEvent" in contracts_source
+    assert "class SourceHub" in source_hub_source
+    assert "class SourceEvent" in contracts_source
 
 
 def test_core_package_does_not_export_legacy_loop_runtime() -> None:

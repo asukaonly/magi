@@ -1,7 +1,7 @@
 """Pinned capture-time full-text payloads for L1 events (RFC #56 P3).
 
 ``l1_event_payload`` is a sparse satellite of ``fact_events``: a row exists only
-when a sensor pinned the capture-time full text for an event (obsidian note body,
+when a source pinned the capture-time full text for an event (obsidian note body,
 git commit text). ``fact_events.content`` stays a lean summary — cheap for the
 timeline and L1 reads — while L2 reads the frozen full body from here at
 extraction time and falls back to ``content`` when no row exists.

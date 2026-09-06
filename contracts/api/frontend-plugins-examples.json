@@ -1,6 +1,7 @@
 {
   "action": {
     "action_id": "connect",
+    "connection_id": "fixture-connection",
     "data": {},
     "message": "Connected",
     "plugin_id": "fixture-source",
@@ -9,6 +10,16 @@
       "configured": true
     },
     "status": "succeeded"
+  },
+  "connection": {
+    "connection_id": "fixture-connection",
+    "credential_refs": {},
+    "display_name": "Fixture account",
+    "enabled": false,
+    "plugin_id": "fixture-source",
+    "readiness": [],
+    "revision": 0,
+    "settings": {}
   },
   "job": {
     "created_at_ms": 1000,
@@ -25,8 +36,8 @@
     "result": {
       "contributions": [
         {
-          "contribution_id": "sensor",
-          "contribution_type": "sensor",
+          "contribution_id": "source",
+          "contribution_type": "source",
           "description": "",
           "display_name": "Source",
           "fields": [
@@ -39,6 +50,8 @@
               "key": "enabled",
               "label": "Enabled",
               "label_translated": null,
+              "maximum": null,
+              "minimum": null,
               "options": [],
               "order": 0,
               "path_kind": null,
@@ -64,23 +77,32 @@
       "last_error": null,
       "loaded": true,
       "manifest": {
+        "activation_flow": null,
         "author": "Magi",
         "capabilities": [],
         "consented_capabilities": null,
         "contribution_types": [
-          "sensor"
+          "source"
         ],
         "description": "Contract fixture",
         "display_group": null,
+        "execution_mode": "restricted_process",
         "icon": "",
         "manifest_path": "/fixture/plugin.toml",
+        "min_sdk_version": "0.2.0",
         "name": "Fixture source",
         "official": false,
         "plugin_dir": "/fixture",
         "plugin_id": "fixture-source",
+        "protocol_version": 2,
+        "settings_actions": [],
+        "settings_fields": [],
+        "settings_resources": [],
+        "settings_ui_blocks": [],
         "source": "local",
         "version": "1.0.0"
       },
+      "package_sha256": null,
       "trusted": true
     },
     "stage": "completed",
@@ -92,8 +114,8 @@
       {
         "contributions": [
           {
-            "contribution_id": "sensor",
-            "contribution_type": "sensor",
+            "contribution_id": "source",
+            "contribution_type": "source",
             "description": "",
             "display_name": "Source",
             "fields": [
@@ -106,6 +128,8 @@
                 "key": "enabled",
                 "label": "Enabled",
                 "label_translated": null,
+                "maximum": null,
+                "minimum": null,
                 "options": [],
                 "order": 0,
                 "path_kind": null,
@@ -131,23 +155,32 @@
         "last_error": null,
         "loaded": true,
         "manifest": {
+          "activation_flow": null,
           "author": "Magi",
           "capabilities": [],
           "consented_capabilities": null,
           "contribution_types": [
-            "sensor"
+            "source"
           ],
           "description": "Contract fixture",
           "display_group": null,
+          "execution_mode": "restricted_process",
           "icon": "",
           "manifest_path": "/fixture/plugin.toml",
+          "min_sdk_version": "0.2.0",
           "name": "Fixture source",
           "official": false,
           "plugin_dir": "/fixture",
           "plugin_id": "fixture-source",
+          "protocol_version": 2,
+          "settings_actions": [],
+          "settings_fields": [],
+          "settings_resources": [],
+          "settings_ui_blocks": [],
           "source": "local",
           "version": "1.0.0"
         },
+        "package_sha256": null,
         "trusted": true
       }
     ],
@@ -156,8 +189,8 @@
   "package": {
     "contributions": [
       {
-        "contribution_id": "sensor",
-        "contribution_type": "sensor",
+        "contribution_id": "source",
+        "contribution_type": "source",
         "description": "",
         "display_name": "Source",
         "fields": [
@@ -170,6 +203,8 @@
             "key": "enabled",
             "label": "Enabled",
             "label_translated": null,
+            "maximum": null,
+            "minimum": null,
             "options": [],
             "order": 0,
             "path_kind": null,
@@ -195,23 +230,32 @@
     "last_error": null,
     "loaded": true,
     "manifest": {
+      "activation_flow": null,
       "author": "Magi",
       "capabilities": [],
       "consented_capabilities": null,
       "contribution_types": [
-        "sensor"
+        "source"
       ],
       "description": "Contract fixture",
       "display_group": null,
+      "execution_mode": "restricted_process",
       "icon": "",
       "manifest_path": "/fixture/plugin.toml",
+      "min_sdk_version": "0.2.0",
       "name": "Fixture source",
       "official": false,
       "plugin_dir": "/fixture",
       "plugin_id": "fixture-source",
+      "protocol_version": 2,
+      "settings_actions": [],
+      "settings_fields": [],
+      "settings_resources": [],
+      "settings_ui_blocks": [],
       "source": "local",
       "version": "1.0.0"
     },
+    "package_sha256": null,
     "trusted": true
   }
 }

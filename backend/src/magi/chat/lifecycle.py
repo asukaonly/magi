@@ -273,7 +273,7 @@ class ChatForgettingRecoveryModule(LifecycleModule):
         runtime = ChatRuntimeForgettingCoordinator(
             runtime_command_queue=runtime_command_queue,
             task_agent_manager=None,
-            sensor_hub=None,
+            source_hub=None,
             chat_read_service=chat_read_service,
             delivery_scheduler=ChatUserTurnDeliveryScheduler(
                 chat_store=chat_store,

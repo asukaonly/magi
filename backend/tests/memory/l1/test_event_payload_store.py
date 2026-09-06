@@ -1,6 +1,6 @@
 """L1 pinned-payload satellite store (RFC #56 P3).
 
-A sparse auxiliary table of fact_events: a row exists only when a sensor pinned
+A sparse auxiliary table of fact_events: a row exists only when a source pinned
 the capture-time full text for an event (obsidian note body, git commit text).
 L1.content stays a lean summary; L2 reads the full body from here at extraction.
 """

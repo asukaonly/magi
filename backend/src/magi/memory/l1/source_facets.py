@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import aiosqlite
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent

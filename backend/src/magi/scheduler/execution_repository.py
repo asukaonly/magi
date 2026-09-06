@@ -44,7 +44,7 @@ class SchedulerExecutionRepositoryMixin:
             await db.commit()
         return execution_id
 
-    async def complete_execution_success(
+    async def complete_execution_result(
         self,
         execution_id: str,
         *,
@@ -62,7 +62,8 @@ class SchedulerExecutionRepositoryMixin:
             await db.execute(
                 """
                 UPDATE schedule_executions
-                SET status = 'success',
+                SET status = ?,
+                    error = ?,
                     finished_at = ?,
                     duration_ms = ?,
                     result_message = ?,
@@ -73,12 +74,14 @@ class SchedulerExecutionRepositoryMixin:
                 WHERE execution_id = ?
                 """,
                 (
+                    "success" if result.success else "failed",
+                    None if result.success else str(result.stats.get("error") or result.message or "Scheduled execution failed"),
                     finished_at,
                     max(0.0, (finished_at - started_at) * 1000.0),
                     result.message,
                     json.dumps(result.stats, ensure_ascii=False),
-                    result.next_cursor,
-                    result.watermark_ts,
+                    result.next_cursor if result.success else None,
+                    result.watermark_ts if result.success else None,
                     scheduler_job_id,
                     execution_id,
                 ),
@@ -149,24 +152,26 @@ class SchedulerExecutionRepositoryMixin:
             rows = await cursor.fetchall()
         results: list[dict[str, object]] = []
         for row in rows:
-            results.append({
-                "execution_id": str(row[0]),
-                "schedule_id": str(row[1]),
-                "target_type": str(row[2]),
-                "target_key": str(row[3]),
-                "manual": bool(row[4]),
-                "status": str(row[5]),
-                "started_at": float(row[6]) if row[6] is not None else None,
-                "finished_at": float(row[7]) if row[7] is not None else None,
-                "duration_ms": float(row[8]) if row[8] is not None else None,
-                "result_message": str(row[9]) if row[9] is not None else None,
-                "error": str(row[10]) if row[10] is not None else None,
-                "stats": json.loads(str(row[11]) or "{}"),
-                "next_cursor": str(row[12]) if row[12] is not None else None,
-                "watermark_ts": float(row[13]) if row[13] is not None else None,
-                "scheduler_job_id": str(row[14]) if row[14] is not None else None,
-                "created_at": float(row[15]) if row[15] is not None else None,
-            })
+            results.append(
+                {
+                    "execution_id": str(row[0]),
+                    "schedule_id": str(row[1]),
+                    "target_type": str(row[2]),
+                    "target_key": str(row[3]),
+                    "manual": bool(row[4]),
+                    "status": str(row[5]),
+                    "started_at": float(row[6]) if row[6] is not None else None,
+                    "finished_at": float(row[7]) if row[7] is not None else None,
+                    "duration_ms": float(row[8]) if row[8] is not None else None,
+                    "result_message": str(row[9]) if row[9] is not None else None,
+                    "error": str(row[10]) if row[10] is not None else None,
+                    "stats": json.loads(str(row[11]) or "{}"),
+                    "next_cursor": str(row[12]) if row[12] is not None else None,
+                    "watermark_ts": float(row[13]) if row[13] is not None else None,
+                    "scheduler_job_id": str(row[14]) if row[14] is not None else None,
+                    "created_at": float(row[15]) if row[15] is not None else None,
+                }
+            )
         return results
 
 

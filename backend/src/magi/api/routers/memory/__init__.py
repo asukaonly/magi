@@ -18,7 +18,7 @@ from .dependencies import (
     _resolve_scenario_llm_pool,
     _resolve_runtime_command_queue,
     _resolve_scheduler_service,
-    _resolve_sensor_hub,
+    _resolve_source_hub,
     _resolve_task_agent_manager,
     _resolve_unified_memory,
     _synthesize_eval_answer,
@@ -44,6 +44,7 @@ from .l2 import forget_routes as _l2_forget_routes  # noqa: F401
 from .l2 import knowledge_routes as _l2_knowledge_routes  # noqa: F401
 from .l2 import operations_routes as _l2_operations_routes  # noqa: F401
 from .l2 import review_routes as _l2_review_routes  # noqa: F401
+from .l2 import consolidation_routes as _l2_consolidation_routes  # noqa: F401
 from .l2 import status_routes as _l2_status_routes  # noqa: F401
 from .l3 import routes as _l3_routes  # noqa: F401
 from .l4 import routes as _l4_routes  # noqa: F401
@@ -75,10 +76,12 @@ __all__ = [
     "_resolve_scenario_llm_pool",
     "_resolve_runtime_command_queue",
     "_resolve_scheduler_service",
-    "_resolve_sensor_hub",
+    "_resolve_source_hub",
     "_resolve_task_agent_manager",
     "_resolve_unified_memory",
     "_synthesize_eval_answer",
     "get_chat_read_service",
     "logger",
 ]
+
+from . import quality_routes  # noqa: F401,E402

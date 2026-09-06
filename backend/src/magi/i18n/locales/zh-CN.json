@@ -152,26 +152,26 @@
       "context_not_found": "未找到时间线上下文"
     }
   },
-  "sensors": {
+  "sources": {
     "sync": {
-      "loop_mismatch": "传感器同步失败：内部运行时事件循环不匹配。",
-      "internal_runtime_error": "传感器同步失败：内部运行时错误。"
+      "loop_mismatch": "数据来源同步失败：内部运行时事件循环不匹配。",
+      "internal_runtime_error": "数据来源同步失败：内部运行时错误。"
     },
     "errors": {
-      "source_not_found": "未找到传感器来源",
-      "pull_sync_unsupported": "传感器来源不支持拉取同步：{source_name}",
+      "source_not_found": "未找到数据来源来源",
+      "pull_sync_unsupported": "数据来源来源不支持拉取同步：{source_name}",
       "setup_required": "请先配置此来源再同步：{source_name}",
       "source_disabled": "请先启用此来源再同步：{source_name}",
-      "state_flush_unsupported": "传感器来源不支持状态清理：{source_name}",
+      "state_flush_unsupported": "数据来源来源不支持状态清理：{source_name}",
       "scheduler_unavailable": "调度器不可用",
-      "authorization_unsupported": "传感器来源不支持授权",
-      "authorization_invalid_response": "传感器来源授权返回了无效响应"
+      "authorization_unsupported": "数据来源来源不支持授权",
+      "authorization_invalid_response": "数据来源来源授权返回了无效响应"
     }
   },
   "schedules": {
     "errors": {
       "not_found": "未找到计划任务",
-      "sensor_schedule_settings_only": "传感器计划任务必须在传感器设置中更新",
+      "source_schedule_settings_only": "数据来源计划任务必须在数据来源设置中更新",
       "service_unavailable": "调度服务不可用",
       "target_busy": "计划任务目标正忙",
       "activity_not_cancellable": "该活动不可取消"

@@ -182,7 +182,7 @@ class ChatTaskAgent(
         return ChatTaskAgentRuntimeCallbacks(
             get_event_emitter=lambda: self._event_emitter,
             get_task_agent_manager=lambda: self._task_agent_manager,
-            get_sensor_hub=lambda: self._sensor_hub,
+            get_source_hub=lambda: self._source_hub,
             max_fact_memory=self._max_fact_memory,
             release_pending_inputs=self._release_pending_inputs,
             deliver_final_response=self._deliver_final_response_from_postprocess,

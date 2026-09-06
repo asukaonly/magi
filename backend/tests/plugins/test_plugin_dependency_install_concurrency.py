@@ -18,7 +18,7 @@ from magi.plugins.manager import PluginManager
 from magi.plugins.package_identity import compute_package_sha256
 from magi.plugins.registry_client import PluginRegistrySnapshot
 from magi.plugins.registry_provenance import registry_install_fingerprint
-from magi.plugins.sensors import SensorRegistry
+from magi.plugins.sources import SourceRegistry
 from magi.tools.registry import ToolRegistry
 
 REGISTRY_URL = "https://example.test/registry.json"
@@ -117,6 +117,9 @@ def _write_package(dest_root: Path, entry: PluginRegistryEntry) -> Path:
     (plugin_dir / "plugin.toml").write_text(
         f"""
 [plugin]
+protocol_version = 2
+min_sdk_version = "0.2.0"
+execution_mode = "trusted_process"
 id = "{entry.plugin_id}"
 name = "{entry.name}"
 version = "{entry.version}"
@@ -225,8 +228,8 @@ def _manager(
     monkeypatch.setattr(package_files, "user_plugins_root", lambda: user_root)
     manager = PluginManager(
         tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
+        source_registry=SourceRegistry(),
+        request_source_schedule_refresh=lambda: None,
         search_paths=[user_root],
     )
     original_install = manager.install_plugin_from_directory

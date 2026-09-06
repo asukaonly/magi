@@ -1141,6 +1141,140 @@ async def test_execute_with_tools_blocks_unchanged_failed_tool_retry() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_with_tools_repairs_parameters_after_failed_batch() -> None:
+    invalid = ToolResult(
+        success=False,
+        error="Invalid date range. Use YYYY-MM-DD for the search dates.",
+        error_code="INVALID_PARAMETERS",
+    )
+    registry = _SequencedToolRegistry(
+        results={
+            "web-search": [
+                invalid,
+                invalid,
+                ToolResult(success=True, data={"results": [{"title": "Verified report"}]}),
+            ],
+        }
+    )
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+    calls = [
+        [
+            ToolCall(
+                id=f"invalid_{index}",
+                name="web-search",
+                arguments={"query": query, "start_date": "2026-13-01"},
+            )
+            for index, query in enumerate(("CEO announcement", "CEO successor"))
+        ],
+        [
+            ToolCall(
+                id="corrected",
+                name="web-search",
+                arguments={
+                    "query": "CEO announcement",
+                    "start_date": "2026-01-01",
+                    "end_date": "2026-09-05",
+                },
+            )
+        ],
+        [],
+    ]
+    llm_requests: list[dict[str, Any]] = []
+
+    async def call_llm(**kwargs: Any) -> dict[str, Any]:
+        llm_requests.append(kwargs)
+        tool_calls = calls.pop(0)
+        content = "The report was verified." if not tool_calls else ""
+        return _parameter_repair_response(tool_calls, content)
+
+    executor._call_llm_with_tools = call_llm  # type: ignore[method-assign]
+    result = await run_agent(
+        executor,
+        turn=UserTurnInput(text="Verify the announcement", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["web-search"],
+        user_id="u1",
+        max_iterations=5,
+    )
+
+    assert result.status == "completed"
+    assert result.content == "The report was verified."
+    assert len(registry.calls) == 3
+    assert registry.calls[-1][1]["start_date"] == "2026-01-01"
+    assert any(tool["function"]["name"] == "web-search" for tool in llm_requests[1]["tools"])
+    assert [failure["error_code"] for failure in result.tool_failures] == [
+        "INVALID_PARAMETERS", "INVALID_PARAMETERS",
+    ]
+    repaired = next(
+        message for message in llm_requests[-1]["messages"]
+        if message.get("tool_call_id") == "corrected"
+    )
+    assert "Verified report" in repaired["content"]
+    assert not repaired["content"].startswith("{")
+    assert repaired["_magi_tool_result"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_with_tools_bounds_repeated_parameter_repairs() -> None:
+    invalid = ToolResult(
+        success=False,
+        error="Invalid date range. Use YYYY-MM-DD for the search dates.",
+        error_code="INVALID_PARAMETERS",
+    )
+    registry = _SequencedToolRegistry(results={"web-search": [invalid] * 5})
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=registry,  # type: ignore[arg-type]
+    )
+    call_count = 0
+
+    async def call_llm(**kwargs: Any) -> dict[str, Any]:
+        nonlocal call_count
+        call_count += 1
+        return _parameter_repair_response([
+            ToolCall(
+                id=f"invalid_{call_count}",
+                name="web-search",
+                arguments={"query": f"query {call_count}", "start_date": "2026-13-01"},
+            ),
+        ])
+
+    executor._call_llm_with_tools = call_llm  # type: ignore[method-assign]
+    result = await run_agent(
+        executor,
+        turn=UserTurnInput(text="Verify the announcement", attachments=[], user_id=None, session_id=None),
+        system_prompt="sys",
+        selected_tools=["web-search"],
+        user_id="u1",
+        max_iterations=10,
+    )
+
+    assert result.status == "failed"
+    assert result.failure_reason == "INVALID_TOOL_CALL"
+    assert call_count == 3
+    assert len(registry.calls) == 3
+
+
+def _parameter_repair_response(
+    tool_calls: list[ToolCall], content: str = ""
+) -> dict[str, Any]:
+    message: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        message["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+            }
+            for call in tool_calls
+        ]
+    return {"content": content, "assistant_message": message, "tool_calls": tool_calls}
+
+
+@pytest.mark.asyncio
 async def test_execute_with_tools_stops_repeated_blocker_across_success() -> None:
     invalid_worker_result = ToolResult(
         success=False,

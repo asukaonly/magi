@@ -16,8 +16,8 @@ class RuntimeCommandType(str, Enum):
     USER_MESSAGE = "user_message"
     REFRESH_LLM_CONFIG = "refresh_llm_config"
     REFRESH_CHANNELS = "refresh_channels"
-    SENSOR_SYNC = "sensor_sync"
-    SENSOR_STATE_FLUSH = "sensor_state_flush"
+    SOURCE_SYNC = "source_sync"
+    SOURCE_STATE_FLUSH = "source_state_flush"
 
 
 @dataclass(slots=True)
@@ -72,11 +72,12 @@ class RefreshChannelsCommand:
 
 
 @dataclass(slots=True)
-class SensorSyncCommand:
-    """Persisted command payload for queueing a sensor sync on the runtime worker."""
+class SourceSyncCommand:
+    """Persisted command payload for queueing a source sync on the runtime worker."""
 
     source: str
     source_name: str
+    connection_id: str
     first_context: bool = False
     sync_mode: str = "latest"
     backfill_scope: str | None = None
@@ -86,18 +87,27 @@ class SensorSyncCommand:
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
 
+    def __post_init__(self) -> None:
+        if not self.connection_id.strip():
+            raise ValueError("Source command requires an explicit connection identity")
+
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(slots=True)
-class SensorStateFlushCommand:
-    """Persisted command payload for flushing in-progress sensor state."""
+class SourceStateFlushCommand:
+    """Persisted command payload for flushing in-progress source state."""
 
     source: str
     source_name: str
+    connection_id: str
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
+
+    def __post_init__(self) -> None:
+        if not self.connection_id.strip():
+            raise ValueError("Source command requires an explicit connection identity")
 
     def to_payload(self) -> dict[str, Any]:
         return asdict(self)
@@ -132,17 +142,17 @@ class RuntimeQueuedCommand:
         """Convert the queued payload into a typed config-refresh command."""
         return RefreshLLMConfigCommand(**self.payload)
 
-    def as_sensor_sync(self) -> SensorSyncCommand:
-        """Convert the queued payload into a typed sensor-sync command."""
-        return SensorSyncCommand(**self.payload)
+    def as_source_sync(self) -> SourceSyncCommand:
+        """Convert the queued payload into a typed source-sync command."""
+        return SourceSyncCommand(**self.payload)
 
     def as_refresh_channels(self) -> RefreshChannelsCommand:
         """Convert the queued payload into a typed channel-refresh command."""
         return RefreshChannelsCommand(**self.payload)
 
-    def as_sensor_state_flush(self) -> SensorStateFlushCommand:
-        """Convert the queued payload into a typed sensor-state-flush command."""
-        return SensorStateFlushCommand(**self.payload)
+    def as_source_state_flush(self) -> SourceStateFlushCommand:
+        """Convert the queued payload into a typed source-state-flush command."""
+        return SourceStateFlushCommand(**self.payload)
 
 
 @dataclass(slots=True)

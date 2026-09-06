@@ -766,8 +766,7 @@ def test_list_experience_seeds_returns_readable_candidates(public_app_with_mock_
     assert item["evidence_count"] == 2
     l2.list_experience_seeds.assert_awaited_once_with(
         status="candidate",
-        limit=12,
-        offset=0,
+        limit=None,
     )
 
 

@@ -71,7 +71,7 @@ MIGRATION_TARGETS: tuple[MigrationTarget, ...] = (
     MigrationTarget(name="emotional", db_path=lambda rp: rp.emotional_db_path),
     MigrationTarget(name="growth_memory", db_path=lambda rp: rp.growth_db_path),
     MigrationTarget(name="scheduler", db_path=lambda rp: rp.scheduler_db_path),
-    MigrationTarget(name="sensor_state", db_path=lambda rp: rp.sensor_state_db_path),
+    MigrationTarget(name="source_state", db_path=lambda rp: rp.source_state_db_path),
     MigrationTarget(
         name="background_tasks",
         db_path=lambda rp: rp.background_tasks_db_path,

@@ -109,6 +109,7 @@ def _evidence(
 
 def _identity(
     *,
+    user_id: str | None = None,
     supporting_event_ids: list[str],
     antecedent_event_ids: list[str] | None = None,
     evidence_mode: str = "direct",
@@ -116,7 +117,7 @@ def _identity(
     return derive_claim_identity_key(
         extractor_contract_version=1,
         evidence_rule_version=1,
-        user_id=None,
+        user_id=user_id,
         subject_ref="user:self",
         subject_type="user",
         canonical_predicate="LIKES",
@@ -843,3 +844,21 @@ async def test_stale_attempt_cannot_write_projection_targets(l2_store_with_schem
     ]
     assert await l2_store_with_schema.list_current_assertions(entity_id="user:u1") == []
     assert await l2_store_with_schema.list_entity_facets(entity_id="topic:jazz") == []
+
+
+@pytest.mark.asyncio
+async def test_quality_counts_latest_routes_and_excludes_forgotten_claims(l2_store_with_schema):
+    from dataclasses import replace
+    store = l2_store_with_schema
+    leases = await _running_leases(store, ['evt-quality'])
+    claim = replace(_claim_input(identity_key=_identity(supporting_event_ids=['evt-quality'], user_id='local_user'), projection_leases=leases), user_id='local_user')
+    stored = await store.upsert_grounded_claim(claim=claim, evidence=[_evidence('evt-quality')], projection_leases=leases)
+    for target_id, outcome in [('old', 'deferred'), ('new', 'accepted')]:
+        await store.append_claim_projection_outcome(ProjectionOutcomeInput(claim_id=stored['claim_id'], attempt_key=derive_projection_attempt_key(leases), target_kind='route', target_id=target_id, route_contract_version=7, outcome=outcome, reason_code=outcome), projection_leases=leases)
+    counts = await store.get_claim_quality_counts(user_id='local_user')
+    assert counts['grounded_claims'] == counts['routed_claims'] == 1
+    assert counts['route_by_disposition'] == {'accepted': 1}
+    assert (await store.get_claim_quality_counts(user_id='another'))['grounded_claims'] == 0
+    await store.forget_source_events(['evt-quality'], reason='user_request')
+    assert (await store.get_claim_quality_counts(user_id='local_user'))['grounded_claims'] == 0
+    assert (await store.get_claim_quality_counts(user_id='local_user'))['route_by_reason'] == {}

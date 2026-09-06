@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+from magi.utils.runtime import RuntimePaths
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -19,16 +23,21 @@ def _patch_plugin_runtime(
     def build_plugin_runtime(
         *,
         tool_registry: object,
-        request_sensor_schedule_refresh: Callable[[], None],
+        request_source_schedule_refresh: Callable[[], None],
         activate_enabled: bool,
+        **collaborators,
     ) -> SimpleNamespace:
         del tool_registry
-        captured["request_sensor_schedule_refresh"] = request_sensor_schedule_refresh
+        captured["request_source_schedule_refresh"] = request_source_schedule_refresh
         captured["activate_enabled"] = activate_enabled
         return SimpleNamespace(
-            plugin_manager=object(),
+            plugin_manager=SimpleNamespace(
+                scan=lambda **kwargs: captured.update(scan_called=True),
+                activate_enabled_plugins=lambda: captured.update(activated=True),
+                shutdown=AsyncMock(),
+            ),
             plugin_projection_service=object(),
-            sensor_registry=object(),
+            source_registry=object(),
             history_importer_registry=object(),
         )
 
@@ -55,11 +64,9 @@ def _patch_plugin_runtime(
     return captured
 
 
-def _runtime_context() -> RuntimeBootstrapContext:
+def _runtime_context(tmp_path: Path) -> RuntimeBootstrapContext:
     context = RuntimeBootstrapContext()
-    context.core.runtime_paths = SimpleNamespace(
-        message_queue_db_path="/tmp/plugin-lifecycle-message-queue.db"
-    )
+    context.core.runtime_paths = RuntimePaths(base_dir=tmp_path)
 
     async def read_current_clear_generation() -> int:
         return 0
@@ -78,16 +85,17 @@ def _runtime_context() -> RuntimeBootstrapContext:
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
+async def test_source_schedule_refresh_from_worker_runs_on_runtime_loop(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     runtime_thread_id = threading.get_ident()
     refresh_called = asyncio.Event()
     refresh_thread_ids: list[int] = []
 
-    def refresh_sensor_schedule() -> None:
+    def refresh_source_schedule() -> None:
         asyncio.get_running_loop()
         refresh_thread_ids.append(threading.get_ident())
         refresh_called.set()
@@ -95,19 +103,20 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=refresh_sensor_schedule,
+        request_source_schedule_refresh=refresh_source_schedule,
     )
     await module.init()
 
     assert "clear_checked" in captured
-    assert captured["activate_enabled"] is True
+    assert captured["activate_enabled"] is False
+    assert captured["activated"] is True
     assert context.plugins.user_content_clear_coordinator is not None
 
     worker_errors: list[BaseException] = []
 
     def request_from_worker() -> None:
         try:
-            captured["request_sensor_schedule_refresh"]()
+            captured["request_source_schedule_refresh"]()
         except BaseException as exc:  # pragma: no cover - asserted below
             worker_errors.append(exc)
 
@@ -121,36 +130,38 @@ async def test_sensor_schedule_refresh_from_worker_runs_on_runtime_loop(
 
 
 @pytest.mark.asyncio
-async def test_sensor_schedule_refresh_is_ignored_after_shutdown(
+async def test_source_schedule_refresh_is_ignored_after_shutdown(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
+        request_source_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
     )
     await module.init()
     await module.shutdown()
 
-    await asyncio.to_thread(captured["request_sensor_schedule_refresh"])
+    await asyncio.to_thread(captured["request_source_schedule_refresh"])
     await asyncio.sleep(0)
 
     assert refresh_thread_ids == []
 
 
-def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
+def test_source_schedule_refresh_is_ignored_after_runtime_loop_closes(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     refresh_thread_ids: list[int] = []
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
+        request_source_schedule_refresh=lambda: refresh_thread_ids.append(threading.get_ident()),
     )
     runtime_loop = asyncio.new_event_loop()
     runtime_loop.run_until_complete(module.init())
@@ -160,7 +171,7 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
 
     def request_from_worker() -> None:
         try:
-            captured["request_sensor_schedule_refresh"]()
+            captured["request_source_schedule_refresh"]()
         except BaseException as exc:  # pragma: no cover - asserted below
             worker_errors.append(exc)
 
@@ -176,21 +187,22 @@ def test_sensor_schedule_refresh_is_ignored_after_runtime_loop_closes(
 @pytest.mark.asyncio
 async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
     captured["clear_pending"] = True
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
 
     with pytest.raises(RuntimeError, match="no durable recovery owner"):
         await module.init()
 
     assert captured["clear_checked"] is True
-    assert context.agent_runtime.sensor_sync_executor is None
+    assert context.agent_runtime.source_sync_executor is None
 
 
 @pytest.mark.asyncio
@@ -198,10 +210,11 @@ async def test_pending_plugin_clear_without_a_transaction_blocks_startup(
 async def test_pending_desktop_transaction_allows_runtime_to_start_for_recovery(
     monkeypatch: pytest.MonkeyPatch,
     plugin_checkpoint_pending: bool,
+    tmp_path: Path,
 ) -> None:
     captured = _patch_plugin_runtime(monkeypatch)
     captured["clear_pending"] = plugin_checkpoint_pending
-    context = _runtime_context()
+    context = _runtime_context(tmp_path)
 
     async def read_pending_state() -> SimpleNamespace:
         return SimpleNamespace(
@@ -215,7 +228,7 @@ async def test_pending_desktop_transaction_allows_runtime_to_start_for_recovery(
     module = PluginSystemModule(
         context,
         tool_registry=object(),
-        request_sensor_schedule_refresh=lambda: None,
+        request_source_schedule_refresh=lambda: None,
     )
 
     await module.init()

@@ -140,7 +140,7 @@ def _external_activity_event(
         correlation_id=event_id,
         timestamp=timestamp,
         created_at=created_at,
-        event_type="SensorActivity",
+        event_type="SourceActivity",
         source=source,
         source_item_id=event_id,
         memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -394,6 +394,10 @@ async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_pat
             "newer-occurrence": 300.0,
             "older-occurrence": 100.0,
         }
+        records = await store.get_evidence_records(["older-occurrence", "missing"])
+        assert set(records) == {"older-occurrence"}
+        assert records["older-occurrence"]["content"] == "Older imported event"
+        assert records["older-occurrence"]["source"] == "chrome_history"
     finally:
         await store.shutdown()
 
@@ -1036,7 +1040,7 @@ def test_l1_event_store_search_text_includes_projection_retrieval_terms():
         correlation_id="corr-search-1",
         timestamp=1711504800.0,
         created_at=1711504801.0,
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         source="netease_music",
         source_item_id="track-1",
         memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -1086,7 +1090,7 @@ async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tm
             correlation_id="corr-first",
             timestamp=now,
             created_at=now,
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             source="chrome_history",
             source_item_id="181979-181982",
             memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -1110,7 +1114,7 @@ async def test_l1_event_store_deduplicates_by_source_type_and_idempotency_key(tm
             correlation_id="corr-second",
             timestamp=now + 1,
             created_at=now + 1,
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             source="chrome_history",
             source_item_id="181979-181982",
             memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -1316,7 +1320,7 @@ async def test_l1_event_store_query_events_filters_by_source_item_and_idempotenc
             correlation_id="corr-source-1",
             timestamp=100.0,
             created_at=101.0,
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             source="chrome_history",
             source_item_id="chrome:181979-181982",
             idempotency_key="default:181979-181982",
@@ -1340,7 +1344,7 @@ async def test_l1_event_store_query_events_filters_by_source_item_and_idempotenc
             correlation_id="corr-source-2",
             timestamp=200.0,
             created_at=201.0,
-            event_type="SENSOR_EVENT",
+            event_type="SOURCE_EVENT",
             source="chrome_history",
             source_item_id="chrome:190000-190001",
             idempotency_key="default:190000-190001",

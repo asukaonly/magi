@@ -68,7 +68,7 @@ def test_batch_trigger_type_is_valid() -> None:
         # A resume of an already-detached run keeps the historical MANUAL bucket.
         ("background_resume", BackgroundTaskTriggerSource.MANUAL),
         # Machine-originated runs have no dedicated bucket → neutral RULE.
-        ("sensor_event", BackgroundTaskTriggerSource.RULE),
+        ("source_event", BackgroundTaskTriggerSource.RULE),
         ("agent_self", BackgroundTaskTriggerSource.RULE),
         ("child_run_completed", BackgroundTaskTriggerSource.RULE),
         ("batch", BackgroundTaskTriggerSource.RULE),

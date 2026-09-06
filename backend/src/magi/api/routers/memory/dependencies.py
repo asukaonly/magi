@@ -211,14 +211,14 @@ def _resolve_scheduler_service():
         return None
 
 
-def _resolve_sensor_hub():
-    override = _package_override("_resolve_sensor_hub", _resolve_sensor_hub)
+def _resolve_source_hub():
+    override = _package_override("_resolve_source_hub", _resolve_source_hub)
     if override is not None:
         return override()
     runtime = get_optional_agent_runtime()
     if runtime is None:
         return None
-    return runtime.get_sensor_hub()
+    return runtime.get_source_hub()
 
 
 def _resolve_outreach_service():

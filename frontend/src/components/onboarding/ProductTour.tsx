@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateAvailableSensors";
+import { EmptyStateAvailableSources } from "@/components/empty-state/EmptyStateAvailableSources";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
 export interface ProductTourProps {
@@ -68,7 +68,7 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
         </DialogHeader>
 
         <div className="px-7 py-5">
-          <EmptyStateAvailableSensors
+          <EmptyStateAvailableSources
             variant="first_context"
             showBrowseAll={false}
             panelContext="first_context"

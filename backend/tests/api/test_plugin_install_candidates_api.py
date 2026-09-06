@@ -36,7 +36,7 @@ def _archive_bytes(
         else ""
     )
     manifest = (
-        "[plugin]\n"
+        '[plugin]\nprotocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\n'
         f'id = "{plugin_id}"\n'
         'name = "Demo Plugin"\n'
         'version = "1.0.0"\n'

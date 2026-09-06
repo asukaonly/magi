@@ -3,6 +3,152 @@ export type paths = Record<string, never>;
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActivationFirstContextSpec
+         * @description First-run-only activation settings applied by the host onboarding UI.
+         */
+        ActivationFirstContextSpec: {
+            /**
+             * Max Items Per Sync
+             * @default null
+             */
+            max_items_per_sync: number | null;
+            /** Settings Overrides */
+            settings_overrides: {
+                [key: string]: unknown;
+            };
+        };
+        /** ActivationFlowResponse */
+        ActivationFlowResponse: {
+            /**
+             * Authorize On Confirm
+             * @default false
+             */
+            authorize_on_confirm: boolean;
+            /**
+             * Cancel Label
+             * @default Cancel
+             */
+            cancel_label: string;
+            /**
+             * Cancel Label Translated
+             * @default null
+             */
+            cancel_label_translated: string | null;
+            /** Configured Key */
+            configured_key: string;
+            /**
+             * Confirm Label
+             * @default Confirm
+             */
+            confirm_label: string;
+            /**
+             * Confirm Label Translated
+             * @default null
+             */
+            confirm_label_translated: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Description Translated
+             * @default null
+             */
+            description_translated: string | null;
+            /** Enabled Key */
+            enabled_key: string;
+            /** Fields */
+            fields: components["schemas"]["ExtensionFieldResponse"][];
+            /** @default null */
+            first_context: components["schemas"]["ActivationFirstContextSpec"] | null;
+            /** Title */
+            title: string;
+            /**
+             * Title Translated
+             * @default null
+             */
+            title_translated: string | null;
+        };
+        /**
+         * ActivationFlowSpec
+         * @description Declarative first-enable flow rendered by the host UI.
+         */
+        ActivationFlowSpec: {
+            /**
+             * Authorize On Confirm
+             * @default false
+             */
+            authorize_on_confirm: boolean;
+            /**
+             * Cancel Label
+             * @default Cancel
+             */
+            cancel_label: string;
+            /** Configured Key */
+            configured_key: string;
+            /**
+             * Confirm Label
+             * @default Confirm
+             */
+            confirm_label: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Enabled Key */
+            enabled_key: string;
+            /** Fields */
+            fields: components["schemas"]["ExtensionFieldSpec"][];
+            /** @default null */
+            first_context: components["schemas"]["ActivationFirstContextSpec"] | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * CapabilityReadiness
+         * @description One authoritative capability state shared by UI and execution admission.
+         */
+        CapabilityReadiness: {
+            /** Capability Id */
+            capability_id: string;
+            /** Connection Id */
+            connection_id: string;
+            /**
+             * Message
+             * @default null
+             */
+            message: string | null;
+            /**
+             * Reason Code
+             * @default null
+             */
+            reason_code: string | null;
+            status: components["schemas"]["ConnectionStatus"];
+        };
+        /**
+         * ConnectionStatus
+         * @enum {string}
+         */
+        ConnectionStatus: "disabled" | "setup_required" | "auth_required" | "ready" | "degraded" | "failed";
+        /**
+         * ContributionType
+         * @description Supported plugin contribution categories.
+         * @enum {string}
+         */
+        ContributionType: "operation" | "provider" | "tool" | "source" | "channel" | "skill" | "hook" | "history_importer";
+        /**
+         * ExtensionFieldOption
+         * @description Option for a select-like plugin field.
+         */
+        ExtensionFieldOption: {
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
         /** ExtensionFieldOptionResponse */
         ExtensionFieldOptionResponse: {
             /** Label */
@@ -51,6 +197,16 @@ export interface components {
              * @default null
              */
             label_translated: string | null;
+            /**
+             * Maximum
+             * @default null
+             */
+            maximum: number | null;
+            /**
+             * Minimum
+             * @default null
+             */
+            minimum: number | null;
             /** Options */
             options: components["schemas"]["ExtensionFieldOptionResponse"][];
             /**
@@ -102,15 +258,89 @@ export interface components {
             type: "switch" | "select" | "input" | "number" | "secret" | "path" | "tags";
         };
         /**
+         * ExtensionFieldSpec
+         * @description Declarative settings field exposed by a plugin contribution.
+         */
+        ExtensionFieldSpec: {
+            /**
+             * Default
+             * @default null
+             */
+            default: unknown;
+            /**
+             * Depends On Key
+             * @default null
+             */
+            depends_on_key: string | null;
+            /** Depends On Values */
+            depends_on_values: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Maximum
+             * @default null
+             */
+            maximum: number | null;
+            /**
+             * Minimum
+             * @default null
+             */
+            minimum: number | null;
+            /** Options */
+            options: components["schemas"]["ExtensionFieldOption"][];
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+            /**
+             * Path Kind
+             * @default null
+             */
+            path_kind: ("file" | "directory") | null;
+            /**
+             * Placeholder
+             * @default null
+             */
+            placeholder: string | null;
+            /**
+             * Required
+             * @default false
+             */
+            required: boolean;
+            /**
+             * Section
+             * @default general
+             */
+            section: string;
+            /**
+             * Surface
+             * @default extensions
+             * @enum {string}
+             */
+            surface: "extensions" | "tools" | "timeline";
+            /**
+             * Type
+             * @default input
+             * @enum {string}
+             */
+            type: "switch" | "select" | "input" | "number" | "secret" | "path" | "tags";
+        };
+        JsonValue: unknown;
+        /**
          * PluginCapability
-         * @description A single self-declared capability shown to the user for install-time
-         *     consent. NOT enforced at runtime (no sandbox this iteration).
+         * @description A requested capability, never a grant of runtime authority.
          *
-         *     ``capability`` is a permissive ``str`` for forward-compat: a newer
-         *     registry may declare a capability an older app doesn't know, and that must
-         *     not break parsing. The authoritative known set is enforced at build time in
-         *     magi-plugins ``scripts/build-registry.py`` and rendered with a known map +
-         *     graceful fallback in the frontend. Known values: screen_recording,
+         *     The host authorizes access for a connection separately. Unknown operations
+         *     cannot become executable merely by appearing in a package declaration.
+         *     The publication policy validates the supported set: screen_recording,
          *     accessibility, calendar, photos, contacts, system_media, filesystem_read,
          *     filesystem_write, network, subprocess.
          */
@@ -133,6 +363,42 @@ export interface components {
             };
             /** Scope */
             scope: string[];
+        };
+        /** PluginConnectionResponse */
+        PluginConnectionResponse: {
+            /** Connection Id */
+            connection_id: string;
+            /** Credential Refs */
+            credential_refs: {
+                [key: string]: string;
+            };
+            /** Display Name */
+            display_name: string;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Plugin Id */
+            plugin_id: string;
+            /** Readiness */
+            readiness: components["schemas"]["CapabilityReadiness"][];
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /** Settings */
+            settings: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /** PluginConnectionsResponse */
+        PluginConnectionsResponse: {
+            /** Connections */
+            connections: components["schemas"]["PluginConnectionResponse"][];
+            /** Total */
+            total: number;
         };
         /** PluginContributionResponse */
         PluginContributionResponse: {
@@ -291,6 +557,8 @@ export interface components {
         };
         /** PluginManifestResponse */
         PluginManifestResponse: {
+            /** @default null */
+            activation_flow: components["schemas"]["ActivationFlowResponse"] | null;
             /** Author */
             author: string;
             /** Capabilities */
@@ -307,12 +575,19 @@ export interface components {
             /** @default null */
             display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
+             * Execution Mode
+             * @enum {string}
+             */
+            execution_mode: "restricted_process" | "trusted_process";
+            /**
              * Icon
              * @default
              */
             icon: string;
             /** Manifest Path */
             manifest_path: string;
+            /** Min Sdk Version */
+            min_sdk_version: string;
             /** Name */
             name: string;
             /** Official */
@@ -321,6 +596,19 @@ export interface components {
             plugin_dir: string;
             /** Plugin Id */
             plugin_id: string;
+            /**
+             * Protocol Version
+             * @constant
+             */
+            protocol_version: 2;
+            /** Settings Actions */
+            settings_actions: components["schemas"]["PluginSettingsActionResponse"][];
+            /** Settings Fields */
+            settings_fields: components["schemas"]["ExtensionFieldResponse"][];
+            /** Settings Resources */
+            settings_resources: components["schemas"]["PluginSettingsResourceSpec"][];
+            /** Settings Ui Blocks */
+            settings_ui_blocks: components["schemas"]["PluginSettingsUiBlockResponse"][];
             /** Source */
             source: string;
             /** Version */
@@ -346,11 +634,18 @@ export interface components {
             /** Loaded */
             loaded: boolean;
             manifest: components["schemas"]["PluginManifestResponse"];
+            /**
+             * Package Sha256
+             * @default null
+             */
+            package_sha256: string | null;
             /** Trusted */
             trusted: boolean;
         };
         /** PluginRegistryEntryResponse */
         PluginRegistryEntryResponse: {
+            /** @default null */
+            activation_flow: components["schemas"]["ActivationFlowSpec"] | null;
             /**
              * Author
              * @default
@@ -377,6 +672,11 @@ export interface components {
             /** @default null */
             display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
             /**
+             * Execution Mode
+             * @enum {string}
+             */
+            execution_mode: "restricted_process" | "trusted_process";
+            /**
              * Homepage
              * @default
              */
@@ -396,10 +696,7 @@ export interface components {
              * @default null
              */
             installed_version: string | null;
-            /**
-             * Min Sdk Version
-             * @default
-             */
+            /** Min Sdk Version */
             min_sdk_version: string;
             /** Name */
             name: string;
@@ -422,10 +719,23 @@ export interface components {
             /** Plugin Id */
             plugin_id: string;
             /**
+             * Protocol Version
+             * @constant
+             */
+            protocol_version: 2;
+            /**
              * Repository
              * @default
              */
             repository: string;
+            /** Settings Actions */
+            settings_actions: components["schemas"]["PluginSettingsActionSpec"][];
+            /** Settings Fields */
+            settings_fields: components["schemas"]["ExtensionFieldSpec"][];
+            /** Settings Resources */
+            settings_resources: components["schemas"]["PluginSettingsResourceSpec"][];
+            /** Settings Ui Blocks */
+            settings_ui_blocks: components["schemas"]["SettingsUIBlockSpec"][];
             /**
              * Update Available
              * @default false
@@ -446,10 +756,100 @@ export interface components {
              */
             registry_version: "4";
         };
+        /** PluginSettingsActionResponse */
+        PluginSettingsActionResponse: {
+            /** Action Id */
+            action_id: string;
+            /**
+             * Button Label
+             * @default Run
+             */
+            button_label: string;
+            /**
+             * Button Label Translated
+             * @default null
+             */
+            button_label_translated: string | null;
+            /**
+             * Contribution Id
+             * @default
+             */
+            contribution_id: string;
+            /** @default null */
+            contribution_type: components["schemas"]["ContributionType"] | null;
+            /**
+             * Depends On Key
+             * @default null
+             */
+            depends_on_key: string | null;
+            /** Depends On Values */
+            depends_on_values: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Description Translated
+             * @default null
+             */
+            description_translated: string | null;
+            /**
+             * Destructive
+             * @default false
+             */
+            destructive: boolean;
+            /** Label */
+            label: string;
+            /**
+             * Label Translated
+             * @default null
+             */
+            label_translated: string | null;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+            /**
+             * Persist Settings On Success
+             * @default false
+             */
+            persist_settings_on_success: boolean;
+            /**
+             * Poll Interval Ms
+             * @default 2000
+             */
+            poll_interval_ms: number;
+            /**
+             * Presentation
+             * @default inline
+             * @enum {string}
+             */
+            presentation: "inline" | "qr_code";
+            /**
+             * Requires Enabled
+             * @default true
+             */
+            requires_enabled: boolean;
+            /**
+             * Surface
+             * @default extensions
+             * @enum {string}
+             */
+            surface: "extensions" | "tools" | "timeline";
+            /**
+             * Timeout Ms
+             * @default 480000
+             */
+            timeout_ms: number;
+        };
         /** PluginSettingsActionRunResponse */
         PluginSettingsActionRunResponse: {
             /** Action Id */
             action_id: string;
+            /** Connection Id */
+            connection_id: string;
             /** Data */
             data: {
                 [key: string]: unknown;
@@ -471,10 +871,91 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "succeeded" | "failed" | "cancelled";
+            status: "pending" | "succeeded" | "failed" | "cancelled" | "uncertain";
+        };
+        /**
+         * PluginSettingsActionSpec
+         * @description Host-rendered settings action declared by a plugin.
+         *
+         *     The host owns routing and UI chrome, while the plugin owns the action
+         *     implementation and any provider-specific protocol details.
+         */
+        PluginSettingsActionSpec: {
+            /** Action Id */
+            action_id: string;
+            /**
+             * Button Label
+             * @default Run
+             */
+            button_label: string;
+            /**
+             * Contribution Id
+             * @default
+             */
+            contribution_id: string;
+            /** @default null */
+            contribution_type: components["schemas"]["ContributionType"] | null;
+            /**
+             * Depends On Key
+             * @default null
+             */
+            depends_on_key: string | null;
+            /** Depends On Values */
+            depends_on_values: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Destructive
+             * @default false
+             */
+            destructive: boolean;
+            /** Label */
+            label: string;
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+            /**
+             * Persist Settings On Success
+             * @default false
+             */
+            persist_settings_on_success: boolean;
+            /**
+             * Poll Interval Ms
+             * @default 2000
+             */
+            poll_interval_ms: number;
+            /**
+             * Presentation
+             * @default inline
+             * @enum {string}
+             */
+            presentation: "inline" | "qr_code";
+            /**
+             * Requires Enabled
+             * @default true
+             */
+            requires_enabled: boolean;
+            /**
+             * Surface
+             * @default extensions
+             * @enum {string}
+             */
+            surface: "extensions" | "tools" | "timeline";
+            /**
+             * Timeout Ms
+             * @default 480000
+             */
+            timeout_ms: number;
         };
         /** PluginSettingsResourceResponse */
         PluginSettingsResourceResponse: {
+            /** Connection Id */
+            connection_id: string;
             /**
              * Data
              * @default null
@@ -487,12 +968,133 @@ export interface components {
             /** Resource Type */
             resource_type: string;
         };
+        /**
+         * PluginSettingsResourceSpec
+         * @description Read-only settings resource exposed by a plugin.
+         */
+        PluginSettingsResourceSpec: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /**
+             * Requires Enabled
+             * @default true
+             */
+            requires_enabled: boolean;
+            /** Resource Name */
+            resource_name: string;
+            /**
+             * Resource Type
+             * @default collection
+             * @enum {string}
+             */
+            resource_type: "collection" | "channel_status";
+        };
+        /** PluginSettingsUiBlockResponse */
+        PluginSettingsUiBlockResponse: {
+            /** Block Id */
+            block_id: string;
+            /**
+             * Depends On Key
+             * @default null
+             */
+            depends_on_key: string | null;
+            /** Depends On Values */
+            depends_on_values: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Description Translated
+             * @default null
+             */
+            description_translated: string | null;
+            /**
+             * Presentation
+             * @default list
+             * @enum {string}
+             */
+            presentation: "calendar_list" | "list" | "permission_status";
+            /** Resource Name */
+            resource_name: string;
+            /** Title */
+            title: string;
+            /**
+             * Title Translated
+             * @default null
+             */
+            title_translated: string | null;
+            /**
+             * Type
+             * @default resource_picker
+             * @constant
+             */
+            type: "resource_picker";
+            /** Value Key */
+            value_key: string;
+        };
         /** PluginsListResponse */
         PluginsListResponse: {
             /** Plugins */
             plugins: components["schemas"]["PluginPackageResponse"][];
             /** Total */
             total: number;
+        };
+        /**
+         * SettingsUIBlockSpec
+         * @description Host-rendered custom settings block declared by a plugin.
+         *
+         *     Blocks are read-only or selection widgets whose underlying data comes from a
+         *     ``PluginSettingsResourceSpec``. The ``presentation`` hint tells the host
+         *     which widget to render. New presentations may be added over time as the
+         *     plugin platform matures.
+         *
+         *     ``value_key`` is only meaningful for blocks that bind a selection back to a
+         *     settings field (e.g. ``calendar_list``). Read-only presentations like
+         *     ``permission_status`` ignore it; plugins should still pass a stable value
+         *     such as ``"_readonly"`` to keep the schema stable.
+         */
+        SettingsUIBlockSpec: {
+            /** Block Id */
+            block_id: string;
+            /**
+             * Depends On Key
+             * @default null
+             */
+            depends_on_key: string | null;
+            /** Depends On Values */
+            depends_on_values: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Presentation
+             * @default list
+             * @enum {string}
+             */
+            presentation: "calendar_list" | "list" | "permission_status";
+            /** Resource Name */
+            resource_name: string;
+            /** Title */
+            title: string;
+            /**
+             * Type
+             * @default resource_picker
+             * @constant
+             */
+            type: "resource_picker";
+            /** Value Key */
+            value_key: string;
         };
     };
     responses: never;

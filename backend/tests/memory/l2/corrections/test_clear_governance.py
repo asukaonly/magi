@@ -482,7 +482,7 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
         )
         await db.execute(
             "INSERT INTO location_samples(sample_id, source, sampled_at, city, created_at) "
-            "VALUES ('private-location', 'sensor', ?, 'Private City', ?)",
+            "VALUES ('private-location', 'source', ?, 'Private City', ?)",
             (now, now),
         )
         await db.execute(

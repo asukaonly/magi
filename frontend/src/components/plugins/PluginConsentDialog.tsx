@@ -9,7 +9,7 @@ import type { PluginCapability } from '@/api/modules/plugins';
 import { capabilityMeta, groupCapabilities } from '@/lib/pluginCapabilities';
 import { PluginIcon } from './PluginIcon';
 
-export type ConsentMode = 'install' | 'update' | 'sideload';
+export type ConsentMode = 'install' | 'update' | 'sideload' | 'trust';
 
 interface Props {
   open: boolean;
@@ -18,6 +18,7 @@ interface Props {
   pluginIcon?: string | null;
   version: string;
   official?: boolean;
+  executionMode?: 'restricted_process' | 'trusted_process';
   capabilities: PluginCapability[];
   newCapabilities?: PluginCapability[];   // update mode highlight
   confirmDisabled?: boolean;
@@ -37,6 +38,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
   pluginIcon,
   version,
   official,
+  executionMode,
   capabilities,
   newCapabilities,
   confirmDisabled = false,
@@ -45,8 +47,8 @@ export const PluginConsentDialog: React.FC<Props> = ({
   onCancel,
 }) => {
   const { t, i18n } = useTranslation('app');
-  const lang = i18n.language;
-  const confirmKey = mode === 'update' ? 'update' : 'install';
+  const lang = i18n?.language ?? 'en';
+  const confirmKey = mode === 'trust' ? 'trust' : mode === 'update' ? 'update' : 'install';
 
   const renderRow = (c: PluginCapability, idx: number, highlight = false) => {
     const meta = capabilityMeta(c.capability);
@@ -127,7 +129,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
             </div>
             <div className="min-w-0 space-y-1.5 pt-0.5">
               <DialogTitle className="break-words leading-6">
-                {t(`settings.marketplace.consent.title.${mode}`, { name: pluginName })}
+                {t(mode === 'trust' ? 'plugins.trust.title' : `settings.marketplace.consent.title.${mode}`, { name: pluginName })}
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
                 v{version} · {t(official
@@ -139,6 +141,11 @@ export const PluginConsentDialog: React.FC<Props> = ({
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-3 overflow-y-auto px-6 pb-4">
+          {executionMode === 'trusted_process' ? (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm">
+              {t('plugins.trust.nativeAccess')}
+            </p>
+          ) : null}
           {mode === 'sideload' && (
             <div
               role="note"
@@ -182,7 +189,7 @@ export const PluginConsentDialog: React.FC<Props> = ({
             {t('settings.marketplace.consent.cancel')}
           </Button>
           <Button size="sm" onClick={onConfirm} disabled={confirmDisabled}>
-            {t(`settings.marketplace.consent.confirm.${confirmKey}`)}
+            {t(mode === 'trust' ? 'plugins.trust.confirm' : `settings.marketplace.consent.confirm.${confirmKey}`)}
           </Button>
         </DialogFooter>
       </DialogContent>

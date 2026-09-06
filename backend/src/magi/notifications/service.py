@@ -63,17 +63,21 @@ class NotificationService:
         user_id: str,
         *,
         limit: int = 50,
+        offset: int = 0,
+        profile_conflicts_only: bool = False,
         before_id: int | None = None,
         exclude_profile_conflicts: bool = False,
     ) -> dict:
         items = self._store.list_for_user(
             user_id,
-            limit=limit,
+            limit=None,
+            profile_conflicts_only=profile_conflicts_only,
             before_id=before_id,
             exclude_profile_conflicts=exclude_profile_conflicts,
         )
         return {
-            "items": items,
+            "items": items[offset:offset + limit],
+            "total": len(items),
             "unread_count": self._store.unread_count(
                 user_id,
                 exclude_profile_conflicts=exclude_profile_conflicts,

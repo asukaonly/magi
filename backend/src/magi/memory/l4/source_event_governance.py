@@ -28,10 +28,11 @@ _VECTOR_ENTITY_BATCH_SIZE = 500
 _FORGOTTEN_CATEGORY = "__forgotten__"
 
 
-def active_skill_predicate(alias: str = "skills") -> str:
+def active_skill_predicate(alias: str = "skills", *, include_inactive: bool = False) -> str:
     """Return the fail-closed SQL predicate for one procedural skill alias."""
+    lifecycle_predicate = "1 = 1" if include_inactive else f"{alias}.deleted_at IS NULL"
     return f"""
-        {alias}.deleted_at IS NULL
+        {lifecycle_predicate}
         AND NOT EXISTS (
             SELECT 1
             FROM {SKILL_EVENT_LINKS_TABLE} AS governed_links

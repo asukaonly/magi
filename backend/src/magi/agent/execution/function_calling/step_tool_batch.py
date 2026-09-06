@@ -690,6 +690,10 @@ class FunctionCallingToolBatchExecutor:
         result: ToolCallResult,
     ) -> None:
         error_code = str(result.error_code or "").strip().upper()
+        # Invalid arguments do not make the tool unavailable. Exact failed-call
+        # fingerprints and the failed-iteration budget still bound repair attempts.
+        if error_code == "INVALID_PARAMETERS":
+            return
         if error_code in self._driver._TRANSIENT_BLOCKER_ERROR_CODES or error_code in {
             "REPEATED_FAILED_TOOL_CALL",
             "REPEATED_TOOL_BLOCKER",

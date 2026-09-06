@@ -112,7 +112,7 @@ def test_direct_preference_materializes_without_phase2_candidate() -> None:
     assert decision.candidate["trait_value"] == "like"
     assert decision.candidate["target_entity_id"] == "concept:coffee"
     assert decision.candidate["supporting_claim_ids"] == ["clm_1"]
-    assert decision.natural_summary == "我喜欢咖啡"
+    assert decision.natural_summary == "用户喜欢咖啡。"
 
 
 def test_text_target_preference_survives_entity_resolution_failure() -> None:
@@ -125,10 +125,10 @@ def test_text_target_preference_survives_entity_resolution_failure() -> None:
     assert decision.candidate is not None
     assert decision.candidate["target_entity_id"] == ""
     assert decision.candidate["semantic_route_slot_key"] == route.slot_key
-    assert decision.natural_summary == "我喜欢一种很小众的手冲方法"
+    assert decision.natural_summary == "用户喜欢一种很小众的手冲方法。"
 
 
-def test_model_summary_changes_copy_but_not_materialization_semantics() -> None:
+def test_model_summary_cannot_change_materialized_factual_copy() -> None:
     claim = _claim()
     route = _route(claim)
     baseline = materialize_assertion(_input(claim, route))
@@ -142,7 +142,7 @@ def test_model_summary_changes_copy_but_not_materialization_semantics() -> None:
     assert {key: baseline.candidate[key] for key in semantic_keys} == {
         key: summarized.candidate[key] for key in semantic_keys
     }
-    assert summarized.natural_summary == "用户明确喜欢咖啡。"
+    assert summarized.natural_summary == baseline.natural_summary
 
 
 def test_policy_denial_is_terminal_event_only() -> None:
@@ -209,3 +209,11 @@ def test_current_goal_writes_lineage_and_target_window() -> None:
     assert decision.candidate["semantic_lineage_key"] == route.goal_lineage_key
     assert decision.candidate["target_window"]["target_to"] == NOW + 20_000
     assert decision.expires_at == NOW + 20_000
+
+
+def test_model_summary_cannot_reverse_or_extend_a_fact() -> None:
+    claim = _claim()
+    route = _route(claim)
+    for text in ("用户讨厌咖啡。", "用户喜欢咖啡，并且每天喝三杯。"):
+        decision = materialize_assertion(_input(claim, route, natural_summary=text))
+        assert decision.natural_summary == "用户喜欢咖啡。"

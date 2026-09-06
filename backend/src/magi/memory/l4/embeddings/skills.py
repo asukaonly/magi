@@ -198,6 +198,7 @@ async def fetch_skill_chunk_rows_by_ids(
             JOIN procedural_skills AS skills ON skills.skill_id = chunks.skill_id
             WHERE chunks.chunk_id IN ({placeholders})
               AND {active_skill_predicate("skills")}
+              AND skills.embedding_status = 'ready'
             """,
             tuple(chunk_ids),
         ) as cursor:

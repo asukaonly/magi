@@ -55,7 +55,7 @@ def _build_external_observation(*, summary: str = "Calendar shows a meeting tomo
         correlation_id="evt-timeline-1",
         timestamp=1710000002.0,
         created_at=1710000002.0,
-        event_type="SENSOR_EVENT",
+        event_type="SOURCE_EVENT",
         source="calendar",
         source_item_id="calendar:item-1",
         memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -415,7 +415,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     """Plugin-supplied sources land in external_observation via author_type.
 
     The classifier no longer carries a hand-maintained source-name allowlist;
-    the only signal it consults for external/sensor events is ``author_type``,
+    the only signal it consults for external/source events is ``author_type``,
     which ``normalize_runtime_event`` already sets correctly for plugin
     emitters regardless of the exact source label.
     """
@@ -423,7 +423,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     from magi.memory.evidence import classify_event_evidence
 
     event = Event(
-        type="SENSOR_EVENT",
+        type="SOURCE_EVENT",
         data={"user_id": "u1", "summary": "Chrome visit"},
         source="chrome_history",
         level=EventLevel.INFO,
@@ -604,3 +604,16 @@ def test_first_context_low_signal_input_cannot_write_l2(message):
     assert policy.allow_entity_extraction is False
     assert policy.allow_graph_write is False
     assert policy.allow_assertion_write is False
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("我喜欢爵士乐，你推荐什么？", "user_self_report"),
+    ("我住在杭州。你推荐什么？", "user_self_report"),
+    ("我喜欢爵士乐吗？", "user_question"),
+    ("如果我喜欢爵士乐，你推荐什么？", "user_question"),
+    ('他说“我喜欢爵士乐”，你推荐什么？', "user_question"),
+])
+def test_mixed_message_preserves_only_asserted_self_report(text, expected):
+    from magi.memory.evidence import classify_event_evidence
+    event = normalize_runtime_event(_build_user_message(message=text))
+    assert classify_event_evidence(event).evidence_class == expected

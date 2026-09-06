@@ -122,12 +122,18 @@ class L2EntityResolutionHelperMixin:
         host = self._entity_helper_host()
         if host._entity_catalog is None:
             return {}
-        entities = await host._entity_catalog.list_entities(limit=1000)
+        entities = await host._entity_catalog.list_entities(limit=None)
         index: dict[str, str] = {}
+        ambiguous: set[str] = set()
 
         def add_key(raw_value: object, entity_id: str) -> None:
             key = str(raw_value or "").strip().casefold()
-            if key and entity_id and key not in index:
+            if key in ambiguous:
+                return
+            if key in index and index[key] != entity_id:
+                index.pop(key)
+                ambiguous.add(key)
+            elif key and entity_id:
                 index[key] = entity_id
 
         for entity in entities:

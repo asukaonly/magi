@@ -98,6 +98,8 @@ def compact_glob_tool_data(data: Dict[str, Any], *, max_items: int) -> Dict[str,
 
 
 def compact_shell_tool_data(data: Dict[str, Any], *, max_text_chars: int) -> Dict[str, Any]:
+    if "return_code" not in data:
+        return data
     stdout = str(data.get("stdout", ""))
     stderr = str(data.get("stderr", ""))
     stdout_preview = stdout[-max_text_chars:] if max_text_chars > 0 else ""

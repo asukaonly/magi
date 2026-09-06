@@ -1,6 +1,6 @@
 """Per-(source_type, key) promotion counter for frequency-gated L2 admission (RFC #56 P2).
 
-A sensor with a frequency policy declares a ``promotion_key`` per event (e.g. the
+A source with a frequency policy declares a ``promotion_key`` per event (e.g. the
 domain for browser history). This store accumulates a count per key, reports whether a
 key has crossed its threshold ("promoted"), and prunes stale non-promoted keys so the
 table stays bounded.
@@ -117,6 +117,8 @@ class L2PromotionCounter:
         stamp = time.time() if now is None else now
         async with aiosqlite.connect(self._db_path) as db:
             await self._ensure(db)
+            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
             cur = await db.execute(
                 "SELECT count, promoted, promoted_at FROM l2_promotion_counter "
                 "WHERE source_type = ? AND key = ?",

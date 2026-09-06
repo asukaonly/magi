@@ -85,7 +85,7 @@ class RuntimeOperationalGC:
             ("llm_usage", self.cleanup_llm_usage),
             ("message_queue", self.cleanup_message_queue),
             ("scheduler", self.cleanup_scheduler),
-            ("sensor_state", self.cleanup_sensor_state),
+            ("source_state", self.cleanup_source_state),
         ):
             try:
                 results.update(await cleanup())
@@ -343,7 +343,7 @@ class RuntimeOperationalGC:
         }
 
     async def cleanup_scheduler(self) -> dict[str, int]:
-        """Delete expired scheduler execution and sensor sync job history."""
+        """Delete expired scheduler execution and source sync job history."""
 
         db_path = self.runtime_paths.scheduler_db_path
         if not db_path.exists():
@@ -352,8 +352,8 @@ class RuntimeOperationalGC:
         settings = self.lifecycle.scheduler
         execution_success_cutoff = self._cutoff_seconds(settings.executions.success_retention_days)
         execution_failed_cutoff = self._cutoff_seconds(settings.executions.failed_retention_days)
-        job_success_cutoff = self._cutoff_seconds(settings.sensor_sync_jobs.success_retention_days)
-        job_failed_cutoff = self._cutoff_seconds(settings.sensor_sync_jobs.failed_retention_days)
+        job_success_cutoff = self._cutoff_seconds(settings.source_sync_jobs.success_retention_days)
+        job_failed_cutoff = self._cutoff_seconds(settings.source_sync_jobs.failed_retention_days)
 
         async with sqlite_connection_async(db_path, profile="mixed") as db:
             counts: dict[str, int] = {}
@@ -377,20 +377,20 @@ class RuntimeOperationalGC:
                     (execution_failed_cutoff,),
                 )
 
-            if await self._table_exists(db, "sensor_sync_jobs"):
-                counts["scheduler_success_sensor_jobs_deleted"] = await self._delete_rows(
+            if await self._table_exists(db, "source_sync_jobs"):
+                counts["scheduler_success_source_jobs_deleted"] = await self._delete_rows(
                     db,
                     """
-                    DELETE FROM sensor_sync_jobs
+                    DELETE FROM source_sync_jobs
                     WHERE status = 'success'
                       AND COALESCE(finished_at, started_at, created_at) < ?
                     """,
                     (job_success_cutoff,),
                 )
-                counts["scheduler_failed_sensor_jobs_deleted"] = await self._delete_rows(
+                counts["scheduler_failed_source_jobs_deleted"] = await self._delete_rows(
                     db,
                     """
-                    DELETE FROM sensor_sync_jobs
+                    DELETE FROM source_sync_jobs
                     WHERE status = 'failed'
                       AND COALESCE(finished_at, started_at, created_at) < ?
                     """,
@@ -400,27 +400,27 @@ class RuntimeOperationalGC:
             await db.commit()
         return counts
 
-    async def cleanup_sensor_state(self) -> dict[str, int]:
-        """Prune old sensor fingerprints while retaining recent cursors and stats."""
+    async def cleanup_source_state(self) -> dict[str, int]:
+        """Prune old source fingerprints while retaining recent cursors and stats."""
 
-        db_path = self.runtime_paths.sensor_state_db_path
+        db_path = self.runtime_paths.source_state_db_path
         if not db_path.exists():
             return {}
 
-        keep_latest = self.lifecycle.sensor_state.fingerprints_keep_latest
+        keep_latest = self.lifecycle.source_state.fingerprints_keep_latest
         async with sqlite_connection_async(db_path, profile="mixed") as db:
-            if not await self._table_exists(db, "sensor_fingerprints"):
+            if not await self._table_exists(db, "source_fingerprints"):
                 return {}
-            cursor = await db.execute("SELECT DISTINCT sensor_id FROM sensor_fingerprints")
+            cursor = await db.execute("SELECT DISTINCT source_id FROM source_fingerprints")
             rows = await cursor.fetchall()
             deleted = 0
             for row in rows:
-                sensor_id = str(row[0])
-                deleted += await self._prune_sensor_fingerprints(
-                    db, sensor_id, keep_latest=keep_latest
+                source_id = str(row[0])
+                deleted += await self._prune_source_fingerprints(
+                    db, source_id, keep_latest=keep_latest
                 )
             await db.commit()
-        return {"sensor_state_fingerprints_deleted": deleted}
+        return {"source_state_fingerprints_deleted": deleted}
 
     async def _rollup_llm_usage(self, db: aiosqlite.Connection, *, cutoff: float) -> int:
         cursor = await db.execute(
@@ -524,16 +524,16 @@ class RuntimeOperationalGC:
         )
         return row_count
 
-    async def _prune_sensor_fingerprints(
+    async def _prune_source_fingerprints(
         self,
         db: aiosqlite.Connection,
-        sensor_id: str,
+        source_id: str,
         *,
         keep_latest: int,
     ) -> int:
         cursor = await db.execute(
-            "SELECT COUNT(*) FROM sensor_fingerprints WHERE sensor_id = ?",
-            (sensor_id,),
+            "SELECT COUNT(*) FROM source_fingerprints WHERE source_id = ?",
+            (source_id,),
         )
         row = await cursor.fetchone()
         total = int(row[0] or 0) if row else 0
@@ -542,16 +542,16 @@ class RuntimeOperationalGC:
             return 0
         cursor = await db.execute(
             """
-            DELETE FROM sensor_fingerprints
+            DELETE FROM source_fingerprints
             WHERE rowid IN (
                 SELECT rowid
-                FROM sensor_fingerprints
-                WHERE sensor_id = ?
+                FROM source_fingerprints
+                WHERE source_id = ?
                 ORDER BY created_at ASC, fingerprint ASC
                 LIMIT ?
             )
             """,
-            (sensor_id, to_delete),
+            (source_id, to_delete),
         )
         return int(cursor.rowcount or 0)
 

@@ -173,7 +173,7 @@ class PendingReviewRepository:
         *,
         subject_id: str | None = None,
         status: str = "pending",
-        limit: int = 100,
+        limit: int | None = 100,
     ) -> list[dict[str, Any]]:
         """List normalized review records for product read models."""
 
@@ -182,7 +182,7 @@ class PendingReviewRepository:
         if subject_id:
             clauses.append("subject_id = ?")
             args.append(str(subject_id).strip())
-        args.append(max(1, min(int(limit), 500)))
+        args.append(-1 if limit is None else max(1, int(limit)))
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(

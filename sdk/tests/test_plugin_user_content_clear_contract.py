@@ -6,8 +6,8 @@ import pytest
 
 from magi_plugin_sdk import (
     Plugin,
-    SensorBase,
-    SensorOutput,
+    Source,
+    SourceOutput,
     UserContentClearContext,
     UserContentClearRequest,
 )
@@ -22,8 +22,8 @@ class _Plugin(Plugin):
     pass
 
 
-class _Sensor(SensorBase):
-    async def build_output(self, item: dict) -> SensorOutput:
+class _Source(Source):
+    async def build_output(self, item: dict) -> SourceOutput:
         raise NotImplementedError
 
 
@@ -36,17 +36,17 @@ def _context() -> UserContentClearContext:
         request=UserContentClearRequest(clear_generation=3),
         runtime_paths=_RuntimePaths(),
         plugin_id="example",
-        sensor_id="timeline.example",
+        source_id="timeline.example",
         plugin_settings=settings,
     )
 
 
 @pytest.mark.asyncio
-async def test_plugin_and_sensor_clear_hooks_have_idempotent_noop_defaults() -> None:
+async def test_plugin_and_source_clear_hooks_have_idempotent_noop_defaults() -> None:
     context = _context()
 
     assert await _Plugin().clear_user_content(context) is None
-    assert await _Sensor().clear_user_content(context) is None
+    assert await _Source().clear_user_content(context) is None
 
 
 def test_clear_context_exposes_an_immutable_settings_snapshot() -> None:

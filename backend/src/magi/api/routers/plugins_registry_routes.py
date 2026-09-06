@@ -124,6 +124,13 @@ async def list_registry_plugins(
             update_available = _version_newer(entry.version, installed_version)
         result.append(
             PluginRegistryEntryResponse(
+                protocol_version=entry.protocol_version,
+                execution_mode=entry.execution_mode,
+                settings_fields=entry.settings_fields,
+                activation_flow=entry.activation_flow,
+                settings_actions=entry.settings_actions,
+                settings_resources=entry.settings_resources,
+                settings_ui_blocks=entry.settings_ui_blocks,
                 plugin_id=entry.plugin_id,
                 name=entry.name,
                 name_i18n=entry.name_i18n,

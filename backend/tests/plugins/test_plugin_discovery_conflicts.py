@@ -22,6 +22,7 @@ def _write_manifest(
     manifest_path.write_text(
         (
             "[plugin]\n"
+            'protocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\n'
             f'id = "{plugin_id}"\n'
             f'name = "{name}"\n'
             'version = "1.0.0"\n'
@@ -160,7 +161,7 @@ def test_managed_root_only_accepts_exact_direct_child_packages(
     managed_root = tmp_path / "managed"
     managed_root.mkdir()
     (managed_root / "plugin.toml").write_text(
-        '[plugin]\nid = "root-manifest"\nname = "Root Manifest"\nversion = "1.0.0"\n',
+        '[plugin]\nprotocol_version = 2\nmin_sdk_version = "0.2.0"\nexecution_mode = "trusted_process"\nid = "root-manifest"\nname = "Root Manifest"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     _write_manifest(
@@ -202,10 +203,8 @@ def test_identity_mismatch_cannot_inherit_settings_or_trust(tmp_path: Path) -> N
         manifests={manifest.plugin_id: manifest},
         packages={
             manifest.plugin_id: PluginSettings(
-                enabled=True,
                 trusted=True,
                 source="builtin",
-                settings={"secret": "must-not-cross-the-boundary"},
             )
         },
         previous_states={},

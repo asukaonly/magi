@@ -50,7 +50,7 @@ describe('summarizeMemoryClear', () => {
 
   it('does not describe a non-blocking warning as paused conversation recovery', () => {
     expect(summarizeMemoryClear(clearResult({
-      warnings: ['sensor_cleanup_failed'],
+      warnings: ['source_cleanup_failed'],
     }))).toEqual({
       clearedItemCount: 21,
       recoveryPending: false,

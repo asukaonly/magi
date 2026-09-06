@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from magi_plugin_sdk.sensors import SensorMemoryPolicy
-from magi.awareness.sensor_projection import SensorProjection
+from magi_plugin_sdk.sources import SourceMemoryPolicy
+from magi.awareness.source_projection import SourceProjection
 
 
-def test_sensor_memory_policy_to_from_dict_roundtrip():
-    policy = SensorMemoryPolicy(
+def test_source_memory_policy_to_from_dict_roundtrip():
+    policy = SourceMemoryPolicy(
         memory_domain="external_activity",
         ingest_target="l1_only",
         cognition_eligible=True,
@@ -20,18 +20,18 @@ def test_sensor_memory_policy_to_from_dict_roundtrip():
     assert d["ingest_target"] == "l1_only"
     assert d["importance_bias"] == 0.7
 
-    restored = SensorMemoryPolicy.from_dict(d)
+    restored = SourceMemoryPolicy.from_dict(d)
     assert restored == policy
 
 
-def test_sensor_memory_policy_default_roundtrip():
-    policy = SensorMemoryPolicy()
-    restored = SensorMemoryPolicy.from_dict(policy.to_dict())
+def test_source_memory_policy_default_roundtrip():
+    policy = SourceMemoryPolicy()
+    restored = SourceMemoryPolicy.from_dict(policy.to_dict())
     assert restored == policy
 
 
-def test_sensor_projection_to_from_dict_roundtrip():
-    p = SensorProjection(
+def test_source_projection_to_from_dict_roundtrip():
+    p = SourceProjection(
         title="X",
         summary="Y",
         content="Z",
@@ -42,7 +42,7 @@ def test_sensor_projection_to_from_dict_roundtrip():
     assert d["title"] == "X"
     assert d["metadata"] == {"k": "v", "n": 1}
 
-    restored = SensorProjection.from_dict(d)
+    restored = SourceProjection.from_dict(d)
     assert restored == p
 
 

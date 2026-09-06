@@ -22,7 +22,7 @@ export function OverviewSummary({
   const metrics: SummaryMetric[] = [
     {
       key: 'understanding',
-      label: t('memory.overview.metrics.understanding'),
+      label: t('memory.overview.metrics.profileCandidates'),
       value: formatInteger(dashboard?.statistics.l2.assertion_count ?? 0),
       detail: t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l2_assertions ?? 0) }),
     },
@@ -55,13 +55,13 @@ export function OverviewSummary({
       <div className="grid gap-8 xl:grid-cols-[minmax(13rem,0.75fr)_minmax(0,2.25fr)] xl:items-end xl:gap-14">
         <div>
           <div className="text-sm font-medium text-[hsl(var(--memory-body))]">
-            {t('memory.overview.metrics.totalMemories')}
+            {t('memory.overview.metrics.sourceRecords')}
           </div>
           <div className="mt-2 text-[clamp(2.75rem,4.2vw,3.75rem)] font-semibold leading-none tracking-[-0.045em] text-[hsl(var(--memory-title))]">
-            {formatInteger(dashboard?.statistics.total_memories ?? 0)}
+            {formatInteger(dashboard?.statistics.l1.event_count ?? 0)}
           </div>
           <div className="mt-3 text-xs leading-5 text-[hsl(var(--memory-muted))]">
-            {t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.total_memories ?? 0) })}
+            {t('memory.overview.metricDelta.today', { value: formatInteger(todayDeltas?.l1_events ?? 0) })}
           </div>
         </div>
 

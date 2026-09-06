@@ -38,8 +38,8 @@ export interface NotificationItem {
   read_at_ms: number | null;
 }
 
-export async function listNotifications(): Promise<{ items: NotificationItem[]; unread_count: number }> {
-  const r = await api.get<{ items: NotificationItem[]; unread_count: number }>('/notifications');
+export async function listNotifications(params?: { limit?: number; offset?: number; profile_conflicts_only?: boolean }): Promise<{ items: NotificationItem[]; unread_count: number; total: number }> {
+  const r = await api.get<{ items: NotificationItem[]; unread_count: number; total: number }>('/notifications', { params });
   return unwrapGatewayPayload(r);
 }
 export async function markRead(ids: number[]): Promise<void> {

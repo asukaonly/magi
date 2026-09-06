@@ -123,8 +123,8 @@ class TestExecutionTraceRecording:
         skill = await store.get_skill(skill_name="tool_a", skill_category="tool")
         assert skill is not None
         # First insert doesn't go through UPDATE path, but 2nd and 3rd do.
-        # pending_trace_count starts at 0 for INSERT, then +1 for each UPDATE.
-        assert skill["pending_trace_count"] == 2
+        # Every stored execution is pending until its trace is consumed.
+        assert skill["pending_trace_count"] == 3
 
 
 class TestTracePruning:
@@ -170,7 +170,7 @@ class TestAdaptiveExtractionThreshold:
 
     def test_very_high_usage_capped(self):
         result = L4ProceduralMemoryStore._adaptive_extraction_threshold(5, 100_000)
-        assert result == _ADAPTIVE_MAX_THRESHOLD
+        assert result == min(_ADAPTIVE_MAX_THRESHOLD, MAX_TRACES_PER_SKILL)
 
     def test_never_below_base(self):
         # Even with tiny base, the returned value is at least the base.

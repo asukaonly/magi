@@ -5,13 +5,11 @@ import { toast } from 'sonner';
 import { configApi, type SystemConfig } from '@/api/modules/config';
 import { requireConfiguration } from '@/api/config-contract';
 import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/control';
-import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
-import type { SensorSourceStatusItem } from '@/api/modules/sensors';
 import { syncAutoStartPreference, syncCloseToTrayPreference, syncSkipQuitConfirmationPreference, syncStartMinimizedPreference } from '@/runtime/desktop';
 import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notifications';
 import type { ThemeMode, ThemeState } from '@/stores/theme';
-import type { PluginDraftMap, ToolDraftMap } from '@/types/settings';
+import type { ToolDraftMap } from '@/types/settings';
 import {
   diffFlatMaps,
   persistLanguageSelection,
@@ -20,7 +18,7 @@ import {
 } from '@/utils/settings-helpers';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
 import { validateMemoryL0Config, isEmbeddingIdleTimeoutValid } from '@/utils/memory-settings-validation';
-import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
+import { validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 interface UseSettingsPersistenceParams {
   savedConfig: SystemConfig;
@@ -31,10 +29,6 @@ interface UseSettingsPersistenceParams {
   setSavedControlSettings: Dispatch<SetStateAction<ControlSettingsDTO | null>>;
   draftControlSettings: ControlSettingsDTO | null;
   setDraftControlSettings: Dispatch<SetStateAction<ControlSettingsDTO | null>>;
-  savedPluginDrafts: PluginDraftMap;
-  setSavedPluginDrafts: Dispatch<SetStateAction<PluginDraftMap>>;
-  draftPluginDrafts: PluginDraftMap;
-  setDraftPluginDrafts: Dispatch<SetStateAction<PluginDraftMap>>;
   savedToolDrafts: ToolDraftMap;
   setSavedToolDrafts: Dispatch<SetStateAction<ToolDraftMap>>;
   draftToolDrafts: ToolDraftMap;
@@ -44,8 +38,6 @@ interface UseSettingsPersistenceParams {
   draftThemeMode: ThemeMode;
   setDraftThemeMode: Dispatch<SetStateAction<ThemeMode>>;
   tools: ToolConfig[];
-  plugins: PluginPackageState[];
-  timelineStatuses: SensorSourceStatusItem[];
   setThemeMode: ThemeState['setMode'];
   fetchTimelineStatuses: () => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
@@ -75,10 +67,6 @@ export function useSettingsPersistence({
   setSavedControlSettings,
   draftControlSettings,
   setDraftControlSettings,
-  savedPluginDrafts,
-  setSavedPluginDrafts,
-  draftPluginDrafts,
-  setDraftPluginDrafts,
   savedToolDrafts,
   setSavedToolDrafts,
   draftToolDrafts,
@@ -88,8 +76,6 @@ export function useSettingsPersistence({
   draftThemeMode,
   setDraftThemeMode,
   tools,
-  plugins,
-  timelineStatuses,
   setThemeMode,
   fetchTimelineStatuses,
   loadPlugins,
@@ -179,24 +165,6 @@ export function useSettingsPersistence({
         }
       }
     }
-    for (const plugin of plugins) {
-      const id = plugin.manifest.plugin_id;
-      const saved = savedPluginDrafts[id] ?? {};
-      const draft = draftPluginDrafts[id] ?? saved;
-      const updates = diffFlatMaps(saved, draft);
-      const fields = [
-        ...plugin.contributions.flatMap(contribution => contribution.fields),
-        ...timelineStatuses.filter(source => source.plugin_id === id).flatMap(source => source.fields),
-      ];
-      for (const field of fields) {
-        if (!(field.key in updates) || !isExtensionFieldVisible(field, draft)) continue;
-        const issue = validateDynamicConfigValue(field, updates[field.key]);
-        if (issue) {
-          toast.warning(t('settings.dynamicValidation.fieldInvalid', { field: field.label_translated || field.label, reason: t(`settings.dynamicValidation.${issue}`) }));
-          return;
-        }
-      }
-    }
 
     savingRef.current = true;
     setSaving(true);
@@ -204,7 +172,6 @@ export function useSettingsPersistence({
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
       const languageChanged = savedConfig.preferences.language !== draftConfig.preferences.language;
       const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
-      const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
       const themeDirty = savedThemeMode !== draftThemeMode;
       let persistedConfig = structuredClone(draftConfig);
@@ -265,22 +232,6 @@ export function useSettingsPersistence({
         }
       }
 
-      if (pluginsDirty) {
-        for (const plugin of plugins) {
-          const pluginId = plugin.manifest.plugin_id;
-          const savedValues = savedPluginDrafts[pluginId] || {};
-          const draftValues = draftPluginDrafts[pluginId] || {};
-          const updates = diffFlatMaps(savedValues, draftValues);
-          if (Object.keys(updates).length === 0) {
-            continue;
-          }
-          const persistedPlugin = await pluginsApi.updateSettings(pluginId, updates);
-          if (persistedPlugin.manifest.plugin_id !== pluginId) throw new Error('Plugin configuration identity mismatch');
-          setSavedPluginDrafts(current => ({ ...current, [pluginId]: structuredClone(persistedPlugin.current_settings) }));
-          setDraftPluginDrafts(current => ({ ...current, [pluginId]: structuredClone(persistedPlugin.current_settings) }));
-        }
-      }
-
       if (themeDirty) {
         setThemeMode(draftThemeMode, { persist: true });
         setSavedThemeMode(draftThemeMode);
@@ -314,10 +265,6 @@ export function useSettingsPersistence({
     setSavedControlSettings,
     draftControlSettings,
     setDraftControlSettings,
-    savedPluginDrafts,
-    setSavedPluginDrafts,
-    setDraftPluginDrafts,
-    draftPluginDrafts,
     savedToolDrafts,
     setSavedToolDrafts,
     setDraftToolDrafts,
@@ -326,8 +273,6 @@ export function useSettingsPersistence({
     setSavedThemeMode,
     draftThemeMode,
     tools,
-    plugins,
-    timelineStatuses,
     setThemeMode,
     fetchTimelineStatuses,
     loadPlugins,
@@ -339,7 +284,6 @@ export function useSettingsPersistence({
   const handleDiscardChanges = useCallback(async () => {
     setDraftConfig(structuredClone(savedConfig));
     setDraftControlSettings(savedControlSettings ? structuredClone(savedControlSettings) : null);
-    setDraftPluginDrafts(structuredClone(savedPluginDrafts));
     setDraftToolDrafts(structuredClone(savedToolDrafts));
     setDraftThemeMode(savedThemeMode);
     setThemeMode(savedThemeMode, { persist: true });
@@ -349,8 +293,6 @@ export function useSettingsPersistence({
     setDraftConfig,
     savedControlSettings,
     setDraftControlSettings,
-    savedPluginDrafts,
-    setDraftPluginDrafts,
     savedToolDrafts,
     setDraftToolDrafts,
     savedThemeMode,

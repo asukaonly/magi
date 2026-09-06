@@ -155,6 +155,9 @@ export const getPendingAssertionCopy = (
     };
   }
 
+  if (assertion.inference_depth === 'topology_only') {
+    return { title: t('memory.provenance.behavior_recent', { value }), body: t('memory.pending.assertions.tentativeBody') };
+  }
   const readableTitle = readableAssertionTitle(assertion, value, t);
   if (readableTitle) {
     return {
@@ -170,4 +173,10 @@ export const getPendingAssertionCopy = (
       ? t('memory.pending.assertions.traitBody', { trait: traitName })
       : t('memory.pending.assertions.tentativeBody'),
   };
+};
+
+export const getAssertionEvidenceBasis = (assertion: L2Assertion): string => {
+  if (assertion.user_feedback === 'confirmed') return 'user_confirmed';
+  if (['direct', 'explicit'].includes(assertion.inference_depth)) return 'direct_report';
+  return assertion.inference_depth ? 'inferred' : 'unknown';
 };

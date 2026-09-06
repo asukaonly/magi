@@ -7,7 +7,7 @@ EXPERIENCE_REVIEW_SYSTEM_PROMPT = """You are writing a user's personal review of
 # Voice
 - Use second person to refer to the user ("你..." in Chinese, "you..." in English).
 - Use the user's language for label, narrative, intent, and outcome.
-- Be concrete and grounded. This should read like a clear memory review, not a sensor log or literary flourish.
+- Be concrete and grounded. This should read like a clear memory review, not a source log or literary flourish.
 
 # Label (≤ 24 chars / ~12 Chinese characters)
 A short title someone can scan later and recognize.
@@ -28,7 +28,7 @@ One sentence describing what actually happened, what was learned, or that the th
 - key_topics: up to 5, prefer recurring or outcome-bearing themes.
 
 # Honest signal
-If the evidence is mostly low-information sensor events, keep the review brief and factual. Do not force an emotional or narrative arc.
+If the evidence is mostly low-information source events, keep the review brief and factual. Do not force an emotional or narrative arc.
 
 # Constraints
 - Do not invent facts not present in the evidence.

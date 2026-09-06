@@ -1,12 +1,18 @@
 """Integration tests for delegate_to_external_coder builtin tool."""
+
 from __future__ import annotations
 
 import subprocess
+import json
 from pathlib import Path
 
 import pytest
 from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi_plugin_sdk.providers import ExternalAgentEvent, ExternalAgentResult
+from magi_plugin_sdk.runtime import PluginConnection
 
+from magi.agent.execution.function_calling.tools import build_tools_parameter
+from magi.plugins.providers import PluginProviderRegistry
 from magi.tools.builtin import delegate_to_external_coder_tool as module
 from magi.tools.builtin.delegate_to_external_coder_tool import (
     DelegateToExternalCoderTool,
@@ -16,6 +22,71 @@ from magi.tools.builtin.delegate_to_external_coder_tool import (
 from magi.tools.code_agent.contracts import ProbeResult
 from magi.tools.code_agent.settings import CodeAgentSettings
 from magi.tools.schema import ToolExecutionContext
+from magi.tools.registry import ToolRegistry
+
+
+class _ExternalAgent:
+    def __init__(self):
+        self.requests = []
+
+    async def invoke(self, request):
+        return ExternalAgentResult(status="succeeded", summary="Done")
+
+    async def stream(self, request):
+        self.requests.append(request)
+        yield ExternalAgentEvent(
+            kind="completed", result=ExternalAgentResult(status="succeeded", summary="Done")
+        )
+
+
+@pytest.fixture
+def live_tool():
+    connections = {
+        "account": PluginConnection(
+            connection_id="account", plugin_id="test", display_name="Account", enabled=True
+        )
+    }
+    providers = PluginProviderRegistry(get_connection=connections.get)
+    registry = ToolRegistry()
+    tool = DelegateToExternalCoderTool()
+    registry.register(DelegateToExternalCoderTool, tool_instance=tool)
+    providers.bind_tool(tool)
+    return tool, registry, providers, connections
+
+
+def _register_agent(providers, provider_id="account:coder", *, kind="external_agent"):
+    agent = _ExternalAgent()
+    dispose = providers.register(
+        plugin_id="test",
+        connection_id="account",
+        kind=kind,
+        provider_id=provider_id,
+        implementation=agent,
+    )
+    return agent, dispose
+
+
+def _assert_adapter_choices(tool, registry, expected):
+    assert (
+        next(parameter for parameter in tool.schema.parameters if parameter.name == "adapter").enum
+        == expected
+    )
+    assert (
+        next(
+            parameter for parameter in tool.get_schema().parameters if parameter.name == "adapter"
+        ).enum
+        == expected
+    )
+    definitions = [
+        tool.to_claude_format()["input_schema"],
+        registry.export_to_claude_format()[0]["input_schema"],
+        build_tools_parameter(registry, ["delegate_to_external_coder"])[0]["function"][
+            "parameters"
+        ],
+    ]
+    for definition in definitions:
+        serialized = json.loads(json.dumps(definition))
+        assert serialized["properties"]["adapter"]["enum"] == expected
 
 
 def _make_repo(path: Path) -> Path:
@@ -40,11 +111,7 @@ def _ctx(
     *,
     with_artifact_registry: bool = True,
 ) -> ToolExecutionContext:
-    env_vars = (
-        {"session_id": session_id, "turn_id": "turn-1"}
-        if session_id
-        else {}
-    )
+    env_vars = {"session_id": session_id, "turn_id": "turn-1"} if session_id else {}
     capabilities = (
         ToolCapabilities(delegation_artifacts=_NoopArtifactRegistry())
         if with_artifact_registry
@@ -68,7 +135,8 @@ def isolated_magi_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.mark.asyncio
 async def test_dry_run_returns_success_without_running_adapter(
-    isolated_magi_home: Path, tmp_path: Path,
+    isolated_magi_home: Path,
+    tmp_path: Path,
 ) -> None:
     repo = _make_repo(tmp_path / "repo")
     res = await DelegateToExternalCoderTool().execute(
@@ -202,6 +270,7 @@ def test_tool_registered() -> None:
     from magi.tools.builtin import DelegateToExternalCoderTool as FromBuiltin
     from magi.tools import DelegateToExternalCoderTool as FromTools
     from magi.tools.core_tools import CORE_TOOL_CLASSES
+
     assert FromBuiltin is Canonical
     assert FromTools is Canonical
     assert Canonical in CORE_TOOL_CLASSES
@@ -213,6 +282,79 @@ def test_tool_schema_advertises_modes() -> None:
     assert "claude_code" in (enum_param.enum or [])
     assert "codex" in (enum_param.enum or [])
     assert "auto" in (enum_param.enum or [])
+
+
+def test_provider_addition_removal_and_connection_disable_refresh_all_exports(live_tool):
+    tool, registry, providers, connections = live_tool
+    builtin_names = ["auto", "claude_code", "codex"]
+    _assert_adapter_choices(tool, registry, builtin_names)
+    original = tool.get_schema()
+    _, remove_first = _register_agent(providers)
+    _, remove_second = _register_agent(providers, "account:second")
+    _register_agent(providers, "account:model", kind="model")
+    _assert_adapter_choices(tool, registry, [*builtin_names, "account:coder", "account:second"])
+    assert original.json_input_schema()["properties"]["adapter"]["enum"] == builtin_names
+    snapshot = tool.get_schema()
+    next(parameter for parameter in snapshot.parameters if parameter.name == "adapter").enum.append(
+        "mutated"
+    )
+    _assert_adapter_choices(tool, registry, [*builtin_names, "account:coder", "account:second"])
+    remove_first()
+    _assert_adapter_choices(tool, registry, [*builtin_names, "account:second"])
+    connections["account"] = connections["account"].model_copy(update={"enabled": False})
+    _assert_adapter_choices(tool, registry, builtin_names)
+    connections["account"] = connections["account"].model_copy(update={"enabled": True})
+    _assert_adapter_choices(tool, registry, [*builtin_names, "account:second"])
+    remove_second()
+    _assert_adapter_choices(tool, registry, builtin_names)
+
+
+@pytest.mark.asyncio
+async def test_live_provider_passes_real_validation_and_execution_then_revocation_rejects(
+    live_tool,
+    isolated_magi_home,
+    tmp_path,
+    monkeypatch,
+):
+    tool, registry, providers, _ = live_tool
+    parameters = {"prompt": "Review README", "adapter": "account:coder", "timeout_s": 60}
+    assert (await tool.validate_parameters(parameters))[0] is False
+    agent, remove = _register_agent(providers)
+    assert await tool.validate_parameters(parameters) == (True, None)
+    assert (await tool.validate_parameters({**parameters, "timeout_s": 1}))[0] is False
+    assert (await tool.validate_parameters({**parameters, "adapter": 123}))[0] is False
+    monkeypatch.setattr(module, "_binary_paths_from_settings", lambda settings: {})
+    monkeypatch.setattr(
+        module, "load_settings", lambda workspace_root: CodeAgentSettings(enabled=True)
+    )
+    repo = _make_repo(tmp_path / "live-provider-repo")
+    context = _ctx(repo)
+    result = await registry.execute("delegate_to_external_coder", parameters, context)
+    assert result.success, result.error
+    assert len(agent.requests) == 1
+    assert agent.requests[0].identity.connection_id == "account"
+    remove()
+    assert (await tool.validate_parameters(parameters))[0] is False
+    for result in (
+        await registry.execute("delegate_to_external_coder", parameters, context),
+        await tool.execute(parameters, context),
+    ):
+        assert result.success is False
+        assert "adapter" in result.error
+    assert len(agent.requests) == 1
+
+
+def test_registry_binding_disposer_does_not_remove_new_binding(live_tool):
+    tool, registry, providers, connections = live_tool
+    release_old = providers.bind_tool(tool)
+    _register_agent(providers)
+    replacement = PluginProviderRegistry(get_connection=connections.get)
+    _register_agent(replacement, "account:replacement")
+    release_new = replacement.bind_tool(tool)
+    release_old()
+    _assert_adapter_choices(tool, registry, ["auto", "claude_code", "codex", "account:replacement"])
+    release_new()
+    _assert_adapter_choices(tool, registry, ["auto", "claude_code", "codex"])
 
 
 def test_auto_default_adapter_picks_first_available_binary() -> None:
@@ -263,7 +405,9 @@ def test_configured_binary_path_overrides_detected_path(
 
 @pytest.mark.asyncio
 async def test_disabled_code_agent_setting_rejects_delegation(
-    isolated_magi_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    isolated_magi_home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = _make_repo(tmp_path / "repo")
     monkeypatch.setattr(

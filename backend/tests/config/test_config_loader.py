@@ -5,7 +5,6 @@ import importlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict
 
 import pytest
 import yaml
@@ -17,7 +16,7 @@ from magi.utils.diagnostic_logging import (
     set_full_content_logging_enabled,
 )
 from magi.config.loader import ConfigLoader
-from magi.config.models import NetworkProxySettings, PluginsSettings, ProxyType
+from magi.config.models import NetworkProxySettings, ProxyType
 from magi.utils.log_redaction import MASKED_LOG_VALUE, redact_log_text
 
 
@@ -32,7 +31,6 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     monkeypatch.setattr("magi.config.loader.get_config_file", lambda: config_file)
     monkeypatch.setattr("magi.config.loader.get_plugins_config_dir", lambda: plugins_dir)
     monkeypatch.setattr("magi.config.loader.get_plugins_index_file", lambda: index_file)
-    monkeypatch.setattr("magi.config.loader.get_plugin_settings_file", lambda plugin_id: plugins_dir / f"{plugin_id}.yaml")
     monkeypatch.setattr("magi.config.loader.get_data_dir", lambda: data_dir)
     monkeypatch.setattr("magi.config.loader.get_example_config_file", lambda: root / "missing-example.yaml")
     monkeypatch.setattr("magi.config.loader.get_llm_config_file", lambda: config_dir / "llm.yaml")
@@ -43,32 +41,6 @@ def _patch_config_paths(monkeypatch, root: Path) -> None:
     (root / "llm_providers.yaml").write_text(packaged_llm_registry.read_text(encoding="utf-8"), encoding="utf-8")
     packaged_lifecycle = Path(__file__).resolve().parents[2] / "configs" / "lifecycle.example.yaml"
     (root / "lifecycle.example.yaml").write_text(packaged_lifecycle.read_text(encoding="utf-8"), encoding="utf-8")
-
-
-# Manifest-driven loader tests use repository-owned fixtures so their inputs
-# cannot drift with a separately checked out plugin repository.
-_PLUGIN_MANIFEST_FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "plugin_manifests"
-_PLUGIN_MANIFEST_DIRS = {
-    "photo_library_core": "photo_library_core",
-    "apple-photos": "apple-photos",
-    "local-photos": "local-photos",
-    "chrome-history": "chrome-history",
-    "calendar": "calendar",
-    "git-activity": "git-activity",
-    "screen-time": "screen-time",
-    "system-media": "system-media",
-    "terminal-history": "terminal-history",
-}
-
-
-def _fixture_manifest_path(plugin_id: str) -> Path:
-    manifest = (
-        _PLUGIN_MANIFEST_FIXTURE_ROOT
-        / _PLUGIN_MANIFEST_DIRS[plugin_id]
-        / "plugin.toml"
-    )
-    assert manifest.is_file(), f"Missing plugin manifest fixture for {plugin_id}"
-    return manifest
 
 
 def test_l3_settings_round_trip_without_ineffective_summary_controls(tmp_path, monkeypatch):
@@ -100,109 +72,10 @@ def test_l3_settings_round_trip_without_ineffective_summary_controls(tmp_path, m
         assert f"agent.memory.l3.{field}" not in specs
 
 
-def _seed_fixture_manifest_paths(plugins_dir: Path) -> None:
-    """Write an index that points builtin packages at fixed manifest fixtures."""
-    plugins_dir.mkdir(parents=True, exist_ok=True)
-    packages: Dict[str, Dict[str, Any]] = {}
-    for plugin_id in _PLUGIN_MANIFEST_DIRS:
-        packages[plugin_id] = {"manifest_path": str(_fixture_manifest_path(plugin_id))}
-    (plugins_dir / "index.yaml").write_text(
-        yaml.safe_dump({"packages": packages}, sort_keys=False),
-        encoding="utf-8",
-    )
 
 
-def test_loader_migrates_inline_plugin_settings_to_split_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-    config_dir = tmp_path / "config"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    agent_file = config_dir / "agent.yaml"
-    agent_file.write_text(
-        yaml.safe_dump(
-            {
-                "plugins": {
-                    "scan_paths": ["plugins", "~/.magi/plugins"],
-                    "packages": {
-                        "local-photos": {
-                            "enabled": True,
-                            "trusted": True,
-                            "source": "builtin",
-                            "settings": {
-                                "sensors": {
-                                    "photo_library_directory": {
-                                        "enabled": True,
-                                        "sync_mode": "interval",
-                                        "sync_interval_minutes": 90,
-                                    }
-                                }
-                            },
-                        }
-                    },
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-
-    loader = ConfigLoader()
-    config = loader.load()
-
-    migrated_agent = yaml.safe_load(agent_file.read_text(encoding="utf-8")) or {}
-    index_file = tmp_path / "config" / "plugins" / "index.yaml"
-    settings_file = tmp_path / "config" / "plugins" / "local-photos.yaml"
-    index_data = yaml.safe_load(index_file.read_text(encoding="utf-8")) or {}
-    settings_data = yaml.safe_load(settings_file.read_text(encoding="utf-8")) or {}
-
-    assert "packages" not in migrated_agent.get("plugins", {})
-    assert index_data["packages"]["local-photos"]["enabled"] is True
-    assert settings_data["sensors"]["photo_library_directory"]["sync_interval_minutes"] == 90
-    assert (
-        config.plugins.packages["local-photos"]
-        .settings["sensors"]["photo_library_directory"]["sync_interval_minutes"]
-        == 90
-    )
 
 
-def test_loader_save_routes_plugin_updates_to_split_files(tmp_path: Path, monkeypatch) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-
-    loader = ConfigLoader()
-    config = loader.load()
-    assert config.plugins.packages["local-photos"].enabled is True
-
-    saved = loader.save(
-        {
-            "plugins.packages.local-photos.enabled": False,
-            (
-                "plugins.packages.local-photos.settings.sensors."
-                "photo_library_directory.sync_interval_minutes"
-            ): 120,
-            "tools.weather.default_provider": "qweather",
-        }
-    )
-
-    agent_data = yaml.safe_load((tmp_path / "config" / "agent.yaml").read_text(encoding="utf-8")) or {}
-    index_data = yaml.safe_load((tmp_path / "config" / "plugins" / "index.yaml").read_text(encoding="utf-8")) or {}
-    settings_data = (
-        yaml.safe_load(
-            (tmp_path / "config" / "plugins" / "local-photos.yaml").read_text(encoding="utf-8")
-        )
-        or {}
-    )
-
-    assert saved is True
-    assert "packages" not in agent_data.get("plugins", {})
-    assert agent_data["tools"]["weather"]["default_provider"] == "qweather"
-    assert index_data["packages"]["local-photos"]["enabled"] is False
-    assert settings_data["sensors"]["photo_library_directory"]["sync_interval_minutes"] == 120
-    assert loader.load().plugins.packages["local-photos"].enabled is False
-    assert (
-        loader.load()
-        .plugins.packages["local-photos"]
-        .settings["sensors"]["photo_library_directory"]["sync_interval_minutes"]
-        == 120
-    )
 
 
 def test_loader_refreshes_diagnostic_policy_and_known_secrets_immediately(
@@ -276,116 +149,12 @@ def test_network_proxy_url_includes_encoded_credentials() -> None:
     assert settings.proxy_url() == "http://magi%20user:pa%3Ass%40word@proxy.example.test:8080"
 
 
-def test_loader_default_photo_sources_follow_independent_plugin_contract(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-    _seed_fixture_manifest_paths(tmp_path / "config" / "plugins")
-
-    loader = ConfigLoader()
-    config = loader.load()
-
-    assert "core-timeline" not in config.plugins.packages
-    assert "photo-library" not in config.plugins.packages
-
-    core_package = config.plugins.packages["photo_library_core"]
-    apple_package = config.plugins.packages["apple-photos"]
-    local_package = config.plugins.packages["local-photos"]
-
-    for package in (core_package, apple_package, local_package):
-        assert package.enabled is True
-        assert package.trusted is True
-        assert package.source == "builtin"
-
-    assert core_package.settings == {}
-
-    apple_sensors = apple_package.settings["sensors"]
-    local_sensors = local_package.settings["sensors"]
-    assert set(apple_sensors) == {"photo_library_apple_photos"}
-    assert set(local_sensors) == {"photo_library_directory"}
-    assert apple_sensors["photo_library_apple_photos"]["enabled"] is False
-    assert apple_sensors["photo_library_apple_photos"]["source_mode"] == "apple_photos"
-    assert "source_paths" not in apple_sensors["photo_library_apple_photos"]
-    assert local_sensors["photo_library_directory"]["enabled"] is False
-    assert local_sensors["photo_library_directory"]["source_mode"] == "directory"
-    assert "photos_library_path" not in local_sensors["photo_library_directory"]
 
 
-def test_plugin_model_defaults_use_independent_photo_packages() -> None:
-    packages = PluginsSettings().packages
-
-    assert "photo-library" not in packages
-    for plugin_id in ("photo_library_core", "apple-photos", "local-photos"):
-        package = packages[plugin_id]
-        assert package.enabled is True
-        assert package.trusted is True
-        assert package.source == "builtin"
 
 
-def test_loader_enables_builtin_sensor_plugins_while_leaving_sources_disabled(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-    _seed_fixture_manifest_paths(tmp_path / "config" / "plugins")
-
-    loader = ConfigLoader()
-    config = loader.load()
-
-    for plugin_id, source_name in (
-        ("calendar", "calendar"),
-        ("git-activity", "git_activity"),
-        ("screen-time", "screen_time"),
-        ("terminal-history", "terminal_history"),
-    ):
-        package = config.plugins.packages[plugin_id]
-        assert package.enabled is True
-        assert package.trusted is True
-        assert package.settings["sensors"][source_name]["enabled"] is False
-
-    assert "apple-health" not in config.plugins.packages
-
-    screen_time_settings = config.plugins.packages["screen-time"].settings["sensors"]["screen_time"]
-    assert screen_time_settings["sync_interval_minutes"] == 5
-    assert "sync_interval_hours" not in screen_time_settings
-    assert "default_retention_mode" not in screen_time_settings
 
 
-def test_loader_migrates_legacy_disabled_chrome_history_plugin(tmp_path: Path, monkeypatch) -> None:
-    _patch_config_paths(monkeypatch, tmp_path)
-    config_dir = tmp_path / "config" / "plugins"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (tmp_path / "config" / "agent.yaml").write_text("plugins:\n  scan_paths:\n    - plugins\n", encoding="utf-8")
-    chrome_manifest = _fixture_manifest_path("chrome-history")
-    (config_dir / "index.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "packages": {
-                    "chrome-history": {
-                        "enabled": False,
-                        "trusted": False,
-                        "source": "builtin",
-                        "manifest_path": str(chrome_manifest),
-                    }
-                }
-            },
-            sort_keys=False,
-        ),
-        encoding="utf-8",
-    )
-    (config_dir / "chrome-history.yaml").write_text("{}", encoding="utf-8")
-
-    loader = ConfigLoader()
-    config = loader.load()
-    index_data = yaml.safe_load((config_dir / "index.yaml").read_text(encoding="utf-8")) or {}
-    settings_data = yaml.safe_load((config_dir / "chrome-history.yaml").read_text(encoding="utf-8")) or {}
-
-    assert index_data["packages"]["chrome-history"]["enabled"] is True
-    assert index_data["packages"]["chrome-history"]["trusted"] is True
-    assert settings_data["sensors"]["chrome_history"]["enabled"] is False
-    assert config.plugins.packages["chrome-history"].enabled is True
-    assert config.plugins.packages["chrome-history"].settings["sensors"]["chrome_history"]["enabled"] is False
 
 
 def test_loader_creates_default_scenario_llm_config(tmp_path: Path, monkeypatch) -> None:

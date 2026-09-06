@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useMemory } from '@/hooks/useMemory';
 import type { MemorySearchResultPayload } from '@/api/modules/memory';
-import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { EmptyStateAvailableSources } from '@/components/empty-state/EmptyStateAvailableSources';
 import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
 import MemoryPageFrame, {
   MEMORY_FILTER_INPUT_CLASS,
@@ -115,8 +115,8 @@ export const MemoryRecallPage = () => {
   };
 
   const noResults = resultSections.length === 0;
-  const hasLoadedMemoryTotal = typeof stats.total_memories === 'number';
-  const memoryTotal = stats.total_memories ?? 0;
+  const hasLoadedMemoryTotal = typeof stats.stored_records === 'number';
+  const memoryTotal = stats.stored_records ?? 0;
   const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
   const showSearching = hasSearched && searching;
   const showNoResults = hasSearched && !searching && !searchError && noResults;
@@ -128,7 +128,7 @@ export const MemoryRecallPage = () => {
           <p className="text-sm text-[#7d685a] dark:text-[#c8b7a7]">
             {t('memory.recall.emptyStateIntro')}
           </p>
-          <EmptyStateAvailableSensors />
+          <EmptyStateAvailableSources />
           <button
             type="button"
             onClick={() => setEntrySheetOpen(true)}

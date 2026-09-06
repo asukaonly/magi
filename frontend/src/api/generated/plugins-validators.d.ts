@@ -1,5 +1,7 @@
 // Generated from production response schemas. Run npm run contracts:generate.
 import type { components } from './plugins-types';
+export declare function validatePluginConnectionResponse(value: unknown): value is components['schemas']['PluginConnectionResponse'];
+export declare function validatePluginConnectionsResponse(value: unknown): value is components['schemas']['PluginConnectionsResponse'];
 export declare function validatePluginPackageResponse(value: unknown): value is components['schemas']['PluginPackageResponse'];
 export declare function validatePluginInstallCandidateResponse(value: unknown): value is components['schemas']['PluginInstallCandidateResponse'];
 export declare function validatePluginInstallJobSnapshot(value: unknown): value is components['schemas']['PluginInstallJobSnapshot'];

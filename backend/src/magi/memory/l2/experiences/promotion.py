@@ -29,8 +29,13 @@ class SeedPromotionOutcome:
     promoted: int = 0
     skipped_duplicates: int = 0
     rejected: int = 0
+    deferred: int = 0
     promoted_experience_id: str | None = None
     included_episode_ids: list[str] = field(default_factory=list)
+
+
+class ExperienceSelectionDeferred(RuntimeError):
+    """The run exhausted its model budget; keep the candidate for another run."""
 
 
 def _ordered_unique(values: list[Any]) -> list[str]:
@@ -309,11 +314,14 @@ async def _promote_single_seed(
         return SeedPromotionOutcome(rejected=1)
 
     pack = await recall_candidate_evidence_for_seed(store, seed_id=str(seed["seed_id"]))
-    selection = await select_experience_from_seed(
-        seed=pack["seed"],
-        evidence_pack=pack,
-        selector=selector,
-    )
+    try:
+        selection = await select_experience_from_seed(
+            seed=pack["seed"],
+            evidence_pack=pack,
+            selector=selector,
+        )
+    except ExperienceSelectionDeferred:
+        return SeedPromotionOutcome(deferred=1)
     if not _selection_can_form_experience(selection):
         await _reject_seed(
             store,
@@ -371,7 +379,7 @@ def _limit_selector_calls(
     ) -> dict[str, Any]:
         nonlocal remaining
         if remaining <= 0:
-            return {}
+            raise ExperienceSelectionDeferred("selector_budget_exhausted")
         remaining -= 1
         result = selector(seed, evidence_pack)
         if hasattr(result, "__await__"):
@@ -406,11 +414,10 @@ def _promotion_stats(
     processed = sum(outcome.processed for outcome in outcomes)
     promoted = sum(outcome.promoted for outcome in outcomes)
     rejected = sum(outcome.rejected for outcome in outcomes)
-    if processed == 0 and promoted == 0 and active_episode_count:
-        rejected += active_episode_count
     return ExperiencePromotionStats(
         candidates=max(processed, discovery_candidates),
         promoted=promoted,
+        deferred=sum(outcome.deferred for outcome in outcomes),
         skipped_duplicates=sum(outcome.skipped_duplicates for outcome in outcomes),
         rejected=rejected,
         promoted_experience_ids=[

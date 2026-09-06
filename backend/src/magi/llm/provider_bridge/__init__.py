@@ -224,7 +224,9 @@ class LLMProviderBridge:
             )
             return provider_response
         except Exception as exc:
-            await self._record_plain_chat_failure(exc, started_at, event_context, messages)
+            await self._record_plain_chat_failure(
+                exc, started_at, event_context, messages
+            )
             raise
 
     async def chat_with_tools(
@@ -278,11 +280,18 @@ class LLMProviderBridge:
             )
             return provider_response
         except Exception as exc:
-            await self._record_chat_with_tools_failure(exc, started_at, event_context, messages)
+            await self._record_chat_with_tools_failure(
+                exc, started_at, event_context, messages
+            )
             raise
 
     def _should_fallback_to_chat_response(self) -> bool:
-        return getattr(self.llm, "_client", None) is None and not self._operations.is_anthropic()
+        if getattr(self.llm, "is_plugin_provider", False) is True:
+            return False
+        return (
+            getattr(self.llm, "_client", None) is None
+            and not self._operations.is_anthropic()
+        )
 
     def _tool_event_context(
         self,
@@ -527,7 +536,9 @@ class LLMProviderBridge:
             )
             return result
         except Exception as exc:
-            await self._record_chat_with_tools_failure(exc, started_at, event_context, messages)
+            await self._record_chat_with_tools_failure(
+                exc, started_at, event_context, messages
+            )
             raise
 
     async def _run_chat_with_tools_stream(

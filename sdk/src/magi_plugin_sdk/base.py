@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from abc import ABC
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from .channels import Channel
+from .context import PluginContext
+from .runtime import InvocationIdentity, OperationResult, OperationSpec, PluginConnection
 from .contracts import (
     ExtractionProfileSpec,
     ExtensionFieldSpec,
@@ -20,7 +23,7 @@ from .contracts import (
 )
 from .ingress import PluginIngressHandlerRegistration
 from .i18n import PluginI18n, get_current_language
-from .sensors import PluginRuntimePaths, SensorSpec
+from .sources import PluginRuntimePaths, SourceSpec
 from .user_content import UserContentClearContext
 
 if TYPE_CHECKING:
@@ -31,7 +34,7 @@ class Plugin(ABC):
     """Base class for Magi plugin packages.
 
     Subclass this and implement one or more capability hooks to contribute
-    tools, sensors, channels, settings resources, ingress handlers, or
+    tools, sources, channels, settings resources, ingress handlers, or
     temporal summary features to the Magi runtime.
 
     The runtime calls ``configure()`` before registration, so ``self.manifest``
@@ -41,6 +44,8 @@ class Plugin(ABC):
     def __init__(self) -> None:
         self.manifest: PluginManifest | None = None
         self.settings: dict[str, Any] = {}
+        self.connection: PluginConnection | None = None
+        self.context: PluginContext | None = None
         self._i18n: PluginI18n | None = None
 
     @property
@@ -75,10 +80,34 @@ class Plugin(ABC):
                 self._i18n = PluginI18n(self.plugin_id, plugin_dir)
         return self._i18n
 
-    def configure(self, *, manifest: PluginManifest, settings: dict[str, Any]) -> None:
-        """Bind manifest and persisted settings to the plugin instance."""
+    @property
+    def connection_id(self) -> str:
+        """Return the explicit instance identity after host configuration."""
+        if self.connection is None:
+            raise RuntimeError("Plugin connection has not been configured")
+        return self.connection.connection_id
+
+    def configure(
+        self,
+        *,
+        manifest: PluginManifest,
+        connection: PluginConnection,
+        context: PluginContext,
+    ) -> None:
+        """Bind an explicit connection and its host-issued execution context.
+
+        Each connection gets a separate plugin object. The host allocates paths
+        and credentials before configuration; plugins must never choose their
+        state root or infer a connection from package-level settings.
+        """
+        if manifest.plugin_id != connection.plugin_id:
+            raise ValueError("Plugin manifest and connection identifiers do not match")
+        if context.connection != connection:
+            raise ValueError("Plugin context and connection bindings do not match")
         self.manifest = manifest
-        self.settings = dict(settings)
+        self.connection = connection.model_copy(deep=True)
+        self.context = context
+        self.settings = deepcopy(connection.settings)
         self._i18n = None
 
     async def shutdown(self) -> None:
@@ -94,7 +123,7 @@ class Plugin(ABC):
         old one — the old instance's timers keep ticking and its
         subprocess keeps consuming resources until the backend exits. The
         symptom is "I changed the interval to 120s and now captures fire
-        every 3s" — actually four sensor instances at 12s each, stacking.
+        every 3s" — actually four source instances at 12s each, stacking.
 
         Default is a no-op. Must be idempotent: the host may call shutdown
         multiple times. Should not raise; the host will log and continue
@@ -142,8 +171,25 @@ class Plugin(ABC):
         """Return tool classes contributed by this plugin."""
         return []
 
-    def get_sensors(self) -> list[tuple[str, Any, SensorSpec]]:
-        """Return ``(sensor_id, sensor_instance, SensorSpec)`` tuples."""
+    def get_operations(self) -> list[OperationSpec]:
+        """Declare business operations independently of the invoking UI."""
+        return []
+
+    async def invoke_operation(
+        self, operation_id: str, arguments: dict[str, Any], identity: InvocationIdentity,
+    ) -> OperationResult:
+        """Execute one declared operation using a host-issued invocation identity."""
+        raise KeyError(operation_id)
+
+    def get_providers(self) -> list[tuple[str, str, Any]]:
+        """Return (kind, provider_id, implementation) provider registrations.
+
+        Supported kinds are web_search, model and external_agent.
+        """
+        return []
+
+    def get_sources(self) -> list[tuple[str, Any, SourceSpec]]:
+        """Return ``(source_id, source_instance, SourceSpec)`` tuples."""
         return []
 
     def get_history_importers(
@@ -257,7 +303,7 @@ class Plugin(ABC):
     def get_summary_profiles(self) -> list[SummaryProfileSpec]:
         """Return L3 activity summary profiles contributed by this plugin.
 
-        Each profile declares a stable summary category, the sensor sources
+        Each profile declares a stable summary category, the sources
         that populate it, the time windows the host should schedule, and the
         intent verbs that route activity-summary queries to the category.
         """

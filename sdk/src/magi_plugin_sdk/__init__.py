@@ -7,17 +7,26 @@ Magi backend runtime:
 
 Then in your plugin:
 
-    from magi_plugin_sdk import Plugin, SensorSpec, ExtensionFieldSpec
+    from magi_plugin_sdk import Plugin, SourceSpec, ExtensionFieldSpec
 
-Or, if you prefer the canonical backend import path (works when the full
-Magi backend is installed):
-
-    from magi.plugins import Plugin, SensorSpec, ExtensionFieldSpec
-
-Both resolve to the same classes at runtime.
+External plugins import only this package. Host implementation modules are
+not part of the plugin authoring contract.
 """
 
 from .base import Plugin
+from .context import PluginContext, PluginCredentials
+from .hooks import HookContext, HookDecision, HookEventType, HookOutcome, HookHandler
+from .providers import (
+    ProviderUsage, ProviderToolCall, ModelRequest, ModelResult, ModelEvent,
+    ExternalAgentRequest, ExternalAgentResult, ExternalAgentEvent,
+    ModelProvider, ExternalAgentProvider,
+)
+from .runtime import (
+    SDK_VERSION, PLUGIN_PROTOCOL_VERSION, PluginConnection, ConnectionStatus,
+    CapabilityGrant, InvocationIdentity, ResourceRef, SourceChange,
+    SourceChangeBatch, CapabilityReadiness, OperationSpec, OperationResult,
+    PluginHandshake,
+)
 from .control import ControlRequest
 from .delivery import DeliveryContent, DeliveryReceipt
 from .channels import (
@@ -109,21 +118,20 @@ from .package_identity import (
     normalize_package_path_component,
     windows_path_component_issue,
 )
-from .sensors import (
+from .sources import (
     ActivityFacet,
     ContentBlock,
     L2BatchPolicy,
     PluginRuntimePaths,
-    PullSyncSensor,
-    SensorActivity,
-    SensorBase,
-    SensorMemoryPolicy,
-    SensorNarration,
-    SensorOutput,
-    SensorOutputMetadata,
-    SensorSpec,
-    SensorSyncContext,
-    SensorSyncResult,
+    PullSource,
+    SourceActivity,
+    Source,
+    SourceMemoryPolicy,
+    SourceNarration,
+    SourceOutput,
+    SourceOutputMetadata,
+    SourceSpec,
+    SourceSyncContext,
     TimelinePresentation,
 )
 from .subprocess import (
@@ -156,9 +164,30 @@ from .capabilities import (
     TracePort,
 )
 
-__version__ = "0.1.1"
+__version__ = SDK_VERSION
 
 __all__ = [
+    "PluginContext",
+    "PluginCredentials",
+    "HookContext",
+    "HookDecision",
+    "HookEventType",
+    "HookOutcome",
+    "HookHandler",
+    "ProviderUsage",
+    "ProviderToolCall",
+    "ModelRequest",
+    "ModelResult",
+    "ModelEvent",
+    "ExternalAgentRequest",
+    "ExternalAgentResult",
+    "ExternalAgentEvent",
+    "ModelProvider",
+    "ExternalAgentProvider",
+    "SDK_VERSION", "PLUGIN_PROTOCOL_VERSION", "PluginConnection", "ConnectionStatus",
+    "CapabilityGrant", "InvocationIdentity", "ResourceRef", "SourceChange",
+    "SourceChangeBatch", "CapabilityReadiness", "OperationSpec", "OperationResult",
+    "PluginHandshake",
     # Core base class
     "Plugin",
     # Delivery types (Phase G)
@@ -197,21 +226,20 @@ __all__ = [
     # User-content clear lifecycle
     "UserContentClearContext",
     "UserContentClearRequest",
-    # Sensor
+    # Source
     "ActivityFacet",
     "ContentBlock",
     "L2BatchPolicy",
     "PluginRuntimePaths",
-    "PullSyncSensor",
-    "SensorActivity",
-    "SensorBase",
-    "SensorMemoryPolicy",
-    "SensorNarration",
-    "SensorOutput",
-    "SensorOutputMetadata",
-    "SensorSpec",
-    "SensorSyncContext",
-    "SensorSyncResult",
+    "PullSource",
+    "SourceActivity",
+    "Source",
+    "SourceMemoryPolicy",
+    "SourceNarration",
+    "SourceOutput",
+    "SourceOutputMetadata",
+    "SourceSpec",
+    "SourceSyncContext",
     "TimelinePresentation",
     # Field / settings specs
     "ExtensionFieldOption",

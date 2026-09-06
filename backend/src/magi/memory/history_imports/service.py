@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -112,7 +112,10 @@ class HistoryImportService:
         store: HistoryImportStore,
         memory: Any,
         importer_registry: HistoryImporterRegistry | None = None,
+        connection_name_resolver: Callable[[str], str | None] | None = None,
+        consolidation_request: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
+        self._consolidation_request = consolidation_request
         self._store = store
         self._memory = memory
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -125,6 +128,7 @@ class HistoryImportService:
         self._deletion_lock = asyncio.Lock()
         self._operation_barrier = AsyncOperationBarrier()
         self._importer_registry = importer_registry or HistoryImporterRegistry()
+        self._connection_name_resolver = connection_name_resolver
         self._importer_parse_slots = asyncio.BoundedSemaphore(MAX_CONCURRENT_IMPORTER_PARSERS)
         self._importer_parse_tasks: set[asyncio.Task[Any]] = set()
         self._importer_lifecycle_generation = 0
@@ -133,7 +137,11 @@ class HistoryImportService:
     def list_importers(self) -> list[RegisteredHistoryImporter]:
         """Return enabled importer contributions available to the host UI."""
 
-        return self._importer_registry.list()
+        return [entry for entry in self._importer_registry.list() if entry.connection_id is not None]
+
+    def connection_display_name(self, connection_id: str) -> str | None:
+        """Return the host-owned account label for an enabled importer."""
+        return self._connection_name_resolver(connection_id) if self._connection_name_resolver else None
 
     async def _invoke_history_importer(
         self,
@@ -158,7 +166,7 @@ class HistoryImportService:
                     registered,
                     resolved_paths,
                 ),
-                name=f"history-import-parser:{registered.plugin_id}:{registered.importer_id}",
+                name=f"history-import-parser:{registered.connection_id}:{registered.importer_id}",
             )
         except BaseException:
             self._importer_parse_slots.release()
@@ -314,6 +322,7 @@ class HistoryImportService:
         *,
         plugin_id: str,
         importer_id: str,
+        connection_id: str,
         paths: list[str],
     ) -> HistoryImportJob:
         """Parse a declared platform export and persist a host-owned preview."""
@@ -321,7 +330,9 @@ class HistoryImportService:
         if not self._accepting_importer_previews:
             raise HistoryImportValidationError("history_importer_not_available")
         lifecycle_generation = self._importer_lifecycle_generation
-        registered = self._importer_registry.get(plugin_id, importer_id)
+        if not connection_id or not connection_id.strip():
+            raise HistoryImportValidationError("history_importer_not_available")
+        registered = self._importer_registry.get(plugin_id, importer_id, connection_id=connection_id)
         if registered is None:
             raise HistoryImportValidationError("history_importer_not_available")
         resolved_paths = _validate_importer_paths(paths, registered)
@@ -392,7 +403,7 @@ class HistoryImportService:
                 or lifecycle_generation != self._importer_lifecycle_generation
             ):
                 raise HistoryImportValidationError("history_importer_not_available")
-            current = self._importer_registry.get(plugin_id, importer_id)
+            current = self._importer_registry.get(plugin_id, importer_id, connection_id=connection_id)
             if current is not registered:
                 raise HistoryImportValidationError("history_importer_not_available")
             if int(self._memory.memory_operation_epoch()) != expected_epoch:
@@ -436,6 +447,7 @@ class HistoryImportService:
             ]
             try:
                 await self._store.validate_platform_session_prefixes(
+                    connection_id=connection_id,
                     importer_plugin_id=plugin_id,
                     importer_id=importer_id,
                     importer_format_version=registered.spec.format_version,
@@ -476,6 +488,7 @@ class HistoryImportService:
             parsed_files=parsed_sources,
             now=now,
             importer_identity=(
+                registered.connection_id,
                 registered.plugin_id,
                 registered.importer_id,
                 registered.spec.format_version,
@@ -504,6 +517,7 @@ class HistoryImportService:
             quick_ready=False,
             created_at=now,
             updated_at=now,
+            connection_id=registered.connection_id,
             importer_plugin_id=registered.plugin_id,
             importer_id=registered.importer_id,
             importer_format_version=registered.spec.format_version,
@@ -1064,6 +1078,11 @@ class HistoryImportService:
                         job=completed_job,
                     )
                     await self._log_integrity_audit(checkpoint="completed")
+            if self._consolidation_request is not None:
+                try:
+                    await self._consolidation_request()
+                except Exception:
+                    logger.exception("History import consolidation request failed")
         except asyncio.CancelledError:
             logger.info(
                 "History import background task cancelled",
@@ -1296,6 +1315,7 @@ def _platform_import_fingerprint(
 
     fingerprint_hash = hashlib.sha256()
     for part in (
+        registered.connection_id,
         registered.plugin_id,
         registered.importer_id,
         registered.spec.format_version,
@@ -1455,6 +1475,7 @@ def _platform_participant_id(
     if raw_speaker_id == DOCUMENT_AUTHOR:
         raise HistoryImportValidationError("history_importer_reserved_participant_id")
     identity_parts = [
+        registered.connection_id,
         registered.plugin_id,
         registered.importer_id,
         registered.spec.format_version,
@@ -1692,7 +1713,7 @@ def _build_records(
     file_fingerprints: dict[str, str],
     parsed_files: list[ParsedHistorySource],
     now: float,
-    importer_identity: tuple[str, str, str] | None = None,
+    importer_identity: tuple[str, str, str, str] | None = None,
     missing_timestamp_anchor: float | None = None,
 ) -> list[HistoryImportRecord]:
     records: list[HistoryImportRecord] = []
@@ -1701,9 +1722,10 @@ def _build_records(
             file_fingerprint = file_fingerprints[parsed.source_name]
             session_identity = f"{file_fingerprint}\x00{parsed.session_key}"
         else:
-            plugin_id, importer_id, format_version = importer_identity
+            connection_id, plugin_id, importer_id, format_version = importer_identity
             session_identity = "\x00".join(
                 (
+                    connection_id,
                     plugin_id,
                     importer_id,
                     format_version,

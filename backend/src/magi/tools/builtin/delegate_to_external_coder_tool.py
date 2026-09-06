@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, cast
@@ -70,7 +71,8 @@ def _delegate_parameters() -> list[ToolParameter]:
             name="prompt",
             type=ParameterType.STRING,
             description=(
-                "Natural-language task description. Include the " "acceptance criterion explicitly."
+                "Natural-language task description. Include the "
+                "acceptance criterion explicitly."
             ),
             required=True,
         ),
@@ -78,16 +80,20 @@ def _delegate_parameters() -> list[ToolParameter]:
             name="files_hint",
             type=ParameterType.ARRAY,
             array_item_type=ParameterType.STRING,
-            description=("Optional: relative paths the external agent should " "look at first."),
+            description=(
+                "Optional: relative paths the external agent should " "look at first."
+            ),
             required=False,
         ),
         ToolParameter(
             name="adapter",
             type=ParameterType.STRING,
-            description="Which CLI to use. 'auto' picks the configured default.",
+            description=(
+                "Which built-in CLI or connected external-agent provider to use. "
+                "'auto' picks the configured default."
+            ),
             required=False,
             default="auto",
-            enum=list(_VALID_ADAPTERS),
         ),
         ToolParameter(
             name="model",
@@ -151,18 +157,24 @@ def _invalid_parameters_result(error: str) -> ToolResult:
 def _delegate_input(
     parameters: Dict[str, Any],
     context: ToolExecutionContext,
+    plugin_adapters: tuple[str, ...] = (),
 ) -> _DelegateInput | ToolResult:
     prompt = str(parameters.get("prompt") or "").strip()
     if not prompt:
         return _missing_value_result("prompt is required")
 
     adapter_param = str(parameters.get("adapter") or "auto").strip()
-    if adapter_param not in _VALID_ADAPTERS:
-        return _invalid_parameters_result(f"adapter must be one of {_VALID_ADAPTERS}")
+    available_adapters = tuple(dict.fromkeys((*_VALID_ADAPTERS, *plugin_adapters)))
+    if adapter_param not in available_adapters:
+        return _invalid_parameters_result(
+            f"adapter must be one of {available_adapters}"
+        )
 
     sid = str((context.env_vars or {}).get("session_id") or "").strip()
     if not sid:
-        return _invalid_parameters_result("delegate_to_external_coder requires an active session")
+        return _invalid_parameters_result(
+            "delegate_to_external_coder requires an active session"
+        )
 
     workspace = getattr(context, "workspace", None)
     if not workspace:
@@ -186,14 +198,43 @@ def _files_hint(parameters: Dict[str, Any]) -> list[str] | ToolResult:
 
 
 class DelegateToExternalCoderTool(Tool):
-    """Delegate a coding task to an external CLI (Claude Code or Codex)."""
+    """Delegate coding tasks to built-in CLIs or live external-agent providers."""
+
+    @property
+    def schema(self) -> ToolSchema | None:
+        """Give every exporter and validator an independent, current schema."""
+        if self._schema is None:
+            return None
+        schema = self._schema.model_copy(deep=True)
+        providers = getattr(self, "_provider_registry", None)
+        names = providers.names("external_agent") if providers is not None else ()
+        for parameter in schema.parameters:
+            if parameter.name == "adapter":
+                parameter.enum = list(dict.fromkeys((*_VALID_ADAPTERS, *names)))
+        return schema
+
+    @schema.setter
+    def schema(self, value: ToolSchema | None) -> None:
+        self._schema = value
+
+    def bind_provider_registry(self, registry: Any, *, kind: str) -> Callable[[], None]:
+        """Bind external adapter selection to the shared provider registry."""
+        token = object()
+        self._provider_binding = token
+        self._provider_registry = registry
+
+        def dispose() -> None:
+            if self._provider_binding is token:
+                self._provider_registry = None
+
+        return dispose
 
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="delegate_to_external_coder",
             description=(
-                "Delegate a coding task to an external coding CLI (Claude Code "
-                "or Codex). Use for: multi-file refactors, new features, bug "
+                "Delegate a coding task to Claude Code, Codex, or a connected "
+                "external-agent provider. Use for: multi-file refactors, new features, bug "
                 "fixes that need iterative typecheck/test cycles. The external "
                 "tool runs in an isolated git worktree under "
                 ".magi/sessions/<sid>/worktrees/<delegation_id>/; the result "
@@ -218,7 +259,12 @@ class DelegateToExternalCoderTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        delegate_input = _delegate_input(parameters, context)
+        providers = getattr(self, "_provider_registry", None)
+        delegate_input = _delegate_input(
+            parameters,
+            context,
+            tuple(providers.names("external_agent")) if providers is not None else (),
+        )
         if isinstance(delegate_input, ToolResult):
             return delegate_input
 
@@ -234,7 +280,9 @@ class DelegateToExternalCoderTool(Tool):
 
         settings = load_settings(workspace_root=delegate_input.workspace)
         if not settings.enabled:
-            return _invalid_parameters_result("External code tools are disabled in settings")
+            return _invalid_parameters_result(
+                "External code tools are disabled in settings"
+            )
 
         binary_paths = _binary_paths_from_settings(settings)
         resolved_adapter = _resolve_adapter(
@@ -243,7 +291,9 @@ class DelegateToExternalCoderTool(Tool):
             binary_paths,
         )
 
-        timeout_s = int(parameters.get("timeout_s") or settings.constraints.default_timeout_s)
+        timeout_s = int(
+            parameters.get("timeout_s") or settings.constraints.default_timeout_s
+        )
         timeout_s = max(60, min(3600, timeout_s))
 
         files_hint = _files_hint(parameters)
@@ -255,7 +305,9 @@ class DelegateToExternalCoderTool(Tool):
             forbid_git_commit=settings.constraints.forbid_git_commit,
             forbid_git_push=settings.constraints.forbid_git_push,
             max_budget_usd=(
-                settings.claude_code.max_budget_usd if resolved_adapter == "claude_code" else None
+                settings.claude_code.max_budget_usd
+                if resolved_adapter == "claude_code"
+                else None
             ),
         )
 
@@ -272,12 +324,18 @@ class DelegateToExternalCoderTool(Tool):
                 ),
                 constraints=constraints,
                 timeout_s=timeout_s,
-                model=(str(parameters.get("model")) if parameters.get("model") else None),
+                model=(
+                    str(parameters.get("model")) if parameters.get("model") else None
+                ),
             )
         except ValueError as exc:
             return _invalid_parameters_result(str(exc))
 
-        service = CodeAgentService(binary_paths=binary_paths, cleanup_worktree=False)
+        service = CodeAgentService(
+            binary_paths=binary_paths,
+            cleanup_worktree=False,
+            provider_registry=getattr(self, "_provider_registry", None),
+        )
         user_id = str((context.env_vars or {}).get("user_id") or "").strip() or None
         try:
             result = await service.delegate(
@@ -285,7 +343,9 @@ class DelegateToExternalCoderTool(Tool):
                 dry_run=bool(parameters.get("dry_run")),
                 user_id=user_id,
                 delegation_events=(
-                    context.capabilities.delegation_events if context.capabilities else None
+                    context.capabilities.delegation_events
+                    if context.capabilities
+                    else None
                 ),
                 artifact_registry=artifact_registry,
                 cancellation=context.cancellation,

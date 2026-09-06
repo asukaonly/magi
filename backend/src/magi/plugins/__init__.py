@@ -28,7 +28,7 @@ from magi_plugin_sdk import (  # noqa: F401
     PluginSettingsActionSpec,
     PluginSettingsResourcePayload,
     PluginSettingsResourceSpec,
-    SensorSpec,
+    SourceSpec,
     SettingsUIBlockSpec,
     SuggestionSurfaceSpec,
     SuggestionSurfacesSpec,
@@ -39,7 +39,7 @@ from magi_plugin_sdk import (  # noqa: F401
 )
 from .manager import PluginManager
 from .projections import PluginProjectionService
-from .sensors import SensorRegistry
+from .sources import SourceRegistry
 from .history_importers import HistoryImporterRegistry
 
 __all__ = [
@@ -68,9 +68,9 @@ __all__ = [
     "PluginSettingsActionSpec",
     "PluginSettingsResourcePayload",
     "PluginSettingsResourceSpec",
-    "SensorRegistry",
+    "SourceRegistry",
     "HistoryImporterRegistry",
-    "SensorSpec",
+    "SourceSpec",
     "SettingsUIBlockSpec",
     "SuggestionSurfaceSpec",
     "SuggestionSurfacesSpec",

@@ -16,6 +16,7 @@ export type HistoryImportDetectedKind = HistoryImportJob['detected_kind'];
 export type HistoryImportStatus = HistoryImportJob['status'];
 
 export interface HistoryImporterPreviewInput {
+  connectionId: string;
   pluginId: string;
   importerId: string;
   paths: string[];
@@ -48,7 +49,7 @@ export const historyImportsApi = {
   async previewWithImporter(input: HistoryImporterPreviewInput): Promise<HistoryImportJob> {
     const response = await api.post<unknown>(
       `/memory/history-imports/importers/${encodeURIComponent(input.pluginId)}/${encodeURIComponent(input.importerId)}/preview`,
-      { paths: input.paths },
+      { paths: input.paths, connection_id: input.connectionId },
       { timeout: HISTORY_IMPORTER_PREVIEW_TIMEOUT_MS },
     );
     return parseHistoryImportJob(response);

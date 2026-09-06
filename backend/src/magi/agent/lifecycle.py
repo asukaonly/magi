@@ -46,10 +46,10 @@ class _AgentRuntimeDependencies:
     chat_store: Any
     message_bus: Any
     runtime_command_queue: Any
-    sensor_hub: Any
+    source_hub: Any
     event_emitter: Any
     plugin_manager: Any
-    sensor_registry: Any
+    source_registry: Any
     skill_runner: Any
 
 
@@ -68,7 +68,7 @@ class AgentRuntimeModule(LifecycleModule):
         super().__init__(
             name="runtime_agent_core",
             dependencies=(
-                "runtime_sensor_hub",
+                "runtime_source_hub",
                 "runtime_command_queue",
                 "runtime_context",
                 "runtime_personality",
@@ -122,7 +122,7 @@ class AgentRuntimeModule(LifecycleModule):
         )
         router_agent = self._build_router_agent(deps, task_agent_manager)
         agent_runtime = AgentRuntime(
-            sensor_hub=deps.sensor_hub,
+            source_hub=deps.source_hub,
             router_agent=router_agent,
             task_agent_manager=task_agent_manager,
             event_emitter=deps.event_emitter,
@@ -280,10 +280,10 @@ class AgentRuntimeModule(LifecycleModule):
             config=deps.config,
             unified_memory=deps.unified_memory,
             plugin_manager=deps.plugin_manager,
-            sensor_registry=deps.sensor_registry,
-            sensor_ingestion_gateway=require_initialized(
-                self._context.agent_runtime.sensor_ingestion_gateway,
-                "sensor ingestion gateway",
+            source_registry=deps.source_registry,
+            source_ingestion_gateway=require_initialized(
+                self._context.agent_runtime.source_ingestion_gateway,
+                "source ingestion gateway",
             ),
             build_timeline_handler=self._build_timeline_handler,
         )
@@ -294,7 +294,7 @@ class AgentRuntimeModule(LifecycleModule):
         task_agent_manager: TaskAgentManager,
     ) -> RouterAgent:
         return RouterAgent(
-            sensor_hub=deps.sensor_hub,
+            source_hub=deps.source_hub,
             task_agent_manager=task_agent_manager,
             batch_size=max(8, deps.config.agent.num_task_agents * 4),
             poll_timeout_seconds=0.2,
@@ -448,7 +448,7 @@ def _load_agent_runtime_dependencies(
             context.runtime_commands.runtime_command_queue,
             "runtime command queue",
         ),
-        sensor_hub=require_initialized(context.agent_runtime.sensor_hub, "sensor hub"),
+        source_hub=require_initialized(context.agent_runtime.source_hub, "source hub"),
         event_emitter=require_initialized(
             context.agent_runtime.event_emitter,
             "event emitter",
@@ -457,9 +457,9 @@ def _load_agent_runtime_dependencies(
             context.plugins.plugin_manager,
             "plugin manager",
         ),
-        sensor_registry=require_initialized(
-            context.plugins.sensor_registry,
-            "sensor registry",
+        source_registry=require_initialized(
+            context.plugins.source_registry,
+            "source registry",
         ),
         skill_runner=context.skills.skill_runner,
     )

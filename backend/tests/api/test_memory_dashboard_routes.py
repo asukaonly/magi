@@ -179,10 +179,10 @@ def test_memory_dashboard_reports_statistics_sources_and_pending(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["statistics"]["total_memories"] == 28
+    assert body["statistics"]["stored_records"] == 28
     assert body["deltas"] == {
         "today": {
-            "total_memories": 9,
+            "stored_records": 9,
             "l1_events": 4,
             "l2_assertions": 3,
             "l3_summaries": 2,

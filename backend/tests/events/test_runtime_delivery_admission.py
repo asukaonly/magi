@@ -11,7 +11,7 @@ from magi.agent.runtime.router_agent import RouterAgent
 from magi.agent.runtime.task_agent import TaskAgent
 from magi.agent.runtime.task_agent_manager import TaskAgentManager
 from magi.agent.runtime.types import TaskAgentType
-from magi.awareness.sensor_hub import SensorHub
+from magi.awareness.source_hub import SourceHub
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.chat import ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
@@ -126,8 +126,8 @@ async def test_cancel_queued_turn_before_runtime_admission_converges_without_exe
 
     message_bus = InMemoryMessageBusBackend(num_workers=1, max_queue_size=64)
     await message_bus.start()
-    sensor_hub = SensorHub(message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus)
+    await source_hub.start()
     processed_commands: list[int] = []
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _RecordingChatAgent(
@@ -137,9 +137,9 @@ async def test_cancel_queued_turn_before_runtime_admission_converges_without_exe
         user_message_delivery_admitter=chat_store.mark_user_turn_delivery_admitted,
         runtime_command_acknowledger=queue.ack,
     )
-    await manager.start_all(event_emitter=None, sensor_hub=sensor_hub)
+    await manager.start_all(event_emitter=None, source_hub=source_hub)
     router = RouterAgent(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         task_agent_manager=manager,
         poll_timeout_seconds=0.01,
         restart_backoff_seconds=0.01,
@@ -172,7 +172,7 @@ async def test_cancel_queued_turn_before_runtime_admission_converges_without_exe
         await processor.shutdown()
         await router.stop()
         await manager.stop_all()
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()
 
@@ -188,8 +188,8 @@ async def test_ack_failure_replays_same_command_without_double_admission(
     await queue.start()
     message_bus = InMemoryMessageBusBackend(num_workers=1, max_queue_size=64)
     await message_bus.start()
-    sensor_hub = SensorHub(message_bus)
-    await sensor_hub.start()
+    source_hub = SourceHub(message_bus)
+    await source_hub.start()
 
     processed_commands: list[int] = []
     admitted: set[tuple[str, int, int]] = set()
@@ -235,9 +235,9 @@ async def test_ack_failure_replays_same_command_without_double_admission(
         user_message_delivery_admitter=_admit,
         runtime_command_acknowledger=_ack_with_one_failure,
     )
-    await manager.start_all(event_emitter=None, sensor_hub=sensor_hub)
+    await manager.start_all(event_emitter=None, source_hub=source_hub)
     router = RouterAgent(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         task_agent_manager=manager,
         poll_timeout_seconds=0.01,
         restart_backoff_seconds=0.01,
@@ -291,6 +291,6 @@ async def test_ack_failure_replays_same_command_without_double_admission(
         await processor.shutdown()
         await router.stop()
         await manager.stop_all()
-        await sensor_hub.stop()
+        await source_hub.stop()
         await message_bus.stop()
         await queue.stop()

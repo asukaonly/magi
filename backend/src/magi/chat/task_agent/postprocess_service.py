@@ -91,7 +91,7 @@ class ChatPostProcessService:
         context_assembler: ChatContextAssembler,
         get_event_emitter: Callable[[], Any],
         get_task_agent_manager: Callable[[], Any | None],
-        get_sensor_hub: Callable[[], Any | None],
+        get_source_hub: Callable[[], Any | None],
         memory=None,
         unified_memory=None,
         post_turn_understanding_service=None,
@@ -112,7 +112,7 @@ class ChatPostProcessService:
             context_assembler=context_assembler,
             get_event_emitter=get_event_emitter,
             get_task_agent_manager=get_task_agent_manager,
-            get_sensor_hub=get_sensor_hub,
+            get_source_hub=get_source_hub,
             memory=memory,
             unified_memory=unified_memory,
             post_turn_understanding_service=post_turn_understanding_service,
@@ -262,7 +262,7 @@ class ChatPostProcessService:
         context_assembler: ChatContextAssembler,
         get_event_emitter: Callable[[], Any],
         get_task_agent_manager: Callable[[], Any | None],
-        get_sensor_hub: Callable[[], Any | None],
+        get_source_hub: Callable[[], Any | None],
         memory: Any,
         unified_memory: Any,
         post_turn_understanding_service: Any,
@@ -273,7 +273,7 @@ class ChatPostProcessService:
         self._tool_state_view = context_assembler.tool_state_view
         self._get_event_emitter = get_event_emitter
         self._get_task_agent_manager = get_task_agent_manager
-        self._get_sensor_hub = get_sensor_hub
+        self._get_source_hub = get_source_hub
         self._memory = memory
         self._unified_memory = unified_memory
         self._post_turn_understanding_service = post_turn_understanding_service

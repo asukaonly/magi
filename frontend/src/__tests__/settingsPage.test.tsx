@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SettingsCenterDialog from '@/components/layout/SettingsCenterDialog';
@@ -10,7 +11,7 @@ import { getControlSettings, updateControlSettings } from '@/api/modules/control
 import memoryApi from '@/api/modules/memory';
 import { memoryPortabilityApi } from '@/api/modules/memoryPortability';
 import { pluginsApi } from '@/api/modules/plugins';
-import { sensorsApi } from '@/api/modules/sensors';
+import { sourcesApi } from '@/api/modules/sources';
 import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
 
@@ -232,8 +233,8 @@ vi.mock('@/api/modules/memoryPortability', async () => {
   };
 });
 
-vi.mock('@/api/modules/sensors', () => ({
-  sensorsApi: {
+vi.mock('@/api/modules/sources', () => ({
+  sourcesApi: {
     getStatus: vi.fn(),
     requestSync: vi.fn(),
     requestStateFlush: vi.fn(),
@@ -249,13 +250,13 @@ vi.mock('@/api/modules/plugins', async () => {
       ...actual.pluginsApi,
       list: vi.fn(),
       rescan: vi.fn(),
-      enable: vi.fn(),
-      disable: vi.fn(),
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
       getRegistry: vi.fn(),
       installFromRegistryWithProgress: vi.fn(),
-      updateSettings: vi.fn(),
+      listConnections: vi.fn(),
+      getConnection: vi.fn(),
+      updateConnection: vi.fn(),
       startSettingsAction: vi.fn(),
       pollSettingsAction: vi.fn(),
       cancelSettingsAction: vi.fn(),
@@ -287,6 +288,7 @@ vi.mock('@/api/modules/skills', async () => {
 });
 
 const timelineSourceFixture = {
+  connection_id: 'photo-account', connection_display_name: 'Photo Account', connection_revision: 4,
   source_name: 'photo_library',
   plugin_id: 'photo-library',
   contribution_id: 'timeline.photo_library',
@@ -294,7 +296,7 @@ const timelineSourceFixture = {
   description: 'Photo assets referenced from a local library path.',
   fields: [
     {
-      key: 'sensors.photo_library.enabled',
+      key: 'sources.photo_library.enabled',
       type: 'switch',
       label: 'Enabled',
       description: 'Whether this source is active.',
@@ -306,7 +308,7 @@ const timelineSourceFixture = {
       order: 10,
     },
     {
-      key: 'sensors.photo_library.sync_interval_minutes',
+      key: 'sources.photo_library.sync_interval_minutes',
       type: 'number',
       label: 'Sync Interval (minutes)',
       description: 'Polling interval for interval-based sources.',
@@ -318,7 +320,7 @@ const timelineSourceFixture = {
       order: 30,
     },
     {
-      key: 'sensors.photo_library.source_path',
+      key: 'sources.photo_library.source_path',
       type: 'path',
       label: 'Source Path',
       description: 'Optional local path or root directory for this source.',
@@ -331,9 +333,9 @@ const timelineSourceFixture = {
     },
   ],
   current_settings: {
-    'sensors.photo_library.enabled': true,
-    'sensors.photo_library.sync_interval_minutes': 60,
-    'sensors.photo_library.source_path': '/tmp/photo-library',
+    'sources.photo_library.enabled': true,
+    'sources.photo_library.sync_interval_minutes': 60,
+    'sources.photo_library.source_path': '/tmp/photo-library',
   },
   enabled: true,
   sync_mode: 'interval',
@@ -357,6 +359,7 @@ const timelineSourceFixture = {
 };
 
 const chromeTimelineSourceFixture = {
+  connection_id: 'chrome-account', connection_display_name: 'Chrome Account', connection_revision: 4,
   source_name: 'chrome_history',
   plugin_id: 'chrome-history',
   contribution_id: 'timeline.chrome_history',
@@ -364,7 +367,7 @@ const chromeTimelineSourceFixture = {
   description: 'Local Google Chrome browsing history ingested into the user timeline.',
   fields: [
     {
-      key: 'sensors.chrome_history.enabled',
+      key: 'sources.chrome_history.enabled',
       type: 'switch',
       label: 'Enabled',
       description: 'Whether this source is active.',
@@ -376,7 +379,7 @@ const chromeTimelineSourceFixture = {
       order: 10,
     },
     {
-      key: 'sensors.chrome_history.sync_interval_minutes',
+      key: 'sources.chrome_history.sync_interval_minutes',
       type: 'number',
       label: 'Sync Interval (minutes)',
       description: 'Polling interval for interval-based sources.',
@@ -386,17 +389,17 @@ const chromeTimelineSourceFixture = {
       section: 'general',
       surface: 'timeline',
       order: 30,
-      depends_on_key: 'sensors.chrome_history.sync_mode',
+      depends_on_key: 'sources.chrome_history.sync_mode',
       depends_on_values: ['interval'],
     },
   ],
   current_settings: {
-    'sensors.chrome_history.enabled': false,
-    'sensors.chrome_history.sync_mode': 'manual',
-    'sensors.chrome_history.sync_interval_minutes': 30,
-    'sensors.chrome_history.initial_sync_configured': false,
-    'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-    'sensors.chrome_history.initial_sync_lookback_days': 7,
+    'sources.chrome_history.enabled': false,
+    'sources.chrome_history.sync_mode': 'manual',
+    'sources.chrome_history.sync_interval_minutes': 30,
+    'sources.chrome_history.initial_sync_configured': false,
+    'sources.chrome_history.initial_sync_policy': 'lookback_days',
+    'sources.chrome_history.initial_sync_lookback_days': 7,
   },
   enabled: false,
   sync_mode: 'manual',
@@ -413,11 +416,11 @@ const chromeTimelineSourceFixture = {
     description: 'Choose how the first sync should seed the timeline.',
     confirm_label: 'Enable source',
     cancel_label: 'Not now',
-    enabled_key: 'sensors.chrome_history.enabled',
-    configured_key: 'sensors.chrome_history.initial_sync_configured',
+    enabled_key: 'sources.chrome_history.enabled',
+    configured_key: 'sources.chrome_history.initial_sync_configured',
     fields: [
       {
-        key: 'sensors.chrome_history.initial_sync_policy',
+        key: 'sources.chrome_history.initial_sync_policy',
         type: 'select',
         label: 'First Sync Scope',
         description: 'Decide how much history should be imported the first time.',
@@ -433,7 +436,7 @@ const chromeTimelineSourceFixture = {
         order: 10,
       },
       {
-        key: 'sensors.chrome_history.initial_sync_lookback_days',
+        key: 'sources.chrome_history.initial_sync_lookback_days',
         type: 'number',
         label: 'Recent Days',
         description: 'Used when the first-sync scope is set to recent days.',
@@ -443,7 +446,7 @@ const chromeTimelineSourceFixture = {
         section: 'activation',
         surface: 'timeline',
         order: 20,
-        depends_on_key: 'sensors.chrome_history.initial_sync_policy',
+        depends_on_key: 'sources.chrome_history.initial_sync_policy',
         depends_on_values: ['lookback_days'],
       },
     ],
@@ -481,6 +484,9 @@ const browserRegistryEntry = (
   installed = false,
 ) => ({
   plugin_id: pluginId,
+  protocol_version: 2,
+  execution_mode: 'trusted_process',
+  settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
   name,
   name_i18n: { 'zh-CN': `${memberLabel} 浏览器历史` },
   version: '0.1.0',
@@ -491,9 +497,9 @@ const browserRegistryEntry = (
   display_group: browserDisplayGroup(memberLabel, memberOrder),
   official: true,
   data_locality: 'local_only',
-  contribution_types: ['sensor'],
+  contribution_types: ['source'],
   platforms: [],
-  min_sdk_version: '0.1.0',
+  min_sdk_version: '0.2.0',
   homepage: '',
   repository: '',
   path: pluginId,
@@ -507,14 +513,16 @@ const pluginsListFixture = {
   plugins: [
     {
       manifest: {
+        protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'restricted_process',
+        settings_fields: timelineSourceFixture.fields, settings_actions: [], settings_resources: [], settings_ui_blocks: [],
         plugin_id: 'photo-library',
         name: 'Photo Library',
         version: '1.0.0',
         description: 'Photo library plugin',
         author: 'Magi Team',
         official: true,
-        contribution_types: ['sensor'],
-        source: 'builtin',
+        contribution_types: ['source'],
+        source: 'external',
         plugin_dir: '/tmp/plugins/photo-library',
         manifest_path: '/tmp/plugins/photo-library/plugin.toml',
       },
@@ -524,7 +532,7 @@ const pluginsListFixture = {
       healthy: true,
       last_error: null,
       current_settings: {
-        sensors: {
+        sources: {
           photo_library: {
             enabled: true,
             sync_interval_minutes: 60,
@@ -536,7 +544,7 @@ const pluginsListFixture = {
         {
           plugin_id: 'photo-library',
           contribution_id: 'timeline.photo_library',
-          contribution_type: 'sensor',
+          contribution_type: 'source',
           display_name: 'Photo Library',
           description: 'Photo assets referenced from a local library path.',
           surface: 'timeline',
@@ -547,14 +555,16 @@ const pluginsListFixture = {
     },
     {
       manifest: {
+        protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'restricted_process',
+        settings_fields: chromeTimelineSourceFixture.fields, settings_actions: [], settings_resources: [], settings_ui_blocks: [],
         plugin_id: 'chrome-history',
         name: 'Chrome History',
         version: '1.0.0',
         description: 'Chrome history plugin',
         author: 'Magi Team',
         official: true,
-        contribution_types: ['sensor'],
-        source: 'builtin',
+        contribution_types: ['source'],
+        source: 'external',
         plugin_dir: '/tmp/plugins/chrome-history',
         manifest_path: '/tmp/plugins/chrome-history/plugin.toml',
       },
@@ -564,7 +574,7 @@ const pluginsListFixture = {
       healthy: true,
       last_error: null,
       current_settings: {
-        sensors: {
+        sources: {
           chrome_history: {
             enabled: false,
             initial_sync_configured: false,
@@ -577,7 +587,7 @@ const pluginsListFixture = {
         {
           plugin_id: 'chrome-history',
           contribution_id: 'timeline.chrome_history',
-          contribution_type: 'sensor',
+          contribution_type: 'source',
           display_name: 'Chrome History',
           description: 'Local Google Chrome browsing history ingested into the user timeline.',
           surface: 'timeline',
@@ -743,18 +753,18 @@ describe('settings page draft saving', () => {
       current: null,
       proposed: null,
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [chromeTimelineSourceFixture, timelineSourceFixture],
     } as any);
-    vi.mocked(sensorsApi.requestSync).mockResolvedValue({
+    vi.mocked(sourcesApi.requestSync).mockResolvedValue({
       queued: true,
       source_name: 'photo_library',
     } as any);
-    vi.mocked(sensorsApi.requestStateFlush).mockResolvedValue({
+    vi.mocked(sourcesApi.requestStateFlush).mockResolvedValue({
       queued: true,
       source_name: 'screen_time',
     } as any);
-    vi.mocked(sensorsApi.requestAuthorization).mockResolvedValue({
+    vi.mocked(sourcesApi.requestAuthorization).mockResolvedValue({
       authorized: true,
       granted_types: ['steps'],
       denied_types: [],
@@ -764,20 +774,18 @@ describe('settings page draft saving', () => {
     vi.mocked(pluginsApi.getRegistry).mockResolvedValue({ plugins: [], total: 0 } as any);
     vi.mocked(pluginsApi.installFromRegistryWithProgress).mockResolvedValue({} as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
-    vi.mocked(pluginsApi.enable).mockImplementation(async (pluginId: string) =>
-      (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
-    );
-    vi.mocked(pluginsApi.disable).mockImplementation(async (pluginId: string) => ({
-      ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
-      enabled: false,
-    }) as any);
     vi.mocked(pluginsApi.reload).mockImplementation(async (pluginId: string) =>
       (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
     );
-    vi.mocked(pluginsApi.updateSettings).mockImplementation(async (pluginId: string, updates: Record<string, any>) => ({
-      ...(pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]),
-      current_settings: updates,
-    }) as any);
+    vi.mocked(pluginsApi.listConnections).mockResolvedValue([]);
+    vi.mocked(pluginsApi.getConnection).mockImplementation(async (pluginId, connectionId) => ({
+      plugin_id: pluginId, connection_id: connectionId, display_name: 'Account', enabled: true,
+      settings: {}, credential_refs: {}, readiness: [], revision: 4,
+    }));
+    vi.mocked(pluginsApi.updateConnection).mockImplementation(async (pluginId, connectionId, input) => ({
+      plugin_id: pluginId, connection_id: connectionId, display_name: 'Account', enabled: input.enabled ?? true,
+      settings: input.settings ?? {}, credential_refs: {}, readiness: [], revision: input.expected_revision + 1,
+    }));
     vi.mocked(pluginsApi.startSettingsAction).mockResolvedValue({
       status: 'succeeded',
       message: 'connected',
@@ -1071,7 +1079,7 @@ describe('settings page draft saving', () => {
 
   it('shows a source load error and recovers through retry', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockRejectedValueOnce(new Error('Unavailable'));
+    vi.mocked(sourcesApi.getStatus).mockRejectedValueOnce(new Error('Unavailable'));
     render(<SettingsPage />);
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     expect(await screen.findByText(/settings.timeline.errors.statusLoadFailed/)).toBeInTheDocument();
@@ -1975,22 +1983,24 @@ describe('settings page draft saving', () => {
     expect(screen.queryByRole('button', { name: 'settings.tabs.llmProviders' })).not.toBeInTheDocument();
   });
 
-  it('allows collapsing the sensors navigation group after expanding it', async () => {
+  it('allows collapsing the sources navigation group after expanding it', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    const sensorsGroupButton = await screen.findByRole('button', { name: 'settings.tabs.timeline' });
+    const sourcesGroupButton = await screen.findByRole('button', { name: 'settings.tabs.timeline' });
 
-    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(sourcesGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
 
-    await user.click(sensorsGroupButton);
+    await user.click(sourcesGroupButton);
 
-    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'true');
+    expect(sourcesGroupButton).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('timeline-nav-overview')).toBeInTheDocument();
 
-    await user.click(sensorsGroupButton);
+    await user.click(sourcesGroupButton);
 
-    expect(sensorsGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(sourcesGroupButton).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('timeline-nav-overview')).not.toBeInTheDocument();
   });
 
   it('does not force advanced model settings open by default', async () => {
@@ -2010,34 +2020,122 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('keeps timeline source changes in draft until save', async () => {
+  it('saves source drafts to their connection independently of the global settings form', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
-
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
-    await screen.findByTestId('timeline-overview');
     await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
-
     const photoPanel = await screen.findByTestId('timeline-source-detail-photo_library');
+    fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
+    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+      'photo-library', 'photo-account', {
+        expected_revision: 4,
+        settings: { sources: { photo_library: { sync_interval_minutes: 75 } } }, credentials: {},
+      },
+    ));
+    expect(configApi.update).not.toHaveBeenCalled();
+  });
 
-    fireEvent.change(within(photoPanel).getByLabelText('Sync Interval (minutes)'), {
-      target: { value: '75' },
+  it('keeps drafts isolated between two accounts of the same package', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(await screen.findByRole('tab', { name: /Personal/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60);
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', {
+      expected_revision: 4, settings: { sources: { photo_library: { sync_interval_minutes: 90 } } }, credentials: {},
+    }));
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
+    expect(pluginsApi.updateConnection).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
+  });
+
+  it('toggles one source flag while retaining sibling sources and connection enablement', async () => {
+    const user = userEvent.setup();
+    vi.mocked(pluginsApi.getConnection).mockResolvedValue({
+      plugin_id: 'photo-library', connection_id: 'photo-account', display_name: 'Photos',
+      enabled: true, revision: 8, credential_refs: {}, readiness: [],
+      settings: { sources: { photo_library: { enabled: true }, sibling: { enabled: true } } },
     });
-    await user.click(within(photoPanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
+      expected_revision: 8, credentials: {},
+      settings: { sources: { photo_library: { enabled: false }, sibling: { enabled: true } } },
+    }));
+  });
 
-    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+  it('requires account selection before exposing timeline controls and retains a failed draft', async () => {
+    const user = userEvent.setup();
+    const failure = vi.spyOn(toast, 'error').mockReturnValue('failure');
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    vi.mocked(pluginsApi.updateConnection).mockRejectedValueOnce(new Error('revision conflict'));
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    expect(screen.queryByRole('switch', { name: 'settings.timeline.fields.enabled' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Sync Interval (minutes)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(failure).toHaveBeenCalledWith('plugins.connections.saveFailed'));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
+    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+    expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'work', expect.any(Object));
+  });
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+  it('does not discard an unsaved source field when toggling its source flag', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '90' } });
+    await user.click(screen.getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith('photo-library', 'photo-account', {
+      expected_revision: 4, credentials: {}, settings: { sources: { photo_library: { enabled: false } } },
+    }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90);
+    expect(screen.getByRole('button', { name: 'plugins.connections.save' })).toBeEnabled();
+  });
 
-    await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'photo-library',
-        expect.objectContaining({
-          'sensors.photo_library.sync_interval_minutes': 75,
-          'sensors.photo_library.enabled': false,
-        })
-      )
-    );
+  it('does not write a source draft after switching accounts during its revision lookup', async () => {
+    const user = userEvent.setup();
+    let resolveRead!: (value: Awaited<ReturnType<typeof pluginsApi.getConnection>>) => void;
+    vi.mocked(pluginsApi.getConnection).mockReturnValueOnce(new Promise((resolve) => { resolveRead = resolve; }));
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [
+      { ...timelineSourceFixture, connection_id: 'personal', connection_display_name: 'Personal' },
+      { ...timelineSourceFixture, connection_id: 'work', connection_display_name: 'Work' },
+    ] } as any);
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    fireEvent.change(screen.getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await user.click(screen.getByRole('tab', { name: /Work/ }));
+    resolveRead({ plugin_id: 'photo-library', connection_id: 'personal', revision: 4, settings: {} } as never);
+    await waitFor(() => expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(60));
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: /Personal/ }));
+    expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
   });
 
   it('preserves an invalid source draft without saving it as a number', async () => {
@@ -2049,19 +2147,19 @@ describe('settings page draft saving', () => {
     const panel = await screen.findByTestId('timeline-source-detail-photo_library');
     const interval = within(panel).getByLabelText('Sync Interval (minutes)');
     fireEvent.change(interval, { target: { value: '' } });
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
-    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
     expect(interval).toHaveValue(null);
     fireEvent.change(interval, { target: { value: '45' } });
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
-    await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-      'photo-library', expect.objectContaining({ 'sensors.photo_library.sync_interval_minutes': 45 }),
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.save' }));
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+      'photo-library', 'photo-account', expect.objectContaining({ settings: expect.objectContaining({ sources: expect.objectContaining({ photo_library: expect.objectContaining({ sync_interval_minutes: 45 }) }) }) }),
     ));
   });
 
   it('queues a historical backfill from timeline source settings', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
@@ -2069,8 +2167,8 @@ describe('settings page draft saving', () => {
           activation_required: false,
           current_settings: {
             ...chromeTimelineSourceFixture.current_settings,
-            'sensors.chrome_history.enabled': true,
-            'sensors.chrome_history.initial_sync_configured': true,
+            'sources.chrome_history.enabled': true,
+            'sources.chrome_history.initial_sync_configured': true,
           },
         },
       ],
@@ -2086,7 +2184,7 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: '开始补回' }));
 
     await waitFor(() =>
-      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', {
+      expect(sourcesApi.requestSync).toHaveBeenCalledWith('chrome_history', 'chrome-account', {
         mode: 'backfill',
         backfillScope: 'last_30_days',
       })
@@ -2096,7 +2194,7 @@ describe('settings page draft saving', () => {
   it('shows durable retry progress without treating it as a terminal source error', async () => {
     const user = userEvent.setup();
     const nextAttemptAt = 1_773_228_600;
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
@@ -2113,8 +2211,8 @@ describe('settings page draft saving', () => {
           },
           current_settings: {
             ...chromeTimelineSourceFixture.current_settings,
-            'sensors.chrome_history.enabled': true,
-            'sensors.chrome_history.initial_sync_configured': true,
+            'sources.chrome_history.enabled': true,
+            'sources.chrome_history.initial_sync_configured': true,
           },
         },
       ],
@@ -2158,7 +2256,7 @@ describe('settings page draft saving', () => {
 
   it('shows a marketplace entry point when no timeline sources are registered', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
 
     render(<SettingsPage />);
 
@@ -2191,7 +2289,7 @@ describe('settings page draft saving', () => {
 
   it('groups multiple source entries under one capability workspace', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -2215,12 +2313,12 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.photo_library_apple_photos.enabled',
+              key: 'sources.photo_library_apple_photos.enabled',
               label_translated: '启用',
             },
           ],
           current_settings: {
-            'sensors.photo_library_apple_photos.enabled': true,
+            'sources.photo_library_apple_photos.enabled': true,
           },
         },
         {
@@ -2244,12 +2342,12 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.photo_library_directory.enabled',
+              key: 'sources.photo_library_directory.enabled',
               label_translated: '启用',
             },
           ],
           current_settings: {
-            'sensors.photo_library_directory.enabled': true,
+            'sources.photo_library_directory.enabled': true,
           },
         },
         {
@@ -2319,7 +2417,7 @@ describe('settings page draft saving', () => {
 
   it('shows addable marketplace entries when a capability has only one installed source', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
@@ -2364,6 +2462,7 @@ describe('settings page draft saving', () => {
         browserWorkspace,
       ).getByTestId('timeline-marketplace-entry-safari-history').querySelector('button')!,
     );
+    expect(await screen.findByText('plugins.trust.nativeAccess')).toBeInTheDocument();
     await user.click(
       await screen.findByRole('button', {
         name: 'settings.marketplace.consent.confirm.install',
@@ -2379,9 +2478,9 @@ describe('settings page draft saving', () => {
     });
   });
 
-  it('shows the installed entry option even for single-entry sensor details', async () => {
+  it('shows the installed entry option even for single-entry source details', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -2393,8 +2492,8 @@ describe('settings page draft saving', () => {
           description: 'Git repository activity ingestion for the timeline.',
           description_translated: 'Git 仓库活动接入时间线。',
           current_settings: {
-            'sensors.git_activity.enabled': false,
-            'sensors.git_activity.sync_interval_minutes': 30,
+            'sources.git_activity.enabled': false,
+            'sources.git_activity.sync_interval_minutes': 30,
           },
           enabled: false,
         },
@@ -2415,7 +2514,7 @@ describe('settings page draft saving', () => {
 
   it('renders photo-library source tabs and scopes fields to the selected source', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -2424,16 +2523,16 @@ describe('settings page draft saving', () => {
           display_name_translated: '照片库',
           description_translated: '读取 Apple Photos 或本地照片目录，提取拍摄时间、地点和设备信息并接入时间线',
           current_settings: {
-            'sensors.photo_library.enabled': false,
-            'sensors.photo_library.source_mode': 'apple_photos',
-            'sensors.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
-            'sensors.photo_library.source_paths': [],
-            'sensors.photo_library.sync_mode': 'manual',
-            'sensors.photo_library.max_items_per_sync': 200,
+            'sources.photo_library.enabled': false,
+            'sources.photo_library.source_mode': 'apple_photos',
+            'sources.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
+            'sources.photo_library.source_paths': [],
+            'sources.photo_library.sync_mode': 'manual',
+            'sources.photo_library.max_items_per_sync': 200,
           },
           fields: [
             {
-              key: 'sensors.photo_library.enabled',
+              key: 'sources.photo_library.enabled',
               type: 'switch',
               label: 'Enable',
               label_translated: '启用',
@@ -2446,7 +2545,7 @@ describe('settings page draft saving', () => {
               order: 10,
             },
             {
-              key: 'sensors.photo_library.source_mode',
+              key: 'sources.photo_library.source_mode',
               type: 'select',
               label: 'Source',
               label_translated: '来源',
@@ -2462,7 +2561,7 @@ describe('settings page draft saving', () => {
               order: 12,
             },
             {
-              key: 'sensors.photo_library.photos_library_path',
+              key: 'sources.photo_library.photos_library_path',
               type: 'path',
               label: 'Apple Photos Library',
               label_translated: 'Apple Photos 照片库',
@@ -2473,11 +2572,11 @@ describe('settings page draft saving', () => {
               section: 'general',
               surface: 'timeline',
               order: 14,
-              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_key: 'sources.photo_library.source_mode',
               depends_on_values: ['apple_photos'],
             },
             {
-              key: 'sensors.photo_library.source_paths',
+              key: 'sources.photo_library.source_paths',
               type: 'path',
               label: 'Photo Directories',
               label_translated: '本地照片目录',
@@ -2488,11 +2587,11 @@ describe('settings page draft saving', () => {
               section: 'general',
               surface: 'timeline',
               order: 15,
-              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_key: 'sources.photo_library.source_mode',
               depends_on_values: ['directory'],
             },
             {
-              key: 'sensors.photo_library.max_items_per_sync',
+              key: 'sources.photo_library.max_items_per_sync',
               type: 'number',
               label: 'Max Items Per Sync',
               label_translated: '单次最大数量',
@@ -2507,7 +2606,7 @@ describe('settings page draft saving', () => {
           ],
           settings_layout: {
             kind: 'tabs',
-            controller_key: 'sensors.photo_library.source_mode',
+            controller_key: 'sources.photo_library.source_mode',
             tabs: [
               {
                 tab_id: 'directory',
@@ -2551,34 +2650,32 @@ describe('settings page draft saving', () => {
     expect(within(photoPanel).getByText('本地照片目录')).toBeInTheDocument();
     expect(within(photoPanel).queryByText('Apple Photos 照片库')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+    await user.click(within(photoPanel).getByRole('button', { name: 'plugins.connections.save' }));
 
     await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'photo-library',
-        expect.objectContaining({
-          'sensors.photo_library.source_mode': 'directory',
-        })
+      expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+        'photo-library', 'photo-account',
+        expect.objectContaining({ expected_revision: 4, settings: { sources: { photo_library: { source_mode: 'directory' } } } })
       )
     );
   });
 
   it('shows platform unavailable reason for unavailable photo-library source tabs', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
           display_name_translated: '照片库',
           current_settings: {
-            'sensors.photo_library.enabled': false,
-            'sensors.photo_library.source_mode': 'apple_photos',
-            'sensors.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
-            'sensors.photo_library.source_paths': [],
+            'sources.photo_library.enabled': false,
+            'sources.photo_library.source_mode': 'apple_photos',
+            'sources.photo_library.photos_library_path': '~/Pictures/Photos Library.photoslibrary',
+            'sources.photo_library.source_paths': [],
           },
           fields: [
             {
-              key: 'sensors.photo_library.enabled',
+              key: 'sources.photo_library.enabled',
               type: 'switch',
               label: 'Enable',
               label_translated: '启用',
@@ -2591,7 +2688,7 @@ describe('settings page draft saving', () => {
               order: 10,
             },
             {
-              key: 'sensors.photo_library.source_mode',
+              key: 'sources.photo_library.source_mode',
               type: 'select',
               label: 'Source',
               label_translated: '来源',
@@ -2604,7 +2701,7 @@ describe('settings page draft saving', () => {
               order: 12,
             },
             {
-              key: 'sensors.photo_library.photos_library_path',
+              key: 'sources.photo_library.photos_library_path',
               type: 'path',
               label: 'Apple Photos Library',
               label_translated: 'Apple Photos 照片库',
@@ -2615,7 +2712,7 @@ describe('settings page draft saving', () => {
               section: 'general',
               surface: 'timeline',
               order: 14,
-              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_key: 'sources.photo_library.source_mode',
               depends_on_values: ['apple_photos'],
             },
           ],
@@ -2630,13 +2727,13 @@ describe('settings page draft saving', () => {
               resource_name: 'apple_photos_permissions',
               value_key: '_readonly',
               presentation: 'permission_status',
-              depends_on_key: 'sensors.photo_library.source_mode',
+              depends_on_key: 'sources.photo_library.source_mode',
               depends_on_values: ['apple_photos'],
             },
           ],
           settings_layout: {
             kind: 'tabs',
-            controller_key: 'sensors.photo_library.source_mode',
+            controller_key: 'sources.photo_library.source_mode',
             tabs: [
               {
                 tab_id: 'directory',
@@ -2678,6 +2775,7 @@ describe('settings page draft saving', () => {
       plugin_id: 'github-activity',
       action_id: 'connect_github',
       session_id: 'session-1',
+      connection_id: 'github-account',
       status: 'pending',
       message: 'Open GitHub and enter ABCD-EFGH.',
       data: {
@@ -2687,22 +2785,23 @@ describe('settings page draft saving', () => {
       },
       settings_updates: {},
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
+          connection_id: 'github-account',
           source_name: 'github_activity',
           plugin_id: 'github-activity',
           contribution_id: 'timeline.github_activity',
           display_name: 'GitHub Activity',
           description: 'Local GitHub repository activity.',
           current_settings: {
-            'sensors.github_activity.enabled': false,
-            'sensors.github_activity.repositories': ['acme/app'],
+            'sources.github_activity.enabled': false,
+            'sources.github_activity.repositories': ['acme/app'],
           },
           fields: [
             {
-              key: 'sensors.github_activity.repositories',
+              key: 'sources.github_activity.repositories',
               type: 'tags',
               label: 'Repositories',
               description: 'Repositories to sync.',
@@ -2723,7 +2822,7 @@ describe('settings page draft saving', () => {
               presentation: 'inline',
               surface: 'timeline',
               contribution_id: 'timeline.github_activity',
-              contribution_type: 'sensor',
+              contribution_type: 'source',
               order: 0,
               destructive: false,
               requires_enabled: false,
@@ -2744,10 +2843,10 @@ describe('settings page draft saving', () => {
     await user.click(within(panel).getByRole('button', { name: 'Connect GitHub' }));
 
     expect(pluginsApi.startSettingsAction).toHaveBeenCalledWith(
-      'github-activity',
+      'github-account',
       'connect_github',
       expect.objectContaining({
-        'sensors.github_activity.repositories': ['acme/app'],
+        'sources.github_activity.repositories': ['acme/app'],
       })
     );
     await waitFor(() => {
@@ -2757,7 +2856,7 @@ describe('settings page draft saving', () => {
 
   it('keeps timeline nav items alphabetized after overview', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -2768,11 +2867,11 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.gamma_source.enabled',
+              key: 'sources.gamma_source.enabled',
             },
           ],
           current_settings: {
-            'sensors.gamma_source.enabled': true,
+            'sources.gamma_source.enabled': true,
           },
         },
         {
@@ -2784,11 +2883,11 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.alpha_source.enabled',
+              key: 'sources.alpha_source.enabled',
             },
           ],
           current_settings: {
-            'sensors.alpha_source.enabled': true,
+            'sources.alpha_source.enabled': true,
           },
         },
         {
@@ -2800,11 +2899,11 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.beta_source.enabled',
+              key: 'sources.beta_source.enabled',
             },
           ],
           current_settings: {
-            'sensors.beta_source.enabled': true,
+            'sources.beta_source.enabled': true,
           },
         },
       ],
@@ -2824,37 +2923,28 @@ describe('settings page draft saving', () => {
     expect(beta.compareDocumentPosition(gamma) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps activation flow results local until save', async () => {
+  it('persists activation directly to the selected connection', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
-
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
     await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
-
     const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
     await user.click(within(chromePanel).getByRole('switch', { name: 'settings.timeline.fields.enabled' }));
-
     expect(await screen.findByText('Enable Chrome History')).toBeInTheDocument();
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Enable source' }));
-
-    expect(pluginsApi.updateSettings).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
-
-    await waitFor(() =>
-      expect(pluginsApi.updateSettings).toHaveBeenCalledWith(
-        'chrome-history',
-        expect.objectContaining({
-          'sensors.chrome_history.enabled': true,
-          'sensors.chrome_history.initial_sync_configured': true,
-        })
-      )
-    );
+    await waitFor(() => expect(pluginsApi.updateConnection).toHaveBeenCalledWith(
+      'chrome-history', 'chrome-account', expect.objectContaining({
+        expected_revision: 4,
+        settings: { sources: { chrome_history: expect.objectContaining({ enabled: true, initial_sync_configured: true }) } },
+      }),
+    ));
+    expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled();
   });
 
   it('keeps an unconfigured source non-operational even if enabled was set directly', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
@@ -2862,8 +2952,8 @@ describe('settings page draft saving', () => {
           activation_required: true,
           current_settings: {
             ...chromeTimelineSourceFixture.current_settings,
-            'sensors.chrome_history.enabled': true,
-            'sensors.chrome_history.initial_sync_configured': false,
+            'sources.chrome_history.enabled': true,
+            'sources.chrome_history.initial_sync_configured': false,
           },
         },
       ],
@@ -2900,7 +2990,7 @@ describe('settings page draft saving', () => {
 
   it('renders translated chrome history fields without the chrome data path control', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...chromeTimelineSourceFixture,
@@ -2910,7 +3000,7 @@ describe('settings page draft saving', () => {
           fields: [
             ...chromeTimelineSourceFixture.fields,
             {
-              key: 'sensors.chrome_history.source_path',
+              key: 'sources.chrome_history.source_path',
               type: 'path',
               label: 'Chrome Data Path',
               description: 'Root directory that contains Chrome profiles.',
@@ -2922,7 +3012,7 @@ describe('settings page draft saving', () => {
               order: 20,
             },
             {
-              key: 'sensors.chrome_history.profile',
+              key: 'sources.chrome_history.profile',
               type: 'input',
               label: 'Profile',
               label_translated: '配置档案',
@@ -2936,7 +3026,7 @@ describe('settings page draft saving', () => {
               order: 30,
             },
             {
-              key: 'sensors.chrome_history.sync_mode',
+              key: 'sources.chrome_history.sync_mode',
               type: 'select',
               label: 'Sync Mode',
               label_translated: '同步方式',
@@ -2952,7 +3042,7 @@ describe('settings page draft saving', () => {
               order: 40,
             },
             {
-              key: 'sensors.chrome_history.sync_interval_minutes',
+              key: 'sources.chrome_history.sync_interval_minutes',
               type: 'number',
               label: 'Sync Interval (minutes)',
               label_translated: '定时间隔',
@@ -2963,16 +3053,16 @@ describe('settings page draft saving', () => {
               section: 'general',
               surface: 'timeline',
               order: 50,
-              depends_on_key: 'sensors.chrome_history.sync_mode',
+              depends_on_key: 'sources.chrome_history.sync_mode',
               depends_on_values: ['interval'],
             },
           ],
           current_settings: {
             ...chromeTimelineSourceFixture.current_settings,
-            'sensors.chrome_history.source_path': '~/Library/Application Support/Google/Chrome',
-            'sensors.chrome_history.profile': 'Default',
-            'sensors.chrome_history.sync_mode': 'manual',
-            'sensors.chrome_history.sync_interval_minutes': 30,
+            'sources.chrome_history.source_path': '~/Library/Application Support/Google/Chrome',
+            'sources.chrome_history.profile': 'Default',
+            'sources.chrome_history.sync_mode': 'manual',
+            'sources.chrome_history.sync_interval_minutes': 30,
           },
         },
       ],
@@ -3027,7 +3117,7 @@ describe('settings page draft saving', () => {
 
   it('shows a flush-state action for app usage and queues it locally', async () => {
     const user = userEvent.setup();
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
           ...timelineSourceFixture,
@@ -3041,11 +3131,11 @@ describe('settings page draft saving', () => {
           fields: [
             {
               ...timelineSourceFixture.fields[0],
-              key: 'sensors.screen_time.enabled',
+              key: 'sources.screen_time.enabled',
             },
           ],
           current_settings: {
-            'sensors.screen_time.enabled': true,
+            'sources.screen_time.enabled': true,
           },
         },
       ],
@@ -3059,7 +3149,7 @@ describe('settings page draft saving', () => {
     const panel = await screen.findByTestId('timeline-source-detail-screen_time');
     await user.click(within(panel).getByRole('button', { name: 'settings.timeline.actions.flushStateNow' }));
 
-    await waitFor(() => expect(sensorsApi.requestStateFlush).toHaveBeenCalledWith('screen_time'));
+    await waitFor(() => expect(sourcesApi.requestStateFlush).toHaveBeenCalledWith('screen_time', 'photo-account'));
   });
 
   it('prompts before closing when there are unsaved changes', async () => {

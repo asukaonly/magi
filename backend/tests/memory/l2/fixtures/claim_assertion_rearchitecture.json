@@ -98,7 +98,7 @@
       "content": "Visited the Rust language documentation.",
       "source": "browser_history",
       "event_type": "browser.history",
-      "author_type": "sensor"
+      "author_type": "source"
     },
     "phase1": {
       "entities": [],

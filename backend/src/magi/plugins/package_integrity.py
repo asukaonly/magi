@@ -15,7 +15,7 @@ from .package_identity import (
     verify_installed_source_sha256,
 )
 
-_VERIFIED_INSTALL_ORIGINS = frozenset({"registry", "upload"})
+_VERIFIED_INSTALL_ORIGINS = frozenset({"registry", "upload", "local"})
 
 
 def _coerce_plugin_settings(

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Optional
 
-from ...awareness.contracts import SensorEvent
+from ...awareness.contracts import SourceEvent
 from ...events.events import EventTypes
 from ...core.logger import get_logger
 from .chat_message_delete import (
@@ -81,7 +81,7 @@ class TaskAgentManager:
         self._user_message_delivery_admitter = user_message_delivery_admitter
         self._runtime_command_acknowledger = runtime_command_acknowledger
         self._superseded_user_message_count = 0
-        self._sensor_hub = None
+        self._source_hub = None
         self._user_content_clear_lock = asyncio.Lock()
         self._user_content_work_resumed = asyncio.Event()
         self._user_content_work_resumed.set()
@@ -96,12 +96,12 @@ class TaskAgentManager:
             cancel_and_stop=self._cancel_and_stop_user_content_agent,
         )
 
-    async def start_all(self, event_emitter, sensor_hub=None) -> None:
+    async def start_all(self, event_emitter, source_hub=None) -> None:
         if self._running:
             return
         self._running = True
         self._event_emitter = event_emitter
-        self._sensor_hub = sensor_hub
+        self._source_hub = source_hub
         for agent_type, agent_id in self._core_instances:
             await self.ensure_agent(agent_type, agent_id)
         self._janitor_task = asyncio.create_task(self._janitor_loop())
@@ -123,7 +123,7 @@ class TaskAgentManager:
         self._instance_metadata.clear()
         self._running = False
         self._event_emitter = None
-        self._sensor_hub = None
+        self._source_hub = None
 
     async def pause_chat_work_and_cancel_all(self) -> int:
         """Pause and quiesce every task agent carrying user-message content."""
@@ -374,7 +374,7 @@ class TaskAgentManager:
                 await agent.start(
                     self._event_emitter,
                     task_agent_manager=self,
-                    sensor_hub=self._sensor_hub,
+                    source_hub=self._source_hub,
                 )
             except BaseException:
                 self._agents.pop(key, None)
@@ -471,8 +471,8 @@ class TaskAgentManager:
             logger.warning(f"Failed to add fact to agent | error={exc}")
             return False
 
-    def resolve_targets(self, sensor_event: SensorEvent) -> list[tuple[TaskAgentType | str, str]]:
-        payload = sensor_event.payload
+    def resolve_targets(self, source_event: SourceEvent) -> list[tuple[TaskAgentType | str, str]]:
+        payload = source_event.payload
         target_type = payload.get("target_task_agent_type")
         target_id = payload.get("target_task_agent_id")
         if target_type:
@@ -480,7 +480,7 @@ class TaskAgentManager:
             resolved_id = str(target_id or "default")
             return [(resolved_type, resolved_id)]
 
-        if sensor_event.event_type == EventTypes.USER_MESSAGE:
+        if source_event.event_type == EventTypes.USER_MESSAGE:
             session_id = str(payload.get("session_id") or "").strip()
             if not session_id:
                 raise ValueError("USER_MESSAGE requires session_id for chat routing")

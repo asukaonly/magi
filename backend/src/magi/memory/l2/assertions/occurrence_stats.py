@@ -478,7 +478,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
             evidence.timestamp_quality,
             evidence.evidence_class,
             evidence.source_domain,
-            evidence.author_type
+            evidence.author_type,
+            evidence.evidence_locator_json
         FROM latest_route_outcomes AS latest
         JOIN requested_keys AS requested
           ON requested.target_slot_key = latest.target_slot_key
@@ -506,6 +507,7 @@ async def load_routed_claim_occurrence_stats_on_connection(
         rows = await cursor.fetchall()
 
     resolved_now = float(time.time() if now is None else now)
+    independent_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     claims_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     evidence_by_key: dict[ClaimRouteValueKey, set[str]] = defaultdict(set)
     exact_times_by_key: dict[ClaimRouteValueKey, list[tuple[str, float]]] = defaultdict(list)
@@ -519,6 +521,8 @@ async def load_routed_claim_occurrence_stats_on_connection(
         event_id = str(row["event_id"])
         claims_by_key[key].add(claim_id)
         evidence_by_key[key].add(event_id)
+        locator = json.loads(row["evidence_locator_json"] or "{}")
+        independent_by_key[key].add(str(locator.get("independent_evidence_key") or event_id))
         policy_evidence_by_key[key].append(
             _ClaimPolicyEvidence(
                 claim_id=claim_id,
@@ -571,7 +575,7 @@ async def load_routed_claim_occurrence_stats_on_connection(
             trusted_event_ids=timeline.trusted_event_ids,
             recent_policy_event_ids=tuple(promotion_policy["recent_policy_event_ids"]),
             observation_count=len(claim_ids),
-            evidence_count=len(supporting_event_ids),
+            evidence_count=len(independent_by_key[key]),
             distinct_days=timeline.distinct_days,
             first_observed_at=timeline.first_observed_at,
             last_observed_at=timeline.last_observed_at,

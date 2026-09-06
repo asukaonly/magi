@@ -21,7 +21,7 @@ Magi currently exposes these major configuration areas:
 - memory system
 - tool management
 - plugin management
-- sensor source management
+- data source management
 - settings page structure
 
 These areas are closely related. Onboarding determines the first-run experience, while the settings page is the long-term place where users revisit the same configuration families.
@@ -160,7 +160,7 @@ L1 or derived memory alive. Once confirmation commits a selection and participan
 scope, that scope is immutable: repeated confirmation of the same normalized
 payload is idempotent, while a different selection or identity is a conflict.
 
-Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards as an equal first-context option, but it should not require plugin choices before the user enters the main app. Before showing the first-context step, onboarding should persist the selected LLM configuration and allow the backend runtime to start so source sync jobs and the optional first-chat answer are actually consumed instead of only queued. These first-context cards should prioritize historical sources that can immediately backfill useful context; purely forward-looking incremental sources, such as continuous screen capture, belong in later suggestions or Settings. History-heavy sources should use a lightweight first-context sample by default and leave full backfill controls to Settings or later background work. The first-context connect flow should finish once the synced L1 sample count is available, because the first conversation only needs raw samples; L2/L3 organization and full historical backfill must not block onboarding. The UI should say that this step prepares only a small amount of first-chat context and that full history can be backfilled later from Settings or Memory Sources. Memory → Sources must show the shared install/connect recommendations directly only when the source ledger is empty. Once sources exist, it should replace inline recommendations with a single Add source entry that opens the plugin marketplace. After onboarding, each pull-capable source should expose a backfill action in both Memory → Sources and Settings → Timeline/Plugins; those actions should offer bounded ranges first, include an explicit custom date range when the source can honor date-bounded backfill, run in the background, and be idempotent for the same source/range so repeated clicks do not duplicate imports. Lightweight first-context import settings should be declared by the plugin activation metadata rather than hardcoded by plugin id in the host UI. The generated first conversation should sample recent L1 evidence by the event's own timestamp, not by when it was imported, so old photos or old browser items do not become first-contact context merely because they were just backfilled. Installable source suggestions should start loading before the first-context step so the page can show connection cards immediately. The first-context view must only render sources confirmed available on the current device and must never manufacture fallback cards. It should show one primary recommendation plus at most four alternatives from different categories, prefer an already-installed source among equivalent siblings, and explain the data scope, locality, and estimated setup time. While availability is loading the UI should show progress; on failure it should offer retry or skip, and a successful empty result should say honestly that no suitable source is available. A selected source finishing its connect flow should keep the user on the first-context step so they can add more sources; skipping the step or explicitly finishing it should mark the first-context prompt complete so the main app does not ask the same question again.
+Plugin and source activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards as an equal first-context option, but it should not require plugin choices before the user enters the main app. Before showing the first-context step, onboarding should persist the selected LLM configuration and allow the backend runtime to start so source sync jobs and the optional first-chat answer are actually consumed instead of only queued. These first-context cards should prioritize historical sources that can immediately backfill useful context; purely forward-looking incremental sources, such as continuous screen capture, belong in later suggestions or Settings. History-heavy sources should use a lightweight first-context sample by default and leave full backfill controls to Settings or later background work. The first-context connect flow should finish once the synced L1 sample count is available, because the first conversation only needs raw samples; L2/L3 organization and full historical backfill must not block onboarding. The UI should say that this step prepares only a small amount of first-chat context and that full history can be backfilled later from Settings or Memory Sources. Memory → Sources must show the shared install/connect recommendations directly only when the source ledger is empty. Once sources exist, it should replace inline recommendations with a single Add source entry that opens the plugin marketplace. After onboarding, each pull-capable source should expose a backfill action in both Memory → Sources and Settings → Timeline/Plugins; those actions should offer bounded ranges first, include an explicit custom date range when the source can honor date-bounded backfill, run in the background, and be idempotent for the same source/range so repeated clicks do not duplicate imports. Lightweight first-context import settings should be declared by the plugin activation metadata rather than hardcoded by plugin id in the host UI. The generated first conversation should sample recent L1 evidence by the event's own timestamp, not by when it was imported, so old photos or old browser items do not become first-contact context merely because they were just backfilled. Installable source suggestions should start loading before the first-context step so the page can show connection cards immediately. The first-context view must only render sources confirmed available on the current device and must never manufacture fallback cards. It should show one primary recommendation plus at most four alternatives from different categories, prefer an already-installed source among equivalent siblings, and explain the data scope, locality, and estimated setup time. While availability is loading the UI should show progress; on failure it should offer retry or skip, and a successful empty result should say honestly that no suitable source is available. A selected source finishing its connect flow should keep the user on the first-context step so they can add more sources; skipping the step or explicitly finishing it should mark the first-context prompt complete so the main app does not ask the same question again.
 
 If the remote marketplace and its local cache are both unavailable, the first-context step must distinguish that degraded state from a genuine empty result. It should say that the plugin marketplace cannot be reached, keep any locally installed source cards visible, offer retry, and make clear that onboarding can continue.
 
@@ -210,7 +210,7 @@ Current product expectations:
   current development phase and takes effect immediately after a successful
   Settings save
 - full-content logging may retain textual prompts, replies, tool content,
-  retrieval context, and sensor text needed for debugging, but inline
+  retrieval context, and source text needed for debugging, but inline
   image/file bytes are always omitted
 - log redaction is independent of the full-content switch and always active:
   credentials saved in Magi, structured authorization fields, sensitive URL
@@ -310,6 +310,15 @@ of silently restoring a default. It accepts at least 60 whole seconds (displayed
 in minutes); both the field and Save validation explain invalid values.
 
 The LLM configuration layer defines how Magi talks to language models.
+
+Enabled plugin connections may contribute a model provider. The chat model
+selector reads live provider metadata and saves its connection-qualified provider
+ID plus an explicit model ID. The plugin connection owns its credentials; no
+duplicate native provider configuration is created. The SDK does not enumerate
+remote model catalogs, so model IDs are entered by the user. Unavailable plugin
+providers remain visibly unavailable instead of silently switching providers.
+Plugin model slots are for chat generation; embedding and image-generation
+slots require their corresponding native service contracts.
 
 Current product expectations:
 
@@ -608,7 +617,7 @@ Current storage implementation notes:
   separate schemas: visible transcript rows drive the product surface, while the
   canonical Model Context Log/Surface drives later model calls. Neither L0 nor
   the visible transcript is a fallback prompt store.
-- `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, LLM prompt-cache diagnostics, command queue history, scheduler history, sensor fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
+- `~/.magi/config/lifecycle.yaml` owns local data lifecycle policy for runtime telemetry, LLM usage rollups, LLM prompt-cache diagnostics, command queue history, scheduler history, source fingerprints, chat asset GC, and ephemeral job TTLs; it is copied from `backend/configs/lifecycle.example.yaml` on first run.
 - L1 is stored in `data/memory/l1_events.db`.
 - `data/memory/l1_events.db` is now a lossy canonical projection target for `user_text` and `assistant_final` only; it is not the transcript source of truth.
 - when history behavior is `archive`, aged-out hot-path events are copied into the configured archive directory as `YYYY-MM-DD.db` before being removed from the active L1 projection; the default archive directory is `data/memory/archive/`.
@@ -662,8 +671,18 @@ Tool management covers:
 Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
-- users can enable, disable, reload, and rescan plugin packages
-- users must see a plugin's declared system and data access before installing it
+- users can install, inspect, reload, rescan and uninstall packages
+- users create named connections and enable or disable each connection separately;
+  multiple accounts of the same package never share settings, credentials or progress
+- connection settings save directly with revision checks and do not participate
+  in the global Settings draft; source switches control that source within its
+  connection, while connection switches control all its contributions
+- built-in tool settings remain in Tools; packages do not own account settings
+- users must see a plugin's declared system and data access before installing it;
+  trusted process execution also discloses access under the local user's OS permissions
+- uploaded/local packages require an explicit digest-bound execution review in
+  Installed Plugins before connection setup or enablement; authorizing a package
+  does not create or enable any connection
 - an update must ask again only when it adds a new access type or broadens an existing scope
 - uploaded plugin archives must be uploaded once, inspected from a backend-owned
   temporary copy, and installed only by confirming the same short-lived
@@ -675,12 +694,11 @@ Expected product behavior:
   installation; archive inspection and installation must use a bounded,
   dedicated work queue
 - archive inspection reviews structure and declared access, not the code's
-  actual behavior; file-installed plugins must remain disabled and untrusted
-  until the user separately enables them
+  actual behavior; package trust must be granted before running any setup or
+  active worker, and installing alone never enables a connection
 - file installation must reject an id that is already installed instead of
-  silently replacing or inheriting the existing package's enabled state or
-  settings; the disabled state must be durable before the package becomes
-  visible to startup scanning
+  silently replacing code or inheriting an existing account; the package
+  remains inactive until an explicit connection is enabled
 - official badges must come from the maintainer-controlled registry rather than a plugin's own claim
 - plugins with third-party Python dependencies must pass exact-version,
   hash-verified, prebuilt-package installation before they are enabled; source
@@ -706,15 +724,20 @@ Tool-specific expectations:
   gateway rather than a separate MCP-specific prompt path
 - tool-specific configuration is shown only when relevant
 - built-in tool enable switches are enforced at execution time, not just displayed in settings
+- registered and enabled web-search and web-fetch are included in ordinary chat's initial tool catalog, subject to feature and model availability; users do not need a tool-discovery step before searching or reading a page. This exposes the capability without automatically making network requests or changing tool permissions and network policy.
 - weather defaults to keyless Open-Meteo for global first-run usability; QWeather remains available for users who prefer it and requires an API key, with API host kept as an optional override when the default endpoint is not accepted by the account
 - web search starts with the configured default provider and may fall back to other configured providers in a deterministic order; tool results should expose the actual provider and whether fallback was used, and repeat identical successful queries may be served from a short-lived in-memory cache
+- web-search accepts either, both, or neither of `start_date` and `end_date`; each supplied date must be a valid ISO date, and the start must not follow the end when both are present. Omitted bounds stay open rather than defaulting to today. Bounds are forwarded as `after:` / `before:` query hints, with only the supplied bounds recorded in `date_range_applied`; filtering remains provider-dependent. Invalid dates fail before provider execution and can be corrected in the same run.
 - web-search request pacing is shared across workers for providers with account-level request ceilings; Brave requests reserve process-wide one-second slots, and an HTTP `Retry-After` response extends the shared cooldown before that provider is used again while other configured providers remain eligible for fallback
 - DuckDuckGo is the keyless default for web search, but its availability depends on user network conditions and anti-bot checks; Brave, Tavily, and Perplexity require user-provided API keys; SearXNG is available when the user provides a trusted self-hosted instance URL
 - DuckDuckGo anti-bot challenge responses are terminal for the current turn; the assistant should ask the user to configure another supported search provider instead of retrying the same provider loop
 - web fetch should stay simple in ordinary settings: the default tool mode automatically tries direct HTTP first and falls back to browser rendering or curl when needed
+- web fetch can directly read a known URL from the user, prior context, or search results when page details, verification, or source text are needed; a prior web-search call is not required
+- model-facing web results use concise source lists or page text; provider diagnostics remain in structured execution records. Search snippets are distinguished from full-page reads. Fetch results report content truncation even when provider metadata is disabled, and the runtime's bounded observation budget may further shorten a page with an explicit notice.
 - web fetch is primarily for public web content and may reuse successful fetch results from a short-lived in-memory cache; localhost, private-network, link-local, multicast, reserved, and otherwise non-globally-routable targets are blocked before provider execution unless the user explicitly enables private-network fetch and allowlists trusted hostnames, host:port values, IPs, or CIDR ranges
 - hostname resolution through the RFC 2544 benchmark range (`198.18.0.0/15`) is enabled by default for Clash, Surge, or sing-box TUN fake-IP DNS without enabling general private-network access; users may disable this compatibility setting, literal benchmark-range URLs, RFC 1918 addresses, loopback, link-local, and metadata targets remain blocked, and persona reference research should offer an inline enable-and-retry action if the setting was disabled and this exact compatibility problem is detected
 - file read should stay low-friction inside the active conversation workspace; reads outside that workspace are allowed only through the existing permission flow, with sensitive user paths such as SSH, cloud, CLI credential, and netrc files classified as higher risk
+- model observations for file reads, directory listings, glob/grep matches, file diffs, command output, and text attachments use bounded readable text. They preserve resource identities, match line numbers, command status, and truncation/continuation signals. Programmatic tool results, write receipts, validation reports, settings, and task or asset handles remain structured.
 - external skills are discoverable from the backend rather than hardcoded
 - Settings and operator tooling expose more of this surface than first-run onboarding
 
@@ -726,18 +749,23 @@ The exact tool list may change over time, but the product should preserve these 
 
 ## Timeline Source Management
 
-Timeline source management is now plugin-backed.
+Timeline source management uses plugin-contributed Sources (data sources).
+Each Source belongs to a connection: the connection identifies an account,
+folder, or independently configured instance, while `source_type` describes
+the kind of data and `source_id` identifies the contribution. Sources of the
+same type can therefore belong to different connections. Operational status
+and sync actions use `/api/sources`; timeline consumes their ingested output.
 
 Expected product behavior:
 
-- the Timeline settings surface should render sources from backend-registered timeline sensors
-- the frontend should not assume a fixed source list when the backend can provide dynamic sensor contributions
+- the Timeline settings surface should render backend-registered Source contributions with `domain="timeline"`
+- the frontend should not assume a fixed source list when the backend can provide dynamic source contributions
 - timeline ingestion stays on by default, while per-source controls live on the source itself
 - per-source behavior such as sync mode, retention, and source-specific fields should be persisted through plugin settings
 
 This split is intentional:
 
-- source-specific runtime settings belong to the owning sensor contribution
+- source-specific runtime settings belong to the contribution within its owning connection
 
 Timeline sync behavior is now backed by the unified scheduler runtime.
 
@@ -746,8 +774,8 @@ Expected product behavior:
 - manual sync should enqueue a one-shot scheduler job for the selected source
 - interval sync should register a recurring schedule when the source is enabled
 - watch mode may be offered as a source capability, but a source without native watch support may fall back to interval semantics
-- sensor source status may expose scheduler-backed state such as last sync, next run, last error, and the latest sync operation's mode, requested backfill range, progress state, and terminal result; source pages should poll while a backfill is active, preserve the selected range across reloads, notify on completion or failure, and then return to the source's ordinary health status
-- source actions must represent the next valid operation, not only static sensor capabilities: unavailable sources lead to their issue details, unconfigured sources lead to configuration, configured but disabled sources lead to enablement, and only operational pull-capable sources expose sync or historical backfill; active or retrying jobs must block duplicate sync requests, and the backend must reject sync requests for unconfigured or disabled sources
+- source status may expose scheduler-backed state such as last sync, next run, last error, and the latest sync operation's mode, requested backfill range, progress state, and terminal result; source pages should poll while a backfill is active, preserve the selected range across reloads, notify on completion or failure, and then return to the source's ordinary health status
+- source actions must represent the next valid operation, not only static source capabilities: unavailable sources lead to their issue details, unconfigured sources lead to configuration, configured but disabled sources lead to enablement, and only operational pull-capable sources expose sync or historical backfill; active or retrying jobs must block duplicate sync requests, and the backend must reject sync requests for unconfigured or disabled sources
 
 ## Timeline Review Surface
 
@@ -857,7 +885,7 @@ For internal runtime implementation details, read:
 
 - [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
 
-For unified plugin loading and plugin-backed sensors, read:
+For unified plugin loading and plugin-backed sources, read:
 
 - [Unified Plugin Architecture](./plugin-extension-architecture.md)
 - [Plugin Development Guide](./plugin-development-guide.md)

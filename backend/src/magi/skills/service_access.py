@@ -77,6 +77,8 @@ def build_skills_runtime(
     tool_registry: ToolRegistryPort,
     orchestrator_factory=None,
     agent_run_request_factory=None,
+    skill_indexer=None,
+    skill_loader=None,
 ) -> SkillsRuntimeBindings:
     """Build shared skills runtime services without storing module-level globals.
 
@@ -89,8 +91,12 @@ def build_skills_runtime(
     from .indexer import SkillIndexer
     from .loader import SkillLoader
 
-    skill_indexer = SkillIndexer()
-    skill_loader = SkillLoader(skill_indexer)
+    skill_indexer = skill_indexer if skill_indexer is not None else SkillIndexer()
+    skill_loader = (
+        skill_loader if skill_loader is not None else SkillLoader(skill_indexer)
+    )
+    if skill_loader.indexer is not skill_indexer:
+        raise ValueError("Skills runtime must share one indexer and loader")
     skill_runner = SkillRunner(
         skill_loader,
         llm_adapter,

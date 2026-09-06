@@ -27,7 +27,7 @@ class _RequiredRuntimeExports:
     hybrid_retrieval_service: Any
     plugin_manager: Any
     plugin_projection_service: Any
-    sensor_registry: Any
+    source_registry: Any
     runtime_trace_store: Any
 
 
@@ -82,7 +82,7 @@ class RuntimeExportsModule(LifecycleModule):
             "unified_memory": self._context.memory.unified_memory,
             "plugin_manager": self._context.plugins.plugin_manager,
             "plugin_projection_service": (self._context.plugins.plugin_projection_service),
-            "sensor_registry": self._context.plugins.sensor_registry,
+            "source_registry": self._context.plugins.source_registry,
             "runtime_trace_store": self._context.runtime_trace.store,
         }
         for provider_name, instance in required.items():
@@ -118,8 +118,8 @@ class RuntimeExportsModule(LifecycleModule):
                 self._context.plugins.plugin_projection_service,
                 "plugin projection service",
             ),
-            sensor_registry=require_initialized(
-                self._context.plugins.sensor_registry, "sensor registry"
+            source_registry=require_initialized(
+                self._context.plugins.source_registry, "source registry"
             ),
             runtime_trace_store=require_initialized(
                 self._context.runtime_trace.store, "runtime trace store"
@@ -136,9 +136,9 @@ class RuntimeExportsModule(LifecycleModule):
             container.scheduler_service.override(
                 providers.Object(self._context.scheduler.scheduler_service)
             )
-        if self._context.agent_runtime.sensor_scheduler_contrib is not None:
-            container.sensor_scheduler_contrib.override(
-                providers.Object(self._context.agent_runtime.sensor_scheduler_contrib)
+        if self._context.agent_runtime.source_scheduler_contrib is not None:
+            container.source_scheduler_contrib.override(
+                providers.Object(self._context.agent_runtime.source_scheduler_contrib)
             )
         if self._context.llm.scenario_llm_pool is not None:
             container.scenario_llm_pool.override(
@@ -167,11 +167,11 @@ class RuntimeExportsModule(LifecycleModule):
         container.unified_memory.reset_override()
         container.hybrid_retrieval_service.reset_override()
         container.scheduler_service.reset_override()
-        container.sensor_scheduler_contrib.reset_override()
+        container.source_scheduler_contrib.reset_override()
         container.scenario_llm_pool.reset_override()
         container.plugin_manager.reset_override()
         container.plugin_projection_service.reset_override()
-        container.sensor_registry.reset_override()
+        container.source_registry.reset_override()
         container.runtime_trace_store.reset_override()
         container.skill_indexer.reset_override()
         container.skill_loader.reset_override()
@@ -201,7 +201,7 @@ def _override_required_providers(container: Any, exports: _RequiredRuntimeExport
     container.plugin_projection_service.override(
         providers.Object(exports.plugin_projection_service)
     )
-    container.sensor_registry.override(providers.Object(exports.sensor_registry))
+    container.source_registry.override(providers.Object(exports.source_registry))
     container.runtime_trace_store.override(providers.Object(exports.runtime_trace_store))
 
 

@@ -23,7 +23,7 @@ class ExamplePlugin(Plugin):
 def test_plugin_base_exposes_host_runtime_hooks() -> None:
     required_hooks = [
         "get_tools",
-        "get_sensors",
+        "get_sources",
         "get_channel",
         "get_channel_fields",
         "get_settings_resources",
@@ -45,7 +45,7 @@ def test_plugin_base_host_hooks_have_safe_defaults() -> None:
     plugin = ExamplePlugin()
 
     assert plugin.get_tools() == []
-    assert plugin.get_sensors() == []
+    assert plugin.get_sources() == []
     assert plugin.get_channel() is None
     assert plugin.get_channel_fields() == []
     assert plugin.get_settings_resources() == []
@@ -95,12 +95,12 @@ def test_plugin_settings_action_result_contract_is_public() -> None:
 def test_activation_flow_preserves_first_context_overrides() -> None:
     flow = ActivationFlowSpec(
         title="Connect source",
-        enabled_key="sensors.example.enabled",
-        configured_key="sensors.example.configured",
+        enabled_key="sources.example.enabled",
+        configured_key="sources.example.configured",
         first_context={
             "max_items_per_sync": 75,
             "settings_overrides": {
-                "sensors.example.lookback_days": 7,
+                "sources.example.lookback_days": 7,
             }
         },
     )
@@ -108,12 +108,12 @@ def test_activation_flow_preserves_first_context_overrides() -> None:
     dumped = flow.model_dump()
 
     assert dumped["first_context"]["max_items_per_sync"] == 75
-    assert dumped["first_context"]["settings_overrides"] == {"sensors.example.lookback_days": 7}
+    assert dumped["first_context"]["settings_overrides"] == {"sources.example.lookback_days": 7}
 
 
 def test_path_field_preserves_native_picker_kind() -> None:
     field = ExtensionFieldSpec(
-        key="sensors.example.root",
+        key="sources.example.root",
         type="path",
         path_kind="directory",
         label="Root folder",

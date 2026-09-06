@@ -130,7 +130,7 @@ def partition_for_candidates(
       already active.
 
     ``active_plugin_ids`` is the set of plugin ids that have an enabled **and**
-    configured sensor source. This is the source-level signal (``sensors.<source>
+    configured source. This is the source-level signal (``sources.<source>
     .enabled`` + the activation flow's ``configured_key``), NOT the package-level
     ``PluginPackageState.enabled`` flag — a plugin package can be loaded/enabled
     while its data source has never been activated, in which case we DO still want

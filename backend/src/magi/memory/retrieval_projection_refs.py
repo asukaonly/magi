@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from .entity_display import display_name_for
 from .hybrid_retrieval.models import RetrievalPayload

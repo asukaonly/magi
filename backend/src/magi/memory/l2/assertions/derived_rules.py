@@ -15,6 +15,10 @@ from ..entities.catalog.lookup import get_canonical_names
 from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
 from ..phase1_models import L2TemporalCue
 from .occurrence_stats import summarize_occurrence_times
+from .profile_worthiness import profile_evidence_reason
+from ...evidence.independence import independent_evidence_key
+from .state_machine import compute_confidence
+from ..factual_rendering import render_behavior_observation
 from .promotion import (
     AssertionPromotionInput,
     PromotionHorizon,
@@ -231,11 +235,14 @@ async def evaluate_graph_derived_assertion_rule(
         entity_id=entity_id,
         limit=limit,
     )
+    object_ids = [str(edge.get("object_id") or "") for edge in edges]
+    canonical_names = await get_canonical_names(store.db_path, object_ids)
     evaluation_time = float(now if now is not None else time.time())
     evidence_stats = await _load_edge_evidence_stats(
         edges=edges,
         l1_store=l1_store,
         now=evaluation_time,
+        canonical_names=canonical_names,
     )
     qualifying = _qualifying_edges(
         edges=edges,
@@ -246,8 +253,6 @@ async def evaluate_graph_derived_assertion_rule(
         _log_no_qualifying_edges(rule=rule, entity_id=entity_id, edges_seen=edges_seen)
         return {"edges_seen": edges_seen, "assertions_written": 0}
 
-    object_ids = [str(edge.get("object_id") or "") for edge in qualifying]
-    canonical_names = await get_canonical_names(store.db_path, object_ids)
     assertions_written = await _write_derived_assertion_candidates(
         store=store,
         rule=rule,
@@ -312,17 +317,26 @@ async def _load_edge_evidence_stats(
     edges: list[dict[str, Any]],
     l1_store: Any,
     now: float,
+    canonical_names: Mapping[str, str],
 ) -> dict[str, _EdgeEvidenceStats]:
     event_ids = _unique_edge_event_ids(edges)
-    timestamps = await l1_store.get_event_timestamps(event_ids)
-    return {
-        _edge_key(edge): _evidence_stats_for_edge(
-            edge,
-            timestamps=timestamps,
-            now=now,
-        )
-        for edge in edges
-    }
+    records = await l1_store.get_evidence_records(event_ids)
+    stats = {}
+    for edge in edges:
+        object_id = str(edge.get("object_id") or "")
+        label = canonical_names.get(object_id, _object_slug(object_id))
+        eligible_times = {}
+        for event_id in edge.get("evidence_event_ids") or []:
+            record = records.get(str(event_id))
+            if record is None:
+                continue
+            reason = profile_evidence_reason(record, object_id=object_id, label=label)
+            if reason:
+                logger.debug("Profile evidence excluded", event_id=event_id, reason_code=reason)
+                continue
+            eligible_times[str(event_id)] = float(record["timestamp"])
+        stats[_edge_key(edge)] = _evidence_stats_for_edge(edge, timestamps=eligible_times, now=now, independent_keys={identity: independent_evidence_key(records[identity]) for identity in eligible_times})
+    return stats
 
 
 def _unique_edge_event_ids(edges: list[dict[str, Any]]) -> list[str]:
@@ -343,6 +357,7 @@ def _evidence_stats_for_edge(
     *,
     timestamps: Mapping[str, float],
     now: float,
+    independent_keys: Mapping[str, str],
 ) -> _EdgeEvidenceStats:
     timeline = summarize_occurrence_times(
         [
@@ -368,7 +383,7 @@ def _evidence_stats_for_edge(
     return _EdgeEvidenceStats(
         event_ids=timeline.trusted_event_ids,
         observation_count=int(edge.get("observation_count", 0) or 0),
-        evidence_count=len(timeline.trusted_event_ids),
+        evidence_count=len({independent_keys[event_id] for event_id in timeline.trusted_event_ids}),
         distinct_days=timeline.distinct_days,
         first_observed_at=timeline.first_observed_at,
         last_observed_at=timeline.last_observed_at,
@@ -560,11 +575,8 @@ def _trait_name_for_edge(
 
 
 def _confidence_for_edge(edge: dict[str, Any], *, evidence_count: int) -> float:
-    return min(
-        0.9,
-        float(edge.get("confidence", 0.5) or 0.5)
-        * (1 + 0.1 * min(evidence_count, 5)),
-    )
+    """Use independent support, not repeated exposure, on the shared heuristic curve."""
+    return min(float(edge.get("confidence", 0.5) or 0.5), compute_confidence(evidence_count))
 
 
 def _build_derived_assertion_candidate(
@@ -647,7 +659,7 @@ def _build_derived_assertion_candidate(
         "memory_subdomain": (
             "state" if promotion.horizon is PromotionHorizon.RECENT else "semantic"
         ),
-        "natural_summary": f"Recurring {context.predicate.lower()} signal for {trait_value}",
+        "natural_summary": render_behavior_observation(trait_value, recent=promotion.horizon is PromotionHorizon.RECENT),
     }
 
 

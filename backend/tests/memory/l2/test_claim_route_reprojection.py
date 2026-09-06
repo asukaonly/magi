@@ -43,6 +43,7 @@ async def _seed_claim(
     evidence_event_id: str | None = None,
     evidence_event_time: float | None = None,
     temporal_cue: str = "current",
+    polarity: str = "positive",
 ) -> None:
     async with sqlite_connection_async(store.db_path) as db:
         await db.execute(
@@ -57,7 +58,7 @@ async def _seed_claim(
             ) VALUES (
                 :claim_id, :identity_key, 1, 1, 'attempt:seed', 'test', :user_id,
                 :subject_ref, :subject_type, :predicate, :fact_kind,
-                :object_type, 'positive', 'concrete', 0.9,
+                :object_type, :polarity, 'concrete', 0.9,
                 :object_value_json, :object_surface, :temporal_cue, 'active',
                 :created_at, :created_at
             )
@@ -71,6 +72,7 @@ async def _seed_claim(
                 "predicate": predicate,
                 "fact_kind": fact_kind,
                 "object_type": object_type,
+                "polarity": polarity,
                 "object_value_json": json.dumps(object_value, ensure_ascii=False),
                 "object_surface": str(object_value),
                 "temporal_cue": temporal_cue,
@@ -1980,3 +1982,23 @@ async def test_reprojection_api_rejects_caller_owned_contract_version(
         l2_store_with_schema,
         "append_reprojected_claim_route_outcome",
     )
+
+
+@pytest.mark.asyncio
+async def test_route_replay_preserves_negative_claim_without_portrait_target(l2_store_with_schema):
+    await _seed_claim(
+        l2_store_with_schema, claim_id="claim:negative", predicate="LIKES",
+        created_at=10, object_entity_id="topic:jazz", polarity="negative",
+        evidence_event_id="evt:negative", user_id="u1", subject_ref="user:u1",
+    )
+    result = await reproject_stale_claim_routes(l2_store_with_schema)
+    assert result.failed == 0
+    outcomes = await l2_store_with_schema.list_claim_projection_outcomes(claim_id="claim:negative")
+    assert outcomes[-1]["outcome"] == "deferred"
+    assert outcomes[-1]["reason_code"] == "negative_claim_requires_scoped_exclusion"
+    assert outcomes[-1]["target_slot_key"] is None
+    async with sqlite_connection_async(l2_store_with_schema.db_path) as db:
+        async with db.execute("SELECT polarity, availability FROM l2_grounded_claims WHERE claim_id = 'claim:negative'") as cursor:
+            row = await cursor.fetchone()
+    assert tuple(row) == ("negative", "active")
+    assert (await reproject_stale_claim_routes(l2_store_with_schema)).outcomes_appended == 0

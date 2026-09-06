@@ -21,7 +21,7 @@ runtime_trace_journal = import_module(
 )
 runtime_trace_plans = import_module("magi.db.migrations.runtime_trace.versions.v3_run_plans")
 scheduler_initial = import_module("magi.db.migrations.scheduler.versions.v1_initial")
-sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.v1_initial")
+source_state_initial = import_module("magi.db.migrations.source_state.versions.v1_initial")
 
 
 def _gc(base_dir: Path, *, now: float = 2_000_000.0, lifecycle: LifecycleSettings | None = None) -> RuntimeOperationalGC:
@@ -132,7 +132,7 @@ async def test_runtime_trace_gc_deletes_expired_trace_and_terminal_events(tmp_pa
 			INSERT INTO plugin_ingress_events (
 				source_kind, producer, plugin_target, event_type, occurred_at_ms,
 				payload_json, status, processed_at_ms, created_at_ms
-			) VALUES ('sensor', 'p', 'calendar', 'event', ?, '{}', ?, ?, ?)
+			) VALUES ('source', 'p', 'calendar', 'event', ?, '{}', ?, ?, ?)
 			""",
 			(
 				(old_ms, "completed", old_ms, old_ms),
@@ -316,8 +316,8 @@ async def test_message_queue_gc_rolls_up_completed_and_preserves_active_rows(tmp
 			(
 				("user_message", "c1", "completed", 2, old_completed, old_completed),
 				("user_message", "c2", "completed", 0, recent, recent),
-				("sensor_sync", "c3", "failed", 1, old_failed, old_failed),
-				("sensor_sync", "c4", "pending", 0, active_old, active_old),
+				("source_sync", "c3", "failed", 1, old_failed, old_failed),
+				("source_sync", "c4", "pending", 0, active_old, active_old),
 			),
 		)
 		await db.commit()
@@ -339,11 +339,11 @@ async def test_message_queue_gc_rolls_up_completed_and_preserves_active_rows(tmp
 
 
 @pytest.mark.asyncio
-async def test_scheduler_and_sensor_state_gc_remove_only_expired_history(tmp_path: Path) -> None:
-	lifecycle = LifecycleSettings(sensor_state={"fingerprints_keep_latest": 3})
+async def test_scheduler_and_source_state_gc_remove_only_expired_history(tmp_path: Path) -> None:
+	lifecycle = LifecycleSettings(source_state={"fingerprints_keep_latest": 3})
 	gc = _gc(tmp_path, lifecycle=lifecycle)
 	scheduler_db_path = gc.runtime_paths.scheduler_db_path
-	sensor_db_path = gc.runtime_paths.sensor_state_db_path
+	source_db_path = gc.runtime_paths.source_state_db_path
 	old_success = 2_000_000.0 - (31 * 86400)
 	old_failed = 2_000_000.0 - (61 * 86400)
 	recent = 2_000_000.0 - 60
@@ -355,7 +355,7 @@ async def test_scheduler_and_sensor_state_gc_remove_only_expired_history(tmp_pat
 			INSERT INTO schedule_executions (
 				execution_id, schedule_id, target_type, target_key, status,
 				started_at, finished_at, created_at
-			) VALUES (?, 'sched', 'sensor', 'calendar', ?, ?, ?, ?)
+			) VALUES (?, 'sched', 'source', 'calendar', ?, ?, ?, ?)
 			""",
 			(
 				("exec-success-old", "success", old_success, old_success, old_success),
@@ -366,11 +366,11 @@ async def test_scheduler_and_sensor_state_gc_remove_only_expired_history(tmp_pat
 		)
 		await db.executemany(
 			"""
-			INSERT INTO sensor_sync_jobs (
+			INSERT INTO source_sync_jobs (
 				job_id, schedule_id, execution_id, target_type, target_key,
 				plugin_id, source_type, status, payload_json, created_at,
 				started_at, finished_at
-			) VALUES (?, 'sched', ?, 'sensor', 'calendar', 'calendar', 'calendar', ?, '{}', ?, ?, ?)
+			) VALUES (?, 'sched', ?, 'source', 'calendar', 'calendar', 'calendar', ?, '{}', ?, ?, ?)
 			""",
 			(
 				("job-success-old", "exec-success-old", "success", old_success, old_success, old_success),
@@ -380,11 +380,11 @@ async def test_scheduler_and_sensor_state_gc_remove_only_expired_history(tmp_pat
 		)
 		await db.commit()
 
-	async with sqlite_connection_async(sensor_db_path) as db:
-		await db.executescript(sensor_state_initial.SCHEMA_SQL)
+	async with sqlite_connection_async(source_db_path) as db:
+		await db.executescript(source_state_initial.SCHEMA_SQL)
 		await db.executemany(
 			"""
-			INSERT INTO sensor_fingerprints (sensor_id, fingerprint, created_at)
+			INSERT INTO source_fingerprints (source_id, fingerprint, created_at)
 			VALUES ('calendar', ?, ?)
 			""",
 			tuple((f"fingerprint-{index}", float(index)) for index in range(5)),
@@ -392,13 +392,13 @@ async def test_scheduler_and_sensor_state_gc_remove_only_expired_history(tmp_pat
 		await db.commit()
 
 	scheduler_result = await gc.cleanup_scheduler()
-	sensor_result = await gc.cleanup_sensor_state()
+	source_result = await gc.cleanup_source_state()
 
 	assert scheduler_result["scheduler_success_executions_deleted"] == 1
 	assert scheduler_result["scheduler_failed_executions_deleted"] == 1
-	assert scheduler_result["scheduler_success_sensor_jobs_deleted"] == 1
-	assert scheduler_result["scheduler_failed_sensor_jobs_deleted"] == 1
-	assert sensor_result["sensor_state_fingerprints_deleted"] == 2
+	assert scheduler_result["scheduler_success_source_jobs_deleted"] == 1
+	assert scheduler_result["scheduler_failed_source_jobs_deleted"] == 1
+	assert source_result["source_state_fingerprints_deleted"] == 2
 	assert await _count_rows(scheduler_db_path, "schedule_executions") == 2
-	assert await _count_rows(scheduler_db_path, "sensor_sync_jobs") == 1
-	assert await _count_rows(sensor_db_path, "sensor_fingerprints") == 3
+	assert await _count_rows(scheduler_db_path, "source_sync_jobs") == 1
+	assert await _count_rows(source_db_path, "source_fingerprints") == 3

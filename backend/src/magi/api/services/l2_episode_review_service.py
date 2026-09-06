@@ -773,7 +773,7 @@ async def _record_l2_consolidation_lock_success(
     *,
     stats: dict[str, Any],
 ) -> None:
-    await repository.record_target_success(
+    await repository.record_target_result(
         ScheduledTargetType.MEMORY_L2_CONSOLIDATE,
         TARGET_KEY_L2_CONSOLIDATE,
         result=ScheduledExecutionResult(

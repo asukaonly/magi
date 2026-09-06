@@ -12,10 +12,10 @@ ingress code paths (``session_mapper.resolve_or_create`` for the
 external-channel ingress; ``canonicalize_user_id`` for the
 desktop/api ingress) and assert their outputs converge, without
 spinning up the full bootstrap (message bus, runtime command queue,
-agent runtime, sensor hub) that a true e2e would require. The
+agent runtime, source hub) that a true e2e would require. The
 unit-level coverage of each ingress site is already in
 ``test_identity.py``, ``test_channels.py``, and
-``test_sensor_hub_source_propagation.py``; this file is the
+``test_source_hub_source_propagation.py``; this file is the
 end-to-end story those individual tests tell collectively.
 """
 from __future__ import annotations
@@ -150,7 +150,7 @@ async def test_legacy_channel_prefixed_string_collapses_at_canonicalize(
     """Even if a legacy producer (pre-identity-layer code, stale fact
     record, hand-crafted test payload) leaks a ``channel_*``-prefixed
     user_id into the system AFTER the identity layer lands, the
-    awareness ingress (sensor_hub) calls canonicalize_user_id and
+    awareness ingress (source_hub) calls canonicalize_user_id and
     collapses it — so downstream memory writes still see canonical.
     """
     leaked = "channel_telegram_legacy_user_42"

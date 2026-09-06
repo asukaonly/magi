@@ -272,12 +272,12 @@
         "assetHint": "Example: {\"days\": 7} fills representative images for the last 7 days."
       },
       "pageTitle": "Schedule config",
-      "pageSubtitle": "Manage recurring jobs, sensor syncs, and system maintenance tasks.",
+      "pageSubtitle": "Manage recurring jobs, source syncs, and system maintenance tasks.",
       "defaultDisplayName": "Untitled schedule",
       "categories": {
         "all": "All",
         "user": "Custom",
-        "sensor": "Sensor sync",
+        "source": "Source sync",
         "memory": "Memory",
         "timeline": "Timeline",
         "other": "Other"
@@ -328,7 +328,7 @@
       },
       "sections": {
         "enabled": "Enabled Scheduled Tasks",
-        "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update sensor sync schedules from Settings.",
+        "enabledHint": "Active interval, one-shot, and system maintenance schedules. Update source sync schedules from Settings.",
         "activity": "Running And Upcoming",
         "activityHint": "Only schedules running, queued, or due within the next hour are shown here."
       },
@@ -346,7 +346,7 @@
         "actions": "Actions"
       },
       "targetTypes": {
-        "sensor_sync": "Sensor Sync",
+        "source_sync": "Source Sync",
         "memory_l2_maintenance": "L2 Memory Maintenance",
         "memory_l3_summary": "L3 Summary Generation",
         "user_agent_task": "Agent Task"
@@ -392,7 +392,7 @@
         "more": "More actions",
         "openSettings": "Open Settings",
         "openInfo": "Open info",
-        "sensorEditTitle": "Sensor schedules are updated in Settings",
+        "sourceEditTitle": "Source schedules are updated in Settings",
         "stop": "Stop",
         "stopUnavailable": "This execution item cannot be stopped directly yet",
         "save": "Save",
@@ -905,7 +905,7 @@
     },
     "today": {
       "loading": "Summarizing today's signals…",
-      "idle": "No sensor activity today yet",
+      "idle": "No source activity today yet",
       "retry": "Reload",
       "tooltip": "Today's awareness · {{total}} events across {{count}} sources"
     },
@@ -1413,7 +1413,7 @@
       "memoryKnowledge": "Knowledge Memory",
       "memoryReflection": "Reflection Memory",
       "memorySkills": "Skill Memory",
-      "timeline": "Sensors",
+      "timeline": "Sources",
       "plugins": "Plugins",
       "pluginsInstalled": "Installed",
       "pluginsMarketplace": "Marketplace",
@@ -2660,8 +2660,8 @@
         "healthTitle": "Health snapshot",
         "healthDesc": "A compact read on which sources are ready and which ones need attention.",
         "empty": "No timeline sources are registered yet.",
-        "emptyTitle": "No sensor sources yet",
-        "emptyDescription": "Install a sensor plugin so Magi can bring browser, photo, calendar, and other activity into the timeline.",
+        "emptyTitle": "No sources yet",
+        "emptyDescription": "Install a source plugin so Magi can bring browser, photo, calendar, and other activity into the timeline.",
         "emptyAction": "Browse marketplace",
         "metricsSummary": "Total · active · pull-ready: {{summary}}",
         "lastSync": "Last synced {{time}}",
@@ -2671,7 +2671,7 @@
         "entriesTitle": "Sync entries",
         "entriesDesc": "Each entry has its own enable switch, schedule, and runtime status.",
         "availableEntriesTitle": "More entries available",
-        "availableEntriesDesc": "These entries belong to the same sensor group. After installation, they will appear in the entry selector above.",
+        "availableEntriesDesc": "These entries belong to the same source group. After installation, they will appear in the entry selector above.",
         "sourceStatusTitle": "Runtime status",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
@@ -2802,6 +2802,7 @@
         "cancel": "Cancel"
       },
       "feedback": {
+        "uncertain": "The outcome is not yet known. Check the connected service before trying again.",
         "succeeded": "Plugin action completed",
         "failed": "Plugin action failed",
         "failedWithMessage": "Plugin action failed: {{message}}",
@@ -2889,13 +2890,13 @@
       },
       "filter": {
         "all": "All",
-        "sensor": "Sensor",
+        "source": "Source",
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
       },
       "contributionType": {
-        "sensor": "Sensor",
+        "source": "Source",
         "tool": "Tool",
         "action": "Action",
         "channel": "Channel"
@@ -3011,6 +3012,35 @@
     "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again."
   },
   "memory": {
+    "consolidation": {
+      "loadFailed": "Processing status is unavailable. Try again.",
+      "lastRun": "Last checked: {{time}}",
+      "modelUnavailable": "Automatic organization is currently limited. Existing memories and pending candidates are kept.",
+      "request": "Check and organize",
+      "reasons": {
+        "loading": "Reading processing status…",
+        "disabled": "Automatic organization is disabled.",
+        "unavailable": "The organization service is not ready.",
+        "queued": "Organization is scheduled and will start shortly.",
+        "running": "Reviewing fragments, forming experiences and writing recaps…",
+        "partial_failure": "Some steps failed. Existing results are preserved; you can retry.",
+        "failed": "Organization failed. You can retry.",
+        "processing_events": "Imported records are still being extracted; experience clues may not be ready.",
+        "not_run": "Experiences have not been checked yet. You can start a check.",
+        "model_budget": "This check has finished. Some candidates are still waiting to be processed.",
+        "ready": "This check is complete. Results appear below or in the review inbox.",
+        "insufficient_evidence": "There is not enough coherent evidence to form a new experience yet."
+      }
+    },
+    "provenance": {
+      "user_confirmed": "Confirmed by you",
+      "direct_report": "Stated by you",
+      "inferred": "Inferred from activity",
+      "unknown": "Basis not classified",
+      "sources": "{{count}} source records",
+      "behavior_recent": "Your recent activity suggests you may be interested in {{value}}.",
+      "behavior_repeated": "Your repeated activity suggests you may be interested in {{value}}."
+    },
     "title": "Memory Viewer",
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
@@ -3037,6 +3067,8 @@
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
       "summaryLabel": "Memory summary",
       "metrics": {
+        "sourceRecords": "Source records",
+        "profileCandidates": "Extracted statements (including pending)",
         "totalMemories": "Total memories",
         "understanding": "About you",
         "summaries": "Reviews & summaries",
@@ -3107,6 +3139,8 @@
       }
     },
     "sourcesPage": {
+      "chooseConnection": "Choose a connection before syncing or changing this source.",
+      "connectionScope": "Records and totals include all connections for this source. Actions apply only to the selected connection.",
       "title": "Sources",
       "subtitle": "See where Magi is forming memories today.",
       "loading": "Preparing sources.",
@@ -3346,6 +3380,11 @@
       }
     },
     "pending": {
+      "loadMore": "Load more {{section}}",
+      "loadFailed": "Could not load {{section}}. Other loaded items remain available.",
+      "actionFailed": "The action did not finish. Your content and selection are saved; please retry.",
+      "retry": "Retry",
+      "loadSections": {"reviews": "memory reviews", "assertions": "judgments", "stories": "summaries", "seeds": "experience signals", "conflicts": "conflicts"},
       "title": "Pending",
       "subtitle": "Memory signals that need your judgment live here.",
       "totalCount": "{{count}} item(s)",
@@ -3404,7 +3443,7 @@
       "planBatch": {
         "title": "Which plans are still current?",
         "body": "Select the plans that still apply. Unselected plans stay here for later and are not treated as rejected.",
-        "selectAll": "Select all",
+        "selectAll": "Select loaded plans",
         "clearSelection": "Clear selection",
         "confirmSelected": "Confirm {{count}} selected",
         "selectLabel": "Select plan: {{value}}",
@@ -4171,7 +4210,7 @@
         "codingAgentHistory": "Coding assistant history"
       },
       "eventTypes": {
-        "sensorEvent": "Captured event",
+        "sourceEvent": "Captured event",
         "chatMessage": "Chat message",
         "toolCall": "Tool call",
         "toolResult": "Tool result",
@@ -4830,7 +4869,7 @@
       "l4": "L4"
     },
     "eventTypes": {
-      "sensor_event": "Sensor event",
+      "source_event": "Source event",
       "user_message": "User message",
       "ai_response": "Assistant reply",
       "assistant_final": "Assistant reply",
@@ -5362,5 +5401,55 @@
       "japanese": "Japanese"
     },
     "noAvatar": "No avatar selected"
+  },
+  "plugins": {
+    "trust": {
+      "title": "Allow \"{{name}}\" to run?",
+      "review": "Review execution access",
+      "confirm": "Allow execution",
+      "nativeAccess": "This plugin can read and write local files, access the network and start processes with your user permissions. The list below describes its declared purposes.",
+      "authorized": "Plugin execution authorized. You can now configure and enable connections.",
+      "failed": "Could not authorize this package. Refresh the list and review it again.",
+      "reinstall": "Reinstall this package before authorizing it."
+    },
+    "connections": {
+      "selectConnection": "Select {{name}}",
+      "choose": "Choose a connection",
+      "title": "Connections",
+      "description": "Configure each account or folder independently.",
+      "add": "Add connection",
+      "name": "Connection name",
+      "edit": "Edit",
+      "enable": "Enable",
+      "disable": "Disable",
+      "clear": "Clear local content",
+      "disconnect": "Disconnect",
+      "refresh": "Refresh",
+      "loading": "Loading connections…",
+      "empty": "No connections yet.",
+      "loadFailed": "Could not load connections. Try refreshing.",
+      "saveFailed": "Could not save this change.",
+      "conflict": "This connection changed elsewhere. Reload before retrying.",
+      "authorizationRequired": "Authorize the installed package before enabling connections.",
+      "reloadEditor": "Reload saved settings",
+      "credentialsHelp": "Saved credentials are never shown. Enter a replacement or explicitly remove a saved credential.",
+      "credentialSaved": "Credential saved",
+      "removeCredential": "Remove credential",
+      "credentialRemovalPending": "Credential will be removed when you save.",
+      "removalDisables": "Removing this required credential will disable the connection when you save.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "clearScope": "Clear locally retained content for this connection. Keep account settings, credentials and source progress. Previously imported memory and remote data remain.",
+      "disconnectScope": "Stop this connection and remove its local state and credentials. Keep the installed plugin, previously imported memory and remote data.",
+      "status": {
+        "disabled": "Disabled",
+        "setup_required": "Setup required",
+        "auth_required": "Authorization required",
+        "ready": "Ready",
+        "degraded": "Degraded",
+        "failed": "Failed"
+      }
+    }
   }
 }

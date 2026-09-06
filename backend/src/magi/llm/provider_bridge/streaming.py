@@ -72,7 +72,25 @@ class ProviderBridgeChatStreamingMixin:
             limit=host._resolve_chat_concurrency_limit(),
             priority=priority,
         ):
-            if host.is_anthropic():
+            if getattr(host.llm, "is_plugin_provider", False) is True:
+                async for event_payload in host.llm.stream_response(
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_seconds=timeout_seconds,
+                    event_context=event_context,
+                    options={"json_mode": json_mode, "thinking_depth": depth.value},
+                ):
+                    if event_payload.kind == "done":
+                        continue
+                    if event_payload.kind == "text_delta":
+                        state.response_preview_parts.append(event_payload.text or "")
+                    if event_payload.kind == "usage":
+                        state.usage_payload = event_payload.usage
+                    await emit_stream_event(event_payload)
+                    yield event_payload
+            elif host.is_anthropic():
                 async for event_payload in self._stream_anthropic_chat_response(
                     host,
                     system_prompt=system_prompt,
@@ -142,7 +160,9 @@ class ProviderBridgeChatStreamingMixin:
                 await emit_stream_event(event_payload)
                 yield event_payload
 
-        state.usage_for_trace = host._extract_anthropic_stream_usage(stream, state.usage_data)
+        state.usage_for_trace = host._extract_anthropic_stream_usage(
+            stream, state.usage_data
+        )
         state.usage_payload = host._anthropic_usage_to_wire(state.usage_data)
         if state.usage_payload is not None:
             usage_event = LLMStreamEvent(kind="usage", usage=state.usage_payload)
@@ -229,11 +249,15 @@ class ProviderBridgeChatStreamingMixin:
         )
         if getattr(host.llm, "_client", None) is not None:
             chat_kwargs["model"] = host.llm.model_name
-            async for event_payload in self._stream_openai_client_chat(host, chat_kwargs, state):
+            async for event_payload in self._stream_openai_client_chat(
+                host, chat_kwargs, state
+            ):
                 yield event_payload
             return
 
-        async for event_payload in self._stream_openai_adapter_chat(host, chat_kwargs, state):
+        async for event_payload in self._stream_openai_adapter_chat(
+            host, chat_kwargs, state
+        ):
             yield event_payload
 
     @staticmethod
@@ -388,7 +412,9 @@ def _anthropic_delta_to_payload(
 
 
 def _openai_reasoning_payloads(delta: Any) -> list[LLMStreamEvent]:
-    reasoning_text = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+    reasoning_text = getattr(delta, "reasoning_content", None) or getattr(
+        delta, "reasoning", None
+    )
     if not reasoning_text:
         return []
     return [LLMStreamEvent(kind="reasoning_delta", text=reasoning_text)]

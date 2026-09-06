@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { ToolConfigSpec } from '@/api/modules/tools';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
-import { getNestedPluginSetting } from '@/api/modules/plugins';
+import { readConnectionSetting } from '@/utils/plugin-connection-settings';
 import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField';
 import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
@@ -77,8 +77,8 @@ describe('dynamic configuration values', () => {
   });
 
   it('reads own nested settings without traversing inherited properties', () => {
-    expect(getNestedPluginSetting({ nested: { enabled: false } }, 'nested.enabled', true)).toBe(false);
-    expect(getNestedPluginSetting({}, 'toString', 'missing')).toBe('missing');
-    expect(getNestedPluginSetting({ nested: null }, 'nested.enabled', false)).toBe(false);
+    expect(readConnectionSetting({ nested: { enabled: false } }, 'nested.enabled', true)).toBe(false);
+    expect(readConnectionSetting({}, 'toString', 'missing')).toBe('missing');
+    expect(readConnectionSetting({ nested: null }, 'nested.enabled', false)).toBe(false);
   });
 });

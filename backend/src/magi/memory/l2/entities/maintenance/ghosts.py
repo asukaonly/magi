@@ -8,7 +8,6 @@ from .ghosts_common import (
     _CatalogMaintenanceStatsProtocol,
     _canonical_entity_id,
     _merge_evidence_json,
-    _slugify_entity_id_suffix,
 )
 from .ghosts_graph import L2EntityGhostGraphMaintenanceMixin
 from .ghosts_tom import L2EntityTomGhostMaintenanceMixin
@@ -28,5 +27,4 @@ __all__ = [
     "_CatalogMaintenanceStatsProtocol",
     "_canonical_entity_id",
     "_merge_evidence_json",
-    "_slugify_entity_id_suffix",
 ]

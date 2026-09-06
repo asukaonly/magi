@@ -90,7 +90,7 @@ class ChatExecutionCoordinator:
         admission.tools = list(resolution.initial_exposed_tools)
         capabilities = CapabilitySelection(
             tools=list(resolution.initial_exposed_tools),
-            reasoning="Stable resident, explicit, attachment, and continuity capabilities.",
+            reasoning="Stable resident, default, explicit, attachment, and continuity capabilities.",
         )
         if self._capability_trace_callback is not None:
             callback_result = self._capability_trace_callback(context, admission, capabilities)

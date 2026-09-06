@@ -7,7 +7,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 from ..media.adapters.photo_library import extract_photo_library_asset_ref
 
@@ -365,13 +365,13 @@ class TimelineClusterBuilder:
         Returns empty string when no specific tags survive the filter —
         caller falls back to the episode_type / "activity" default.
 
-        Examples (input events tagged via Chrome sensor):
+        Examples (input events tagged via Chrome source):
           - 8 events all tagged ["chrome_history", "openai.com"]
               → "openai.com"
           - mixed ["chrome_history", "openai.com"] and
                   ["chrome_history", "anthropic.com"]
               → "openai.com、anthropic.com"
-          - only ["chrome_history"] tags (sensor didn't set domain)
+          - only ["chrome_history"] tags (source didn't set domain)
               → "" (caller uses episode_type fallback)
         """
         if not events:

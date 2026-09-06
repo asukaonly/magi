@@ -143,6 +143,16 @@ export interface PaginatedResponse<T> {
   offset: number;
 }
 
+export interface MemoryConsolidationStatus {
+  state: 'disabled' | 'unavailable' | 'queued' | 'running' | 'failed' | 'waiting' | 'ready' | 'insufficient_evidence';
+  reason_code: string;
+  pending_events: number;
+  last_run_at?: number | null;
+  last_success_at?: number | null;
+  model_selection?: 'enabled' | 'disabled' | 'unavailable';
+  stats: Record<string, unknown>;
+}
+
 export interface PaginationParams {
   limit?: number;
   offset?: number;
@@ -825,7 +835,7 @@ export interface MemoryStatistics {
   l2: { relation_count: number; assertion_count: number; db_path?: string };
   l3: { summary_count: number; db_path?: string };
   l4: { skill_count: number; open_circuit_breakers: number; db_path?: string };
-  total_memories?: number;
+  stored_records?: number;
   disk_usage_bytes?: number;
   attention?: MemoryAttention;
 }
@@ -864,7 +874,7 @@ export interface MemoryProcessingBacklog {
 }
 
 export interface MemoryDashboardDeltaWindow {
-  total_memories: number;
+  stored_records: number;
   l1_events: number;
   l2_assertions: number;
   l3_summaries: number;
@@ -873,6 +883,12 @@ export interface MemoryDashboardDeltaWindow {
 
 export interface MemoryDashboardDeltas {
   today: MemoryDashboardDeltaWindow;
+}
+
+export interface MemoryQualityDiagnostics {
+  runtime: { scope: 'process_attempts'; counts: Record<string, number | boolean | Record<string, number>> };
+  stored: { scope: 'active_store_records'; l1_events: number; projection_backlog: Record<string, number> };
+  user: { user_id: string; grounded_claims: number; routed_claims: number; route_by_disposition: Record<string, number>; route_by_reason: Record<string, number>; profile_visible_assertions: number; profile_visible_items: number; profile_review_items: number };
 }
 
 export interface MemoryDashboard {
@@ -974,6 +990,8 @@ export const memoryApi = {
   async getMaintenanceTasks(): Promise<{ tasks: MemoryMaintenanceTask[] }> {
     return unwrapGatewayPayload(await api.get<{ tasks: MemoryMaintenanceTask[] }>('/memory/maintenance/tasks'));
   },
+  getQuality: async (userId: string): Promise<MemoryQualityDiagnostics> => unwrapMemoryResponse(await api.get<MemoryQualityDiagnostics>('/memory/quality', { params: { user_id: userId } })),
+
   // L0 Working Memory
   getL0Sessions: async (params?: PaginationParams & { status?: string; query?: string }): Promise<L0SessionsResponse> =>
     unwrapMemoryResponse(await api.get<L0SessionsResponse>('/memory/l0/sessions', { params })),
@@ -995,10 +1013,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
   getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
-  listPendingReviews: async (limit = 100): Promise<{ items: L2PendingReview[]; total: number }> =>
+  listPendingReviews: async (limit = 100, offset = 0): Promise<{ items: L2PendingReview[]; total: number }> =>
     unwrapMemoryResponse(await api.get<{ items: L2PendingReview[]; total: number }>(
       '/memory/l2/reviews',
-      { params: { status: 'pending', limit } },
+      { params: { status: 'pending', limit, offset } },
     )),
   resolvePendingReview: async (
     reviewId: string,
@@ -1048,6 +1066,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/reconcile', { entity_ids: entityIds })),
   refreshL2Snapshots: async (entityIds: string[]): Promise<L2QueuedActionResponse> =>
     unwrapMemoryResponse(await api.post<L2QueuedActionResponse>('/memory/l2/snapshot-refresh', { entity_ids: entityIds })),
+  getConsolidationStatus: async (): Promise<MemoryConsolidationStatus> =>
+    unwrapMemoryResponse(await api.get<MemoryConsolidationStatus>('/memory/l2/consolidation')),
+  requestConsolidation: async (): Promise<{ scheduled: boolean }> =>
+    unwrapMemoryResponse(await api.post<{ scheduled: boolean }>('/memory/l2/consolidation')),
   listExperiences: async (params?: PaginationParams & {
     status?: string;
     time_start?: number;
@@ -1146,7 +1168,7 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search
-  getDashboard: async (params?: { pending_limit?: number }): Promise<MemoryDashboard> =>
+  getDashboard: async (params?: { pending_limit?: number; pending_offset?: number }): Promise<MemoryDashboard> =>
     unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params })),
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),

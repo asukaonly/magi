@@ -39,7 +39,7 @@ from .dependencies import (
     _resolve_scheduler_service,
     _resolve_runtime_trace_subscriber,
     _resolve_runtime_trace_store,
-    _resolve_sensor_hub,
+    _resolve_source_hub,
     _resolve_self_memory,
     _resolve_task_agent_manager,
     _resolve_tool_registry,
@@ -397,7 +397,7 @@ async def _clear_memory_layers_with_portability_boundary(
                 "Chat recovery service not initialized",
             ),
         )
-    sensor_hub = _resolve_sensor_hub()
+    source_hub = _resolve_source_hub()
     rebuild_pause_started = False
     chat_pause_started = False
     counts: dict[str, int] | None = None
@@ -467,24 +467,24 @@ async def _clear_memory_layers_with_portability_boundary(
                         purged_commands,
                     ) = await runtime_command_queue.advance_user_message_generation_and_purge()
                     queue_purged = True
-                    purged_sensor_events = 0
-                    sensor_cleanup_failure: Exception | None = None
-                    if sensor_hub is not None:
+                    purged_source_events = 0
+                    source_cleanup_failure: Exception | None = None
+                    if source_hub is not None:
                         try:
-                            purged_sensor_events = await sensor_hub.discard_stale_user_messages(
+                            purged_source_events = await source_hub.discard_stale_user_messages(
                                 generation
                             )
                         except Exception as exc:
-                            sensor_cleanup_failure = exc
+                            source_cleanup_failure = exc
                             logger.exception(
-                                "clear_memory: failed to discard stale SensorHub messages"
+                                "clear_memory: failed to discard stale SourceHub messages"
                             )
                     logger.info(
                         "clear_memory: advanced full-clear command boundary. "
-                        "generation=%d commands=%d sensor_events=%d",
+                        "generation=%d commands=%d source_events=%d",
                         generation,
                         purged_commands,
-                        purged_sensor_events,
+                        purged_source_events,
                     )
 
                     manual_entry_asset_store = _resolve_manual_entry_asset_store()
@@ -570,14 +570,14 @@ async def _clear_memory_layers_with_portability_boundary(
                                         exc.recovery_error.__traceback__,
                                     ),
                                 )
-                    if sensor_cleanup_failure is not None:
-                        warnings.append("sensor_cleanup_failed")
+                    if source_cleanup_failure is not None:
+                        warnings.append("source_cleanup_failed")
                         logger.error(
-                            "clear_memory: stale sensor message cleanup failed after clear",
+                            "clear_memory: stale source message cleanup failed after clear",
                             exc_info=(
-                                type(sensor_cleanup_failure),
-                                sensor_cleanup_failure,
-                                sensor_cleanup_failure.__traceback__,
+                                type(source_cleanup_failure),
+                                source_cleanup_failure,
+                                source_cleanup_failure.__traceback__,
                             ),
                         )
                     diagnostic_log_failure: Exception | None = None

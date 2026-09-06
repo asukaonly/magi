@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .types import ToolMessageBlock
+from magi.utils.tool_result_metadata import tool_result_metadata
 
 
 class FunctionCallingMessageHistoryMixin:
@@ -125,33 +126,9 @@ class FunctionCallingMessageHistoryMixin:
         tool_message: dict[str, Any],
         call: dict[str, Any] | None = None,
     ) -> str:
-        try:
-            payload = json.loads(str(tool_message.get("content", "{}")))
-        except json.JSONDecodeError:
-            payload = {}
-        success = bool(payload.get("success"))
-        data = payload.get("data")
-        error = payload.get("error")
-        status = "ok" if success else "failed"
-        detail = ""
-        if isinstance(data, dict):
-            result_preview = data.get("result_preview")
-            if result_preview:
-                detail = f" | {result_preview}"
-            elif isinstance(data.get("worker_result"), dict):
-                summary = str(data["worker_result"].get("summary", "")).strip()
-                if summary:
-                    detail = f" | {summary}"
-            elif data.get("match_count") is not None:
-                detail = f" | matches={data.get('match_count')}"
-            elif data.get("return_code") is not None:
-                detail = f" | return_code={data.get('return_code')}"
-                stdout = str(data.get("stdout_preview") or data.get("stdout") or "").strip()
-                if stdout:
-                    stdout_short = stdout[:200].replace("\r\n", "\n").replace("\r", "\n")
-                    detail += f"\n  stdout: {stdout_short}"
-        if error and not success:
-            detail = f" | error={error}"
+        metadata = tool_result_metadata(tool_message)
+        status = "unknown" if metadata is None else "ok" if metadata.success else "failed"
+        detail = f" | {metadata.summary}" if metadata is not None and metadata.summary else ""
         args_hint = ""
         if call and isinstance(call, dict):
             func = call.get("function", {})

@@ -60,9 +60,9 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
             providers.Object(context.plugins.plugin_projection_service)
         )
         bound.append("plugin_projection_service")
-    if context.plugins.sensor_registry is not None:
-        container.sensor_registry.override(providers.Object(context.plugins.sensor_registry))
-        bound.append("sensor_registry")
+    if context.plugins.source_registry is not None:
+        container.source_registry.override(providers.Object(context.plugins.source_registry))
+        bound.append("source_registry")
     if context.runtime_trace.store is not None:
         container.runtime_trace_store.override(providers.Object(context.runtime_trace.store))
         bound.append("runtime_trace_store")
@@ -76,7 +76,9 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
         logger.info("Infrastructure bindings exported during deferred init: %s", ", ".join(bound))
 
 
-def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> None:
+def _initialize_skills_bindings_for_configuration_mode(
+    config: AppConfig, context: RuntimeBootstrapContext,
+) -> None:
     """Initialize skills bindings even when full runtime startup is deferred.
 
     During onboarding/configuration, LLM selection may be incomplete, which defers
@@ -104,6 +106,8 @@ def _initialize_skills_bindings_for_configuration_mode(config: AppConfig) -> Non
             tool_registry=tool_registry,
             orchestrator_factory=build_function_calling_orchestrator,
             agent_run_request_factory=build_headless_agent_run_request,
+            skill_indexer=context.skills.skill_indexer,
+            skill_loader=context.skills.skill_loader,
         )
         container.skill_indexer.override(providers.Object(bindings.skill_indexer))
         container.skill_loader.override(providers.Object(bindings.skill_loader))
@@ -164,7 +168,7 @@ async def initialize_agent_runtime() -> None:
     except RuntimeInitializationDeferred as exc:
         _bind_runtime_bootstrap_state(orchestrator, context)
         _export_available_infrastructure_bindings(context)
-        _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config())
+        _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config(), context)
         deferred_reason = "llm_selection_pending" if exc.pending_selection else "llm_configuration_invalid"
         set_runtime_startup_state(
             "deferred",

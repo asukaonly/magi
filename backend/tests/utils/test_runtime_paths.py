@@ -24,7 +24,7 @@ def test_runtime_paths_uses_split_storage_layout(tmp_path: Path) -> None:
     assert runtime_paths.scheduler_db_path == runtime_paths.runtime_dir / "scheduler.db"
     assert runtime_paths.message_queue_db_path == runtime_paths.runtime_dir / "message_queue.db"
     assert runtime_paths.llm_usage_db_path == runtime_paths.runtime_dir / "llm_usage.db"
-    assert runtime_paths.sensor_state_db_path == runtime_paths.runtime_dir / "sensor_state.db"
+    assert runtime_paths.source_state_db_path == runtime_paths.runtime_dir / "source_state.db"
     assert runtime_paths.plugin_cache_dir("screen_time") == (
         tmp_path / ".magi" / "cache" / "plugins" / "screen_time"
     )

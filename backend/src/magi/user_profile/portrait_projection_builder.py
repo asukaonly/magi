@@ -7,6 +7,8 @@ import time
 from typing import Any
 
 from ..memory.derivation_revision import DerivationRevision
+from ..memory.l2.factual_rendering import assertion_evidence_basis, render_behavior_observation
+from ..i18n import effective_app_language_code
 from .models import (
     DEFAULT_USER_ID,
     PROFILE_ASSERTION_FAMILIES,
@@ -400,8 +402,15 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     )
     if not text:
         return None
-    if _text(assertion.get("trait_family")).casefold() == "goal_profile":
-        text = f"近期计划：{text}"
+    expression = None
+    if assertion.get("inference_depth") == "topology_only":
+        recent = assertion.get("memory_subdomain") == "state" or bool(assertion.get("expires_at"))
+        value = _display_value(assertion.get("trait_value"))
+        text = render_behavior_observation(value, recent=recent)
+        expression = {"kind": "behavior", "value": value, "horizon": "recent" if recent else "repeated"}
+    elif _text(assertion.get("trait_family")).casefold() == "goal_profile":
+        prefix = "近期计划：" if effective_app_language_code().startswith("zh") else "Current plan: "
+        text = f"{prefix}{text}"
     assertion_id = _text(assertion.get("assertion_id"))
     raw_source_key = _text(assertion.get("source_domain"))
     source_key = None if raw_source_key in _INTERNAL_SOURCE_KEYS else (raw_source_key or None)
@@ -416,6 +425,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         refs.append(f"status:{state}")
     if raw_source_key:
         refs.append(f"source:{raw_source_key}")
+    refs.extend(f"event:{event_id}" for event_id in assertion.get("evidence_events", []) if event_id)
     decision = classify_assertion_portrait(assertion)
     return {
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
@@ -424,6 +434,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "source": "",
         "source_key": source_key,
         "assertion_id": assertion_id or None,
+        "evidence_basis": assertion_evidence_basis(assertion),
+        "expression": expression,
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
         "claim_kind": decision.claim_kind,

@@ -30,7 +30,7 @@ logger = get_logger(__name__)
 class IdentityResolver(Protocol):
     """Resolve external identifiers to canonical ``MagiUserID``.
 
-    Every ingress site (channels dispatcher, api dispatch, sensor_hub,
+    Every ingress site (channels dispatcher, api dispatch, source_hub,
     session_mapper) calls ``resolve()`` to canonicalize the inbound
     user identity before the value flows to any downstream store.
     """

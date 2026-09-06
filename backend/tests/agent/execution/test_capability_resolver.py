@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import magi.config as config_module
 from magi.agent.execution.capability_resolver import CapabilityResolver
 from magi.agent.execution.function_calling.tools import build_tools_parameter
 from magi.chat.task_agent.coordinator import (
@@ -11,6 +12,10 @@ from magi.chat.task_agent.coordinator import (
     _attachment_resolver_tools,
 )
 from magi.agent.task_agents.handlers import TurnAdmissionDecision
+from magi.config.models import AppConfig
+from magi.tools.builtin.web_fetch_tool import WebFetchTool
+from magi.tools.builtin.web_search_tool import WebSearchTool
+from magi.tools.registry import ToolRegistry
 
 
 class _Registry:
@@ -22,6 +27,8 @@ class _Registry:
             "photo_resolver",
             "verify",
             "weather",
+            "web-search",
+            "web-fetch",
         }
 
     def list_tools(self, *, category=None, enabled_features=None):  # type: ignore[no-untyped-def]
@@ -67,15 +74,70 @@ class _Registry:
         return name == "calendar-review"
 
 
-def test_nonresident_tools_are_not_exposed_without_an_explicit_runtime_reason() -> None:
+def test_default_web_tools_are_exposed_without_discovery_or_task_classification() -> None:
     resolution = CapabilityResolver(_Registry()).resolve()
 
     assert resolution.initial_exposed_tools == (
         "find-relevant-tools",
         "memory_query",
+        "web-search",
+        "web-fetch",
     )
+    assert resolution.default_tools == ("web-search", "web-fetch")
+    assert set(resolution.default_tools).isdisjoint(resolution.resident_tools)
+    assert resolution.to_event_payload()["default_tools"] == ["web-search", "web-fetch"]
+    assert resolution.required_tools == ()
     assert "calendar-review" not in resolution.candidate_tools
     assert "weather" not in resolution.candidate_tools
+
+
+@pytest.mark.parametrize("tool_name", ["web-search", "web-fetch"])
+@pytest.mark.parametrize(
+    "availability", ["enabled", "disabled", "unregistered", "feature_disabled", "host_only"]
+)
+def test_default_web_tools_respect_registry_availability(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str, availability: str
+) -> None:
+    config = AppConfig()
+    monkeypatch.setattr(config_module, "get_config", lambda: config)
+    registry = ToolRegistry()
+    for tool_class in (WebSearchTool, WebFetchTool):
+        tool = tool_class()
+        if tool.schema.name == tool_name:
+            if availability == "unregistered":
+                continue
+            if availability == "disabled":
+                getattr(config.tools, tool_name.replace("-", "_")).enabled = False
+            elif availability == "feature_disabled":
+                tool.schema.feature_flags = ["web_access"]
+            elif availability == "host_only":
+                tool.schema.metadata["invocation_triggers"] = ["host"]
+        registry.register(tool_class, tool_instance=tool)
+
+    resolution = CapabilityResolver(registry).resolve(enabled_features=[])
+    expected = {"web-search", "web-fetch"}
+    if availability != "enabled":
+        expected.remove(tool_name)
+    assert set(resolution.default_tools) == expected
+    assert set(resolution.initial_exposed_tools) == expected
+    assert resolution.resident_tools == ()
+    assert {
+        item["function"]["name"]
+        for item in build_tools_parameter(registry, list(resolution.initial_exposed_tools))
+    } == expected
+
+
+def test_explicit_and_continuity_web_pins_do_not_duplicate_defaults() -> None:
+    resolution = CapabilityResolver(_Registry()).resolve(
+        pinned_tools=["web-search"],
+        required_tools=["web-fetch"],
+        recent_tool_errors=[{"tool_name": "web-search"}],
+    )
+
+    assert resolution.initial_exposed_tools.count("web-search") == 1
+    assert resolution.initial_exposed_tools.count("web-fetch") == 1
+    assert resolution.required_tools == ("web-fetch",)
+    assert resolution.continuity_pinned_tools == ("web-search",)
 
 
 def test_attachment_resolver_is_pinned_with_resident_tools() -> None:
@@ -96,6 +158,8 @@ def test_pinned_local_write_also_exposes_validation_tool() -> None:
     assert resolution.initial_exposed_tools == (
         "find-relevant-tools",
         "memory_query",
+        "web-search",
+        "web-fetch",
         "file_write",
         "verify",
     )
@@ -134,7 +198,11 @@ def test_model_without_tool_calls_fails_closed_on_every_candidate() -> None:
     )
 
     assert resolution.initial_exposed_tools == ()
+    assert resolution.default_tools == ()
     assert resolution.required_tools == ("photo_resolver",)
+    assert {"web-search", "web-fetch"}.issubset(
+        item.tool_name for item in resolution.rejected_tools
+    )
     assert resolution.rejected_tools
     assert {item.reason_code for item in resolution.rejected_tools} == {
         "model_tool_calls_unsupported"
@@ -180,6 +248,7 @@ async def test_ordinary_user_text_does_not_change_initial_tool_schema() -> None:
     )
 
     assert first.tools == second.tools
+    assert {"web-search", "web-fetch"}.issubset(first.tools)
     assert build_tools_parameter(registry, first.tools) == build_tools_parameter(
         registry,
         second.tools,

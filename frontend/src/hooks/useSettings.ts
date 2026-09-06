@@ -10,11 +10,10 @@ import { type SystemConfig } from '@/api/modules/config';
 import { type ControlSettingsDTO } from '@/api/modules/control';
 import { type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
 import { type ToolConfig } from '@/api/modules/tools';
-import { type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { type SourceStatusItem } from '@/api/modules/sources';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
 import type {
   MemoryToggleFieldId,
-  PluginDraftMap,
   SettingsPageHandle,
   ToolDraftMap,
 } from '@/types/settings';
@@ -74,16 +73,10 @@ export interface UseSettingsReturn {
   pluginRegistryFingerprint: string | null;
   pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
-  reloadingActionPlugins: Record<string, boolean>;
-  draftPluginDrafts: PluginDraftMap;
-  handlePluginDraftChange: (pluginId: string, key: string, value: unknown) => void;
-  handlePluginDraftChanges: (pluginId: string, updates: Record<string, unknown>) => void;
-  applyPersistedPluginSettings: (pluginId: string, updates: Record<string, unknown>) => void;
-  handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
-  handleReloadActionPlugin: (pluginId: string) => Promise<void>;
+  handlePluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
-  loadPluginsAndSensors: () => Promise<void>;
+  loadPluginsAndSources: () => Promise<void>;
 
   // Tools
   tools: ToolConfig[];
@@ -94,7 +87,7 @@ export interface UseSettingsReturn {
   handleToolEnabledChange: (toolName: string, enabled: boolean) => void;
 
   // Timeline
-  timelineStatuses: SensorSourceStatusItem[];
+  timelineStatuses: SourceStatusItem[];
   timelineStatusesLoading: boolean;
   timelineSelection: string | null;
   setTimelineSelection: React.Dispatch<React.SetStateAction<string | null>>;
@@ -180,19 +173,10 @@ export function useSettings(): UseSettingsReturn {
     pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
-    reloadingActionPlugins,
-    savedPluginDrafts,
-    setSavedPluginDrafts,
-    draftPluginDrafts,
-    setDraftPluginDrafts,
-    handlePluginDraftChange,
-    handlePluginDraftChanges,
-    applyPersistedPluginSettings,
     handlePluginAction,
-    handleReloadActionPlugin,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     timelineStatuses,
     timelineStatusesLoading,
     fetchTimelineStatuses,
@@ -226,10 +210,6 @@ export function useSettings(): UseSettingsReturn {
     setSavedControlSettings,
     draftControlSettings,
     setDraftControlSettings,
-    savedPluginDrafts,
-    setSavedPluginDrafts,
-    draftPluginDrafts,
-    setDraftPluginDrafts,
     savedToolDrafts,
     setSavedToolDrafts,
     draftToolDrafts,
@@ -239,8 +219,6 @@ export function useSettings(): UseSettingsReturn {
     draftThemeMode,
     setDraftThemeMode,
     tools,
-    plugins,
-    timelineStatuses,
     setThemeMode,
     fetchTimelineStatuses,
     loadPlugins,
@@ -297,11 +275,10 @@ export function useSettings(): UseSettingsReturn {
   const dirty = useMemo(() => {
     const configDirty = serialize(savedConfig) !== serialize(draftConfig);
     const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
-    const pluginsDirty = serialize(savedPluginDrafts) !== serialize(draftPluginDrafts);
     const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
     const themeDirty = savedThemeMode !== draftThemeMode;
-    return configDirty || controlDirty || pluginsDirty || toolsDirty || themeDirty;
-  }, [savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedPluginDrafts, draftPluginDrafts, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode]);
+    return configDirty || controlDirty || toolsDirty || themeDirty;
+  }, [savedConfig, draftConfig, savedControlSettings, draftControlSettings, savedToolDrafts, draftToolDrafts, savedThemeMode, draftThemeMode]);
 
   // ========================================
   // Event Handlers
@@ -377,16 +354,10 @@ export function useSettings(): UseSettingsReturn {
     pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
-    reloadingActionPlugins,
-    draftPluginDrafts,
-    handlePluginDraftChange,
-    handlePluginDraftChanges,
-    applyPersistedPluginSettings,
     handlePluginAction,
-    handleReloadActionPlugin,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
 
     // Tools
     tools,

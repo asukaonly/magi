@@ -576,7 +576,7 @@ def test_clear_all_sessions_removes_chat_traces_and_user_notifications(
         INSERT INTO plugin_ingress_events (
             source_kind, producer, plugin_target, event_type, occurred_at_ms,
             payload_json, status, created_at_ms
-        ) VALUES ('sensor', 'plugin', 'calendar', 'event', 1, '{}', 'pending', 1)
+        ) VALUES ('source', 'plugin', 'calendar', 'event', 1, '{}', 'pending', 1)
         """)
     conn.execute("""
         INSERT INTO user_notifications (

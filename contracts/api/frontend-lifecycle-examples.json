@@ -95,6 +95,7 @@
     "added_source_count": 1,
     "duplicate_source_count": 0,
     "job": {
+      "connection_id": null,
       "created_at": 1.0,
       "detected_kind": "document",
       "error_code": null,
@@ -152,6 +153,7 @@
     }
   },
   "importJob": {
+    "connection_id": null,
     "created_at": 1.0,
     "detected_kind": "document",
     "error_code": null,
@@ -211,6 +213,8 @@
     "accepted_extensions": [
       ".json"
     ],
+    "connection_display_name": "Fixture",
+    "connection_id": "fixture-connection",
     "description": "Import history",
     "description_i18n": {},
     "display_name": "History",

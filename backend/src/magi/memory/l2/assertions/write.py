@@ -538,8 +538,8 @@ def _initial_assertion_state(
     candidate: Dict[str, Any],
     *,
     trait_name: str,
+    evidence_count: int,
 ) -> tuple[str, float]:
-    evidence_count = len(candidate["evidence_events"])
     base_confidence = max(
         float(candidate.get("confidence_score", 0.0) or 0.0),
         compute_confidence(evidence_count),
@@ -562,8 +562,8 @@ def _merged_assertion_state(
     current_state: str,
     current_confidence: float,
     user_feedback: Any,
+    evidence_count: int,
 ) -> tuple[str, float]:
-    evidence_count = len(merge_context.merged_evidence)
     base_confidence = compute_confidence(evidence_count)
     validation_state, confidence, _ = derive_validation_state(
         current_state=current_state,
@@ -979,7 +979,7 @@ class L2StoreAssertionMixin:
     ) -> _AssertionWriteResult:
         """Insert a brand-new assertion row using the shared state machine."""
         evidence_count = len(candidate["evidence_events"])
-        validation_state, confidence = _initial_assertion_state(candidate, trait_name=trait_name)
+        validation_state, confidence = _initial_assertion_state(candidate, trait_name=trait_name, evidence_count=await self.count_independent_evidence(candidate["evidence_events"]))
         assertion_id = f"assert_{uuid.uuid4().hex}"
         await db.execute(
             _INSERT_SQL,
@@ -1067,7 +1067,7 @@ class L2StoreAssertionMixin:
                 candidate=candidate,
                 trait_name=trait_name,
                 trait_value=merge_context.next_value,
-                confidence=compute_confidence(len(candidate["evidence_events"])),
+                confidence=compute_confidence(await self.count_independent_evidence(candidate["evidence_events"])),
                 evidence_events=candidate["evidence_events"],
                 validation_state="shadow",
                 first_inferred_at=float(candidate["first_inferred_at"]),
@@ -1136,6 +1136,7 @@ class L2StoreAssertionMixin:
         validation_state, confidence = _merged_assertion_state(
             merge_context=merge_context,
             trait_name=trait_name,
+            evidence_count=await self.count_independent_evidence(merge_context.merged_evidence),
             current_state="tentative",
             current_confidence=0.0,
             user_feedback=None,
@@ -1224,6 +1225,7 @@ class L2StoreAssertionMixin:
         validation_state, confidence = _merged_assertion_state(
             merge_context=merge_context,
             trait_name=trait_name,
+            evidence_count=await self.count_independent_evidence(merge_context.merged_evidence),
             current_state=str(existing["validation_state"] or "tentative"),
             current_confidence=float(existing["confidence_score"]),
             user_feedback=existing["user_feedback"],

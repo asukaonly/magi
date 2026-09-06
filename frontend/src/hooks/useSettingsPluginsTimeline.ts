@@ -1,15 +1,9 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { pluginsApi, type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
-import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
-import type { PluginDraftMap } from '@/types/settings';
-import {
-  buildPluginDraftSnapshotFromPackages,
-  buildPluginDraftSnapshotFromSensors,
-  mergeDraftMaps,
-} from '@/utils/settings-helpers';
+import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
 
 interface UseSettingsPluginsTimelineReturn {
   pluginsError: string | null;
@@ -21,20 +15,11 @@ interface UseSettingsPluginsTimelineReturn {
   pluginRegistryFingerprint: string | null;
   pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
-  reloadingActionPlugins: Record<string, boolean>;
-  savedPluginDrafts: PluginDraftMap;
-  setSavedPluginDrafts: Dispatch<SetStateAction<PluginDraftMap>>;
-  draftPluginDrafts: PluginDraftMap;
-  setDraftPluginDrafts: Dispatch<SetStateAction<PluginDraftMap>>;
-  handlePluginDraftChange: (pluginId: string, key: string, value: unknown) => void;
-  handlePluginDraftChanges: (pluginId: string, updates: Record<string, unknown>) => void;
-  applyPersistedPluginSettings: (pluginId: string, updates: Record<string, unknown>) => void;
-  handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
-  handleReloadActionPlugin: (pluginId: string) => Promise<void>;
+  handlePluginAction: (pluginId: string, action: 'reload') => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
   loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
-  loadPluginsAndSensors: () => Promise<void>;
-  timelineStatuses: SensorSourceStatusItem[];
+  loadPluginsAndSources: () => Promise<void>;
+  timelineStatuses: SourceStatusItem[];
   timelineStatusesLoading: boolean;
   fetchTimelineStatuses: () => Promise<void>;
 }
@@ -51,7 +36,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [pluginsError, setPluginsError] = useState<string | null>(null);
   const [timelineStatusesError, setTimelineStatusesError] = useState<string | null>(null);
   const [pluginRegistryError, setPluginRegistryError] = useState<string | null>(null);
-  const [timelineStatuses, setTimelineStatuses] = useState<SensorSourceStatusItem[]>([]);
+  const [timelineStatuses, setTimelineStatuses] = useState<SourceStatusItem[]>([]);
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
@@ -59,23 +44,17 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [pluginRegistryFingerprint, setPluginRegistryFingerprint] = useState<string | null>(null);
   const [pluginRegistryLoading, setPluginRegistryLoading] = useState(false);
   const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
-  const [savedPluginDrafts, setSavedPluginDrafts] = useState<PluginDraftMap>({});
-  const [draftPluginDrafts, setDraftPluginDrafts] = useState<PluginDraftMap>({});
-  const [reloadingActionPlugins, setReloadingActionPlugins] = useState<Record<string, boolean>>({});
 
   const fetchTimelineStatuses = useCallback(async () => {
     const requestId = ++requestIds.current.sources;
     setTimelineStatusesLoading(true);
     try {
-      const response = await sensorsApi.getStatus();
+      const response = await sourcesApi.getStatus();
       if (requestId !== requestIds.current.sources) return;
       if (!Array.isArray(response.sources)) throw new Error('Invalid source status response');
       setTimelineStatusesError(null);
       const nextStatuses = response.sources;
-      const nextSnapshot = buildPluginDraftSnapshotFromSensors(nextStatuses);
       setTimelineStatuses(nextStatuses);
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
       if (requestId !== requestIds.current.sources) return;
@@ -97,10 +76,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       if (requestId !== requestIds.current.plugins) return;
       setPluginsError(null);
       const nextPlugins = response.plugins;
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages(nextPlugins);
       setPlugins(nextPlugins);
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
       if (requestId !== requestIds.current.plugins) return;
@@ -139,79 +115,19 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }
   }, [t]);
 
-  const loadPluginsAndSensors = useCallback(async () => {
+  const loadPluginsAndSources = useCallback(async () => {
     await loadPlugins();
     await fetchTimelineStatuses();
     await loadPluginRegistry({ silent: true });
   }, [loadPlugins, fetchTimelineStatuses, loadPluginRegistry]);
 
-
-  const handlePluginDraftChange = useCallback((pluginId: string, key: string, value: unknown) => {
-    setDraftPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        [key]: value,
-      },
-    }));
-  }, []);
-
-  const handlePluginDraftChanges = useCallback((pluginId: string, updates: Record<string, unknown>) => {
-    setDraftPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        ...updates,
-      },
-    }));
-  }, []);
-
-  const applyPersistedPluginSettings = useCallback((pluginId: string, updates: Record<string, unknown>) => {
-    setSavedPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        ...updates,
-      },
-    }));
-    setDraftPluginDrafts((prev) => ({
-      ...prev,
-      [pluginId]: {
-        ...(prev[pluginId] || {}),
-        ...updates,
-      },
-    }));
-    setPlugins((prev) =>
-      prev.map((plugin) => {
-        if (plugin.manifest.plugin_id !== pluginId) {
-          return plugin;
-        }
-        return {
-          ...plugin,
-          current_settings: {
-            ...plugin.current_settings,
-            ...updates,
-          },
-        };
-      })
-    );
-  }, []);
-
-  const handlePluginAction = useCallback(async (pluginId: string, action: 'enable' | 'disable' | 'reload') => {
+  const handlePluginAction = useCallback(async (pluginId: string, action: 'reload') => {
     if (processingPluginIds.current.has(pluginId)) return;
     processingPluginIds.current.add(pluginId);
     setPluginProcessingIds((prev) => ({ ...prev, [pluginId]: action }));
     try {
-      const next =
-        action === 'enable'
-          ? await pluginsApi.enable(pluginId)
-          : action === 'disable'
-            ? await pluginsApi.disable(pluginId)
-            : await pluginsApi.reload(pluginId);
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
+      const next = await pluginsApi.reload(pluginId);
       setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
       toast.success(t(`settings.pluginPackages.feedback.${action}Success`, { name: next.manifest.name }));
       await fetchTimelineStatuses();
     } catch (error: unknown) {
@@ -227,27 +143,6 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }
   }, [t, fetchTimelineStatuses]);
 
-  const handleReloadActionPlugin = useCallback(async (pluginId: string) => {
-    if (processingPluginIds.current.has(pluginId)) return;
-    processingPluginIds.current.add(pluginId);
-    setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: true }));
-    try {
-      const next = await pluginsApi.reload(pluginId);
-      const nextSnapshot = buildPluginDraftSnapshotFromPackages([next]);
-      setPlugins((prev) => prev.map((item) => (item.manifest.plugin_id === next.manifest.plugin_id ? next : item)));
-      setSavedPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      setDraftPluginDrafts((prev) => mergeDraftMaps(prev, nextSnapshot, { preserveExisting: false }));
-      toast.success(t('settings.actionsConfig.feedback.reloadSuccess', { name: next.manifest.name }));
-      await fetchTimelineStatuses();
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.actionsConfig.errors.reloadFailed', { message }));
-    } finally {
-      processingPluginIds.current.delete(pluginId);
-      setReloadingActionPlugins((prev) => ({ ...prev, [pluginId]: false }));
-    }
-  }, [t, fetchTimelineStatuses]);
-
   return {
     pluginsError, timelineStatusesError, pluginRegistryError,
     plugins,
@@ -256,19 +151,10 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     pluginRegistryFingerprint,
     pluginRegistryLoading,
     pluginProcessingIds,
-    reloadingActionPlugins,
-    savedPluginDrafts,
-    setSavedPluginDrafts,
-    draftPluginDrafts,
-    setDraftPluginDrafts,
-    handlePluginDraftChange,
-    handlePluginDraftChanges,
-    applyPersistedPluginSettings,
     handlePluginAction,
-    handleReloadActionPlugin,
     loadPlugins,
     loadPluginRegistry,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     timelineStatuses,
     timelineStatusesLoading,
     fetchTimelineStatuses,

@@ -268,7 +268,7 @@ class _SuccessfulVisibleResponseChatAgent(ChatTaskAgent):
 
 
 @pytest.mark.asyncio
-async def test_two_admitted_user_turns_with_sensor_both_reach_terminal(
+async def test_two_admitted_user_turns_with_source_both_reach_terminal(
     runtime_paths_with_schema,
 ) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
@@ -293,11 +293,11 @@ async def test_two_admitted_user_turns_with_sensor_both_reach_terminal(
         turn_id=first_turn_id,
         runtime_command_id=101,
     )
-    sensor_fact = FactRecord(
+    source_fact = FactRecord(
         agent_id=f"chat:{session_id}",
         agent_type=TaskAgentType.CHAT.value,
         agent_instance_id=session_id,
-        event_type="SENSOR_CONTEXT_UPDATED",
+        event_type="SOURCE_CONTEXT_UPDATED",
         payload={"session_id": session_id, "content": "context between turns"},
     )
     second_fact = _fact(
@@ -310,7 +310,7 @@ async def test_two_admitted_user_turns_with_sensor_both_reach_terminal(
         llm_adapter=_FakeLLMAdapter(),
         chat_store=store,
     )
-    for fact in (first_fact, sensor_fact, second_fact):
+    for fact in (first_fact, source_fact, second_fact):
         assert await agent.add_fact(fact)
 
     await agent.start(event_emitter=_FakeEventEmitter())

@@ -298,6 +298,17 @@
       },
       "HistoryImportJobResponse": {
         "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
           "created_at": {
             "title": "Created At",
             "type": "number"
@@ -461,6 +472,7 @@
           "imported_count",
           "projected_count",
           "self_participant_ids",
+          "connection_id",
           "importer_plugin_id",
           "importer_id",
           "warning_summary",
@@ -710,6 +722,21 @@
             "title": "Accepted Extensions",
             "type": "array"
           },
+          "connection_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Display Name"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -761,6 +788,8 @@
           }
         },
         "required": [
+          "connection_display_name",
+          "connection_id",
           "plugin_id",
           "importer_id",
           "display_name",

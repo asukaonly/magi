@@ -195,7 +195,7 @@ class EventTypes:
     TOOL_INVOCATION_COMPLETED = "ToolInvocationCompleted"
     USER_MESSAGE_RECEIVED = "UserMessageReceived"
     ASSISTANT_RESPONSE_PRODUCED = "AssistantResponseProduced"
-    SENSOR_EVENT_EMITTED = "SensorEventEmitted"
+    SOURCE_EVENT_EMITTED = "SourceEventEmitted"
     SPAN_COMPLETED = "SpanCompleted"
     SKILL_INVOCATION_COMPLETED = "SkillInvocationCompleted"
 

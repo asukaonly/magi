@@ -105,7 +105,7 @@ def build_layer_statistics(
         stats["integration"] = integration_stats
 
     stats["l4"].setdefault("open_circuit_breakers", 0)
-    stats["total_memories"] = l1_count + l2_relation_count + l2_assertion_count + l3_count + l4_count
+    stats["stored_records"] = l1_count + l2_relation_count + l2_assertion_count + l3_count + l4_count
     stats["disk_usage_bytes"] = storage_usage_bytes([
         stats["l0"].get("db_path"),
         stats["l1"].get("db_path"),

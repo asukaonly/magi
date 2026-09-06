@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover
 from magi.agent.runtime import TaskAgent, TaskAgentManager, TaskAgentType
 from magi.agent.task_agents import DefaultTaskAgent
 from magi.agent.runtime.contracts import FactRecord
-from magi.awareness.contracts import SensorEvent
+from magi.awareness.contracts import SourceEvent
 from magi.chat import ChatStore
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.events.events import EventTypes
@@ -67,8 +67,8 @@ def test_task_agent_manager_routes_user_messages_by_session_id():
     )
 
     targets = manager.resolve_targets(
-        SensorEvent(
-            sensor_name="user_input_sensor",
+        SourceEvent(
+            source_name="user_input_source",
             event_type=EventTypes.USER_MESSAGE,
             payload={
                 "content": "hello",
@@ -88,8 +88,8 @@ def test_task_agent_manager_rejects_user_messages_without_session_id():
 
     with pytest.raises(ValueError, match="session_id"):
         manager.resolve_targets(
-            SensorEvent(
-                sensor_name="user_input_sensor",
+            SourceEvent(
+                source_name="user_input_source",
                 event_type=EventTypes.USER_MESSAGE,
                 payload={
                     "content": "hello",
@@ -750,12 +750,12 @@ async def test_privacy_delete_does_not_restart_batch_completed_before_stop() -> 
             self,
             event_emitter,
             task_agent_manager=None,
-            sensor_hub=None,
+            source_hub=None,
         ) -> None:
             self._saved_start = (
                 event_emitter,
                 task_agent_manager,
-                sensor_hub,
+                source_hub,
             )
 
         async def begin_processing(self) -> None:
@@ -937,7 +937,7 @@ async def test_chat_admission_recovers_after_quiesce_failure():
 
 
 @pytest.mark.asyncio
-async def test_sensor_fact_waiting_at_clear_boundary_is_rejected_after_generation_changes():
+async def test_source_fact_waiting_at_clear_boundary_is_rejected_after_generation_changes():
     generation = 0
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _CollectTaskAgent(
@@ -1122,11 +1122,11 @@ async def test_managed_strict_cancel_cancels_before_queue_drain(
             self,
             event_emitter,
             task_agent_manager=None,
-            sensor_hub=None,
+            source_hub=None,
         ) -> None:
             self._event_emitter = event_emitter
             self._task_agent_manager = task_agent_manager
-            self._sensor_hub = sensor_hub
+            self._source_hub = source_hub
 
         async def _request_ingress_cancel_at_admission_boundary(
             self,

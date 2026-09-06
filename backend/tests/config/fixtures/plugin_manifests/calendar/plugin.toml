@@ -3,7 +3,7 @@ id = "calendar"
 name = "Calendar"
 version = "0.1.2"
 
-[plugin.default_settings.sensors.calendar]
+[plugin.default_settings.sources.calendar]
 enabled = false
 sync_mode = "interval"
 sync_interval_minutes = 30

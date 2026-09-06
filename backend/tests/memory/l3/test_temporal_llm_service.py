@@ -769,10 +769,10 @@ def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pyte
         source_event_count=115,
         source_event_ids=["evt-1", "evt-2"],
         events=[
-            TemporalEvidenceItem(event_id="evt-1", event_type="SENSOR_EVENT", content="visited yoasobi-heaven.com"),
-            TemporalEvidenceItem(event_id="evt-2", event_type="SENSOR_EVENT", content="played music"),
+            TemporalEvidenceItem(event_id="evt-1", event_type="SOURCE_EVENT", content="visited yoasobi-heaven.com"),
+            TemporalEvidenceItem(event_id="evt-2", event_type="SOURCE_EVENT", content="played music"),
         ],
-        event_type_distribution={"SENSOR_EVENT": 115},
+        event_type_distribution={"SOURCE_EVENT": 115},
         source_distribution={"chrome_history": 90, "netease_music": 25},
         plugin_summary_features={
             "chrome_history": {
@@ -796,7 +796,7 @@ def test_zh_week_fallback_is_theme_first_and_hides_debug_stats(monkeypatch: pyte
     assert content.startswith("这一周的记忆主要围绕浏览记录和网易云音乐展开")
     assert "浏览活动主要集中在 yoasobi-heaven.com" in content
     assert "高频访问还包括 bilibili.com、xiaohongshu.com" in content
-    assert "SENSOR_EVENT" not in content
+    assert "SOURCE_EVENT" not in content
     assert "事件类型" not in content
     assert "本时间窗口记录" not in content
     assert "共压缩" not in content

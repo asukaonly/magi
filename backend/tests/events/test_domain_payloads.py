@@ -9,7 +9,7 @@ from magi.events.domain_payloads import (
     TaskFailed,
     UserMessageReceived,
     AssistantResponseProduced,
-    SensorEventEmitted,
+    SourceEventEmitted,
 )
 
 

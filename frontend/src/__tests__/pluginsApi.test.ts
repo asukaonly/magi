@@ -5,7 +5,7 @@ const transport = vi.hoisted(() => ({
   delete: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   get: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   post: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
-  put: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  patch: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
 }));
 vi.mock('@/api/client', () => ({ api: transport, unwrapGatewayPayload: (value: unknown) => value }));
 
@@ -15,7 +15,7 @@ import { parsePluginPermissionItems, parsePluginResourceGroups } from '@/api/plu
 
 const fingerprint = 'f'.repeat(64);
 const resource = {
-  plugin_id: 'fixture-source', resource_name: 'calendar_lists', resource_type: 'collection',
+  connection_id: 'fixture-connection', plugin_id: 'fixture-source', resource_name: 'calendar_lists', resource_type: 'collection',
   data: { groups: [{ group_id: 'icloud', label: 'iCloud', items: [{ item_id: 'personal', label: '个人' }] }] },
 };
 
@@ -39,14 +39,6 @@ describe('plugin transport contracts', () => {
   it('reads actual production package serialization', async () => {
     transport.get.mockResolvedValue(examples.list);
     expect(await pluginsApi.list()).toEqual(examples.list);
-    transport.get.mockResolvedValue(examples.package);
-    expect(await pluginsApi.getSettings('fixture-source')).toEqual(examples.package);
-  });
-
-  it('validates a settings save result before returning it', async () => {
-    transport.put.mockResolvedValueOnce(examples.package).mockResolvedValueOnce({ success: false, message: 'Rejected' });
-    await expect(pluginsApi.updateSettings('fixture-source', { enabled: true })).resolves.toEqual(examples.package);
-    await expect(pluginsApi.updateSettings('fixture-source', { enabled: true })).rejects.toBeInstanceOf(ApiContractError);
   });
 
   it.each([
@@ -55,7 +47,7 @@ describe('plugin transport contracts', () => {
     { ...examples.package, enabled: undefined },
   ])('rejects invalid package fields', async value => {
     transport.post.mockResolvedValue(value);
-    await expect(pluginsApi.enable('fixture-source')).rejects.toBeInstanceOf(ApiContractError);
+    await expect(pluginsApi.reload('fixture-source')).rejects.toBeInstanceOf(ApiContractError);
   });
 
   it('starts, polls, and cancels action sessions using the serialized action contract', async () => {
@@ -64,9 +56,9 @@ describe('plugin transport contracts', () => {
     await pluginsApi.pollSettingsAction('fixture-source', 'connect', 'fixture-action', {});
     await pluginsApi.cancelSettingsAction('fixture-source', 'connect', 'fixture-action');
     expect(transport.post.mock.calls).toEqual([
-      ['/plugins/fixture-source/settings/actions/connect/start', { field_values: { state_dir: '/fixture' } }],
-      ['/plugins/fixture-source/settings/actions/connect/sessions/fixture-action/poll', { field_values: {} }],
-      ['/plugins/fixture-source/settings/actions/connect/sessions/fixture-action/cancel', {}],
+      ['/plugins/connections/fixture-source/settings/actions/connect/start', { field_values: { state_dir: '/fixture' } }],
+      ['/plugins/connections/fixture-source/settings/actions/connect/sessions/fixture-action/poll', { field_values: {} }],
+      ['/plugins/connections/fixture-source/settings/actions/connect/sessions/fixture-action/cancel', {}],
     ]);
   });
 

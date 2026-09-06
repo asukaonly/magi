@@ -1,7 +1,330 @@
 {
   "components": {
     "schemas": {
+      "ActivationFirstContextSpec": {
+        "additionalProperties": false,
+        "description": "First-run-only activation settings applied by the host onboarding UI.",
+        "properties": {
+          "max_items_per_sync": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Items Per Sync"
+          },
+          "settings_overrides": {
+            "additionalProperties": true,
+            "title": "Settings Overrides",
+            "type": "object"
+          }
+        },
+        "required": [
+          "max_items_per_sync",
+          "settings_overrides"
+        ],
+        "title": "ActivationFirstContextSpec",
+        "type": "object"
+      },
+      "ActivationFlowResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authorize_on_confirm": {
+            "default": false,
+            "title": "Authorize On Confirm",
+            "type": "boolean"
+          },
+          "cancel_label": {
+            "default": "Cancel",
+            "title": "Cancel Label",
+            "type": "string"
+          },
+          "cancel_label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Cancel Label Translated"
+          },
+          "configured_key": {
+            "title": "Configured Key",
+            "type": "string"
+          },
+          "confirm_label": {
+            "default": "Confirm",
+            "title": "Confirm Label",
+            "type": "string"
+          },
+          "confirm_label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confirm Label Translated"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description Translated"
+          },
+          "enabled_key": {
+            "title": "Enabled Key",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldResponse"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "first_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationFirstContextSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "title_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title Translated"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "confirm_label",
+          "cancel_label",
+          "authorize_on_confirm",
+          "enabled_key",
+          "configured_key",
+          "fields",
+          "first_context",
+          "title_translated",
+          "description_translated",
+          "confirm_label_translated",
+          "cancel_label_translated"
+        ],
+        "title": "ActivationFlowResponse",
+        "type": "object"
+      },
+      "ActivationFlowSpec": {
+        "additionalProperties": false,
+        "description": "Declarative first-enable flow rendered by the host UI.",
+        "properties": {
+          "authorize_on_confirm": {
+            "default": false,
+            "title": "Authorize On Confirm",
+            "type": "boolean"
+          },
+          "cancel_label": {
+            "default": "Cancel",
+            "title": "Cancel Label",
+            "type": "string"
+          },
+          "configured_key": {
+            "title": "Configured Key",
+            "type": "string"
+          },
+          "confirm_label": {
+            "default": "Confirm",
+            "title": "Confirm Label",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled_key": {
+            "title": "Enabled Key",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldSpec"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "first_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationFirstContextSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "confirm_label",
+          "cancel_label",
+          "authorize_on_confirm",
+          "enabled_key",
+          "configured_key",
+          "fields",
+          "first_context"
+        ],
+        "title": "ActivationFlowSpec",
+        "type": "object"
+      },
+      "CapabilityReadiness": {
+        "additionalProperties": false,
+        "description": "One authoritative capability state shared by UI and execution admission.",
+        "properties": {
+          "capability_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "connection_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reason Code"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          }
+        },
+        "required": [
+          "capability_id",
+          "connection_id",
+          "status",
+          "reason_code",
+          "message"
+        ],
+        "title": "CapabilityReadiness",
+        "type": "object"
+      },
+      "ConnectionStatus": {
+        "enum": [
+          "disabled",
+          "setup_required",
+          "auth_required",
+          "ready",
+          "degraded",
+          "failed"
+        ],
+        "title": "ConnectionStatus",
+        "type": "string"
+      },
+      "ContributionType": {
+        "description": "Supported plugin contribution categories.",
+        "enum": [
+          "operation",
+          "provider",
+          "tool",
+          "source",
+          "channel",
+          "skill",
+          "hook",
+          "history_importer"
+        ],
+        "title": "ContributionType",
+        "type": "string"
+      },
+      "ExtensionFieldOption": {
+        "additionalProperties": false,
+        "description": "Option for a select-like plugin field.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "title": "ExtensionFieldOption",
+        "type": "object"
+      },
       "ExtensionFieldOptionResponse": {
+        "additionalProperties": false,
         "properties": {
           "label": {
             "title": "Label",
@@ -33,6 +356,7 @@
         "type": "object"
       },
       "ExtensionFieldResponse": {
+        "additionalProperties": false,
         "description": "Host-rendered plugin field, including translated presentation metadata.",
         "properties": {
           "default": {
@@ -94,6 +418,30 @@
             ],
             "default": null,
             "title": "Label Translated"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Minimum"
           },
           "options": {
             "items": {
@@ -209,6 +557,8 @@
           "placeholder",
           "depends_on_key",
           "depends_on_values",
+          "minimum",
+          "maximum",
           "label_translated",
           "description_translated",
           "section_translated",
@@ -217,8 +567,170 @@
         "title": "ExtensionFieldResponse",
         "type": "object"
       },
+      "ExtensionFieldSpec": {
+        "additionalProperties": false,
+        "description": "Declarative settings field exposed by a plugin contribution.",
+        "properties": {
+          "default": {
+            "default": null,
+            "title": "Default"
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Maximum"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Minimum"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "order": {
+            "default": 0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "path_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "file",
+                  "directory"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Path Kind"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Placeholder"
+          },
+          "required": {
+            "default": false,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "section": {
+            "default": "general",
+            "title": "Section",
+            "type": "string"
+          },
+          "surface": {
+            "default": "extensions",
+            "enum": [
+              "extensions",
+              "tools",
+              "timeline"
+            ],
+            "title": "Surface",
+            "type": "string"
+          },
+          "type": {
+            "default": "input",
+            "enum": [
+              "switch",
+              "select",
+              "input",
+              "number",
+              "secret",
+              "path",
+              "tags"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "path_kind",
+          "label",
+          "description",
+          "default",
+          "required",
+          "options",
+          "section",
+          "surface",
+          "order",
+          "placeholder",
+          "depends_on_key",
+          "depends_on_values",
+          "minimum",
+          "maximum"
+        ],
+        "title": "ExtensionFieldSpec",
+        "type": "object"
+      },
+      "JsonValue": {},
       "PluginCapability": {
-        "description": "A single self-declared capability shown to the user for install-time\nconsent. NOT enforced at runtime (no sandbox this iteration).\n\n``capability`` is a permissive ``str`` for forward-compat: a newer\nregistry may declare a capability an older app doesn't know, and that must\nnot break parsing. The authoritative known set is enforced at build time in\nmagi-plugins ``scripts/build-registry.py`` and rendered with a known map +\ngraceful fallback in the frontend. Known values: screen_recording,\naccessibility, calendar, photos, contacts, system_media, filesystem_read,\nfilesystem_write, network, subprocess.",
+        "additionalProperties": false,
+        "description": "A requested capability, never a grant of runtime authority.\n\nThe host authorizes access for a connection separately. Unknown operations\ncannot become executable merely by appearing in a package declaration.\nThe publication policy validates the supported set: screen_recording,\naccessibility, calendar, photos, contacts, system_media, filesystem_read,\nfilesystem_write, network, subprocess.",
         "properties": {
           "capability": {
             "title": "Capability",
@@ -257,6 +769,96 @@
           "reason_i18n"
         ],
         "title": "PluginCapability",
+        "type": "object"
+      },
+      "PluginConnectionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "connection_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "credential_refs": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Credential Refs",
+            "type": "object"
+          },
+          "display_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "plugin_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "readiness": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityReadiness"
+            },
+            "title": "Readiness",
+            "type": "array"
+          },
+          "revision": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "settings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "connection_id",
+          "plugin_id",
+          "display_name",
+          "enabled",
+          "settings",
+          "credential_refs",
+          "revision",
+          "readiness"
+        ],
+        "title": "PluginConnectionResponse",
+        "type": "object"
+      },
+      "PluginConnectionsResponse": {
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/PluginConnectionResponse"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connections",
+          "total"
+        ],
+        "title": "PluginConnectionsResponse",
         "type": "object"
       },
       "PluginContributionResponse": {
@@ -317,6 +919,7 @@
         "type": "object"
       },
       "PluginDisplayGroupSpec": {
+        "additionalProperties": false,
         "description": "User-facing grouping metadata for marketplace and installed plugin UIs.",
         "properties": {
           "description": {
@@ -604,6 +1207,17 @@
       },
       "PluginManifestResponse": {
         "properties": {
+          "activation_flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationFlowResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "author": {
             "title": "Author",
             "type": "string"
@@ -652,6 +1266,14 @@
             ],
             "default": null
           },
+          "execution_mode": {
+            "enum": [
+              "restricted_process",
+              "trusted_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
           "icon": {
             "default": "",
             "title": "Icon",
@@ -659,6 +1281,10 @@
           },
           "manifest_path": {
             "title": "Manifest Path",
+            "type": "string"
+          },
+          "min_sdk_version": {
+            "title": "Min Sdk Version",
             "type": "string"
           },
           "name": {
@@ -677,6 +1303,39 @@
             "title": "Plugin Id",
             "type": "string"
           },
+          "protocol_version": {
+            "const": 2,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
+          "settings_actions": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSettingsActionResponse"
+            },
+            "title": "Settings Actions",
+            "type": "array"
+          },
+          "settings_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldResponse"
+            },
+            "title": "Settings Fields",
+            "type": "array"
+          },
+          "settings_resources": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSettingsResourceSpec"
+            },
+            "title": "Settings Resources",
+            "type": "array"
+          },
+          "settings_ui_blocks": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSettingsUiBlockResponse"
+            },
+            "title": "Settings Ui Blocks",
+            "type": "array"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -687,6 +1346,14 @@
           }
         },
         "required": [
+          "protocol_version",
+          "min_sdk_version",
+          "execution_mode",
+          "settings_fields",
+          "activation_flow",
+          "settings_actions",
+          "settings_resources",
+          "settings_ui_blocks",
           "plugin_id",
           "name",
           "version",
@@ -746,6 +1413,18 @@
           "manifest": {
             "$ref": "#/components/schemas/PluginManifestResponse"
           },
+          "package_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Package Sha256"
+          },
           "trusted": {
             "title": "Trusted",
             "type": "boolean"
@@ -755,6 +1434,7 @@
           "manifest",
           "enabled",
           "trusted",
+          "package_sha256",
           "loaded",
           "healthy",
           "last_error",
@@ -766,6 +1446,17 @@
       },
       "PluginRegistryEntryResponse": {
         "properties": {
+          "activation_flow": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActivationFlowSpec"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "author": {
             "default": "",
             "title": "Author",
@@ -813,6 +1504,14 @@
             ],
             "default": null
           },
+          "execution_mode": {
+            "enum": [
+              "restricted_process",
+              "trusted_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
           "homepage": {
             "default": "",
             "title": "Homepage",
@@ -841,7 +1540,6 @@
             "title": "Installed Version"
           },
           "min_sdk_version": {
-            "default": "",
             "title": "Min Sdk Version",
             "type": "string"
           },
@@ -877,10 +1575,43 @@
             "title": "Plugin Id",
             "type": "string"
           },
+          "protocol_version": {
+            "const": 2,
+            "title": "Protocol Version",
+            "type": "integer"
+          },
           "repository": {
             "default": "",
             "title": "Repository",
             "type": "string"
+          },
+          "settings_actions": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSettingsActionSpec"
+            },
+            "title": "Settings Actions",
+            "type": "array"
+          },
+          "settings_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionFieldSpec"
+            },
+            "title": "Settings Fields",
+            "type": "array"
+          },
+          "settings_resources": {
+            "items": {
+              "$ref": "#/components/schemas/PluginSettingsResourceSpec"
+            },
+            "title": "Settings Resources",
+            "type": "array"
+          },
+          "settings_ui_blocks": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsUIBlockSpec"
+            },
+            "title": "Settings Ui Blocks",
+            "type": "array"
           },
           "update_available": {
             "default": false,
@@ -893,6 +1624,14 @@
           }
         },
         "required": [
+          "protocol_version",
+          "execution_mode",
+          "min_sdk_version",
+          "settings_fields",
+          "activation_flow",
+          "settings_actions",
+          "settings_resources",
+          "settings_ui_blocks",
           "plugin_id",
           "name",
           "name_i18n",
@@ -906,7 +1645,6 @@
           "data_locality",
           "contribution_types",
           "platforms",
-          "min_sdk_version",
           "homepage",
           "repository",
           "path",
@@ -946,10 +1684,184 @@
         "title": "PluginRegistryResponse",
         "type": "object"
       },
+      "PluginSettingsActionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "button_label": {
+            "default": "Run",
+            "title": "Button Label",
+            "type": "string"
+          },
+          "button_label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Button Label Translated"
+          },
+          "contribution_id": {
+            "default": "",
+            "title": "Contribution Id",
+            "type": "string"
+          },
+          "contribution_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContributionType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description Translated"
+          },
+          "destructive": {
+            "default": false,
+            "title": "Destructive",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "label_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Label Translated"
+          },
+          "order": {
+            "default": 0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "persist_settings_on_success": {
+            "default": false,
+            "title": "Persist Settings On Success",
+            "type": "boolean"
+          },
+          "poll_interval_ms": {
+            "default": 2000,
+            "maximum": 60000,
+            "minimum": 100,
+            "title": "Poll Interval Ms",
+            "type": "integer"
+          },
+          "presentation": {
+            "default": "inline",
+            "enum": [
+              "inline",
+              "qr_code"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "requires_enabled": {
+            "default": true,
+            "title": "Requires Enabled",
+            "type": "boolean"
+          },
+          "surface": {
+            "default": "extensions",
+            "enum": [
+              "extensions",
+              "tools",
+              "timeline"
+            ],
+            "title": "Surface",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "default": 480000,
+            "maximum": 3600000,
+            "minimum": 1,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_id",
+          "label",
+          "description",
+          "button_label",
+          "presentation",
+          "surface",
+          "contribution_id",
+          "contribution_type",
+          "order",
+          "destructive",
+          "requires_enabled",
+          "poll_interval_ms",
+          "timeout_ms",
+          "persist_settings_on_success",
+          "depends_on_key",
+          "depends_on_values",
+          "label_translated",
+          "description_translated",
+          "button_label_translated"
+        ],
+        "title": "PluginSettingsActionResponse",
+        "type": "object"
+      },
       "PluginSettingsActionRunResponse": {
         "properties": {
           "action_id": {
             "title": "Action Id",
+            "type": "string"
+          },
+          "connection_id": {
+            "title": "Connection Id",
             "type": "string"
           },
           "data": {
@@ -980,13 +1892,15 @@
               "pending",
               "succeeded",
               "failed",
-              "cancelled"
+              "cancelled",
+              "uncertain"
             ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
+          "connection_id",
           "plugin_id",
           "action_id",
           "session_id",
@@ -998,8 +1912,144 @@
         "title": "PluginSettingsActionRunResponse",
         "type": "object"
       },
+      "PluginSettingsActionSpec": {
+        "additionalProperties": false,
+        "description": "Host-rendered settings action declared by a plugin.\n\nThe host owns routing and UI chrome, while the plugin owns the action\nimplementation and any provider-specific protocol details.",
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "button_label": {
+            "default": "Run",
+            "title": "Button Label",
+            "type": "string"
+          },
+          "contribution_id": {
+            "default": "",
+            "title": "Contribution Id",
+            "type": "string"
+          },
+          "contribution_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContributionType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "destructive": {
+            "default": false,
+            "title": "Destructive",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "order": {
+            "default": 0,
+            "title": "Order",
+            "type": "integer"
+          },
+          "persist_settings_on_success": {
+            "default": false,
+            "title": "Persist Settings On Success",
+            "type": "boolean"
+          },
+          "poll_interval_ms": {
+            "default": 2000,
+            "maximum": 60000,
+            "minimum": 100,
+            "title": "Poll Interval Ms",
+            "type": "integer"
+          },
+          "presentation": {
+            "default": "inline",
+            "enum": [
+              "inline",
+              "qr_code"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "requires_enabled": {
+            "default": true,
+            "title": "Requires Enabled",
+            "type": "boolean"
+          },
+          "surface": {
+            "default": "extensions",
+            "enum": [
+              "extensions",
+              "tools",
+              "timeline"
+            ],
+            "title": "Surface",
+            "type": "string"
+          },
+          "timeout_ms": {
+            "default": 480000,
+            "maximum": 3600000,
+            "minimum": 1,
+            "title": "Timeout Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_id",
+          "label",
+          "description",
+          "button_label",
+          "presentation",
+          "surface",
+          "contribution_id",
+          "contribution_type",
+          "order",
+          "destructive",
+          "requires_enabled",
+          "poll_interval_ms",
+          "timeout_ms",
+          "persist_settings_on_success",
+          "depends_on_key",
+          "depends_on_values"
+        ],
+        "title": "PluginSettingsActionSpec",
+        "type": "object"
+      },
       "PluginSettingsResourceResponse": {
         "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          },
           "data": {
             "default": null,
             "title": "Data"
@@ -1018,12 +2068,156 @@
           }
         },
         "required": [
+          "connection_id",
           "plugin_id",
           "resource_name",
           "resource_type",
           "data"
         ],
         "title": "PluginSettingsResourceResponse",
+        "type": "object"
+      },
+      "PluginSettingsResourceSpec": {
+        "additionalProperties": false,
+        "description": "Read-only settings resource exposed by a plugin.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "requires_enabled": {
+            "default": true,
+            "title": "Requires Enabled",
+            "type": "boolean"
+          },
+          "resource_name": {
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "resource_type": {
+            "default": "collection",
+            "enum": [
+              "collection",
+              "channel_status"
+            ],
+            "title": "Resource Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_name",
+          "resource_type",
+          "requires_enabled",
+          "description",
+          "metadata"
+        ],
+        "title": "PluginSettingsResourceSpec",
+        "type": "object"
+      },
+      "PluginSettingsUiBlockResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "string"
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Description Translated"
+          },
+          "presentation": {
+            "default": "list",
+            "enum": [
+              "calendar_list",
+              "list",
+              "permission_status"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "resource_name": {
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "title_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title Translated"
+          },
+          "type": {
+            "const": "resource_picker",
+            "default": "resource_picker",
+            "title": "Type",
+            "type": "string"
+          },
+          "value_key": {
+            "title": "Value Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id",
+          "type",
+          "title",
+          "description",
+          "resource_name",
+          "value_key",
+          "presentation",
+          "depends_on_key",
+          "depends_on_values",
+          "title_translated",
+          "description_translated"
+        ],
+        "title": "PluginSettingsUiBlockResponse",
         "type": "object"
       },
       "PluginsListResponse": {
@@ -1045,6 +2239,81 @@
           "total"
         ],
         "title": "PluginsListResponse",
+        "type": "object"
+      },
+      "SettingsUIBlockSpec": {
+        "additionalProperties": false,
+        "description": "Host-rendered custom settings block declared by a plugin.\n\nBlocks are read-only or selection widgets whose underlying data comes from a\n``PluginSettingsResourceSpec``. The ``presentation`` hint tells the host\nwhich widget to render. New presentations may be added over time as the\nplugin platform matures.\n\n``value_key`` is only meaningful for blocks that bind a selection back to a\nsettings field (e.g. ``calendar_list``). Read-only presentations like\n``permission_status`` ignore it; plugins should still pass a stable value\nsuch as ``\"_readonly\"`` to keep the schema stable.",
+        "properties": {
+          "block_id": {
+            "title": "Block Id",
+            "type": "string"
+          },
+          "depends_on_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Depends On Key"
+          },
+          "depends_on_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Depends On Values",
+            "type": "array"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "presentation": {
+            "default": "list",
+            "enum": [
+              "calendar_list",
+              "list",
+              "permission_status"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "resource_name": {
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "const": "resource_picker",
+            "default": "resource_picker",
+            "title": "Type",
+            "type": "string"
+          },
+          "value_key": {
+            "title": "Value Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block_id",
+          "type",
+          "title",
+          "description",
+          "resource_name",
+          "value_key",
+          "presentation",
+          "depends_on_key",
+          "depends_on_values"
+        ],
+        "title": "SettingsUIBlockSpec",
         "type": "object"
       }
     }

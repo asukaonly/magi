@@ -42,6 +42,7 @@ async def list_l2_pending_reviews(
         alias="status",
     ),
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ):
     """List governed pre-materialization memory reviews."""
 
@@ -51,9 +52,9 @@ async def list_l2_pending_reviews(
     items = await unified_memory.l2.list_pending_reviews(
         subject_id=canonical_self_id(unified_memory),
         status=review_status,
-        limit=limit,
+        limit=None,
     )
-    return {"items": items, "total": len(items)}
+    return {"items": items[offset:offset + limit], "total": len(items), "limit": limit, "offset": offset}
 
 
 @memory_router.post("/l2/reviews/{review_id}/resolve")

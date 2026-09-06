@@ -127,14 +127,14 @@ class HistoryImportStore:
                     INSERT INTO history_import_jobs(
                         job_id, source_type, source_fingerprint,
                         source_ids_json, included_source_ids_json,
-                        importer_plugin_id, importer_id, importer_format_version,
+                        connection_id, importer_plugin_id, importer_id, importer_format_version,
                         detected_kind, status,
                         total_records, meaningful_records,
                         quick_target_records, quick_max_records,
                         quick_imported_count, imported_count, projected_count,
                         self_participant_ids_json, warnings_json, quick_ready,
                         error_text, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job.job_id,
@@ -142,6 +142,7 @@ class HistoryImportStore:
                         job.source_fingerprint,
                         json.dumps(job.source_ids, ensure_ascii=False),
                         json.dumps(job.included_source_ids, ensure_ascii=False),
+                        job.connection_id,
                         job.importer_plugin_id,
                         job.importer_id,
                         job.importer_format_version,
@@ -427,6 +428,7 @@ class HistoryImportStore:
     async def validate_platform_session_prefixes(
         self,
         *,
+        connection_id: str,
         importer_plugin_id: str,
         importer_id: str,
         importer_format_version: str,
@@ -447,6 +449,7 @@ class HistoryImportStore:
         async with sqlite_connection_async(self.db_path) as db:
             reserved_prefixes = await _load_reserved_session_prefixes(
                 db,
+                connection_id=connection_id,
                 importer_plugin_id=importer_plugin_id,
                 importer_id=importer_id,
                 importer_format_version=importer_format_version,
@@ -621,7 +624,7 @@ class HistoryImportStore:
             try:
                 async with db.execute(
                     """
-                    SELECT importer_plugin_id, importer_id, importer_format_version,
+                    SELECT connection_id, importer_plugin_id, importer_id, importer_format_version,
                            included_source_ids_json, self_participant_ids_json,
                            status, quick_ready, imported_count
                     FROM history_import_jobs
@@ -657,6 +660,7 @@ class HistoryImportStore:
                 importer_identity = tuple(
                     str(importer_row[column] or "").strip()
                     for column in (
+                        "connection_id",
                         "importer_plugin_id",
                         "importer_id",
                         "importer_format_version",
@@ -670,9 +674,10 @@ class HistoryImportStore:
                     )
                     reserved_prefixes = await _load_reserved_session_prefixes(
                         db,
-                        importer_plugin_id=importer_identity[0],
-                        importer_id=importer_identity[1],
-                        importer_format_version=importer_identity[2],
+                        connection_id=importer_identity[0],
+                        importer_plugin_id=importer_identity[1],
+                        importer_id=importer_identity[2],
+                        importer_format_version=importer_identity[3],
                         session_identities=list(incoming_prefixes),
                     )
                     _require_append_only_session_prefixes(
@@ -1180,6 +1185,7 @@ class HistoryImportStore:
                         source_fingerprint = 'deleted:' || job_id,
                         source_ids_json = '[]',
                         included_source_ids_json = '[]',
+                        connection_id = NULL,
                         importer_plugin_id = NULL,
                         importer_id = NULL,
                         importer_format_version = NULL,
@@ -1513,6 +1519,7 @@ async def _load_job_record_keys(
 async def _load_reserved_session_prefixes(
     db: Any,
     *,
+    connection_id: str,
     importer_plugin_id: str,
     importer_id: str,
     importer_format_version: str,
@@ -1547,6 +1554,7 @@ async def _load_reserved_session_prefixes(
               ON job.job_id = membership.job_id
             WHERE job.deleted_at IS NULL
               AND job.status != 'preview_ready'
+              AND job.connection_id = ?
               AND job.importer_plugin_id = ?
               AND job.importer_id = ?
               AND job.importer_format_version = ?
@@ -1560,6 +1568,7 @@ async def _load_reserved_session_prefixes(
             """,
             (
                 *parameters,
+                connection_id,
                 importer_plugin_id,
                 importer_id,
                 importer_format_version,
@@ -1725,6 +1734,7 @@ def _job_from_row(
         created_at=float(row["created_at"]),
         updated_at=float(row["updated_at"]),
         deleted_at=float(row["deleted_at"]) if row["deleted_at"] is not None else None,
+        connection_id=str(row["connection_id"]) if row["connection_id"] is not None else None,
         importer_plugin_id=(
             str(row["importer_plugin_id"]) if row["importer_plugin_id"] is not None else None
         ),

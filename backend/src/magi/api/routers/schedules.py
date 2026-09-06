@@ -93,9 +93,9 @@ def _serialize_state(state) -> dict[str, Any]:
 
 def _serialize_schedule(schedule: ScheduleDefinition, state=None) -> dict[str, Any]:
     metadata = dict(schedule.metadata or {})
-    editable = schedule.target_type is not ScheduledTargetType.SENSOR_SYNC
-    if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-        owner_kind = "sensor_settings"
+    editable = schedule.target_type is not ScheduledTargetType.SOURCE_SYNC
+    if schedule.target_type is ScheduledTargetType.SOURCE_SYNC:
+        owner_kind = "source_settings"
     elif schedule.target_type is ScheduledTargetType.USER_AGENT_TASK:
         owner_kind = "agent_created"
     else:
@@ -104,7 +104,7 @@ def _serialize_schedule(schedule: ScheduleDefinition, state=None) -> dict[str, A
     source_name = payload.get("source_type") or metadata.get("source_type")
     settings_link = (
         {"section": "timeline", "source_name": source_name}
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC and source_name
+        if schedule.target_type is ScheduledTargetType.SOURCE_SYNC and source_name
         else None
     )
     return {
@@ -136,11 +136,11 @@ def _schedule_title(schedule: ScheduleDefinition) -> str:
     return schedule.schedule_id
 
 
-def _sensor_job_activity(job: dict[str, Any], schedule: ScheduleDefinition | None) -> dict[str, Any]:
+def _source_job_activity(job: dict[str, Any], schedule: ScheduleDefinition | None) -> dict[str, Any]:
     title = _schedule_title(schedule) if schedule is not None else str(job["source_type"])
     queued = str(job["status"]) == "queued"
     return {
-        "activity_id": f"sensor_job:{job['job_id']}",
+        "activity_id": f"source_job:{job['job_id']}",
         "schedule_id": job["schedule_id"],
         "title": title,
         "target_type": job["target_type"],
@@ -150,12 +150,12 @@ def _sensor_job_activity(job: dict[str, Any], schedule: ScheduleDefinition | Non
         "started_at": job["started_at"],
         "duration_ms": None,
         "cancellable": queued,
-        "cancel_kind": "sensor_sync_job" if queued else None,
+        "cancel_kind": "source_sync_job" if queued else None,
         "error": job["error"],
     }
 
 
-async def _sensor_job_activities(
+async def _source_job_activities(
     repository: ScheduleRepository,
     *,
     schedules: list[ScheduleDefinition],
@@ -163,11 +163,11 @@ async def _sensor_job_activities(
 ) -> list[dict[str, Any]]:
     schedule_by_id = {schedule.schedule_id: schedule for schedule in schedules}
     return [
-        _sensor_job_activity(
+        _source_job_activity(
             job,
             schedule_by_id.get(str(job["schedule_id"])),
         )
-        for job in await repository.list_outstanding_sensor_sync_jobs(limit=limit)
+        for job in await repository.list_outstanding_source_sync_jobs(limit=limit)
     ]
 
 
@@ -216,7 +216,7 @@ async def _schedule_state_activities(
     activities: list[dict[str, Any]] = []
     for schedule in schedules:
         state = await repository.get_schedule_runtime_state(schedule)
-        if state.running and schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
+        if state.running and schedule.target_type is not ScheduledTargetType.SOURCE_SYNC:
             activities.append(_running_schedule_activity(schedule, state))
         if state.next_run_at is not None and not state.running:
             activities.append(_upcoming_schedule_activity(schedule, state))
@@ -309,7 +309,7 @@ async def list_schedule_activity(
     repository = _repository()
     await repository.initialize()
     schedules = await repository.list_schedules(enabled_only=True)
-    activities = await _sensor_job_activities(repository, schedules=schedules, limit=limit)
+    activities = await _source_job_activities(repository, schedules=schedules, limit=limit)
     activities.extend(await _schedule_state_activities(repository, schedules))
     activities.sort(key=lambda item: (item["status"] != "running", item.get("planned_at") or 0))
     return {"activities": activities[:limit]}
@@ -325,12 +325,12 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
             status_code=status.HTTP_404_NOT_FOUND,
             detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
         )
-    if existing.target_type is ScheduledTargetType.SENSOR_SYNC:
+    if existing.target_type is ScheduledTargetType.SOURCE_SYNC:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=core_i18n.t(
-                "schedules.errors.sensor_schedule_settings_only",
-                fallback="Sensor schedules must be updated from sensor settings",
+                "schedules.errors.source_schedule_settings_only",
+                fallback="Source schedules must be updated from source settings",
             ),
         )
 
@@ -439,13 +439,13 @@ async def cancel_schedule_activity(
     repository = _repository()
     await repository.initialize()
     reason = (body.reason if body is not None else "cancelled_by_user") or "cancelled_by_user"
-    if not activity_id.startswith("sensor_job:"):
+    if not activity_id.startswith("source_job:"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=core_i18n.t("schedules.errors.activity_not_cancellable", fallback="Activity is not cancellable"),
         )
     job_id = activity_id.split(":", 1)[1]
-    job = await repository.cancel_queued_sensor_sync_job(job_id, reason=reason)
+    job = await repository.cancel_queued_source_sync_job(job_id, reason=reason)
     if job is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

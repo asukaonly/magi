@@ -98,3 +98,13 @@ def test_summary_requires_a_grounded_object_anchor() -> None:
 
     assert accepted == {}
     assert rejected == 1
+
+
+def test_object_overlap_does_not_authorize_negation_or_extra_facts() -> None:
+    flow = _flow(_claim("clm_coffee", "咖啡"))
+    for text in ("用户讨厌咖啡。", "用户喜欢咖啡，并且每天喝三杯。", "用户以前喜欢咖啡。"):
+        accepted, rejected = _validated_summary_by_key(flow, SimpleNamespace(
+            summaries=[SimpleNamespace(claim_ids=["clm_coffee"], text=text)]
+        ))
+        assert accepted == {}
+        assert rejected == 1

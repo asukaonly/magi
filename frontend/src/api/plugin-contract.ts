@@ -5,6 +5,7 @@ import type { components } from './generated/plugins-types';
 import type {
   PluginInstallCandidate, PluginInstallJobSnapshot, PluginPackageState, PluginRegistryResponse,
   PluginSettingsActionRunResponse, PluginSettingsResourcePayload, PluginsListResponse,
+  PluginConnection,
 } from './modules/plugins';
 
 function parse<T>(name: string, value: unknown, validate: (value: unknown) => value is T): T {
@@ -22,6 +23,19 @@ export const parsePluginRegistry = (value: unknown): PluginRegistryResponse =>
   parse('plugin registry', value, validators.validatePluginRegistryResponse);
 export const parsePluginAction = (value: unknown): PluginSettingsActionRunResponse =>
   parse('plugin action', value, validators.validatePluginSettingsActionRunResponse);
+
+export function parsePluginConnection(value: unknown, pluginId: string, connectionId?: string): PluginConnection {
+  const connection = parse('plugin connection', value, validators.validatePluginConnectionResponse);
+  if (connection.plugin_id !== pluginId || (connectionId !== undefined && connection.connection_id !== connectionId)) {
+    throw new ApiContractError('Plugin connection identity mismatch');
+  }
+  return connection;
+}
+
+export function parsePluginConnections(value: unknown, pluginId: string): PluginConnection[] {
+  const result = parse('plugin connections', value, validators.validatePluginConnectionsResponse);
+  return result.connections.map(connection => parsePluginConnection(connection, pluginId));
+}
 
 export function parsePluginJob(value: unknown): PluginInstallJobSnapshot {
   const job = parse('plugin install job', value, validators.validatePluginInstallJobSnapshot);

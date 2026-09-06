@@ -41,8 +41,6 @@ def test_manifest_reads_permissions_capabilities():
             "version": "1.0.0",
             "permissions": {
                 "capabilities": [{"capability": "network", "scope": ["a.com"]}],
-                "declares": ["legacy"],  # legacy key tolerated
-                "memory_access": ["write_l1"],  # legacy key tolerated
             },
         }
     )
@@ -65,3 +63,14 @@ def test_registry_entry_top_level_capabilities():
         }
     )
     assert e.capabilities[0].capability == "calendar"
+
+
+def test_manifest_rejects_removed_permission_fields():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        PluginManifest.model_validate({
+            "id": "legacy", "name": "Legacy", "version": "1.0.0",
+            "permissions": {"declares": ["legacy"], "memory_access": ["write_l1"]},
+        })

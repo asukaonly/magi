@@ -21,6 +21,7 @@ from .source_event_governance import (
     link_skill_source_event,
     skill_accepts_source_event,
 )
+from .storage.schema import MAX_TRACES_PER_SKILL
 from .storage.records import (
     insert_new_skill_record,
     sync_skill_fts,
@@ -36,6 +37,7 @@ from .strategy_operations import (
     stratified_traces,
 )
 from .traces.store import insert_execution_trace
+from .table_names import SKILL_EVENT_LINKS_TABLE
 
 
 class L4ProceduralRecordingMixin:
@@ -98,6 +100,15 @@ class L4ProceduralRecordingMixin:
                     skill_category=identity["skill_category"],
                 )
 
+                if existing is not None:
+                    async with db.execute(
+                        f"SELECT 1 FROM {SKILL_EVENT_LINKS_TABLE} WHERE skill_id = ? AND event_id = ?",
+                        (existing["skill_id"], event.event_id),
+                    ) as cursor:
+                        duplicate = await cursor.fetchone()
+                    if duplicate is not None:
+                        await db.commit()
+                        return None if existing["deleted_at"] is not None else str(existing["skill_id"])
                 if existing is None:
                     return await self._record_new_skill_event(
                         db,
@@ -129,7 +140,7 @@ class L4ProceduralRecordingMixin:
             SELECT *
             FROM procedural_skills AS skills
             WHERE skills.skill_name = ? AND skills.skill_category = ?
-              AND {active_skill_predicate("skills")}
+              AND {active_skill_predicate("skills", include_inactive=True)}
             """,
             (skill_name, skill_category),
         ) as cursor:
@@ -178,8 +189,8 @@ class L4ProceduralRecordingMixin:
                 event_id=event.turn_id,
                 created_at=now,
             )
-        await db.commit()
-        await self._sync_skill_indexes(
+        await insert_execution_trace(db, skill_id=skill_id, event=event, identity=identity)
+        await sync_skill_fts(
             db,
             skill_id=skill_id,
             skill_name=skill_name,
@@ -187,7 +198,11 @@ class L4ProceduralRecordingMixin:
             optimized_prompt=optimized_prompt,
             replace_existing=False,
         )
-        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
+        await db.commit()
+        await self._schedule_skill_embedding(
+            skill_id=skill_id, skill_name=skill_name,
+            skill_category=skill_category, optimized_prompt=optimized_prompt,
+        )
         return skill_id
 
     async def _record_existing_skill_event(
@@ -235,8 +250,8 @@ class L4ProceduralRecordingMixin:
                 event_id=event.turn_id,
                 created_at=now,
             )
-        await db.commit()
-        await self._sync_skill_indexes(
+        await insert_execution_trace(db, skill_id=skill_id, event=event, identity=identity)
+        await sync_skill_fts(
             db,
             skill_id=skill_id,
             skill_name=skill_name,
@@ -244,7 +259,11 @@ class L4ProceduralRecordingMixin:
             optimized_prompt=effective_prompt,
             replace_existing=True,
         )
-        await self._insert_execution_trace(skill_id=skill_id, event=event, identity=identity)
+        await db.commit()
+        await self._schedule_skill_embedding(
+            skill_id=skill_id, skill_name=skill_name,
+            skill_category=skill_category, optimized_prompt=effective_prompt,
+        )
         await self._maybe_extract_updated_strategy(
             skill_id=skill_id,
             skill_name=skill_name,
@@ -252,47 +271,6 @@ class L4ProceduralRecordingMixin:
             record_state=record_state,
         )
         return skill_id
-
-    async def _sync_skill_indexes(
-        self,
-        db: aiosqlite.Connection,
-        *,
-        skill_id: str,
-        skill_name: str,
-        skill_category: str,
-        optimized_prompt: Optional[str],
-        replace_existing: bool,
-    ) -> None:
-        await db.execute("BEGIN IMMEDIATE")
-        await sync_skill_fts(
-            db,
-            skill_id=skill_id,
-            skill_name=skill_name,
-            skill_category=skill_category,
-            optimized_prompt=optimized_prompt,
-            replace_existing=replace_existing,
-        )
-        await db.commit()
-        await self._schedule_skill_embedding(
-            skill_id=skill_id,
-            skill_name=skill_name,
-            skill_category=skill_category,
-            optimized_prompt=optimized_prompt,
-        )
-
-    async def _insert_execution_trace(
-        self,
-        *,
-        skill_id: str,
-        event: MemoryEvent,
-        identity: Dict[str, Any],
-    ) -> None:
-        await insert_execution_trace(
-            db_path=self.db_path,
-            skill_id=skill_id,
-            event=event,
-            identity=identity,
-        )
 
     async def _maybe_extract_updated_strategy(
         self,
@@ -325,7 +303,7 @@ class L4ProceduralRecordingMixin:
         total_attempts: int,
     ) -> int:
         """Scale extraction threshold with usage volume."""
-        return adaptive_extraction_threshold(base_threshold, total_attempts)
+        return min(MAX_TRACES_PER_SKILL, adaptive_extraction_threshold(base_threshold, total_attempts))
 
     async def _stratified_traces(
         self,
@@ -353,7 +331,7 @@ class L4ProceduralRecordingMixin:
         success_rate: float,
     ) -> None:
         """Conditionally run LLM strategy extraction and persist the result."""
-        await maybe_extract_strategy(
+        published = await maybe_extract_strategy(
             db_path=self.db_path,
             strategy_extractor=self._strategy_extractor,
             skill_id=skill_id,
@@ -362,6 +340,11 @@ class L4ProceduralRecordingMixin:
             total_attempts=total_attempts,
             success_rate=success_rate,
         )
+        if published:
+            await self._schedule_skill_embedding(
+                skill_id=skill_id, skill_name=skill_name,
+                skill_category=skill_category, optimized_prompt=None,
+            )
 
     async def _get_duration_baseline(self, skill_id: str) -> Dict[str, float]:
         """Return avg and p95 execution times for a skill."""
@@ -386,7 +369,14 @@ class L4ProceduralRecordingMixin:
         strategy: ExtractedStrategy,
     ) -> None:
         """Write extracted strategy to the procedural_skills row and reset pending count."""
-        await persist_strategy(db_path=self.db_path, skill_id=skill_id, strategy=strategy)
+        published = await persist_strategy(db_path=self.db_path, skill_id=skill_id, strategy=strategy)
+        if published:
+            snapshot = await self._skill_embedding_snapshot(skill_id=skill_id, display_skill_name="")
+            if snapshot is not None:
+                await self._schedule_skill_embedding(
+                    skill_id=skill_id, skill_name=snapshot["stored_skill_name"],
+                    skill_category=snapshot["skill_category"], optimized_prompt=snapshot["optimized_prompt"],
+                )
 
 
 __all__ = ["L4ProceduralRecordingMixin"]

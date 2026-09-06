@@ -1,5 +1,6 @@
 import { getErrorMessage } from '@/utils/error-handler';
-import React, { useEffect, useMemo, useState } from 'react';
+import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, History, Loader2, RefreshCw, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -12,7 +13,7 @@ import {
   type PluginInstallJobSnapshot,
 } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
-import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
+import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
 import { PluginConsentDialog } from '@/components/plugins/PluginConsentDialog';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
@@ -42,20 +43,20 @@ import {
   type TimelineAvailableEntry,
 } from '@/utils/timeline-capabilities';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
+import { mergeConnectionSettings } from '@/utils/plugin-connection-settings';
+
+const sourceIdentity = (source: SourceStatusItem) => `${source.connection_id}:${source.source_name}`;
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
-  statuses: SensorSourceStatusItem[];
+  statuses: SourceStatusItem[];
   availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
   selectedSourceName: string | null;
-  pluginDrafts: Record<string, Record<string, unknown>>;
   onSelectSource: (sourceName: string | null) => void;
   onRefreshSources: () => Promise<void>;
   onPluginInstalled?: () => Promise<void>;
   onBrowseMarketplace?: () => void;
-  onPluginFieldChange: (pluginId: string, key: string, value: unknown) => void;
-  onPluginFieldsChange: (pluginId: string, updates: Record<string, unknown>) => void;
 }
 
 const EXPERT_ONLY_SUFFIXES = ['source_path', 'edge_whitelist'];
@@ -63,19 +64,19 @@ const SOURCE_ENABLED_SUFFIX = '.enabled';
 
 const isExpertOnlyField = (key: string) => EXPERT_ONLY_SUFFIXES.some((suffix) => key.endsWith(suffix));
 
-const getSourceEnabledKey = (source: SensorSourceStatusItem) =>
+const getSourceEnabledKey = (source: SourceStatusItem) =>
   source.fields.find((field) => field.key.endsWith(SOURCE_ENABLED_SUFFIX))?.key ??
-  `sensors.${source.source_name}.enabled`;
+  `sources.${source.source_name}.enabled`;
 
 const buildActivationValues = (
   flow: ActivationFlowSpec,
-  source: SensorSourceStatusItem,
+  source: SourceStatusItem,
   pluginDrafts: Record<string, Record<string, unknown>>
 ) =>
   Object.fromEntries(
     flow.fields.map((field) => [
       field.key,
-      pluginDrafts[source.plugin_id]?.[field.key] ?? source.current_settings[field.key] ?? field.default,
+      pluginDrafts[source.connection_id]?.[field.key] ?? source.current_settings[field.key] ?? field.default,
     ])
   );
 
@@ -130,7 +131,7 @@ const SourceRow: React.FC<{
 );
 
 const EntryOption: React.FC<{
-  source: SensorSourceStatusItem;
+  source: SourceStatusItem;
   selected: boolean;
   title: string;
   description: string;
@@ -162,7 +163,7 @@ const EntryOption: React.FC<{
       <div className="flex h-full flex-col justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">{title}</span>
+            <span className="truncate text-sm font-medium text-foreground">{title} · {source.connection_display_name}</span>
             {attention ? (
               <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" />
             ) : null}
@@ -264,18 +265,79 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   availableEntries = [],
   loadingStatus,
   selectedSourceName,
-  pluginDrafts,
   onSelectSource,
   onRefreshSources,
   onPluginInstalled,
   onBrowseMarketplace,
-  onPluginFieldChange,
-  onPluginFieldsChange,
 }) => {
   const { t } = useTranslation('app');
+  const [pluginDrafts, setConnectionDrafts] = useState<Record<string, Record<string, unknown>>>({});
+  const [savingConnection, setSavingConnection] = useState(false);
+  const actionGenerationRef = useRef(0);
+  const settingsPendingRef = useRef(false);
+  const onPluginFieldsChange = (connectionId: string, updates: Record<string, unknown>) => setConnectionDrafts((previous) => ({ ...previous, [connectionId]: { ...previous[connectionId], ...updates } }));
+  const onPluginFieldChange = (connectionId: string, key: string, value: unknown) => onPluginFieldsChange(connectionId, { [key]: value });
+  const saveSourceSettings = async (source: SourceStatusItem, updates: Record<string, unknown>): Promise<boolean> => {
+    if (settingsPendingRef.current) return false;
+    for (const field of source.fields) {
+      if (!(field.key in updates) || !isExtensionFieldVisible(field, { ...source.current_settings, ...updates })) continue;
+      const issue = validateDynamicConfigValue(field, updates[field.key]);
+      if (issue) {
+        toast.warning(t('settings.dynamicValidation.fieldInvalid', {
+          field: field.label_translated || field.label, reason: t(`settings.dynamicValidation.${issue}`),
+        }));
+        return false;
+      }
+    }
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => generation === actionGenerationRef.current;
+    settingsPendingRef.current = true;
+    setSavingConnection(true);
+    try {
+      const connection = await pluginsApi.getConnection(source.plugin_id, source.connection_id);
+      if (!isCurrent()) return false;
+      if (connection.plugin_id !== source.plugin_id || connection.connection_id !== source.connection_id) {
+        throw new Error('Connection response identity mismatch');
+      }
+      const credentials: Record<string, string> = {};
+      const settingsUpdates = { ...updates };
+      for (const field of source.fields) {
+        if (field.type === 'secret' && field.key in settingsUpdates) {
+          const value = settingsUpdates[field.key];
+          if (typeof value === 'string' && value) credentials[field.key] = value;
+          delete settingsUpdates[field.key];
+        }
+      }
+      await pluginsApi.updateConnection(source.plugin_id, source.connection_id, {
+        expected_revision: connection.revision,
+        settings: mergeConnectionSettings(connection.settings, settingsUpdates), credentials,
+      });
+      if (!isCurrent()) return false;
+      setConnectionDrafts((previous) => {
+        const next = { ...previous };
+        const remaining = { ...next[source.connection_id] };
+        for (const [key, value] of Object.entries(updates)) {
+          if (Object.is(remaining[key], value)) delete remaining[key];
+        }
+        if (Object.keys(remaining).length) next[source.connection_id] = remaining;
+        else delete next[source.connection_id];
+        return next;
+      });
+      await onRefreshSources();
+      return isCurrent();
+    } catch {
+      if (isCurrent()) toast.error(t('plugins.connections.saveFailed'));
+      return false;
+    } finally {
+      if (isCurrent()) {
+        settingsPendingRef.current = false;
+        setSavingConnection(false);
+      }
+    }
+  };
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
   const [backfillingSource, setBackfillingSource] = useState<string | null>(null);
-  const [backfillDialogSource, setBackfillDialogSource] = useState<SensorSourceStatusItem | null>(null);
+  const [backfillDialogSource, setBackfillDialogSource] = useState<SourceStatusItem | null>(null);
   const [flushingSource, setFlushingSource] = useState<string | null>(null);
   const [installingEntryId, setInstallingEntryId] = useState<string | null>(null);
   const [installingEntryLabel, setInstallingEntryLabel] = useState<string | null>(null);
@@ -284,11 +346,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const [selectedEntryName, setSelectedEntryName] = useState<string | null>(null);
   const [queuedSource, setQueuedSource] = useState<{
     sourceName: string;
+    connectionId: string;
     lastRunAt: number | string | null | undefined;
     lastSyncAt: number | string | null | undefined;
   } | null>(null);
   const [activationDialog, setActivationDialog] = useState<{
-    source: SensorSourceStatusItem;
+    source: SourceStatusItem;
     flow: ActivationFlowSpec;
     values: Record<string, unknown>;
     intent: 'enable';
@@ -304,7 +367,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     [capabilities, selectedSourceName]
   );
   const getDefaultEntry = (capability: TimelineCapability | null) => {
-    if (!capability?.sources.length) {
+    if (!capability?.sources.length || new Set(capability.sources.map((source) => source.connection_id)).size > 1) {
       return null;
     }
     return (
@@ -316,32 +379,39 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const selectedSource = useMemo(() => {
     const sources = selectedCapability?.sources ?? [];
     return (
-      sources.find((source) => source.source_name === selectedEntryName)
+      sources.find((source) => sourceIdentity(source) === selectedEntryName)
       ?? getDefaultEntry(selectedCapability)
     );
   }, [selectedCapability, selectedEntryName]);
 
   useEffect(() => {
-    const nextEntry = getDefaultEntry(selectedCapability);
-    if (!selectedCapability || !nextEntry) {
-      if (selectedEntryName !== null) {
-        setSelectedEntryName(null);
-      }
-      return;
-    }
-    if (!selectedCapability.sources.some((source) => source.source_name === selectedEntryName)) {
-      setSelectedEntryName(nextEntry.source_name);
+    if (!selectedCapability?.sources.some((source) => sourceIdentity(source) === selectedEntryName)) {
+      setSelectedEntryName(null);
     }
   }, [selectedCapability, selectedEntryName]);
 
-  const resolveSourceValue = (source: SensorSourceStatusItem, key: string, fallback?: unknown) =>
-    pluginDrafts[source.plugin_id]?.[key] ?? source.current_settings[key] ?? fallback;
-  const getSourceDisplayName = (source: SensorSourceStatusItem) => getTimelineSourceDisplayName(t, source);
+  const selectedIdentity = selectedSource ? sourceIdentity(selectedSource) : null;
+  useEffect(() => {
+    actionGenerationRef.current += 1;
+    settingsPendingRef.current = false;
+    setSavingConnection(false);
+    setSyncingSource(null);
+    setBackfillingSource(null);
+    setFlushingSource(null);
+    setQueuedSource(null);
+    setBackfillDialogSource(null);
+    setActivationDialog(null);
+    return () => { actionGenerationRef.current += 1; };
+  }, [selectedIdentity]);
 
-  const handleSourceEnabledChange = (source: SensorSourceStatusItem, checked: boolean) => {
+  const resolveSourceValue = (source: SourceStatusItem, key: string, fallback?: unknown) =>
+    pluginDrafts[source.connection_id]?.[key] ?? source.current_settings[key] ?? fallback;
+  const getSourceDisplayName = (source: SourceStatusItem) => getTimelineSourceDisplayName(t, source);
+
+  const handleSourceEnabledChange = async (source: SourceStatusItem, checked: boolean) => {
     const enabledKey = getSourceEnabledKey(source);
     if (!checked) {
-      onPluginFieldChange(source.plugin_id, enabledKey, false);
+      await saveSourceSettings(source, { [enabledKey]: false });
       return;
     }
     const flow = source.activation_flow ?? null;
@@ -357,7 +427,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       });
       return;
     }
-    onPluginFieldChange(source.plugin_id, enabledKey, true);
+    await saveSourceSettings(source, { [enabledKey]: true });
   };
 
   const confirmActivationFlow = async (values: Record<string, unknown>) => {
@@ -365,9 +435,12 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       return;
     }
     const { source, flow } = activationDialog;
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
     if (flow.authorize_on_confirm) {
       try {
-        const result = await sensorsApi.requestAuthorization(source.source_name, values);
+        const result = await sourcesApi.requestAuthorization(source.source_name, source.connection_id, values);
+        if (!isCurrent()) return;
         if (!result.authorized) {
           toast.error(
             t('settings.timeline.errors.authorizationFailed', {
@@ -377,67 +450,82 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           return;
         }
       } catch (error) {
+        if (!isCurrent()) return;
         toast.error(t('settings.timeline.errors.authorizationFailed', { message: getErrorMessage(error) || 'unknown' }));
         return;
       }
     }
-    onPluginFieldsChange(source.plugin_id, {
+    const saved = await saveSourceSettings(source, {
       ...values,
       [flow.enabled_key]: true,
       [flow.configured_key]: true,
     });
+    if (!saved || !isCurrent()) return;
     toast.success(t('settings.timeline.activation.enabled', { source: getSourceDisplayName(source) }));
     setActivationDialog(null);
   };
 
-  const performSync = async (source: SensorSourceStatusItem) => {
-    setSyncingSource(source.source_name);
+  const performSync = async (source: SourceStatusItem) => {
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
+    setSyncingSource(sourceIdentity(source));
     setQueuedSource({
       sourceName: source.source_name,
+      connectionId: source.connection_id,
       lastRunAt: source.last_run_at,
       lastSyncAt: source.last_sync_at,
     });
     try {
-      await sensorsApi.requestSync(source.source_name);
+      await sourcesApi.requestSync(source.source_name, source.connection_id);
+      if (!isCurrent()) return;
       toast.success(t('settings.timeline.syncQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
     } catch (error) {
+      if (!isCurrent()) return;
       setQueuedSource(null);
       toast.error(t('settings.timeline.errors.syncFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
-      setSyncingSource(null);
+      if (isCurrent()) setSyncingSource(null);
     }
   };
 
-  const performBackfill = async (source: SensorSourceStatusItem, selection: SourceBackfillSelection) => {
-    setBackfillingSource(source.source_name);
+  const performBackfill = async (source: SourceStatusItem, selection: SourceBackfillSelection) => {
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
+    setBackfillingSource(sourceIdentity(source));
     try {
-      await sensorsApi.requestSync(source.source_name, {
+      await sourcesApi.requestSync(source.source_name, source.connection_id, {
         mode: 'backfill',
         backfillScope: selection.scope,
         backfillStartDate: selection.startDate,
         backfillEndDate: selection.endDate,
       });
+      if (!isCurrent()) return;
       toast.success(t('settings.timeline.backfillQueued', { source: getSourceDisplayName(source) }));
       setBackfillDialogSource(null);
       await onRefreshSources();
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(t('settings.timeline.errors.backfillFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
-      setBackfillingSource(null);
+      if (isCurrent()) setBackfillingSource(null);
     }
   };
 
-  const performStateFlush = async (source: SensorSourceStatusItem) => {
-    setFlushingSource(source.source_name);
+  const performStateFlush = async (source: SourceStatusItem) => {
+    const generation = actionGenerationRef.current;
+    const isCurrent = () => actionGenerationRef.current === generation;
+    setFlushingSource(sourceIdentity(source));
     try {
-      await sensorsApi.requestStateFlush(source.source_name);
+      await sourcesApi.requestStateFlush(source.source_name, source.connection_id);
+      if (!isCurrent()) return;
       toast.success(t('settings.timeline.stateFlushQueued', { source: getSourceDisplayName(source) }));
       await onRefreshSources();
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(t('settings.timeline.errors.stateFlushFailed', { message: getErrorMessage(error) || 'unknown' }));
     } finally {
-      setFlushingSource(null);
+      if (isCurrent()) setFlushingSource(null);
     }
   };
 
@@ -475,7 +563,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     if (!queuedSource) {
       return;
     }
-    const source = statuses.find((item) => item.source_name === queuedSource.sourceName);
+    const source = statuses.find((item) => item.source_name === queuedSource.sourceName && item.connection_id === queuedSource.connectionId);
     if (!source) {
       setQueuedSource(null);
       return;
@@ -487,16 +575,16 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   }, [queuedSource, statuses]);
 
-  const getSyncActivityValue = (source: SensorSourceStatusItem, activationRequired: boolean) => {
+  const getSyncActivityValue = (source: SourceStatusItem, activationRequired: boolean) => {
     if (source.status === 'retrying' || source.sync_activity?.status === 'retrying') {
       return t('settings.timeline.statuses.retrying', {
         count: source.sync_activity?.attempt_count || 0,
       });
     }
-    if (syncingSource === source.source_name || source.running) {
+    if (syncingSource === sourceIdentity(source) || source.running) {
       return t('settings.timeline.statuses.syncing');
     }
-    if (queuedSource?.sourceName === source.source_name) {
+    if ((queuedSource?.sourceName === source.source_name && queuedSource?.connectionId === source.connection_id)) {
       return t('settings.timeline.statuses.queued');
     }
     if (activationRequired) {
@@ -508,18 +596,42 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     return t('settings.timeline.statuses.idle');
   };
 
-  const handleResetActivation = (source: SensorSourceStatusItem) => {
+  const handleResetActivation = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
     if (!flow) {
       return;
     }
-    onPluginFieldsChange(source.plugin_id, {
+    onPluginFieldsChange(source.connection_id, {
       ...buildActivationResetValues(flow),
       [flow.enabled_key]: false,
       [flow.configured_key]: false,
     });
     toast.success(t('settings.timeline.activation.resetSuccess', { source: getSourceDisplayName(source) }));
   };
+
+  if (selectedCapability && !selectedSource) {
+    return (
+      <section className="space-y-5" data-testid={`timeline-capability-detail-${selectedCapability.id}`}>
+        <div className="space-y-2">
+          <h2 className="text-xl font-semibold">{selectedCapability.displayName}</h2>
+          <p className="text-sm text-muted-foreground">{t('memory.sourcesPage.chooseConnection')}</p>
+        </div>
+        <div data-testid={`timeline-entry-selector-${selectedCapability.id}`}>
+          <div role="tablist" aria-label={t('plugins.connections.title')}
+            data-testid={`timeline-entry-selector-scroll-${selectedCapability.id}`}
+            className="flex gap-3 overflow-x-auto pb-3">
+            {selectedCapability.sources.map((source) => (
+              <EntryOption key={sourceIdentity(source)} source={source} selected={false}
+                title={getTimelineEntryDisplayName(t, source)} description={getTimelineEntryDescription(t, source)}
+                statusLabel={t(`settings.timeline.statuses.${source.enabled ? 'enabled' : 'disabled'}`)}
+                enabled={source.enabled} attention={Boolean(source.last_error || source.available === false)}
+                onClick={() => setSelectedEntryName(sourceIdentity(source))} />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   if (!selectedSource) {
     return (
@@ -587,7 +699,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   });
   const detailValues = {
     ...selectedSource.current_settings,
-    ...(pluginDrafts[selectedSource.plugin_id] ?? {}),
+    ...(pluginDrafts[selectedSource.connection_id] ?? {}),
     ...Object.fromEntries(
       detailFields.map((field) => [field.key, resolveSourceValue(selectedSource, field.key, field.default)])
     ),
@@ -612,19 +724,19 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const showEntrySelector = entrySources.length > 0;
   const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
   const hasMultipleKnownEntries = knownEntryCount > 1;
-  const getEntrySetupRequired = (source: SensorSourceStatusItem) => {
+  const getEntrySetupRequired = (source: SourceStatusItem) => {
     const flow = source.activation_flow ?? null;
     return Boolean(flow && !resolveSourceValue(source, flow.configured_key, false));
   };
-  const getEntryEnabled = (source: SensorSourceStatusItem) => (
+  const getEntryEnabled = (source: SourceStatusItem) => (
     !getEntrySetupRequired(source)
     && Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled))
   );
-  const getEntryAttention = (source: SensorSourceStatusItem) => {
+  const getEntryAttention = (source: SourceStatusItem) => {
     const retrying = source.status === 'retrying' || source.sync_activity?.status === 'retrying';
     return Boolean((source.last_error && !retrying) || source.available === false);
   };
-  const getEntryStatusLabel = (source: SensorSourceStatusItem) => {
+  const getEntryStatusLabel = (source: SourceStatusItem) => {
     if (getEntryAttention(source)) {
       return t('settings.timeline.statuses.attention');
     }
@@ -670,10 +782,10 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
               variant="outline"
               size="sm"
               onClick={() => void performStateFlush(selectedSource)}
-              disabled={flushingSource === selectedSource.source_name}
+              disabled={flushingSource === sourceIdentity(selectedSource)}
             >
               <RefreshCw
-                className={cn('mr-2 h-4 w-4', flushingSource === selectedSource.source_name && 'animate-spin')}
+                className={cn('mr-2 h-4 w-4', flushingSource === sourceIdentity(selectedSource) && 'animate-spin')}
               />
               {t('settings.timeline.actions.flushStateNow')}
             </Button>
@@ -684,13 +796,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             onClick={() => void performSync(selectedSource)}
             disabled={
               !selectedSource.supports_pull_sync
-              || syncingSource === selectedSource.source_name
+              || syncingSource === sourceIdentity(selectedSource)
               || selectedSource.running
               || retrying
             }
           >
             <RefreshCw
-              className={cn('mr-2 h-4 w-4', syncingSource === selectedSource.source_name && 'animate-spin')}
+              className={cn('mr-2 h-4 w-4', syncingSource === sourceIdentity(selectedSource) && 'animate-spin')}
             />
             {t('settings.timeline.actions.syncNow')}
           </Button>
@@ -701,13 +813,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             onClick={() => setBackfillDialogSource(selectedSource)}
             disabled={
               !selectedSource.supports_pull_sync
-              || backfillingSource === selectedSource.source_name
+              || backfillingSource === sourceIdentity(selectedSource)
               || selectedSource.running
               || retrying
             }
           >
             <History
-              className={cn('mr-2 h-4 w-4', backfillingSource === selectedSource.source_name && 'animate-spin')}
+              className={cn('mr-2 h-4 w-4', backfillingSource === sourceIdentity(selectedSource) && 'animate-spin')}
             />
             {t('settings.timeline.actions.backfill')}
           </Button>
@@ -717,9 +829,9 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         <span>{t('settings.timeline.fields.enabled')}</span>
         <Switch
           checked={sourceEnabled && !activationRequired}
-          onCheckedChange={(checked) => handleSourceEnabledChange(selectedSource, checked)}
+          onCheckedChange={(checked) => { void handleSourceEnabledChange(selectedSource, checked); }}
           aria-label={t('settings.timeline.fields.enabled')}
-          disabled={selectedSource.available === false}
+          disabled={selectedSource.available === false || savingConnection}
         />
       </label>
     </div>
@@ -796,15 +908,15 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             >
               {entrySources.map((source) => (
                 <EntryOption
-                  key={source.source_name}
+                  key={sourceIdentity(source)}
                   source={source}
-                  selected={source.source_name === selectedSource.source_name}
+                  selected={sourceIdentity(source) === sourceIdentity(selectedSource)}
                   title={getTimelineEntryDisplayName(t, source)}
                   description={getTimelineEntryDescription(t, source)}
                   statusLabel={getEntryStatusLabel(source)}
                   enabled={getEntryEnabled(source)}
                   attention={getEntryAttention(source)}
-                  onClick={() => setSelectedEntryName(source.source_name)}
+                  onClick={() => setSelectedEntryName(sourceIdentity(source))}
                 />
               ))}
             </div>
@@ -872,7 +984,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl font-semibold tracking-tight text-foreground">{entryDisplayName}</h3>
+                      <h3 className="text-xl font-semibold tracking-tight text-foreground">{entryDisplayName} · {selectedSource.connection_display_name}</h3>
                       <Badge variant={sourceEnabled ? 'default' : 'secondary'} className="rounded-md">
                         {sourceEnabled ? t('settings.timeline.statuses.enabled') : t('settings.timeline.statuses.disabled')}
                       </Badge>
@@ -908,7 +1020,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                   />
                   <StatusMetric
                     label={t('settings.timeline.workspace.lastBatch')}
-                    value={String(selectedSource.last_raw_result_count || selectedSource.last_result_count || 0)}
+                    value={String(selectedSource.last_raw_result_count ?? selectedSource.last_result_count ?? 0)}
                   />
                 </div>
                 {showPullSupportHint || unavailableReason ? (
@@ -934,25 +1046,30 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                     <PluginSettingsTabs
                       layout={settingsLayout}
                       values={detailValues}
-                      onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                      onChange={(key, nextValue) => onPluginFieldChange(selectedSource.connection_id, key, nextValue)}
                     />
                   ) : null}
                   {!activeSettingsTabUnavailable ? (
                     <>
                       <PluginSettingsCustomBlocks
-                        pluginId={selectedSource.plugin_id}
+                        connectionId={selectedSource.connection_id}
                         blocks={selectedSource.settings_ui_blocks ?? []}
                         values={detailValues}
-                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.connection_id, key, nextValue)}
                       />
                       <PluginSettingsFields
                         fields={visibleDetailFields}
                         values={detailValues}
-                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.plugin_id, key, nextValue)}
+                        onChange={(key, nextValue) => onPluginFieldChange(selectedSource.connection_id, key, nextValue)}
                         pluginId={selectedSource.plugin_id}
                       />
+                  <Button disabled={savingConnection || !Object.keys(pluginDrafts[selectedSource.connection_id] ?? {}).length} onClick={() => {
+                    void saveSourceSettings(selectedSource, pluginDrafts[selectedSource.connection_id] ?? {});
+                  }}>{t(savingConnection ? 'plugins.connections.saving' : 'plugins.connections.save')}</Button>
                       <PluginSettingsActions
                         pluginId={selectedSource.plugin_id}
+                        connectionId={selectedSource.connection_id}
+                        connectionEnabled={selectedSource.enabled}
                         actions={selectedSource.settings_actions ?? []}
                         values={detailValues}
                         onSettingsUpdates={onPluginFieldsChange}
@@ -979,8 +1096,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
         {backfillDialogSource ? (
           <SourceBackfillDialog
             open
-            sourceLabel={getSourceDisplayName(backfillDialogSource)}
-            isSubmitting={backfillingSource === backfillDialogSource.source_name}
+            sourceLabel={`${getSourceDisplayName(backfillDialogSource)} · ${backfillDialogSource.connection_display_name}`}
+            isSubmitting={backfillingSource === sourceIdentity(backfillDialogSource)}
             onOpenChange={(open) => {
               if (!open) {
                 setBackfillDialogSource(null);
@@ -998,6 +1115,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             version={installConsentEntry.version}
             official={installConsentEntry.official}
             capabilities={installConsentEntry.capabilities ?? []}
+            executionMode={installConsentEntry.executionMode}
             onCancel={() => setInstallConsentEntry(null)}
             onConfirm={() => {
               const entry = installConsentEntry;

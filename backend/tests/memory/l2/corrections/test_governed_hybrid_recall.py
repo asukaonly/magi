@@ -1306,7 +1306,7 @@ async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_re
             return project_historical_recall(**kwargs)
 
         @staticmethod
-        async def get_canonical_names(_db_path, _entity_ids):  # type: ignore[no-untyped-def]
+        async def get_canonical_names(_entity_ids):  # type: ignore[no-untyped-def]
             return {}
 
         @staticmethod

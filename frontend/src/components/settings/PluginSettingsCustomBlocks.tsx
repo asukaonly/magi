@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { openExternalUrl } from '@/runtime/desktop';
 
 interface PluginSettingsCustomBlocksProps {
-  pluginId: string;
+  connectionId: string;
   blocks: PluginSettingsUiBlockSpec[];
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
@@ -39,11 +39,11 @@ const isBlockVisible = (block: PluginSettingsUiBlockSpec, values: Record<string,
 };
 
 const CalendarListResourcePicker: React.FC<{
-  pluginId: string;
+  connectionId: string;
   block: PluginSettingsUiBlockSpec;
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
-}> = ({ pluginId, block, values, onChange }) => {
+}> = ({ connectionId, block, values, onChange }) => {
   const { t } = useTranslation('app');
   const [groups, setGroups] = useState<PluginSettingsResourceGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,7 @@ const CalendarListResourcePicker: React.FC<{
       setLoading(true);
       setError(null);
       try {
-        const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+        const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
         if (cancelled) {
           return;
         }
@@ -83,7 +83,7 @@ const CalendarListResourcePicker: React.FC<{
     return () => {
       cancelled = true;
     };
-  }, [block.resource_name, pluginId]);
+  }, [block.resource_name, connectionId]);
 
   const toggleItem = (itemId: string, checked: boolean) => {
     const nextIds = checked
@@ -174,9 +174,9 @@ const renderPermissionIcon = (status: PluginPermissionStatus) => {
 };
 
 const PermissionStatusBlock: React.FC<{
-  pluginId: string;
+  connectionId: string;
   block: PluginSettingsUiBlockSpec;
-}> = ({ pluginId, block }) => {
+}> = ({ connectionId, block }) => {
   const { t } = useTranslation('app');
   const [items, setItems] = useState<PluginPermissionStatusItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -188,7 +188,7 @@ const PermissionStatusBlock: React.FC<{
     setLoading(true);
     setError(null);
     try {
-      const payload = await pluginsApi.getSettingsResource(pluginId, block.resource_name);
+      const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
       if (requestId !== requestIdRef.current) return;
       setItems(parsePluginPermissionItems(payload.data.items));
     } catch (fetchError) {
@@ -196,7 +196,7 @@ const PermissionStatusBlock: React.FC<{
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [block.resource_name, pluginId]);
+  }, [block.resource_name, connectionId]);
 
   useEffect(() => {
     void load();
@@ -290,7 +290,7 @@ const PermissionStatusBlock: React.FC<{
 };
 
 export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProps> = ({
-  pluginId,
+  connectionId,
   blocks,
   values,
   onChange,
@@ -308,7 +308,7 @@ export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProp
           return (
             <CalendarListResourcePicker
               key={block.block_id}
-              pluginId={pluginId}
+              connectionId={connectionId}
               block={block}
               values={values}
               onChange={onChange}
@@ -316,7 +316,7 @@ export const PluginSettingsCustomBlocks: React.FC<PluginSettingsCustomBlocksProp
           );
         }
         if (block.type === 'resource_picker' && block.presentation === 'permission_status') {
-          return <PermissionStatusBlock key={block.block_id} pluginId={pluginId} block={block} />;
+          return <PermissionStatusBlock key={block.block_id} connectionId={connectionId} block={block} />;
         }
         return null;
       })}

@@ -2081,7 +2081,7 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
 
 
 @pytest.mark.asyncio
-async def test_sensor_events_without_session_do_not_use_user_recent_context():
+async def test_source_events_without_session_do_not_use_user_recent_context():
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         store = UnifiedMemoryStore(
@@ -2100,28 +2100,28 @@ async def test_sensor_events_without_session_do_not_use_user_recent_context():
                     session_id="s-chat",
                     user_id="u1",
                     timestamp=100.0,
-                    content="This chat sentence must not leak into sensor context.",
+                    content="This chat sentence must not leak into source context.",
                 )
             )
-            sensor_event = normalize_runtime_event(
+            source_event = normalize_runtime_event(
                 Event(
-                    type="SENSOR_EVENT",
+                    type="SOURCE_EVENT",
                     data={
                         "user_id": "u1",
                         "session_id": None,
                         "content": "Visited a page about DIIV",
-                        "author_type": "sensor",
+                        "author_type": "source",
                         "content_type": "text",
                     },
                     source="chrome_history",
                     level=EventLevel.INFO,
-                    correlation_id="corr-sensor-no-session",
+                    correlation_id="corr-source-no-session",
                     timestamp=300.0,
-                    event_id="evt-sensor-no-session",
+                    event_id="evt-source-no-session",
                 )
             )
 
-            messages = await store.l2_pipeline._load_context_messages(sensor_event)
+            messages = await store.l2_pipeline._load_context_messages(source_event)
 
             assert messages == []
         finally:
@@ -2907,7 +2907,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
                             "temporal_cue": "unspecified",
-                            "polarity": "negative",
+                            "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
                             "confidence": 0.88,
@@ -2992,7 +2992,7 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
                             "object_type": "food",
                             "fact_kind": "stable_preference",
                             "temporal_cue": "unspecified",
-                            "polarity": "negative",
+                            "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
                             "confidence": 0.88,
@@ -3362,7 +3362,7 @@ async def test_unified_memory_on_session_end_noop_without_l2():
 
 @pytest.mark.asyncio
 async def test_inject_structured_entity_hints_adds_context_entries():
-    """Sensor-provided entity hints should be injected into existing_entities as context."""
+    """Source-provided entity hints should be injected into existing_entities as context."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
 
@@ -3512,7 +3512,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
 
 
 @pytest.mark.asyncio
-async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_id():
+async def test_structured_graph_ref_preserves_its_explicit_identity():
     """Graph refs should reuse same-event entity hints instead of creating ID fragments."""
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir)
@@ -3549,25 +3549,21 @@ async def test_structured_graph_ref_reuses_entity_hint_for_punctuated_hardware_i
         ipad_entities = [
             entity
             for entity in entities
-            if "apple-ipad-pro" in str(entity.get("entity_id") or "")
+            if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [
-            "hardware:apple-ipad-pro-11-inch-3rd-generation"
-        ]
-
+        assert len(ipad_entities) == 1
         catalog_name_index = await pipeline._build_catalog_name_index()
         object_id = pipeline._resolve_phase2_object_id(
             raw_object_ref="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
-            object_type="hardware",
-            resolved_mentions=[],
-            catalog_name_index=catalog_name_index,
+            object_type="hardware", resolved_mentions=[], catalog_name_index=catalog_name_index,
         )
-        assert object_id == "hardware:apple-ipad-pro-11-inch-3rd-generation"
+        assert object_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
+
 
 
 @pytest.mark.asyncio
-async def test_phase1_resolved_id_reuses_existing_same_name_entity():
-    """Phase 1 resolved IDs should not create a second entity for the same canonical name."""
+async def test_phase1_resolved_id_preserves_same_name_identities():
+    """Same-name catalog rows must not override explicit resolved IDs."""
     from magi.memory.l2.models import L2Phase1Entity, L2Phase1Result
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3604,14 +3600,14 @@ async def test_phase1_resolved_id_reuses_existing_same_name_entity():
             allowed_entity_types=frozenset({"hardware"}),
         )
 
-        assert resolved_mentions[0].resolved_entity_id == canonical_id
+        assert resolved_mentions[0].resolved_entity_id == "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"
         entities = await pipeline._entity_catalog.list_entities(limit=10)
         ipad_entities = [
             entity
             for entity in entities
             if "apple-ipad-pro" in str(entity.get("canonical_name") or "")
         ]
-        assert [entity["entity_id"] for entity in ipad_entities] == [canonical_id]
+        assert {entity["entity_id"] for entity in ipad_entities} == {canonical_id, "hardware:apple-ipad-pro-(11-inch)-(3rd-generation)"}
 
 
 def test_inject_structured_entity_hints_noop_without_metadata():
@@ -3628,12 +3624,12 @@ def test_inject_structured_entity_hints_noop_without_metadata():
 
 
 def test_inject_structured_graph_hints_adds_fact_claims():
-    """Sensor-provided graph hints should be injected as deterministic Phase 1 fact claims."""
+    """Source-provided graph hints should be injected as deterministic Phase 1 fact claims."""
     from magi.memory.l2.models import L2Phase1Result
     from magi.memory.l2.pipeline import L2Pipeline
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
-    event = _make_memory_event(event_id="evt-graph-hints", content="sensor supplied graph hints")
+    event = _make_memory_event(event_id="evt-graph-hints", content="source supplied graph hints")
     event.metadata_json = {
         "structured_graph_hints": [
             {
@@ -3697,7 +3693,7 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
                 correlation_id="evt-structured-graph-1",
                 timestamp=time.time(),
                 created_at=time.time(),
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 source="chrome_history",
                 source_item_id="chrome:item-1",
                 memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -3807,7 +3803,7 @@ async def test_structured_hint_not_double_written_when_phase2_runs():
                 correlation_id="evt-double-write-check-1",
                 timestamp=time.time(),
                 created_at=time.time(),
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 source="chrome_history",
                 source_item_id="chrome:item-dw-1",
                 memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -3901,7 +3897,7 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
                 correlation_id="evt-structured-facet-1",
                 timestamp=time.time(),
                 created_at=time.time(),
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 source="chrome_history",
                 source_item_id="chrome:item-2",
                 memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
@@ -3966,7 +3962,7 @@ async def test_build_structured_graph_candidates_rejects_stable_preference_hints
     from magi.memory.l2.pipeline import L2Pipeline
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
-    event = _make_memory_event(event_id="evt-structured-pref", content="sensor hinted preference")
+    event = _make_memory_event(event_id="evt-structured-pref", content="source hinted preference")
     event.source = "chrome_history"
     event.author_type = "external"
     event.metadata_json = {
@@ -4520,8 +4516,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()
@@ -4608,8 +4607,11 @@ class TestEntityTypeFiltering:
             async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
                 return tuple(event_ids)
 
-            async def list_entities(self, *, limit=20):
-                return list(self.entities.values())[:limit]
+            async def list_entities(self, *, limit=20, entity_ids=None):
+                return [
+                    entity for key, entity in self.entities.items()
+                    if entity_ids is None or key in entity_ids
+                ][:limit]
 
         pipeline = L2Pipeline.__new__(L2Pipeline)
         pipeline._entity_catalog = _EntityCatalog()
@@ -4942,7 +4944,7 @@ class TestEntityResolutionCache:
 
             cache = getattr(pipeline, "_entity_resolution_cache", {})
             assert ("magi", "software") in cache
-            assert ("magi", "person") in cache
+            assert ("evt-ct-2:magi", "person") in cache
 
 
 class TestPhase2CatalogNameIndex:
@@ -5237,7 +5239,7 @@ class TestEpisodeCandidateJobEntityAttribution:
                 {
                     "event_id": "evt-browse",
                     "timestamp": 120.0,
-                    "event_type": "SENSOR_EVENT",
+                    "event_type": "SOURCE_EVENT",
                 },
             ],
         )

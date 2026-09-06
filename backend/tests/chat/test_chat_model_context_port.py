@@ -15,6 +15,10 @@ from magi.utils.model_context_messages import (
     build_working_context_message,
     set_runtime_message_provenance,
 )
+from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
+from magi.agent.execution.function_calling.types import ToolCallResult
+from magi.agent.execution.function_calling.messages import FunctionCallingMessageHistoryMixin
+from magi.utils.tool_result_metadata import tool_result_metadata
 
 
 async def _create_session(store: ChatStore) -> None:
@@ -36,6 +40,29 @@ async def _create_session(store: ChatStore) -> None:
             deleted_at_ms=None,
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_text_tool_status_survives_storage_and_is_not_in_provider_messages(tmp_path) -> None:
+    store = ChatStore(db_path=str(tmp_path / "chat.db"))
+    await _create_session(store)
+    port = ChatModelContextPort(store=store, session_id="session-1", revision=0)
+    result = ToolCallResult(
+        tool_call_id="call-1", tool_name="web-fetch", success=True, data={"content": "Page body"}
+    )
+    message = FunctionCallingPostprocessor().build_tool_message(
+        "web-fetch", result, evidence_ref="evidence-1"
+    )
+    await port.commit(messages=[message], turn_id="turn-1", run_id="run-1", step_index=0)
+    snapshot = await store.load_model_context(session_id="session-1", run_id="run-1")
+    assert "_magi_tool_result" not in str(snapshot.to_prompt_messages())
+    assert "evidence-1" not in str(snapshot.to_prompt_messages())
+    replayed = snapshot.to_runtime_messages()
+    assert tool_result_metadata(replayed[0]).evidence_ref == "evidence-1"
+    assert tool_result_metadata(replayed[0]).success is True
+    assert ": ok" in FunctionCallingMessageHistoryMixin()._build_tool_summary("web-fetch", replayed[0])
+    await port.commit(messages=replayed, turn_id="turn-1", run_id="run-1", step_index=1)
+    assert port.revision == snapshot.revision
 
 
 @pytest.mark.asyncio

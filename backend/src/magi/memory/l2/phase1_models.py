@@ -173,7 +173,9 @@ class L2Phase1FactClaim:
         self.fact_kind = L2FactKind.from_value(self.fact_kind)
         self.temporal_cue = L2TemporalCue.from_value(self.temporal_cue)
         self.raw_time_expression = _optional_text(self.raw_time_expression) or ""
-        self.polarity = _optional_text(self.polarity) or "positive"
+        self.polarity = (_optional_text(self.polarity) or "positive").casefold()
+        if self.polarity not in {"positive", "negative"}:
+            raise ValueError("Claim polarity must be positive or negative")
         self.specificity = _optional_text(self.specificity) or "concrete"
         self.evidence_text = _optional_text(self.evidence_text) or ""
         self.confidence = float(self.confidence or 0.0)

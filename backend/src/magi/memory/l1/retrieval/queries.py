@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Literal, Optional, cast
 
@@ -9,7 +10,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ...evidence import L1RetrievalScope
-from ...event_contracts import MemoryDomain, MemoryEvent
+from ...event_contracts import MemoryDomain, MemoryEvent, author_type_label
 from .common import FACT_EVENTS_TABLE, L1EventQueryHostProtocol
 from .filters import L1EventFilterMixin
 from .idempotency import L1EventIdempotencyMixin
@@ -232,6 +233,28 @@ class L1EventQueryMixin(
                     for event_id, timestamp in await cursor.fetchall():
                         timestamps[str(event_id)] = float(timestamp)
         return timestamps
+
+    async def get_evidence_records(self, event_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Read active source identity and semantics in bounded batches for evidence checks."""
+        ids = list(dict.fromkeys(str(value) for value in event_ids if value))
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        result: Dict[str, Dict[str, Any]] = {}
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            for offset in range(0, len(ids), 500):
+                chunk = ids[offset:offset + 500]
+                placeholders = ",".join("?" for _ in chunk)
+                async with db.execute(
+                    f"SELECT event_id, timestamp, source, source_item_id, content, author_type, event_type, metadata_json FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL AND event_id IN ({placeholders})",
+                    tuple(chunk),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        item = dict(row)
+                        item["metadata_json"] = json.loads(item["metadata_json"] or "{}")
+                        item["author_type"] = author_type_label(item["author_type"])
+                        result[str(row["event_id"])] = item
+        return result
 
     async def get_raw_event_turn_ids(self, event_ids: List[str]) -> Dict[str, str]:
         """Return turn IDs for existing events, including soft-deleted rows.

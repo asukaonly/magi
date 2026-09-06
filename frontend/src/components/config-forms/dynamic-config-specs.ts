@@ -15,6 +15,8 @@ export type NormalizedDynamicConfigSpec = {
   pathKind?: 'file' | 'directory';
   defaultValue?: unknown;
   enumValues?: unknown[];
+  minimum?: number;
+  maximum?: number;
 };
 
 const isExtensionFieldSpec = (spec: DynamicConfigSpec): spec is ExtensionFieldSpec => 'key' in spec;
@@ -35,6 +37,8 @@ export function validateDynamicConfigValue(spec: DynamicConfigSpec, value: unkno
     case 'boolean': return typeof value === 'boolean' ? null : 'boolean';
     case 'number':
       if (typeof value !== 'number' || !Number.isFinite(value)) return 'number';
+      if ((normalized.minimum !== undefined && value < normalized.minimum)
+        || (normalized.maximum !== undefined && value > normalized.maximum)) return 'number';
       return spec.type === 'integer' && !Number.isInteger(value) ? 'integer' : null;
     case 'select':
       if (value === '' && !normalized.required) return null;
@@ -93,6 +97,8 @@ export const normalizeDynamicSpec = (
       pathKind: spec.path_kind ?? undefined,
       defaultValue: spec.default,
       enumValues,
+      minimum: spec.minimum ?? undefined,
+      maximum: spec.maximum ?? undefined,
     };
   }
 

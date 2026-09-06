@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "mixed_identity",
+      "text": "我叫明日香2，你还记得吗？",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "REAL_NAME",
+        "object_ref": "明日香2",
+        "object_type": "person",
+        "fact_kind": "explicit_fact",
+        "temporal_cue": "unspecified",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "我叫明日香2",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "negative_identity",
+      "text": "我不是明日香3。",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "REAL_NAME",
+        "object_ref": "明日香3",
+        "object_type": "person",
+        "fact_kind": "explicit_fact",
+        "temporal_cue": "unspecified",
+        "polarity": "negative",
+        "specificity": "concrete",
+        "evidence_text": "我不是明日香3。",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "one_meal",
+      "text": "今天吃了红烧肉，我觉得比上次好吃。",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "红烧肉",
+        "object_type": "food",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "one_off",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "今天吃了红烧肉，我觉得比上次好吃。",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "stable_preference",
+      "text": "我一直很喜欢爵士乐。",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "爵士乐",
+        "object_type": "topic",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "stable",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "我一直很喜欢爵士乐。",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "mixed_horizon",
+      "text": "我一直很喜欢 DIIV，最近又把《Oshin》听了几遍。",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "DIIV",
+        "object_type": "group",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "stable",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "我一直很喜欢 DIIV，最近又把《Oshin》听了几遍。",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "recent_preference",
+      "text": "我最近喜欢听环境音乐。",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "环境音乐",
+        "object_type": "topic",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "recent",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "我最近喜欢听环境音乐。",
+        "confidence": 0.96
+      }
+    },
+    {
+      "id": "hypothetical",
+      "text": "如果我喜欢重金属，你会推荐什么？",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "重金属",
+        "object_type": "topic",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "stable",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "evidence_text": "我喜欢重金属",
+        "confidence": 0.96
+      }
+    }
+  ]
+}

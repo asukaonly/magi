@@ -3,26 +3,32 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+from magi_plugin_sdk.context import PluginContext
+from magi_plugin_sdk.runtime import PluginConnection
+from magi_plugin_sdk.sources import SourceSpec
 
-from magi.awareness.ingestion_gateway import SensorIngestionGateway
+from magi.awareness.ingestion_gateway import SourceIngestionGateway
 from magi.awareness.kg_write_queue import KnowledgeGraphWriteQueue
-from magi.awareness.sensor_base import SensorBase
-from magi.awareness.sensor_output import (
+from magi.awareness.source_base import Source
+from magi.awareness.source_store import source_object_identity
+from magi.awareness.source_output import (
     ActivityFacet,
     ContentBlock,
-    SensorActivity,
-    SensorMemoryPolicy,
-    SensorNarration,
-    SensorOutputMetadata,
+    SourceActivity,
+    SourceMemoryPolicy,
+    SourceNarration,
+    SourceOutputMetadata,
 )
 from magi.config import AppConfig
 from magi.core.sqlite import sqlite_connection_async
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory.event_contracts import MemoryEvent
 from magi.memory.clear_generation import ensure_memory_clear_state
-from magi.memory.sensor_ingestion import SensorEventCommitter
+from magi.memory.source_ingestion import SourceEventCommitter
 from magi.timeline.handler import build_timeline_handler
 from magi.timeline.subscribers.kg_subscriber import KGSubscriber
 
@@ -64,10 +70,10 @@ class _FakeUnifiedMemory:
         self.edges.append(kwargs)
 
 
-class _FakePhotoLibrarySensor(SensorBase):
-    sensor_id = "timeline.photo_library"
+class _FakePhotoLibrarySource(Source):
+    source_id = "timeline.photo_library"
     source_type = "photo_library"
-    memory_policy = SensorMemoryPolicy(
+    memory_policy = SourceMemoryPolicy(
         retention_class="compressible",
         cognition_eligible=True,
         importance_bias=0.6,
@@ -78,7 +84,7 @@ class _FakePhotoLibrarySensor(SensorBase):
         summary = str(payload["summary"])
         return self._build_output(
             source_item_id=source_item_id,
-            activity=SensorActivity(
+            activity=SourceActivity(
                 source=ActivityFacet(
                     code="photo_library",
                     i18n_key="activity.source.photo_library",
@@ -90,7 +96,7 @@ class _FakePhotoLibrarySensor(SensorBase):
                     fallback="Captured",
                 ),
             ),
-            narration=SensorNarration(body=summary, title=str(payload["title"])),
+            narration=SourceNarration(body=summary, title=str(payload["title"])),
             occurred_at=float(payload["timestamp"]),
             content_blocks=[ContentBlock(kind="text", value=summary)],
             tags=["photo_library"],
@@ -98,39 +104,58 @@ class _FakePhotoLibrarySensor(SensorBase):
         )
 
     async def extract_metadata(self, payload):
-        return SensorOutputMetadata(
+        return SourceOutputMetadata(
             entities=[],
             tags=["photo_library"],
             relation_candidates=list(payload.get("relation_candidates", [])),
         )
 
 
-class _FakeSensorRegistry:
-    def resolve_domain_sensor(self, domain: str, source_type: str):
-        if domain != "timeline" or source_type != "photo_library":
+class _FakeSourceRegistry:
+    def __init__(self, tmp_path: Path) -> None:
+        connection = PluginConnection(
+            connection_id="photos-main", plugin_id="photo-library", display_name="Photos",
+            enabled=True,
+        )
+        context = PluginContext(connection, tmp_path / "state", tmp_path / "resources", Mock())
+        context.state_dir.mkdir(parents=True)
+        context.resources_dir.mkdir(parents=True)
+        self.source = _FakePhotoLibrarySource()
+        self.source.bind_plugin_context(connection=connection, context=context)
+
+    def resolve_source(self, source_type: str, *, connection_id: str):
+        if source_type != "photo_library" or connection_id != "photos-main":
             return None
-        spec = type(
-            "Spec",
-            (),
-            {"metadata": {"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}}},
-        )()
-        return ("photo-library", "timeline.photo_library", _FakePhotoLibrarySensor(), spec)
+        return (
+            "photo-library",
+            "timeline.photo_library",
+            self.source,
+            SourceSpec(
+                source_id="timeline.photo_library",
+                display_name="Photos",
+                domain="timeline",
+                metadata={"default_settings": {"enabled": True, "edge_whitelist": ["LIKES"]}},
+            ),
+        )
 
 
 class _FakePluginManager:
     def get_package(self, plugin_id: str):
         if plugin_id != "photo-library":
             return None
-        return type(
-            "Package", (), {"current_settings": {"sensors": {"photo_library": {"enabled": True}}}}
-        )()
+        return SimpleNamespace(manifest=SimpleNamespace(version="0.2.0"))
 
 
 @pytest.mark.asyncio
 async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_graph_edges(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The timeline handler commits memory before publishing graph projections."""
+    monkeypatch.setattr(
+        "magi.timeline.handler.get_runtime_paths",
+        lambda: SimpleNamespace(runtime_dir=tmp_path),
+    )
     memory = _FakeUnifiedMemory(tmp_path / "memory.db")
     async with sqlite_connection_async(memory.memory_db_path) as db:
         await ensure_memory_clear_state(db)
@@ -143,40 +168,49 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     kg_sub = KGSubscriber(event_bus=bus, kg_writer=kg_writer)
     await kg_sub.start()
 
-    gateway = SensorIngestionGateway(
+    gateway = SourceIngestionGateway(
         event_bus=bus,
-        memory_committer=SensorEventCommitter(unified_memory=memory),
+        memory_committer=SourceEventCommitter(unified_memory=memory),
     )
     handler = build_timeline_handler(
         AppConfig(),
         memory,
-        sensor_registry=_FakeSensorRegistry(),
+        source_registry=_FakeSourceRegistry(tmp_path),
         plugin_manager=_FakePluginManager(),
         ingestion_gateway=gateway,
     )
 
     try:
-        result = await handler(
-            {
-                "target_task_agent_id": "timeline-main",
-                "source_type": "photo_library",
-                "source_item_id": "photo-1",
-                "path": "/tmp/photos/asuka.jpg",
-                "title": "Asuka photo",
-                "summary": "I still like Asuka best.",
-                "timestamp": 1710000000.0,
-                "relation_candidates": [
-                    {
-                        "subject_id": "user:self",
-                        "subject_type": "user",
-                        "predicate": "LIKES",
-                        "object_id": "person:asuka",
-                        "object_type": "person",
-                        "confidence": 0.91,
-                    }
-                ],
-            }
-        )
+        request = {
+            "target_task_agent_id": "timeline-main",
+            "connection_id": "photos-main",
+            "source_type": "photo_library",
+            "source_change": {
+                "object_id": "photo-1",
+                "version": "v1",
+                "occurred_at": 1710000000.0,
+                "payload": {
+                    "source_item_id": "photo-1",
+                    "path": "/tmp/photos/asuka.jpg",
+                    "title": "Asuka photo",
+                    "summary": "I still like Asuka best.",
+                    "timestamp": 1710000000.0,
+                    "relation_candidates": [
+                        {
+                            "subject_id": "user:self",
+                            "subject_type": "user",
+                            "predicate": "LIKES",
+                            "object_id": "person:asuka",
+                            "object_type": "person",
+                            "confidence": 0.91,
+                        }
+                    ],
+                },
+            },
+        }
+        result = await handler(request)
+        assert await handler(request) == result
+
 
         # Memory is already committed; let the bus finish graph projection.
         await asyncio.sleep(0.05)
@@ -191,9 +225,19 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     stored = memory.l1.timeline_events[0]
     assert isinstance(stored, MemoryEvent)
     assert result["event_id"] == stored.event_id
-    assert stored.idempotency_key == "photo-1"
+    assert result["connection_id"] == "photos-main"
+    metadata = stored.metadata_json
+    assert metadata["source_id"] == "timeline.photo_library"
+    assert metadata["source_connection_id"] == "photos-main"
+    assert stored.idempotency_key == metadata["source_evidence_ref"]["resource_id"]
+    assert stored.source_item_id == source_object_identity(
+        "photos-main", "timeline.photo_library", "photo-1"
+    )
+    provenance = metadata["activity_snapshot"]["provenance"]
+    assert provenance["source_id"] == "timeline.photo_library"
+    assert provenance["source_connection_id"] == "photos-main"
     assert stored.source == "photo_library"
-    # build_sensor_projection composes content as "<activity display prefix>
+    # build_source_projection composes content as "<activity display prefix>
     # <narration body>", so the persisted L1 content carries the activity
     # prefix in front of the narration body.
     assert stored.content == "Photo Library Captured I still like Asuka best."

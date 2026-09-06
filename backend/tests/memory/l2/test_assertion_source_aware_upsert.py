@@ -338,7 +338,7 @@ async def test_repeated_inferred_conflict_never_crashes_or_promotes(l2_store_wit
             inferred_at=1_710_000_000.0,
         )
     )
-    # Same inferred conflict observed twice (sensors re-emit constantly).
+    # Same inferred conflict observed twice (sources re-emit constantly).
     for i, ev in enumerate(("evt-inferred-1", "evt-inferred-2")):
         await store.upsert_assertion_candidate(
             _candidate(

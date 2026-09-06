@@ -25,8 +25,8 @@ pub(super) fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value>
         .get::<_, Option<String>>(6)?
         .unwrap_or_else(|| "{}".into());
     let target_type = row.get::<_, String>(1)?;
-    let owner_kind = if target_type == "sensor_sync" {
-        "sensor_settings"
+    let owner_kind = if target_type == "source_sync" {
+        "source_settings"
     } else if target_type == "user_agent_task" {
         "agent_created"
     } else {
@@ -44,7 +44,7 @@ pub(super) fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value>
         "enabled": row.get::<_, i64>(7)? != 0,
         "metadata": serde_json::from_str::<Value>(&metadata).unwrap_or(json!({})),
         "job_id": row.get::<_, Option<String>>(8)?,
-        "editable": target_type != "sensor_sync",
+        "editable": target_type != "source_sync",
         "owner_kind": owner_kind,
     }))
 }

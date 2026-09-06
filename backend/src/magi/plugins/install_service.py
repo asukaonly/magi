@@ -709,9 +709,7 @@ class PluginInstallService:
         manifest = state.manifest
         valid = (
             manifest.kind == "library"
-            and state.enabled
             and state.trusted
-            and configured.enabled
             and configured.trusted
             and configured.install_origin == "registry"
             and configured.registry_source == snapshot.registry_url

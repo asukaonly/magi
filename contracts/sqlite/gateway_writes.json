@@ -53,8 +53,8 @@
     {
       "file": "crates/magi-gateway/src/api/schedules/write.rs",
       "operation": "update",
-      "table": "sensor_sync_jobs",
-      "purpose": "Mark native-cancelled sensor sync activity rows as cancelled."
+      "table": "source_sync_jobs",
+      "purpose": "Mark native-cancelled source sync activity rows as cancelled."
     },
     {
       "file": "crates/magi-gateway/src/api/tasks/write.rs",

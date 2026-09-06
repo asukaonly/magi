@@ -1928,7 +1928,7 @@ async def test_relationship_history_does_not_borrow_mutable_current_metadata(
         await db.execute(
             """
             UPDATE knowledge_graph
-            SET evidence_class = 'external_sensor', expires_at = ?,
+            SET evidence_class = 'external_source', expires_at = ?,
                 source_type = 'mutated_current', natural_summary = 'mutated current',
                 updated_at = ?
             WHERE triple_id = ?

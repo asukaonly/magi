@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import tempfile
-import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -41,16 +40,16 @@ def _build_client(monkeypatch):
     return TestClient(app), repository
 
 
-async def _seed_sensor_schedule(repository: ScheduleRepository) -> ScheduleDefinition:
+async def _seed_source_schedule(repository: ScheduleRepository) -> ScheduleDefinition:
     await repository.initialize()
     schedule = ScheduleDefinition(
-        schedule_id="sensor-sync:screen-time:screen_time",
-        target_type=ScheduledTargetType.SENSOR_SYNC,
+        schedule_id="source-sync:screen-time:screen_time",
+        target_type=ScheduledTargetType.SOURCE_SYNC,
         target_key="screen-time:screen_time",
         trigger=TriggerDefinition(TriggerType.INTERVAL, {"seconds": 300}),
         target_payload={"plugin_id": "screen-time", "source_type": "screen_time"},
         metadata={"plugin_id": "screen-time", "source_type": "screen_time"},
-        job_id="sensor-sync:screen-time:screen_time",
+        job_id="source-sync:screen-time:screen_time",
     )
     await repository.upsert_schedule(schedule)
     await repository.update_schedule_binding(
@@ -99,15 +98,15 @@ class _FakeSchedulerService:
         return self.result
 
 
-def test_list_schedules_includes_target_state_and_sensor_policy(monkeypatch):
+def test_list_schedules_includes_target_state_and_source_policy(monkeypatch):
     client, repository = _build_client(monkeypatch)
-    asyncio.run(_seed_sensor_schedule(repository))
+    asyncio.run(_seed_source_schedule(repository))
 
     response = client.get("/api/schedules", params={"enabled_only": True})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["schedules"][0]["schedule_id"] == "sensor-sync:screen-time:screen_time"
+    assert body["schedules"][0]["schedule_id"] == "source-sync:screen-time:screen_time"
     assert body["schedules"][0]["editable"] is False
     assert body["schedules"][0]["settings_link"] == {
         "section": "timeline",
@@ -119,9 +118,9 @@ def test_list_schedules_includes_target_state_and_sensor_policy(monkeypatch):
     assert body["schedules"][0]["target_state"]["next_run_at"] is None
 
 
-def test_sensor_schedule_update_is_rejected(monkeypatch):
+def test_source_schedule_update_is_rejected(monkeypatch):
     client, repository = _build_client(monkeypatch)
-    schedule = asyncio.run(_seed_sensor_schedule(repository))
+    schedule = asyncio.run(_seed_source_schedule(repository))
 
     response = client.patch(
         f"/api/schedules/{schedule.schedule_id}",
@@ -207,7 +206,7 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
             manual=True,
             started_at=1710000000.0,
         )
-        await repository.complete_execution_success(
+        await repository.complete_execution_result(
             execution_id,
             result=ScheduledExecutionResult(
                 success=True,
@@ -237,10 +236,9 @@ def test_list_schedules_uses_schedule_specific_execution_state(monkeypatch):
     assert schedules["memory-l3-summary:day"]["target_state"]["last_run_at"] is None
 
 
-# NOTE: test_activity_lists_and_cancels_queued_sensor_job was removed.
+# NOTE: test_activity_lists_and_cancels_queued_source_job was removed.
 # ff2bc71e reverted the Python schedule-activity additions ("Rust gateway
-# owns this route") and dropped ScheduleRepository.list_outstanding_sensor_sync_jobs;
+# owns this route") and dropped ScheduleRepository.list_outstanding_source_sync_jobs;
 # the test exercised that deliberately-reverted Python route. (The leftover
 # Python /activity handler still references the dropped repository method —
 # tracked separately as dead code.)
-

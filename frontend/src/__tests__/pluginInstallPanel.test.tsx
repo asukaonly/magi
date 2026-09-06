@@ -1,20 +1,37 @@
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { sensorsApi } from '../api/modules/sensors';
+import { sourcesApi } from '../api/modules/sources';
 import { pluginsApi } from '../api/modules/plugins';
 import { usePluginInstallPanelStore } from '../stores/pluginInstallPanel';
 import { PluginInstallPanel } from '../components/plugins/PluginInstallPanel';
 
 // Mirror the repo convention (see systemSuggestionSideCard.test.tsx): t() echoes
 // the key, so assertions target the i18n key strings rather than translations.
+const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'zh-CN' } }),
+  useTranslation: () => ({ t: translate, i18n: { language: 'zh-CN' } }),
 }));
 
 describe('PluginInstallPanel', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     usePluginInstallPanelStore.getState().closePanel();
+    vi.spyOn(pluginsApi, 'list').mockResolvedValue({ plugins: [
+      'calendar', 'agent-history', 'chrome-history', 'netease-music', 'chatgpt-history', 'platform-history', 'weixin',
+    ].map((pluginId) => ({ manifest: {
+      plugin_id: pluginId, name: pluginId, description: `${pluginId} description`,
+      settings_fields: [],
+      activation_flow: ['netease-music', 'chatgpt-history', 'platform-history', 'weixin'].includes(pluginId) ? null : {
+        title: pluginId, description: `${pluginId} description`, fields: [],
+        enabled_key: '', configured_key: '', authorize_on_confirm: false,
+      },
+    } })) } as any);
+    vi.spyOn(pluginsApi, 'createConnection').mockImplementation(async (pluginId) => ({
+      connection_id: `${pluginId}-connection`, plugin_id: pluginId, enabled: true, revision: 1,
+    } as any));
+    vi.spyOn(pluginsApi, 'getConnection').mockImplementation(async (pluginId, connectionId) => ({
+      connection_id: connectionId, plugin_id: pluginId, enabled: true, revision: 1,
+    } as any));
   });
 
   it('renders nothing while the store is closed', () => {
@@ -23,15 +40,15 @@ describe('PluginInstallPanel', () => {
   });
 
   it('runs a zero-config flow to a done state', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 's',
-            plugin_id: 'calendar',
+            plugin_id: 'calendar', connection_id: 'calendar-connection',
             activation_flow: {
-              enabled_key: 'sensors.s.enabled',
-              configured_key: 'sensors.s.configured',
+              enabled_key: 'sources.s.enabled',
+              configured_key: 'sources.s.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -42,12 +59,12 @@ describe('PluginInstallPanel', () => {
       } as any)
       .mockResolvedValue({
         sources: [
-          { source_name: 's', plugin_id: 'calendar', last_success: 'x', last_result_count: 9 },
+          { source_name: 's', plugin_id: 'calendar', connection_id: 'calendar-connection', last_success: 'x', last_result_count: 9 },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({ queued: true, connection_id: 'calendar-connection', source_name: 's' } as any);
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockResolvedValue({
+      connection_id: 'calendar-connection',
       source_name: 's',
       l1_event_count: 9,
       l2_ready: true,
@@ -64,7 +81,7 @@ describe('PluginInstallPanel', () => {
     render(<PluginInstallPanel />);
     usePluginInstallPanelStore.getState().openPanel('calendar', { onDone });
 
-    // The flow polls /sensors/status once at SYNC_POLL_MS (1500ms) before the
+    // The flow polls /sources/status once at SYNC_POLL_MS (1500ms) before the
     // sync step completes, so allow generous headroom over the default 5s. The
     // memory step now shows the organized-progress detail; assert it plus the
     // terminal "Done" close button (only rendered once the flow settles).
@@ -87,15 +104,15 @@ describe('PluginInstallPanel', () => {
   }, 12000);
 
   it('disables the close button while memory is still importing', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 'agent_history',
-            plugin_id: 'agent-history',
+            plugin_id: 'agent-history', connection_id: 'agent-history-connection',
             activation_flow: {
-              enabled_key: 'sensors.agent_history.enabled',
-              configured_key: 'sensors.agent_history.configured',
+              enabled_key: 'sources.agent_history.enabled',
+              configured_key: 'sources.agent_history.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -108,19 +125,18 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 'agent_history',
-            plugin_id: 'agent-history',
+            plugin_id: 'agent-history', connection_id: 'agent-history-connection',
             last_success: 'x',
             last_result_count: 34,
           },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({
+      queued: true, connection_id: 'agent-history-connection',
       source_name: 'agent_history',
     } as any);
     let resolveReadiness: ((value: any) => void) | null = null;
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockImplementation(
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveReadiness = resolve;
@@ -141,7 +157,7 @@ describe('PluginInstallPanel', () => {
     expect(screen.getByRole('button', { name: 'pluginInstallPanel.close' })).toBeDisabled();
 
     await act(async () => {
-      resolveReadiness?.({
+      resolveReadiness?.({ connection_id: 'agent-history-connection',
         source_name: 'agent_history',
         l1_event_count: 34,
         l2_ready: true,
@@ -159,16 +175,16 @@ describe('PluginInstallPanel', () => {
   }, 12000);
 
   it('clears the previous flow before opening another plugin', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             description: 'Chrome desc',
             activation_flow: {
-              enabled_key: 'sensors.chrome_history.enabled',
-              configured_key: 'sensors.chrome_history.configured',
+              enabled_key: 'sources.chrome_history.enabled',
+              configured_key: 'sources.chrome_history.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -181,7 +197,7 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             description: 'Chrome desc',
             last_success: 'chrome-done',
             last_result_count: 9,
@@ -192,11 +208,11 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 'agent_history',
-            plugin_id: 'agent-history',
+            plugin_id: 'agent-history', connection_id: 'agent-history-connection',
             description: 'Agent desc',
             activation_flow: {
-              enabled_key: 'sensors.agent_history.enabled',
-              configured_key: 'sensors.agent_history.configured',
+              enabled_key: 'sources.agent_history.enabled',
+              configured_key: 'sources.agent_history.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -205,12 +221,12 @@ describe('PluginInstallPanel', () => {
           },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({
+      queued: true, connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
     } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockResolvedValue({
+      connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
       l1_event_count: 9,
       l2_ready: true,
@@ -245,15 +261,15 @@ describe('PluginInstallPanel', () => {
   }, 12000);
 
   it('keeps first-context memory progress scoped to the latest sync count', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             activation_flow: {
-              enabled_key: 'sensors.chrome_history.enabled',
-              configured_key: 'sensors.chrome_history.configured',
+              enabled_key: 'sources.chrome_history.enabled',
+              configured_key: 'sources.chrome_history.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -266,18 +282,18 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             last_success: 'x',
             last_result_count: 12,
           },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({
+      queued: true, connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
     } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockResolvedValue({
+      connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
       l1_event_count: 122,
       l2_ready: true,
@@ -303,15 +319,15 @@ describe('PluginInstallPanel', () => {
   }, 12000);
 
   it('uses first-context copy when onboarding only prepares initial context', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             activation_flow: {
-              enabled_key: 'sensors.chrome_history.enabled',
-              configured_key: 'sensors.chrome_history.configured',
+              enabled_key: 'sources.chrome_history.enabled',
+              configured_key: 'sources.chrome_history.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -324,18 +340,18 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 'chrome_history',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             last_success: 'x',
             last_result_count: 125,
           },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
-      queued: true,
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({
+      queued: true, connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
     } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockResolvedValue({
+      connection_id: 'chrome-history-connection',
       source_name: 'chrome_history',
       l1_event_count: 125,
       l2_ready: false,
@@ -366,21 +382,22 @@ describe('PluginInstallPanel', () => {
     );
     expect(onDone).toHaveBeenCalledWith({
       pluginId: 'chrome-history',
+      connectionId: 'chrome-history-connection',
       sourceName: 'chrome_history',
       firstContextCount: 125,
     });
   }, 12000);
 
   it('explains raw history reads that produce no new memory input', async () => {
-    vi.spyOn(sensorsApi, 'getStatus')
+    vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
           {
             source_name: 's',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             activation_flow: {
-              enabled_key: 'sensors.s.enabled',
-              configured_key: 'sensors.s.configured',
+              enabled_key: 'sources.s.enabled',
+              configured_key: 'sources.s.configured',
               fields: [],
               authorize_on_confirm: false,
             },
@@ -394,16 +411,16 @@ describe('PluginInstallPanel', () => {
         sources: [
           {
             source_name: 's',
-            plugin_id: 'chrome-history',
+            plugin_id: 'chrome-history', connection_id: 'chrome-history-connection',
             last_success: 'x',
             last_result_count: 0,
             last_raw_result_count: 7,
           },
         ],
       } as any);
-    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+    vi.spyOn(sourcesApi, 'requestSync').mockResolvedValue({ queued: true, connection_id: 'chrome-history-connection', source_name: 's' } as any);
+    vi.spyOn(sourcesApi, 'getMemoryReadiness').mockResolvedValue({
+      connection_id: 'chrome-history-connection',
       source_name: 's',
       l1_event_count: 0,
       l2_ready: false,
@@ -431,7 +448,9 @@ describe('PluginInstallPanel', () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       plugins: [
         {
-          plugin_id: 'netease-music',
+          protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'trusted_process',
+          settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
+          plugin_id: 'netease-music', connection_id: 'netease-music-connection',
           name: 'NetEase',
           name_i18n: {},
           version: '0.1.2',
@@ -447,8 +466,8 @@ describe('PluginInstallPanel', () => {
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
       .mockResolvedValue({} as any);
     // After install the flow fetches status; no activation flow → it short-circuits.
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
-      sources: [{ source_name: 's', plugin_id: 'netease-music', activation_flow: null }],
+    vi.spyOn(sourcesApi, 'getStatus').mockResolvedValue({
+      sources: [{ source_name: 's', plugin_id: 'netease-music', connection_id: 'netease-music-connection', activation_flow: null }],
     } as any);
 
     render(<PluginInstallPanel />);
@@ -476,11 +495,13 @@ describe('PluginInstallPanel', () => {
     );
   });
 
-  it('installs and enables a history importer without syncing a sensor', async () => {
+  it('installs and enables a history importer without syncing a source', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       plugins: [
         {
-          plugin_id: 'chatgpt-history',
+          protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'trusted_process',
+          settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
+          plugin_id: 'chatgpt-history', connection_id: 'chatgpt-history-connection',
           name: 'ChatGPT history',
           name_i18n: {},
           version: '0.1.0',
@@ -495,10 +516,9 @@ describe('PluginInstallPanel', () => {
     const installSpy = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
       .mockResolvedValue({} as any);
-    const statusSpy = vi.spyOn(sensorsApi, 'getStatus');
-    const enableSpy = vi.spyOn(pluginsApi, 'enable').mockResolvedValue({} as any);
-    const updateSettingsSpy = vi.spyOn(pluginsApi, 'updateSettings');
-    const syncSpy = vi.spyOn(sensorsApi, 'requestSync');
+    const statusSpy = vi.spyOn(sourcesApi, 'getStatus');
+    const connectionSpy = vi.mocked(pluginsApi.createConnection);
+    const syncSpy = vi.spyOn(sourcesApi, 'requestSync');
     const onDone = vi.fn();
 
     render(<PluginInstallPanel />);
@@ -526,16 +546,18 @@ describe('PluginInstallPanel', () => {
       expect.anything(),
     );
     expect(statusSpy).not.toHaveBeenCalled();
-    expect(enableSpy).toHaveBeenCalledWith('chatgpt-history');
-    expect(updateSettingsSpy).not.toHaveBeenCalled();
+    expect(connectionSpy).toHaveBeenCalledWith('chatgpt-history', expect.objectContaining({ enabled: true }));
+    expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ connectionId: 'chatgpt-history-connection' }));
     expect(syncSpy).not.toHaveBeenCalled();
   });
 
-  it('retries only enable after a history importer was installed successfully', async () => {
+  it('retries connection creation after a history importer was installed successfully', async () => {
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       plugins: [
         {
-          plugin_id: 'platform-history',
+          protocol_version: 2, min_sdk_version: '0.2.0', execution_mode: 'trusted_process',
+          settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
+          plugin_id: 'platform-history', connection_id: 'platform-history-connection',
           name: 'Platform history',
           name_i18n: {},
           version: '0.1.0',
@@ -550,10 +572,10 @@ describe('PluginInstallPanel', () => {
     const installSpy = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
       .mockResolvedValue({} as any);
-    const enableSpy = vi
-      .spyOn(pluginsApi, 'enable')
+    const connectionSpy = vi
+      .spyOn(pluginsApi, 'createConnection')
       .mockRejectedValueOnce(new Error('enable_failed'))
-      .mockResolvedValueOnce({} as any);
+      .mockResolvedValueOnce({ connection_id: 'platform-history-connection', plugin_id: 'platform-history', enabled: true, revision: 1 } as any);
     const onDone = vi.fn();
 
     render(<PluginInstallPanel />);
@@ -577,7 +599,7 @@ describe('PluginInstallPanel', () => {
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(installSpy).toHaveBeenCalledTimes(1);
-    expect(enableSpy).toHaveBeenCalledTimes(2);
+    expect(connectionSpy).toHaveBeenCalledTimes(2);
   });
 
   it('does not allow consent when the requested plugin is absent from the registry', async () => {
@@ -629,8 +651,8 @@ describe('PluginInstallPanel', () => {
   });
 
   it('shows the unsupported message when the source has no activation flow', async () => {
-    vi.spyOn(sensorsApi, 'getStatus').mockResolvedValue({
-      sources: [{ source_name: 's', plugin_id: 'weixin', activation_flow: null }],
+    vi.spyOn(sourcesApi, 'getStatus').mockResolvedValue({
+      sources: [{ source_name: 's', plugin_id: 'weixin', connection_id: 'weixin-connection', activation_flow: null }],
     } as any);
 
     render(<PluginInstallPanel />);

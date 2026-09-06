@@ -153,12 +153,15 @@ def _total_processing_pending(backlog: dict[str, Any]) -> int:
 
 @memory_router.get("/dashboard")
 async def get_memory_dashboard(
-    pending_limit: int = Query(default=8, ge=1, le=25),
+    pending_limit: int = Query(default=8, ge=1, le=500),
+    pending_offset: int = Query(default=0, ge=0),
 ) -> dict[str, Any]:
     """Return the user-facing memory overview dashboard read model."""
     stores = _resolve_dashboard_stores()
-    snapshot = await _collect_dashboard_snapshot(stores, pending_limit)
-    return _build_dashboard_response(stores, snapshot, pending_limit)
+    snapshot = await _collect_dashboard_snapshot(stores, pending_limit, pending_offset)
+    response = _build_dashboard_response(stores, snapshot, pending_limit)
+    response["pending_assertions"]["offset"] = pending_offset
+    return response
 
 
 def _resolve_dashboard_stores() -> _DashboardStores:
@@ -182,6 +185,7 @@ def _resolve_dashboard_stores() -> _DashboardStores:
 async def _collect_dashboard_snapshot(
     stores: _DashboardStores,
     pending_limit: int,
+    pending_offset: int = 0,
 ) -> _DashboardSnapshot:
     unified_memory = stores.unified_memory
     l1 = stores.l1
@@ -217,7 +221,7 @@ async def _collect_dashboard_snapshot(
         _projection_backlog_coro(unified_memory),
         _source_counts_coro(l1),
         _pending_assertion_count_coro(l2),
-        _pending_assertion_items_coro(l2, pending_limit),
+        _pending_assertion_items_coro(l2, pending_limit, pending_offset),
         l1.count_events(start_time=today_start) if l1 else _zero(),
         _l2_today_assertion_count_coro(l2, today_start),
         l3.count_summaries(start_time=today_start) if l3 else _zero(),
@@ -274,7 +278,7 @@ def _pending_assertion_count_coro(l2: Any):
     )
 
 
-def _pending_assertion_items_coro(l2: Any, pending_limit: int):
+def _pending_assertion_items_coro(l2: Any, pending_limit: int, offset: int = 0):
     if not l2:
         return _empty_list()
     return l2.list_tom_assertions(
@@ -282,7 +286,7 @@ def _pending_assertion_items_coro(l2: Any, pending_limit: int):
         include_expired=False,
         include_inactive=False,
         limit=pending_limit,
-        offset=0,
+        offset=offset,
     )
 
 
@@ -360,7 +364,7 @@ def _build_today_delta(snapshot: _DashboardSnapshot) -> dict[str, Any]:
     l2_today_assertion_count = int(snapshot.l2_today_assertion_count)
     l3_today_count = int(snapshot.l3_today_count)
     return {
-        "total_memories": l1_today_count + l2_today_assertion_count + l3_today_count,
+        "stored_records": l1_today_count + l2_today_assertion_count + l3_today_count,
         "l1_events": l1_today_count,
         "l2_assertions": l2_today_assertion_count,
         "l3_summaries": l3_today_count,

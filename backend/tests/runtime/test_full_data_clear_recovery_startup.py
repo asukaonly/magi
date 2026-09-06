@@ -16,7 +16,7 @@ from magi.bootstrap.lifecycle import ModuleLifecycleOrchestrator
 from magi.chat.contracts import ChatSessionRecord
 from magi.config.models import AppConfig
 from magi.core.container import get_container
-from magi.events.contracts import RuntimeCommandType, SensorSyncCommand
+from magi.events.contracts import RuntimeCommandType, SourceSyncCommand
 from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
 
 FULL_CLEAR_TRANSACTION_ID = "clear-recovery-startup-test"
@@ -49,15 +49,15 @@ async def _seed_interrupted_runtime(
         db_path=str(runtime_paths.message_queue_db_path),
     )
     await queue.start()
-    command_id = await queue.enqueue_sensor_sync(
-        SensorSyncCommand(
+    command_id = await queue.enqueue_source_sync(
+        SourceSyncCommand(
             source="test",
             source_name="history",
         )
     )
     claimed = await queue.claim_next(
         consumer_name="crashed-worker",
-        command_types=(RuntimeCommandType.SENSOR_SYNC,),
+        command_types=(RuntimeCommandType.SOURCE_SYNC,),
     )
     assert claimed is not None
     assert claimed.command_id == command_id
@@ -134,7 +134,7 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
         assert queue is not None
         claimed_before_clear = await queue.claim_next(
             consumer_name="must-not-recover",
-            command_types=(RuntimeCommandType.SENSOR_SYNC,),
+            command_types=(RuntimeCommandType.SOURCE_SYNC,),
         )
         assert claimed_before_clear is None
 
@@ -147,7 +147,7 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
             context.agent_runtime.background_task_manager,
             BackgroundTaskFullClearOwner,
         )
-        assert context.agent_runtime.sensor_sync_executor is None
+        assert context.agent_runtime.source_sync_executor is None
         assert context.memory.unified_memory is not None
         assert context.memory.memory_integration is not None
         assert context.memory.memory_integration._running is False
@@ -187,7 +187,7 @@ async def test_pending_startup_is_clear_only_and_completes_the_real_clear(
         assert (
             await queue.claim_next(
                 consumer_name="after-clear",
-                command_types=(RuntimeCommandType.SENSOR_SYNC,),
+                command_types=(RuntimeCommandType.SOURCE_SYNC,),
             )
             is None
         )

@@ -21,12 +21,6 @@ from .story_feed_projection import (
     prepare_story_feed_items,
 )
 
-# Extra rows fetched per category to allow cross-category interleaving:
-# pending-first reordering can pull older insights ahead of newer temporal
-# rows, so the visible window's top entries may live deeper in either feed.
-_INTERLEAVE_HEADROOM = 50
-
-
 _memory_override: Any = None
 
 
@@ -89,13 +83,15 @@ async def _list_story_feed(
     limit: int,
     offset: int,
     surface: Literal["all", "summary"],
-    group: Literal["periodic", "observations", "tasks", "other"] | None,
+    group: Literal["periodic", "observations", "tasks", "other", "memory_update"] | None,
+    review_state: str | None = None,
 ) -> dict[str, Any]:
     unified = _get_memory()
     if unified is None or unified.l3 is None:
         return _empty_story_response(limit, offset)
 
-    fetch_limit = limit + offset + _INTERLEAVE_HEADROOM
+    # Visibility, deduplication and pending order must precede pagination.
+    fetch_limit = None
     insights, temporal = await asyncio.gather(
         unified.l3.list_summaries_by_category(
             summary_categories=INSIGHT_CATEGORIES,
@@ -110,10 +106,11 @@ async def _list_story_feed(
     combined = prepare_story_feed_items([*insights, *temporal])
     stats = build_story_feed_stats(combined)
     visible = filter_story_feed_items(combined, surface=surface, group=group)
+    if review_state is not None:
+        visible = [item for item in visible if item.get("review_state") == review_state]
     sliced = visible[offset : offset + limit]
     return {
         "items": sliced,
-        # Bounded by fetch cap; treat as lower-bound, not store total.
         "total": len(visible),
         "limit": limit,
         "offset": offset,
@@ -248,20 +245,16 @@ def build_router() -> APIRouter:
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
         surface: Literal["all", "summary"] = Query(default="all"),
-        group: Literal["periodic", "observations", "tasks", "other"] | None = Query(default=None),
+        group: Literal["periodic", "observations", "tasks", "other", "memory_update"] | None = Query(default=None),
+        review_state: Literal["pending_confirmation", "confirmed", "neutral", "archived"] | None = Query(default=None),
     ) -> dict[str, Any]:
-        """Return a paginated unified narrative feed.
-
-        ``total`` is the count of items the server merged for this request,
-        bounded by the per-category fetch cap (``limit + offset + _INTERLEAVE_HEADROOM``).
-        Treat it as a lower bound, not a true store-wide total. Clients
-        that need to detect exhaustion should check ``len(items) < limit``.
-        """
+        """Filter the complete visible projection before slicing and counting."""
         return await _list_story_feed(
             limit=limit,
             offset=offset,
             surface=surface,
             group=group,
+            review_state=review_state,
         )
 
     @router.get("/stories/{summary_id}/evidence")

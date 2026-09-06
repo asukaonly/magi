@@ -1,17 +1,17 @@
-"""Phase 5 of C: TimelineSubscriber projects SensorEventEmitted to timeline read model."""
+"""Phase 5 of C: TimelineSubscriber projects SourceEventEmitted to timeline read model."""
 from __future__ import annotations
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from magi.events.events import Event, EventTypes
-from magi.events.domain_payloads import SensorEventEmitted, TaskContext
+from magi.events.domain_payloads import SourceEventEmitted, TaskContext
 from magi.timeline.subscribers.timeline_subscriber import TimelineSubscriber
 
 
 def _make_payload(**overrides):
     base = dict(
-        sensor_name="screen_time",
+        source_name="screen_time",
         payload={
             "source_type": "external_activity",
             "source_item_id": "x",
@@ -25,7 +25,7 @@ def _make_payload(**overrides):
             "content_blocks": [],
         },
         context=TaskContext(None, None, None, "u"),
-        sensor_id="screen_time",
+        source_id="screen_time",
         output_dict={
             "source_type": "external_activity",
             "source_item_id": "x",
@@ -45,7 +45,7 @@ def _make_payload(**overrides):
         owner_user_id="u",
     )
     base.update(overrides)
-    return SensorEventEmitted(**base)
+    return SourceEventEmitted(**base)
 
 
 @pytest.fixture
@@ -64,11 +64,11 @@ def fake_adapter():
 
 
 @pytest.mark.asyncio
-async def test_subscribes_to_sensor_event_emitted(fake_bus, fake_adapter):
+async def test_subscribes_to_source_event_emitted(fake_bus, fake_adapter):
     sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
     await sub.start()
     fake_bus.subscribe.assert_awaited_once()
-    assert fake_bus.subscribe.await_args.args[0] == EventTypes.SENSOR_EVENT_EMITTED
+    assert fake_bus.subscribe.await_args.args[0] == EventTypes.SOURCE_EVENT_EMITTED
 
 
 @pytest.mark.asyncio
@@ -76,7 +76,7 @@ async def test_dispatches_timeline_event_with_envelope_id(fake_bus, fake_adapter
     sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
     await sub.start()
     payload = _make_payload()
-    await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-XX"))
+    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-XX"))
     await sub.drain()
     fake_adapter.on_timeline_event.assert_awaited_once()
     timeline_event = fake_adapter.on_timeline_event.await_args.args[0]
@@ -89,7 +89,7 @@ async def test_handler_failure_does_not_break_subscriber(fake_bus, fake_adapter)
     sub = TimelineSubscriber(event_bus=fake_bus, timeline_adapter=fake_adapter)
     await sub.start()
     payload = _make_payload()
-    await sub._on_event(Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-1"))
+    await sub._on_event(Event(type=EventTypes.SOURCE_EVENT_EMITTED, data=payload, event_id="evt-1"))
     await sub.drain()  # must not raise
 
 

@@ -995,7 +995,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
     task_agent_manager = (
         agent_runtime.get_task_agent_manager() if agent_runtime is not None else None
     )
-    sensor_hub = agent_runtime.get_sensor_hub() if agent_runtime is not None else None
+    source_hub = agent_runtime.get_source_hub() if agent_runtime is not None else None
     post_turn_understanding_service = (
         agent_runtime.get_post_turn_understanding_service()
         if agent_runtime is not None
@@ -1015,7 +1015,7 @@ def get_chat_forgetting_service() -> ChatForgettingService:
         runtime=ChatRuntimeForgettingCoordinator(
             runtime_command_queue=runtime_command_queue,
             task_agent_manager=task_agent_manager,
-            sensor_hub=sensor_hub,
+            source_hub=source_hub,
             chat_read_service=chat_read_service,
             delivery_scheduler=ChatUserTurnDeliveryScheduler(
                 chat_store=chat_store,

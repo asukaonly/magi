@@ -23,12 +23,12 @@ from ..agent.lifecycle import AgentRuntimeModule, AgentScheduleRegistrationModul
 from ..chat import get_chat_read_service
 from ..chat.task_agent.factory import create_chat_agent_factory
 from ..awareness.lifecycle import (
-    SensorModule,
-    SensorScheduleRegistrationModule,
-    SensorStateUpdateSubscriberModule,
-    SensorSyncExecutorModule,
+    SourceModule,
+    SourceScheduleRegistrationModule,
+    SourceStateUpdateSubscriberModule,
+    SourceSyncExecutorModule,
 )
-from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
+from ..awareness.scheduler_contrib import request_source_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
@@ -226,7 +226,7 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
         PluginSystemModule(
             context,
             tool_registry=tool_registry,
-            request_sensor_schedule_refresh=request_sensor_schedule_refresh,
+            request_source_schedule_refresh=request_source_schedule_refresh,
         ),
         LLMRuntimeModule(context),
     ]
@@ -268,7 +268,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
         ),
         MCPModule(context),
         PersonalityModule(context),
-        SensorModule(context),
+        SourceModule(context),
         ContextModule(context),
         AgentRuntimeModule(
             context,
@@ -292,10 +292,10 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         TimelineModule(context),
         TimelineSubscriberModule(context),
         KGSubscriberModule(context),
-        SensorStateUpdateSubscriberModule(context),
+        SourceStateUpdateSubscriberModule(context),
         SchedulerModule(context),
         AgentScheduleRegistrationModule(context),
-        SensorScheduleRegistrationModule(context),
+        SourceScheduleRegistrationModule(context),
     ]
 
 
@@ -322,7 +322,7 @@ def _build_exports_and_maintenance_modules(
         ChannelsModule(context),
         OutreachModule(context),
         SchedulerActivationModule(context),
-        SensorSyncExecutorModule(context),
+        SourceSyncExecutorModule(context),
     ]
 
 
@@ -336,13 +336,13 @@ _RUNTIME_WORKER_PHASE_SPECS: tuple[_RuntimeWorkerPhaseSpec, ...] = (
     _RuntimeWorkerPhaseSpec(
         phase_id="stateful_services",
         title="Stateful Services",
-        description="Shared stores, tool/skill runtime, personality state, sensors, context assembly, and agent runtime objects.",
+        description="Shared stores, tool/skill runtime, personality state, sources, context assembly, and agent runtime objects.",
         build_modules=_build_stateful_service_modules,
     ),
     _RuntimeWorkerPhaseSpec(
         phase_id="processing",
         title="Processors And Services",
-        description="Long-running processors, timeline orchestration, scheduler services, and sensor execution loops.",
+        description="Long-running processors, timeline orchestration, scheduler services, and source execution loops.",
         build_modules=_build_processing_modules,
     ),
     _RuntimeWorkerPhaseSpec(

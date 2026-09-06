@@ -6,7 +6,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
@@ -29,6 +29,7 @@ class NotificationItemModel(BaseModel):
 class ListResponse(BaseModel):
     items: list[NotificationItemModel]
     unread_count: int
+    total: int
 
 
 class MarkReadRequest(BaseModel):
@@ -95,7 +96,11 @@ def _list_notifications_endpoint(
     service_dep: Callable[[], NotificationService],
     profile_conflict_suppression_dep: "Callable[[], Awaitable[bool]] | None",
 ):
-    async def list_notifications() -> ListResponse:
+    async def list_notifications(
+        limit: int = Query(default=50, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+        profile_conflicts_only: bool = Query(default=False),
+    ) -> ListResponse:
         suppress_profile_conflicts = (
             await profile_conflict_suppression_dep()
             if profile_conflict_suppression_dep is not None
@@ -104,9 +109,10 @@ def _list_notifications_endpoint(
         result = service_dep().list(
             _USER_ID,
             exclude_profile_conflicts=suppress_profile_conflicts,
+            limit=limit, offset=offset, profile_conflicts_only=profile_conflicts_only,
         )
         items = [_notification_item_model(row) for row in result["items"]]
-        return ListResponse(items=items, unread_count=result["unread_count"])
+        return ListResponse(items=items, unread_count=result["unread_count"], total=result["total"])
 
     return list_notifications
 

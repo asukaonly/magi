@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.domain_payloads import (
     AssistantResponseProduced,
-    SensorEventEmitted,
+    SourceEventEmitted,
     SkillInvocationCompleted,
     SpanCompleted,
     TaskCompleted,
@@ -28,7 +28,7 @@ from magi.events.domain_payloads import (
 from magi.events.payload_helpers import PayloadTypeError, expect_payload
 
 from .event_contracts import MemoryEvent, normalize_runtime_event
-from .sensor_event_projection import build_sensor_memory_event
+from .source_event_projection import build_source_memory_event
 
 logger = logging.getLogger(__name__)
 
@@ -151,9 +151,9 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
     )
 
 
-def _from_sensor(event: Event) -> MemoryEvent:
-    p: SensorEventEmitted = event.data
-    return build_sensor_memory_event(
+def _from_source(event: Event) -> MemoryEvent:
+    p: SourceEventEmitted = event.data
+    return build_source_memory_event(
         p,
         event_id=event.event_id,
         correlation_id=event.correlation_id,
@@ -408,7 +408,7 @@ _DISPATCH: dict[str, EventTranslator] = {
     EventTypes.SPAN_COMPLETED: _from_span_completed,
     EventTypes.USER_MESSAGE_RECEIVED: _from_user_message,
     EventTypes.ASSISTANT_RESPONSE_PRODUCED: _from_assistant_response,
-    EventTypes.SENSOR_EVENT_EMITTED: _from_sensor,
+    EventTypes.SOURCE_EVENT_EMITTED: _from_source,
     EventTypes.TASK_STARTED: _from_task_started,
     EventTypes.TASK_COMPLETED: _from_task_completed,
     EventTypes.TASK_FAILED: _from_task_failed,

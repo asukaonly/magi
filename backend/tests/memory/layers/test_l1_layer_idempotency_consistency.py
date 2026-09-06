@@ -13,8 +13,8 @@ def _make_event(*, event_id: str, idempotency_key: str = "k1"):
     ev = MagicMock()
     ev.event_id = event_id
     ev.idempotency_key = idempotency_key
-    ev.source = "sensor"
-    ev.event_type = "SENSOR_EVENT"
+    ev.source = "source"
+    ev.event_type = "SOURCE_EVENT"
     # ingest_target.includes_l1 = True
     ev.ingest_target.includes_l1 = True
     return ev

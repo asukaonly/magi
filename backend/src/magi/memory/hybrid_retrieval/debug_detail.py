@@ -13,7 +13,7 @@ import logging
 from typing import Any, Iterable
 
 from magi.utils.diagnostic_logging import full_content_logging_enabled
-from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.events.source_activity_snapshot import activity_snapshot_from_metadata
 
 
 DETAIL_LIMIT = 120
@@ -158,7 +158,7 @@ def _metadata_summary(metadata_value: Any) -> dict[str, Any] | None:
     )
     return _drop_empty({
         "plugin_id": metadata.get("plugin_id"),
-        "sensor_id": metadata.get("sensor_id"),
+        "source_id": metadata.get("source_id"),
         "photo_count": provenance.get("photo_count"),
         "location_name": provenance.get("location_name"),
         "apple_photos_place_name": provenance.get("apple_photos_place_name"),

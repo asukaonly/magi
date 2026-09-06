@@ -57,6 +57,7 @@ class L2StoreReconcileMixin(
         if not assertions:
             return []
 
+        keys = await self.resolve_independent_evidence_keys([str(event_id) for assertion in assertions for event_id in assertion.get("evidence_events", [])])
         normalized_entity_type = entity_type or assertions[0]["entity_type"]
         writes = [
             self._reconciled_assertion_write(
@@ -64,6 +65,7 @@ class L2StoreReconcileMixin(
                 entity_id=entity_id,
                 entity_type=normalized_entity_type,
                 evidence_timestamps=evidence_timestamps,
+                independent_keys=keys,
             )
             for assertion in assertions
         ]
@@ -102,6 +104,7 @@ class L2StoreReconcileMixin(
         entity_id: str,
         entity_type: str,
         evidence_timestamps: dict[str, float] | None,
+        independent_keys: dict[str, str],
     ) -> _ReconciledAssertionWrite:
         evidence_events = [str(item) for item in assertion.get("evidence_events", [])]
         first_seen, last_seen = _assertion_seen_bounds(
@@ -113,7 +116,7 @@ class L2StoreReconcileMixin(
         status, confidence, stability_kind = self._derive_reconcile_state(
             current_state=str(assertion["validation_state"]),
             current_confidence=float(assertion["confidence_score"]),
-            evidence_count=len(set(evidence_events)),
+            evidence_count=len({independent_keys[event_id] for event_id in evidence_events if event_id in independent_keys}),
             time_span_hours=time_span_hours,
             trait_name=str(assertion["trait_name"]),
             user_feedback=assertion.get("user_feedback"),

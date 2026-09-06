@@ -3,16 +3,18 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { MemoryOverviewPage } from '@/pages/memory-pages';
+import { buildSourceRows } from '@/pages/memory-pages/overview/overviewModel';
+import type { SourceStatusItem } from '@/api/modules/sources';
 import { memoryApi } from '@/api/modules/memory';
-import { sensorsApi } from '@/api/modules/sensors';
+import { sourcesApi } from '@/api/modules/sources';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {
       const translations: Record<string, string> = {
-        'memory.overview.metrics.totalMemories': 'Total memories',
-        'memory.overview.metrics.understanding': 'About you',
+        'memory.overview.metrics.sourceRecords': 'Source records',
+        'memory.overview.metrics.profileCandidates': 'About you',
         'memory.overview.metrics.summaries': 'Reviews & summaries',
         'memory.overview.metrics.sources': 'Active sources',
         'memory.overview.metrics.storage': 'Storage',
@@ -111,8 +113,8 @@ vi.mock('@/api/modules/memory', async () => {
   };
 });
 
-vi.mock('@/api/modules/sensors', () => ({
-  sensorsApi: {
+vi.mock('@/api/modules/sources', () => ({
+  sourcesApi: {
     getStatus: vi.fn(),
   },
 }));
@@ -131,7 +133,7 @@ const dashboardPayload = {
     l2: { relation_count: 4, assertion_count: 6 },
     l3: { summary_count: 5 },
     l4: { skill_count: 1, open_circuit_breakers: 0 },
-    total_memories: 28,
+    stored_records: 28,
     disk_usage_bytes: 1536,
     attention: { pending_assertions: 1, open_circuit_breakers: 0 },
   },
@@ -168,7 +170,7 @@ const dashboardPayload = {
   },
   deltas: {
     today: {
-      total_memories: 9,
+      stored_records: 9,
       l1_events: 4,
       l2_assertions: 3,
       l3_summaries: 2,
@@ -300,7 +302,7 @@ const storyPayload = {
 
 const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
 
-const sensorPayload = {
+const sourcePayload = {
   sources: [
     {
       source_name: 'chrome-history',
@@ -388,7 +390,7 @@ describe('MemoryOverviewPage', () => {
       version: 2,
       assertion_id: 'assert-review-1',
     });
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue(sourcePayload as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as any);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as any);
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
@@ -409,6 +411,46 @@ describe('MemoryOverviewPage', () => {
     });
   });
 
+  it('keeps semantic event totals separate from source runtime status and plugin identity', () => {
+    const source: SourceStatusItem = {
+      ...sourcePayload.sources[0],
+      source_name: 'browser_history',
+      contribution_id: 'chromium.history',
+      plugin_id: 'chromium',
+      connection_id: 'browser-work',
+      connection_display_name: 'Work',
+      connection_revision: 2,
+      last_result_count: 3,
+      last_sync_at: 1710004000,
+    };
+    const rows = buildSourceRows([
+      { source: 'browser_history', event_count: 17, avg_importance: 0.5, first_event_at: 1710001000, last_event_at: 1710003000 },
+      { source: 'offline_notes', event_count: 5, avg_importance: 0.4, first_event_at: 1710001000, last_event_at: 1710002000 },
+    ], { sources: [source] });
+
+    expect(rows).toMatchObject([
+      {
+        key: 'browser_history',
+        label: 'Chrome History',
+        pluginId: 'chromium',
+        eventCount: 17,
+        lastResultCount: 3,
+        lastEventAt: 1710003000,
+        lastSyncAt: 1710004000,
+        enabled: true,
+      },
+      {
+        key: 'offline_notes',
+        pluginId: null,
+        eventCount: 5,
+        lastResultCount: null,
+        lastEventAt: 1710002000,
+        lastSyncAt: null,
+        enabled: null,
+      },
+    ]);
+  });
+
   it('renders the compact summary, source coverage, pending review, and recent memory', async () => {
     renderOverview();
 
@@ -416,9 +458,9 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByTestId('memory-theme-root')).toHaveClass('px-4', 'py-4');
     expect(screen.getByTestId('memory-theme-root')).not.toHaveClass('px-6', 'py-6');
     expect(await screen.findByTestId('memory-overview-summary')).toBeInTheDocument();
-    expect(await screen.findByText('Total memories')).toBeInTheDocument();
-    expect(await screen.findByText('28')).toBeInTheDocument();
-    expect(screen.getByText('Today +9')).toBeInTheDocument();
+    expect(await screen.findByText('Source records')).toBeInTheDocument();
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.getByText('Today +4')).toBeInTheDocument();
     expect(screen.getByText('About you')).toBeInTheDocument();
     expect(screen.getByText('6')).toBeInTheDocument();
     expect(screen.getByText('Today +3')).toBeInTheDocument();
@@ -453,7 +495,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(8);
-    expect(sensorsApi.getStatus).toHaveBeenCalled();
+    expect(sourcesApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0, surface: 'all' });
   });
 
@@ -465,7 +507,7 @@ describe('MemoryOverviewPage', () => {
         l1: { event_count: 0 },
         l2: { relation_count: 0, assertion_count: 0 },
         l3: { summary_count: 0 },
-        total_memories: 0,
+        stored_records: 0,
         disk_usage_bytes: 1_363_149,
         attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       },
@@ -474,7 +516,7 @@ describe('MemoryOverviewPage', () => {
       pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
       deltas: {
         today: {
-          total_memories: 0,
+          stored_records: 0,
           l1_events: 0,
           l2_assertions: 0,
           l3_summaries: 0,
@@ -482,7 +524,7 @@ describe('MemoryOverviewPage', () => {
         },
       },
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       ...storyPayload,
       items: [],
@@ -506,13 +548,13 @@ describe('MemoryOverviewPage', () => {
       ...dashboardPayload,
       statistics: {
         ...dashboardPayload.statistics,
-        total_memories: 1,
+        stored_records: 1,
       },
       source_counts: [],
       attention: { pending_assertions: 0, open_circuit_breakers: 0 },
       pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
     } as any);
-    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [] } as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue({
       ...storyPayload,
       items: [],

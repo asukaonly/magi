@@ -113,7 +113,7 @@ def test_partition_excludes_active_source_categories():
         _entry("chrome-history", _desc("browser_history")),  # active -> NOT re-suggested
         _entry("edge-history", _desc("browser_history")),  # active sibling category -> drop
     ]
-    # chrome-history has an enabled+configured sensor source (in use).
+    # chrome-history has an enabled+configured source (in use).
     active = {"chrome-history"}
     installed_manifests, registry_entries = partition_for_candidates(packages, registry, active)
     cands = build_suggestion_candidates(installed_manifests, registry_entries)

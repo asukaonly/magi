@@ -30,7 +30,11 @@ def build_tools_parameter(tool_registry: Any, selected_tools: list[str]) -> list
         tool_info = tool_registry.get_tool_info(tool_name)
         if not tool_info:
             continue
-        tools.append(_registry_tool_definition(tool_name, tool_info))
+        triggers = (tool_info.get("metadata") or {}).get("invocation_triggers")
+        if triggers is not None and "model" not in triggers:
+            continue
+        exported_name = _exported_name(tool_registry, tool_name)
+        tools.append(_registry_tool_definition(exported_name, tool_info))
 
     # Emit a deterministic, name-sorted order so an unchanged tool SET produces
     # a byte-identical tools parameter across turns even when the upstream
@@ -43,6 +47,15 @@ def _is_skill_tool(tool_registry: Any, tool_name: str) -> bool:
     return tool_name.startswith("/") or tool_registry.is_skill(tool_name.lstrip("/"))
 
 
+def _exported_name(tool_registry: Any, name: str, *, skill: bool = False) -> str:
+    exporter = getattr(tool_registry, "exported_tool_name", None)
+    if callable(exporter):
+        exported = exporter(name, skill=skill)
+        if isinstance(exported, str):
+            return exported
+    return f"skill_{name}" if skill else name
+
+
 def _skill_tool_definition(tool_registry: Any, tool_name: str) -> dict[str, Any] | None:
     skill_name = tool_name.lstrip("/")
     skill = tool_registry._skills.get(skill_name)
@@ -51,7 +64,7 @@ def _skill_tool_definition(tool_registry: Any, tool_name: str) -> dict[str, Any]
     return {
         "type": "function",
         "function": {
-            "name": f"skill_{skill_name}",
+            "name": _exported_name(tool_registry, skill_name, skill=True),
             "description": skill.description,
             "parameters": {
                 "type": "object",
@@ -70,6 +83,15 @@ def _skill_tool_definition(tool_registry: Any, tool_name: str) -> dict[str, Any]
 
 
 def _registry_tool_definition(tool_name: str, tool_info: dict[str, Any]) -> dict[str, Any]:
+    if tool_info.get("input_schema") is not None:
+        return {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "description": build_tool_description(tool_info),
+                "parameters": tool_info["input_schema"],
+            },
+        }
     properties, required = _tool_parameter_schema(tool_info.get("parameters", []))
     tool_def: dict[str, Any] = {
         "type": "function",
@@ -88,7 +110,9 @@ def _registry_tool_definition(tool_name: str, tool_info: dict[str, Any]) -> dict
     return tool_def
 
 
-def _tool_parameter_schema(parameters: list[dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
+def _tool_parameter_schema(
+    parameters: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
     properties: dict[str, Any] = {}
     required: list[str] = []
     for param in parameters:

@@ -1,4 +1,5 @@
 """Unified APScheduler-backed runtime service."""
+
 from __future__ import annotations
 
 import asyncio
@@ -353,7 +354,9 @@ class SchedulerService:
         except Exception:
             pass
         if schedule is not None:
-            await self._repository.clear_target_schedule_binding(schedule.target_type, schedule.target_key)
+            await self._repository.clear_target_schedule_binding(
+                schedule.target_type, schedule.target_key
+            )
             await self._repository.delete_schedule(schedule_id)
             return
         if target_type is not None and target_key is not None:
@@ -449,7 +452,9 @@ class SchedulerService:
                 # swallowed so the asyncio loop doesn't print "Task exception
                 # was never retrieved" tracebacks.
                 logger.warning(
-                    "background schedule execution raised", schedule_id=schedule_id, error=str(exc),
+                    "background schedule execution raised",
+                    schedule_id=schedule_id,
+                    error=str(exc),
                 )
             finally:
                 current_task = asyncio.current_task()
@@ -544,8 +549,8 @@ class SchedulerService:
 
         effective_manual = manual or bool(schedule.metadata.get("manual", False))
         started_at = time.time()
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-            return await self._prepare_sensor_sync_execution(
+        if schedule.target_type is ScheduledTargetType.SOURCE_SYNC:
+            return await self._prepare_source_sync_execution(
                 schedule=schedule,
                 effective_manual=effective_manual,
                 started_at=started_at,
@@ -622,16 +627,16 @@ class SchedulerService:
             return started_at, None
         return started_at, self._early_execution_prep("target_busy")
 
-    async def _prepare_sensor_sync_execution(
+    async def _prepare_source_sync_execution(
         self,
         *,
         schedule: ScheduleDefinition,
         effective_manual: bool,
         started_at: float,
     ) -> _ExecutionPrep:
-        # SENSOR_SYNC has its own enqueue-and-return path so the sync caller
-        # still gets the "sensor_sync_enqueued" reply.
-        admitted = await self._repository.enqueue_sensor_sync_execution(
+        # SOURCE_SYNC has its own enqueue-and-return path so the sync caller
+        # still gets the "source_sync_enqueued" reply.
+        admitted = await self._repository.enqueue_source_sync_execution(
             schedule=schedule,
             manual=effective_manual,
             started_at=started_at,
@@ -641,7 +646,7 @@ class SchedulerService:
         if schedule.trigger.trigger_type == TriggerType.ONCE:
             await self._repository.delete_schedule(schedule.schedule_id)
         return self._early_execution_prep(
-            "sensor_sync_enqueued",
+            "source_sync_enqueued",
             success=True,
             stats={
                 "job_id": admitted.job_id,
@@ -698,33 +703,18 @@ class SchedulerService:
                     schedule,
                     data_generation,
                 )
-                if result.success:
-                    await self._repository.record_target_success(
-                        schedule.target_type,
-                        schedule.target_key,
-                        result=result,
-                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                    )
-                    await self._repository.complete_execution_success(
-                        execution_id,
-                        result=result,
-                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                        finished_at=time.time(),
-                    )
-                else:
-                    error = str(result.stats.get("error") or result.message or "Scheduled execution failed")
-                    await self._repository.record_target_failure(
-                        schedule.target_type,
-                        schedule.target_key,
-                        error=error,
-                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                    )
-                    await self._repository.complete_execution_failure(
-                        execution_id,
-                        error=error,
-                        scheduler_job_id=schedule.job_id or schedule.schedule_id,
-                        finished_at=time.time(),
-                    )
+                await self._repository.record_target_result(
+                    schedule.target_type,
+                    schedule.target_key,
+                    result=result,
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                )
+                await self._repository.complete_execution_result(
+                    execution_id,
+                    result=result,
+                    scheduler_job_id=schedule.job_id or schedule.schedule_id,
+                    finished_at=time.time(),
+                )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
                 await self._consume_once_schedule(schedule)
             return result
@@ -846,6 +836,10 @@ class SchedulerService:
                 pass
             await self._repository.delete_schedule(executed.schedule_id)
 
+    async def get_schedule(self, schedule_id: str) -> ScheduleDefinition | None:
+        """Read a schedule definition without exposing the scheduler repository."""
+        return await self._repository.get_schedule(schedule_id)
+
     async def get_target_state(
         self,
         target_type: ScheduledTargetType,
@@ -863,7 +857,10 @@ class SchedulerService:
     ) -> None:
         """Persist a partial cursor checkpoint during batch ingestion."""
         await self._repository.update_target_cursor(
-            target_type, target_key, cursor=cursor, watermark_ts=watermark_ts,
+            target_type,
+            target_key,
+            cursor=cursor,
+            watermark_ts=watermark_ts,
         )
 
     async def _restore_persisted_jobs(self) -> None:

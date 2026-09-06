@@ -99,14 +99,14 @@ export type {
 export { profileApi } from './modules/profile';
 export type { UserProfilePatch, UserProfileProjection } from './modules/profile';
 
-export { sensorsApi } from './modules/sensors';
+export { sourcesApi } from './modules/sources';
 export type {
-  SensorSourceAuthorizationResponse,
-  SensorSourceStatusItem,
-  SensorSourceStatusResponse,
-  SensorTodaySummaryEntry,
-  SensorTodaySummaryResponse,
-} from './modules/sensors';
+  SourceAuthorizationResponse,
+  SourceStatusItem,
+  SourceStatusResponse,
+  SourceTodaySummaryEntry,
+  SourceTodaySummaryResponse,
+} from './modules/sources';
 
 export { timelineApi } from './modules/timeline';
 export type {

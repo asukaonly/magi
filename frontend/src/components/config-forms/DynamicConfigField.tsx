@@ -128,6 +128,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
             aria-invalid={Boolean(validationIssue)}
             aria-describedby={validationIssue ? `${fieldId}-error` : undefined}
             type="number"
+            min={normalized.minimum}
+            max={normalized.maximum}
             value={typeof effectiveValue === 'number' || typeof effectiveValue === 'string' ? effectiveValue : ''}
             onChange={(event) => handleChange(event.target.value === '' ? '' : Number(event.target.value))}
             placeholder={normalized.placeholder}

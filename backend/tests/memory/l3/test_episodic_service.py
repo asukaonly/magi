@@ -23,13 +23,13 @@ def _pack() -> EpisodicEvidencePack:
         events=[
             EpisodicEvidenceItem(
                 event_id="evt-a",
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 content="Chrome 浏览 v2ex 首页",
                 timestamp=1700000500.0,
             ),
             EpisodicEvidenceItem(
                 event_id="evt-b",
-                event_type="SENSOR_EVENT",
+                event_type="SOURCE_EVENT",
                 content="Chrome 浏览 Kimi 聊天页",
                 timestamp=1700002000.0,
             ),
@@ -348,21 +348,21 @@ def test_chrome_history_folded_into_summary_line():
             "event_id": "c1",
             "timestamp": 10.0,
             "content": "Chrome 浏览 v2ex 首页",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "chrome_history",
         },
         {
             "event_id": "c2",
             "timestamp": 20.0,
             "content": "Chrome 浏览 Kimi 聊天页",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "chrome_history",
         },
         {
             "event_id": "c3",
             "timestamp": 30.0,
             "content": "Chrome 浏览 v2ex 热门帖子（访问 2 次）",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "chrome_history",
         },
     ]
@@ -431,7 +431,7 @@ def test_derived_topics_from_structured_entity_hints():
             "event_id": "e1",
             "timestamp": 10.0,
             "content": "听歌",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "netease_music",
             "metadata_json": _json.dumps(
                 {
@@ -445,7 +445,7 @@ def test_derived_topics_from_structured_entity_hints():
             "event_id": "e2",
             "timestamp": 20.0,
             "content": "听歌",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "netease_music",
             "metadata_json": _json.dumps(
                 {
@@ -479,7 +479,7 @@ def test_render_user_prompt_includes_folded_and_verbatim_sections():
             "event_id": "c1",
             "timestamp": 10.0,
             "content": "Chrome 浏览 v2ex",
-            "event_type": "SENSOR_EVENT",
+            "event_type": "SOURCE_EVENT",
             "source": "chrome_history",
         },
         {

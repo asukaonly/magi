@@ -3,7 +3,7 @@
 Two tiers decide conflict precedence in the source-aware upsert:
 - "authoritative": the user said it (user_authored / settings_profile) or
   explicitly confirmed any assertion (user_feedback == "confirmed").
-- "inferred": everything else, notably sensor/behavioral observations
+- "inferred": everything else, notably source/behavioral observations
   (source_domain == "external_activity").
 
 inferred MUST NEVER supersede authoritative (see write.py upsert).

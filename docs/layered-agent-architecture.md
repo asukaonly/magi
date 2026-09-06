@@ -114,7 +114,7 @@ Notes:
   that private state. Tool code reaches that registry only through the SDK
   delegation-artifact port.
 - `db`, `location`, `media`, and `hooks` are structurally L1 (they depend only on `core`/`scheduler`/`config`) even though their *consumers* live higher — `db` is driven by the composition root, `location`/`media` feed `timeline` (L13), and `hooks` is actuated by `agent`/`api`. Layer = dependency position, not consumer position.
-- `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, sensor_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
+- `identity/` owns the canonical user-id authority (`MagiUserID`, `IdentityResolver`, the `user_identity_bindings` table). Every upper-layer ingress site (channels dispatcher, api dispatch, source_hub, session_mapper) canonicalizes external identifiers through it before downstream stores see them; see [Identity Architecture](./identity-architecture.md) for the boundary contract
 
 ### L2. Configuration
 
@@ -186,7 +186,7 @@ Primary packages:
 Notes:
 
 - this layer owns package lifecycle only
-- tools and sensors return to their owning runtime layers after registration
+- tools and sources return to their owning runtime layers after registration
 - plugin install/update decisions are owned by `PluginInstallService`, while API routes and background jobs only submit install commands
 - plugin-provided memory summary and recall hooks are exposed through `PluginProjectionService`, not through the lifecycle manager
 
@@ -260,15 +260,15 @@ Notes:
 - L9 may consume task/runtime hints from L12 and profile/memory state from lower layers, but persona-specific trigger interpretation must not be duplicated in chat handlers, context rendering, or post-processing.
 - post-processing may update future relationship and dynamic state; it should not be the primary place where the already emitted turn's persona mode is chosen.
 
-### L10. Sensors Layer
+### L10. Sources Layer
 
 Responsibilities:
 
-- inbound sensors (domain-neutral `SensorBase` and `SensorOutput`)
-- sensor memory policy (`SensorMemoryPolicy`) controlling durable event routing,
-  cognition eligibility, and retention; sensors do not write L0 attention
-- sensor ingestion gateway (`SensorIngestionGateway`) for memory/timeline/graph routing
-- sensor state management (cursors, fingerprint dedup)
+- inbound sources (domain-neutral `Source` and `SourceOutput`)
+- source memory policy (`SourceMemoryPolicy`) controlling durable event routing,
+  cognition eligibility, and retention; sources do not write L0 attention
+- source ingestion gateway (`SourceIngestionGateway`) for memory/timeline/graph routing
+- source state management (cursors, fingerprint dedup)
 - runtime event emission
 
 Primary packages:
@@ -277,9 +277,9 @@ Primary packages:
 
 Notes:
 
-- plugin-contributed sensors are registered in `plugins/`, but runtime execution belongs here
-- all sensor plugins inherit from `SensorBase` and produce `SensorOutput`
-- `SensorIngestionGateway` routes outputs to memory (L7), timeline (L13), and knowledge graph
+- plugin-contributed sources are registered in `plugins/`, but runtime execution belongs here
+- source implementations inherit from the SDK `Source` contract and produce `SourceOutput`; the owning `Plugin` exposes them through `get_sources()`
+- `SourceIngestionGateway` routes outputs to memory (L7), timeline (L13), and knowledge graph
 
 ### L11. Context Layer
 
@@ -391,8 +391,8 @@ Primary packages:
 
 Notes:
 
-- `TimelineEvent` is an L13-internal view model; sensors produce `SensorOutput` (L10)
-- host projection is the sole owner of timeline display rendering from `SensorOutput.activity` + `SensorOutput.narration`
+- `TimelineEvent` is an L13-internal view model; sources produce `SourceOutput` (L10)
+- host projection is the sole owner of timeline display rendering from `SourceOutput.activity` + `SourceOutput.narration`
 - `TimelineAdapter` is the sole entry point for rendered timeline events into the timeline read model
 
 ### L14. External Services
@@ -529,13 +529,13 @@ When placing new code, use this sequence:
 - the memory layer owns neutral or traceable event retention, cognition extraction, reflection, and retrieval
 - the two layers may both describe the user, but they should not collapse into one undifferentiated profile store
 
-### Sensor → Timeline → Memory Contract
+### Source → Timeline → Memory Contract
 
-- sensors (L10) produce domain-neutral `SensorOutput` with per-sensor `SensorMemoryPolicy`
-- `SensorIngestionGateway` (L10) routes each output to memory (L7) and optionally to timeline (L13)
-- timeline is a downstream consumer that builds its own read model (`TimelineEvent`) from sensor outputs
-- memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and sensor inputs
-- raw behavioral facts enter memory via `SENSOR_EVENT` classification and enter timeline via `TimelineAdapter`
+- sources (L10) produce domain-neutral `SourceOutput` with per-source `SourceMemoryPolicy`
+- `SourceIngestionGateway` (L10) routes each output to memory (L7) and optionally to timeline (L13)
+- timeline is a downstream consumer that builds its own read model (`TimelineEvent`) from source outputs
+- memory is the lifecycle system that retains, derives, summarizes, and retrieves durable knowledge from runtime and source inputs
+- raw behavioral facts enter memory via `SOURCE_EVENT` classification and enter timeline via `TimelineAdapter`
 
 ### Context Assembly Contract
 
@@ -566,7 +566,7 @@ The current codebase maps to the layered model like this:
 - `memory/` -> L7 memory
 - `tools/`, `skills/` -> L8 tools and skills (`skills/` is the host skill-execution engine; `mcp/` bridges MCP servers — both are host tool-source integrations like `plugins/`, NOT plugin-implementation code)
 - `personality/` -> L9 personality
-- `awareness/`, event emitter -> L10 sensors
+- `awareness/`, event emitter -> L10 sources
 - `context/`, `user_profile/` -> L11 context
 - `agent/` (incl. `agent/runtime_tools/` host runtime-control tool agent_tool) -> L12 agent runtime
 - `timeline/` -> L13 timeline domain

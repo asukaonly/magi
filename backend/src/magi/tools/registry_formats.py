@@ -17,6 +17,10 @@ class ToolRegistryFormatMixin:
 
     def get_tool(self, tool_name: str) -> Tool | None: ...
 
+    def list_tools(self) -> list[str]: ...
+
+    def exported_tool_name(self, name: str) -> str: ...
+
     def register(self, tool_class: type[Tool]) -> None: ...
 
     def export_to_claude_format(self) -> list[dict[str, Any]]:
@@ -29,18 +33,18 @@ class ToolRegistryFormatMixin:
             List of tools in Claude API format.
         """
         tools = []
-        for tool_name in self._tools.keys():
+        for tool_name in self.list_tools():
             tool = self.get_tool(tool_name)
             if tool and tool.is_ready():
-                tools.append(tool.to_claude_format())
+                definition = tool.to_claude_format()
+                definition["name"] = self.exported_tool_name(tool_name)
+                tools.append(definition)
             elif tool and not tool.is_ready():
                 logger.debug(f"Tool {tool_name} not ready (missing configuration), skipping")
         return tools
 
     def import_from_claude_format(
-        self,
-        tool_defs: list[dict[str, Any]],
-        executor: Callable[..., Any]
+        self, tool_defs: list[dict[str, Any]], executor: Callable[..., Any]
     ) -> None:
         """
         Import tools from Claude Tool Use API format.
@@ -60,7 +64,7 @@ class ToolRegistryFormatMixin:
                 {
                     "schema": schema,
                     "_executor": staticmethod(executor),
-                }
+                },
             )
 
             try:

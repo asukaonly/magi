@@ -136,7 +136,7 @@ const OMITTED_METADATA_KEYS = new Set([
   'projection',
   'raw_payload_ref',
   'retention_mode',
-  'sensor_id',
+  'source_id',
   'source_item_id',
   'structured_entity_hints',
   'structured_graph_hints',

@@ -154,7 +154,9 @@ def build_plugin_contract() -> dict:
     )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
-    models = [PluginPackageResponse, PluginInstallCandidateResponse, PluginInstallJobSnapshot,
+    from magi.api.routers.plugins_connection_routes import PluginConnectionResponse, PluginConnectionsResponse
+
+    models = [PluginConnectionResponse, PluginConnectionsResponse, PluginPackageResponse, PluginInstallCandidateResponse, PluginInstallJobSnapshot,
               PluginRegistryResponse, PluginSettingsActionRunResponse, PluginSettingsResourceResponse,
               PluginsListResponse]
     public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
@@ -185,19 +187,24 @@ def build_plugin_examples() -> dict:
         PluginsListResponse,
     )
 
+    from magi.api.routers.plugins_connection_routes import PluginConnectionResponse
+
     package = PluginPackageResponse(
         manifest=PluginManifestResponse(
+            protocol_version=2, min_sdk_version="0.2.0", execution_mode="restricted_process", settings_fields=[],
             plugin_id="fixture-source", name="Fixture source", version="1.0.0",
             description="Contract fixture", author="Magi", official=False,
-            contribution_types=["sensor"], source="local", plugin_dir="/fixture", manifest_path="/fixture/plugin.toml",
+            contribution_types=["source"], source="local", plugin_dir="/fixture", manifest_path="/fixture/plugin.toml",
         ), enabled=True, trusted=True, loaded=True, healthy=True,
         contributions=[PluginContributionResponse(
-            plugin_id="fixture-source", contribution_id="sensor", contribution_type="sensor",
+            plugin_id="fixture-source", contribution_id="source", contribution_type="source",
             display_name="Source", description="", surface="timeline",
             fields=[ExtensionFieldResponse(key="enabled", type="switch", label="Enabled", default=True)],
         )], current_settings={"enabled": True},
     )
     return {
+        "connection": PluginConnectionResponse(connection_id="fixture-connection", plugin_id="fixture-source",
+            display_name="Fixture account", readiness=[]).model_dump(mode="json"),
         "package": package.model_dump(mode="json"),
         "list": PluginsListResponse(plugins=[package], total=1).model_dump(mode="json"),
         "job": PluginInstallJobSnapshot(
@@ -206,7 +213,7 @@ def build_plugin_examples() -> dict:
             created_at_ms=1000, updated_at_ms=2000, finished_at_ms=2000,
         ).model_dump(mode="json"),
         "action": PluginSettingsActionRunResponse(
-            plugin_id="fixture-source", action_id="connect", session_id="fixture-action", status="succeeded",
+            connection_id="fixture-connection", plugin_id="fixture-source", action_id="connect", session_id="fixture-action", status="succeeded",
             message="Connected", settings_updates={"configured": True},
         ).model_dump(mode="json"),
     }
@@ -375,7 +382,7 @@ def build_lifecycle_examples() -> dict:
         "importJob": job.model_dump(mode="json"),
         "sourcePreview": HistoryImportSourcePreviewResponse(source_id="fixture-source", source_name="note.md", detected_kind="document", records=[], truncated=False).model_dump(mode="json"),
         "importAppend": HistoryImportAppendResponse(job=job, added_source_count=1, duplicate_source_count=0).model_dump(mode="json"),
-        "importer": HistoryImporterResponse(plugin_id="fixture-plugin", importer_id="history", display_name="History",
+        "importer": HistoryImporterResponse(connection_id="fixture-connection", connection_display_name="Fixture", plugin_id="fixture-plugin", importer_id="history", display_name="History",
             display_name_i18n={}, description="Import history", description_i18n={}, accepted_extensions=[".json"],
             participant_identity_scope="source", export_help_url=None).model_dump(mode="json"),
         "operation": operation.model_dump(mode="json"),

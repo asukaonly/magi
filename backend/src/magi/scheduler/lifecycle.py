@@ -47,7 +47,7 @@ class SchedulerActivationModule(LifecycleModule):
             name="runtime_scheduler_activation",
             dependencies=(
                 "runtime_agent_schedule_registration",
-                "runtime_sensor_scheduler",
+                "runtime_source_scheduler",
                 "runtime_l1_maintenance_scheduler",
                 "runtime_l2_maintenance_scheduler",
                 "runtime_l2_consolidation_scheduler",

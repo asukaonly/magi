@@ -137,7 +137,7 @@ async def history_store(tmp_path: Path) -> HistoryImportStore:
     db_path = tmp_path / "memory.db"
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "CREATE TABLE l2_projection_jobs(" "event_id TEXT PRIMARY KEY, source TEXT NOT NULL)"
+            "CREATE TABLE l2_projection_jobs(event_id TEXT PRIMARY KEY, source TEXT NOT NULL)"
         )
         for statement in CREATE_STATEMENTS:
             await db.execute(statement)
@@ -1798,3 +1798,34 @@ async def test_first_contact_snippet_uses_only_confirmed_user_writing(
     assert "pottery class" in snippet
     assert "Working with clay" in snippet
     await service.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_fails", [False, True])
+async def test_completed_import_requests_consolidation_without_rolling_back(
+    history_store, tmp_path, request_fails
+):
+    markdown = tmp_path / "notes.md"
+    markdown.write_text("我在学习陶艺。", encoding="utf-8")
+    observed = []
+
+    async def request():
+        observed.append((await service.get_job(preview.job_id)).status)
+        if request_fails:
+            raise RuntimeError("Scheduler unavailable")
+
+    service = HistoryImportService(
+        store=history_store, memory=_MemoryStub(), consolidation_request=request
+    )
+    try:
+        preview = await service.preview_markdown_paths([str(markdown)])
+        await service.confirm(
+            job_id=preview.job_id,
+            confirm_personal_writing=True,
+            included_source_ids=preview.included_source_ids,
+        )
+        await _wait_for_completed_job(service, preview.job_id)
+        assert observed == ["completed"]
+        assert (await service.get_job(preview.job_id)).status == "completed"
+    finally:
+        await service.stop()

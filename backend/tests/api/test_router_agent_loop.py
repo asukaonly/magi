@@ -13,8 +13,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
     pytest = _PytestFallback()
 
-from magi.awareness.contracts import SensorEvent
-from magi.awareness.sensor_hub import SensorHub
+from magi.awareness.contracts import SourceEvent
+from magi.awareness.source_hub import SourceHub
 from magi.agent.runtime import (
     RouterAgent,
     TaskAgent,
@@ -38,19 +38,19 @@ async def test_router_agent_loop_dispatches_batch_to_targets(tmp_path):
     message_bus = InMemoryMessageBusBackend(num_workers=1)
     await message_bus.start()
 
-    sensor_hub = SensorHub(message_bus=message_bus)
+    source_hub = SourceHub(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
     )
     await manager.start_all(event_emitter=None)
     router_agent = RouterAgent(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         task_agent_manager=manager,
         batch_size=8,
         poll_timeout_seconds=0.1,
     )
 
-    await sensor_hub.start()
+    await source_hub.start()
     await router_agent.start()
 
     await message_bus.publish(
@@ -67,7 +67,7 @@ async def test_router_agent_loop_dispatches_batch_to_targets(tmp_path):
     assert manager.get_agent(TaskAgentType.CHAT, "s1") is not None
     await router_agent.stop()
     await manager.stop_all()
-    await sensor_hub.stop()
+    await source_hub.stop()
     await message_bus.stop()
 
     assert router_stats["facts_written"] >= 1
@@ -78,24 +78,24 @@ async def test_router_agent_loop_routes_targeted_timeline_events(tmp_path):
     message_bus = InMemoryMessageBusBackend(num_workers=1)
     await message_bus.start()
 
-    sensor_hub = SensorHub(message_bus=message_bus)
+    source_hub = SourceHub(message_bus=message_bus)
     manager = TaskAgentManager(
         create_chat_agent=lambda agent_id: _NoopTaskAgent(TaskAgentType.CHAT, agent_id),
         create_default_agent=lambda agent_type, agent_id: _NoopTaskAgent(agent_type, agent_id),
     )
     await manager.start_all(event_emitter=None)
     router_agent = RouterAgent(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         task_agent_manager=manager,
         batch_size=8,
         poll_timeout_seconds=0.1,
     )
 
-    await sensor_hub.start()
+    await source_hub.start()
     await router_agent.start()
-    await sensor_hub.push_sensor_event(
-        SensorEvent(
-            sensor_name="timeline_sensor",
+    await source_hub.push_source_event(
+        SourceEvent(
+            source_name="timeline_source",
             event_type="TimelineSourceDetected",
             payload={
                 "target_task_agent_type": TaskAgentType.TIMELINE.value,
@@ -111,7 +111,7 @@ async def test_router_agent_loop_routes_targeted_timeline_events(tmp_path):
 
     await router_agent.stop()
     await manager.stop_all()
-    await sensor_hub.stop()
+    await source_hub.stop()
     await message_bus.stop()
 
     assert timeline_agent is not None
@@ -126,8 +126,8 @@ async def test_router_agent_propagates_user_message_delivery_identity():
             self.facts = []
 
         @staticmethod
-        def resolve_targets(sensor_event):
-            return [(TaskAgentType.CHAT, sensor_event.payload["session_id"])]
+        def resolve_targets(source_event):
+            return [(TaskAgentType.CHAT, source_event.payload["session_id"])]
 
         async def add_fact_to_agent(self, agent_type, agent_id, fact):
             _ = (agent_type, agent_id)
@@ -136,19 +136,19 @@ async def test_router_agent_propagates_user_message_delivery_identity():
 
     message_bus = InMemoryMessageBusBackend(num_workers=1)
     await message_bus.start()
-    sensor_hub = SensorHub(message_bus=message_bus)
+    source_hub = SourceHub(message_bus=message_bus)
     manager = _RecordingManager()
     router_agent = RouterAgent(
-        sensor_hub=sensor_hub,
+        source_hub=source_hub,
         task_agent_manager=manager,
         batch_size=1,
         poll_timeout_seconds=0.01,
     )
 
     await router_agent.start()
-    await sensor_hub.push_sensor_event(
-        SensorEvent(
-            sensor_name="user_input_sensor",
+    await source_hub.push_source_event(
+        SourceEvent(
+            source_name="user_input_source",
             event_type=EventTypes.USER_MESSAGE,
             payload={"session_id": "session-1", "content": "hello"},
             correlation_id="user_message:message-1",

@@ -3,7 +3,7 @@ id = "apple-photos"
 name = "Apple Photos"
 version = "0.1.0"
 
-[plugin.default_settings.sensors.photo_library_apple_photos]
+[plugin.default_settings.sources.photo_library_apple_photos]
 enabled = false
 source_mode = "apple_photos"
 photos_library_path = ""

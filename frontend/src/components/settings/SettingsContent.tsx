@@ -98,15 +98,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     pluginRegistryEntries,
     pluginRegistryFingerprint,
     pluginProcessingIds,
-    reloadingActionPlugins,
-    draftPluginDrafts,
-    handlePluginDraftChange,
-    handlePluginDraftChanges,
-    applyPersistedPluginSettings,
     handlePluginAction,
-    handleReloadActionPlugin,
     loadPlugins,
-    loadPluginsAndSensors,
+    loadPluginsAndSources,
     tools,
     toolsLoading,
     toolsError,
@@ -254,7 +248,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     if (sectionError) {
       return <div role="alert" className="space-y-3 p-4">
         <p className="text-sm text-destructive">{sectionError}</p>
-        <Button variant="outline" onClick={() => { void loadPluginsAndSensors(); }}>{t('settings.actions.retry')}</Button>
+        <Button variant="outline" onClick={() => { void loadPluginsAndSources(); }}>{t('settings.actions.retry')}</Button>
       </div>;
     }
 
@@ -343,20 +337,17 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'timeline':
         return (
           <>
-          {pluginRegistryError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-destructive"><span>{pluginRegistryError}</span><Button variant="outline" onClick={() => { void loadPluginsAndSensors(); }}>{t('settings.actions.retry')}</Button></div> : null}
+          {pluginRegistryError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-destructive"><span>{pluginRegistryError}</span><Button variant="outline" onClick={() => { void loadPluginsAndSources(); }}>{t('settings.actions.retry')}</Button></div> : null}
           <TimelineSourcesSection
             userMode={draftConfig.preferences.user_mode}
             statuses={sortedTimelineStatuses}
             availableEntries={timelineAvailableEntries}
             loadingStatus={timelineStatusesLoading}
             selectedSourceName={timelineSelection}
-            pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
-            onPluginInstalled={loadPluginsAndSensors}
+            onPluginInstalled={loadPluginsAndSources}
             onBrowseMarketplace={browsePluginMarketplace}
-            onPluginFieldChange={handlePluginDraftChange}
-            onPluginFieldsChange={handlePluginDraftChanges}
           />
           </>
         );
@@ -400,18 +391,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             section={effectiveActiveSection as SettingsIntegrationsSectionId}
             plugins={plugins}
             pluginsLoading={pluginsLoading}
-            draftPluginDrafts={draftPluginDrafts}
             dirty={dirty}
             pluginProcessingIds={pluginProcessingIds}
-            reloadingActionPlugins={reloadingActionPlugins}
             channelsSelection={channelsSelection}
             setChannelsSelection={setChannelsSelection}
-            handlePluginDraftChange={handlePluginDraftChange}
-            applyPersistedPluginSettings={applyPersistedPluginSettings}
             handlePluginAction={handlePluginAction}
-            handleReloadActionPlugin={handleReloadActionPlugin}
             loadPlugins={loadPlugins}
-            loadPluginsAndSensors={loadPluginsAndSensors}
+            loadPluginsAndSources={loadPluginsAndSources}
             onBrowseMarketplace={browsePluginMarketplace}
           />
         );

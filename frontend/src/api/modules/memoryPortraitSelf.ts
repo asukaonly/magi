@@ -13,6 +13,8 @@ export interface PortraitSelfViewItem {
   source: string;
   source_key: string | null;
   assertion_id: string | null;
+  evidence_basis?: 'user_confirmed' | 'direct_report' | 'inferred' | 'unknown';
+  expression?: { kind: 'behavior'; value: string; horizon: 'recent' | 'repeated' } | null;
   basis_count: number;
   basis_refs: string[];
   updated_at?: number | null;

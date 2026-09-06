@@ -144,6 +144,8 @@ export interface components {
         };
         /** HistoryImportJobResponse */
         HistoryImportJobResponse: {
+            /** Connection Id */
+            connection_id: string | null;
             /** Created At */
             created_at: number;
             /**
@@ -291,6 +293,10 @@ export interface components {
         HistoryImporterResponse: {
             /** Accepted Extensions */
             accepted_extensions: string[];
+            /** Connection Display Name */
+            connection_display_name: string | null;
+            /** Connection Id */
+            connection_id: string;
             /** Description */
             description: string;
             /** Description I18N */

@@ -76,10 +76,10 @@ Examples:
 
 The memory system sits between "raw data sources" and "higher-level reasoning". It is not the raw data source itself.
 
-Sensor ingestion follows the same ownership rule. `awareness/` publishes the
-neutral `SensorEventEmitted` envelope; `memory/` owns the conversion from that
+Source ingestion follows the same ownership rule. `awareness/` publishes the
+neutral `SourceEventEmitted` envelope; `memory/` owns the conversion from that
 envelope into a `MemoryEvent`. Timeline read-model projection is owned by
-`timeline/`. This keeps sensor capture separate from memory retention and
+`timeline/`. This keeps source capture separate from memory retention and
 timeline presentation.
 
 ---
@@ -142,7 +142,7 @@ state; they must never be rendered as an empty memory history.
 
 Holds plugin-owned rebuildable intermediate state:
 
-- In-progress sensor aggregation state
+- In-progress source aggregation state
 - Flush checkpoints
 - Plugin-local computation caches
 - Workspace-scoped code indexes and retrieval caches
@@ -254,7 +254,7 @@ expiry is the safety fallback.
 
 The storage and forgetting contracts reserve both turn and event provenance so
 future governed producers can participate without weakening deletion rules.
-No sensor or generic event-ingest path currently creates L0 attention.
+No source or generic event-ingest path currently creates L0 attention.
 Accepted chat outcomes produce semantic attention deltas, while durable
 background-task attempt and terminal notifications directly reopen or close
 only the task-linked open loop. Those lifecycle notifications never create
@@ -722,7 +722,7 @@ L2 holds:
 - Experiences (product-grade, evidence-backed narrative memories promoted from episodes and events)
 - Durable projection job queue
 
-Sensor-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty sensor catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
+Source-derived relation candidates reach the L2 knowledge graph through the awareness-owned knowledge graph write queue. That queue is the backpressure boundary for bursty source catch-up runs: it batches edge writes before calling the unified memory facade, while the memory layer remains the owner of graph schema, conflict resolution, evidence merging, and embedding status updates.
 
 Implementation boundary: `L2CognitionStore` remains the public storage facade
 and transaction coordinator in `memory/l2/store.py`, while its mixins are grouped
@@ -791,13 +791,13 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 “PDF” may help resolve references, but should not become canonical L2 entities
 unless they resolve to a concrete named entity or asset.
 
-Preference Claims follow the same stability boundary. An explicit `LIKES` or
-`DISLIKES` Claim marked `one_off` may still authorize an Assertion for cautious
-profile interpretation, but it cannot authorize a durable knowledge-graph edge.
-The semantic route contract owns this distinction and Phase 1 graph projection
-reuses that contract-level policy. Route-contract reprojection removes only the
-obsolete relationship authority from older Claims; it preserves the Assertion,
-shared Claim support, and independent user-correction authority.
+Preference Claims follow the same stability boundary. The host normalizes a
+single-experience evaluation to an `explicit_fact` with a `one_off` cue, retaining
+the event/Claim evidence without treating it as a reusable profile preference.
+A direct general preference remains eligible for profile interpretation; an
+explicit recent preference retains a bounded horizon. Graph projection also
+enforces the semantic route contract's independent exclusion of `one_off`
+preference edges. User-correction authority remains independent of extraction.
 
 Phase 1 must choose the most specific evidence-supported type from the canonical
 entity registry. Named collectives belong to `group`, named creative works belong
@@ -806,6 +806,13 @@ last-resort classification for a concrete entity that does not fit any available
 type; unfamiliarity alone is not a reason to use it. The host still validates the
 type against the registry, but it does not guess a replacement type from an entity
 name when the evidence cannot support that semantic decision.
+
+Reusable concept IDs use a stable fingerprint of the complete Unicode-normalized
+name and entity type. Concrete entities use a source-owned key or an unresolved
+mention's evidence scope, so matching display names do not establish identity.
+Display slugs never determine identity. Replay keeps the same identity; changing
+a catalog name requires explicit rename authority and must preserve that identity.
+Ingestion cannot overwrite an existing identity with an unrelated name.
 
 Knowledge graph endpoints must resolve through the entity catalog before they are
 persisted. The LLM is not an authority for inventing `entity_id` values. Every
@@ -877,7 +884,7 @@ Only `exact` and `calendar_anchor` may prove currentness or anchor relative
 expressions. File modification, sync, capture, and import timestamps are
 `approximate_recorded`; file or message order without a timestamp is
 `derived_order`. Neither can activate a current Goal, calculate recency, or
-anchor decay. Unknown sensors are `low` even if arbitrary plugin metadata claims
+anchor decay. Unknown sources are `low` even if arbitrary plugin metadata claims
 to be exact. Live chat/channel message timestamps, declared calendar sources,
 manual-entry event times, and host-owned history-import provenance are the only
 initial trusted policies. Claim evidence stores both the normalized quality and
@@ -1031,8 +1038,9 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
-Assertion-backed portrait items display the accepted `natural_summary` when one
-exists and retain the typed `trait_value` as the correction payload; this prevents
+Assertion-backed portrait items display host-rendered `natural_summary` when one
+exists, or a localized structured behavior expression for inferred observations,
+and retain the typed `trait_value` as the correction payload; this prevents
 distinct preferences that share an enum-like value such as `like` from collapsing
 into one review item. This display rule does not make review Assertions prompt
 facts: only their independently grounded Claim may use the tentative path above.
@@ -1099,7 +1107,7 @@ consume the persona's one-shot opening state, but it must not create a parallel
 profile write path. Empty or low-signal extraction is a valid outcome and must
 not be presented as a successful durable memory.
 Recent portrait lines remain tentative, while durable lines have already passed
-the normal assertion promotion boundary. A completed sensor backfill triggers
+the normal assertion promotion boundary. A completed source backfill triggers
 the L2 derive task, and successful derived-profile writes explicitly enqueue the
 same debounced portrait refresh used by ordinary assertion changes. This keeps
 cold-start personalization timely without creating a second profile pipeline.
@@ -1497,11 +1505,11 @@ Batch policy:
 - For high-throughput sources, plugins can provide `catch_up_owner` for coarser-grained catch-up shards
 - The pipeline switches between `catch_up` (throughput-focused) and `steady_state` (latency-focused) modes based on backlog
 - Durable claim is subject to runtime backpressure
-- Plugin sync cursors only track "synced to L1", not L2 progress. A sensor item
-  may advance that cursor only after the memory-owned sensor commit boundary
+- Plugin sync cursors only track "synced to L1", not L2 progress. A source item
+  may advance that cursor only after the memory-owned source commit boundary
   returns an explicit L1 confirmation (new write, idempotent duplicate, or an
   intentional forget-governance rejection). Transient write failures and
-  memory-clear races fail the sensor job and retain the previous cursor.
+  memory-clear races fail the source job and retain the previous cursor.
 - The `runtime_worker` registers `memory_l1_maintenance` as a periodic task for L1 retention cleanup, including compressible L1 events that are already covered by L3 summaries and pinned-payload pruning.
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
 - The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.
@@ -1525,7 +1533,7 @@ Extraction flow:
 - Grounded Phase 1 claims receive a deterministic semantic route before projection. Only routes that explicitly target the graph and have resolved catalog endpoints become graph candidates; independently eligible assertion routes are not discarded merely because an optional graph endpoint is unresolved. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Entity disambiguation and Phase 2 wording are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 wording exhausts its retries, validated Phase 1 Claims, graph facts, structured facets, Assertions, reviews, and terminal outcomes are still persisted; only optional wording is lost, and the projection is completed with the degraded stage recorded in diagnostics and logs.
 - Host materialization reads the complete active Claim/evidence ledger required for occurrence, currentness, conflict, and lifecycle decisions. This host-owned retrieval does not call an LLM and is never truncated to fit a Phase 2 prompt. Phase 2 receives only the bounded current Claim material needed to produce optional wording.
-- Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
+- Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External source events without a session must not fall back to arbitrary same-user recent chat context.
 - Phase 2 runs only as optional wording synthesis. Its output contains concise summaries bound to deterministic Phase 1 Claim IDs and no record IDs, family, trait, slot, route, confidence, lifecycle, expiry, or persistence action. Invalid or cross-target summaries are discarded without changing materialization. The host independently derives family, evidence, confidence, horizon, volatility, lifecycle, review eligibility, and safe conflict actions from routed Claims and the complete active ledger.
 - Passive observations remain graph or episode evidence. They never enter the direct Assertion write path. A graph-derived rule may independently promote aggregated observations into expiring recent context after its own observation, distinct-day, time-span, and recency thresholds; durable profile conclusions additionally require a plugin-declared non-passive signal preset and explicit durable permission.
 
@@ -1550,7 +1558,7 @@ Classifier and policy responsibilities:
 Source integrations enrich events before L2 processing:
 
 - Source integrations pass `structured_entity_hints` via `MemoryEvent.metadata_json`
-- Sensor integrations pass `fact_hints` as the preferred source-owned structured-fact path
+- Source integrations pass `fact_hints` as the preferred source-owned structured-fact path
 - Legacy `relation_candidates` may still feed older timeline/relation projections, but should not be the primary L2 cognition path for new plugins
 
 Core principle: whoever best understands the raw data produces the high-confidence structural facts. `L2` is responsible for unified integration, conflict handling, persistence, and residual LLM extraction.
@@ -1558,7 +1566,7 @@ Core principle: whoever best understands the raw data produces the high-confiden
 Write pipeline:
 
 ```text
-Plugin / Sensor / Host integration
+Plugin / Source / Host integration
   -> source-owned semantic enrichment
   -> MemoryEvent.metadata_json
   -> Ingestion gateway normalization + admission
@@ -2354,7 +2362,7 @@ A Chrome history burst might look like:
 - `id = 128431`
 - `event_id = "evt_01JQ..."`
 - `source = "chrome_history"`
-- `event_type = "SENSOR_EVENT"`
+- `event_type = "SOURCE_EVENT"`
 - `source_item_id = "181979-181982"`
 - `idempotency_key = "default:181979-181982"`
 
@@ -2447,11 +2455,18 @@ Producers are diverse, but all converge on the same memory contract.
 
 Chat truth is first written to `chat.db`. A subset is then projected as `L1` canonical facts. This projection is intentionally lossy: it retains what memory needs, not a full transcript copy.
 
-### Sensors and Plugins
+### Sources and Plugins
 
-Sensors run in the awareness layer and produce `SensorOutput`. The `SensorIngestionGateway` projects these outputs into memory.
+Sources run in the awareness layer and produce `SourceOutput`. The `SourceIngestionGateway` projects these outputs into memory.
 
-For external activity sources, `SensorOutput` is not the final `L1` string. It is a source-truth envelope with:
+The contribution is identified by `source_id`, including in output provenance.
+`source_type` is its semantic data category; `connection_id` identifies the
+account or configured instance. Host ingestion binds accepted items to that
+connection and contribution before memory persistence. The neutral event
+envelope is `SourceEventEmitted`, published through `EventTypes.SOURCE_EVENT_EMITTED`, and
+the default memory classification is `SOURCE_EVENT`.
+
+For external activity sources, `SourceOutput` is not the final `L1` string. It is a source-truth envelope with:
 
 - `activity`: structured source/action semantics owned by the plugin
 - `narration`: factual body/title owned by the plugin
@@ -2466,8 +2481,8 @@ This keeps external activity memory consistent across plugins while avoiding per
 
 Gateway-side normalization rules:
 
-- External sensor events are written as durable memory with a stable owner `user_id` taken from `SensorOutput.provenance`, then `domain_payload`, and finally `identity.defaults.CANONICAL_LOCAL_USER` as fallback.
-- External sensor events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
+- External source events are written as durable memory with a stable owner `user_id` taken from `SourceOutput.provenance`, then `domain_payload`, and finally `identity.defaults.CANONICAL_LOCAL_USER` as fallback.
+- External source events remain session-independent by default: `session_id` and `turn_id` are not inherited from the current chat runtime.
 - The host, not the plugin, decides the final `L1` sentence shape and embedding text shape for external activity events.
 
 This is the primary path for:
@@ -2607,21 +2622,21 @@ independent table deletes.
 - Full clear takes the matching exclusive ingress boundary before it takes the
   memory store's exclusive operation boundary. This lock order is mandatory.
 - After active chat and embedding work is stopped, clear advances a durable
-  clear generation shared by `USER_MESSAGE`, `SENSOR_SYNC`, and
-  `SENSOR_STATE_FLUSH`. Every command of those types present at that boundary
+  clear generation shared by `USER_MESSAGE`, `SOURCE_SYNC`, and
+  `SOURCE_STATE_FLUSH`. Every command of those types present at that boundary
   is deleted from the runtime queue in every state, including claimed,
   completed, and failed rows. Runtime-only configuration and channel refresh
   commands are preserved.
 - Runtime-command processing holds a shared full-clear boundary from claim
   through handler completion and acknowledgement or requeue. Full clear takes
   the exclusive side first, stops new claims, and waits for in-flight message,
-  manual sensor-sync, and sensor-state-flush handlers to exit. Sensor command
+  manual source-sync, and source-state-flush handlers to exit. Source command
   enqueue uses the same boundary, so an enqueue racing clear is either deleted
   as pre-clear work or admitted afterward with the new generation. A stale
   manual backfill or state flush can therefore neither run nor recreate user
   data after clear.
 - The generation travels with the command through the local message bus,
-  `SensorHub`, router fact, and task-agent admission. It also remains attached to
+  `SourceHub`, router fact, and task-agent admission. It also remains attached to
   user-derived Explore orchestration state, worker updates, and the final
   dossier returned to Chat. A missing required generation or any mismatch is
   rejected once generation governance is active, which prevents a pre-clear
@@ -2691,7 +2706,7 @@ independent table deletes.
   recovery. While its marker is pending, startup constructs only the stores and
   clear owners needed to replay the complete operation. It does not restore
   claimed runtime commands, activate plugins or external channels, start the
-  message bus, scheduler, sensors, background work, recovery subscribers,
+  message bus, scheduler, sources, background work, recovery subscribers,
   tools, skills, MCP servers, or agent/LLM execution. The clear therefore works
   even when model configuration is absent, and no pre-clear work can run before
   replay completes.
@@ -2770,7 +2785,7 @@ independent table deletes.
   history and target error/statistics fields are erased because they may hold
   user-derived result text. System maintenance and source schedules remain,
   together with source cursors, watermarks, bindings, and configuration;
-  pending sensor-sync jobs are discarded so no pre-clear queue payload remains.
+  pending source-sync jobs are discarded so no pre-clear queue payload remains.
 - Full clear also removes retired user-content locations that current runtime
   code no longer reads: every entry under the managed `others/` directory and
   the reserved `self_memory_v2.db` file with its SQLite sidecars. Cleanup does
@@ -2869,7 +2884,7 @@ Main implementation entry points:
 
 - [backend/src/magi/memory/integration.py](../backend/src/magi/memory/integration.py) — Runtime-facing memory integration boundary
 
-- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Sensor / plugin event publish entry point
+- [backend/src/magi/awareness/ingestion_gateway.py](../backend/src/magi/awareness/ingestion_gateway.py) — Source / plugin event publish entry point
 
 ---
 
@@ -2942,3 +2957,192 @@ The identity model must always be clear:
 - `event_id` — Stable external reference
 - `source_item_id` — Source-side identity
 - `idempotency_key` — Business idempotency key
+
+## Memory Correctness and Consumption Contracts
+
+Polarity is logical negation of the predicate, not sentiment: `DISLIKES` with
+positive polarity means an explicit dislike; negative `LIKES` never becomes
+`DISLIKES`, and negative `DISLIKES` never becomes `LIKES`. Route contract v7
+retains negative Claims, evidence, and temporal scope in the ledger with reason
+`negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
+is supported, these Claims have no graph or portrait/assertion target. Initial
+projection, optional wording, and route replay share this boundary.
+
+Assertion `natural_summary` is a host-rendered view of predicate, target, and
+time qualifiers. Model wording must exactly match this controlled view to be
+accepted; substring overlap is not semantic validation. Materialization renders
+again at the write boundary, so portraits, prompts, full-text and vector indexes
+cannot receive an optional summary that reverses or extends the Claim.
+
+Temporal summaries persist the union of all generation dependencies in
+`source_event_ids` and the evidence-link table: selected samples, events supplied
+to a successful plugin feature builder, and the complete event lineage of prior
+and child summaries. `insight_metadata.cited_event_ids` retains the smaller
+citation sample; `dependency_summary_ids` records transitive summary inputs.
+These host-owned fields cannot be overwritten by model output. Forgetting or
+blocking any dependency invalidates the complete derived summary.
+
+A rejected L3 summary remains review history but is excluded from retrieval,
+prompt material, and future summary context. Summaries derived from a rejected
+summary are excluded as well. Replaying the same category, insight, and complete
+source set returns the prior rejected record rather than creating a new pending
+item. New evidence can produce a new review candidate. Rejection does not delete
+or suppress the underlying L1 facts.
+
+Preference scope is checked against the supporting statement at normalization
+and grounded-Claim admission. An evaluation of one meal or visit stays event-only;
+a direct general preference can be durable without an "always" keyword; an
+explicit recent preference retains a bounded lifetime. A transient desire is not
+promoted into a durable preference even if extraction labels it `LIKES`.
+
+A mixed user message may admit its asserted clauses even when it ends in a
+question. Claim grounding requires the quoted evidence to occur inside an
+asserted clause, with question marks, hypothetical context, and quoted speech
+preserved as boundaries. The graph preference guard inspects that grounded quote
+instead of rejecting the entire source message because another clause asks a
+question. The full original message remains unchanged in L1.
+
+Frequency admission evaluates every eligible event once, inside the counter's
+serialized transaction. Only admitted events enter the LLM window; a promoted
+key never admits unrelated keys or forced structured-only events in its batch.
+The durable batch descriptor and leases still cover the original batch. Direct
+structured graph and facet writes retain each event's own evidence IDs.
+
+L4 records each execution event once, independently of its owning turn. Its
+complete source-event link is the durable replay guard even after trace pruning.
+Statistics, breaker transitions, evidence links, and the execution trace commit
+atomically; a trace write failure rolls the learning update back. Separate tool
+executions in one turn remain distinct observations.
+
+L4 inactivity retirement keeps the skill identity available for a later,
+independent execution: recording can find the inactive row and revive it without
+violating name/category uniqueness. Replaying an already linked old event leaves
+it inactive. This lookup still enforces source tombstones and projection blocks;
+user-forgotten evidence cannot revive a retired skill.
+
+L4 strategy publication atomically updates the strategy revision and full-text
+index, then schedules vector refresh. Vector publication checks the captured
+revision and content; pending vectors are excluded from semantic retrieval.
+Strategy extraction consumes only the sampled, unprocessed trace IDs under an
+expected revision. Executions arriving during extraction remain pending, and a
+slower extraction cannot overwrite a newer strategy. The first execution counts
+as pending; trace pruning reconciles the retained pending backlog.
+
+Pending review loading is independent per section. A failed request displays a
+section-specific retry and cannot masquerade as an empty inbox or discard other
+loaded sections. Failed single-item and edit actions preserve the item, current
+selection, and unsaved edit, with a visible error. Batch actions retain failed
+selections and report partial success.
+
+### Pending review pagination
+
+The pending inbox uses server-side review-state and conflict-kind filters before pagination. Every lane returns a complete visible total; page length is never presented as a total. The client loads 25 records per page, retains loaded pages on failure, and reloads the loaded window after successful review so remaining records fill the gap. Batch selection covers loaded plans only. Summary deduplication, expiration and readability checks run on the complete active projection before slicing. This favors correct visibility and totals; a persisted feed index can replace this read model if measured collection size/latency requires it, without changing the API contract.
+
+### Entity identity and ambiguous names
+
+An explicit resolved entity ID is not replaced merely because a catalog row shares its name. Source-owned `structured_entity_hints` may supply `source_entity_key`; the host namespaces it by source and entity type and preserves it across renamed labels and repeated events. Raw event item IDs are not treated as entity IDs. People, places, works, hardware and projects without an identity key receive replay-stable mention-scoped IDs. Concept types (topics, concepts, software/technology, food, language and skills) retain normalized concept lookup. Cross-event memoization and automatic alias matching are limited to those concept types. Versioned resolved context references remain the path for intentional reuse of concrete identities.
+
+Name and alias indexes omit ambiguous labels instead of selecting the first row. Maintenance never chooses among ambiguous ghost targets by popularity, and does not merge mention/source-scoped identities by name. This intentionally prefers separate or unresolved concrete entities over false identity merges; new source integrations should provide stable object keys. No existing catalog data is rewritten by this change.
+
+### Profile-worthiness of observed objects
+
+Graph-to-profile derivation reads active L1 source semantics in batches before counting evidence. Navigation/search/feed pages, UI/menu labels, task instructions and explicit `profile_eligible=false` records do not support a profile assertion. A structured entity's semantic role (`topic`, `creator`, `work`, `product`, `organization`, `person`) can identify a meaningful object within a surrounding feed; an explicit non-profile role still wins. Thus “动态(2)” is excluded while “动态规划” and a named work with that title remain valid candidates. Raw facts and behavioral graph edges remain available independently of profile admission.
+
+### Independent evidence and confidence
+
+Behavior occurrence counts and independent support counts have separate meanings. Repeated event delivery remains idempotent; separate visits/plays remain separate observations and retain every L1 link for review and forgetting. Profile promotion and assertion confidence use source evidence groups instead: canonical resource URLs (tracking parameters removed), source content/track keys, or normalized content fingerprints. Reimports of the same authored content share a group across import batches. Distinct live chat messages retain message identity.
+
+The unified store injects an active L1 evidence reader into assertion write and reconciliation. Claim evidence locators persist the host-owned `independent_evidence_key`, and routed Claim statistics count those groups. Graph-derived confidence uses the shared support curve capped by the observed edge confidence; it no longer multiplies edge confidence by repetition. These scores are ranking/governance heuristics, not calibrated probabilities of personal preference. Standalone L2 callers without an L1 resolver own the uniqueness of their supplied evidence IDs. No stored events or assertions are repaired in bulk.
+
+### Readable profile expressions and provenance
+
+Behavior-derived assertions use controlled localized wording (“activity suggests …”) instead of predicate identifiers or claims of an explicit preference. Portrait items carry an evidence-basis enum (`user_confirmed`, `direct_report`, `inferred`, `unknown`), source-event references, source-record count and an optional structured behavior expression. The frontend renders that expression in the active locale, labels provenance alongside the item, and does not equate a stable validation rank with user confirmation. Source-record counts describe traceable records, not independent corroboration or accuracy percentages.
+
+### Experience processing status and bounded requests
+
+History-import completion requests one coalesced L2 consolidation run after a
+30-second settling window. Manual requests use the same durable request schedule
+and target lock as periodic consolidation. Requests preserve the configured
+per-run model budget and existing promotion gates; they do not declare an import
+understood or repair historical records.
+
+`GET /memory/l2/consolidation` exposes waiting, queued, running, disabled,
+unavailable, insufficient-evidence, ready, and failed states. The response uses
+persisted scheduler results plus the current projection backlog. Partial failures
+retain generated output and diagnostic counts. A returned unsuccessful scheduler
+result records a failed execution and preserves its statistics and error detail;
+it does not advance the last-success timestamp, accepted cursor, or watermark.
+Model-budget exhaustion defers unprocessed
+seeds without rejecting them. The experiences page can request another bounded
+check, retry a failed status read, and refresh results after a run completes.
+
+### Memory quality diagnostics
+
+`GET /memory/quality?user_id=...` separates three populations:
+
+- `runtime`: attempts since the pipeline's `started_at`, including evaluated,
+  write-eligible and model-admitted events; grounded/rejected candidate Claims;
+  materialization decisions; degraded stages; extraction failures and elapsed
+  extraction time. Retries can increase these counters. They reset on restart and
+  must not be interpreted as unique records or a model accuracy score.
+- `stored`: active source-record count and durable projection backlog across the
+  store. This is the received-data inventory, including data not eligible for L2.
+- `user`: active grounded Claims and the latest non-invalidated route per Claim,
+  grouped by disposition and reason. Replay history is excluded. Current portrait
+  builders supply visible item/assertion and review-item counts for that user.
+
+Consolidation counts and model-selection diagnostics remain in the persistent
+scheduler result exposed by `/memory/l2/consolidation`. L3/L4 inventories remain
+in the existing statistics response. Confidence remains a support heuristic,
+not an empirically calibrated probability.
+
+The overview's headline now counts original L1 records. Extracted statements,
+including pending statements, and summaries remain separate. The API calls the
+cross-layer storage inventory `stored_records`; it is not a count of unique
+memories, understanding, or personal facts. Today deltas use the same units.
+
+### Chinese journey regression and live evaluation
+
+`backend/tests/memory/journeys/test_chinese_memory_journey.py` runs a fresh-store
+journey from raw `UserMessage` ingestion through L1, the durable L2 workers,
+grounded Claims, the public correction and portrait routes, the production
+`UserProfileService`/prompt assembler, and `MemoryQueryTool` with its host query
+port. It imports an authored Markdown document through `HistoryImportService`,
+rejects a proposed L3 summary, forgets source events, closes/reopens the stores,
+and redelivers the original events. Checks cover Chinese names, mixed questions,
+negation, one-meal evaluations, durable/recent preferences, hypothetical text,
+correction visibility, summary rejection, and forbidden-source replay.
+
+The durable preference horizon is taken from its own explicitly timed clause.
+For example, “我一直很喜欢 DIIV，最近又把《Oshin》听了几遍” preserves the durable
+preference; the nearby listening episode does not shorten its lifetime.
+
+Default execution uses a scripted provider transport with deliberately unsafe
+candidate Claims. Storage, governance, public routing, retrieval, and prompt
+consumption are real. Its generated replies assert transport/context wiring;
+passing this suite is **not** a model-quality percentage or a complete desktop
+`ChatTaskAgent`/delivery evaluation. The existing runtime tests cover those
+runtime wiring boundaries separately. Retrieval `found` means candidate evidence
+exists; it does not establish that an arbitrary requested claim is true.
+
+Run from `backend` with the project environment and an isolated test HOME:
+
+```sh
+PYTHONPATH=src:../sdk/src python -m pytest tests/memory/journeys \
+  tests/memory/history_imports/test_history_import_l2_quality.py -q
+```
+
+For a live extraction/answer run, explicitly supply `MAGI_EVAL_API_KEY`,
+`MAGI_EVAL_MODEL`, and optionally `MAGI_EVAL_BASE_URL` in the environment, then:
+
+```sh
+MAGI_LIVE_MEMORY_EVAL=1 PYTHONPATH=src:../sdk/src python -m pytest \
+  tests/memory/journeys/test_chinese_memory_journey.py \
+  -k live -q --junitxml=/tmp/magi-live-memory-journey.xml
+```
+
+Without explicit provider configuration the live case is skipped, not counted
+as passed. The fixture is synthetic; tests never consume the user's actual
+conversation database. Live results should be reported with model, test revision,
+case failures, and the boundary above. This small regression baseline is not a
+replacement for a representative model-quality benchmark.
