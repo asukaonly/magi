@@ -322,6 +322,7 @@ describe('MemoryDataManagementSection', () => {
       destinationDirectory: '/tmp/readable export',
       includeL0,
     });
+    await waitFor(() => expect(screen.getByTestId('memory-data-management-section')).toHaveFocus());
   });
 
   it('resets short-term attention consent when the export dialog reopens', async () => {
@@ -338,6 +339,7 @@ describe('MemoryDataManagementSection', () => {
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.common.cancel',
     }));
+    await waitFor(() => expect(openExport()).toHaveFocus());
     await user.click(openExport());
     expect(screen.getByRole('checkbox', {
       name: 'settings.memory.dataManagement.export.includeL0',

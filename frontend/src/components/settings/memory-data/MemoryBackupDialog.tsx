@@ -24,6 +24,7 @@ import { pickDirectory } from '@/runtime/desktop';
 
 interface MemoryBackupDialogProps {
   open: boolean;
+  onCloseAutoFocus: (event: Event) => void;
   onOpenChange: (open: boolean) => void;
   onStarted: (operation: MemoryPortabilityOperation) => void;
   onReconcileStarted: (
@@ -32,6 +33,7 @@ interface MemoryBackupDialogProps {
 }
 
 export function MemoryBackupDialog({
+  onCloseAutoFocus,
   open,
   onOpenChange,
   onStarted,
@@ -133,6 +135,7 @@ export function MemoryBackupDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        onCloseAutoFocus={onCloseAutoFocus}
         className="max-h-[88vh] max-w-xl overflow-y-auto"
         closeLabel={t('settings.memory.dataManagement.common.close')}
         hideClose={submitting}

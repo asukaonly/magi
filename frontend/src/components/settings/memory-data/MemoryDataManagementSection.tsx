@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Archive, FileText, RotateCcw } from 'lucide-react';
 
@@ -21,7 +21,7 @@ interface DataActionRowProps {
   description: string;
   actionLabel: string;
   disabled: boolean;
-  onAction: () => void;
+  onAction: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
 function DataActionRow({
@@ -54,6 +54,14 @@ export function MemoryDataManagementSection({
   onRestoreCompleted,
 }: MemoryDataManagementSectionProps) {
   const { t } = useTranslation('app');
+  const sectionRef = useRef<HTMLElement>(null);
+  const actionTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const restoreFocus = (event: Event) => {
+    event.preventDefault();
+    const trigger = actionTriggerRef.current;
+    if (trigger?.isConnected && !trigger.disabled) trigger.focus();
+    else sectionRef.current?.focus();
+  };
   const [backupOpen, setBackupOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [restoreSourcePath, setRestoreSourcePath] = useState<string | null>(null);
@@ -89,6 +97,8 @@ export function MemoryDataManagementSection({
 
   return (
     <section
+      ref={sectionRef}
+      tabIndex={-1}
       className="py-3"
       aria-labelledby="memory-data-management-title"
       aria-busy={busy || loadingActiveOperation}
@@ -110,7 +120,7 @@ export function MemoryDataManagementSection({
           description={t('settings.memory.dataManagement.backup.description')}
           actionLabel={t('settings.memory.dataManagement.backup.action')}
           disabled={actionsDisabled}
-          onAction={() => setBackupOpen(true)}
+          onAction={(event) => { actionTriggerRef.current = event.currentTarget; setBackupOpen(true); }}
         />
         <DataActionRow
           icon={<FileText className="h-4 w-4" />}
@@ -118,7 +128,7 @@ export function MemoryDataManagementSection({
           description={t('settings.memory.dataManagement.export.description')}
           actionLabel={t('settings.memory.dataManagement.export.action')}
           disabled={actionsDisabled}
-          onAction={() => setExportOpen(true)}
+          onAction={(event) => { actionTriggerRef.current = event.currentTarget; setExportOpen(true); }}
         />
         <DataActionRow
           icon={<RotateCcw className="h-4 w-4" />}
@@ -128,7 +138,7 @@ export function MemoryDataManagementSection({
             ? t('settings.memory.dataManagement.restore.choosingFile')
             : t('settings.memory.dataManagement.restore.action')}
           disabled={actionsDisabled}
-          onAction={() => void handleChooseRestoreFile()}
+          onAction={(event) => { actionTriggerRef.current = event.currentTarget; void handleChooseRestoreFile(); }}
         />
       </div>
 
@@ -157,18 +167,21 @@ export function MemoryDataManagementSection({
       ) : null}
 
       <MemoryBackupDialog
+        onCloseAutoFocus={restoreFocus}
         open={backupOpen}
         onOpenChange={setBackupOpen}
         onStarted={trackOperation}
         onReconcileStarted={reconcileStartedOperation}
       />
       <MemoryExportDialog
+        onCloseAutoFocus={restoreFocus}
         open={exportOpen}
         onOpenChange={setExportOpen}
         onStarted={trackOperation}
         onReconcileStarted={reconcileStartedOperation}
       />
       <MemoryRestoreDialog
+        onCloseAutoFocus={restoreFocus}
         open={restoreSourcePath !== null}
         sourcePath={restoreSourcePath}
         operation={operation}

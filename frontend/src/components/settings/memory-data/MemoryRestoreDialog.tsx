@@ -33,6 +33,7 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 interface MemoryRestoreDialogProps {
   open: boolean;
+  onCloseAutoFocus: (event: Event) => void;
   sourcePath: string | null;
   operation: MemoryPortabilityOperation | null;
   pollingInterrupted: boolean;
@@ -54,6 +55,7 @@ function discardCandidate(candidateId: string | null): void {
 }
 
 export function MemoryRestoreDialog({
+  onCloseAutoFocus,
   open,
   sourcePath,
   operation,
@@ -253,6 +255,7 @@ export function MemoryRestoreDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
+        onCloseAutoFocus={onCloseAutoFocus}
         className="max-h-[90vh] max-w-2xl overflow-y-auto"
         closeLabel={t('settings.memory.dataManagement.common.close')}
         hideClose={confirming}
