@@ -26,16 +26,6 @@ type ChatWorkspaceContextValue = {
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceContextValue | null>(null);
 
-const DEFAULT_CHAT_WORKSPACE_DISPLAY = '~/.magi/chat-workspace';
-
-const getWorkspaceDisplayPath = (workspacePath: string | null | undefined): string => {
-  const trimmed = String(workspacePath || '').trim();
-  if (!trimmed) {
-    return DEFAULT_CHAT_WORKSPACE_DISPLAY;
-  }
-  return trimmed;
-};
-
 export const ChatWorkspaceProvider = ({ children }: { children: React.ReactNode }) => {
   const { t } = useTranslation('app');
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
@@ -75,7 +65,7 @@ export const ChatWorkspaceProvider = ({ children }: { children: React.ReactNode 
   const value = useMemo<ChatWorkspaceContextValue>(
     () => ({
       currentWorkspacePath: currentSession?.workspace_path ?? null,
-      workspaceDisplayPath: getWorkspaceDisplayPath(currentSession?.workspace_path),
+      workspaceDisplayPath: currentSession?.workspace_path?.trim() || t('settings.fields.defaultChatWorkspace'),
       hasSessionWorkspaceOverride: Boolean(String(currentSession?.workspace_path || '').trim()),
       recentWorkspaces,
       updatingWorkspace,
@@ -90,6 +80,7 @@ export const ChatWorkspaceProvider = ({ children }: { children: React.ReactNode 
       onChangeWorkspace,
       onSelectWorkspace,
       onClearWorkspace,
+      t,
     ],
   );
 
