@@ -3789,7 +3789,8 @@
         "workbench": "Current context"
       },
       "emptyStateIntro": "Magi doesn't know much about you yet. Add a memory or let me see your activity:",
-      "manualEntry": "Add a memory manually"
+      "manualEntry": "Add a memory manually",
+      "searchFailed": "Unable to search memory. Please try again."
     },
     "correction": {
       "title": "Correct this memory",

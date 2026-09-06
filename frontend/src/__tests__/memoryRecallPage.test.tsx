@@ -50,6 +50,18 @@ beforeEach(() => {
 });
 
 describe('MemoryRecallPage', () => {
+  it('shows a retryable error instead of an empty-result claim', async () => {
+    const original = vi.mocked(useMemory)();
+    const handleSearch = vi.fn();
+    vi.mocked(useMemory).mockReturnValue({ ...original, searchError: true, handleSearch });
+    renderPage();
+    expect(screen.getByRole('alert')).toHaveTextContent('memory.recall.searchFailed');
+    expect(screen.queryByText('没找到合适的记忆')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(handleSearch).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'common.search' })).toBeInTheDocument();
+  });
+
   it('does not render the page header card', () => {
     renderPage();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();

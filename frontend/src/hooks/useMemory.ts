@@ -8,7 +8,7 @@
  * - Clear memory operations
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { memoryApi } from '@/api/modules/memory';
@@ -106,6 +106,7 @@ export interface UseMemoryReturn {
   setSearchQuery: (query: string) => void;
   searchResults: MemorySearchResultPayload;
   searching: boolean;
+  searchError: boolean;
   handleSearch: (queryMode?: MemorySearchQueryMode) => Promise<void>;
 
   // Clear dialog
@@ -215,6 +216,17 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<MemorySearchResultPayload>(DEFAULT_SEARCH_RESULTS);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
+  const searchRequest = useRef(0);
+  const pendingSearch = useRef<string | null>(null);
+  useEffect(() => {
+    searchRequest.current += 1;
+    pendingSearch.current = null;
+    setSearching(false);
+    setSearchError(false);
+    setSearchResults(DEFAULT_SEARCH_RESULTS);
+    return () => { searchRequest.current += 1; };
+  }, [searchQuery]);
 
   // Clear dialog state
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
@@ -650,22 +662,31 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   // ============================================================================
 
   const handleSearch = useCallback(async (queryMode?: MemorySearchQueryMode) => {
-    if (!searchQuery.trim()) {
+    const query = searchQuery.trim();
+    if (!query) {
       setSearchResults(DEFAULT_SEARCH_RESULTS);
       return;
     }
+    const key = `${queryMode ?? 'auto'}:${query}`;
+    if (pendingSearch.current === key) return;
+    pendingSearch.current = key;
+    const request = ++searchRequest.current;
     setSearching(true);
+    setSearchError(false);
+    setSearchResults(DEFAULT_SEARCH_RESULTS);
     try {
-      const results = await memoryApi.search(searchQuery, { query_mode: queryMode });
+      const results = await memoryApi.search(query, { query_mode: queryMode });
+      if (request !== searchRequest.current) return;
       setSearchResults(results);
-      toast.success(t('memory.searchComplete'));
-    } catch (error) {
-      setSearchResults(DEFAULT_SEARCH_RESULTS);
-      toast.error(t('memory.searchError', { message: String(error) }));
+    } catch {
+      if (request === searchRequest.current) setSearchError(true);
     } finally {
-      setSearching(false);
+      if (request === searchRequest.current) {
+        pendingSearch.current = null;
+        setSearching(false);
+      }
     }
-  }, [searchQuery, t]);
+  }, [searchQuery]);
 
   // ============================================================================
   // Clear Memory
@@ -811,6 +832,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     setSearchQuery,
     searchResults,
     searching,
+    searchError,
     handleSearch,
 
     // Clear dialog

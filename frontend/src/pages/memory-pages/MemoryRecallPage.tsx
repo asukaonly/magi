@@ -101,7 +101,7 @@ export const MemoryRecallPage = () => {
   const [hasSearched, setHasSearched] = useState(false);
   const [entrySheetOpen, setEntrySheetOpen] = useState(false);
   const {
-    loading, stats, searchQuery, setSearchQuery, searchResults, searching, handleSearch,
+    loading, stats, searchQuery, setSearchQuery, searchResults, searching, searchError, handleSearch,
   } = useMemory({ initialLoadScope: 'overview' });
 
   const resultSections = SEARCH_RESULT_SECTIONS.map((section) => ({
@@ -119,7 +119,7 @@ export const MemoryRecallPage = () => {
   const memoryTotal = stats.total_memories ?? 0;
   const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
   const showSearching = hasSearched && searching;
-  const showNoResults = hasSearched && !searching && noResults;
+  const showNoResults = hasSearched && !searching && !searchError && noResults;
 
   return (
     <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')} hideHeader>
@@ -143,11 +143,12 @@ export const MemoryRecallPage = () => {
           <Input
             className={MEMORY_FILTER_INPUT_CLASS}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label={t('memory.recall.searchPlaceholder')}
+            onChange={(e) => { setHasSearched(false); setSearchQuery(e.target.value); }}
             placeholder={t('memory.recall.searchPlaceholder')}
             onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
           />
-          <Button onClick={runSearch} disabled={searching}>
+          <Button onClick={runSearch} disabled={searching} aria-label={t('common.search')}>
             {searching ? <LoadingSpinner className="h-4 w-4" /> : <Search className="h-4 w-4" />}
           </Button>
         </div>
@@ -161,6 +162,13 @@ export const MemoryRecallPage = () => {
 
         {showNoResults ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.recall.noResults')}</div>
+        ) : null}
+
+        {searchError ? (
+          <div role="alert" className={MEMORY_EMPTY_PANEL_CLASS}>
+            <p>{t('memory.recall.searchFailed')}</p>
+            <Button variant="outline" onClick={runSearch}>{t('common.retry')}</Button>
+          </div>
         ) : null}
 
         {resultSections.length > 0 ? (

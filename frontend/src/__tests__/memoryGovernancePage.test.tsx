@@ -214,6 +214,7 @@ const baseMemoryState = {
     trace: {},
   },
   searching: false,
+  searchError: false,
   handleSearch: vi.fn(),
   clearDialogOpen: false,
   setClearDialogOpen: vi.fn(),

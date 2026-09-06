@@ -460,6 +460,9 @@ Product expectations:
   explicit memory-handler skips are displayed as skipped runs.
 - L1 event memory should default to a 30-day hot retention window
 - graph-spreading recall should default to enabled for relation-assisted memory retrieval
+- memory search must distinguish unavailable results from a successful empty result,
+  provide an inline retry, and ignore responses for a query the user has replaced.
+  Repeated submission of the same pending query must not start duplicate requests.
 
 The current settings surface should support at least:
 
