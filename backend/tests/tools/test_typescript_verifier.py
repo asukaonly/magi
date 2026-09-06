@@ -244,4 +244,3 @@ async def test_cancelled_checker_process_is_terminated(project: Path, monkeypatc
     with pytest.raises(asyncio.CancelledError):
         await task
     assert processes[0].returncode is not None
-
