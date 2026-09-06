@@ -1,7 +1,7 @@
 import type { RefObject } from 'react';
 import { useMemo } from 'react';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
-import { isPendingRunState } from '@/domain/chat/run-state';
+import { isPendingRunState, isUnsuccessfulAssistantOutcome } from '@/domain/chat/run-state';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
 import type { RecallFeedbackDraftInput } from '@/domain/chat/recall-feedback';
@@ -20,6 +20,7 @@ type RenderableTimelineMessage = ReturnType<typeof projectChatTimelineRow>;
 
 const executionPlaceholderPriority = (projectedMessage: RenderableTimelineMessage): number => {
   if (projectedMessage.surface === 'runtime_status') {
+    if (isUnsuccessfulAssistantOutcome(projectedMessage.message)) return 3;
     return projectedMessage.executionProgress ? 1 : 0;
   }
   if (
@@ -154,7 +155,7 @@ export const ChatTimelinePane = ({
   const finalizedTurnIds = useMemo(() => {
     const ids = new Set<string>();
     for (const message of messages) {
-      if (message.role !== 'assistant' || message.kind !== 'assistant') {
+      if (message.role !== 'assistant' || message.kind !== 'assistant' || isUnsuccessfulAssistantOutcome(message)) {
         continue;
       }
       const turnId = String(message.turnId || '').trim();

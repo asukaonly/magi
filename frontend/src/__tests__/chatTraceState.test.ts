@@ -23,6 +23,20 @@ import {
 } from '@/domain/chat/state';
 
 describe('chat trace state helpers', () => {
+  it.each(['failed', 'blocked', 'cancelled'])('presents a durable %s outcome as runtime status', (state) => {
+    const message: ChatTimelineMessage = {
+      id: 'outcome', role: 'assistant', kind: 'assistant', messageKind: 'assistant_final',
+      turnId: 'turn-outcome', content: 'Execution failed: EXECUTION_ERROR', timestamp: 1,
+      runState: { state, can_cancel: false, can_detach: false },
+    };
+    expect(getChatPresentationSurface(message)).toBe('runtime_status');
+    expect(buildSystemSuggestionTriggerText([
+      { id: 'user', role: 'user', kind: 'user', content: 'test', timestamp: 0 }, message,
+    ])).toBe('');
+    expect(getChatPresentationSurface({ ...message, role: 'user', kind: 'user' })).toBe('transcript');
+    expect(getChatPresentationSurface({ ...message, runState: { state: 'completed' } })).toBe('transcript');
+  });
+
   it('creates a compact pending turn with only the user message by default', () => {
     const messages = createPendingTurn('Analyze this repo', 'turn_1', 1000, 'Thinking');
 

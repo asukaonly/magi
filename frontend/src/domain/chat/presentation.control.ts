@@ -1,4 +1,5 @@
 import type { ChatTimelineMessage } from './state';
+import { isUnsuccessfulAssistantOutcome } from './run-state';
 import type {
   ChatPresentationSurface,
   ControlStatusTone,
@@ -77,6 +78,7 @@ export const isControlStatusMessageKind = (messageKind: string | null | undefine
 export const getChatPresentationSurface = (
   message: ChatTimelineMessage,
 ): ChatPresentationSurface => {
+  if (isUnsuccessfulAssistantOutcome(message)) return 'runtime_status';
   if (message.kind !== 'status') {
     return 'transcript';
   }

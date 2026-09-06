@@ -8,6 +8,7 @@ import {
 } from '@/domain/chat/state.history';
 import type { NormalizedExecutionTraceSummary } from '@/domain/chat/state.trace';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import { isUnsuccessfulAssistantOutcome } from './run-state';
 import {
   orderCompleteRhythmItems,
   readRhythmSegmentMeta,
@@ -79,7 +80,7 @@ export const buildSystemSuggestionTriggerText = (messages: ChatTimelineMessage[]
     return '';
   }
   const lastMessage = messages[messages.length - 1];
-  if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.streaming) {
+  if (!lastMessage || lastMessage.role !== 'assistant' || lastMessage.streaming || isUnsuccessfulAssistantOutcome(lastMessage)) {
     return '';
   }
 

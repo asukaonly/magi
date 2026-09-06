@@ -4,6 +4,7 @@ import { ControlStatusCard } from './ControlStatusCard';
 import { RuntimeStatusCard } from './RuntimeStatusCard';
 import type { TimelineRowSharedProps } from './TimelineRowShared';
 import { TimelineExecutionPanel } from './TimelineExecutionPanel';
+import { isPendingRunState } from '@/domain/chat/run-state';
 
 type StatusTimelineRowProps = TimelineRowSharedProps & {
   projectedMessage: Exclude<ProjectedChatTimelineMessage, { surface: 'transcript' }>;
@@ -25,7 +26,7 @@ export const StatusTimelineRow = ({
     <RuntimeStatusCard
       message={message}
       shouldReduceMotion={shouldReduceMotion}
-      avatar={<ChatRoleAvatar role="assistant" assistantName={assistant.name} assistantAvatar={assistant.avatar} avatarState="streaming" />}
+      avatar={<ChatRoleAvatar role="assistant" assistantName={assistant.name} assistantAvatar={assistant.avatar} avatarState={isPendingRunState(projectedMessage.executionProgress?.executionState) ? 'streaming' : 'static'} />}
       executionPanel={(
         <TimelineExecutionPanel
           executionProgress={projectedMessage.executionProgress}

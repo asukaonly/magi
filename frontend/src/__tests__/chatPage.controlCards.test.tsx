@@ -20,6 +20,30 @@ import { personasApi } from '@/api/modules/personas';
 import { normalizeTraceSummary } from '@/domain/chat/state';
 
 defineChatPageSuite('ChatPage control cards', () => {
+  it.each(['history', 'realtime'])('renders %s execution failure as one status card, not a reply', async (source) => {
+    const store = useConversationStore.getState();
+    store.hydrateSessions([{
+      session_id: 'session-1', title: 'Test', last_message_preview: '', last_user_message_preview: '',
+      title_overridden: false, last_timestamp: 0, message_count: 0, workspace_path: null,
+    }], 'session-1');
+    store.upsertMessage('session-1', {
+      id: 'pending-error', role: 'assistant', kind: 'status', turnId: 'turn-error',
+      content: 'Preparing', timestamp: 1, runState: { state: 'running' },
+    });
+    const summary = normalizeTraceSummary({ turn_id: 'turn-error', status: 'failed', trace_available: false });
+    store.upsertMessage('session-1', {
+      id: 'final-error', messageId: 'final-error', role: 'assistant', kind: 'assistant',
+      messageKind: 'assistant_final', turnId: 'turn-error', content: 'Execution failed: EXECUTION_ERROR',
+      timestamp: 2, traceSummary: source === 'realtime' ? summary : null,
+      runState: source === 'history' ? { state: 'failed', can_cancel: false, can_detach: false } : null,
+    });
+    render(<ChatPage />);
+    expect(await screen.findByText('chat.trace.execution.failedTitle')).toBeInTheDocument();
+    expect(screen.getAllByTestId('chat-trace-status-card-turn-error')).toHaveLength(1);
+    expect(screen.queryByText('Execution failed: EXECUTION_ERROR')).not.toBeInTheDocument();
+    expect(screen.queryByText('chat.trace.execution.runningTitle')).not.toBeInTheDocument();
+  });
+
   it('opens a session safety popover from the composer toolbar and applies mode changes immediately', async () => {
     const user = userEvent.setup();
 

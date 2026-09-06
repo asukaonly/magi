@@ -166,6 +166,11 @@ requiring matching semantic keys and interpolation arguments.
 
 Python-proxied routes also have a dedicated schema export path: `scripts/export-python-openapi.py`. That script builds the in-memory FastAPI app and exports its OpenAPI document for IPC-dispatched Python routes only. Rust-native routes still belong in the gateway manifest and Rust contract tests.
 
+Failed, blocked and cancelled final assistant outcomes use the localized runtime
+status card instead of an ordinary answer bubble. The projection uses durable
+run state or the live trace summary, never error-text matching, and the same turn
+does not retain an additional running placeholder or trigger reply suggestions.
+
 Desktop event connection failures remain visible without replacing the current page;
 the reconnect action reattaches native listeners and refreshes session state. Each
 subscription/request lifetime discards stale completions. Background history

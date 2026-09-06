@@ -38,3 +38,10 @@ export const isTerminalRunState = (state: unknown): boolean => (
 export const isPendingRunState = (state: unknown): boolean => (
   PENDING_RUN_STATES.has(normalizeRunState(state))
 );
+
+export const isUnsuccessfulAssistantOutcome = (message: ChatTimelineMessage): boolean => {
+  if (message.role !== 'assistant' || message.messageKind !== 'assistant_final' || message.streaming) return false;
+  const state = normalizeRunState(message.runState?.state) || normalizeRunState(message.traceSummary?.status);
+  return state === 'failed' || state === 'blocked' || state === 'cancelled';
+};
+import type { ChatTimelineMessage } from './state';
