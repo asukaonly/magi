@@ -9,6 +9,7 @@ Phase 2 I: RiskLevel, RiskSignal, ClassificationResult are promoted to the SDK
 """
 from __future__ import annotations
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Cluster G — MemoryQueryPort
@@ -192,16 +193,12 @@ def test_risk_level_ordering():
 
 
 # ---------------------------------------------------------------------------
-# Regression: _HostMemoryQueryPort must expose memory_db_path (Fix 1)
+# Canonical name lookup stays behind the host capability boundary.
 # ---------------------------------------------------------------------------
 
-def test_host_memory_query_port_exposes_db_path():
-    """Production adapter must delegate memory_db_path to its service.
-
-    Regression guard for the Phase 2 cluster-G regression: the adapter had no
-    memory_db_path attribute so the tool silently skipped canonical-names
-    resolution in production (db_path was always None).
-    """
+@pytest.mark.asyncio
+async def test_host_memory_query_port_resolves_names_without_exposing_db_path(monkeypatch):
+    """Resolve names through the host-owned database without exposing its path."""
     from magi.bootstrap.tool_capabilities import _HostMemoryQueryPort
 
     port = _HostMemoryQueryPort()
@@ -215,4 +212,13 @@ def test_host_memory_query_port_exposes_db_path():
     # Inject directly into the cache attribute the adapter uses so no real
     # memory initialisation is triggered.
     port._service = _FakeService()
-    assert port.memory_db_path == "/tmp/mem.db"
+    calls = []
+
+    async def lookup(db_path, entity_ids):
+        calls.append((db_path, entity_ids))
+        return {"entity-1": "Alice"}
+
+    monkeypatch.setattr("magi.memory.l2.entities.catalog.lookup.get_canonical_names", lookup)
+    assert not hasattr(port, "memory_db_path")
+    assert await port.get_canonical_names({"entity-1"}) == {"entity-1": "Alice"}
+    assert calls == [("/tmp/mem.db", {"entity-1"})]

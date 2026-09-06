@@ -3,7 +3,7 @@ def test_sdk_exposes_capabilities_container():
 
     caps = ToolCapabilities()
     assert caps.trace is None
-    assert caps.session_cache is None
+    assert not hasattr(caps, "session_cache")
 
 
 def test_context_carries_capabilities():

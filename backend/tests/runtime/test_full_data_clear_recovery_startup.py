@@ -53,6 +53,7 @@ async def _seed_interrupted_runtime(
         SourceSyncCommand(
             source="test",
             source_name="history",
+            connection_id="connection-test",
         )
     )
     claimed = await queue.claim_next(

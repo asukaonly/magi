@@ -17,6 +17,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     fake_indexer = object()
     fake_loader = object()
     fake_runner = object()
+    context.skills.skill_indexer = fake_indexer
+    context.skills.skill_loader = fake_loader
     captured: dict[str, object] = {}
 
     def _fake_build_skills_runtime(
@@ -28,6 +30,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
         tool_registry,
         orchestrator_factory=None,
         agent_run_request_factory=None,
+        skill_indexer=None,
+        skill_loader=None,
     ):
         captured["llm_adapter"] = llm_adapter
         captured["permission_gateway_provider"] = permission_gateway_provider
@@ -36,6 +40,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
         captured["tool_registry"] = tool_registry
         captured["orchestrator_factory"] = orchestrator_factory
         captured["agent_run_request_factory"] = agent_run_request_factory
+        captured["skill_indexer"] = skill_indexer
+        captured["skill_loader"] = skill_loader
         return SimpleNamespace(
             skill_indexer=fake_indexer,
             skill_loader=fake_loader,
@@ -66,3 +72,5 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     assert captured["tool_registry"] is fake_registry
     assert captured["orchestrator_factory"] is fake_orchestrator_factory
     assert captured["agent_run_request_factory"] is fake_agent_run_request_factory
+    assert captured["skill_indexer"] is fake_indexer
+    assert captured["skill_loader"] is fake_loader
