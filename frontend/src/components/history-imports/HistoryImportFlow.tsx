@@ -156,6 +156,7 @@ export const HistoryImportFlow = forwardRef<
   const selectionBusyRef = useRef<string | null>(null);
   const sourcePreviewAbortRef = useRef<AbortController | null>(null);
   const sourcePreviewRequestRef = useRef(0);
+  const sourcePreviewTriggerRef = useRef<HTMLButtonElement | null>(null);
   const platformOptionsRequestRef = useRef(0);
   const jobMutationVersionRef = useRef(0);
   const sourcePageJobIdRef = useRef<string | null>(null);
@@ -1558,7 +1559,10 @@ export const HistoryImportFlow = forwardRef<
                     size="sm"
                     variant="ghost"
                     className="text-muted-foreground hover:text-foreground"
-                    onClick={() => void openSourcePreview(source)}
+                    onClick={(event) => {
+                      sourcePreviewTriggerRef.current = event.currentTarget;
+                      void openSourcePreview(source);
+                    }}
                     aria-label={t("firstContext.history.preview.previewFile", {
                       file: source.source_name,
                     })}
@@ -1811,6 +1815,12 @@ export const HistoryImportFlow = forwardRef<
       >
         <SheetContent
           side="right"
+          onCloseAutoFocus={(event) => {
+            if (sourcePreviewTriggerRef.current?.isConnected) {
+              event.preventDefault();
+              sourcePreviewTriggerRef.current.focus();
+            }
+          }}
           closeLabel={t("firstContext.history.sourcePreview.close")}
           className="flex w-[min(92vw,720px)] max-w-none flex-col overflow-hidden bg-background sm:max-w-none"
         >

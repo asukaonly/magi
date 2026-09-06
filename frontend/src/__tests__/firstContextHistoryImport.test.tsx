@@ -806,6 +806,10 @@ describe("FirstContextHistoryImport", () => {
     expect(
       screen.getByText("firstContext.history.sourcePreview.description"),
     ).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'firstContext.history.preview.previewFile',
+    })).toHaveFocus());
   });
 
   it("renders document previews as Markdown instead of raw text", async () => {
