@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, cast
 
 from .logging import (
+    RawProviderResponseLogger,
     build_provider_test_log_context as _build_provider_test_log_context,
     extract_provider_error_details as _extract_provider_error_details,
     is_provider_test_event as _is_provider_test_event,
@@ -243,6 +244,7 @@ class ProviderBridgeRequestMixin:
                 exc=exc,
             )
             raise
+        RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         if hasattr(response, "content"):
             parsed_response = host._parse_anthropic_response(response)
         else:
@@ -285,6 +287,7 @@ class ProviderBridgeRequestMixin:
             )
             raise
 
+        RawProviderResponseLogger(host.llm, request.event_context).log_response(response)
         raw_response_summary = _summarize_raw_provider_response(response)
         _log_openai_raw_response(host, request.event_context, raw_response_summary)
         try:
@@ -422,6 +425,7 @@ class ProviderBridgeRequestMixin:
                 anthropic_kwargs, thinking_depth
             )
             response = await host.llm._client.messages.create(**anthropic_kwargs)
+            RawProviderResponseLogger(host.llm, event_context).log_response(response)
             return host._parse_anthropic_response(response)
 
         openai_messages = host._mark_message_cache_breakpoints(
@@ -444,4 +448,5 @@ class ProviderBridgeRequestMixin:
         kwargs = host._apply_cache_routing(kwargs, event_context)
 
         response = await host.llm._client.chat.completions.create(**kwargs)
+        RawProviderResponseLogger(host.llm, event_context).log_response(response)
         return host._parse_openai_response(response)

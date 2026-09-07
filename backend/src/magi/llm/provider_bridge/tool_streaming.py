@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
 from .models import ProviderResponse, ProviderToolCall, ToolStreamResult
+from .logging import RawProviderResponseLogger
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from ...config.models import ThinkingDepth
 
@@ -83,6 +84,7 @@ class ProviderBridgeToolStreamingMixin:
                 temperature=temperature,
                 thinking_depth=thinking_depth,
                 timeout_seconds=timeout_seconds,
+                event_context=event_context,
             )
         return await self._stream_openai_with_tools(
             system_prompt=system_prompt,
@@ -105,6 +107,7 @@ class ProviderBridgeToolStreamingMixin:
         temperature: float,
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> ToolStreamResult:
         host = cast(_ToolStreamingHostProtocol, self)
         anthropic_kwargs = self._build_anthropic_tool_stream_kwargs(
@@ -119,8 +122,10 @@ class ProviderBridgeToolStreamingMixin:
         )
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         state = _AnthropicToolStreamState()
+        raw_logger = RawProviderResponseLogger(host.llm, event_context)
 
         async for event in stream:
+            raw_logger.log_chunk(event)
             await self._handle_anthropic_tool_stream_event(event, state)
 
         return await self._build_anthropic_tool_stream_result(host, stream, state)
@@ -398,8 +403,10 @@ class ProviderBridgeToolStreamingMixin:
         )
         stream = await host.llm._client.chat.completions.create(**kwargs)
         state = _OpenAIToolStreamState()
+        raw_logger = RawProviderResponseLogger(host.llm, event_context)
 
         async for chunk in stream:
+            raw_logger.log_chunk(chunk)
             await self._handle_openai_tool_stream_chunk(chunk, state)
 
         await self._flush_openai_tool_scrubber(state)

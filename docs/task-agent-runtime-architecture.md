@@ -822,6 +822,16 @@ canonical plan by `run_id`; the combined projection is the source for:
 - first-action and total runtime latency;
 - token totals, reasoning escalation count, and repair exhaustion count.
 
+LLM trace previews describe runtime-normalized content, not raw provider
+responses. The native provider bridge builds `response_preview` from parsed
+`ProviderResponse.content` (or visible streaming text), collapses whitespace,
+and limits its generated preview to 240 characters. Explicit caller previews
+can replace that generated preview. Token usage comes from provider usage
+fields. Neither the preview nor the run-event projection is an archive of the
+original SDK response. For provider-format diagnosis, full-content diagnostic
+logging records `LLM_RAW_RESPONSE` / `LLM_RAW_CHUNK` before normalization in
+`llm_calls.log`, with credentials redacted and binary payloads omitted.
+
 The desktop gateway proxies chat history and trace-detail reads to this
 canonical Python projection. It must not maintain a second SQL-to-trace
 projection in Rust, because that duplicate would have to reproduce run-event,

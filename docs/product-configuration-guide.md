@@ -212,6 +212,16 @@ Current product expectations:
 - full-content logging may retain textual prompts, replies, tool content,
   retrieval context, and source text needed for debugging, but inline
   image/file bytes are always omitted
+- with full-content logging enabled, native OpenAI-compatible and Anthropic
+  calls record `LLM_RAW_RESPONSE` (non-streaming) or ordered `LLM_RAW_CHUNK`
+  records in `llm_calls.log` before Magi parses or separates text and reasoning.
+  These contain the SDK response fields, including complete text, tool calls,
+  and usage, with credential redaction and binary omission still applied; they
+  are not byte-for-byte HTTP captures. Function-calling records share the
+  existing `request_id` with `LLM_RESPONSE`; `capture_id` separates provider
+  attempts and `chunk_index` orders stream events. Disabling full-content
+  logging suppresses these records. Plugin-owned transports and adapter-only
+  fallbacks do not expose SDK responses at this boundary.
 - log redaction is independent of the full-content switch and always active:
   credentials saved in Magi, structured authorization fields, sensitive URL
   parameters, private keys, and high-confidence provider token formats are

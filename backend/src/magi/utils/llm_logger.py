@@ -176,7 +176,10 @@ def _omit_binary_log_payloads(value: Any, *, media_parent: bool = False) -> Any:
         ):
             sanitized[key] = f"{OMITTED_BINARY_VALUE} ({len(item)} chars)"
             continue
-        sanitized[key] = _omit_binary_log_payloads(item, media_parent=is_media)
+        sanitized[key] = _omit_binary_log_payloads(
+            item,
+            media_parent=is_media or normalized_key in {"audio", "image", "file", "video"},
+        )
     return sanitized
 
 

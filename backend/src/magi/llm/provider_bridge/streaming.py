@@ -10,6 +10,7 @@ from ..streaming_events import LLMStreamEvent, emit_stream_event
 from ..concurrency_limiter import LLMRequestPriority
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from .tool_streaming import ProviderBridgeToolStreamingMixin
+from .logging import RawProviderResponseLogger
 from ...config.constants import DEFAULT_THINKING_TOKENS
 from ...config.models import ThinkingDepth
 from ...runtime_trace import enrich_event_context_with_turn_trace
@@ -100,6 +101,7 @@ class ProviderBridgeChatStreamingMixin:
                     timeout_seconds=timeout_seconds,
                     thinking_depth=depth,
                     state=state,
+                    event_context=event_context,
                 ):
                     yield event_payload
             else:
@@ -138,6 +140,7 @@ class ProviderBridgeChatStreamingMixin:
         timeout_seconds: Optional[float],
         thinking_depth: ThinkingDepth,
         state: _ChatStreamState,
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         anthropic_kwargs = self._build_anthropic_chat_stream_kwargs(
             host,
@@ -150,7 +153,9 @@ class ProviderBridgeChatStreamingMixin:
         )
         stream = await host.llm._client.messages.create(**anthropic_kwargs)
         in_thinking = False
+        raw_logger = RawProviderResponseLogger(host.llm, event_context)
         async for event in stream:
+            raw_logger.log_chunk(event)
             event_payload, in_thinking = self._anthropic_chat_event_to_payload(
                 event,
                 state=state,
@@ -250,7 +255,7 @@ class ProviderBridgeChatStreamingMixin:
         if getattr(host.llm, "_client", None) is not None:
             chat_kwargs["model"] = host.llm.model_name
             async for event_payload in self._stream_openai_client_chat(
-                host, chat_kwargs, state
+                host, chat_kwargs, state, event_context=event_context
             ):
                 yield event_payload
             return
@@ -297,10 +302,14 @@ class ProviderBridgeChatStreamingMixin:
         host: ProviderBridgeStreamingHostProtocol,
         chat_kwargs: Dict[str, Any],
         state: _ChatStreamState,
+        *,
+        event_context: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMStreamEvent]:
         stream = await host.llm._client.chat.completions.create(**chat_kwargs)
         scrubber = ThinkTagScrubber()
+        raw_logger = RawProviderResponseLogger(host.llm, event_context)
         async for chunk in stream:
+            raw_logger.log_chunk(chunk)
             for event_payload in self._openai_chunk_to_payloads(
                 chunk, state=state, scrubber=scrubber
             ):

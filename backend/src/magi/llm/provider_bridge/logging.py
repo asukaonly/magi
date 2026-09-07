@@ -2,11 +2,72 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
+import uuid
 
+from ...utils.diagnostic_logging import full_content_logging_enabled
+from ...utils.llm_logger import _omit_binary_log_payloads, get_llm_logger
 from ...utils.log_redaction import redact_log_value
 from ..base import LLMAdapter
 from .models import ProviderResponse
+
+
+class RawProviderResponseLogger:
+    """Record SDK responses before parsing, without changing response objects."""
+
+    def __init__(
+        self,
+        llm_adapter: LLMAdapter,
+        event_context: dict[str, Any] | None,
+    ) -> None:
+        context = event_context or {}
+        capture_id = uuid.uuid4().hex
+        self._request_id = str(context.get("request_id") or capture_id)
+        self._metadata = {
+            "capture_id": capture_id,
+            "request_id": self._request_id,
+            "provider": llm_adapter.provider_name,
+            "model": llm_adapter.model_name,
+            **{
+                key: context[key]
+                for key in ("request_kind", "session_id", "turn_id", "trace_id", "span_id")
+                if context.get(key) is not None
+            },
+        }
+        self._chunk_index = 0
+
+    def log_response(self, response: Any) -> None:
+        """Log one complete SDK response before provider normalization."""
+        self._write("LLM_RAW_RESPONSE", response)
+
+    def log_chunk(self, chunk: Any) -> None:
+        """Log an ordered SDK stream event before text/reasoning separation."""
+        self._write("LLM_RAW_CHUNK", chunk, chunk_index=self._chunk_index)
+        self._chunk_index += 1
+
+    def _write(self, event: str, response: Any, **extra: Any) -> None:
+        logger = get_llm_logger("provider")
+        if not full_content_logging_enabled() or not logger.isEnabledFor(logging.DEBUG):
+            return
+        try:
+            payload = {
+                **self._metadata,
+                **extra,
+                "capture_stage": "sdk_before_normalization",
+                "response_type": type(response).__name__,
+                "raw_response": _omit_binary_log_payloads(redact_log_value(response)),
+            }
+            logger.debug(
+                "%s [%s] %s",
+                event,
+                self._request_id,
+                json.dumps(redact_log_value(payload), ensure_ascii=False),
+            )
+        except Exception as exc:
+            # Diagnostics must not fail an otherwise successful provider call.
+            logger.warning("LLM raw response logging failed: %s", type(exc).__name__)
 
 
 def is_provider_test_event(event_context: dict[str, Any] | None) -> bool:
