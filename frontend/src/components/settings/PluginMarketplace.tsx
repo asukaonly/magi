@@ -208,7 +208,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     const entries = getInstallableEntries(item);
     if (!entries.length) return;
     if (item.kind === 'group') {
-      setEntryPicker({ item, selectedIds: entries.map(entry => entry.plugin_id) });
+      setEntryPicker({ item, selectedIds: [] });
     } else setRegistryReview({ item, entries, update: false });
   };
 

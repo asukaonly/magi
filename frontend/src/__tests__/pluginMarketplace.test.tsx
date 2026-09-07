@@ -482,7 +482,12 @@ describe('PluginMarketplace', () => {
     expect(within(picker).getByTestId('marketplace-entry-option-chrome-history')).toHaveTextContent('Chrome');
     expect(within(picker).getByTestId('marketplace-entry-option-safari-history')).toHaveTextContent('Safari');
     expect(within(picker).getByTestId('marketplace-entry-option-brave-history')).toHaveTextContent('Brave');
-    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-brave-history'));
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).not.toBeChecked();
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-safari-history')).not.toBeChecked();
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-brave-history')).not.toBeChecked();
+    expect(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' })).toBeDisabled();
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history'));
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-safari-history'));
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
     await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
     await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
@@ -603,6 +608,12 @@ describe('PluginMarketplace', () => {
     await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.addEntries' }));
     const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
     expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeDisabled();
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeChecked();
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-safari-history')).not.toBeChecked();
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-firefox-history')).not.toBeChecked();
+    expect(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' })).toBeDisabled();
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-safari-history'));
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-firefox-history'));
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
     await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
     await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
@@ -712,6 +723,8 @@ describe('PluginMarketplace', () => {
     const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
     await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.chooseEntries' }));
     const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history'));
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-safari-history'));
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
     await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
 
