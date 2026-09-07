@@ -21,7 +21,7 @@ export function renderRichTextHtml(
 ): string {
   if (bodyDoc && Object.keys(bodyDoc).length > 0) {
     try {
-      return generateHTML(bodyDoc as never, richTextExtensions);
+      return generateHTML(bodyDoc, richTextExtensions);
     } catch {
       // Malformed doc — fall through to plain text so the row still
       // renders something (better degradation than a crash).
@@ -31,7 +31,7 @@ export function renderRichTextHtml(
   // get consistent whitespace/wrapping behavior across rich and
   // legacy entries.
   return generateHTML(
-    docFromPlainText(fallbackPlainText) as never,
+    docFromPlainText(fallbackPlainText),
     richTextExtensions,
   );
 }
