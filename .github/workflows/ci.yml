@@ -38,7 +38,11 @@ jobs:
 
       - name: Audit frontend production dependencies
         working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Audit frontend build dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
       - name: Validate frontend
         working-directory: frontend
@@ -134,7 +138,7 @@ jobs:
   rust-security:
     name: Rust dependency security
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -142,6 +146,11 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+
+      - name: Set up Python for security checks
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.11'
 
       - name: Verify reviewed GLib backport
         run: python3 scripts/check-vendored-glib.py
@@ -157,6 +166,12 @@ jobs:
 
       - name: Audit Rust dependencies
         run: python scripts/check-rust-advisories.py
+
+      - name: Install local advisory matcher
+        run: python3 -m pip install -r scripts/security-audit-requirements.txt
+
+      - name: Cross-check GitHub advisories locally
+        run: python3 scripts/check-rust-github-advisories.py
 
   gateway:
     name: Gateway validation (${{ matrix.name }})
@@ -184,10 +199,10 @@ jobs:
             . -> target
 
       - name: Run gateway tests
-        run: cargo test -p magi-gateway
+        run: cargo test --locked -p magi-gateway
 
       - name: Check headless gateway
-        run: cargo check -p magi-gateway-cli
+        run: cargo check --locked -p magi-gateway-cli
 
   desktop-shell:
     name: Desktop shell validation (${{ matrix.name }})
@@ -235,4 +250,4 @@ jobs:
         run: mkdir -p frontend/src-tauri/sidecar-dist
 
       - name: Check desktop shell
-        run: cargo check -p magi-desktop
+        run: cargo check --locked -p magi-desktop

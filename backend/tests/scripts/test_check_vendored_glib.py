@@ -23,6 +23,7 @@ def patched_tree(tmp_path: Path) -> Path:
         ignore=shutil.ignore_patterns("target", "Cargo.lock"),
     )
     shutil.copyfile(ROOT / "Cargo.toml", tmp_path / "Cargo.toml")
+    shutil.copyfile(ROOT / "Cargo.lock", tmp_path / "Cargo.lock")
     return tmp_path
 
 
@@ -45,6 +46,20 @@ def test_disconnected_override_is_rejected(patched_tree: Path) -> None:
     )
     assert (
         "The workspace must use the reviewed local GLib patch"
+        in MODULE.validate_patch(patched_tree)
+    )
+
+
+def test_registry_copy_cannot_use_the_local_patch_exception(patched_tree: Path) -> None:
+    lockfile = patched_tree / "Cargo.lock"
+    lockfile.write_text(
+        lockfile.read_text().replace(
+            'name = "glib"\n',
+            'name = "glib"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n',
+        )
+    )
+    assert (
+        "The lockfile must resolve GLib to the reviewed local 0.18.5 crate"
         in MODULE.validate_patch(patched_tree)
     )
 

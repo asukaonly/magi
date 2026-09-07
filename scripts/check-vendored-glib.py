@@ -17,6 +17,7 @@ def validate_patch(root: Path = ROOT) -> list[str]:
     try:
         provenance = json.loads((root / "vendor/glib-provenance.json").read_text())
         workspace = tomllib.loads((root / "Cargo.toml").read_text())
+        lockfile = tomllib.loads((root / "Cargo.lock").read_text())
         package_root = root / "vendor/glib"
         package = tomllib.loads((package_root / "Cargo.toml").read_text())
         expected = provenance["upstream_files"] | provenance["patched_files"]
@@ -24,6 +25,11 @@ def validate_patch(root: Path = ROOT) -> list[str]:
         return [f"Cannot read GLib patch provenance: {exc}"]
 
     failures: list[str] = []
+    locked = [package for package in lockfile["package"] if package["name"] == "glib"]
+    if len(locked) != 1 or locked[0].get("source") or locked[0]["version"] != "0.18.5":
+        failures.append(
+            "The lockfile must resolve GLib to the reviewed local 0.18.5 crate"
+        )
     if workspace.get("patch", {}).get("crates-io", {}).get("glib") != {
         "path": "vendor/glib"
     }:

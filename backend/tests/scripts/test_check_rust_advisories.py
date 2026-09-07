@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import date
 from pathlib import Path
 import sys
 from types import ModuleType
 
+import pytest
 
 SCRIPT_PATH = (
     Path(__file__).resolve().parents[3] / "scripts" / "check-rust-advisories.py"
@@ -56,9 +58,7 @@ def test_evaluate_report_rejects_changed_package_version() -> None:
         ]
     )
 
-    unexpected, stale = module.evaluate_report(
-        {"vulnerabilities": {"list": findings}}
-    )
+    unexpected, stale = module.evaluate_report({"vulnerabilities": {"list": findings}})
 
     assert {key.version for key in unexpected} == {"0.37.6"}
     assert {key.version for key in stale} == {"0.37.5"}
@@ -110,3 +110,58 @@ def test_cargo_tree_disables_colored_output(monkeypatch) -> None:
     module._run_cargo_tree("-i", "quick-xml@0.37.5")
 
     assert captured["env"]["CARGO_TERM_COLOR"] == "never"
+
+
+def test_unsound_warnings_are_checked_even_without_vulnerabilities() -> None:
+    module = _load_script()
+    report = {
+        "vulnerabilities": {"list": []},
+        "warnings": {"unsound": [_finding("RUSTSEC-2099-0001", "example", "1.0.0")]},
+    }
+    unexpected, _ = module.evaluate_report(report)
+    assert unexpected == {module.AdvisoryKey("RUSTSEC-2099-0001", "example", "1.0.0")}
+
+
+def test_unmaintained_notices_do_not_hide_unsound_findings() -> None:
+    module = _load_script()
+    report = {
+        "vulnerabilities": {"list": []},
+        "warnings": {
+            "unmaintained": [_finding("RUSTSEC-2099-0002", "example", "1.0.0")]
+        },
+    }
+    assert module.advisory_keys(report) == set()
+
+
+@pytest.mark.parametrize(
+    "report",
+    [
+        {},
+        {"vulnerabilities": {"list": None}},
+        {"vulnerabilities": {"list": []}, "warnings": {"unsound": {}}},
+    ],
+)
+def test_malformed_audit_reports_cannot_pass(report) -> None:
+    module = _load_script()
+    with pytest.raises(ValueError):
+        module.advisory_keys(report)
+
+
+def test_exceptions_expire_at_the_review_deadline() -> None:
+    module = _load_script()
+    assert module.exception_review_failures(date(2026, 9, 7)) == []
+    assert module.exception_review_failures(module.EXCEPTION_REVIEW_DEADLINE)
+
+
+def test_failed_audit_process_cannot_return_a_clean_report(monkeypatch) -> None:
+    module = _load_script()
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: module.subprocess.CompletedProcess(
+            args[0], 2, '{"vulnerabilities":{"list":[]}}', "Database unavailable"
+        ),
+    )
+    report, error = module._load_audit_report()
+    assert report is None
+    assert "Database unavailable" in error

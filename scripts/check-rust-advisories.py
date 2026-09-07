@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import json
 import os
 from pathlib import Path
@@ -12,9 +13,9 @@ import subprocess
 import sys
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+EXCEPTION_REVIEW_DEADLINE = date(2026, 10, 7)
 
 
 @dataclass(frozen=True, order=True)
@@ -27,6 +28,10 @@ class AdvisoryKey:
 
 
 APPROVED_EXCEPTIONS: dict[AdvisoryKey, str] = {
+    AdvisoryKey("RUSTSEC-2024-0429", "glib", "0.18.5"): (
+        "The workspace uses the checksum-verified local crate with the upstream "
+        "VariantStrIter safety fix, not the unpatched registry release."
+    ),
     AdvisoryKey("RUSTSEC-2026-0194", "quick-xml", "0.37.5"): (
         "The only reverse path is tauri-winrt-notification 0.7.2, which uses "
         "quick-xml only for escaping notification strings, not XML parsing."
@@ -61,8 +66,14 @@ def _package_label(line: str) -> str | None:
 def advisory_keys(report: dict[str, Any]) -> set[AdvisoryKey]:
     """Return exact advisory/package/version triples from cargo-audit JSON."""
     keys: set[AdvisoryKey] = set()
-    vulnerabilities = report.get("vulnerabilities", {}).get("list", [])
-    for item in vulnerabilities:
+    vulnerabilities = report.get("vulnerabilities", {}).get("list")
+    warnings = report.get("warnings", {})
+    if not isinstance(vulnerabilities, list) or not isinstance(warnings, dict):
+        raise ValueError("Malformed cargo-audit report")
+    unsound = warnings.get("unsound", [])
+    if not isinstance(unsound, list):
+        raise ValueError("Malformed cargo-audit unsound warnings")
+    for item in [*vulnerabilities, *unsound]:
         advisory = item.get("advisory", {})
         package = item.get("package", {})
         keys.add(
@@ -75,7 +86,9 @@ def advisory_keys(report: dict[str, Any]) -> set[AdvisoryKey]:
     return keys
 
 
-def evaluate_report(report: dict[str, Any]) -> tuple[set[AdvisoryKey], set[AdvisoryKey]]:
+def evaluate_report(
+    report: dict[str, Any],
+) -> tuple[set[AdvisoryKey], set[AdvisoryKey]]:
     """Return unexpected findings and approved exceptions that became stale."""
     found = advisory_keys(report)
     approved = set(APPROVED_EXCEPTIONS)
@@ -95,13 +108,32 @@ def _run_cargo_tree(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def exception_review_failures(today: date | None = None) -> list[str]:
+    """Require a fresh review instead of carrying exceptions indefinitely."""
+    if (today or date.today()) >= EXCEPTION_REVIEW_DEADLINE:
+        return [
+            f"Rust advisory exception review expired on {EXCEPTION_REVIEW_DEADLINE}"
+        ]
+    return []
+
+
 def validate_exception_context() -> list[str]:
     """Verify that each exception still has the reviewed dependency context."""
-    failures: list[str] = []
+    failures = exception_review_failures()
+    glib = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/check-vendored-glib.py")],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if glib.returncode:
+        failures.append(f"GLib backport validation failed: {glib.stderr.strip()}")
 
     quick_xml = _run_cargo_tree("-i", "quick-xml@0.37.5")
     if quick_xml.returncode != 0:
-        failures.append(f"quick-xml reverse-tree check failed: {quick_xml.stderr.strip()}")
+        failures.append(
+            f"quick-xml reverse-tree check failed: {quick_xml.stderr.strip()}"
+        )
     else:
         packages = {
             label
@@ -136,10 +168,23 @@ def _load_audit_report() -> tuple[dict[str, Any] | None, str | None]:
         return None, "cargo-audit is not installed"
 
     try:
-        return json.loads(result.stdout), None
+        report = json.loads(result.stdout)
+        if (
+            result.returncode not in (0, 1)
+            or not isinstance(report, dict)
+            or "error" in report
+        ):
+            return (
+                None,
+                f"cargo-audit failed: {result.stderr.strip() or result.stdout.strip()}",
+            )
+        advisory_keys(report)
+        return report, None
     except json.JSONDecodeError as exc:
         details = result.stderr.strip() or result.stdout.strip()
         return None, f"cargo-audit did not return valid JSON: {exc}; {details}"
+    except (ValueError, TypeError, AttributeError) as exc:
+        return None, f"cargo-audit returned an invalid report: {exc}"
 
 
 def _describe(key: AdvisoryKey) -> str:
@@ -171,6 +216,7 @@ def main() -> int:
         return 1
 
     print("Rust dependency audit passed with reviewed, exact exceptions:")
+    print(f"Next exception review is required before {EXCEPTION_REVIEW_DEADLINE}")
     for key, reason in sorted(APPROVED_EXCEPTIONS.items()):
         print(f"- {_describe(key)}: {reason}")
     return 0
