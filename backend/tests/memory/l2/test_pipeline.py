@@ -614,6 +614,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             "entities": [],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "claim_id": "claim:1",
                     "subject_ref": "user:self",
                     "predicate": "FEELS",
@@ -1024,6 +1025,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 ],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "subject_ref": "user:self",
                         "predicate": "LIKES",
                         "object_ref": "魔都",
@@ -1125,6 +1127,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "subject_type": "user",
                     "predicate": "LIKES",
@@ -1238,6 +1241,7 @@ async def test_graph_projection_needs_no_wording_model_call(
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "LIKES",
                     "object_ref": "魔都",
@@ -1341,6 +1345,7 @@ async def test_goal_materialization_needs_no_wording_model_call():
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "PLANS_TO",
                     "object_ref": "去海边",
@@ -1451,6 +1456,7 @@ async def test_goal_text_is_materialized_without_creating_an_activity_entity():
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "subject_type": "user",
                     "predicate": "PLANS_TO",
@@ -1572,6 +1578,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
                 ],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "subject_ref": "user:self",
                         "predicate": "LIKES",
                         "object_ref": "魔都",
@@ -2130,6 +2137,7 @@ async def test_extract_worker_materializes_routed_assertions():
                 "entities": [],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "subject_ref": "user:self",
                         "predicate": "FEELS",
                         "object_ref": "stressed",
@@ -2218,6 +2226,7 @@ async def test_extract_worker_materializes_routed_claim_without_wording_call():
                 "entities": [],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "subject_ref": "user:self",
                         "predicate": "REAL_NAME",
                         "object_ref": "Asuka",
@@ -2347,6 +2356,7 @@ async def test_projection_preserves_unrelated_existing_assertions():
                         "entities": [],
                         "fact_claims": [
                             {
+                                "assertion_mode": "asserted",
                                 "subject_ref": "user:self",
                                 "predicate": "FEELS",
                                 "object_ref": "calm",
@@ -2555,6 +2565,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     "entities": [],
                     "fact_claims": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:self",
                             "predicate": "FEELS",
                             "object_ref": "stressed",
@@ -2791,6 +2802,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                     ],
                     "fact_claims": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:u1",
                             "predicate": "VISITED",
                             "object_ref": "GitHub",
@@ -2889,6 +2901,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                     ],
                     "fact_claims": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:u1",
                             "predicate": "DISLIKES",
                             "object_ref": "西湖醋鱼",
@@ -2973,6 +2986,7 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
                     ],
                     "fact_claims": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:self",
                             "subject_type": "user",
                             "predicate": "DISLIKES",
@@ -3061,6 +3075,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
                     ],
                     "fact_claims": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:u1",
                             "predicate": "VISITED",
                             "object_ref": "Shanghai",
@@ -3418,6 +3433,7 @@ async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_alias
         event.metadata_json = {
             "structured_graph_hints": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "subject_type": "user",
                     "predicate": "VIEWED",
@@ -3462,6 +3478,7 @@ async def test_prepare_direct_graph_writes_processes_every_batch_event():
                 event.metadata_json = {
                     "structured_graph_hints": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:self",
                             "subject_type": "user",
                             "predicate": "USES",
@@ -3519,6 +3536,7 @@ async def test_structured_graph_ref_preserves_its_explicit_identity():
             ],
             "structured_graph_hints": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "subject_type": "user",
                     "predicate": "OWNS",
@@ -3621,6 +3639,7 @@ def test_inject_structured_graph_hints_adds_fact_claims():
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "USES",
@@ -3700,6 +3719,7 @@ async def test_extract_worker_persists_structured_graph_hints_without_model_edge
                 metadata_json={
                     "structured_graph_hints": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:self",
                             "subject_type": "user",
                             "predicate": "USES",
@@ -3758,6 +3778,7 @@ async def test_structured_hint_not_double_written_during_projection():
                 ],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "predicate": "USES",
                         "subject_ref": "user:self",
                         "object_ref": "software:github",
@@ -3807,6 +3828,7 @@ async def test_structured_hint_not_double_written_during_projection():
                 metadata_json={
                     "structured_graph_hints": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "user:self",
                             "subject_type": "user",
                             "predicate": "USES",
@@ -3900,6 +3922,7 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
                 metadata_json={
                     "structured_graph_hints": [
                         {
+                            "assertion_mode": "asserted",
                             "subject_ref": "place:manner-xihu",
                             "subject_type": "place",
                             "predicate": "LOCATED_IN",
@@ -3951,6 +3974,7 @@ async def test_build_structured_graph_candidates_rejects_stable_preference_hints
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "INTERESTED_IN",
@@ -3987,6 +4011,7 @@ async def test_build_structured_graph_candidates_rejects_heuristic_follows_hints
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "FOLLOWS",
@@ -4025,6 +4050,7 @@ async def test_build_structured_graph_candidates_accepts_structured_follows_prof
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "FOLLOWS",
@@ -4066,6 +4092,7 @@ async def test_build_structured_graph_candidates_accepts_internal_topology_hints
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "presence:bilibili:creator_1",
                 "subject_type": "presence",
                 "predicate": "ON_PLATFORM",
@@ -4350,6 +4377,7 @@ class TestEntityTypeFiltering:
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "PREFERRED_FORM_OF_ADDRESS",
                     "object_ref": "哈基米或者子涵",
@@ -4495,11 +4523,12 @@ class TestEntityTypeFiltering:
                 ),
             ]
         )
-        from .test_phase1_graph_projection import _routes
+        from .test_phase1_graph_projection import _routes, _sources
 
         prepared, rejected_outcomes = pipeline._project_phase1_graph_candidates(
             phase1_result=phase1_result,
             semantic_routes=_routes(phase1_result.fact_claims, {"claim:2": "product:magi"}),
+            claim_sources=_sources(phase1_result.fact_claims, event),
             event=event,
             profile=profile,
             resolved_mentions=[],
@@ -4522,6 +4551,7 @@ class TestEntityTypeFiltering:
             "entities": [],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "REAL_NAME",
                     "object_ref": "苏眠",
@@ -4531,6 +4561,7 @@ class TestEntityTypeFiltering:
                     "confidence": 0.8,
                 },
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "PREFERRED_FORM_OF_ADDRESS",
                     "object_ref": "子涵",
@@ -4863,11 +4894,12 @@ class TestGraphCatalogNameIndex:
                 confidence=1.0,
                 supporting_event_ids=[event.event_id],
             )
-            from .test_phase1_graph_projection import _routes
+            from .test_phase1_graph_projection import _routes, _sources
 
             prepared, rejected = pipeline._project_phase1_graph_candidates(
                 phase1_result=L2Phase1Result(fact_claims=[invented_claim]),
                 semantic_routes=_routes([invented_claim], {}),
+                claim_sources=_sources([invented_claim], event),
                 event=event,
                 profile=_FakeProfile(),
                 resolved_mentions=resolved_mentions,
@@ -4889,11 +4921,12 @@ class TestGraphCatalogNameIndex:
                 confidence=1.0,
                 supporting_event_ids=[event.event_id],
             )
-            from .test_phase1_graph_projection import _routes
+            from .test_phase1_graph_projection import _routes, _sources
 
             prepared, rejected = pipeline._project_phase1_graph_candidates(
                 phase1_result=L2Phase1Result(fact_claims=[surface_claim]),
                 semantic_routes=_routes([surface_claim], {surface_claim.claim_id: resolved_mentions[0].resolved_entity_id}),
+                claim_sources=_sources([surface_claim], event),
                 event=event,
                 profile=_FakeProfile(),
                 resolved_mentions=resolved_mentions,

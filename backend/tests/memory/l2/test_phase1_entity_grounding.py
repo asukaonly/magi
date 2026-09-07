@@ -58,6 +58,7 @@ def test_repairs_translated_abstract_entities_and_claim_reference() -> None:
         ],
         "fact_claims": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "LIKES",
@@ -188,6 +189,7 @@ def test_drops_sentence_like_new_entity_without_dropping_claim() -> None:
         "entities": [_entity(action, action, "activity")],
         "fact_claims": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "PLANS_TO",
@@ -203,6 +205,7 @@ def test_drops_sentence_like_new_entity_without_dropping_claim() -> None:
     assert payload["entities"] == []
     assert payload["fact_claims"] == [
         {
+            "assertion_mode": "asserted",
             "subject_ref": "user:self",
             "subject_type": "user",
             "predicate": "PLANS_TO",

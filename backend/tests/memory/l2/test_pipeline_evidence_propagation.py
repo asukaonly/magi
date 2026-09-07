@@ -78,7 +78,7 @@ def test_phase1_graph_projection_includes_evidence_class():
         effective_structured_allowed_predicates=frozenset({"LIKES"}),
     )
 
-    from .test_phase1_graph_projection import _routes
+    from .test_phase1_graph_projection import _routes, _sources
 
     candidates, outcomes = pipeline._project_phase1_graph_candidates(
         phase1_result=phase1_result,
@@ -88,7 +88,7 @@ def test_phase1_graph_projection_includes_evidence_class():
         resolved_mentions=[],
         catalog_name_index=None,
         profile=profile,
-        classification=classification,
+        claim_sources=_sources(phase1_result.fact_claims, event, classification.evidence_class),
     )
 
     assert outcomes == []
@@ -115,6 +115,7 @@ def test_structured_graph_candidates_include_evidence_class():
     event.metadata_json = {
         "structured_graph_hints": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:u1",
                 "subject_type": "user",
                 "predicate": "FOLLOWS",

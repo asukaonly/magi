@@ -33,6 +33,7 @@ def _external_interest_phase1() -> str:
             ],
             "fact_claims": [
                 {
+                    "assertion_mode": "asserted",
                     "subject_ref": "user:self",
                     "predicate": "INTERESTED_IN",
                     "object_ref": "rock climbing",

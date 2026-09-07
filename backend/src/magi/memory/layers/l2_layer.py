@@ -8,6 +8,7 @@ from typing import Any
 from ..event_contracts import MemoryEvent
 from ..evidence import (
     classify_event_evidence,
+    allows_candidate_claim_extraction,
     policy_allows_l2_projection,
     resolve_l2_policy,
 )
@@ -128,7 +129,7 @@ class L2ProjectionLayer:
                 "l2_evidence_class": classification.evidence_class,
                 "l2_skip_reason": "policy_error",
             }
-        allowed = policy_allows_l2_projection(policy)
+        allowed = policy_allows_l2_projection(policy) or allows_candidate_claim_extraction(classification)
         return {
             "l2_policy_allows_projection": allowed,
             "l2_evidence_class": classification.evidence_class,

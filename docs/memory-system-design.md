@@ -513,6 +513,7 @@ Evidence interpretation is shared memory governance, not an `L2`-only helper:
 
 - Classification answers what the evidence is: user assertion, user question, user request, assistant freeform answer, assistant quote, tool result, external observation, runtime signal, or other explicit class.
 - Policy answers what the evidence can do: enter fact-like retrieval, remain episode/audit-only, write L2 graph/assertions, affect snapshots, count as new evidence, or require a source backlink.
+- L2 may admit user prose for semantic extraction without upgrading that event's L1 retrieval authority. Claim evidence records the model's assertion mode, the host-verified source author, and the original event class; this is Claim provenance, not a new L1 span index.
 - The baseline durable annotation is event-level. Span-level retrieval atoms are optional derived projections for mixed or long events once they are justified by measured retrieval pollution, not the default raw-memory shape.
 - If span-level atoms are introduced, they must hydrate back to the parent `fact_events` row and be protected by immutable source text or content-hash validation.
 
@@ -753,9 +754,10 @@ can produce profile assertions; assistant persona text, recalled history, and
 one-off task phrasing are not sufficient evidence for durable identity or
 communication-profile fields.
 Phase 1 `temporal_cue` records only explicit time wording in the supporting
-quote; it does not decide retention by itself. A missing, unknown, or
-unsupported cue is normalized to an unambiguous cue detected in the evidence
-quote, or to `unspecified` when no cue is present, before contract validation.
+quote; it does not decide retention by itself. The model owns this linguistic
+judgment. A missing or invalid cue rejects that candidate; a valid typed cue is
+not reinterpreted using temporal phrase lists. `raw_time_expression` must still
+be copied from the evidence, and the host alone resolves calendar timestamps.
 The grounded predicate, assertion family, source strength, and any explicit
 one-off or recent wording determine the host-owned retention horizon. Therefore
 an explicit profile instruction such as a preferred form of address can remain
@@ -767,7 +769,9 @@ claims remain fully grounded in the current quote. A short reply may use
 `clarification` only when it cites the nearest user statement and intervening
 assistant question, or `confirmation` only when the current user gives an
 unambiguous confirmation of the immediately preceding assistant proposition.
-Weak acknowledgements and older context cannot authorize a claim. Contextual
+The model must label weak acknowledgements as `uncertain`; the host does not
+maintain a whitelist of confirmation words. It validates the bounded antecedent
+identities and current user authorship. Older context cannot authorize a claim. Contextual
 claims keep the current user quote as their evidence, carry antecedent event IDs
 separately, and receive a lower confidence cap.
 Post-turn observers may submit explicit profile candidates from chat, but they
@@ -1547,10 +1551,10 @@ Classifier and policy responsibilities:
 - Active classifier outputs: `user_self_report`, `user_question`, `user_request`, `assistant_tool_grounded`, `assistant_freeform`, `assistant_runtime_derivation`, `system_runtime`, `external_observation`
 - `assistant_quote` remains a reserved provenance class; ordinary assistant quote-like text classifies as `assistant_freeform` unless upstream marks it more specifically
 - Each class maps to a `PolicyDecision` controlling `allow_graph_write`, `allow_assertion_write`, `evidence_weight`, etc.
-- Event policy uses exact capability booleans rather than an assertion-family scope: direct Assertion writes require `user_self_report`; `external_observation` may extract entities and write Graph facts, while any higher-level Assertion promotion is owned by derived rules with their own thresholds
+- Event policy uses exact capability booleans rather than an assertion-family scope. L2 extraction admission is separate from projection authority: authored user questions/requests may be interpreted, while their L1 fact-retrieval and direct-write permissions remain closed. An independently grounded `asserted` Claim can carry `user_self_report` authority, recorded in its evidence ledger alongside the original event class. Assertion admission and graph source metadata use the Claim evidence rather than the last event in a batch. `external_observation` may extract entities and write Graph facts, while higher-level promotion remains owned by derived rules with their own thresholds.
 - Whether a user-authored Claim describes the user or another subject is Claim-level route semantics, not a second event-level evidence class
 - `public_topology` requires explicit or structured extraction sources. A grounded `stable_preference` also qualifies when its evidence is a user self-report; an LLM extraction method is not itself a reason to downgrade it. Passive source observations retain their lower-authority graph evidence and cannot claim direct self-report authority.
-- User questions, user requests/commands, assistant memory answers, and assistant freeform text must not become new user-profile facts through L2 graph/assertion writes
+- A question or task request without an asserted self fact, assistant memory answers, and assistant freeform text must not become new user-profile facts. Mixed messages and requested communication preferences are interpreted at the Claim boundary; this does not promote the entire event to fact-authoritative L1 recall.
 - Unknown evidence can be retained as raw L1 and episode/audit material, but must not be promoted into fact-like retrieval or L2 graph/assertion state without an explicit policy decision
 - Existing L1 rows with missing, stale, or failed evidence annotations are repaired through `L1EventStore.backfill_evidence_annotations`, which reuses the same shared classifier and policy resolver
 
@@ -3153,3 +3157,39 @@ as passed. The fixture is synthetic; tests never consume the user's actual
 conversation database. Live results should be reported with model, test revision,
 case failures, and the boundary above. This small regression baseline is not a
 replacement for a representative model-quality benchmark.
+
+
+### L2 Semantic Extraction Boundary (2026-09-07)
+
+Phase 1 remains the semantic interpreter. Each model candidate supplies a closed
+`assertion_mode` (`asserted`, `quoted`, `hypothetical`, `conditional`, `question`,
+`request`, or `uncertain`), fact kind, linguistic time cue, polarity, evidence
+quote, and bounded context references. Only `asserted` propositions proceed to
+the grounded Claim ledger. Missing modes, invalid typed cues, unsupported
+conditions, and uncertain propositions remain source text in L1 with rejection
+diagnostics; they are not silently generalized. Negative asserted Claims remain
+deferred by the existing scoped-exclusion policy.
+
+The host checks types, source ownership, exact source occurrences, structural
+Markdown exclusions, current-window support, immediate antecedent identities,
+entity/catalog identity, source permissions, target routes, lifecycle, correction,
+and forgetting. It does not rescan natural-language clauses to turn a preference
+into an episode, reinterpret a valid time cue, or reject an extracted preference
+because nearby words look interrogative. Inline natural-language quotation,
+hypothesis, conditional meaning, and confirmation semantics belong to extraction.
+The stricter existing Markdown-document author-span parser remains source-owned.
+
+This boundary does not make model output infallible. Exact substring support and
+typed modes establish traceability and an explicit contract; they do not prove
+entailment or correct speaker interpretation. Semantic quality is measured with
+real-provider cases for mixed questions, unconventional preference wording,
+requests expressing preferences, quoted/hypothetical statements, negation, and
+one-off experiences. Scripted transports verify contract handling, persistence,
+correction, forgetting, and retrieval, not model semantic accuracy.
+
+Extractor contract 5 and Claim evidence rule 3 identify the changed interpretation.
+Existing immutable Claims and user-governed corrections are not rewritten by an
+upgrade. Re-extraction must use the durable source-event projection workflow and
+its active source/deletion/lease barriers; route-only replay cannot repair a
+previously mistranslated Claim body. No automatic bulk repair of live memory is
+performed by this change.

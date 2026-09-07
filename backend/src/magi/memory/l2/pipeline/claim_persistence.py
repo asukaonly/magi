@@ -26,6 +26,7 @@ from ..semantic_routing import (
     SemanticRouteInput,
     derive_semantic_route,
 )
+from .claim_evidence import grounded_claim_evidence_class
 from .extraction_contracts import ClaimProjectionOutcomeDraft, _PreparedExtractionBatch
 from .history_markdown import (
     HISTORY_DOCUMENT_EVENT_TYPE,
@@ -36,8 +37,8 @@ from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 4
-EVIDENCE_RULE_VERSION = 2
+EXTRACTOR_CONTRACT_VERSION = 5
+EVIDENCE_RULE_VERSION = 3
 ENTITY_RESOLUTION_VERSION = 1
 
 
@@ -434,11 +435,13 @@ def _claim_event_links(
                 source_domain=_event_memory_domain(batch, event_id),
                 author_type=batch_event.author_type,
                 evidence_class=(
-                    classification.evidence_class if classification is not None else None
+                    grounded_claim_evidence_class(claim, classification) if classification is not None else None
                 ),
                 evidence_locator={
                     **(_evidence_locator(batch_event.content, claim.evidence_text, event_type=batch_event.event_type) or {}),
                     "independent_evidence_key": independent_evidence_key(batch_event.to_dict()),
+                    "assertion_mode": claim.assertion_mode.value,
+                    "event_evidence_class": classification.evidence_class if classification else None,
                 },
                 calendar_timezone_id=calendar_timezone_id_from_metadata(
                     batch_event.metadata_json

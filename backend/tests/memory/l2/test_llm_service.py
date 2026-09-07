@@ -141,6 +141,7 @@ def _phase1_response(
     temporal_cue: str | None = "one_off",
 ) -> str:
     claim = {
+        "assertion_mode": "asserted",
         "subject_ref": "user:self",
         "subject_type": "user",
         "predicate": "LIKES",
@@ -172,6 +173,7 @@ def _preferred_address_phase1_response(
     temporal_cue: str | None,
 ) -> str:
     claim = {
+        "assertion_mode": "asserted",
         "subject_ref": "user:self",
         "subject_type": "user",
         "predicate": "PREFERRED_FORM_OF_ADDRESS",
@@ -662,6 +664,7 @@ def test_phase1_applies_language_and_entity_grounding_contract(
                 ],
                 "fact_claims": [
                     {
+                        "assertion_mode": "asserted",
                         "subject_ref": "user:self",
                         "subject_type": "user",
                         "predicate": "LIKES",
@@ -780,7 +783,7 @@ def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence()
     assert len(adapter.calls) == 1
 
 
-def test_phase1_missing_temporal_cue_defaults_without_retry():
+def test_phase1_missing_temporal_cue_drops_candidate_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
@@ -797,11 +800,13 @@ def test_phase1_missing_temporal_cue_defaults_without_retry():
         )
     )
 
-    assert result.fact_claims[0].temporal_cue.value == "one_off"
+    assert result.fact_claims == []
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
     assert len(adapter.calls) == 1
 
 
-def test_phase1_invalid_temporal_cue_defaults_without_retry():
+
+def test_phase1_invalid_temporal_cue_drops_candidate_without_retry():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
@@ -818,11 +823,13 @@ def test_phase1_invalid_temporal_cue_defaults_without_retry():
         )
     )
 
-    assert result.fact_claims[0].temporal_cue.value == "one_off"
+    assert result.fact_claims == []
+    assert result.diagnostics["rejected_fact_claim_count"] == 1
     assert len(adapter.calls) == 1
 
 
-def test_phase1_unsupported_temporal_cue_defaults_without_retry():
+
+def test_phase1_typed_cue_is_not_reclassified_by_grounding():
     from magi.memory.l2.llm_service import L2LLMService
 
     adapter = _FakeAdapter(
@@ -839,11 +846,13 @@ def test_phase1_unsupported_temporal_cue_defaults_without_retry():
         )
     )
 
-    assert result.fact_claims[0].temporal_cue.value == "one_off"
+    # Exact quote validation is not a second semantic interpretation of the model.
+    assert result.fact_claims[0].temporal_cue.value == "stable"
     assert len(adapter.calls) == 1
 
 
-def test_phase1_preferred_address_stable_cue_defaults_without_retry():
+
+def test_phase1_preferred_address_preserves_typed_time_cue():
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2BatchEvent, L2EventWindow
 
@@ -871,8 +880,9 @@ def test_phase1_preferred_address_stable_cue_defaults_without_retry():
     )
 
     assert result.fact_claims[0].predicate == "PREFERRED_FORM_OF_ADDRESS"
-    assert result.fact_claims[0].temporal_cue.value == "unspecified"
+    assert result.fact_claims[0].temporal_cue.value == "stable"
     assert len(adapter.calls) == 1
+
 
 
 def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
@@ -883,7 +893,7 @@ def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
         [
             _preferred_address_phase1_response(
                 evidence_text="这次叫我明日香",
-                temporal_cue=None,
+                temporal_cue="one_off",
             ),
         ]
     )
@@ -907,6 +917,7 @@ def test_phase1_preferred_address_explicit_one_off_is_preserved_without_retry():
 
     assert result.fact_claims[0].temporal_cue.value == "one_off"
     assert len(adapter.calls) == 1
+
 
 
 def test_wrong_json_field_type_raises_after_format_retry():

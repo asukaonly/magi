@@ -121,6 +121,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
         ],
         "fact_claims": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "REAL_NAME",
@@ -134,6 +135,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
                 "confidence": 0.99,
             },
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "LIKES",
@@ -147,6 +149,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
                 "confidence": 0.98,
             },
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "LIKES",
@@ -160,6 +163,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
                 "confidence": 0.92,
             },
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "subject_type": "user",
                 "predicate": "PLANS_TO",

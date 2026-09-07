@@ -12,6 +12,8 @@ from .models import (
     USER_VISIBLE_L1_RETRIEVAL_SCOPES,
 )
 from .policy import (
+    allows_candidate_claim_extraction,
+    resolve_l2_extraction_policy,
     event_allows_l2_projection,
     policy_allows_l2_projection,
     resolve_l2_policy,
@@ -30,4 +32,6 @@ __all__ = [
     "event_allows_l2_projection",
     "policy_allows_l2_projection",
     "resolve_l2_policy",
+    "allows_candidate_claim_extraction",
+    "resolve_l2_extraction_policy",
 ]

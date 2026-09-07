@@ -70,6 +70,7 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         semantic_routes=_routes([claim]),
+        claim_sources=_sources([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
         resolved_mentions=[],
@@ -92,7 +93,7 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
             "source_type": "chat",
             "extraction_method": "llm_phase1_grounded",
             "evidence_text": "我喜欢 DIIV",
-            "evidence_class": None,
+            "evidence_class": "user_self_report",
             "valid_from": 1_699_900_000.0,
             "valid_to": 1_700_100_000.0,
         }
@@ -123,6 +124,7 @@ def test_future_plan_is_assertion_only_and_never_uses_target_window_as_fact_vali
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         semantic_routes=_routes([claim]),
+        claim_sources=_sources([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-goal"],
         resolved_mentions=[],
@@ -152,6 +154,7 @@ def test_one_off_preference_stays_out_of_reusable_graph_relationships() -> None:
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         semantic_routes=_routes([claim]),
+        claim_sources=_sources([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="history_import"),
         evidence_event_ids=["evt-trip"],
         resolved_mentions=[],
@@ -176,6 +179,7 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         semantic_routes=_routes([claim]),
+        claim_sources=_sources([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
         resolved_mentions=[],
@@ -192,6 +196,7 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
 def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
     for predicate in ("LIKES", "DISLIKES", "LIVES_IN"):
         claim = L2Phase1FactClaim.from_dict({
+            "assertion_mode": "asserted",
             "claim_id": "claim:negative",
             "subject_ref": "user:u1",
             "predicate": predicate,
@@ -206,6 +211,7 @@ def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
         candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
             phase1_result=L2Phase1Result(fact_claims=[claim]),
             semantic_routes=_routes([claim]),
+            claim_sources=_sources([claim]),
             event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
             evidence_event_ids=["evt-negative"],
             resolved_mentions=[],
@@ -251,8 +257,15 @@ def test_graph_projection_obeys_route_rejection_instead_of_reinterpreting_claim(
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
         semantic_routes=_routes([claim]),
+        claim_sources=_sources([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"], resolved_mentions=[], profile=_profile(),
     )
     assert candidates == []
     assert outcomes[0].reason_code == "predicate_fact_kind_mismatch"
+
+
+def _sources(claims, event=None, evidence_class="user_self_report"):
+    from magi.memory.l2.pipeline.claim_evidence import ClaimGraphSource
+    event = event or SimpleNamespace(timestamp=1_700_000_000.0, source="chat")
+    return {claim.claim_id: ClaimGraphSource(event, evidence_class) for claim in claims}

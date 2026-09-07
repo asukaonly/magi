@@ -50,6 +50,19 @@ class L2ClaimEvidenceMode(str, Enum):
             raise ValueError(f"Unsupported L2 claim evidence mode: {value}") from exc
 
 
+class L2AssertionMode(str, Enum):
+    """Model interpretation of whether the source asserts the proposition."""
+
+    ASSERTED = "asserted"
+    QUOTED = "quoted"
+    HYPOTHETICAL = "hypothetical"
+    CONDITIONAL = "conditional"
+    QUESTION = "question"
+    REQUEST = "request"
+    UNCERTAIN = "uncertain"
+    UNKNOWN = "unknown"
+
+
 class L2FactKind(str, Enum):
     """Closed semantic role assigned to a grounded Phase 1 Claim."""
 
@@ -131,6 +144,7 @@ class L2Phase1FactClaim:
     evidence_text: str = ""
     confidence: float = 0.0
     supporting_event_ids: list[str] = field(default_factory=list)
+    assertion_mode: L2AssertionMode | str = L2AssertionMode.ASSERTED
     evidence_mode: L2ClaimEvidenceMode | str = L2ClaimEvidenceMode.DIRECT
     antecedent_event_ids: list[str] = field(default_factory=list)
     fact_valid_from: float | None = None
@@ -156,6 +170,7 @@ class L2Phase1FactClaim:
             evidence_text=payload.get("evidence_text", ""),
             confidence=payload.get("confidence", 0.0),
             supporting_event_ids=payload.get("supporting_event_ids", []),
+            assertion_mode=payload.get("assertion_mode", L2AssertionMode.UNKNOWN.value),
             evidence_mode=payload.get(
                 "evidence_mode",
                 L2ClaimEvidenceMode.DIRECT.value,
@@ -182,6 +197,7 @@ class L2Phase1FactClaim:
         self.supporting_event_ids = [
             str(s).strip() for s in self.supporting_event_ids if str(s).strip()
         ]
+        self.assertion_mode = L2AssertionMode(self.assertion_mode)
         self.evidence_mode = L2ClaimEvidenceMode.from_value(self.evidence_mode)
         self.antecedent_event_ids = [
             str(s).strip() for s in self.antecedent_event_ids if str(s).strip()
@@ -189,6 +205,7 @@ class L2Phase1FactClaim:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload["assertion_mode"] = L2AssertionMode(self.assertion_mode).value
         payload["temporal_cue"] = cast(L2TemporalCue, self.temporal_cue).value
         payload["evidence_mode"] = cast(
             L2ClaimEvidenceMode,

@@ -1,7 +1,7 @@
 """Chinese memory journeys over real stores, public routes and prompt consumers.
 
-The default provider is a scripted transport, including deliberately unsafe model
-claims. It tests host governance, not model accuracy. The opt-in live variant uses
+The default provider is a scripted transport, including non-asserted and negative
+propositions. It tests host governance, not model accuracy. The opt-in live variant uses
 one explicitly configured OpenAI-compatible provider for extraction and answers.
 """
 
@@ -73,7 +73,7 @@ class ScriptedTransport:
                     "confidence": 0.99,
                 }
                 for claim in claims
-                if claim["predicate"] == "LIKES"
+                if claim["predicate"] in {"LIKES", "INTERESTED_IN"}
             ]
             payload = {
                 "entities": entities,
@@ -231,6 +231,18 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         assert not any("明日香3" in value for value in values)
         assert not any("红烧肉" in value or "重金属" in value for value in values)
         assert any("爵士乐" in value for value in values), assertions
+        assert any("苹果" in value for value in values), assertions
+        assert any("流畅度" in value for value in values), assertions
+        assert any("香香" in value for value in values), assertions
+        apple_claim = next(row for row in claims if row["object_surface"] == "苹果")
+        assert apple_claim["fact_kind"] == "stable_preference"
+        assert apple_claim["temporal_cue"] == "unspecified"
+        assert apple_claim["confidence"] == pytest.approx(0.9)
+        apple_edges = await memory.l2.get_relationships(subject_id="user:local_user", predicates=["LIKES"])
+        assert any(edge["fact_kind"] == "stable_preference" and "苹果" in str(edge) for edge in apple_edges)
+        request_event = await memory.l1.get_event("journey-requested_address")
+        assert request_event["l1_retrieval_scope"] == "conversation_only"
+
         diiv = next(row for row in assertions if "DIIV" in str(row.get("natural_summary")))
         assert diiv["temporal_scope"] == "stable"
         recent = next(row for row in assertions if "环境音乐" in str(row.get("natural_summary")))

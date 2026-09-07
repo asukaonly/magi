@@ -21,6 +21,7 @@ from ..claims.outcomes import ClaimTargetOutcomeContext
 from ..phase1_models import L2Phase1FactClaim
 from ..reviews import PendingReviewProposal
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
+from .claim_evidence import resolve_claim_graph_sources
 from .claim_persistence import EVIDENCE_RULE_VERSION
 from .event_entity_map import build_event_entity_map
 from .extraction_contracts import (
@@ -141,7 +142,7 @@ class L2ProjectionFlowMixin:
             resolved_mentions=phase1_flow.resolved_mentions,
             catalog_name_index=batch.catalog_name_index,
             profile=batch.extraction_profile,
-            classification=batch.classification,
+            claim_sources=resolve_claim_graph_sources(phase1_flow.phase1_result.fact_claims, batch.eligible_events),
         )
         phase1_flow.claim_outcomes.extend(graph_rejections)
         focal_entities = self._build_focal_entities(
@@ -167,7 +168,7 @@ class L2ProjectionFlowMixin:
                     claims=claims,
                     occurrence_stats=stats,
                     self_entity_id=str(batch.self_entity_id or ""),
-                    direct_assertion_write_allowed=bool(batch.policy.allow_assertion_write),
+                    direct_assertion_write_allowed=stats.evidence_class == "user_self_report",
                     profile_allows_assertion=bool(batch.extraction_profile.allow_assertion),
                     allowed_families=frozenset(
                         batch.extraction_profile.allowed_assertion_families

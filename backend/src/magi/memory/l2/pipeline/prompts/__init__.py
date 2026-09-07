@@ -94,6 +94,9 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
 16. Every fact claim must include `raw_time_expression`. Copy only the exact time phrase from `evidence_text` (for example `明天`, `2026-08-15`, or `next month`), preserving its original text. Use an empty string when the evidence has no explicit time phrase. Never calculate dates, add a year, or rewrite a relative expression; the host owns deterministic resolution.
 
+17. Every fact claim must include `assertion_mode`. Interpret the complete source message and local context, not isolated keywords. Use `asserted` only when the speaker actually asserts the proposition. Use `quoted` for another speaker's statement, `hypothetical` for an imagined example, `conditional` when an unrepresented condition limits the proposition, `question` or `request` for a question/task without a self fact, and `uncertain` when the speaker does not commit. The host retains only asserted propositions; non-asserted source text remains in L1. Never remove a condition or negation to make a candidate asserted. A title containing first-person words (for example 《我的世界》) is an entity name, not a quoted self-report. A communication preference such as "请叫我小明" asserts a preferred address even though it is phrased as a request.
+18. You own the linguistic interpretation of `fact_kind`, `temporal_cue`, `assertion_mode`, and contextual confirmation. The host validates source authorship, exact quotes, bounded antecedents, identifiers, and typed fields; it does not correct your interpretation with phrase lists. Preserve clause-local meaning: a time phrase about an adjacent activity must not change a general preference. Weak acknowledgements must remain `uncertain`, regardless of confidence.
+
 ## Output Format
 Return JSON only:
 ```json
@@ -125,6 +128,7 @@ Return JSON only:
       "evidence_text": "supporting quote",
       "confidence": 0.0,
       "supporting_event_ids": ["current event IDs"],
+      "assertion_mode": "asserted|quoted|hypothetical|conditional|question|request|uncertain",
       "evidence_mode": "direct|clarification|confirmation",
       "antecedent_event_ids": ["bounded Recent Context event IDs"]
     }

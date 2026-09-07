@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...event_contracts import MemoryEvent
-from ...evidence import EvidenceClassification, PolicyDecision
+from ...evidence import (
+    EvidenceClassification,
+    PolicyDecision,
+    allows_candidate_claim_extraction,
+)
 from ..models import L2EventWindow, L2ProjectionLease, ResolvedEntityMention
 from ..semantic_routing import SemanticRouteDecision
 
@@ -19,8 +23,12 @@ class L2ExtractionEventDecision:
     policy: PolicyDecision
 
     @property
-    def is_write_eligible(self) -> bool:
-        return self.policy.allow_graph_write or self.policy.allow_assertion_write
+    def is_extraction_eligible(self) -> bool:
+        return (
+            self.policy.allow_graph_write
+            or self.policy.allow_assertion_write
+            or allows_candidate_claim_extraction(self.classification)
+        )
 
 
 @dataclass(slots=True)
@@ -42,7 +50,7 @@ class _PreparedExtractionBatch:
     stored_event: MemoryEvent
     classification: EvidenceClassification
     policy: PolicyDecision
-    eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]]
+    eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision, allows_candidate_claim_extraction]]
     batch_event_ids: list[str]
     context_messages: list[dict[str, Any]]
     history_contexts: list[dict[str, Any]]

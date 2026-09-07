@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ...evidence.classifier import asserted_evidence_clauses
 from ..models import (
     L2BatchEvent,
     L2ClaimEvidenceMode,
@@ -13,62 +12,13 @@ from ..models import (
     L2Phase1FactClaim,
     L2Phase1Result,
 )
-from ..phase1_models import L2TemporalCue
+from ..phase1_models import L2AssertionMode, L2TemporalCue
 from .history_markdown import (
     HISTORY_DOCUMENT_EVENT_TYPE,
     find_history_document_author_occurrence,
 )
 
 _CONTEXTUAL_CLAIM_CONFIDENCE_CAP = 0.75
-_EXPLICIT_CONFIRMATIONS = frozenset(
-    {
-        "yes",
-        "no",
-        "correct",
-        "exactly",
-        "right",
-        "true",
-        "是",
-        "是的",
-        "对",
-        "对的",
-        "没错",
-        "就是",
-        "确定",
-        "当然",
-        "不是",
-        "不对",
-        "没有",
-    }
-)
-
-_TEMPORAL_CUE_PATTERNS: dict[L2TemporalCue, tuple[re.Pattern[str], ...]] = {
-    L2TemporalCue.ONE_OFF: (
-        re.compile(r"昨晚|昨天|今天|今早|今晚|(?:^|[，,。])(?:早饭|午饭|晚饭|早餐|午餐|晚餐)(?:吃|是|后|时)|这顿|那顿|这一次|这次|比上次|刚刚|刚才|只.{0,4}一次|首次|第一次|最后一次"),
-        re.compile(r"\b(?:last night|yesterday|just now|this time|only once|once|first time)\b"),
-        re.compile(r"\b(?:today|now)\b"),
-    ),
-    L2TemporalCue.RECENT: (
-        re.compile(r"最近|近期|目前|现在|这几天|这些天|近来|刚刚|刚才"),
-        re.compile(r"\b(?:recently|currently|lately|these days|today|now|just now)\b"),
-        re.compile(r"\b(?:have|has) been\b"),
-    ),
-    L2TemporalCue.RECURRING: (
-        re.compile(r"经常|常常|反复|每(?:天|周|星期|月|年)|每隔"),
-        re.compile(r"\b(?:often|frequently|repeatedly|usually|every (?:day|week|month|year))\b"),
-    ),
-    L2TemporalCue.STABLE: (
-        re.compile(r"一直|长期|长久|多年来|这些年|始终"),
-        re.compile(r"\b(?:always|long[- ]term|for years|over the years|consistently)\b"),
-    ),
-}
-_TEMPORAL_CUE_PRECEDENCE = (
-    L2TemporalCue.ONE_OFF,
-    L2TemporalCue.RECENT,
-    L2TemporalCue.RECURRING,
-    L2TemporalCue.STABLE,
-)
-
 
 def ground_phase1_fact_claims(
     phase1_result: L2Phase1Result,
@@ -102,10 +52,6 @@ def ground_phase1_fact_claims(
         if grounded_event_ids != valid_original_ids and original_event_ids:
             rebound_count += 1
         claim.supporting_event_ids = grounded_event_ids
-        preference = claim.to_dict()
-        _normalize_preference_scope(preference)
-        claim.temporal_cue = L2TemporalCue.from_value(preference["temporal_cue"])
-        claim.fact_kind = type(claim.fact_kind).from_value(preference["fact_kind"])
         claim.claim_id = f"claim:{claim_index}"
         grounded_claims.append(claim)
 
@@ -137,6 +83,35 @@ def _grounded_event_ids(
     ]
 
 
+def _authored_chat_blocks(content: str) -> list[str]:
+    """Exclude explicit Markdown quote/code blocks without interpreting prose."""
+    blocks: list[str] = []
+    current: list[str] = []
+    fence: str | None = None
+    for line in content.splitlines():
+        stripped = line.lstrip()
+        marker = re.match(r"(`{3,}|~{3,})", stripped)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token
+            elif token[0] == fence[0] and len(token) >= len(fence):
+                fence = None
+            if current:
+                blocks.append("\n".join(current))
+                current = []
+            continue
+        if fence is not None or stripped.startswith(">"):
+            if current:
+                blocks.append("\n".join(current))
+                current = []
+            continue
+        current.append(line)
+    if current:
+        blocks.append("\n".join(current))
+    return blocks
+
+
 def _event_has_grounded_evidence_occurrence(
     *,
     event: L2BatchEvent,
@@ -148,7 +123,7 @@ def _event_has_grounded_evidence_occurrence(
         if str(event.author_type or "").casefold() == "user":
             return any(
                 normalized_evidence_text in _normalize_evidence_text(clause)
-                for clause in asserted_evidence_clauses(content)
+                for clause in _authored_chat_blocks(content)
             )
         return normalized_evidence_text in _normalize_evidence_text(content)
     return find_history_document_author_occurrence(content, raw_evidence_text) is not None
@@ -161,11 +136,7 @@ def normalize_phase1_claim_contract(
     context_messages: list[dict[str, object]] | None = None,
 ) -> list[str]:
     """Normalize safe metadata and drop invalid claims without failing the batch."""
-    normalizations = normalize_phase1_claim_temporal_cues(payload)
-    normalizations.extend(normalize_phase1_claim_raw_time_expressions(payload))
-    for raw_claim in payload.get("fact_claims", []) if isinstance(payload.get("fact_claims"), list) else []:
-        if isinstance(raw_claim, dict):
-            _normalize_preference_scope(raw_claim)
+    normalizations = normalize_phase1_claim_raw_time_expressions(payload)
     raw_claims = payload.get("fact_claims")
     if not isinstance(raw_claims, list):
         return normalizations
@@ -180,6 +151,11 @@ def normalize_phase1_claim_contract(
             normalizations.append(f"fact_claims[{index}]: dropped non-object candidate")
             continue
         candidate = dict(claim)
+        raw_cue = candidate.get("temporal_cue")
+        if not isinstance(raw_cue, str) or raw_cue not in {cue.value for cue in L2TemporalCue}:
+            rejected_count += 1
+            normalizations.append(f"fact_claims[{index}]: dropped candidate (invalid or missing temporal_cue)")
+            continue
         candidate["evidence_mode"] = (
             str(candidate.get("evidence_mode") or L2ClaimEvidenceMode.DIRECT.value)
             .strip()
@@ -252,83 +228,6 @@ def _missing_semantic_field(claim: L2Phase1FactClaim) -> str | None:
     )
 
 
-_DIRECT_PREFERENCE = re.compile(
-    r"(?:我|本人)(?:很|好|太|挺|超级|尤其|非常|特别|比较|更|最|不|并不|一点|一直|平时|通常|最近|长期|现在|还是|也|真的){0,4}(?:喜欢|讨厌|偏爱|爱吃|爱喝|不爱)|"
-    r"^(?:喜欢|讨厌|偏爱|爱吃|爱喝)|\bI\s+(?:(?:really|always|usually|recently|still|do\s+not|don't)\s+)*(?:like|love|prefer|hate|dislike)\b",
-    re.IGNORECASE,
-)
-
-
-def _normalize_preference_scope(claim: dict[str, object]) -> None:
-    """Separate a direct preference from an evaluation of one experience."""
-    if str(claim.get("predicate") or "").upper() not in {"LIKES", "DISLIKES"}:
-        return
-    evidence = str(claim.get("evidence_text") or "")
-    preference_clauses = [
-        clause for clause in re.split(r"[，,。.;；!?！？]", evidence)
-        if _DIRECT_PREFERENCE.search(clause)
-    ]
-    if len(preference_clauses) == 1:
-        local_cues = _temporal_cues_in_text(preference_clauses[0])
-        # An explicit horizon belongs to the preference clause, not to a nearby
-        # listening episode or another activity in the same evidence quote.
-        if L2TemporalCue.ONE_OFF not in local_cues:
-            for cue in (L2TemporalCue.RECENT, L2TemporalCue.RECURRING, L2TemporalCue.STABLE):
-                if cue in local_cues:
-                    claim["temporal_cue"] = cue.value
-                    claim["fact_kind"] = "stable_preference"
-                    return
-    cues = _temporal_cues_in_text(evidence)
-    if L2TemporalCue.ONE_OFF in cues or not _DIRECT_PREFERENCE.search(evidence):
-        claim["temporal_cue"] = L2TemporalCue.ONE_OFF.value
-        claim["fact_kind"] = "explicit_fact"
-        return
-    claim["fact_kind"] = "stable_preference"
-    if L2TemporalCue.RECENT in cues:
-        claim["temporal_cue"] = L2TemporalCue.RECENT.value
-
-
-def normalize_phase1_claim_temporal_cues(
-    payload: dict[str, object],
-) -> list[str]:
-    """Derive explicit temporal cues or default them without discarding claims."""
-    raw_claims = payload.get("fact_claims")
-    if not isinstance(raw_claims, list):
-        return []
-
-    valid_cues = {cue.value for cue in L2TemporalCue}
-    normalizations: list[str] = []
-    for index, claim in enumerate(raw_claims):
-        if not isinstance(claim, dict):
-            continue
-        raw_cue = claim.get("temporal_cue")
-        normalized_cue = raw_cue.strip().casefold() if isinstance(raw_cue, str) else ""
-        evidence = claim.get("evidence_text")
-        grounded_cues = _temporal_cues_in_text(evidence) if isinstance(evidence, str) else set()
-        if normalized_cue in valid_cues and (
-            L2TemporalCue(normalized_cue) in grounded_cues
-            or (normalized_cue == L2TemporalCue.UNSPECIFIED.value and not grounded_cues)
-        ):
-            claim["temporal_cue"] = normalized_cue
-            continue
-
-        if raw_cue is None or (isinstance(raw_cue, str) and not raw_cue.strip()):
-            previous = "missing"
-        elif normalized_cue in valid_cues:
-            previous = normalized_cue
-        else:
-            previous = "invalid"
-        corrected_cue = next(
-            (cue for cue in _TEMPORAL_CUE_PRECEDENCE if cue in grounded_cues),
-            L2TemporalCue.UNSPECIFIED,
-        )
-        claim["temporal_cue"] = corrected_cue.value
-        normalizations.append(
-            f"fact_claims[{index}].temporal_cue: {previous} -> {corrected_cue.value}"
-        )
-    return normalizations
-
-
 def normalize_phase1_claim_raw_time_expressions(
     payload: dict[str, object],
 ) -> list[str]:
@@ -362,6 +261,8 @@ def _contextual_claim_rejection_reason(
     grounded_event_ids: list[str],
     context_frame: list[dict[str, object]],
 ) -> str | None:
+    if claim.assertion_mode is not L2AssertionMode.ASSERTED:
+        return f"non_asserted_proposition:{claim.assertion_mode.value}"
     mode = L2ClaimEvidenceMode.from_value(claim.evidence_mode)
     antecedent_ids = _unique_event_ids(claim.antecedent_event_ids)
     if mode is L2ClaimEvidenceMode.DIRECT:
@@ -382,8 +283,6 @@ def _contextual_claim_rejection_reason(
         required_ids = _required_confirmation_antecedent_ids(context_frame)
         if not required_ids or antecedent_ids != required_ids:
             return "confirmation does not cite the immediate assistant message"
-        if not _is_explicit_confirmation(claim.evidence_text):
-            return "confirmation is ambiguous"
     else:
         required_ids = _required_clarification_antecedent_ids(context_frame)
         if not required_ids or antecedent_ids != required_ids:
@@ -445,12 +344,6 @@ def _required_clarification_antecedent_ids(
     return [str(prior_user["event_id"]), str(last_message["event_id"])]
 
 
-def _is_explicit_confirmation(value: object) -> bool:
-    normalized = _normalize_evidence_text(value)
-    normalized = normalized.strip(".,!?;:，。！？；：")
-    return normalized in _EXPLICIT_CONFIRMATIONS
-
-
 def _eligible_evidence_events(
     event_window: L2EventWindow,
 ) -> list[tuple[L2BatchEvent, str]]:
@@ -478,15 +371,6 @@ def _normalize_evidence_text(value: object) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _temporal_cues_in_text(value: object) -> set[L2TemporalCue]:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    return {
-        cue
-        for cue, patterns in _TEMPORAL_CUE_PATTERNS.items()
-        if any(pattern.search(text) for pattern in patterns)
-    }
-
-
 def _unique_event_ids(values: list[str]) -> list[str]:
     unique: list[str] = []
     seen: set[str] = set()
@@ -502,6 +386,5 @@ def _unique_event_ids(values: list[str]) -> list[str]:
 __all__ = [
     "ground_phase1_fact_claims",
     "normalize_phase1_claim_contract",
-    "normalize_phase1_claim_temporal_cues",
     "normalize_phase1_claim_raw_time_expressions",
 ]

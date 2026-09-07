@@ -29,6 +29,7 @@ _STRESS_PHASE1 = json.dumps({
     "entities": [],
     "fact_claims": [
         {
+            "assertion_mode": "asserted",
             "subject_ref": "user:self",
             "predicate": "FEELS",
             "object_ref": "stressed",
@@ -63,6 +64,7 @@ _PLACE_PHASE1 = json.dumps({
     ],
     "fact_claims": [
         {
+            "assertion_mode": "asserted",
             "subject_ref": "user:self",
             "predicate": "LIKES",
             "object_ref": "魔都",

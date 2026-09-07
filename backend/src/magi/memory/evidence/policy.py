@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .models import (
     EvidenceClass,
     EvidenceClassification,
@@ -15,13 +17,30 @@ def event_allows_l2_projection(event) -> bool:
     """Return whether the shared evidence policy permits an L2 write."""
     from .classifier import classify_event_evidence
 
-    policy = resolve_l2_policy(classify_event_evidence(event))
-    return policy_allows_l2_projection(policy)
+    classification = classify_event_evidence(event)
+    return policy_allows_l2_projection(resolve_l2_policy(classification)) or allows_candidate_claim_extraction(classification)
 
 
 def policy_allows_l2_projection(policy: PolicyDecision) -> bool:
     """Return whether a resolved policy requires durable L2 projection."""
     return bool(policy.allow_graph_write or policy.allow_assertion_write)
+
+
+def allows_candidate_claim_extraction(classification: EvidenceClassification) -> bool:
+    """Admit user prose for interpretation without granting event-level truth."""
+    return (
+        classification.evidence_class in {"user_question", "user_request"}
+        and classification.speaker_role == "user"
+        and classification.semantic_owner == "user"
+    )
+
+
+def resolve_l2_extraction_policy(classification: EvidenceClassification) -> PolicyDecision:
+    """Allow extraction from mixed user messages while keeping write gates closed."""
+    policy = resolve_l2_policy(classification)
+    if allows_candidate_claim_extraction(classification):
+        return replace(policy, allow_entity_extraction=True)
+    return policy
 
 
 def resolve_l2_policy(classification: EvidenceClassification) -> PolicyDecision:

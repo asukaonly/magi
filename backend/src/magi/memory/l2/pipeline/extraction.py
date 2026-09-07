@@ -11,7 +11,7 @@ from ...evidence import (
     EvidenceClassification,
     PolicyDecision,
     classify_event_evidence,
-    resolve_l2_policy,
+    resolve_l2_extraction_policy,
 )
 from ..extraction_profiles import resolve_extraction_profile
 from ..storage.utils import normalize_event_ids
@@ -220,11 +220,11 @@ def build_l2_extraction_plan(stored_events: list[MemoryEvent]) -> L2ExtractionPl
         L2ExtractionEventDecision(
             event=event,
             classification=(classification := classify_event_evidence(event)),
-            policy=resolve_l2_policy(classification),
+            policy=resolve_l2_extraction_policy(classification),
         )
         for event in stored_events
     ]
-    eligible_decisions = [decision for decision in decisions if decision.is_write_eligible]
+    eligible_decisions = [decision for decision in decisions if decision.is_extraction_eligible]
     if not eligible_decisions:
         last_decision = decisions[-1]
         return L2ExtractionPlan(
@@ -327,7 +327,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         self._stats.events_evaluated += len(extraction_plan.decisions)
         self._stats.events_eligible += len(extraction_plan.eligible_decisions)
         for decision in extraction_plan.decisions:
-            if not decision.is_write_eligible:
+            if not decision.is_extraction_eligible:
                 self._increment_bucket(self._stats.eligibility_by_reason, decision.policy.skip_reason or "policy_ineligible")
             event = decision.event
             classification = decision.classification
@@ -362,7 +362,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         primary_decision: L2ExtractionEventDecision,
     ) -> dict[str, Any] | None:
         policy = primary_decision.policy
-        if policy.allow_graph_write or policy.allow_assertion_write:
+        if primary_decision.is_extraction_eligible:
             return None
         if policy.skip_reason:
             self._increment_bucket(self._stats.skip_by_reason, policy.skip_reason)
@@ -573,7 +573,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
         if batch.event_window.events:
             return None
         logger.info(
-            "L2 structured-only mode: skipped LLM phase1/2",
+            "L2 structured-only mode: skipped model extraction",
             event_id=batch.stored_event.event_id,
             profile_id=batch.extraction_profile.profile_id,
             direct_write_count=batch.direct_write_count,

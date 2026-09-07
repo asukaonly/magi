@@ -24,6 +24,7 @@ def _window(*events: tuple[str, str]) -> L2EventWindow:
 
 def _claim(**overrides: object) -> L2Phase1FactClaim:
     payload: dict[str, object] = {
+        "assertion_mode": "asserted",
         "subject_ref": "user:self",
         "predicate": "LIKES",
         "object_ref": "DIIV",
@@ -314,11 +315,13 @@ def test_history_document_contract_normalizer_rejects_quoted_evidence() -> None:
     payload: dict[str, object] = {
         "fact_claims": [
             {
+                "assertion_mode": "asserted",
                 "subject_ref": "user:self",
                 "predicate": "LIKES",
                 "object_ref": "DIIV",
                 "object_type": "group",
                 "evidence_text": "I really like DIIV.",
+                "temporal_cue": "unspecified",
                 "supporting_event_ids": ["evt-history"],
             }
         ]
@@ -629,6 +632,7 @@ def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
         fact_claims=[
             _claim(
                 evidence_text="可能吧",
+                assertion_mode="uncertain",
                 evidence_mode="confirmation",
                 antecedent_event_ids=["evt-assistant-prior"],
             )
@@ -658,13 +662,17 @@ def test_ground_phase1_confirmation_rejects_weak_acknowledgement() -> None:
     ("今天想吃螺蛳粉", "one_off"),
     ("我喜欢螺蛳粉", "unspecified"),
     ("我好喜欢螺蛳粉", "unspecified"),
+    ("我蛮喜欢苹果的", "unspecified"),
+    ("我中意苹果", "unspecified"),
+    ("我对苹果情有独钟", "unspecified"),
     ("我喜欢早餐吃螺蛳粉", "unspecified"),
     ("最近我喜欢螺蛳粉", "recent"),
 ])
-def test_preference_scope_is_grounded_in_actual_statement(text, scope):
+def test_grounding_preserves_the_model_preference_scope(text, scope):
     payload = {"fact_claims": [{
+        "assertion_mode": "asserted",
         "subject_ref": "user:self", "predicate": "LIKES", "object_ref": "螺蛳粉",
-        "object_type": "food", "fact_kind": "stable_preference", "temporal_cue": "stable",
+        "object_type": "food", "fact_kind": "explicit_fact" if scope == "one_off" else "stable_preference", "temporal_cue": scope,
         "evidence_text": text, "supporting_event_ids": ["evt-scope"],
     }]}
     window = _window(("evt-scope", text))
@@ -677,16 +685,42 @@ def test_preference_scope_is_grounded_in_actual_statement(text, scope):
         assert claim.fact_kind == "explicit_fact"
 
 
-@pytest.mark.parametrize("text,kept", [
-    ("我喜欢 DIIV，你推荐什么？", 1),
-    ("我喜欢 DIIV 吗？", 0),
-    ("如果我喜欢 DIIV，你推荐什么？", 0),
-    ("假设可以自由选择，我喜欢 DIIV，你推荐什么？", 0),
-    ('他说“我喜欢 DIIV”，你推荐什么？', 0),
+@pytest.mark.parametrize("text,mode,kept", [
+    ("我喜欢 DIIV，你推荐什么？", "asserted", 1),
+    ("我喜欢 DIIV 吗？", "question", 0),
+    ("如果我喜欢 DIIV，你推荐什么？", "conditional", 0),
+    ("假设可以自由选择，我喜欢 DIIV，你推荐什么？", "hypothetical", 0),
+    ('他说“我喜欢 DIIV”，你推荐什么？', "quoted", 0),
 ])
-def test_chat_grounding_requires_asserted_clause(text, kept):
+def test_chat_grounding_requires_an_asserted_semantic_decision(text, mode, kept):
     window = L2EventWindow(events=[L2BatchEvent(
         event_id="evt-mixed", content=text, author_type="user", event_type="UserMessage",
     )])
-    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我喜欢 DIIV")])
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text="我喜欢 DIIV", assertion_mode=mode)])
     assert ground_phase1_fact_claims(result, window)["kept"] == kept
+
+
+def test_missing_assertion_mode_cannot_default_to_a_self_report():
+    payload = {"fact_claims": [{
+        "subject_ref": "user:self", "predicate": "LIKES", "object_ref": "DIIV",
+        "object_type": "group", "temporal_cue": "unspecified", "evidence_text": "我喜欢 DIIV",
+    }]}
+    normalizations = normalize_phase1_claim_contract(payload, _window(("evt-1", "我喜欢 DIIV")))
+    assert payload["fact_claims"] == []
+    assert any("non_asserted_proposition:unknown" in value for value in normalizations)
+
+
+def test_title_with_first_person_word_is_valid_claim_evidence():
+    text = "我喜欢《我的世界》"
+    result = L2Phase1Result(fact_claims=[_claim(evidence_text=text, object_ref="我的世界")])
+    assert ground_phase1_fact_claims(result, _window(("evt-title", text)))["kept"] == 1
+
+
+def test_confirmation_semantics_do_not_depend_on_a_fixed_reply_vocabulary():
+    claim = _claim(evidence_text="说的就是我的意思", evidence_mode="confirmation", antecedent_event_ids=["evt-a"])
+    result = L2Phase1Result(fact_claims=[claim])
+    stats = ground_phase1_fact_claims(result, _window(("evt-u", claim.evidence_text)), context_messages=[{
+        "event_id": "evt-a", "role": "assistant", "content": "你喜欢 DIIV，对吗？",
+    }])
+    assert stats["kept"] == 1
+    assert result.fact_claims[0].confidence <= 0.75

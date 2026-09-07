@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "cases": [
     {
       "id": "mixed_identity",
@@ -15,7 +15,8 @@
         "polarity": "positive",
         "specificity": "concrete",
         "evidence_text": "我叫明日香2",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -32,7 +33,8 @@
         "polarity": "negative",
         "specificity": "concrete",
         "evidence_text": "我不是明日香3。",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -49,7 +51,8 @@
         "polarity": "positive",
         "specificity": "concrete",
         "evidence_text": "今天吃了红烧肉，我觉得比上次好吃。",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -66,7 +69,8 @@
         "polarity": "positive",
         "specificity": "concrete",
         "evidence_text": "我一直很喜欢爵士乐。",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -83,7 +87,8 @@
         "polarity": "positive",
         "specificity": "concrete",
         "evidence_text": "我一直很喜欢 DIIV，最近又把《Oshin》听了几遍。",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -100,7 +105,8 @@
         "polarity": "positive",
         "specificity": "concrete",
         "evidence_text": "我最近喜欢听环境音乐。",
-        "confidence": 0.96
+        "confidence": 0.96,
+        "assertion_mode": "asserted"
       }
     },
     {
@@ -116,8 +122,63 @@
         "temporal_cue": "stable",
         "polarity": "positive",
         "specificity": "concrete",
-        "evidence_text": "我喜欢重金属",
-        "confidence": 0.96
+        "evidence_text": "如果我喜欢重金属，你会推荐什么？",
+        "confidence": 0.96,
+        "assertion_mode": "hypothetical"
+      }
+    },
+    {
+      "id": "apple_preference",
+      "text": "我蛮喜欢苹果的，你觉得苹果产品怎么样",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "苹果",
+        "object_type": "product",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "unspecified",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "assertion_mode": "asserted",
+        "evidence_text": "我蛮喜欢苹果的，你觉得苹果产品怎么样",
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": "stated_interest",
+      "text": "我比较在意流畅度和软件生态吧",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "INTERESTED_IN",
+        "object_ref": "流畅度",
+        "object_type": "concept",
+        "fact_kind": "stable_preference",
+        "temporal_cue": "unspecified",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "assertion_mode": "asserted",
+        "evidence_text": "我比较在意流畅度和软件生态吧",
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": "requested_address",
+      "text": "请叫我香香",
+      "claim": {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "PREFERRED_FORM_OF_ADDRESS",
+        "object_ref": "香香",
+        "object_type": "concept",
+        "fact_kind": "explicit_fact",
+        "temporal_cue": "unspecified",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "assertion_mode": "asserted",
+        "evidence_text": "请叫我香香",
+        "confidence": 0.9
       }
     }
   ]

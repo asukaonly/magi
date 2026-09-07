@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ....event_contracts import MemoryEvent
-from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
 from ...ontology import (
@@ -16,6 +15,7 @@ from ...ontology import (
 )
 from ...semantic_routing import SemanticRouteDecision, ProjectionTarget
 from .evidence import validate_supporting_event_ids
+from ..claim_evidence import ClaimGraphSource
 from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
 
@@ -32,7 +32,7 @@ class L2Phase1GraphProjectionMixin:
         resolved_mentions: list[ResolvedEntityMention],
         profile: ExtractionProfile,
         catalog_name_index: dict[str, str] | None = None,
-        classification: EvidenceClassification | None = None,
+        claim_sources: Mapping[str, ClaimGraphSource],
     ) -> tuple[list[dict[str, Any]], list[ClaimProjectionOutcomeDraft]]:
         candidates: list[dict[str, Any]] = []
         rejected_outcomes: list[ClaimProjectionOutcomeDraft] = []
@@ -45,7 +45,7 @@ class L2Phase1GraphProjectionMixin:
                 resolved_mentions=resolved_mentions,
                 profile=profile,
                 catalog_name_index=catalog_name_index,
-                classification=classification,
+                source=claim_sources.get(claim.claim_id),
             )
             if candidate is None:
                 outcome = (
@@ -80,7 +80,7 @@ class L2Phase1GraphProjectionMixin:
         resolved_mentions: list[ResolvedEntityMention],
         profile: ExtractionProfile,
         catalog_name_index: dict[str, str] | None,
-        classification: EvidenceClassification | None,
+        source: ClaimGraphSource | None,
     ) -> tuple[dict[str, Any] | None, str | None]:
         if not profile.allow_graph:
             return None, "graph_projection_disabled"
@@ -95,6 +95,8 @@ class L2Phase1GraphProjectionMixin:
             return None, "missing_grounded_support"
         if route is None:
             return None, "missing_semantic_route"
+        if source is None:
+            return None, "missing_source_authority"
         if not route.can_project_graph:
             if ProjectionTarget.GRAPH in route.projection_targets:
                 return None, "unresolved_object"
@@ -116,16 +118,6 @@ class L2Phase1GraphProjectionMixin:
             return None, "unresolved_subject"
         if not object_id:
             return None, "unresolved_object"
-        if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]
-            event=event,
-            subject_id=subject_id,
-            predicate=predicate,
-            object_id=object_id,
-            object_type=object_type,
-            raw_object_ref=claim.object_ref,
-            evidence_text=claim.evidence_text,
-        ):
-            return None, "preference_domain_rejected"
         return {
             "_claim_id": claim_id,
             "subject_id": subject_id,
@@ -136,13 +128,11 @@ class L2Phase1GraphProjectionMixin:
             "fact_kind": fact_kind,
             "evidence_event_ids": supporting_event_ids,
             "confidence": claim.confidence,
-            "observed_at": event.timestamp,
-            "source_type": event.source,
+            "observed_at": source.event.timestamp,
+            "source_type": source.event.source,
             "extraction_method": "llm_phase1_grounded",
             "evidence_text": claim.evidence_text or "",
-            "evidence_class": (
-                classification.evidence_class if classification is not None else None
-            ),
+            "evidence_class": source.evidence_class,
             "valid_from": getattr(claim, "fact_valid_from", None),
             "valid_to": getattr(claim, "fact_valid_to", None),
         }, None
