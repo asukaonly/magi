@@ -1128,14 +1128,15 @@ class ProcessPluginProxy(Plugin):
             failure_handler(reason)
 
     async def shutdown(self) -> None:
+        with self._lock:
+            self._draining = True
+            self._channel_active = False
         await _finish_cleanup(self._shutdown())
 
     async def _shutdown(self) -> None:
         if self._closed:
             await self._drain_host_callbacks(self._revoke_host_callbacks())
             return
-        self._draining = True
-        self._channel_active = False
         await self._drain_host_callbacks(self._revoke_host_callbacks())
         deadline = time.monotonic() + self.limits.drain_timeout
         while self._pending and time.monotonic() < deadline:
