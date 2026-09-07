@@ -174,7 +174,7 @@ class TestSourceBase:
     def test_source_item_identity(self):
         source = _ConcreteSource()
         identity = source.source_item_identity({"id": "x", "hash": "y"})
-        assert identity == "x:y"
+        assert identity == "d6ea37a8a9eee73bfabc6da5338b8e46378a7d4baaafdc686e22c887d285546c"
 
     @pytest.mark.asyncio
     async def test_discover_changes(self):
