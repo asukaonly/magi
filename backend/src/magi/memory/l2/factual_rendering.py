@@ -39,7 +39,7 @@ def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = Non
     if claim.subject_type not in {"user", "person"}:
         subject = claim.subject_ref
     value = " ".join(str(claim.object_ref).split())
-    cue = str(claim.temporal_cue)
+    cue = claim.temporal_cue.value
     qualifier = {"recent": "最近", "one_off": "曾在一次经历中"}.get(cue, "") if zh else {
         "recent": "recently ", "one_off": "on one occasion "
     }.get(cue, "")

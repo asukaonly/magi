@@ -650,6 +650,26 @@ def test_phase1_nonmatching_evidence_quote_drops_only_the_candidate():
     assert len(adapter.calls) == 1
 
 
+def test_phase1_confidence_is_independent_of_unrelated_batch_events() -> None:
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    results = []
+    for extra_events in ([], [L2BatchEvent(event_id="unrelated", content="你好", author_type="user")]):
+        window = _phase1_event_window()
+        window = L2EventWindow(events=[*window.events, *extra_events])
+        payload = json.loads(_phase1_response("昨晚我去看了 DIIV 演出"))
+        payload["fact_claims"][0]["confidence"] = 0.9
+        service = L2LLMService(_FakeScenarioPool(_FakeAdapter(json.dumps(payload))))
+        result = asyncio.run(service.extract_phase1(
+            event_window=window,
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        ))
+        results.append(result.fact_claims[0].confidence)
+
+    assert results == [0.9, 0.9]
+
+
 def test_phase1_keeps_valid_claim_when_a_peer_claim_has_bad_evidence():
     from magi.memory.l2.llm_service import L2LLMService
 

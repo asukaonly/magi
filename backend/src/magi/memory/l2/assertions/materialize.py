@@ -163,8 +163,16 @@ def materialize_assertion(material: MaterializationInput) -> MaterializationDeci
         "confidence_score": min(float(claim.confidence or 0.0) for claim in material.claims),
         "evidence_events": list(material.occurrence_stats.supporting_event_ids),
         "volatility_index": _volatility(promotion.expiry.temporal_scope),
-        "source_domain": material.source_domain,
-        "inference_depth": material.inference_depth,
+        "source_domain": (
+            "user_authored"
+            if material.occurrence_stats.evidence_class == "user_self_report"
+            else material.source_domain
+        ),
+        "inference_depth": (
+            "direct"
+            if material.occurrence_stats.evidence_class == "user_self_report"
+            else material.inference_depth
+        ),
         "validation_state": "tentative",
         "first_inferred_at": float(
             material.occurrence_stats.first_observed_at or material.observed_at

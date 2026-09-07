@@ -3050,6 +3050,13 @@ Graph-to-profile derivation reads active L1 source semantics in batches before c
 
 ### Independent evidence and confidence
 
+Phase 1 confidence describes the extractor's confidence in that individual
+interpretation. It is never capped according to the number of unrelated events
+in its batch. Contextual grounding retains its separate confidence ceiling;
+evidence support, source authority, and retention remain host-owned decisions
+over the active Claim/evidence ledger. Materialized self-report provenance comes
+from that ledger's evidence class rather than the processing event's ToM depth.
+
 Behavior occurrence counts and independent support counts have separate meanings. Repeated event delivery remains idempotent; separate visits/plays remain separate observations and retain every L1 link for review and forgetting. Profile promotion and assertion confidence use source evidence groups instead: canonical resource URLs (tracking parameters removed), source content/track keys, or normalized content fingerprints. Reimports of the same authored content share a group across import batches. Distinct live chat messages retain message identity.
 
 The unified store injects an active L1 evidence reader into assertion write and reconciliation. Claim evidence locators persist the host-owned `independent_evidence_key`, and routed Claim statistics count those groups. Graph-derived confidence uses the shared support curve capped by the observed edge confidence; it no longer multiplies edge confidence by repetition. These scores are ranking/governance heuristics, not calibrated probabilities of personal preference. Standalone L2 callers without an L1 resolver own the uniqueness of their supplied evidence IDs. No stored events or assertions are repaired in bulk.

@@ -8,6 +8,7 @@ from magi.memory.l2.assertions.occurrence_stats import (
     ClaimRouteValueKey,
 )
 from magi.memory.l2.phase1_models import L2Phase1FactClaim
+from magi.memory.l2.factual_rendering import assertion_evidence_basis
 from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
 
 
@@ -113,6 +114,18 @@ def test_direct_preference_materializes_without_phase2_candidate() -> None:
     assert decision.candidate["target_entity_id"] == "concept:coffee"
     assert decision.candidate["supporting_claim_ids"] == ["clm_1"]
     assert decision.natural_summary == "用户喜欢咖啡。"
+
+
+def test_self_report_provenance_comes_from_claim_evidence() -> None:
+    claim = _claim()
+    decision = materialize_assertion(
+        _input(claim, _route(claim), source_domain="user_authored", inference_depth="none")
+    )
+    assert decision.candidate is not None
+    assert decision.candidate["inference_depth"] == "direct"
+    assert assertion_evidence_basis(decision.candidate) == "direct_report"
+    assert assertion_evidence_basis({"inference_depth": "topology_only"}) == "inferred"
+    assert assertion_evidence_basis({**decision.candidate, "user_feedback": "confirmed"}) == "user_confirmed"
 
 
 def test_text_target_preference_survives_entity_resolution_failure() -> None:
