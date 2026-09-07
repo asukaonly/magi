@@ -33,6 +33,15 @@ Current release expectations are:
 
 ### Candidate acceptance
 
+The root Cargo lockfile owns the desktop dependency graph. Tauri must be at
+least 2.11.1 for the corrected local-origin check. The Linux GTK3 graph still
+requires `glib 0.18`, so the workspace overrides that crate with the reviewed
+upstream `VariantStrIter` safety backport in `vendor/glib`. Its archive and file
+checksums, two-line patch and removal criteria are recorded in
+[`vendor/README.md`](../vendor/README.md). CI verifies those sources and runs
+the upstream iterator tests with optimization; a version-only warning about
+0.18.5 does not authorize ignoring an unpatched registry copy.
+
 Before publishing the draft, a maintainer records the release commit, artifact
 checksum, OS version, architecture, executed cases and results in the draft's
 validation section. Each supported target (macOS Apple Silicon, macOS Intel and

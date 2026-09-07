@@ -1,7 +1,12 @@
 [workspace]
 resolver = "2"
+exclude = ["vendor/glib"]
 members = [
     "crates/magi-gateway",
     "frontend/src-tauri",
     "gateway-cli",
 ]
+
+[patch.crates-io]
+# Backport the upstream VariantStrIter safety fix for the GTK3 dependency chain.
+glib = { path = "vendor/glib" }
