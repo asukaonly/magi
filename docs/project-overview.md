@@ -178,6 +178,9 @@ reconciliation retries transport failures without inventing a terminal task outc
 Settings capture their initial loaders per mount and restart them when an effect
 lifetime restarts, including development StrictMode replay. Preview changes do not
 restart initialization or replace an edited draft.
+Timeline snapshots and pending actions belong to their date, scale, query and
+language. Only the latest request in the current mounted scope may update data,
+errors or pending state; an older snapshot is never labeled as a different period.
 Local model download polling is serialized and starts after request acceptance;
 list, download, and deletion failures remain visible in model settings.
 

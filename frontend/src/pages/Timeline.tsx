@@ -1,5 +1,6 @@
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -24,6 +25,9 @@ import { Feather } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TimelineScale = "month" | "week" | "day" | "hour";
+const NO_ENTRIES: ManualEntry[] = [];
+const NO_MOOD_DAYS: TimelineMoodCalendarDay[] = [];
+const NO_STANDOUT_ITEMS: TimelineStandoutItem[] = [];
 
 const padNumber = (value: number): string => String(value).padStart(2, "0");
 const toUnixSeconds = (date: Date): number => Math.floor(date.getTime() / 1000);
@@ -128,16 +132,20 @@ export const TimelinePage: React.FC = () => {
   const [viewportStart, setViewportStart] = useState<number>(
     () => getLatestCompletePeriodStart("day"),
   );
-  const [entrySheetOpen, setEntrySheetOpen] = useState(false);
-  const [editingEntry, setEditingEntry] = useState<ManualEntry | null>(null);
-  const [manualEntries, setManualEntries] = useState<ManualEntry[]>([]);
-  const [viewport, setViewport] = useState<TimelineViewportResponse | null>(null);
-  const [moodDays, setMoodDays] = useState<TimelineMoodCalendarDay[]>([]);
-  const [standoutItems, setStandoutItems] = useState<TimelineStandoutItem[]>([]);
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
+  const scope = JSON.stringify([scale, viewportStart, query, timelineLocale]);
+  const beginRequest = useRequestOwner(scope);
+  const [entrySheetOpen, setEntrySheetOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ManualEntry | null>(null);
+  const [manualSnapshot, setManualSnapshot] = useState<{ scope: string; entries: ManualEntry[] } | null>(null);
+  const [viewportSnapshot, setViewportSnapshot] = useState<{ scope: string; data: TimelineViewportResponse } | null>(null);
+  const [sidebarSnapshot, setSidebarSnapshot] = useState<{ scope: string; mood: TimelineMoodCalendarDay[]; standout: TimelineStandoutItem[] } | null>(null);
+  const manualEntries = manualSnapshot?.scope === scope ? manualSnapshot.entries : NO_ENTRIES;
+  const viewport = viewportSnapshot?.scope === scope ? viewportSnapshot.data : null;
+  const moodDays = sidebarSnapshot?.scope === scope ? sidebarSnapshot.mood : NO_MOOD_DAYS;
+  const standoutItems = sidebarSnapshot?.scope === scope ? sidebarSnapshot.standout : NO_STANDOUT_ITEMS;
   const [loading, setLoading] = useState(true);
-  const [firstLoad, setFirstLoad] = useState(true);
   const [pendingAction, setPendingAction] = useState<Record<string, "pin" | "hide" | null>>({});
   const [coverSaving, setCoverSaving] = useState(false);
 
@@ -147,10 +155,9 @@ export const TimelinePage: React.FC = () => {
   const dateLabel = formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale);
 
   const loadViewport = useCallback(async () => {
-    // Only show the full-page spinner on the very first load. Subsequent
-    // refetches (scale/date switch) keep the previous viewport visible so
-    // the page doesn't flash through an empty state.
-    if (firstLoad) setLoading(true);
+    const isCurrent = beginRequest('viewport');
+    if (!isCurrent()) return;
+    setLoading(true);
     try {
       const response = await timelineApi.getViewport({
         scale,
@@ -160,8 +167,9 @@ export const TimelinePage: React.FC = () => {
         locale: timelineLocale,
         focus: "self",
       });
-      setViewport(response);
+      if (isCurrent()) setViewportSnapshot({ scope, data: response });
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(
         t("timeline.errors.loadFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -169,24 +177,27 @@ export const TimelinePage: React.FC = () => {
         })
       );
     } finally {
-      setLoading(false);
-      setFirstLoad(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [scale, viewportStart, viewportEnd, query, timelineLocale, t, firstLoad]);
+  }, [beginRequest, scope, scale, viewportStart, viewportEnd, query, timelineLocale, t]);
 
   const loadManualEntries = useCallback(async () => {
+    const isCurrent = beginRequest('entries');
+    if (!isCurrent()) return;
     try {
       const entries = await manualEntriesApi.list({
         timeStart: viewportStart,
         timeEnd: viewportEnd,
       });
-      setManualEntries(entries);
+      if (isCurrent()) setManualSnapshot({ scope, entries });
     } catch {
       /* best-effort — clusters still render even if entries fetch fails */
     }
-  }, [viewportStart, viewportEnd]);
+  }, [beginRequest, scope, viewportStart, viewportEnd]);
 
   const loadSidebar = useCallback(async () => {
+    const isCurrent = beginRequest('sidebar');
+    if (!isCurrent()) return;
     const month = monthKeyForDate(viewportStart);
     try {
       const [mood, standout] = await Promise.all([
@@ -197,16 +208,20 @@ export const TimelinePage: React.FC = () => {
           limit: 50,
         }),
       ]);
-      setMoodDays(mood.days ?? []);
-      setStandoutItems(standout.items ?? []);
+      if (isCurrent()) setSidebarSnapshot({ scope, mood: mood.days ?? [], standout: standout.items ?? [] });
     } catch {
       /* sidebar is best-effort; failures don't block the main pane */
     }
-  }, [viewportStart, viewportEnd]);
+  }, [beginRequest, scope, viewportStart, viewportEnd]);
 
   useEffect(() => {
     setActivePanel("timeline");
   }, [setActivePanel]);
+
+  useEffect(() => {
+    setPendingAction({});
+    setCoverSaving(false);
+  }, [scope]);
 
   useEffect(() => {
     void loadViewport();
@@ -221,21 +236,25 @@ export const TimelinePage: React.FC = () => {
   }, [loadManualEntries]);
 
   const handleTogglePinned = async (episodeId: string, nextPinned: boolean) => {
+    const isCurrent = beginRequest(`feedback:${episodeId}`);
+    if (!isCurrent()) return;
     setPendingAction((s) => ({ ...s, [episodeId]: "pin" }));
     try {
       await memoryApi.annotateEpisode(episodeId, { user_pinned: nextPinned });
+      if (!isCurrent()) return;
       // Optimistic local update so the ♡ flips immediately
-      setViewport((current) => {
-        if (!current) return current;
+      setViewportSnapshot((current) => {
+        if (current?.scope !== scope) return current;
         return {
           ...current,
-          clusters: current.clusters.map((c) =>
+          data: { ...current.data, clusters: current.data.clusters.map((c) =>
             c.episode_id === episodeId ? { ...c, user_pinned: nextPinned } : c
-          ),
+          ) },
         };
       });
       await loadSidebar();
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(
         t("timeline.errors.feedbackFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -243,19 +262,22 @@ export const TimelinePage: React.FC = () => {
         })
       );
     } finally {
-      setPendingAction((s) => ({ ...s, [episodeId]: null }));
+      if (isCurrent()) setPendingAction((s) => ({ ...s, [episodeId]: null }));
     }
   };
 
   const handleHide = async (episodeId: string) => {
+    const isCurrent = beginRequest(`feedback:${episodeId}`);
+    if (!isCurrent()) return;
     setPendingAction((s) => ({ ...s, [episodeId]: "hide" }));
     try {
       await memoryApi.forgetEpisode(episodeId, false);
-      setViewport((current) => {
-        if (!current) return current;
+      if (!isCurrent()) return;
+      setViewportSnapshot((current) => {
+        if (current?.scope !== scope) return current;
         return {
           ...current,
-          clusters: current.clusters.filter((c) => c.episode_id !== episodeId),
+          data: { ...current.data, clusters: current.data.clusters.filter((c) => c.episode_id !== episodeId) },
         };
       });
       await loadSidebar();
@@ -263,6 +285,7 @@ export const TimelinePage: React.FC = () => {
         t("timeline.immersive.hideConfirm", { defaultValue: "已隐藏" })
       );
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(
         t("timeline.errors.feedbackFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -270,11 +293,13 @@ export const TimelinePage: React.FC = () => {
         })
       );
     } finally {
-      setPendingAction((s) => ({ ...s, [episodeId]: null }));
+      if (isCurrent()) setPendingAction((s) => ({ ...s, [episodeId]: null }));
     }
   };
 
   const handleChangeCover = useCallback(async (payload: TimelineCoverChangeRequest) => {
+    const isCurrent = beginRequest('cover');
+    if (!isCurrent()) return;
     setCoverSaving(true);
     try {
       const cover = await timelineApi.setCoverPreference({
@@ -286,9 +311,12 @@ export const TimelinePage: React.FC = () => {
         source: payload.source,
         locale: timelineLocale,
       });
-      setViewport((current) => (current ? { ...current, cover } : current));
+      if (!isCurrent()) return;
+      setViewportSnapshot(current => current?.scope === scope
+        ? { ...current, data: { ...current.data, cover } } : current);
       toast.success(t("timeline.cover.saved", { defaultValue: "封面已更新" }));
     } catch (error) {
+      if (!isCurrent()) return;
       toast.error(
         t("timeline.errors.coverFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -296,9 +324,9 @@ export const TimelinePage: React.FC = () => {
         })
       );
     } finally {
-      setCoverSaving(false);
+      if (isCurrent()) setCoverSaving(false);
     }
-  }, [scale, timelineLocale, t, viewportEnd, viewportStart]);
+  }, [beginRequest, scope, scale, timelineLocale, t, viewportEnd, viewportStart]);
 
   const handleUploadCover = useCallback(async (file: File): Promise<string> => {
     try {
