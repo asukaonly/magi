@@ -42,6 +42,11 @@ import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallPr
 import { PluginConsentDialog, type ConsentMode } from '@/components/plugins/PluginConsentDialog';
 import { PluginRegistryPlanReview } from '@/components/plugins/PluginRegistryPlanReview';
 import { cn } from '@/lib/utils';
+import { useChatShellStore } from '@/stores/chat-shell';
+import {
+  usePluginInstallPanelStore,
+  type PluginInstallDoneInfo,
+} from '@/stores/pluginInstallPanel';
 import {
   buildMarketplacePluginDisplayItems,
   getMarketplaceEntryMemberName,
@@ -73,11 +78,13 @@ function localized(
 
 interface PluginMarketplaceProps {
   installedPlugins: PluginPackageState[];
+  settingsDirty?: boolean;
   onInstallComplete: () => Promise<void>;
 }
 
 export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   installedPlugins,
+  settingsDirty = false,
   onInstallComplete,
 }) => {
   const { t, i18n } = useTranslation('app');
@@ -91,7 +98,17 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<ContributionFilter>('all');
+  const settingsNavigationIntent = useChatShellStore((state) => state.settingsNavigationIntent);
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const clearSettingsNavigationIntent = useChatShellStore(
+    (state) => state.clearSettingsNavigationIntent,
+  );
+  const openInstallPanel = usePluginInstallPanelStore((state) => state.openPanel);
+  const closeInstallPanel = usePluginInstallPanelStore((state) => state.closePanel);
+  const isSourceJourney = settingsNavigationIntent?.origin === 'memory_sources';
+  const [typeFilter, setTypeFilter] = useState<ContributionFilter>(() => (
+    isSourceJourney ? 'source' : 'all'
+  ));
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
   const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
   const [entryPicker, setEntryPicker] = useState<EntryPickerState | null>(null);
@@ -186,6 +203,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
       await onInstallComplete();
       await fetchRegistry();
       const changedIds = new Set(plan.changes.filter(change => change.action !== 'reuse').map(change => change.entry.plugin_id));
+      setInstallSnapshots((prev) => {
+        const next = { ...prev };
+        changedIds.forEach((pluginId) => delete next[pluginId]);
+        return next;
+      });
       const remaining = review.entries.filter(entry => !changedIds.has(entry.plugin_id));
       if (remaining.length) setRegistryReview({ ...review, entries: remaining });
       else toast.success(t(plan.update ? 'settings.marketplace.feedback.updateSuccess' : 'settings.marketplace.feedback.installSuccess'));
@@ -204,12 +226,52 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     }
   };
 
+  const startSourceInstallJourney = (entries: PluginRegistryEntry[]) => {
+    if (entries.length === 0) {
+      return;
+    }
+    if (settingsDirty) {
+      toast.error(t('settings.marketplace.sourceJourney.unsavedChanges'));
+      return;
+    }
+
+    const onJourneyDone = settingsNavigationIntent?.onSourceInstallDone;
+    const openEntry = (index: number) => {
+      const entry = entries[index];
+      if (!entry) {
+        return;
+      }
+      openInstallPanel(entry.plugin_id, {
+        install: true,
+        pluginName: localized(entry.name, entry.name_i18n, language),
+        pluginIcon: entry.icon || entry.display_group?.icon,
+        context: 'source_marketplace',
+        onDone: (info?: PluginInstallDoneInfo) => {
+          if (index + 1 < entries.length) {
+            closeInstallPanel();
+            window.setTimeout(() => openEntry(index + 1), 0);
+            return;
+          }
+          onJourneyDone?.(info, entries.length);
+        },
+      });
+    };
+
+    setActivePanel('none');
+    clearSettingsNavigationIntent();
+    openEntry(0);
+  };
+
   const handleInstall = (item: MarketplacePluginDisplayItem) => {
     const entries = getInstallableEntries(item);
     if (!entries.length) return;
     if (item.kind === 'group') {
       setEntryPicker({ item, selectedIds: [] });
-    } else setRegistryReview({ item, entries, update: false });
+    } else if (isSourceJourney) {
+      startSourceInstallJourney(entries);
+    } else {
+      setRegistryReview({ item, entries, update: false });
+    }
   };
 
   const toggleEntryPickerSelection = (pluginId: string) => {
@@ -241,7 +303,11 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     }
     const item = entryPicker.item;
     setEntryPicker(null);
-    setRegistryReview({ item, entries: selectedEntries, update: false });
+    if (isSourceJourney) {
+      startSourceInstallJourney(selectedEntries);
+    } else {
+      setRegistryReview({ item, entries: selectedEntries, update: false });
+    }
   };
 
   const handleUninstall = async (item: MarketplacePluginDisplayItem) => {

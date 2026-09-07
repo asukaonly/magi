@@ -2876,6 +2876,9 @@
         "confirm": "安装所选入口",
         "cancel": "取消"
       },
+      "sourceJourney": {
+        "unsavedChanges": "请先保存或放弃设置更改，再继续添加来源。"
+      },
       "feedback": {
         "installSuccess": "插件安装成功",
         "installFailed": "插件安装失败：{{message}}",

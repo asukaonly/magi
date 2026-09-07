@@ -2877,6 +2877,9 @@
         "confirm": "Install selected entries",
         "cancel": "Cancel"
       },
+      "sourceJourney": {
+        "unsavedChanges": "Save or discard your Settings changes before adding a source."
+      },
       "feedback": {
         "installSuccess": "Plugin installed successfully",
         "installFailed": "Failed to install plugin: {{message}}",

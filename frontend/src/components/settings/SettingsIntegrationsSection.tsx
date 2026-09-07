@@ -58,6 +58,7 @@ export function SettingsIntegrationsSection({
       return (
         <PluginMarketplace
           installedPlugins={plugins}
+          settingsDirty={dirty}
           onInstallComplete={loadPluginsAndSources}
         />
       );

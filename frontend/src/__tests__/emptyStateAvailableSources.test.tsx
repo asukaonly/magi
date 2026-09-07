@@ -263,8 +263,25 @@ describe("EmptyStateAvailableSources", () => {
     fireEvent.click(browseButton);
     expect(useChatShellStore.getState()).toMatchObject({
       activePanel: "settings",
-      settingsNavigationIntent: { section: "pluginsMarketplace" },
+      settingsNavigationIntent: {
+        section: "pluginsMarketplace",
+        origin: "memory_sources",
+      },
     });
+  });
+
+  it("lets a source page preserve its own marketplace journey", () => {
+    const onBrowseAll = vi.fn();
+    render(
+      <EmptyStateAvailableSources
+        variant="source_page"
+        onBrowseAll={onBrowseAll}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("empty-state-browse-all"));
+    expect(onBrowseAll).toHaveBeenCalledOnce();
+    expect(useChatShellStore.getState().activePanel).toBe("none");
   });
 
   it("caps source-page recommendations at three categories", () => {

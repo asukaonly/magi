@@ -344,7 +344,7 @@ const todayPayload = {
 
 const LocationProbe = () => {
   const location = useLocation();
-  return <div data-testid="location">{location.pathname}</div>;
+  return <div data-testid="location">{location.pathname}{location.search}</div>;
 };
 
 const completedHistoryImport = (): HistoryImportJob => ({
@@ -598,7 +598,8 @@ describe('MemorySourcesPage', () => {
     render(
       <MemoryRouter initialEntries={['/memory/sources']}>
         <Routes>
-          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+          <Route path="/memory/sources" element={<><MemorySourcesPage /><LocationProbe /></>} />
+          <Route path="/memory/sources/:sourceName" element={<LocationProbe />} />
         </Routes>
       </MemoryRouter>
     );
@@ -609,8 +610,20 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '添加来源' }));
     expect(useChatShellStore.getState()).toMatchObject({
       activePanel: 'settings',
-      settingsNavigationIntent: { section: 'pluginsMarketplace' },
+      settingsNavigationIntent: {
+        section: 'pluginsMarketplace',
+        origin: 'memory_sources',
+        onSourceInstallDone: expect.any(Function),
+      },
     });
+    act(() => useChatShellStore.getState().settingsNavigationIntent?.onSourceInstallDone?.({
+      pluginId: 'chrome-history',
+      connectionId: 'chrome-work',
+      sourceName: 'chrome_history',
+    }, 1));
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/memory/sources/chrome_history?connection=chrome-work',
+    );
     expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
   });
 
@@ -713,7 +726,10 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '浏览来源' }));
     expect(useChatShellStore.getState()).toMatchObject({
       activePanel: 'settings',
-      settingsNavigationIntent: { section: 'pluginsMarketplace' },
+      settingsNavigationIntent: {
+        section: 'pluginsMarketplace',
+        origin: 'memory_sources',
+      },
     });
   });
 

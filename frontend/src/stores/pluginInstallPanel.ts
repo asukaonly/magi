@@ -13,7 +13,11 @@ import { create } from 'zustand';
  * before the connect flow can run (entry points decide this from the plugin's
  * installed/available state).
  */
-export type PluginInstallPanelContext = 'default' | 'first_context' | 'history_import';
+export type PluginInstallPanelContext =
+  | 'default'
+  | 'first_context'
+  | 'history_import'
+  | 'source_marketplace';
 
 export interface PluginInstallDoneInfo {
   connectionId: string | null;

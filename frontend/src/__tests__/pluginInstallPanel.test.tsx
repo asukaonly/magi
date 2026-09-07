@@ -42,7 +42,7 @@ describe('PluginInstallPanel', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('runs a zero-config flow to a done state', async () => {
+  it('runs a source-marketplace flow to a source handoff', async () => {
     vi.spyOn(sourcesApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
@@ -82,7 +82,10 @@ describe('PluginInstallPanel', () => {
 
     const onDone = vi.fn();
     render(<PluginInstallPanel />);
-    usePluginInstallPanelStore.getState().openPanel('calendar', { onDone });
+    usePluginInstallPanelStore.getState().openPanel('calendar', {
+      context: 'source_marketplace',
+      onDone,
+    });
 
     // The flow polls /sources/status once at SYNC_POLL_MS (1500ms) before the
     // sync step completes, so allow generous headroom over the default 5s. The
@@ -92,8 +95,9 @@ describe('PluginInstallPanel', () => {
       () => {
         expect(screen.getAllByText(/pluginInstallPanel\.memoryProgress/).length).toBeGreaterThan(0);
         expect(screen.getAllByText('pluginInstallPanel.readyTitle')).toHaveLength(2);
+        expect(screen.getByText('pluginInstallPanel.sourceDescription')).toBeInTheDocument();
         expect(
-          screen.getByRole('button', { name: 'pluginInstallPanel.close' }),
+          screen.getByRole('button', { name: 'pluginInstallPanel.viewSource' }),
         ).toBeInTheDocument();
       },
       { timeout: 8000 },

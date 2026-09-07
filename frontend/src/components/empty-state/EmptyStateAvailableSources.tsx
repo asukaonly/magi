@@ -74,6 +74,8 @@ export interface EmptyStateAvailableSourcesProps {
    * actually connected.
    */
   onConnectDone?: (pluginId: string, info?: PluginInstallDoneInfo) => void;
+  /** Opens the full catalog while preserving the owning surface's journey. */
+  onBrowseAll?: () => void;
   /**
    * Lets embedded first-run surfaces request a lighter connect flow without
    * changing Settings or normal plugin-entry behavior.
@@ -103,6 +105,7 @@ export function EmptyStateAvailableSources({
   onRetryInstallable,
   onConnectStart,
   onConnectDone,
+  onBrowseAll,
   panelContext = "default",
 }: EmptyStateAvailableSourcesProps): JSX.Element | null {
   const { t, i18n } = useTranslation(i18nNamespace);
@@ -255,7 +258,14 @@ export function EmptyStateAvailableSources({
       type="button"
       data-testid="empty-state-browse-all"
       onClick={() => {
-        setSettingsNavigationIntent({ section: "pluginsMarketplace" });
+        if (onBrowseAll) {
+          onBrowseAll();
+          return;
+        }
+        setSettingsNavigationIntent({
+          section: "pluginsMarketplace",
+          ...(sourcePage ? { origin: "memory_sources" as const } : {}),
+        });
         setActivePanel("settings");
       }}
       className={

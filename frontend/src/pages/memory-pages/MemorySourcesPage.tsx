@@ -53,6 +53,7 @@ import {
   type SourceTodaySummaryResponse,
 } from '@/api/modules/sources';
 import { useChatShellStore } from '@/stores';
+import { useAppNavigate } from '@/hooks/useAppNavigate';
 import { buildTimelineCapabilities } from '@/utils/timeline-capabilities';
 import {
   getMemorySourceLabel,
@@ -677,7 +678,13 @@ function MemorySourcesError() {
   return <section className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.error')}</section>;
 }
 
-function SourceEmptyState({ onSourceConnected }: { onSourceConnected: () => void }) {
+function SourceEmptyState({
+  onSourceConnected,
+  onBrowseSources,
+}: {
+  onSourceConnected: () => void;
+  onBrowseSources: () => void;
+}) {
   const { t } = useTranslation('app');
 
   return (
@@ -704,6 +711,7 @@ function SourceEmptyState({ onSourceConnected }: { onSourceConnected: () => void
             i18nNamespace="app"
             i18nKeyPrefix="timeline"
             onConnectDone={onSourceConnected}
+            onBrowseAll={onBrowseSources}
           />
         </div>
       </div>
@@ -1034,6 +1042,7 @@ function SourceLedgerSection({
 
 export const MemorySourcesPage = () => {
   const { t } = useTranslation('app');
+  const navigate = useAppNavigate();
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
   const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
@@ -1154,7 +1163,21 @@ export const MemorySourcesPage = () => {
   }, [activeBackfillKey, activeBackfillJobs, t]);
 
   const openSourceMarketplace = () => {
-    setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
+    setSettingsNavigationIntent({
+      section: 'pluginsMarketplace',
+      origin: 'memory_sources',
+      onSourceInstallDone: (info, entryCount) => {
+        setSourceRefreshVersion((version) => version + 1);
+        if (entryCount === 1 && info?.sourceName) {
+          const connectionQuery = info.connectionId
+            ? `?connection=${encodeURIComponent(info.connectionId)}`
+            : '';
+          navigate(`${sourceDetailPath(info.sourceName)}${connectionQuery}`);
+          return;
+        }
+        navigate('/memory/sources');
+      },
+    });
     setActivePanel('settings');
   };
 
@@ -1169,7 +1192,10 @@ export const MemorySourcesPage = () => {
         ) : rows.length === 0 ? (
           <>
             {historyImportsAvailability === 'empty' ? (
-              <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
+              <SourceEmptyState
+                onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)}
+                onBrowseSources={openSourceMarketplace}
+              />
             ) : (
               <OngoingSourceEmptyState
                 hasHistoryImports={historyImportsAvailability === 'available'}

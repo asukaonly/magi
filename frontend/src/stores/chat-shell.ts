@@ -3,9 +3,20 @@ import type { TimelineMoodCalendarDay, TimelineStandoutItem } from '@/api/module
 
 export type ChatPanelType = 'conversation' | 'settings' | 'memory' | 'timeline' | 'tasks' | 'none';
 
+export interface SourceInstallCompletion {
+  connectionId: string | null;
+  pluginId: string;
+  sourceName?: string;
+}
+
 export interface SettingsNavigationIntent {
   section?: string | null;
   source?: string | null;
+  origin?: 'memory_sources' | null;
+  onSourceInstallDone?: (
+    info: SourceInstallCompletion | undefined,
+    entryCount: number,
+  ) => void;
 }
 
 export interface TimelinePanelState {

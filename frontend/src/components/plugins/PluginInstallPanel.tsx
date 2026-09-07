@@ -71,6 +71,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   const onDone = usePluginInstallPanelStore((s) => s.onDone);
   const isFirstContext = panelContext === 'first_context';
   const isHistoryImport = panelContext === 'history_import';
+  const isSourceMarketplace = panelContext === 'source_marketplace';
 
   const [consented, setConsented] = useState(false);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
@@ -110,6 +111,10 @@ export function PluginInstallPanel(): JSX.Element | null {
       setRegistryRefreshKey(0);
     }
   }, [open]);
+
+  useEffect(() => {
+    doneFiredRef.current = false;
+  }, [pluginId]);
 
   // Fire the entry point's onDone exactly once when the flow succeeds (`done`).
   // Reset the guard when the panel closes so a later open can fire again.
@@ -299,7 +304,9 @@ export function PluginInstallPanel(): JSX.Element | null {
     memory: memoryProgressDetail,
   };
   const closeLabel =
-    flow.phase === 'done' && flow.backfillNote && !flow.memoryReady
+    flow.phase === 'done' && isSourceMarketplace
+      ? t('pluginInstallPanel.viewSource')
+      : flow.phase === 'done' && flow.backfillNote && !flow.memoryReady
       ? t('pluginInstallPanel.closeBackground')
       : t('pluginInstallPanel.close');
   const closeDisabled = flow.phase === 'loading' || flow.phase === 'running';
@@ -344,6 +351,8 @@ export function PluginInstallPanel(): JSX.Element | null {
               ? t('pluginInstallPanel.importerDescription')
               : isFirstContext
               ? t('pluginInstallPanel.firstContextDescription')
+              : isSourceMarketplace
+              ? t('pluginInstallPanel.sourceDescription')
               : flow.description ?? t('pluginInstallPanel.description')}
           </DialogDescription>
         </DialogHeader>

@@ -1,8 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pluginsApi } from '@/api/modules/plugins';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
+import { useChatShellStore } from '@/stores/chat-shell';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 import { planFor, closurePlan } from './fixtures/pluginInstallPlan';
 
@@ -19,6 +21,8 @@ describe('PluginMarketplace', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(pluginsApi, 'getInstallPlan').mockImplementation(async (id, update) => planFor(id, update));
+    useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
+    usePluginInstallPanelStore.getState().closePanel();
   });
 
   const browserDisplayGroup = (memberLabel: string, memberOrder: number) => ({
@@ -32,6 +36,141 @@ describe('PluginMarketplace', () => {
     member_label: memberLabel,
     member_label_i18n: { 'zh-CN': memberLabel },
     member_order: memberOrder,
+  });
+
+  const sourceEntry = (
+    pluginId: string,
+    name: string,
+    displayGroup?: ReturnType<typeof browserDisplayGroup>,
+  ): PluginRegistryEntry => ({
+    plugin_id: pluginId,
+    name,
+    name_i18n: { 'zh-CN': name },
+    version: '0.1.0',
+    description: `Read ${name}.`,
+    description_i18n: { 'zh-CN': `读取 ${name}。` },
+    author: 'Magi Team',
+    icon: 'lucide:globe',
+    ...(displayGroup ? { display_group: displayGroup } : {}),
+    official: true,
+    data_locality: 'local_only' as const,
+    contribution_types: ['source'],
+    platforms: [],
+    settings_fields: [], settings_actions: [], settings_resources: [], settings_ui_blocks: [],
+    protocol_version: 2 as const, execution_mode: 'trusted_process' as const,
+    min_sdk_version: '0.2.0',
+    homepage: '',
+    repository: '',
+    path: pluginId,
+    installed: false,
+    installed_version: null,
+    update_available: false,
+    capabilities: [],
+  });
+
+  it('continues a source-origin install in the shared connect flow', async () => {
+    const user = userEvent.setup();
+    const onSourceInstallDone = vi.fn();
+    useChatShellStore.setState({
+      activePanel: 'settings',
+      settingsNavigationIntent: {
+        section: 'pluginsMarketplace',
+        origin: 'memory_sources',
+        onSourceInstallDone,
+      },
+    });
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '4',
+      install_fingerprint: 'fingerprint-1',
+      plugins: [sourceEntry('calendar', '日历')],
+    });
+
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    const card = await screen.findByTestId('marketplace-plugin-calendar');
+    await user.click(
+      within(card).getByRole('button', { name: 'settings.marketplace.actions.install' }),
+    );
+
+    expect(useChatShellStore.getState()).toMatchObject({
+      activePanel: 'none',
+      settingsNavigationIntent: null,
+    });
+    expect(usePluginInstallPanelStore.getState()).toMatchObject({
+      open: true,
+      pluginId: 'calendar',
+      pluginName: '日历',
+      installMode: true,
+      context: 'source_marketplace',
+    });
+    expect(pluginsApi.getInstallPlan).not.toHaveBeenCalled();
+
+    const doneInfo = {
+      pluginId: 'calendar',
+      connectionId: 'calendar-work',
+      sourceName: 'calendar',
+    };
+    act(() => usePluginInstallPanelStore.getState().onDone?.(doneInfo));
+    expect(onSourceInstallDone).toHaveBeenCalledExactlyOnceWith(doneInfo, 1);
+  });
+
+  it('runs selected grouped sources one at a time before completing the journey', async () => {
+    const user = userEvent.setup();
+    const onSourceInstallDone = vi.fn();
+    useChatShellStore.setState({
+      activePanel: 'settings',
+      settingsNavigationIntent: {
+        section: 'pluginsMarketplace',
+        origin: 'memory_sources',
+        onSourceInstallDone,
+      },
+    });
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '4',
+      install_fingerprint: 'fingerprint-1',
+      plugins: [
+        sourceEntry('chrome-history', 'Chrome', browserDisplayGroup('Chrome', 10)),
+        sourceEntry('safari-history', 'Safari', browserDisplayGroup('Safari', 20)),
+      ],
+    });
+
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    const card = await screen.findByTestId('marketplace-plugin-browser-history');
+    await user.click(
+      within(card).getByRole('button', { name: 'settings.marketplace.actions.chooseEntries' }),
+    );
+    const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history'));
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-safari-history'));
+    await user.click(
+      within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }),
+    );
+
+    expect(usePluginInstallPanelStore.getState().pluginId).toBe('chrome-history');
+    act(() => {
+      usePluginInstallPanelStore.getState().onDone?.({
+        pluginId: 'chrome-history',
+        connectionId: 'chrome-work',
+        sourceName: 'chrome_history',
+      });
+    });
+    await waitFor(() => {
+      expect(usePluginInstallPanelStore.getState()).toMatchObject({
+        open: true,
+        pluginId: 'safari-history',
+        context: 'source_marketplace',
+      });
+    });
+    expect(onSourceInstallDone).not.toHaveBeenCalled();
+
+    const finalInfo = {
+      pluginId: 'safari-history',
+      connectionId: 'safari-default',
+      sourceName: 'safari_history',
+    };
+    act(() => usePluginInstallPanelStore.getState().onDone?.(finalInfo));
+    expect(onSourceInstallDone).toHaveBeenCalledExactlyOnceWith(finalInfo, 2);
   });
 
   it('reaches a shared library upgrade from the marketplace update button without a permission bypass', async () => {
@@ -714,7 +853,7 @@ describe('PluginMarketplace', () => {
           updated_at_ms: 1,
           finished_at_ms: null,
         });
-        return {} as any;
+        return new Promise(() => undefined) as any;
       }
     );
 
