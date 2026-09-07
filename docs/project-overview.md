@@ -34,8 +34,11 @@ Current release expectations are:
 ### Dependency security
 
 The root Cargo lockfile owns the desktop dependency graph. Tauri must be at
-least 2.11.1 for the corrected local-origin check. The Linux GTK3 graph still
-requires `glib 0.18`, so the workspace overrides that crate with the reviewed
+least 2.11.1 for the corrected local-origin check. Keep `@tauri-apps/api` on the
+same major/minor release as the Rust `tauri` crate, updating the frontend
+manifest and lockfile together when upgrading either side to a new minor release.
+The Linux GTK3 graph still requires `glib 0.18`, so the workspace overrides
+that crate with the reviewed
 upstream `VariantStrIter` safety backport in `vendor/glib`. Its archive and file
 checksums, two-line patch and removal criteria are recorded in
 [`vendor/README.md`](../vendor/README.md). CI verifies those sources and runs
