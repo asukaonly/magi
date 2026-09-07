@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from enum import Enum
 import logging
 from pathlib import Path
@@ -17,6 +18,8 @@ from .operation_execution import plugin_preparation_slot, serialize_plugin_archi
 from .contracts import PluginCapability, PluginManifest, PluginPackageState
 from .discovery import load_plugin_manifest
 from .icon_assets import resolve_plugin_icon
+from .library_upgrade_plan import RegistryInstallPlan
+from .registry_client import PluginRegistrySnapshot
 from .package_identity import (
     compute_installed_package_sha256,
     compute_package_sha256,
@@ -204,6 +207,235 @@ class PluginInstallationMixin:
 
     def unload_plugin(self, plugin_id: str) -> None:
         raise NotImplementedError
+
+    @serialize_plugin_archive_operation
+    def install_coordinated_registry_plan(
+        self,
+        review: RegistryInstallPlan,
+        *,
+        prepared: dict[str, Path],
+        snapshot: PluginRegistrySnapshot,
+        validate_approval: Callable[[], None],
+        check_cancelled: Callable[[], None],
+        workflow_budget: PluginDependencyWorkflowBudget,
+        progress_reporter: InstallProgressReporter | None = None,
+    ) -> PluginPackageState:
+        """Stage the approved closure, then replace and activate it as one unit.
+
+        All backups survive until every connection has reloaded successfully.
+        Shutdown callbacks run outside the manager lock; targets and consent
+        are revalidated after that gap before any installed files change.
+        """
+        changes = [item for item in review.changes if item.action != "reuse"]
+        plans: dict[str, _PluginInstallPlan] = {}
+        staged: dict[str, Path] = {}
+        seals: dict[str, str] = {}
+        backups: dict[str, Path | None] = {}
+        cleanup_backups = False
+        try:
+            for change in changes:
+                check_cancelled()
+                plugin_id = change.entry.plugin_id
+                workflow_budget.ensure_time_remaining()
+                plan = self._build_install_plan(
+                    _find_directory_manifest(prepared[plugin_id]),
+                    _prepare_user_plugins_root(),
+                    install_origin="registry",
+                    expected_package_sha256=change.entry.package_sha256,
+                )
+                plans[plugin_id] = plan
+                staged[plugin_id] = package_files.stage_plugin_directory(
+                    plan.source_dir,
+                    plan.dest_dir,
+                    prepare_staging_dir=lambda directory: self._install_staged_dependencies(
+                        directory,
+                        progress_reporter=progress_reporter,
+                        workflow_budget=workflow_budget,
+                    ),
+                )
+                purge_plugin_bytecode_caches(staged[plugin_id])
+                verify_installed_source_sha256(staged[plugin_id], change.entry.package_sha256)
+                seals[plugin_id] = compute_installed_package_sha256(staged[plugin_id])
+                workflow_budget.consume((staged[plugin_id],))
+
+            with self._lifecycle_write_lock:
+                check_cancelled()
+                validate_approval()
+                saved = {key: self._snapshot_install_state(key) for key in plans}
+                identities = {
+                    key: (
+                        self._path_identity(plan.dest_dir),
+                        self._path_identity(plan.dest_dir / "plugin.toml"),
+                    )
+                    for key, plan in plans.items()
+                }
+                active = {
+                    key: owner for key, owner in self._instance_packages.items() if owner in plans
+                }
+                setup_ids = set(active).intersection(self._setup_instances)
+
+            def stop_connections() -> None:
+                with self._lifecycle_write_lock:
+                    for connection_id, owner in self._instance_packages.items():
+                        if owner in plans:
+                            active[connection_id] = owner
+                            if connection_id in self._setup_instances:
+                                setup_ids.add(connection_id)
+                    for key in reversed(plans):
+                        self.unload_plugin(key)
+                for key in reversed(plans):
+                    self._drain_shutdowns_sync(key)
+
+            @contextmanager
+            def quiesced_connections():
+                # A lifecycle caller can restart a connection while shutdown
+                # callbacks drain. Recheck while acquiring the mutation lock,
+                # including during rollback, before touching any package file.
+                for _attempt in range(3):
+                    stop_connections()
+                    with self._lifecycle_write_lock:
+                        if any(owner in plans for owner in self._instance_packages.values()):
+                            continue
+                        yield
+                        return
+                raise PluginPackageConflictError(
+                    "Plugin connections kept restarting during upgrade"
+                )
+
+            def restore_connections() -> None:
+                for connection_id in active:
+                    # Connection settings, credentials, revision and enablement
+                    # are owned by the connection store and never rewritten.
+                    connection = self.connection_store.get(connection_id)
+                    if connection is None:
+                        continue
+                    if connection_id in setup_ids and not connection.enabled:
+                        self.setup_connection(connection_id)
+                    elif connection.enabled:
+                        self.load_connection(connection_id)
+
+            mutated = False
+            try:
+                with quiesced_connections():
+                    check_cancelled()
+                    validate_approval()
+                    for key, plan in plans.items():
+                        if identities[key] != (
+                            self._path_identity(plan.dest_dir),
+                            self._path_identity(plan.dest_dir / "plugin.toml"),
+                        ):
+                            raise PluginPackageConflictError(
+                                f"Install target changed during shutdown: {key}"
+                            )
+                        if key in self._instance_packages.values():
+                            raise PluginPackageConflictError(
+                                f"Plugin restarted during shutdown: {key}"
+                            )
+                        self._require_no_pending_shutdown(key)
+                        # Preserve edits made while package staging or shutdown
+                        # ran; only reviewed install identity fields are replaced.
+                        saved[key] = self._snapshot_install_state(key)
+                    workflow_budget.ensure_time_remaining()
+                    updates: dict[str, object] = {}
+                    for change in changes:
+                        key = change.entry.plugin_id
+                        updates.update(
+                            self._build_install_config_updates(
+                                plans[key],
+                                snapshot=saved[key],
+                                activation_policy=_PluginInstallActivationPolicy.PRESERVE_ENABLED,
+                                official=bool(snapshot.official_source and change.entry.official),
+                                consented_capabilities=list(change.entry.capabilities),
+                                install_origin="registry",
+                                registry_source=snapshot.registry_url,
+                                registry_repo_url=snapshot.repo_url,
+                                installed_package_sha256=seals[key],
+                                dependency_package_sha256=change.dependency_package_sha256,
+                                reset_existing_config=change.action == "install",
+                            )
+                        )
+                    # No consumer is activated against a partially replaced graph.
+                    mutated = True
+                    for key, plan in plans.items():
+                        backups[key] = package_files.promote_staged_plugin_directory(
+                            staged[key],
+                            plan.dest_dir,
+                        )
+                    if not save_config(updates):
+                        raise RuntimeError("Failed to persist coordinated plugin installation")
+                    self.scan(persist_discovery=False)
+                    for change in changes:
+                        key = change.entry.plugin_id
+                        state = self._require_package(key)
+                        if (
+                            not package_files.is_managed_plugin_manifest_path(
+                                key, state.manifest.manifest_path
+                            )
+                            or package_identity_error(
+                                state.manifest, get_config().plugins.packages.get(key)
+                            )
+                            is not None
+                        ):
+                            raise RuntimeError(f"Coordinated package discovery failed: {key}")
+                        self._capture_plugin_dependencies(
+                            state.manifest,
+                            registry_source=snapshot.registry_url,
+                            registry_repo_url=snapshot.repo_url,
+                            dependency_package_sha256=change.dependency_package_sha256,
+                        )
+                    for key in plans:
+                        self.load_plugin(key)
+                        check_cancelled()
+                    for connection_id in setup_ids:
+                        connection = self.connection_store.get(connection_id)
+                        if connection is not None and not connection.enabled:
+                            self.setup_connection(connection_id)
+                    result = self._require_package(review.target_id)
+                    check_cancelled()
+                    self._request_source_schedule_refresh()
+                    cleanup_backups = True
+            except BaseException as operation_error:
+                if not mutated:
+                    with self._lifecycle_write_lock:
+                        restore_connections()
+                    raise
+                try:
+                    with quiesced_connections():
+                        for key in reversed(backups):
+                            destination = plans[key].dest_dir
+                            # Remove only the newly published transaction copy.
+                            # The old user package is retained in its backup.
+                            if destination.exists():
+                                destination.replace(staged[key])
+                            backup = backups[key]
+                            if backup is not None:
+                                backup.replace(destination)
+                        for key, previous in saved.items():
+                            self._restore_plugin_config(key, previous.config)
+                        self.scan(persist_discovery=False)
+                        for key, previous in saved.items():
+                            if previous.package_state is not None:
+                                state = self._require_package(key)
+                                state.trusted = previous.package_state.trusted
+                                state.healthy = previous.package_state.healthy
+                                state.last_error = previous.package_state.last_error
+                        restore_connections()
+                    cleanup_backups = True
+                except BaseException as rollback_error:
+                    logger.critical(
+                        "Coordinated plugin rollback failed; backups retained", exc_info=True
+                    )
+                    raise RuntimeError(
+                        "Coordinated plugin rollback failed; original package backups were retained"
+                    ) from rollback_error
+                raise operation_error
+            return result
+        finally:
+            for directory in staged.values():
+                package_files.discard_plugin_transaction_directory(directory)
+            if cleanup_backups:
+                for directory in backups.values():
+                    package_files.discard_plugin_transaction_directory(directory)
 
     @serialize_plugin_archive_operation
     def install_plugin_from_archive(

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import tempfile
+import threading
 from typing import Any
 
 from magi_plugin_sdk.versioning import is_plugin_version_newer
@@ -32,6 +33,7 @@ from .installation import (
     PluginRegistrySourceConflictError,
 )
 from .package_identity import verify_package_sha256
+from .library_upgrade_plan import RegistryInstallPlan, RegistryPackageChange
 from .package_integrity import (
     has_registry_install_record,
     is_verified_registry_package,
@@ -140,6 +142,174 @@ class PluginInstallService:
             provisional_coordinator or provisional_dependency_coordinator
         )
 
+    async def plan_registry_install(
+        self,
+        plugin_id: str,
+        *,
+        update: bool = False,
+    ) -> RegistryInstallPlan:
+        """Inspect all changes before consent; submit the returned fingerprint.
+
+        A changed shared library requires newer releases of every installed
+        consumer, recursively. The caller must display every change and its
+        capabilities, including consumers added by this coordinated plan.
+        """
+        snapshot = await self._registry_client.fetch_snapshot()
+        return await run_plugin_preparation_operation(
+            lambda: self._build_registry_install_plan(plugin_id, snapshot=snapshot, update=update)
+        )
+
+    def _build_registry_install_plan(
+        self,
+        plugin_id: str,
+        *,
+        snapshot: PluginRegistrySnapshot,
+        update: bool,
+    ) -> RegistryInstallPlan:
+        with self._require_manager()._lifecycle_write_lock:
+            return self._build_registry_install_plan_locked(
+                plugin_id, snapshot=snapshot, update=update
+            )
+
+    def _build_registry_install_plan_locked(
+        self,
+        plugin_id: str,
+        *,
+        snapshot: PluginRegistrySnapshot,
+        update: bool,
+    ) -> RegistryInstallPlan:
+        manager = self._require_manager()
+        entries = self._snapshot_entries(snapshot)
+        self._fetch_installable_entry(entries, plugin_id)
+        if not update:
+            self._assert_registry_install_target_available(plugin_id)
+        elif manager.get_package(plugin_id) is None:
+            raise PluginPackageNotInstalled(plugin_id)
+        reasons = {plugin_id: "requested"}
+        selected: dict[str, PluginRegistryEntry] = {}
+        changes: dict[str, RegistryPackageChange] = {}
+        visiting: set[str] = set()
+
+        def visit(package_id: str, *, dependency: bool = False) -> None:
+            if package_id in visiting:
+                raise PluginDependencyConflictError(f"Cyclic plugin dependency: {package_id}")
+            if package_id in selected:
+                return
+            if len(selected) + len(visiting) >= MAX_PLUGIN_DEPENDENCY_CLOSURE:
+                raise PluginDependencyConflictError(
+                    "Plugin dependency closure exceeds the supported package limit"
+                )
+            entry = self._fetch_registry_entry(entries, package_id)
+            if dependency and entry.kind != "library":
+                raise DirectLibraryInstallError("Plugin dependencies must be library packages")
+            visiting.add(package_id)
+            for dep_id in entry.depends_on:
+                reasons.setdefault(dep_id, f"dependency of {package_id}")
+                visit(dep_id, dependency=True)
+            visiting.remove(package_id)
+            selected[package_id] = entry
+            state = manager.get_package(package_id)
+            raw = get_config().plugins.packages.get(package_id)
+            configured = PluginSettings.model_validate(raw) if raw is not None else None
+            dependency_hashes = {key: entries[key].package_sha256 for key in entry.depends_on}
+            action = "install"
+            if state is not None:
+                if (
+                    not registry_source_matches_installed_package(state, snapshot)
+                    or configured is None
+                    or not configured.trusted
+                    or not is_verified_registry_package(state.manifest, configured)
+                    or state.manifest.kind != entry.kind
+                ):
+                    raise PluginDependencyConflictError(
+                        f"Installed package {package_id} has no matching verified registry source"
+                    )
+                reusable = (
+                    configured.package_sha256 == entry.package_sha256
+                    and configured.dependency_package_sha256 == dependency_hashes
+                )
+                if reusable:
+                    validate_registry_package(entry, state.manifest)
+                manager._capture_plugin_dependencies(
+                    state.manifest,
+                    registry_source=configured.registry_source,
+                    registry_repo_url=configured.registry_repo_url,
+                    dependency_package_sha256=configured.dependency_package_sha256,
+                )
+                action = "reuse" if reusable else "update"
+                if package_id == plugin_id or action == "update" or entry.kind == "plugin":
+                    if not is_plugin_version_newer(entry.version, state.manifest.version):
+                        raise PluginRegistryVersionError(
+                            f"Coordinated updates require a newer registry release of {package_id}"
+                        )
+                    action = "update"
+            elif raw is not None or package_files.managed_plugin_directory(package_id).exists():
+                raise PluginDependencyConflictError(f"Undiscovered installed package: {package_id}")
+            changes[package_id] = RegistryPackageChange(
+                entry=entry,
+                action=action,
+                reason=reasons[package_id],
+                current_version=state.manifest.version if state is not None else None,
+                current_package_sha256=configured.package_sha256
+                if configured is not None
+                else None,
+                current_installed_package_sha256=(
+                    configured.installed_package_sha256 if configured is not None else None
+                ),
+                current_dependency_package_sha256=(
+                    dict(configured.dependency_package_sha256) if configured is not None else {}
+                ),
+                dependency_package_sha256=dependency_hashes,
+            )
+
+        visit(plugin_id)
+        expanded: set[str] = set()
+        while True:
+            libraries = [
+                key
+                for key, item in changes.items()
+                if item.entry.kind == "library" and item.action == "update" and key not in expanded
+            ]
+            if not libraries:
+                break
+            for library_id in libraries:
+                expanded.add(library_id)
+                consumers = set(manager.iter_consumers(library_id))
+                # Persisted consumers may be absent from discovery. Never lose
+                # their reference just because their manifest is unavailable.
+                for consumer_id, raw in list(get_config().plugins.packages.items()):
+                    configured = PluginSettings.model_validate(raw)
+                    if library_id in configured.dependency_package_sha256:
+                        consumers.add(consumer_id)
+                    elif manager.get_package(consumer_id) is None and configured.manifest_path:
+                        try:
+                            manifest = load_plugin_manifest(
+                                Path(configured.manifest_path), source="external"
+                            )
+                        except (OSError, ValueError) as exc:
+                            raise PluginDependencyConflictError(
+                                f"Cannot inspect undiscovered package references: {consumer_id}"
+                            ) from exc
+                        if library_id in manifest.depends_on:
+                            consumers.add(consumer_id)
+                for consumer_id in sorted(consumers):
+                    if manager.get_package(consumer_id) is None:
+                        raise PluginDependencyConflictError(
+                            f"Cannot coordinate undiscovered consumer: {consumer_id}"
+                        )
+                    reasons.setdefault(consumer_id, f"consumer of {library_id}")
+                    visit(consumer_id)
+                    if changes[consumer_id].action != "update":
+                        raise PluginRegistryVersionError(
+                            f"Coordinated updates require a newer registry release of {consumer_id}"
+                        )
+        return RegistryInstallPlan(
+            target_id=plugin_id,
+            update=update,
+            registry_fingerprint=snapshot.install_fingerprint,
+            changes=tuple(changes.values()),
+        )
+
     async def install_from_registry(
         self,
         plugin_id: str,
@@ -173,9 +343,8 @@ class PluginInstallService:
         if expected_registry_update_source is None:
             self._assert_registry_install_target_available(plugin_id)
         workflow_budget = PluginDependencyWorkflowBudget()
-        snapshot = await self._expected_registry_snapshot(
-            expected_fingerprint,
-            workflow_budget=workflow_budget,
+        snapshot = await self._registry_client.fetch_snapshot(
+            deadline_monotonic=workflow_budget.deadline_monotonic,
         )
         if (
             expected_registry_update_source is not None
@@ -206,6 +375,25 @@ class PluginInstallService:
             entries_by_id=entries_by_id,
             already_installed=set(),
         )
+        if self._closure_needs_library_upgrade(full_closure, entries_by_id):
+            plan = await run_plugin_preparation_operation(
+                lambda: self._build_registry_install_plan(
+                    plugin_id,
+                    snapshot=snapshot,
+                    update=expected_registry_update_source is not None,
+                )
+            )
+            if plan.fingerprint != expected_fingerprint:
+                raise PluginInstallApprovalMismatchError(
+                    "Review and approve the coordinated install plan, including every consumer upgrade"
+                )
+            return await self._install_coordinated_registry_plan(
+                plan,
+                snapshot=snapshot,
+                workflow_budget=workflow_budget,
+                progress_reporter=progress_reporter,
+            )
+        self.assert_expected_registry_fingerprint(snapshot, expected_fingerprint)
         try:
             provisional_lease = await _acquire_provisional_dependencies(
                 self._provisional_coordinator,
@@ -280,6 +468,136 @@ class PluginInstallService:
             target_state=target_state,
             extra_installed=extra_installed,
         )
+
+    def _closure_needs_library_upgrade(
+        self,
+        closure: list[PluginRegistryEntry],
+        entries: dict[str, PluginRegistryEntry],
+    ) -> bool:
+        installed_ids = self._installed_plugin_ids()
+        for entry in closure:
+            if entry.kind != "library" or entry.plugin_id not in installed_ids:
+                continue
+            raw = get_config().plugins.packages.get(entry.plugin_id)
+            configured = PluginSettings.model_validate(raw) if raw is not None else None
+            if configured is not None and (
+                configured.package_sha256 != entry.package_sha256
+                or configured.dependency_package_sha256
+                != {key: entries[key].package_sha256 for key in entry.depends_on}
+            ):
+                return True
+        return False
+
+    async def _install_coordinated_registry_plan(
+        self,
+        plan: RegistryInstallPlan,
+        *,
+        snapshot: PluginRegistrySnapshot,
+        workflow_budget: PluginDependencyWorkflowBudget,
+        progress_reporter=None,
+    ) -> PluginRegistryInstallResult:
+        admissions: list[PluginInstallAdmissionLease] = []
+        provisional_lease = None
+        temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-upgrade-"))
+        manager = self._require_manager()
+
+        def validate_approval() -> None:
+            current = self._build_registry_install_plan(
+                plan.target_id,
+                snapshot=snapshot,
+                update=plan.update,
+            )
+            if current.fingerprint != plan.fingerprint:
+                raise PluginInstallApprovalMismatchError(
+                    "Installed dependency graph changed after approval"
+                )
+
+        try:
+            for change in plan.changes:
+                if change.entry.plugin_id != plan.target_id:
+                    admissions.append(plugin_install_admission.acquire(change.entry.plugin_id))
+            try:
+                provisional_lease = await _acquire_provisional_dependencies(
+                    self._provisional_coordinator,
+                    self._provisional_library_requirements(
+                        [item.entry for item in plan.changes],
+                        snapshot=snapshot,
+                    ),
+                )
+            except ProvisionalDependencyConflictError as exc:
+                raise PluginDependencyConflictError(str(exc)) from exc
+            prepared: dict[str, Path] = {}
+            for change in plan.changes:
+                if change.action == "reuse":
+                    continue
+                workflow_budget.ensure_time_remaining()
+                entry = change.entry
+                source = await self._registry_client.clone_plugin(
+                    entry,
+                    snapshot=snapshot,
+                    dest_dir=temp_root,
+                    deadline_monotonic=workflow_budget.deadline_monotonic,
+                )
+                await run_plugin_preparation_operation(
+                    lambda source=source, entry=entry: (
+                        workflow_budget.consume((source,)),
+                        _validate_registry_package_directory(source, entry),
+                    )
+                )
+                prepared[entry.plugin_id] = source
+            await self._assert_registry_snapshot_current(
+                snapshot.install_fingerprint,
+                workflow_budget=workflow_budget,
+            )
+            cancelled = threading.Event()
+
+            def check_cancelled() -> None:
+                if cancelled.is_set():
+                    raise asyncio.CancelledError("Coordinated plugin installation cancelled")
+
+            commit_task = asyncio.create_task(
+                run_plugin_preparation_operation(
+                    lambda: manager.install_coordinated_registry_plan(
+                        plan,
+                        prepared=prepared,
+                        snapshot=snapshot,
+                        validate_approval=validate_approval,
+                        check_cancelled=check_cancelled,
+                        workflow_budget=workflow_budget,
+                        progress_reporter=progress_reporter,
+                    )
+                )
+            )
+            try:
+                state = await asyncio.shield(commit_task)
+            except asyncio.CancelledError:
+                cancelled.set()
+                # Keep admission and provisional claims until the worker has
+                # restored the previous graph, even after repeated cancellation.
+                while not commit_task.done():
+                    try:
+                        await asyncio.shield(commit_task)
+                    except asyncio.CancelledError:
+                        continue
+                    except BaseException:
+                        break
+                if not commit_task.cancelled():
+                    commit_task.exception()
+                raise
+            return PluginRegistryInstallResult(
+                target_state=state,
+                extra_installed=[
+                    item.entry.plugin_id
+                    for item in plan.changes
+                    if item.entry.plugin_id != plan.target_id and item.action != "reuse"
+                ],
+            )
+        finally:
+            if provisional_lease is not None:
+                await self._release_provisional_dependencies(provisional_lease)
+            for lease in reversed(admissions):
+                lease.release()
+            await run_plugin_preparation_operation(lambda: shutil.rmtree(temp_root, True))
 
     async def update_from_registry(
         self,
