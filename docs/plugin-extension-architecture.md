@@ -1199,12 +1199,18 @@ Current endpoints:
 
 - `GET /api/plugins`
 - `POST /api/plugins/rescan`
+- `GET /api/plugins/registry`
+- `GET /api/plugins/updates`
 - `POST /api/plugins/install/candidates`
 - `DELETE /api/plugins/install/candidates/{candidate_id}`
 - `POST /api/plugins/install/candidates/{candidate_id}/jobs`
+- `POST /api/plugins/install/registry/plan`
 - `POST /api/plugins/install/registry`
 - `POST /api/plugins/install/registry/jobs`
 - `GET /api/plugins/install/jobs/{job_id}`
+- `POST /api/plugins/{plugin_id}/update`
+- `POST /api/plugins/{plugin_id}/update/jobs`
+- `DELETE /api/plugins/{plugin_id}`
 - `POST /api/plugins/{plugin_id}/reload`
 - `POST /api/plugins/{plugin_id}/trust` with the reviewed package digest
 - `GET, POST /api/plugins/{plugin_id}/connections`
@@ -1327,13 +1333,13 @@ Marketplace trust is not self-declared by a plugin package.
 Plugins declare user-visible access under
 `[[plugin.permissions.capabilities]]`. The external registry validates each
 capability against the shared known set and copies the declaration into
-`registry.json`. The product shows these declarations before install. Updates
-prompt again only when a new capability, a new scope, or a broader scope exceeds
-the user's stored consent. Grouped updates compare each package against that
-package's own stored consent before combining newly requested access for the
-dialog; one group member's previous consent cannot authorize another member.
-Uploaded packages are inspected before installation so the same review applies
-to sideloads.
+`registry.json`. Every marketplace install and update reviews the complete
+installation plan, even when permissions are unchanged. The review shows each
+package's own declared access and execution mode alongside its version and
+reason for inclusion. Approval is bound to that full plan, and consent is
+persisted separately for each changed package; one package's previous consent
+cannot authorize another package. Uploaded packages retain their inspected,
+single-use candidate approval flow.
 
 Capability declarations describe requested access. A host-issued capability grant
 is separate, revocable authority for a scoped callback. Native-code confinement

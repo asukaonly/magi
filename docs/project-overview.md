@@ -238,7 +238,7 @@ do not evaluate code or compile schemas inside the desktop WebView. Python model
 validators remain authoritative for cross-field business rules.
 
 The same export/generation commands cover installed plugin packages, translated
-field specifications, registry fingerprints, install candidates/jobs, and settings
+field specifications, registry fingerprints, installation plans, install candidates/jobs, and settings
 actions in `contracts/api/frontend-plugins.json`. These endpoints return direct
 payloads; the client does not accept the removed success-envelope format. Dynamic
 resource widgets validate their supported collection/permission shapes before
