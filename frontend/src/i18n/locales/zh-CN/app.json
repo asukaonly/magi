@@ -2859,6 +2859,8 @@
         "install": "安装",
         "chooseEntries": "选择入口安装",
         "addEntries": "添加入口",
+        "manageEntries": "管理入口",
+        "removeEntry": "移除入口",
         "uninstall": "卸载",
         "update": "更新",
         "refresh": "刷新",
@@ -2876,6 +2878,14 @@
         "confirm": "安装所选入口",
         "cancel": "取消"
       },
+      "entryRemoval": {
+        "title": "移除 {{name}}？",
+        "description": "将断开这个入口的所有连接，并从本机卸载对应插件。",
+        "memoryRetention": "已经同步并进入记忆的内容会保留；如需删除，请在来源或记忆中单独处理。",
+        "confirm": "移除入口",
+        "removing": "正在移除…",
+        "cancel": "取消"
+      },
       "sourceJourney": {
         "unsavedChanges": "请先保存或放弃设置更改，再继续添加来源。"
       },
@@ -2885,6 +2895,7 @@
         "installTimedOut": "插件安装耗时过长，已停止安装",
         "registryChanged": "插件市场信息已更新，请查看最新内容后重新确认。",
         "uninstallSuccess": "插件已卸载",
+        "entryUninstallSuccess": "{{name}} 已移除",
         "uninstallFailed": "插件卸载失败：{{message}}",
         "updateSuccess": "插件更新成功",
         "updateFailed": "插件更新失败：{{message}}"

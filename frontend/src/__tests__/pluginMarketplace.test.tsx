@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { pluginsApi } from '@/api/modules/plugins';
+import { pluginsApi, type PluginRegistryEntry } from '@/api/modules/plugins';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 import { useChatShellStore } from '@/stores/chat-shell';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
@@ -744,7 +744,7 @@ describe('PluginMarketplace', () => {
     expect(within(browserCard).getByTestId('marketplace-entry-chip-chrome-history')).toHaveTextContent('settings.marketplace.entryStatus.installed');
     expect(within(browserCard).getByTestId('marketplace-entry-chip-safari-history')).toHaveTextContent('settings.marketplace.entryStatus.available');
 
-    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.addEntries' }));
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.manageEntries' }));
     const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
     expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeDisabled();
     expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeChecked();
@@ -776,6 +776,96 @@ describe('PluginMarketplace', () => {
         expect.any(Function),
       );
     });
+  });
+
+  it('removes one grouped entry after disconnecting only its connections', async () => {
+    const user = userEvent.setup();
+    const chrome = {
+      ...sourceEntry('chrome-history', 'Chrome', browserDisplayGroup('Chrome', 10)),
+      installed: true,
+      installed_version: '0.1.0',
+    };
+    const safari = {
+      ...sourceEntry(
+        'safari-history',
+        'Safari',
+        browserDisplayGroup('Safari', 20),
+      ),
+      installed: true,
+      installed_version: '0.1.0',
+    };
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '4',
+      install_fingerprint: 'fingerprint-1',
+      plugins: [chrome, safari],
+    });
+    const listConnections = vi.spyOn(pluginsApi, 'listConnections').mockResolvedValue([
+      {
+        connection_id: 'chrome-work',
+        plugin_id: 'chrome-history',
+        display_name: 'Work',
+        enabled: true,
+        settings: {},
+        credential_refs: {},
+        revision: 3,
+        readiness: [],
+      },
+      {
+        connection_id: 'chrome-home',
+        plugin_id: 'chrome-history',
+        display_name: 'Home',
+        enabled: false,
+        settings: {},
+        credential_refs: {},
+        revision: 7,
+        readiness: [],
+      },
+    ]);
+    const disconnect = vi.spyOn(pluginsApi, 'disconnectConnection').mockResolvedValue(undefined);
+    const uninstall = vi.spyOn(pluginsApi, 'uninstall').mockResolvedValue(undefined);
+    const onInstallComplete = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PluginMarketplace
+        installedPlugins={[]}
+        onInstallComplete={onInstallComplete}
+      />,
+    );
+
+    const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
+    await user.click(
+      within(browserCard).getByRole('button', {
+        name: 'settings.marketplace.actions.manageEntries',
+      }),
+    );
+    const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    const chromeOption = within(picker).getByTestId('marketplace-entry-option-chrome-history');
+    expect(within(chromeOption).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeDisabled();
+    await user.click(
+      within(chromeOption).getByRole('button', {
+        name: 'settings.marketplace.actions.removeEntry',
+      }),
+    );
+
+    const confirm = await screen.findByTestId('marketplace-entry-uninstall-dialog');
+    expect(confirm).toHaveTextContent('settings.marketplace.entryRemoval.memoryRetention');
+    await user.click(
+      within(confirm).getByRole('button', {
+        name: 'settings.marketplace.entryRemoval.confirm',
+      }),
+    );
+
+    await waitFor(() => {
+      expect(listConnections).toHaveBeenCalledExactlyOnceWith('chrome-history');
+      expect(disconnect).toHaveBeenNthCalledWith(1, 'chrome-history', 'chrome-work', 3);
+      expect(disconnect).toHaveBeenNthCalledWith(2, 'chrome-history', 'chrome-home', 7);
+      expect(uninstall).toHaveBeenCalledExactlyOnceWith('chrome-history');
+      expect(onInstallComplete).toHaveBeenCalledOnce();
+    });
+    expect(uninstall).not.toHaveBeenCalledWith('safari-history');
+    expect(disconnect.mock.invocationCallOrder[1]).toBeLessThan(
+      uninstall.mock.invocationCallOrder[0],
+    );
   });
 
   it('shows one grouped progress panel while installing grouped browser entries', async () => {

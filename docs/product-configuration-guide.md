@@ -682,6 +682,10 @@ Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
 - users can install, inspect, reload, rescan and uninstall packages
+- visually grouped marketplace packages expose entry-level management. Removing
+  one entry disconnects only that package's connections and uninstalls only that
+  package; source content already imported into memory is retained until the user
+  deletes it through the source or memory lifecycle.
 - users create named connections and enable or disable each connection separately;
   multiple accounts of the same package never share settings, credentials or progress
 - connection settings save directly with revision checks and do not participate

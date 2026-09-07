@@ -8,7 +8,6 @@ import {
   Loader2,
   Lock,
   Package,
-  Plus,
   RefreshCw,
   Search,
   Trash2,
@@ -67,6 +66,11 @@ interface EntryPickerState {
   selectedIds: string[];
 }
 
+interface UninstallTarget {
+  item: MarketplacePluginDisplayItem;
+  entry: PluginRegistryEntry;
+}
+
 /** Resolve the localized text from an i18n map, falling back to the default. */
 function localized(
   base: string,
@@ -112,6 +116,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
   const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
   const [entryPicker, setEntryPicker] = useState<EntryPickerState | null>(null);
+  const [uninstallTarget, setUninstallTarget] = useState<UninstallTarget | null>(null);
   const [consent, setConsent] = useState<{
     mode: ConsentMode;
     executionMode?: PluginRegistryEntry["execution_mode"];
@@ -264,10 +269,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
 
   const handleInstall = (item: MarketplacePluginDisplayItem) => {
     const entries = getInstallableEntries(item);
-    if (!entries.length) return;
     if (item.kind === 'group') {
       setEntryPicker({ item, selectedIds: [] });
-    } else if (isSourceJourney) {
+      return;
+    }
+    if (!entries.length) return;
+    if (isSourceJourney) {
       startSourceInstallJourney(entries);
     } else {
       setRegistryReview({ item, entries, update: false });
@@ -310,16 +317,26 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     }
   };
 
-  const handleUninstall = async (item: MarketplacePluginDisplayItem) => {
+  const handleUninstall = async (target: UninstallTarget) => {
+    const { item, entry } = target;
     setProcessingIds((prev) => ({ ...prev, [item.id]: 'uninstalling' }));
     try {
-      for (const entry of item.entries) {
-        if (!isEntryInstalled(entry)) continue;
-        await pluginsApi.uninstall(entry.plugin_id);
+      const connections = await pluginsApi.listConnections(entry.plugin_id);
+      for (const connection of connections) {
+        await pluginsApi.disconnectConnection(
+          entry.plugin_id,
+          connection.connection_id,
+          connection.revision,
+        );
       }
+      await pluginsApi.uninstall(entry.plugin_id);
       await onInstallComplete();
-      toast.success(t('settings.marketplace.feedback.uninstallSuccess'));
+      toast.success(t('settings.marketplace.feedback.entryUninstallSuccess', {
+        name: getMarketplaceEntryMemberName(entry, language),
+      }));
       await fetchRegistry();
+      setEntryPicker(null);
+      setUninstallTarget(null);
     } catch (err) {
       const message = getErrorMessage(err) || 'unknown';
       toast.error(t('settings.marketplace.feedback.uninstallFailed', { message }));
@@ -671,7 +688,23 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             {t('settings.marketplace.actions.update')}
                           </Button>
                         )}
-                        {hasInstallableEntries ? (
+                        {installedCount > 0 ? (
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            disabled={isProcessing}
+                            onClick={() => handleInstall(item)}
+                            className="h-9 rounded-lg px-4 shadow-none hover:shadow-none"
+                          >
+                            {operation === 'installing' || operation === 'uninstalling' ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Package className="mr-2 h-4 w-4" />
+                            )}
+                            {t('settings.marketplace.actions.manageEntries')}
+                          </Button>
+                        ) : hasInstallableEntries ? (
                           <Button
                             type="button"
                             variant="default"
@@ -682,21 +715,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           >
                             {operation === 'installing' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : installedCount > 0 ? (
-                              <Plus className="mr-2 h-4 w-4" />
                             ) : (
                               <Download className="mr-2 h-4 w-4" />
                             )}
-                            {installedCount > 0
-                              ? t('settings.marketplace.actions.addEntries')
-                              : t('settings.marketplace.actions.chooseEntries')}
+                            {t('settings.marketplace.actions.chooseEntries')}
                           </Button>
-                        ) : (
-                          <span className="inline-flex h-9 items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground">
-                            <Check className="h-3.5 w-3.5 text-primary" />
-                            {t('settings.marketplace.badge.installedAll')}
-                          </span>
-                        )}
+                        ) : null}
                       </div>
                     ) : isInstalled ? (
                       <div className="flex items-center gap-2">
@@ -729,7 +753,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           aria-label={t('settings.marketplace.actions.uninstall')}
                           title={t('settings.marketplace.actions.uninstall')}
                           disabled={isProcessing}
-                          onClick={() => void handleUninstall(item)}
+                          onClick={() => setUninstallTarget({ item, entry })}
                           className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-destructive/5 hover:text-destructive"
                         >
                           {operation === 'uninstalling' ? (
@@ -809,47 +833,62 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                 const checked = candidateInstalled || entryPicker.selectedIds.includes(candidate.plugin_id);
                 const memberName = getMarketplaceEntryMemberName(candidate, language);
                 return (
-                  <label
+                  <div
                     key={candidate.plugin_id}
                     data-testid={`marketplace-entry-option-${candidate.plugin_id}`}
                     className={cn(
-                      'flex cursor-pointer items-start gap-3 rounded-md px-2 py-3 transition-colors duration-200',
+                      'flex items-start gap-3 rounded-md px-2 py-3 transition-colors duration-200',
                       candidateInstalled
-                        ? 'cursor-default text-muted-foreground'
+                        ? 'text-muted-foreground'
                         : 'hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
                     )}
                   >
-                    <input
-                      type="checkbox"
-                      data-testid={`marketplace-entry-checkbox-${candidate.plugin_id}`}
-                      checked={checked}
-                      disabled={candidateInstalled}
-                      onChange={() => toggleEntryPickerSelection(candidate.plugin_id)}
-                      className="mt-1 h-4 w-4 rounded border-[hsl(var(--settings-subnav-border))] accent-[hsl(var(--primary))]"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <PluginIcon
-                          iconId={candidate.icon || candidate.display_group?.icon}
-                          className="h-4 w-4"
-                        />
-                        <span className="text-sm font-semibold text-foreground">{memberName}</span>
-                        <span
-                          className={cn(
-                            'text-xs font-medium',
-                            candidateInstalled ? 'text-primary' : 'text-muted-foreground'
-                          )}
-                        >
-                          {candidateInstalled
-                            ? t('settings.marketplace.entryStatus.installed')
-                            : t('settings.marketplace.entryStatus.available')}
-                        </span>
+                    <label className={cn('flex min-w-0 flex-1 items-start gap-3', !candidateInstalled && 'cursor-pointer')}>
+                      <input
+                        type="checkbox"
+                        data-testid={`marketplace-entry-checkbox-${candidate.plugin_id}`}
+                        checked={checked}
+                        disabled={candidateInstalled}
+                        onChange={() => toggleEntryPickerSelection(candidate.plugin_id)}
+                        className="mt-1 h-4 w-4 rounded border-[hsl(var(--settings-subnav-border))] accent-[hsl(var(--primary))]"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <PluginIcon
+                            iconId={candidate.icon || candidate.display_group?.icon}
+                            className="h-4 w-4"
+                          />
+                          <span className="text-sm font-semibold text-foreground">{memberName}</span>
+                          <span
+                            className={cn(
+                              'text-xs font-medium',
+                              candidateInstalled ? 'text-primary' : 'text-muted-foreground'
+                            )}
+                          >
+                            {candidateInstalled
+                              ? t('settings.marketplace.entryStatus.installed')
+                              : t('settings.marketplace.entryStatus.available')}
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                          {localized(candidate.description, candidate.description_i18n, language)}
+                        </p>
                       </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {localized(candidate.description, candidate.description_i18n, language)}
-                      </p>
-                    </div>
-                  </label>
+                    </label>
+                    {candidateInstalled ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={processingIds[entryPicker.item.id] === 'uninstalling'}
+                        onClick={() => setUninstallTarget({ item: entryPicker.item, entry: candidate })}
+                        className="h-8 shrink-0 px-2 text-xs text-muted-foreground hover:bg-destructive/5 hover:text-destructive"
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        {t('settings.marketplace.actions.removeEntry')}
+                      </Button>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -863,6 +902,47 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                 onClick={confirmEntryPickerSelection}
               >
                 {t('settings.marketplace.entryPicker.confirm')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {uninstallTarget ? (
+        <Dialog open onOpenChange={(open) => { if (!open) setUninstallTarget(null); }}>
+          <DialogContent className="max-w-md" data-testid="marketplace-entry-uninstall-dialog">
+            <DialogHeader>
+              <DialogTitle>
+                {t('settings.marketplace.entryRemoval.title', {
+                  name: getMarketplaceEntryMemberName(uninstallTarget.entry, language),
+                })}
+              </DialogTitle>
+              <DialogDescription className="space-y-2 leading-6">
+                <span className="block">{t('settings.marketplace.entryRemoval.description')}</span>
+                <span className="block">{t('settings.marketplace.entryRemoval.memoryRetention')}</span>
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={processingIds[uninstallTarget.item.id] === 'uninstalling'}
+                onClick={() => setUninstallTarget(null)}
+              >
+                {t('settings.marketplace.entryRemoval.cancel')}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={processingIds[uninstallTarget.item.id] === 'uninstalling'}
+                onClick={() => void handleUninstall(uninstallTarget)}
+              >
+                {processingIds[uninstallTarget.item.id] === 'uninstalling' ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {processingIds[uninstallTarget.item.id] === 'uninstalling'
+                  ? t('settings.marketplace.entryRemoval.removing')
+                  : t('settings.marketplace.entryRemoval.confirm')}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -2860,6 +2860,8 @@
         "install": "Install",
         "chooseEntries": "Choose entries",
         "addEntries": "Add entries",
+        "manageEntries": "Manage entries",
+        "removeEntry": "Remove entry",
         "uninstall": "Uninstall",
         "update": "Update",
         "refresh": "Refresh",
@@ -2877,6 +2879,14 @@
         "confirm": "Install selected entries",
         "cancel": "Cancel"
       },
+      "entryRemoval": {
+        "title": "Remove {{name}}?",
+        "description": "This disconnects every connection for the entry and uninstalls its plugin from this device.",
+        "memoryRetention": "Content already synced into memory is kept. Delete it separately from Sources or Memory if needed.",
+        "confirm": "Remove entry",
+        "removing": "Removing…",
+        "cancel": "Cancel"
+      },
       "sourceJourney": {
         "unsavedChanges": "Save or discard your Settings changes before adding a source."
       },
@@ -2886,6 +2896,7 @@
         "installTimedOut": "Plugin installation took too long and was stopped",
         "registryChanged": "The marketplace information changed. Review the latest details and confirm again.",
         "uninstallSuccess": "Plugin uninstalled",
+        "entryUninstallSuccess": "{{name}} removed",
         "uninstallFailed": "Failed to uninstall plugin: {{message}}",
         "updateSuccess": "Plugin updated successfully",
         "updateFailed": "Failed to update plugin: {{message}}"

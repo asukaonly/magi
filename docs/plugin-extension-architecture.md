@@ -1552,7 +1552,7 @@ Packaged desktop builds stage two generated runtime resources under `frontend/sr
 
 ### Frontend
 
-The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Marketplace cards, the registry install panel and Timeline & Sources all use the same complete-plan review before starting an install or update job.
+The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Visual display groups remain package-independent: their management dialog installs or removes one registry entry at a time, and entry removal disconnects that package before uninstalling it without deleting already-ingested host memory. Marketplace cards, the registry install panel and Timeline & Sources all use the same complete-plan review before starting an install or update job.
 
 ### Paired Runtime Validation
 
