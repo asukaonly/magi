@@ -24,7 +24,8 @@
           "specificity": "concrete",
           "evidence_text": "我很喜欢 DIIV。",
           "confidence": 0.98,
-          "supporting_event_ids": []
+          "supporting_event_ids": [],
+          "assertion_mode": "asserted"
         }
       ],
       "resolved_refs": [],
@@ -71,7 +72,8 @@
           "confidence": 0.96,
           "supporting_event_ids": [
             "evt-outside-window"
-          ]
+          ],
+          "assertion_mode": "asserted"
         }
       ],
       "resolved_refs": [],
@@ -116,7 +118,8 @@
           "specificity": "concrete",
           "evidence_text": "Visited the Rust language documentation.",
           "confidence": 0.99,
-          "supporting_event_ids": []
+          "supporting_event_ids": [],
+          "assertion_mode": "asserted"
         }
       ],
       "resolved_refs": [],

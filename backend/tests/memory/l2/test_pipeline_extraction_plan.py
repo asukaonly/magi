@@ -43,7 +43,7 @@ def _event(
     )
 
 
-def test_build_l2_extraction_plan_keeps_only_write_eligible_events() -> None:
+def test_build_l2_extraction_plan_admits_user_prose_without_event_write_authority() -> None:
     plan = build_l2_extraction_plan(
         [
             _event("evt-assistant", author_type="assistant", content="Sure."),
@@ -67,11 +67,16 @@ def test_build_l2_extraction_plan_keeps_only_write_eligible_events() -> None:
     ]
     assert [item.event.event_id for item in plan.eligible_decisions] == [
         "evt-self",
+        "evt-question",
         "evt-external",
     ]
     assert plan.primary is not None
     assert plan.primary.event.event_id == "evt-external"
-    assert plan.batch_event_ids == ["evt-self", "evt-external"]
+    assert plan.batch_event_ids == ["evt-self", "evt-question", "evt-external"]
+    question = plan.eligible_decisions[1]
+    assert not question.policy.allow_graph_write
+    assert not question.policy.allow_assertion_write
+    assert question.policy.l1_retrieval_scope == "conversation_only"
     assert plan.skip_result is None
 
 
