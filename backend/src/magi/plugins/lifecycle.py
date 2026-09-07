@@ -141,6 +141,9 @@ class PluginSystemModule(LifecycleModule):
             def authorize_setup(self, *args: Any) -> bool:
                 return operation_authorizer().authorize_setup(*args)
 
+            def authorize_host_service(self, *args: Any) -> bool:
+                return operation_authorizer().authorize_host_service(*args)
+
         operations = PluginOperationRegistry(
             self._tool_registry, get_connection=get_connection, authorize=ConnectionAuthorizer(),
             validate_resource=source_store.validate_operation_resource,

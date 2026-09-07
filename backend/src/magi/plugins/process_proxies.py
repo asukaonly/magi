@@ -124,6 +124,7 @@ def tool_proxy_type(owner: Any, descriptor: dict[str, Any]) -> type[Tool]:
                 parameters,
                 context,
                 identity=self._identity(context),
+                timeout=self.schema.timeout,
             )
 
         async def validate_parameters(self, parameters: dict[str, Any]) -> Any:

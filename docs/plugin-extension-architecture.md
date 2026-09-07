@@ -129,10 +129,17 @@ External plugin examples live in the separate plugin repository (`github.com/asu
 
 ## Manifest Contract
 
-Host memory capabilities expose queries and serializable advisory results. They
-do not expose database paths, store instances, or unused session/control/subagent
-handles. Canonical entity name lookup is a host operation; plugins cannot choose
-its database. Tool reranking consumes advisory data through that same boundary.
+External tools use `ToolExecutionContext.host` for typed `memory_search` and
+`ask_user` calls. Each call requires the corresponding manifest permission,
+current install consent, a live tool invocation and an injected host service.
+The host derives principal/session/turn identity and rechecks authority before
+returning results. Memory search returns bounded governed evidence; asking uses
+the existing conversation interaction flow. Plain operations, setup, providers
+and Sources do not receive this tool-specific authority. Rich trace, chat,
+delegation, image-generation, background and detach adapters belong to bundled
+host tools in `magi.core.tool_capabilities`, not to the public SDK. No live
+service handle crosses the worker boundary. The original tool deadline bounds
+interactive callbacks; authors must budget enough time for the user response.
 
 Connection registration is transactional. A registration must match the
 manifest's declared contribution types; duplicate identifiers fail without

@@ -93,6 +93,7 @@ class _Invocation:
     deadline: float
     bootstrap: bool = False
     progress: Any = None
+    tool_context: Any = None
 
 
 @dataclass(eq=False)
@@ -374,6 +375,7 @@ class ProcessPluginProxy(Plugin):
         bootstrap: bool = False,
         allow_drain: bool = False,
         progress: Any = None,
+        tool_context: Any = None,
     ) -> tuple[str, Future[Any]]:
         identity = identity or self._identity()
         if (
@@ -392,7 +394,7 @@ class ProcessPluginProxy(Plugin):
             if len(self._pending) + len(self._cancelled) >= self.limits.max_inflight:
                 raise PluginProcessError("Plugin worker request capacity exhausted")
             self._pending[identifier] = _Invocation(
-                future, identity, loop, time.monotonic() + timeout, bootstrap, progress
+                future, identity, loop, time.monotonic() + timeout, bootstrap, progress, tool_context
             )
             try:
                 self._outbox.put_nowait(data)
@@ -433,6 +435,7 @@ class ProcessPluginProxy(Plugin):
         timeout: float | None = None,
         allow_drain: bool = False,
         progress: Any = None,
+        tool_context: Any = None,
     ) -> Any:
         duration = timeout or self.limits.request_timeout
         identifier, future = self._begin(
@@ -443,6 +446,7 @@ class ProcessPluginProxy(Plugin):
             loop=asyncio.get_running_loop(),
             allow_drain=allow_drain,
             progress=progress,
+            tool_context=tool_context,
         )
         wrapped = asyncio.wrap_future(future)
         try:
@@ -473,6 +477,12 @@ class ProcessPluginProxy(Plugin):
         **kwargs: Any,
     ) -> Any:
         from magi_plugin_sdk.tools import ToolExecutionContext
+        from .host_services import permitted_host_methods
+
+        tool_context = next((
+            value for value in (*args, *kwargs.values())
+            if isinstance(value, ToolExecutionContext)
+        ), None)
 
         progress = next(
             (
@@ -490,10 +500,12 @@ class ProcessPluginProxy(Plugin):
                 "args": self._safe_args(args),
                 "kwargs": self._safe_args(kwargs),
                 "progress": progress is not None,
+                "host_methods": list(permitted_host_methods(tool_context)) if tool_context is not None else [],
             },
             identity=identity,
             timeout=timeout,
             progress=progress,
+            tool_context=tool_context,
         )
 
     def invoke_sync(self, target: str, method: str, *args: Any, **kwargs: Any) -> Any:
@@ -559,15 +571,9 @@ class ProcessPluginProxy(Plugin):
         if isinstance(value, (SourceSyncContext, UserContentClearContext)):
             return replace(value, runtime_paths=WorkerRuntimePaths(self.context.state_dir))
         if isinstance(value, ToolExecutionContext):
-            return value.model_copy(
-                update={
-                    "capabilities": None,
-                    "cancellation": None,
-                    "trace_context": None,
-                    "progress": None,
-                    "env_vars": {},
-                }
-            )
+            from .host_services import public_context
+
+            return public_context(value)
         if isinstance(value, (list, tuple)):
             return type(value)(self._safe_args(item) for item in value)
         if isinstance(value, dict):
@@ -810,6 +816,20 @@ class ProcessPluginProxy(Plugin):
             return self._source_callback(frame.get("parent"), payload)
         if call is None or call.deadline <= time.monotonic() or call.future.done():
             raise CapabilityDenied("Worker callback has no active invocation")
+        if kind == "host_service":
+            from .host_services import dispatch_host_service
+
+            if (
+                call.bootstrap or call.loop is None or call.tool_context is None
+                or call.tool_context.invocation != call.identity
+                or set(payload) != {"method", "request"}
+            ):
+                raise CapabilityDenied("Host service requires the original tool invocation")
+            return self._run_host_callback(
+                dispatch_host_service(call.tool_context, payload["method"], payload["request"]),
+                parent=frame["parent"], loop=call.loop,
+                timeout=max(0.001, call.deadline - time.monotonic()),
+            )
         if kind == "credential":
             method, key, value = payload.get("method"), payload.get("key"), payload.get("value")
             if (

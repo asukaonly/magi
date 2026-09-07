@@ -21,6 +21,7 @@ from typing import Any
 
 from .base import Plugin
 from .context import PluginContext
+from .host_services import RemoteHostServices
 from .runtime import (
     PLUGIN_PROTOCOL_VERSION,
     SDK_VERSION,
@@ -277,20 +278,18 @@ class WorkerServer:
                     for lease in tuple(self.source_watches):
                         await self._stop_source_watch(lease)
                 args, kwargs = payload.get("args", ()), payload.get("kwargs", {})
-                if payload.get("progress"):
-                    from .tools import ToolExecutionContext
+                from .tools import ToolExecutionContext
 
-                    def bind_progress(value: Any) -> Any:
-                        return (
-                            value.model_copy(update={"progress": WorkerProgress(self)})
-                            if isinstance(value, ToolExecutionContext)
-                            else value
-                        )
+                def bind_context(value: Any) -> Any:
+                    if not isinstance(value, ToolExecutionContext):
+                        return value
+                    return value.model_copy(update={
+                        "progress": WorkerProgress(self) if payload.get("progress") else None,
+                        "host": RemoteHostServices(self._host_service_callback, payload.get("host_methods", ())),
+                    })
 
-                    args = tuple(bind_progress(value) for value in args)
-                    kwargs = {
-                        key: bind_progress(value) for key, value in kwargs.items()
-                    }
+                args = tuple(bind_context(value) for value in args)
+                kwargs = {key: bind_context(value) for key, value in kwargs.items()}
                 result = self.catalog.method(payload["target"], payload["method"])(
                     *args, **kwargs
                 )
@@ -421,6 +420,12 @@ class WorkerServer:
         finally:
             self.tasks.pop(identifier, None)
             _request_id.reset(token)
+
+    async def _host_service_callback(self, kind: str, payload: dict[str, object]) -> object:
+        future = self.callback(kind, payload)
+        # Interactive services have their own bounded timeout. The host's
+        # original invocation deadline remains the outer authority.
+        return await asyncio.wait_for(asyncio.wrap_future(future), max(self.callback_timeout, 301.0))
 
     async def _watch_source(self, lease: str, watch: Any, context: Any) -> None:
         try:
