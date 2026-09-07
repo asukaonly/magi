@@ -13,6 +13,10 @@ receives only its manifest's declared library roots. Connections, settings paths
 and dummy credentials are temporary. Operation authorization always denies; no
 collection, channel start, tool, settings action, or provider action is invoked.
 The optional report records each package; any failure exits with status 1.
+Only packages supporting the native OS are launched; other manifests are
+reported as unsupported. --install-dependencies copies packages to a temporary
+tree and uses the host's locked dependency installer, leaving checkout files
+untouched. CI should use plugin_runtime_ci.py for an outer time bound.
 """
 
 from __future__ import annotations
@@ -26,11 +30,14 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import traceback
 from typing import Any
+
+from plugin_runtime_ci import checkout_evidence, native_platform, supports_native
 
 parser = argparse.ArgumentParser(
     description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -48,6 +55,11 @@ parser.add_argument(
     help="Worker interpreter with plugin dependencies (default: companion .venv)",
 )
 parser.add_argument("--report", type=Path, help="Optional JSON report destination")
+parser.add_argument(
+    "--install-dependencies",
+    action="store_true",
+    help="Install locked dependencies into temporary package copies",
+)
 parser.add_argument(
     "--package", action="append", help="Optional executable package ids to rerun"
 )
@@ -69,11 +81,18 @@ if sys.flags.optimize:
     parser.error("Run without -O: acceptance checks require assertions")
 if args.report is not None:
     args.report = args.report.expanduser().absolute()
+# Isolate import-time host services and configuration before importing the backend.
+runtime_home = tempfile.TemporaryDirectory(prefix="magi-runtime-check-home-")
+os.environ["MAGI_HOME"] = runtime_home.name
 sys.path[:0] = [str(HOST_ROOT / "sdk/src"), str(HOST_ROOT / "backend/src")]
 
 from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.contribution_registration import PluginContributionRegistrar
 from magi.plugins.discovery import load_plugin_manifest
+from magi.plugins.dependency_installation import (
+    install_plugin_dependencies,
+    PluginDependencyWorkflowBudget,
+)
 from magi.plugins.history_importers import HistoryImporterRegistry
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessLimits, ProcessPluginProxy
@@ -170,6 +189,13 @@ def explicit_connection(
         else:
             value = "acceptance"
         write_setting(settings, field.key, value)
+    # Never reuse declared filesystem defaults as access to developer data.
+    for field in manifest.settings_fields:
+        if field.type == "path":
+            value = str(directory / "empty-source")
+            if isinstance(field.default, list):
+                value = [value]
+            write_setting(settings, field.key, value)
     connection = PluginConnection(
         connection_id=connection_id,
         plugin_id=manifest.plugin_id,
@@ -227,12 +253,19 @@ async def main() -> int:
             f"Unknown executable packages: {sorted(set(args.package) - executable_ids)}"
         )
     report = {
+        "native_platform": native_platform(),
+        "runtime_home": runtime_home.name,
         "sdk_version": SDK_VERSION,
         "protocol": PLUGIN_PROTOCOL_VERSION,
         "host_root": str(HOST_ROOT),
         "host_head": revision(HOST_ROOT),
         "companion_root": str(args.plugins_repo),
         "companion_head": revision(args.plugins_repo),
+        "host_checkout": checkout_evidence(HOST_ROOT),
+        "companion_checkout": checkout_evidence(args.plugins_repo),
+        "dependencies": "temporary locked installs"
+        if args.install_dependencies
+        else "provided interpreter",
         "worker_python": str(args.worker_python),
         "libraries": [
             {"plugin_id": key, "version": item.version, "path": item.plugin_dir}
@@ -245,6 +278,32 @@ async def main() -> int:
         prefix="magi-registration-acceptance-"
     ) as temporary:
         root = Path(temporary)
+        prepared = {}
+        dependency_budget = PluginDependencyWorkflowBudget()
+
+        def prepare(manifest: PluginManifest) -> PluginManifest:
+            if not args.install_dependencies:
+                return manifest
+            if manifest.plugin_id not in prepared:
+                destination = root / "packages" / manifest.plugin_id
+                shutil.copytree(
+                    manifest.plugin_dir,
+                    destination,
+                    ignore=shutil.ignore_patterns(
+                        ".deps", "__pycache__", ".pytest_cache"
+                    ),
+                )
+                copied = load_plugin_manifest(
+                    destination / "plugin.toml", source="external"
+                )
+                os.environ["MAGI_PLUGIN_PYTHON"] = str(args.worker_python)
+                os.environ["MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS"] = "0"
+                install_plugin_dependencies(
+                    copied.dependencies, destination, workflow_budget=dependency_budget
+                )
+                prepared[manifest.plugin_id] = copied
+            return prepared[manifest.plugin_id]
+
         connections = {}
         tools, sources, hooks, history = (
             ToolRegistry(),
@@ -332,18 +391,31 @@ async def main() -> int:
                     kind.value for kind in manifest.contribution_types
                 ),
                 "depends_on": list(manifest.depends_on),
+                "platforms": list(manifest.platforms),
                 "connections": [],
                 "status": "failed",
             }
+            if not supports_native(manifest.platforms):
+                entry.update(
+                    status="unsupported",
+                    reason=f"Manifest excludes {native_platform()}",
+                )
+                report["packages"].append(entry)
+                write_report(report)
+                print(json.dumps(entry), flush=True)
+                continue
             workers = []
             stage = "dependencies"
             try:
+                manifest = await asyncio.to_thread(prepare, manifest)
                 dependencies = []
                 for name in manifest.depends_on:
-                    assert (
-                        name in libraries
-                    ), f"Dependency {name} is absent or executable"
-                    dependencies.append(Path(libraries[name].plugin_dir))
+                    assert name in libraries, (
+                        f"Dependency {name} is absent or executable"
+                    )
+                    assert supports_native(libraries[name].platforms), name
+                    library = await asyncio.to_thread(prepare, libraries[name])
+                    dependencies.append(Path(library.plugin_dir))
                 for number in (1, 2):
                     stage = f"connection_{number}_settings"
                     connection, context = explicit_connection(manifest, root, number)
@@ -359,11 +431,18 @@ async def main() -> int:
                         limits=ProcessLimits(startup_timeout=15),
                     )
                     workers.append((connection, worker))
+                    assert worker.diagnostics["pid"] != os.getpid()
+                    if os.name == "nt":
+                        assert worker._windows_job is not None, (
+                            "Worker lacks a native Job Object"
+                        )
                     stage = f"connection_{number}_catalog"
                     raw_tools = [kind().get_schema() for kind in worker.get_tools()]
                     result = {
                         "connection_id": connection.connection_id,
                         "pid": worker.diagnostics["pid"],
+                        "windows_job": os.name == "nt"
+                        and worker._windows_job is not None,
                         "tools": [
                             {
                                 "name": schema.name,
@@ -486,8 +565,12 @@ async def main() -> int:
     )
     write_report(report)
     print(json.dumps(report["summary"]), flush=True)
-    return int(any(item["status"] != "passed" for item in report["packages"]))
+    return int(
+        not report["summary"].get("passed")
+        or any(item["status"] == "failed" for item in report["packages"])
+    )
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main()))
+    with runtime_home:
+        raise SystemExit(asyncio.run(main()))
