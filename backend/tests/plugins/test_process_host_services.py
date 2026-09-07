@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from magi_plugin_sdk.contracts import PluginCapability
+
 from magi.core.tool_capabilities import AskOutcome, ToolCapabilities
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessPluginProxy, ProcessLimits
@@ -62,6 +64,56 @@ async def test_installed_consent_and_governed_recall_cross_real_worker(
             assert result.value["recall"]["findings"][0]["statement"] == "The user said: only on Fridays."
             assert result.value["env"] == {} and result.value["has_internal_ports"] is False
             assert "/host/private" not in str(result.value)
+    finally:
+        await proxy.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_nested_tool_timeouts_wait_for_host_interaction_cleanup(plugin_setup, tmp_path):
+    manifest, _connection, plugin_context = plugin_setup
+    ctx, config, declaration, authority, _ = installed_authority(mode="trusted_process")
+    declaration.capabilities = [PluginCapability(
+        capability="interaction_ask", scope=["current_session"], optional=True,
+    )]
+    config.consented_capabilities = declaration.capabilities
+    manifest = manifest.model_copy(update={"plugin_id": ctx.connection.plugin_id})
+    plugin_context = replace(plugin_context, connection=ctx.connection)
+    Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''
+from magi_plugin_sdk import AskUserRequest
+class EchoTool(Tool):
+    def _init_schema(self):
+        self.schema = ToolSchema(name="ask_probe", description="Ask", category="test", timeout=1,
+            effect_class="external_write", effect_replay_policy="non_idempotent")
+    async def execute(self, parameters, context):
+        reply = await context.host.ask_user(AskUserRequest(question="Which day?", timeout_seconds=300.0))
+        return ToolResult(success=True, data=reply.model_dump(mode="json"))
+''')
+    cleaning, cleaned = asyncio.Event(), asyncio.Event()
+    marker = tmp_path / "interaction-cleaned"
+
+    async def ask(**kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await asyncio.sleep(2)
+            marker.write_text("cleaned")
+            cleaned.set()
+
+    ctx.capabilities = ToolCapabilities(interaction=SimpleNamespace(ask=ask))
+    proxy = ProcessPluginProxy(manifest, ctx.connection, plugin_context)
+    tools = ToolRegistry()
+    registry = PluginOperationRegistry(tools, get_connection=lambda _: ctx.connection, authorize=authority)
+    registry.register_tool(plugin_id=manifest.plugin_id, connection_id=ctx.connection.connection_id,
+                           tool_class=proxy.get_tools()[0])
+    binding = next(iter(registry._entries.values()))
+    bound = tools.get_tool(binding.registered_name)
+    try:
+        with pytest.raises(asyncio.TimeoutError):
+            await tools._execute_tool_body(SimpleNamespace(tool=bound, schema=bound.schema), {}, ctx)
+        assert cleaning.is_set() and cleaned.is_set()
+        assert marker.read_text() == "cleaned"
+        assert not proxy._host_callbacks
     finally:
         await proxy.shutdown()
 

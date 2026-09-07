@@ -97,3 +97,60 @@ Source.watch = watch
             await proxy.read_settings_resource_async("info")
     finally:
         await proxy.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stop_retains_ownership_until_watcher_cleanup(plugin_setup):
+    manifest, connection, context = plugin_setup
+    context.state_dir.mkdir()
+    Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''
+async def watch(self, context, emitter):
+    try:
+        try:
+            await emitter.emit(SourceChange(object_id="watch-1", version="1", payload={}))
+        except Exception:
+            pass
+        while True:
+            (self.context.state_dir / "private-content").write_text("collecting")
+            await asyncio.sleep(0.01)
+    finally:
+        (self.context.state_dir / "watch-stopped").write_text("stopped")
+Source.supports_watch_mode = True
+Source.watch = watch
+''')
+    entered, cleaning = asyncio.Event(), asyncio.Event()
+
+    async def emit(*args):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await asyncio.sleep(0.2)
+
+    broker = CapabilityBroker(connection, (CapabilityGrant(
+        grant_id="source", connection_id=connection.connection_id,
+        capability="source.emit", scopes=["process_test"],
+    ),))
+    broker.register("source.emit", emit)
+    proxy = ProcessPluginProxy(*plugin_setup, broker=broker)
+    source = proxy.get_sources()[0][1]
+    try:
+        await source.start_watch(watch_context(proxy))
+        await asyncio.wait_for(entered.wait(), 2)
+        stopping = asyncio.create_task(source.stop_watch())
+        await asyncio.wait_for(cleaning.wait(), 2)
+        stopping.cancel()
+        await asyncio.sleep(0)
+        stopping.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await stopping
+        await source.stop_watch()
+        assert (context.state_dir / "watch-stopped").is_file()
+        marker = context.state_dir / "private-content"
+        marker.unlink(missing_ok=True)
+        await asyncio.sleep(0.08)
+        assert not marker.exists()
+        assert not proxy._source_leases
+    finally:
+        await proxy.shutdown()

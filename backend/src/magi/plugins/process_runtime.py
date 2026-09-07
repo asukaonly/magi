@@ -20,7 +20,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Coroutine, Sequence
+from typing import Any, Awaitable, Callable, Coroutine, Sequence
 import uuid
 
 from magi_plugin_sdk.base import Plugin
@@ -112,6 +112,25 @@ class _SourceLease:
     source_type: str
     identity: InvocationIdentity
     loop: asyncio.AbstractEventLoop
+    active: bool = True
+    stopping: Future[None] | None = None
+
+
+async def _finish_cleanup(operation: Awaitable[Any]) -> Any:
+    """Defer every cancellation until bounded cleanup has actually settled."""
+    task = asyncio.ensure_future(operation)
+    interrupted: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            if task.cancelled():
+                raise
+            interrupted = exc
+    result = task.result()
+    if interrupted is not None:
+        raise interrupted
+    return result
 
 
 def _interpreter_paths(executable: str) -> dict[str, Any]:
@@ -179,6 +198,7 @@ class ProcessPluginProxy(Plugin):
         self._host_callbacks: set[_HostCallback] = set()
         self._callback_dispatches: dict[str, tuple[str, Future[None]]] = {}
         self._source_leases: dict[str, _SourceLease] = {}
+        self._source_stop_tasks: set[asyncio.Task[None]] = set()
         self._stderr = bytearray()
         self._callback_slots = threading.BoundedSemaphore(self.limits.max_inflight)
         self._callbacks = ThreadPoolExecutor(
@@ -674,7 +694,8 @@ class ProcessPluginProxy(Plugin):
                         raise
                 elif frame.get("kind") == "source_failure":
                     with self._lock:
-                        active = frame.get("lease") in self._source_leases
+                        lease = self._source_leases.get(frame.get("lease"))
+                        active = lease is not None and lease.active
                     if active:
                         self._terminate("Plugin source watcher stopped unexpectedly")
                 else:
@@ -727,7 +748,7 @@ class ProcessPluginProxy(Plugin):
             invocation = self._pending.get(parent)
             admitted = admitted and (
                 (parent == "channel" and self._channel_active)
-                or parent in self._source_leases
+                or (parent in self._source_leases and self._source_leases[parent].active)
                 or (
                     invocation is not None and not invocation.future.done()
                     and invocation.deadline > time.monotonic()
@@ -809,13 +830,16 @@ class ProcessPluginProxy(Plugin):
         completions.extend(item.settled for item in callbacks)
         if not completions:
             return
-        _done, pending = await asyncio.wait(
-            [asyncio.wrap_future(done) for done in completions],
-            timeout=self.limits.drain_timeout,
-        )
-        if pending:
-            self._terminate("Host callback cancellation did not settle; outcome is uncertain")
-            raise PluginProcessError("Host callback cancellation did not settle; outcome is uncertain")
+        async def drain() -> None:
+            _done, pending = await asyncio.wait(
+                [asyncio.wrap_future(done) for done in completions],
+                timeout=self.limits.drain_timeout,
+            )
+            if pending:
+                self._terminate("Host callback cancellation did not settle; outcome is uncertain")
+                raise PluginProcessError("Host callback cancellation did not settle; outcome is uncertain")
+
+        await _finish_cleanup(drain())
 
     def _callback(self, frame: dict[str, Any]) -> Any:
         with self._lock:
@@ -907,23 +931,56 @@ class ProcessPluginProxy(Plugin):
             raise
 
     async def stop_source_watch(self, target: str) -> None:
+        owned: list[tuple[str, _SourceLease]] = []
         with self._lock:
-            identifiers = [key for key, value in self._source_leases.items() if value.target == target]
-            for identifier in identifiers:
-                self._source_leases.pop(identifier)
-        for identifier in identifiers:
+            leases = [(key, value) for key, value in self._source_leases.items() if value.target == target]
+            for identifier, lease in leases:
+                lease.active = False
+                if lease.stopping is None:
+                    lease.stopping = Future()
+                    owned.append((identifier, lease))
+        for identifier, lease in owned:
+            task = asyncio.create_task(self._stop_source_lease(identifier, lease))
+            self._source_stop_tasks.add(task)
+
+            def complete(done: asyncio.Task[None], owner: _SourceLease = lease) -> None:
+                self._source_stop_tasks.discard(done)
+                if done.cancelled():
+                    owner.stopping.set_exception(PluginProcessError("Source stop cleanup was cancelled"))
+                elif done.exception() is not None:
+                    owner.stopping.set_exception(done.exception())
+                else:
+                    owner.stopping.set_result(None)
+
+            task.add_done_callback(complete)
+        if leases:
+            async def join() -> None:
+                outcomes = await asyncio.gather(*[
+                    asyncio.wrap_future(lease.stopping) for _identifier, lease in leases
+                ], return_exceptions=True)
+                for outcome in outcomes:
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+
+            await _finish_cleanup(join())
+
+    async def _stop_source_lease(self, identifier: str, lease: _SourceLease) -> None:
+        try:
             await self._drain_host_callbacks(self._revoke_host_callbacks(identifier), parent=identifier)
             if not self._closed and not self._draining:
-                try:
-                    await self.request("stop_source_watch", {"lease": identifier})
-                except BaseException:
-                    self._terminate("Plugin source watcher failed to stop")
-                    raise
+                await self.request("stop_source_watch", {"lease": identifier})
+        except BaseException:
+            self._terminate("Plugin source watcher failed to stop")
+            raise
+        finally:
+            with self._lock:
+                if self._source_leases.get(identifier) is lease:
+                    self._source_leases.pop(identifier)
 
     def _source_callback(self, identifier: str, payload: dict[str, Any]) -> Any:
         with self._lock:
             lease = self._source_leases.get(identifier)
-        if lease is None or set(payload) != {"method", "value"}:
+        if lease is None or not lease.active or set(payload) != {"method", "value"}:
             raise CapabilityDenied("Source subscription is inactive")
         method = payload["method"]
         if method == "emit":
@@ -1071,6 +1128,9 @@ class ProcessPluginProxy(Plugin):
             failure_handler(reason)
 
     async def shutdown(self) -> None:
+        await _finish_cleanup(self._shutdown())
+
+    async def _shutdown(self) -> None:
         if self._closed:
             await self._drain_host_callbacks(self._revoke_host_callbacks())
             return

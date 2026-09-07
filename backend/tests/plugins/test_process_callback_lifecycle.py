@@ -16,10 +16,10 @@ from test_process_runtime import PLUGIN, plugin_setup as plugin_setup
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stop", ["cancel", "shutdown", "crash"])
+@pytest.mark.parametrize("stop", ["cancel", "shutdown", "cancelled_shutdown", "crash"])
 async def test_host_side_effect_is_cancelled_and_cleanup_is_drained(plugin_setup, tmp_path, stop):
     manifest, connection, context = plugin_setup
-    entered, cleaned = asyncio.Event(), asyncio.Event()
+    entered, cleaning, cleaned = asyncio.Event(), asyncio.Event(), asyncio.Event()
     marker = tmp_path / "late-side-effect"
     broker = CapabilityBroker(connection, (CapabilityGrant(
         grant_id="echo", connection_id=connection.connection_id,
@@ -32,6 +32,7 @@ async def test_host_side_effect_is_cancelled_and_cleanup_is_drained(plugin_setup
             await asyncio.sleep(0.4)
             marker.write_text("must not execute after revocation")
         finally:
+            cleaning.set()
             await asyncio.sleep(0.03)
             cleaned.set()
 
@@ -48,6 +49,15 @@ async def test_host_side_effect_is_cancelled_and_cleanup_is_drained(plugin_setup
             with pytest.raises(PluginProcessError):
                 await proxy.read_settings_resource_async("crash")
             await proxy.shutdown()
+        elif stop == "cancelled_shutdown":
+            stopping = asyncio.create_task(proxy.shutdown())
+            await asyncio.wait_for(cleaning.wait(), 2)
+            stopping.cancel()
+            await asyncio.sleep(0)
+            stopping.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await stopping
+            assert proxy._closed
         else:
             await proxy.shutdown()
         assert cleaned.is_set(), "Shutdown/cancellation must await actual callback cleanup"
