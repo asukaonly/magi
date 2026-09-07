@@ -79,7 +79,11 @@ export const PluginConsentDialog: React.FC<Props> = ({
                   key={`${scope}:${scopeIndex}`}
                   className="block max-w-full whitespace-normal break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]"
                 >
-                  {scope}
+                  {c.capability === 'memory_search' && scope === 'current_user'
+                    ? t('settings.marketplace.capability.memory_search.scope')
+                    : c.capability === 'interaction_ask' && scope === 'current_session'
+                      ? t('settings.marketplace.capability.interaction_ask.scope')
+                      : scope}
                 </code>
               ))}
             </div>

@@ -2965,6 +2965,16 @@
           "label": "运行程序",
           "desc": "在你电脑上运行其它程序"
         },
+        "memory_search": {
+          "label": "检索记忆",
+          "desc": "为当前任务检索你允许使用的记忆",
+          "scope": "你的记忆"
+        },
+        "interaction_ask": {
+          "label": "向你提问",
+          "desc": "在当前会话中请求你提供信息",
+          "scope": "当前会话"
+        },
         "unknown": {
           "label": "其它访问",
           "desc": "当前版本 Magi 不识别的访问类型"

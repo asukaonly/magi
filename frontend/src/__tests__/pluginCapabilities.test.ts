@@ -14,6 +14,8 @@ describe('capabilityMeta', () => {
   it('maps a known capability to a group', () => {
     expect(capabilityMeta('calendar').group).toBe('system');
     expect(capabilityMeta('network').group).toBe('data');
+    expect(capabilityMeta('memory_search').known).toBe(true);
+    expect(capabilityMeta('interaction_ask').known).toBe(true);
   });
   it('falls back gracefully for unknown', () => {
     const m = capabilityMeta('future_thing');

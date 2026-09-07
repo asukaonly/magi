@@ -2966,6 +2966,16 @@
           "label": "Run programs",
           "desc": "Run other programs on your computer"
         },
+        "memory_search": {
+          "label": "Search memory",
+          "desc": "Search your permitted memories for the current task",
+          "scope": "Your memories"
+        },
+        "interaction_ask": {
+          "label": "Ask you a question",
+          "desc": "Request your input within the current conversation",
+          "scope": "Current conversation"
+        },
         "unknown": {
           "label": "Other access",
           "desc": "An access type this version of Magi doesn't recognize"

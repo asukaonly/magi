@@ -14,6 +14,23 @@ const cap = (capability: string): PluginCapability => ({
 });
 
 describe('PluginConsentDialog', () => {
+  it('names host access and scopes before confirmation', () => {
+    const onConfirm = vi.fn();
+    render(
+      <PluginConsentDialog open mode="install" pluginName="Assistant tools" version="1.0.0"
+        capabilities={[
+          { ...cap('memory_search'), scope: ['current_user'] },
+          { ...cap('interaction_ask'), scope: ['current_session'] },
+        ]} onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    expect(screen.getByText('settings.marketplace.capability.memory_search.label')).toBeTruthy();
+    expect(screen.getByText('settings.marketplace.capability.memory_search.scope')).toBeTruthy();
+    expect(screen.getByText('settings.marketplace.capability.interaction_ask.scope')).toBeTruthy();
+    expect(screen.queryByText('current_user')).toBeNull();
+    expect(screen.queryByText('current_session')).toBeNull();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it('renders declared capabilities and confirms', () => {
     const onConfirm = vi.fn();
     render(

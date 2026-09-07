@@ -20,6 +20,8 @@ const KNOWN: Record<string, { group: CapabilityGroup; icon: string }> = {
   filesystem_write: { group: 'data', icon: 'FilePen' },
   network: { group: 'data', icon: 'Globe' },
   subprocess: { group: 'data', icon: 'Terminal' },
+  memory_search: { group: 'data', icon: 'Search' },
+  interaction_ask: { group: 'data', icon: 'MessageCircleQuestion' },
 };
 
 export function capabilityMeta(capability: string): CapabilityMeta {
