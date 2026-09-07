@@ -1,3 +1,6 @@
+import { OverviewPendingSection } from '@/pages/memory-pages/overview/OverviewPendingSection';
+import { buildPendingItems } from '@/pages/memory-pages/overview/overviewModel';
+import { strawberryAssertion } from './fixtures/memoryFacts';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -187,6 +190,7 @@ const dashboardPayload = {
         trait_family: 'preference_profile',
         trait_name: 'favorite_language',
         trait_value: 'Python',
+        display_text: 'The user is interested in Python.',
         confidence_score: 0.3,
         evidence_events: ['evt-1'],
         validation_state: 'tentative',
@@ -483,7 +487,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.queryByText('Screen Time')).not.toBeInTheDocument();
     expect(screen.queryByText('Safari History')).not.toBeInTheDocument();
     expect(screen.queryByText('chat_projector')).not.toBeInTheDocument();
-    expect(screen.getByText('I found an about-you judgment: "Python"')).toBeInTheDocument();
+    expect(screen.getByText('The user is interested in Python.')).toBeInTheDocument();
     expect(screen.getByText('Is this judgment right?')).toBeInTheDocument();
     expect(screen.queryByText('favorite_language')).not.toBeInTheDocument();
     expect(screen.getByText('Sleep changed')).toBeInTheDocument();
@@ -582,6 +586,7 @@ describe('MemoryOverviewPage', () => {
             trait_family: 'communication_profile',
             trait_name: 'communication.address.preferred',
             trait_value: '子涵',
+            display_text: 'You want me to call you "子涵".',
             confidence_score: 0.52,
             evidence_events: ['evt-1'],
             validation_state: 'tentative',
@@ -631,7 +636,7 @@ describe('MemoryOverviewPage', () => {
     const user = userEvent.setup();
     renderOverview();
 
-    await screen.findByText('I found an about-you judgment: "Python"');
+    await screen.findByText('The user is interested in Python.');
     await user.click(screen.getByRole('button', { name: 'Confirm assertion' }));
 
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
@@ -659,7 +664,7 @@ describe('MemoryOverviewPage', () => {
           reason_code: 'goal_ambiguous_time',
           proposed: {
             trait_value: 'Visit the seaside in autumn',
-            natural_summary: 'The year is still unclear.',
+            natural_summary: 'The user plans to visit the seaside in autumn; the year is unclear.',
           },
           route_contract_version: 5,
           evidence_rule_version: 2,
@@ -675,7 +680,7 @@ describe('MemoryOverviewPage', () => {
     const user = userEvent.setup();
     renderOverview();
 
-    expect(await screen.findByText('Do you want Magi to remember “Visit the seaside in autumn”?')).toBeInTheDocument();
+    expect(await screen.findByText('The user plans to visit the seaside in autumn; the year is unclear.')).toBeInTheDocument();
     expect(screen.getByText('Memory to confirm')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Confirm this memory' }));
 
@@ -689,7 +694,7 @@ describe('MemoryOverviewPage', () => {
     const user = userEvent.setup();
     renderOverview();
 
-    await screen.findByText('I found an about-you judgment: "Python"');
+    await screen.findByText('The user is interested in Python.');
     await user.click(screen.getByRole('button', { name: 'Reject assertion' }));
 
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -705,4 +710,16 @@ describe('MemoryOverviewPage', () => {
     });
     expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
   });
+});
+
+
+it('renders complete facts for stored and pre-materialization overview items', () => {
+  const items = buildPendingItems({ pending_assertions: { items: [strawberryAssertion] } } as never, [], [{
+    review_id: 'review-blueberry', proposed: { ...strawberryAssertion, natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。' },
+    status: 'pending', updated_at: 1,
+  }] as never, new Set(), (key) => key);
+  render(<OverviewPendingSection items={items} actionBusyId={null} onAction={vi.fn()} />);
+  expect(screen.getByText('用户喜欢草莓。')).toBeInTheDocument();
+  expect(screen.getByText('用户喜欢蓝莓。')).toBeInTheDocument();
+  expect(screen.queryByText(/记住.*like|判断.*like/)).not.toBeInTheDocument();
 });

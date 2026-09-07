@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react';
+import type { L2Assertion } from '@/api/modules/memory';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,7 +10,15 @@ import { MemoryKnowledgePage } from '@/pages/memory-pages/MemoryKnowledgePage';
 import { useMemory } from '@/hooks/useMemory';
 
 const TEST_TRANSLATIONS: Record<string, string> = {
-  'memory.pages.knowledge.traitValues.mood.high': 'localized high',
+  'memory.pages.knowledge.entityTypes.user': '用户',
+  'memory.facts.unavailable': '完整事实暂不可用',
+  'memory.facts.unknownTrait': '事实判断',
+  'memory.governance.assertions.unknownEntity': '未知对象',
+  'memory.governance.statuses.needsReview': '待确认',
+  'memory.governance.statuses.active': '有效',
+  'memory.governance.statuses.stable': '稳定',
+  'memory.sources.user_authored': '你写下的内容',
+  'memory.provenance.direct_report': '你明确说过的',
 };
 
 const interpolate = (template: string, options?: Record<string, unknown>) => template.replace(
@@ -268,6 +278,7 @@ describe('L2Tab lab', () => {
             entity_type: 'user',
             trait_name: 'preference.music',
             trait_value: 'jazz',
+            natural_summary: 'User U1 likes jazz.',
             confidence_score: 0.92,
             evidence_events: ['evt-2'],
             validation_state: 'stable',
@@ -329,7 +340,7 @@ describe('L2Tab lab', () => {
     expect(screen.queryByText('memory.pages.knowledge.sections.reviewQueue')).not.toBeInTheDocument();
     expect(screen.getByText('memory.pages.knowledge.sections.entityOverview')).toBeInTheDocument();
     expect(screen.getAllByText('User U1').length).toBeGreaterThan(0);
-    expect(screen.getByText('memory.pages.knowledge.entitySummaryFallback')).toBeInTheDocument();
+    expect(screen.getAllByText('User U1 likes jazz.').length).toBeGreaterThan(0);
     expect(screen.queryByText('memory.pages.knowledge.sections.recentKnowledge')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.pages.knowledge.metrics.knowledgeItems')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.l2.lab.evidenceBreakdown')).not.toBeInTheDocument();
@@ -418,6 +429,7 @@ describe('L2Tab lab', () => {
             entity_type: 'user',
             trait_name: 'preference.music',
             trait_value: 'jazz',
+            natural_summary: 'User U1 likes jazz.',
             confidence_score: 0.7,
             evidence_events: ['evt-2'],
             validation_state: 'tentative',
@@ -470,12 +482,11 @@ describe('L2Tab lab', () => {
   expect(screen.getByText('memory.pages.knowledge.groups.preferences')).toBeInTheDocument();
   expect(screen.getByText('memory.pages.knowledge.sections.pendingSignals')).toBeInTheDocument();
   expect(screen.queryByText('memory.pages.knowledge.sections.relations')).not.toBeInTheDocument();
-  expect(screen.getByText('User U1\'s preference music may be "jazz".')).toBeInTheDocument();
-    expect(screen.queryByText('User U1 likes jazz.')).not.toBeInTheDocument();
+  expect(screen.getAllByText('User U1 likes jazz.')[0]).toBeInTheDocument();
     expect(screen.queryByText('User U1 profile was updated.')).not.toBeInTheDocument();
 
   await user.click(screen.getByText('memory.pages.knowledge.groups.preferences'));
-  expect(screen.getByText('User U1\'s preference music may be "jazz".')).toBeInTheDocument();
+  expect(screen.getAllByText('User U1 likes jazz.')[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'memory.l2.confirmAssertion' }));
 
@@ -494,7 +505,7 @@ describe('L2Tab lab', () => {
     );
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 
-    await user.click(screen.getByText('User U1\'s preference music may be "jazz".'));
+    await user.click(screen.getAllByText('User U1 likes jazz.')[0]);
     expect(await screen.findByText('I like jazz.')).toBeInTheDocument();
     expect(screen.getByText('memory.pages.knowledge.sections.technicalDetails')).toBeInTheDocument();
   });
@@ -550,11 +561,12 @@ describe('L2Tab lab', () => {
     );
 
     expect(screen.getByText('memory.pages.knowledge.sections.knowledgeDirectory')).toBeInTheDocument();
-    expect(screen.getByText('User U1\'s preference music may be "{"genre":"jazz"}".')).toBeInTheDocument();
+    expect(screen.getAllByText('完整事实暂不可用')[0]).toBeInTheDocument();
+    expect(screen.queryByText(/genre/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.l2.correctAssertion' })).toBeInTheDocument();
   });
 
-  it('localizes controlled assertion values without changing correction payloads', async () => {
+  it('renders the host description of controlled values without changing correction payloads', async () => {
     const user = userEvent.setup();
     const onRequestAssertionCorrection = vi.fn();
 
@@ -571,6 +583,7 @@ describe('L2Tab lab', () => {
             trait_family: 'mood',
             trait_name: 'mood',
             trait_value: 'high',
+            display_text: 'User U1 feels upbeat.',
             trait_value_i18n: 'controlled',
             confidence_score: 0.7,
             evidence_events: ['evt-2'],
@@ -609,7 +622,7 @@ describe('L2Tab lab', () => {
       />
     );
 
-    expect(screen.getByText('User U1\'s mood may be "localized high".')).toBeInTheDocument();
+    expect(screen.getAllByText('User U1 feels upbeat.')[0]).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'memory.l2.correctAssertion' }));
     expect(onRequestAssertionCorrection).toHaveBeenCalledWith(
@@ -633,6 +646,7 @@ describe('MemoryKnowledgePage correction entry', () => {
         entity_type: 'user',
         trait_name: 'preference.music',
         trait_value: 'jazz',
+            natural_summary: 'User U1 likes jazz.',
         confidence_score: 0.7,
         evidence_events: [],
         validation_state: 'tentative',
@@ -672,6 +686,9 @@ describe('MemoryKnowledgePage correction entry', () => {
       </MemoryRouter>
     );
 
+    await user.click(screen.getByRole('tab', { name: 'memory.pages.knowledge.tabs.knowledgeBase' }));
+    expect(screen.getByRole('option', { name: '用户' })).toHaveValue('user');
+    expect(screen.queryByRole('option', { name: 'user' })).not.toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'memory.l2.confirmAssertion' })[0]);
     expect(submitAssertionFeedback).toHaveBeenCalledWith('assert-knowledge-1', 'confirmed');
 
@@ -685,5 +702,138 @@ describe('MemoryKnowledgePage correction entry', () => {
     );
     expect(within(dialog).getByLabelText('memory.correction.correctValue')).toHaveValue('jazz');
     expect(submitAssertionFeedback).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+const preferenceAssertion = (overrides: Partial<L2Assertion> = {}): L2Assertion => ({
+  assertion_id: 'assert-strawberry',
+  entity_id: 'user:self',
+  entity_name: '你',
+  entity_type: 'user',
+  trait_name: 'preference.affinity',
+  trait_family: 'preference_profile',
+  trait_value: 'like',
+  target_entity_id: 'entity-strawberry',
+  target_entity_name: '草莓',
+  natural_summary: '用户喜欢草莓。',
+  confidence_score: 0.9,
+  evidence_events: [],
+  validation_state: 'tentative',
+  status: 'tentative',
+  source_domain: 'user_authored',
+  inference_depth: 'explicit',
+  volatility_index: 0.1,
+  first_inferred_at: 1710000000,
+  last_validated_at: 1710000000,
+  user_feedback: null,
+  user_feedback_at: null,
+  ...overrides,
+});
+
+const renderFactKnowledge = (assertions: L2Assertion[], options: {
+  knowledgeQuery?: string;
+  section?: 'overview' | 'knowledgeBase' | 'theoryOfMind';
+  onCorrect?: ComponentProps<typeof L2Tab>['onRequestAssertionCorrection'];
+  snapshots?: ComponentProps<typeof L2Tab>['snapshots'];
+} = {}) => render(
+  <L2Tab
+    section={options.section ?? 'knowledgeBase'}
+    stats={{ relation_count: 0, assertion_count: assertions.length }}
+    assertions={assertions}
+    relations={[]}
+    entities={[]}
+    identityLinks={[]}
+    mentions={[]}
+    snapshots={options.snapshots ?? []}
+    conflictRules={[]}
+    events={[]}
+    actionLoading={false}
+    onSubmitManualEvent={vi.fn().mockResolvedValue(undefined)}
+    onReplayExtraction={vi.fn().mockResolvedValue(undefined)}
+    onRunReconcile={vi.fn().mockResolvedValue(undefined)}
+    onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
+    onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
+    knowledgeQuery={options.knowledgeQuery}
+    onRequestAssertionCorrection={options.onCorrect}
+  />
+);
+
+describe('knowledge assertion fact display', () => {
+  it.each([
+    ['喜欢', {}, '用户喜欢草莓。'],
+    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。' }, '用户不喜欢草莓。'],
+    ['兴趣', { trait_name: 'interest.topic', trait_value: 'interest', natural_summary: '用户对摄影感兴趣。' }, '用户对摄影感兴趣。'],
+    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', natural_summary: '用户希望被称为小涵。' }, '用户希望被称为小涵。'],
+    ['近期偏好', { temporal_scope: 'recent', natural_summary: '用户最近喜欢草莓。' }, '用户最近喜欢草莓。'],
+    ['无摘要', { natural_summary: null, display_text: '用户喜欢草莓。' }, '用户喜欢草莓。'],
+    ['未解析对象', { target_entity_name: null, natural_summary: null, display_text: '用户表达了喜欢，但具体对象暂不可用。' }, '用户表达了喜欢，但具体对象暂不可用。'],
+    ['无展示资料', { natural_summary: null, display_text: null }, '完整事实暂不可用'],
+  ] as const)('renders the complete %s fact without internal values', (_name, overrides, expected) => {
+    renderFactKnowledge([preferenceAssertion(overrides)]);
+    expect(screen.getAllByText(expected)[0]).toBeInTheDocument();
+    expect(screen.queryByText('like')).not.toBeInTheDocument();
+    expect(screen.queryByText('dislike')).not.toBeInTheDocument();
+    expect(screen.queryByText('user authored')).not.toBeInTheDocument();
+    expect(screen.queryByText('tentative')).not.toBeInTheDocument();
+    expect(screen.queryByText('entity-strawberry')).not.toBeInTheDocument();
+    expect(screen.getByText(/待确认/)).toBeInTheDocument();
+  });
+
+  it('retains different objects with the same internal value and searches their complete fact', () => {
+    renderFactKnowledge([
+      preferenceAssertion(),
+      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。' }),
+    ], { knowledgeQuery: '草莓' });
+    expect(screen.getAllByText('用户喜欢草莓。')[0]).toBeInTheDocument();
+    expect(screen.queryByText('用户喜欢蓝莓。')).not.toBeInTheDocument();
+  });
+
+  it('shows both objects and preserves semantic correction values when a fact is expanded', async () => {
+    const onCorrect = vi.fn();
+    renderFactKnowledge([
+      preferenceAssertion({ value_options: ['like', 'dislike', 'neutral'] }),
+      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。' }),
+    ], { onCorrect });
+    expect(screen.getAllByText('用户喜欢蓝莓。')[0]).toBeInTheDocument();
+    const title = screen.getAllByText('用户喜欢草莓。')[0];
+    await userEvent.click(title);
+    const fact = title.closest('details');
+    expect(fact).not.toBeNull();
+    expect(within(fact!).getAllByText('用户喜欢草莓。')).toHaveLength(2);
+    expect(within(fact!).queryByText('like')).not.toBeInTheDocument();
+    await userEvent.click(within(fact!).getByRole('button', { name: 'memory.l2.correctAssertion' }));
+    expect(onCorrect).toHaveBeenCalledWith(expect.objectContaining({
+      assertionId: 'assert-strawberry',
+      traitName: 'preference.affinity',
+      correctionValue: 'like',
+      valueOptions: ['like', 'dislike', 'neutral'],
+      title: '用户喜欢草莓。',
+    }), 'replace');
+  });
+
+  it('builds an entity summary from current facts without rendering snapshot preference enums', () => {
+    renderFactKnowledge([preferenceAssertion({ status: 'active', validation_state: 'stable', user_feedback: 'confirmed' })], {
+      section: 'overview',
+      snapshots: [{
+        snapshot_id: 'snapshot-self',
+        entity_id: 'user:self',
+        entity_type: 'user',
+        core_traits: { 'preference.affinity': 'like' },
+        preferences: { food: { value: 'like', target_entity_id: 'entity-strawberry' } },
+      }],
+    });
+    expect(screen.getAllByText('用户喜欢草莓。').length).toBeGreaterThan(1);
+    expect(screen.queryByText(/like/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/entity-strawberry/)).not.toBeInTheDocument();
+  });
+
+  it('uses complete facts and localized metadata in the assertion inspector', () => {
+    renderFactKnowledge([preferenceAssertion()], { section: 'theoryOfMind' });
+    expect(screen.getAllByText('用户喜欢草莓。')[0]).toBeInTheDocument();
+    expect(screen.getByText(/待确认/)).toBeInTheDocument();
+    expect(screen.queryByText('user:self')).not.toBeInTheDocument();
+    expect(screen.queryByText('explicit')).not.toBeInTheDocument();
+    expect(screen.queryByText('like')).not.toBeInTheDocument();
   });
 });

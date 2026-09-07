@@ -1,3 +1,4 @@
+import { memoryFactCases, strawberryAssertion } from './fixtures/memoryFacts';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -134,6 +135,7 @@ const dashboardPayload = {
         trait_family: 'preference_profile',
         trait_name: '关注方向',
         trait_value: '本地优先的记忆系统',
+        display_text: '用户关注本地优先的记忆系统。',
         confidence_score: 0.52,
         evidence_events: ['evt-1', 'evt-2'],
         validation_state: 'tentative',
@@ -332,8 +334,8 @@ describe('MemoryPendingPage', () => {
     expect(await screen.findByRole('heading', { name: '影响记忆' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByText('这些会直接影响 Magi 之后怎么理解你')).toBeInTheDocument();
-    expect(screen.getByText('我整理出一个关于你的判断：「本地优先的记忆系统」')).toBeInTheDocument();
-    expect(screen.getByText('判断类型：关注方向')).toBeInTheDocument();
+    expect(screen.getByText('用户关注本地优先的记忆系统。')).toBeInTheDocument();
+    expect(screen.getByText('这个判断对吗？')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '总结复核' })).toBeInTheDocument();
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
     expect(screen.queryByText('观察')).not.toBeInTheDocument();
@@ -380,8 +382,7 @@ describe('MemoryPendingPage', () => {
     renderPage();
 
     const card = await screen.findByTestId('pending-review-review-1');
-    expect(within(card).getByText('你希望 Magi 记住「秋天去海边」吗？')).toBeInTheDocument();
-    expect(within(card).getByText('你提到想在秋天去海边，但具体年份还不明确。')).toBeInTheDocument();
+        expect(within(card).getByText('你提到想在秋天去海边，但具体年份还不明确。')).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: '是的' })).toBeInTheDocument();
     expect(within(card).getByRole('button', { name: '不对' })).toBeInTheDocument();
 
@@ -397,7 +398,6 @@ describe('MemoryPendingPage', () => {
         expected_version: 1,
         edit: {
           trait_value: '明年春天去海边',
-          natural_summary: '你提到想在秋天去海边，但具体年份还不明确。',
         },
       });
     });
@@ -415,7 +415,7 @@ describe('MemoryPendingPage', () => {
         semantic_lineage_key: 'goal-lineage:seaside',
         claim_ids: ['claim-1'],
         reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '去海边旅行', natural_summary: '过去写下的旅行计划。' },
+        proposed: { trait_value: '去海边旅行', display_text: '用户曾计划去海边旅行。' },
         route_contract_version: 5,
         evidence_rule_version: 2,
         source_generation: 0,
@@ -433,7 +433,7 @@ describe('MemoryPendingPage', () => {
         semantic_lineage_key: 'goal-lineage:lamp',
         claim_ids: ['claim-2'],
         reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '更换书桌灯', natural_summary: '过去写下的家居计划。' },
+        proposed: { trait_value: '更换书桌灯', display_text: '用户曾计划更换书桌灯。' },
         route_contract_version: 5,
         evidence_rule_version: 2,
         source_generation: 0,
@@ -448,7 +448,7 @@ describe('MemoryPendingPage', () => {
     renderPage();
 
     expect(await screen.findByText('哪些计划现在仍然有效？')).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: '选择计划：去海边旅行' }));
+    await user.click(screen.getByRole('checkbox', { name: '选择计划：用户曾计划去海边旅行。' }));
     await user.click(screen.getByRole('button', { name: '确认选中的 1 项' }));
 
     await waitFor(() => {
@@ -524,8 +524,10 @@ describe('MemoryPendingPage', () => {
               kind: 'superseded_by_assertion',
               previous_assertion_id: 'assert-conflict',
               previous_value: '阿里巴巴集团',
+              previous_display_text: '用户关注阿里巴巴集团。',
               current_assertion_id: 'assert-current',
               current_value: 'Frank Wang',
+              current_display_text: '用户关注 Frank Wang。',
             },
           },
           {
@@ -557,12 +559,12 @@ describe('MemoryPendingPage', () => {
     renderPage();
 
     const card = await screen.findByTestId('pending-assertion-assert-conflict');
-    expect(within(card).getByText('「阿里巴巴集团」和「Frank Wang」这两个判断对不上')).toBeInTheDocument();
-    expect(within(card).getByText('旧判断是「阿里巴巴集团」，新证据更支持「Frank Wang」。请确认旧判断是否还准确。')).toBeInTheDocument();
+    expect(within(card).getByText('「用户关注阿里巴巴集团。」和「用户关注 Frank Wang。」这两个判断对不上')).toBeInTheDocument();
+    expect(within(card).getByText('旧判断是「用户关注阿里巴巴集团。」，新证据更支持「用户关注 Frank Wang。」。请确认旧判断是否还准确。')).toBeInTheDocument();
     expect(card.textContent).not.toContain('interest.frank_wang-7efea7');
 
     const fallbackCard = await screen.findByTestId('pending-assertion-assert-conflict-no-value');
-    expect(within(fallbackCard).getByText('我对「这条记忆判断」这个判断没把握')).toBeInTheDocument();
+    expect(within(fallbackCard).getByText('memory.facts.unavailable')).toBeInTheDocument();
     expect(within(fallbackCard).getByText('证据还不够一致，但没有明确的相反判断。请确认它准不准。')).toBeInTheDocument();
     expect(fallbackCard.textContent).not.toContain('interest.frank_wang-7efea7');
   });
@@ -578,6 +580,7 @@ describe('MemoryPendingPage', () => {
             trait_family: 'communication_profile',
             trait_name: 'communication.address.preferred',
             trait_value: '子涵',
+            display_text: '你希望我称呼你为“子涵”。',
             confidence_score: 0.52,
             evidence_events: ['evt-1'],
             validation_state: 'tentative',
@@ -723,7 +726,7 @@ describe('MemoryPendingPage', () => {
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent('memory.pending.loadFailed');
     expect(screen.queryByText('现在没有需要处理的内容')).not.toBeInTheDocument();
-    expect(screen.getByText('我整理出一个关于你的判断：「本地优先的记忆系统」')).toBeInTheDocument();
+    expect(screen.getByText('用户关注本地优先的记忆系统。')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'memory.pending.retry' }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
     expect(screen.getByText('最近更关注记忆产品')).toBeInTheDocument();
@@ -776,4 +779,33 @@ describe('MemoryPendingPage', () => {
     expect(screen.queryByText('Experience 0')).not.toBeInTheDocument();
   });
 
+});
+
+
+describe('pending complete fact presentation', () => {
+  it.each(memoryFactCases)('renders the $name stored assertion as a complete fact', async ({ assertion, expected }) => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({ pending_assertions: { items: [assertion], total: 1, limit: 25, offset: 0 } } as never);
+    renderPage();
+    const card = await screen.findByTestId(`pending-assertion-${assertion.assertion_id}`);
+    expect(within(card).getByText(expected)).toBeInTheDocument();
+    expect(within(card).getByText('这个判断对吗？')).toBeInTheDocument();
+    expect(card).not.toHaveTextContent(/\blike\b|\bdislike\b|preference.affinity|ent_private_missing/);
+  });
+
+  it('keeps multiple same-value candidates distinct and confirms each owning review', async () => {
+    const user = userEvent.setup();
+    const items = [strawberryAssertion, memoryFactCases[5].assertion].map((assertion, index) => ({
+      review_id: `candidate-${index}`, subject_id: assertion.entity_id, kind: 'materialization',
+      claim_ids: [`claim-${index}`], proposed: assertion, status: 'pending', version: 1,
+    }));
+    vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items, total: 2 } as never);
+    renderPage();
+    const first = await screen.findByTestId('pending-review-candidate-0');
+    const second = await screen.findByTestId('pending-review-candidate-1');
+    expect(within(first).getByText('用户喜欢草莓。')).toBeInTheDocument();
+    expect(within(second).getByText('用户喜欢蓝莓。')).toBeInTheDocument();
+    expect(first).not.toHaveTextContent(/\blike\b/);
+    await user.click(within(first).getByRole('button', { name: '是的' }));
+    expect(memoryApi.resolvePendingReview).toHaveBeenCalledWith('candidate-0', { action: 'confirm', expected_version: 1 });
+  });
 });

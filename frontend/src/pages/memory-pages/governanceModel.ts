@@ -1,3 +1,5 @@
+import { getAssertionDisplayText, getAssertionTraitLabel, getAssertionStatusLabel, getAssertionEvidenceBasis, type MemoryAssertionTranslateFn } from '@/utils/memory-assertion-copy';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type {
   L0Session,
   L1Event,
@@ -34,6 +36,7 @@ export interface LayerRecord {
   sourceKind?: string | null;
   sourceItemId?: string | null;
   status: string;
+  statusKey?: string;
   updatedAt?: number | null;
   evidenceCount?: number | null;
   summary?: string | null;
@@ -46,6 +49,8 @@ export interface LayerRecord {
         kind: 'assertion';
         correctable: boolean;
         currentValue: string;
+        traitName: string;
+        valueOptions?: string[] | null;
         expectedUpdatedAt?: number;
       }
     | {
@@ -142,24 +147,6 @@ const formatDecimal = (value: unknown, digits = 2): string => toFiniteNumber(val
 
 export const formatCount = (value: unknown): string => new Intl.NumberFormat().format(Math.max(0, toFiniteNumber(value)));
 
-const isOpaqueTraitSegment = (value: string): boolean => /^[a-f0-9]{8,}$/i.test(value);
-
-const humanizeIdentifier = (value: unknown, fallback: string): string => {
-  const raw = safeText(value, '');
-  if (!raw) return fallback;
-  if (raw === 'user' || raw === 'user:self' || raw.startsWith('user:')) return fallback;
-
-  const withoutPrefix = raw.replace(/^(?:ent(?:ity)?|person|place|tool|group)[:_-]/i, '');
-  const parts = withoutPrefix
-    .split(/[:/_-]+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const readableParts = parts.length > 1
-    ? parts.filter((part) => !isOpaqueTraitSegment(part))
-    : parts;
-  return readableParts.join(' ') || fallback;
-};
-
 export const formatTime = (timestamp?: number | null): string => {
   if (!timestamp) return '-';
   const normalized = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
@@ -201,7 +188,7 @@ function getAssertionEntityName(
   const knownName = entityNamesById.get(id);
   if (knownName) return knownName;
   if (id === 'user' || id === 'user:self' || id.startsWith('user:')) return label('assertions.userEntity', '用户');
-  return humanizeIdentifier(id, label('assertions.unknownEntity', '未知对象'));
+  return label('assertions.unknownEntity', '未知对象');
 }
 
 function getRelationPredicateLabel(predicate: unknown, label: GovernanceLabelFn): string {
@@ -368,7 +355,7 @@ function getRelationEndpointName(
 function getSnapshotPreview(snapshot: L2Snapshot, label: GovernanceLabelFn): string {
   const mood = safeText(snapshot.current_mood, '');
   if (mood) return mood;
-  const candidates = [snapshot.current_context, snapshot.preferences, snapshot.core_traits];
+  const candidates = [snapshot.current_context];
   for (const candidate of candidates) {
     for (const value of Object.values(candidate || {})) {
       if (typeof value === 'string' && value.trim()) return clampText(value, '', 64);
@@ -376,86 +363,6 @@ function getSnapshotPreview(snapshot: L2Snapshot, label: GovernanceLabelFn): str
     }
   }
   return label('snapshots.noCurrentState', '暂无状态摘要');
-}
-
-function getAssertionTraitLabel(
-  traitName: unknown,
-  label: GovernanceLabelFn
-): string {
-  const rawTrait = safeText(traitName, '');
-  if (!rawTrait) return label('assertions.unknownTrait', '某项判断');
-
-  const normalized = rawTrait.toLowerCase();
-  const directLabels = new Map<string, string>([
-    ['communication.response_style.preferred', label('assertions.traits.communicationResponseStylePreferred', '沟通风格偏好')],
-    ['response_style.preferred', label('assertions.traits.responseStylePreferred', '回应风格偏好')],
-    ['interest', label('assertions.traits.interest', '兴趣')],
-    ['preference', label('assertions.traits.preference', '偏好')],
-    ['preferences', label('assertions.traits.preference', '偏好')],
-    ['identity', label('assertions.traits.identity', '身份')],
-    ['routine', label('assertions.traits.routine', '习惯')],
-    ['location', label('assertions.traits.location', '地点')],
-    ['project', label('assertions.traits.project', '项目')],
-    ['tool', label('assertions.traits.tool', '工具')],
-    ['judgment', label('assertions.traits.judgment', '判断')],
-    ['judgement', label('assertions.traits.judgment', '判断')],
-  ]);
-  const direct = directLabels.get(normalized);
-  if (direct) return direct;
-
-  const parts = rawTrait.split('.').map((part) => part.trim()).filter(Boolean);
-  const prefix = parts[0]?.toLowerCase();
-  const prefixLabels = new Map<string, string>([
-    ['interest', label('assertions.traits.interest', '兴趣')],
-    ['preference', label('assertions.traits.preference', '偏好')],
-    ['preferences', label('assertions.traits.preference', '偏好')],
-    ['identity', label('assertions.traits.identity', '身份')],
-    ['routine', label('assertions.traits.routine', '习惯')],
-    ['location', label('assertions.traits.location', '地点')],
-    ['project', label('assertions.traits.project', '项目')],
-    ['tool', label('assertions.traits.tool', '工具')],
-    ['judgment', label('assertions.traits.judgment', '判断')],
-    ['judgement', label('assertions.traits.judgment', '判断')],
-  ]);
-  const prefixLabel = prefixLabels.get(prefix);
-  if (prefixLabel && parts.length > 1) return prefixLabel;
-
-  const segmentLabels = new Map<string, string>([
-    ['communication', label('assertions.traitSegments.communication', '沟通')],
-    ['response_style', label('assertions.traitSegments.responseStyle', '回应风格')],
-    ['preferred', label('assertions.traitSegments.preferred', '偏好')],
-    ['preference', label('assertions.traitSegments.preference', '偏好')],
-    ['preferences', label('assertions.traitSegments.preference', '偏好')],
-    ['identity', label('assertions.traitSegments.identity', '身份')],
-    ['routine', label('assertions.traitSegments.routine', '习惯')],
-    ['location', label('assertions.traitSegments.location', '地点')],
-    ['project', label('assertions.traitSegments.project', '项目')],
-    ['tool', label('assertions.traitSegments.tool', '工具')],
-    ['judgment', label('assertions.traitSegments.judgment', '判断')],
-    ['judgement', label('assertions.traitSegments.judgment', '判断')],
-  ]);
-  const readableParts = parts
-    .filter((part) => !isOpaqueTraitSegment(part))
-    .map((part) => segmentLabels.get(part.toLowerCase()) ?? part.replace(/[_-]+/g, ' '));
-
-  return readableParts.length ? readableParts.join(' · ') : rawTrait;
-}
-
-function getAssertionStatement(
-  entityName: string,
-  traitLabel: string,
-  traitValue: unknown,
-  label: GovernanceLabelFn
-): string {
-  const value = safeText(traitValue, '');
-  if (!value) {
-    return label('assertions.statementWithoutValue', '{{entity}}的{{trait}}', { entity: entityName, trait: traitLabel });
-  }
-  return label('assertions.statementWithValue', '{{entity}}的{{trait}}是{{value}}', {
-    entity: entityName,
-    trait: traitLabel,
-    value,
-  });
 }
 
 export const getStatusToneClass = (tone: LayerSummary['tone']) => {
@@ -470,16 +377,16 @@ export const getStatusToneClass = (tone: LayerSummary['tone']) => {
 
 export const getRowStatusClass = (status: string) => {
   const normalized = status.toLowerCase();
-  if (normalized.includes('fail') || normalized.includes('error') || normalized.includes('异常') || normalized.includes('冲突')) {
+  if (normalized === 'contradicted' || normalized === 'conflicted' || normalized.includes('fail') || normalized.includes('error') || normalized.includes('异常') || normalized.includes('冲突')) {
     return 'text-red-600';
   }
-  if (normalized.includes('pending') || normalized.includes('待') || normalized.includes('queued')) {
+  if (normalized === 'tentative' || normalized === 'shadow' || normalized.includes('pending') || normalized.includes('待') || normalized.includes('queued')) {
     return 'text-amber-600';
   }
   return 'text-emerald-600';
 };
 
-export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: GovernanceLabelFn): LayerSummary[] {
+export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: GovernanceLabelFn, t: MemoryAssertionTranslateFn): LayerSummary[] {
   const l0Sessions = toList(memory.l0Sessions);
   const l1Events = toList(memory.l1Events);
   const l2Assertions = toList(memory.l2Assertions);
@@ -662,8 +569,9 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
 
   const l2AssertionRecords: LayerRecord[] = l2Assertions.map((assertion) => {
     const evidenceEvents = toList(assertion.evidence_events);
-    const entityName = getAssertionEntityName(assertion.entity_id, entityNamesById, label);
-    const traitLabel = getAssertionTraitLabel(assertion.trait_name, label);
+    const entityName = assertion.entity_name || label('assertions.unknownEntity', '未知对象');
+    const traitLabel = getAssertionTraitLabel(assertion, t);
+    const displayText = getAssertionDisplayText(assertion, t);
     const traitValue = safeText(assertion.trait_value, '');
     const lifecycleStatus = safeText(
       assertion.status,
@@ -675,36 +583,38 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       layer: 'l2',
       categoryId: 'assertions',
       categoryLabel: categoryLabels.assertions,
-      title: getAssertionStatement(entityName, traitLabel, traitValue, label),
+      title: displayText,
       type: label('recordTypes.assertion', '断言'),
-      source: getReadableSource(assertion.source_domain, label),
-      status: getReadableStatus(lifecycleStatus, label),
+      source: getMemorySourceLabel(t, assertion.source_domain),
+      status: getAssertionStatusLabel(lifecycleStatus, t),
+      statusKey: lifecycleStatus,
       updatedAt: assertion.last_validated_at,
       evidenceCount: evidenceEvents.length,
-      summary: traitValue
-        ? label('assertions.summaryWithValue', '{{trait}}：{{value}}', { trait: traitLabel, value: traitValue })
-        : label('assertions.summaryWithoutValue', '{{trait}}：未记录具体值', { trait: traitLabel }),
+      summary: null,
       related: evidenceEvents,
       impact: [
         { label: label('impact.confidence', '可信度'), value: formatDecimal(assertion.confidence_score) },
         { label: label('impact.volatility', '波动'), value: formatDecimal(assertion.volatility_index) },
       ],
       listCells: {
-        source: { value: getReadableSource(assertion.source_domain, label) },
+        source: { value: getMemorySourceLabel(t, assertion.source_domain) },
         evidenceCount: { value: evidenceEvents.length, tone: 'muted' },
         updatedAt: { value: formatTime(assertion.last_validated_at) },
-        status: { value: getReadableStatus(lifecycleStatus, label), tone: 'status' },
+        status: { value: getAssertionStatusLabel(lifecycleStatus, t), tone: 'status' },
       },
       details: [
         { label: label('fields.subject', '对象'), value: entityName },
         { label: label('fields.assertionType', '判断类型'), value: traitLabel },
-        { label: label('fields.assertionValue', '判断内容'), value: traitValue || '-' },
-        { label: label('fields.inferenceDepth', '形成方式'), value: safeText(assertion.inference_depth, '-') },
+        ...(assertion.target_entity_id ? [{ label: label('fields.object', '客体'), value: assertion.target_entity_name || label('assertions.unknownEntity', '未知对象') }] : []),
+        { label: label('fields.assertionValue', '判断内容'), value: displayText },
+        { label: label('fields.inferenceDepth', '形成方式'), value: t(`memory.provenance.${getAssertionEvidenceBasis(assertion)}`) },
       ],
       correction: {
         kind: 'assertion',
         correctable,
         currentValue: traitValue,
+        traitName: assertion.trait_name,
+        valueOptions: assertion.value_options,
         expectedUpdatedAt: assertion.updated_at ?? undefined,
       },
     };

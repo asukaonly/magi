@@ -10,6 +10,8 @@ export interface PortraitDisplayItem {
   id: string;
   text: string;
   correctionValue?: string | null;
+  correctionTraitName?: string | null;
+  correctionValueOptions?: string[] | null;
   source: string;
   sourceKey: string | null;
   assertionId: string | null;
@@ -61,6 +63,8 @@ const displayItem = (item: PortraitSelfViewItem): PortraitDisplayItem => {
     id: item.id,
     text: item.text,
     correctionValue: item.correction_value ?? null,
+    correctionTraitName: item.correction_trait_name,
+    correctionValueOptions: item.correction_value_options,
     source: source.label,
     sourceKey: source.key,
     assertionId: item.assertion_id,

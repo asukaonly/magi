@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L2Tab } from '@/components/memory';
+import { getReadableEntityType } from '@/components/memory/l2KnowledgeModelHelpers';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { useMemory } from '@/hooks/useMemory';
@@ -166,7 +167,7 @@ export const MemoryKnowledgePage = () => {
                   <option value="all">{t('memory.pages.knowledge.entityTypeAll')}</option>
                   {entityTypeOptions.map((entityType) => (
                     <option key={entityType} value={entityType}>
-                      {entityType}
+                      {getReadableEntityType(t, entityType)}
                     </option>
                   ))}
                 </select>
@@ -212,6 +213,8 @@ export const MemoryKnowledgePage = () => {
                     id: item.assertionId,
                     displaySentence: item.title,
                     editableValue: item.correctionValue,
+                    traitName: item.traitName,
+                    valueOptions: item.valueOptions,
                     expectedUpdatedAt: item.expectedUpdatedAt ?? undefined,
                   });
                 }}

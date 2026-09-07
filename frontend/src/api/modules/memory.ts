@@ -1,3 +1,4 @@
+import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateReviewDisplay } from '../memory-fact-contract';
 import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode, parseClearMemory } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
@@ -205,15 +206,28 @@ export interface L2AssertionConflictContext {
   previous_value?: string | null;
   current_assertion_id?: string | null;
   current_value?: string | null;
+  previous_display_text?: string | null;
+  current_display_text?: string | null;
 }
 
-export interface L2Assertion {
+export interface L2FactDisplay {
+  display_text?: string | null;
+  entity_name?: string | null;
+  target_entity_name?: string | null;
+  natural_summary?: string | null;
+  value_options?: string[] | null;
+}
+
+export interface L2Assertion extends L2FactDisplay {
   assertion_id: string;
   entity_id: string;
   entity_type: string;
   trait_family?: string | null;
   trait_name: string;
   trait_value: string;
+  target_entity_id?: string | null;
+  target_entity_type?: string | null;
+  temporal_scope?: string | null;
   trait_value_i18n?: 'literal' | 'controlled' | string | null;
   assertion_family_snapshot_bucket?: string | null;
   assertion_family_description?: string | null;
@@ -246,9 +260,11 @@ export type L2PendingReviewKind =
   | 'materialization'
   | 'conflict';
 
-export interface L2PendingReviewProposal {
+export interface L2PendingReviewProposal extends L2FactDisplay {
   trait_value?: string;
-  natural_summary?: string;
+  target_entity_id?: string | null;
+  target_entity_type?: string | null;
+  temporal_scope?: string | null;
   evidence_events?: string[];
   trait_family?: string;
   trait_name?: string;
@@ -324,7 +340,8 @@ export interface MemoryCorrectionRequest {
   expected_updated_at?: number | null;
 }
 
-export interface MemoryCorrectionClaimValue {
+export interface MemoryCorrectionClaimValue extends L2FactDisplay {
+  trait_name?: string | null;
   value?: unknown;
   trait_value?: unknown;
   subject_id?: string | null;
@@ -358,7 +375,8 @@ export interface MemoryCorrectionRecord {
   can_revert?: boolean;
 }
 
-export interface MemoryCorrectionVersion {
+export interface MemoryCorrectionVersion extends L2FactDisplay {
+  trait_name?: string | null;
   trait_value?: unknown;
   subject_id?: string | null;
   subject_type?: string | null;
@@ -1011,13 +1029,19 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
   getL2Relations: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Relation>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
-  getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
-    unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
-  listPendingReviews: async (limit = 100, offset = 0): Promise<{ items: L2PendingReview[]; total: number }> =>
-    unwrapMemoryResponse(await api.get<{ items: L2PendingReview[]; total: number }>(
+  getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> => {
+    const result = unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params }));
+    result.items.forEach(validateAssertionDisplay);
+    return result;
+  },
+  listPendingReviews: async (limit = 100, offset = 0): Promise<{ items: L2PendingReview[]; total: number }> => {
+    const result = unwrapMemoryResponse(await api.get<{ items: L2PendingReview[]; total: number }>(
       '/memory/l2/reviews',
       { params: { status: 'pending', limit, offset } },
-    )),
+    ));
+    result.items.forEach(validateReviewDisplay);
+    return result;
+  },
   resolvePendingReview: async (
     reviewId: string,
     payload: {
@@ -1030,24 +1054,36 @@ export const memoryApi = {
       `/memory/l2/reviews/${encodeURIComponent(reviewId)}/resolve`,
       payload,
     )),
-  submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed'): Promise<L2Assertion> =>
-    unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
-  applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> =>
-    unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>('/memory/l2/corrections', payload)),
+  submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed'): Promise<L2Assertion> => {
+    const result = unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback }));
+    validateAssertionDisplay(result);
+    return result;
+  },
+  applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> => {
+    const result = unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>('/memory/l2/corrections', payload));
+    validateCorrectionCommandDisplay(result);
+    return result;
+  },
   getCorrectionHistory: async (
     targetKind: MemoryCorrectionTargetKind,
     targetId: string,
-  ): Promise<MemoryCorrectionHistoryResponse> =>
-    unwrapMemoryResponse(await api.get<MemoryCorrectionHistoryResponse>('/memory/l2/corrections', {
+  ): Promise<MemoryCorrectionHistoryResponse> => {
+    const result = unwrapMemoryResponse(await api.get<MemoryCorrectionHistoryResponse>('/memory/l2/corrections', {
       params: { target_kind: targetKind, target_id: targetId },
-    })),
+    }));
+    validateCorrectionHistoryDisplay(result);
+    return result;
+  },
   getCorrectionContextOptions: async (): Promise<MemoryCorrectionContextOptionsResponse> =>
     unwrapMemoryResponse(await api.get<MemoryCorrectionContextOptionsResponse>('/memory/l2/context-options')),
-  revertCorrection: async (correctionId: string, requestId: string): Promise<MemoryCorrectionCommandResponse> =>
-    unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>(
+  revertCorrection: async (correctionId: string, requestId: string): Promise<MemoryCorrectionCommandResponse> => {
+    const result = unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>(
       `/memory/l2/corrections/${encodeURIComponent(correctionId)}/revert`,
       { request_id: requestId },
-    )),
+    ));
+    validateCorrectionCommandDisplay(result);
+    return result;
+  },
   getL2Entities: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Entity>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params })),
   getL2Mentions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Mention>> =>
@@ -1168,8 +1204,11 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search
-  getDashboard: async (params?: { pending_limit?: number; pending_offset?: number }): Promise<MemoryDashboard> =>
-    unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params })),
+  getDashboard: async (params?: { pending_limit?: number; pending_offset?: number }): Promise<MemoryDashboard> => {
+    const result = unwrapMemoryResponse(await api.get<MemoryDashboard>('/memory/dashboard', { params }));
+    result.pending_assertions.items.forEach(validateAssertionDisplay);
+    return result;
+  },
   getStatistics: async (): Promise<MemoryStatistics> =>
     unwrapMemoryResponse(await api.get<MemoryStatistics>('/memory/statistics')),
   getEmbeddingVectorStatus: async (): Promise<EmbeddingVectorStatus> =>

@@ -3065,6 +3065,26 @@
     "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again."
   },
   "memory": {
+    "facts": {
+      "unavailable": "The complete fact is unavailable",
+      "unknownTrait": "Fact",
+      "families": {
+        "preference": "Preference",
+        "interest": "Interest",
+        "communication": "Communication",
+        "identity": "Identity",
+        "routine": "Routine",
+        "location": "Location",
+        "project": "Project",
+        "tool": "Tool",
+        "judgment": "Judgment",
+        "goal": "Plan",
+        "mood": "Mood",
+        "stress": "Stress",
+        "engagement": "Engagement",
+        "work_style": "Work style"
+      }
+    },
     "consolidation": {
       "loadFailed": "Processing status is unavailable. Try again.",
       "lastRun": "Last checked: {{time}}",
@@ -3505,6 +3525,7 @@
         "failed": "These plans could not be confirmed. Please retry."
       },
       "reviewEdit": {
+        "currentFact": "Fact awaiting confirmation",
         "title": "Edit and confirm",
         "description": "Edit only what you want Magi to remember. Once confirmed, it is stored as a memory you approved.",
         "valueLabel": "Memory",
@@ -3885,6 +3906,26 @@
       "searchFailed": "Unable to search memory. Please try again."
     },
     "correction": {
+      "values": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "positive": "Positive",
+        "negative": "Negative",
+        "neutral": "Neutral",
+        "focused": "Focused",
+        "calm": "Calm",
+        "like": "Likes",
+        "dislike": "Dislikes",
+        "interested": "Interested",
+        "creator": "Creator",
+        "active": "Active",
+        "developer": "Developer",
+        "maintainer": "Maintainer",
+        "contributor": "Contributor",
+        "planned": "Planned",
+        "unavailable": "Current option unavailable"
+      },
       "title": "Correct this memory",
       "description": "Tell Magi what is wrong. The original source stays intact, and future answers use the corrected understanding.",
       "currentLabel": "Currently remembered as",
@@ -3950,6 +3991,7 @@
         "scopeRefinement": "After saving, this memory is used only in the selected project and stays out of answers for other projects."
       },
       "validation": {
+        "replacement_unavailable": "Please select an available option.",
         "form": "Check the form before saving.",
         "replacement_required": "Enter the correct content.",
         "replacement_unchanged": "The new content matches the current content. Enter what actually changed.",
@@ -4270,6 +4312,7 @@
         "externalActivity": "External activity"
       },
       "statuses": {
+        "needsReview": "Awaiting confirmation",
         "deleted": "Deleted",
         "active": "Active",
         "valid": "Valid",
@@ -4896,6 +4939,16 @@
     "clearBrowserStateIncomplete": "Some old page content could not be erased. Close the app, reopen it, and run the clear action again.",
     "clearCompletedWithWarnings": "The clear completed, but some background cleanup did not finish normally. Restart the app and check again.",
     "sources": {
+      "user_correction": "Your correction",
+      "external_activity": "External activity",
+      "settings_profile": "Your settings",
+      "user_profile_projection": "Personal profile",
+      "user_feedback": "Your feedback",
+      "user_authored": "Provided by you",
+      "conversation": "Conversation",
+      "external_observation": "External observation",
+      "system_runtime": "System record",
+      "unknown": "Unknown source",
       "chat_projector": "Chat",
       "runtime_event_emitter": "Runtime event emitter",
       "timeline_importer": "Timeline importer",

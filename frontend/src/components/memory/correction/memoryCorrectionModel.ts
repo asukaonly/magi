@@ -27,8 +27,11 @@ export interface MemoryCorrectionAssertionTarget {
   id: string;
   /** User-facing sentence shown for context. This value is never submitted. */
   displaySentence: string;
-  /** Raw API assertion value shown in the editor and used as the replacement source. */
+  /** Raw API assertion value used as the replacement source, never a display sentence. */
   editableValue: string;
+  traitName?: string;
+  /** Host-declared semantic values. Labels are localized without changing submitted values. */
+  valueOptions?: string[] | null;
   expectedUpdatedAt?: number;
 }
 
@@ -64,6 +67,7 @@ export interface MemoryCorrectionDraft {
 export const MEMORY_CORRECTION_VALIDATION_ERROR_CODES = {
   REPLACEMENT_REQUIRED: 'replacement_required',
   REPLACEMENT_UNCHANGED: 'replacement_unchanged',
+  REPLACEMENT_UNAVAILABLE: 'replacement_unavailable',
   EFFECTIVE_AT_REQUIRED: 'effective_at_required',
   EFFECTIVE_AT_INVALID: 'effective_at_invalid',
   SCOPE_REQUIRED: 'scope_required',
@@ -332,6 +336,8 @@ const validateChangedReplacement = (
     const value = draft.value.trim();
     if (!value) {
       errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_REQUIRED;
+    } else if (target.valueOptions && !target.valueOptions.includes(value)) {
+      errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_UNAVAILABLE;
     } else if (value === target.editableValue.trim()) {
       errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_UNCHANGED;
     }

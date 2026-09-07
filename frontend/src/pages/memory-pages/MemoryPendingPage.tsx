@@ -111,6 +111,8 @@ export const MemoryPendingPage = () => {
         id: assertion.assertion_id,
         displaySentence: getPendingAssertionCopy(assertion, t).title,
         editableValue: assertion.trait_value,
+        traitName: assertion.trait_name,
+        valueOptions: assertion.value_options,
         expectedUpdatedAt: assertion.updated_at ?? undefined,
       });
       return;

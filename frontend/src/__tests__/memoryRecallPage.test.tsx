@@ -9,6 +9,11 @@ import { useMemory } from '@/hooks/useMemory';
 vi.mock('react-i18next', () => {
   const labels: Record<string, string> = {
     'memory.recall.title': '回忆',
+    'memory.facts.unavailable': '完整事实暂不可用',
+    'memory.governance.statuses.needsReview': '待确认',
+    'memory.governance.statuses.active': '有效',
+    'memory.sources.user_authored': '你写下的内容',
+    'memory.l1.domains.user_authored': '用户写入',
     'memory.recall.subtitle': '用自然语言把过去翻出来',
     'memory.recall.searchPlaceholder': '想找一段对话…',
     'memory.recall.emptyStateIntro': 'magi 对你的了解还很有限',
@@ -191,5 +196,66 @@ describe('MemoryRecallPage', () => {
     expect(screen.queryByTestId('memory-recall-diagnostics')).not.toBeInTheDocument();
     await user.click(screen.getByText('调试细节'));
     expect(screen.getByTestId('memory-recall-diagnostics')).toBeInTheDocument();
+  });
+});
+
+
+describe('assertion recall display', () => {
+  const showAssertions = (items: Array<Record<string, unknown>>, field = 'l2_assertions') => {
+    const current = vi.mocked(useMemory)();
+    vi.mocked(useMemory).mockReturnValue({
+      ...current,
+      stats: { ...current.stats, stored_records: items.length },
+      searchResults: { ...current.searchResults, [field]: items },
+    });
+    return renderPage();
+  };
+
+  it.each([
+    ['喜欢', { natural_summary: '用户喜欢草莓。' }, '用户喜欢草莓。'],
+    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。' }, '用户不喜欢草莓。'],
+    ['兴趣', { trait_name: 'interest.topic', trait_value: 'interest', display_text: '用户对摄影感兴趣。' }, '用户对摄影感兴趣。'],
+    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', display_text: '用户希望被称为小涵。' }, '用户希望被称为小涵。'],
+    ['近期偏好', { temporal_scope: 'recent', display_text: '用户最近喜欢草莓。' }, '用户最近喜欢草莓。'],
+    ['摘要缺失', { display_text: '用户喜欢草莓。' }, '用户喜欢草莓。'],
+    ['实体未解析', { target_entity_name: null, display_text: '用户表达了喜欢，但具体对象暂不可用。' }, '用户表达了喜欢，但具体对象暂不可用。'],
+    ['完整描述缺失', {}, '完整事实暂不可用'],
+  ] as const)('renders %s from the fact contract and keeps internal values out of the result', (_name, override, expected) => {
+    showAssertions([{
+      assertion_id: 'assert_f0246f5594db404196b430b6bc9a5ab4',
+      entity_id: 'user:self',
+      trait_name: 'preference.affinity',
+      trait_value: 'like',
+      value: 'like',
+      target_entity_id: 'entity-strawberry',
+      target_entity_name: '草莓',
+      source: 'user_authored',
+      memory_domain: 'user_authored',
+      status: 'tentative',
+      ...override,
+    }]);
+    expect(screen.getByRole('heading', { name: expected })).toBeInTheDocument();
+    expect(screen.getByText('待确认')).toBeInTheDocument();
+    expect(screen.queryByText('like')).not.toBeInTheDocument();
+    expect(screen.queryByText('dislike')).not.toBeInTheDocument();
+    expect(screen.queryByText('user_authored')).not.toBeInTheDocument();
+    expect(screen.queryByText('tentative')).not.toBeInTheDocument();
+    expect(screen.queryByText('entity-strawberry')).not.toBeInTheDocument();
+  });
+
+  it('preserves every concrete object and prioritizes the host display over an older summary', () => {
+    showAssertions([
+      { assertion_id: 'strawberry', trait_value: 'like', natural_summary: '用户喜欢草莓。', display_text: '用户最近喜欢草莓。' },
+      { assertion_id: 'blueberry', trait_value: 'like', natural_summary: '用户喜欢蓝莓。' },
+    ]);
+    expect(screen.getByRole('heading', { name: '用户最近喜欢草莓。' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '用户喜欢蓝莓。' })).toBeInTheDocument();
+    expect(screen.queryByText('用户喜欢草莓。')).not.toBeInTheDocument();
+  });
+
+  it('uses the same assertion presentation in structured result groups', () => {
+    showAssertions([{ assertion_id: 'strawberry', trait_value: 'like', value: 'like', display_text: '用户喜欢草莓。' }], 'structured_results');
+    expect(screen.getByRole('heading', { name: '用户喜欢草莓。' })).toBeInTheDocument();
+    expect(screen.queryByText('like')).not.toBeInTheDocument();
   });
 });

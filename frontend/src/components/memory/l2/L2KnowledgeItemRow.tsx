@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Check, Pencil, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type { L1Event } from '@/api/modules/memory';
 import {
   coerceKnowledgeEventIds,
@@ -193,13 +194,19 @@ const EvidenceEventList: React.FC<{
         return (
           <details key={`${itemId}-evidence-${eventId}`} className="rounded-sm border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-3 py-2" open={Boolean(event)}>
             <summary className="cursor-pointer text-sm font-medium text-[hsl(var(--memory-title))]">
-              {event ? [event.event_type, event.source, formatEventTime(event.timestamp)].filter(Boolean).join(' · ') : eventId}
+              {event
+                ? [event.source ? getMemorySourceLabel(t, event.source) : null, formatEventTime(event.timestamp)].filter(Boolean).join(' · ')
+                : t('memory.pages.knowledge.sections.evidenceEvents')}
             </summary>
             {event ? (
               <div className="mt-2 space-y-2">
                 <div className="whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">{event.content}</div>
                 <div className="text-xs text-[hsl(var(--memory-muted))]">
-                  {[event.author_type, event.content_type, event.memory_domain].filter(Boolean).join(' · ')}
+                  {[
+                    readableEvidenceLabel(t, 'authorTypes', event.author_type),
+                    readableEvidenceLabel(t, 'contentTypes', event.content_type),
+                    readableEvidenceLabel(t, 'domains', event.memory_domain),
+                  ].filter(Boolean).join(' · ')}
                 </div>
               </div>
             ) : (
@@ -225,4 +232,15 @@ const KnowledgeDetailField: React.FC<{ label: string; value: string | number | n
       <div className="mt-1 break-words text-sm text-[hsl(var(--memory-title))]">{String(value)}</div>
     </div>
   );
+};
+
+const readableEvidenceLabel = (
+  t: MemoryTranslateFn,
+  group: 'authorTypes' | 'contentTypes' | 'domains',
+  value: string | null | undefined,
+): string | null => {
+  if (!value) return null;
+  const key = `memory.l1.${group}.${value}`;
+  const label = t(key);
+  return label === key ? null : label;
 };

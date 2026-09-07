@@ -3064,6 +3064,26 @@
     "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。"
   },
   "memory": {
+    "facts": {
+      "unavailable": "完整事实暂不可用",
+      "unknownTrait": "事实判断",
+      "families": {
+        "preference": "偏好",
+        "interest": "兴趣",
+        "communication": "沟通偏好",
+        "identity": "身份",
+        "routine": "习惯",
+        "location": "地点",
+        "project": "项目",
+        "tool": "工具",
+        "judgment": "判断",
+        "goal": "计划",
+        "mood": "情绪",
+        "stress": "压力",
+        "engagement": "参与程度",
+        "work_style": "工作方式"
+      }
+    },
     "consolidation": {
       "loadFailed": "暂时无法读取整理进度，请重试。",
       "lastRun": "上次检查：{{time}}",
@@ -3503,6 +3523,7 @@
         "failed": "暂时无法确认这些计划，请重试。"
       },
       "reviewEdit": {
+        "currentFact": "当前待确认事实",
         "title": "修改后确认",
         "description": "只修改你想让 Magi 记住的内容。确认后，它会作为你亲自确认的记忆写入。",
         "valueLabel": "记忆内容",
@@ -3883,6 +3904,26 @@
       "searchFailed": "记忆搜索失败，请重试。"
     },
     "correction": {
+      "values": {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "positive": "积极",
+        "negative": "消极",
+        "neutral": "中性",
+        "focused": "专注",
+        "calm": "平静",
+        "like": "喜欢",
+        "dislike": "不喜欢",
+        "interested": "感兴趣",
+        "creator": "创建者",
+        "active": "参与中",
+        "developer": "开发者",
+        "maintainer": "维护者",
+        "contributor": "贡献者",
+        "planned": "计划中",
+        "unavailable": "当前选项暂不可用"
+      },
       "title": "修正这条记忆",
       "description": "告诉 Magi 哪里不对。原始来源会保留，之后的回答会使用修正后的理解。",
       "currentLabel": "当前记住的是",
@@ -3948,6 +3989,7 @@
         "scopeRefinement": "保存后，这条记忆只会在所选项目中使用，其他项目不会带入回答。"
       },
       "validation": {
+        "replacement_unavailable": "请选择可用的内容选项。",
         "form": "请检查填写内容后再保存。",
         "replacement_required": "请填写正确内容。",
         "replacement_unchanged": "新内容和当前内容相同，请填写实际变化后的内容。",
@@ -4268,6 +4310,7 @@
         "externalActivity": "外部活动"
       },
       "statuses": {
+        "needsReview": "待确认",
         "deleted": "已删除",
         "active": "有效",
         "valid": "有效",
@@ -4894,6 +4937,16 @@
     "clearBrowserStateIncomplete": "部分页面中的旧内容未能清除。请关闭并重新打开应用后，再执行一次清除。",
     "clearCompletedWithWarnings": "清除已完成，但有部分后台收尾没有正常完成。建议重启应用后再确认一次。",
     "sources": {
+      "user_correction": "你修正的信息",
+      "external_activity": "外部活动",
+      "settings_profile": "你的设置",
+      "user_profile_projection": "个人资料",
+      "user_feedback": "你确认的信息",
+      "user_authored": "你亲自提供",
+      "conversation": "对话",
+      "external_observation": "外部观察",
+      "system_runtime": "系统记录",
+      "unknown": "未知来源",
       "chat_projector": "聊天",
       "runtime_event_emitter": "运行时事件发射器",
       "timeline_importer": "时间线导入",

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useMemory } from '@/hooks/useMemory';
+import { getAssertionDisplayText, getAssertionStatusLabel } from '@/utils/memory-assertion-copy';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type { MemorySearchResultPayload } from '@/api/modules/memory';
 import { EmptyStateAvailableSources } from '@/components/empty-state/EmptyStateAvailableSources';
 import { QuickEntrySheet } from '@/components/timeline/manual-entries/QuickEntrySheet';
@@ -52,6 +54,7 @@ const SEARCH_RESULT_SECTIONS: Array<{
 ];
 
 const TITLE_FIELDS = [
+  'display_text',
   'natural_summary',
   'display_title',
   'user_label',
@@ -93,7 +96,7 @@ const BODY_FIELDS = [
   'details',
 ];
 
-const META_FIELDS = ['source_type', 'source', 'memory_domain', 'status', 'score', 'confidence', 'importance_score'];
+const META_FIELDS = ['status', 'source_domain', 'source_type', 'source', 'memory_domain', 'score', 'confidence', 'importance_score'];
 
 export const MemoryRecallPage = () => {
   const { t } = useTranslation('app');
@@ -185,9 +188,15 @@ export const MemoryRecallPage = () => {
                 </div>
                 <div className="grid gap-2">
                   {section.items.map((item, index) => {
-                    const title = getSearchItemTitle(item, getResultFallback(section.field, item, index, t));
-                    const body = getSearchItemBody(item, title);
-                    const meta = getSearchItemMeta(item);
+                    const assertion = section.field === 'l2_assertions' || typeof item.assertion_id === 'string';
+                    const title = assertion
+                      ? getAssertionDisplayText({
+                          display_text: typeof item.display_text === 'string' ? item.display_text : null,
+                          natural_summary: typeof item.natural_summary === 'string' ? item.natural_summary : null,
+                        }, t)
+                      : getSearchItemTitle(item, getResultFallback(section.field, item, index, t));
+                    const body = assertion ? null : getSearchItemBody(item, title);
+                    const meta = getSearchItemMeta(item, t);
                     return (
                       <article
                         key={`${section.field}-${getSearchItemKey(item, index)}`}
@@ -288,18 +297,29 @@ const getSearchItemBody = (item: MemorySearchItem, title: string): string | null
   return pickReadableValue(item, BODY_FIELDS, new Set([title]));
 };
 
-const getSearchItemMeta = (item: MemorySearchItem): string[] => {
+const getSearchItemMeta = (item: MemorySearchItem, t: (key: string) => string): string[] => {
   const values: string[] = [];
   for (const field of META_FIELDS) {
     const value = item[field];
     const formatted = field.includes('score') || field === 'confidence'
       ? formatScore(value)
-      : formatMemoryValue(value);
+      : typeof value !== 'string' || !value.trim()
+        ? null
+        : field === 'status'
+          ? getAssertionStatusLabel(value, t)
+          : field === 'memory_domain'
+            ? translatedMetadata(t, `memory.l1.domains.${value}`)
+            : getMemorySourceLabel(t, value);
     if (formatted && !values.includes(formatted)) {
       values.push(formatted);
     }
   }
   return values.slice(0, 3);
+};
+
+const translatedMetadata = (t: (key: string) => string, key: string): string | null => {
+  const label = t(key);
+  return label === key ? null : label;
 };
 
 const pickReadableValue = (

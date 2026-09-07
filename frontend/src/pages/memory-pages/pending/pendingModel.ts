@@ -59,19 +59,11 @@ export const seedBody = (seed: L2ExperienceSeed): string => (
 );
 
 export const conflictTitle = (notification: NotificationItem, fallback: string): string => (
-  String(notification.title || notification.payload.trait_name || '').trim() || fallback
+  String(notification.title || '').trim() || fallback
 );
 
 export const conflictBody = (notification: NotificationItem): string => (
-  String(notification.body || notification.payload.inferred_value || '').trim()
-);
-
-export const pendingReviewValue = (review: L2PendingReview, fallback: string): string => (
-  String(review.proposed.trait_value || '').trim() || fallback
-);
-
-export const pendingReviewSummary = (review: L2PendingReview, fallback: string): string => (
-  String(review.proposed.natural_summary || '').trim() || fallback
+  String(notification.body || '').trim()
 );
 
 export const isCurrentPlanReview = (review: L2PendingReview): boolean => (

@@ -21,11 +21,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { getAssertionDisplayText } from '@/utils/memory-assertion-copy';
 import {
   buildMemoryCorrectionRequest,
   createInitialMemoryCorrectionDraft,
   createMemoryCorrectionRequestId,
-  formatMemoryCorrectionValue,
   isMemoryCorrectionScopeOccupied,
   memoryCorrectionErrorCode,
   selectableProjectContextOptions,
@@ -37,6 +37,7 @@ import {
   type MemoryCorrectionValidationField,
 } from './memoryCorrectionModel';
 import { MemoryCorrectionProjectSelect } from './MemoryCorrectionProjectSelect';
+import { MemoryAssertionValueInput } from './MemoryAssertionValueInput';
 import {
   correctionLocale,
   formatCorrectionEntityType,
@@ -525,14 +526,13 @@ export function MemoryCorrectionDialog({
                     htmlFor="memory-correction-value"
                     error={validationError('value')}
                   >
-                    <Input
+                    <MemoryAssertionValueInput
                       id="memory-correction-value"
                       value={draft.value}
-                      onChange={(event) => updateDraft({ value: event.target.value })}
-                      maxLength={2000}
-                      aria-invalid={Boolean(submitted && validation?.errors.value)}
-                      aria-errormessage={validationError('value') ? 'memory-correction-value-error' : undefined}
-                      className="h-11"
+                      valueOptions={effectiveTarget.kind === 'assertion' ? effectiveTarget.valueOptions : undefined}
+                      onChange={(value) => updateDraft({ value })}
+                      invalid={Boolean(submitted && validation?.errors.value)}
+                      errorMessageId={validationError('value') ? 'memory-correction-value-error' : undefined}
                     />
                   </FormField>
                 ) : (
@@ -786,7 +786,7 @@ function CorrectionSuccess({
 }) {
   const { t, i18n } = useTranslation('app');
   const hasReplacement = Boolean(result.correction.replacement);
-  const currentValue = hasReplacement ? getReadableCurrentClaim(target, result.current_claim) : null;
+  const currentValue = hasReplacement ? getReadableCurrentClaim(target, result.current_claim, t) : null;
   const locale = correctionLocale(i18n.resolvedLanguage || i18n.language);
   const effectiveAt = result.correction.effective_at
     ? formatCorrectionTime(result.correction.effective_at, locale)
@@ -888,6 +888,7 @@ function correctionValidationFallback(code: string): string {
   const messages: Record<string, string> = {
     replacement_required: '请填写正确内容。',
     replacement_unchanged: '新内容和当前内容相同，请填写实际变化后的内容。',
+    replacement_unavailable: '请选择可用的内容选项。',
     effective_at_required: '请选择变化开始的时间。',
     effective_at_invalid: '变化时间无效，请重新选择。',
     scope_required: '请选择适用的项目。',
@@ -970,12 +971,12 @@ function mergeEntityOptions(
 
 function getReadableCurrentClaim(
   target: MemoryCorrectionUiTarget,
-  claim: MemoryCorrectionClaimValue | null | undefined
+  claim: MemoryCorrectionClaimValue | null | undefined,
+  t: ReturnType<typeof useTranslation<'app'>>['t']
 ): string | null {
   if (!claim) return null;
   if (target.kind === 'assertion') {
-    const value = formatMemoryCorrectionValue(claim.trait_value ?? claim.value);
-    return value || null;
+    return getAssertionDisplayText(claim, t);
   }
 
   const objectId = String(claim.object_id ?? '').trim();

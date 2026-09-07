@@ -279,7 +279,7 @@ export function LayerWorkspace({
                                 'truncate pl-3 pr-2 text-[hsl(var(--memory-body))]',
                                 column.align === 'right' && 'text-right tabular-nums',
                                 cell?.tone === 'muted' && 'text-[hsl(var(--memory-muted))]',
-                                cell?.tone === 'status' && getRowStatusClass(String(cell.value))
+                                cell?.tone === 'status' && getRowStatusClass(record.statusKey || String(cell.value))
                               )}
                             >
                               {cell?.value ?? fallback}

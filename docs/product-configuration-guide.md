@@ -431,6 +431,16 @@ The custom personality editor should progressively expose:
 
 ## Memory System
 
+Memory facts in Manage Memory, Pending, Overview, About You, Knowledge and Recall
+use the host's complete fact description, including the subject, object and any
+retained time qualification. Internal affinity values such as `like` are not
+standalone memory descriptions. Sources, assertion types and lifecycle states
+use localized product labels. Missing descriptions or unresolved entities are
+shown explicitly without guessing names from internal IDs. Correction forms show
+the fact separately from their semantic editor; controlled options have localized
+labels while the submitted value remains structured. These display rules do not
+change confirmation, promotion, evidence or forgetting policies.
+
 Magi now exposes a lifecycle-based memory system instead of the older feature-stacked memory layer framing.
 
 The current conceptual model is:

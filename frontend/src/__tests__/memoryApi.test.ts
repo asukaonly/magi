@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { api } from '@/api/client';
+import { memoryPortraitSelfApi } from '@/api/modules/memoryPortraitSelf';
 import {
   memoryApi,
   type MemoryCorrectionContextDimension,
@@ -191,5 +192,133 @@ describe('memoryApi endpoints', () => {
       '/memory/l2/corrections/correction%2Fwith%20space/revert',
       { request_id: 'revert-1' }
     );
+  });
+});
+
+
+describe('memory fact display response boundaries', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const response = (data: unknown) => ({ success: true, message: 'ok', data });
+
+  const fact = {
+    assertion_id: 'assert-strawberry',
+    entity_id: 'user:self',
+    trait_name: 'preference.affinity',
+    trait_value: 'like',
+    target_entity_id: 'entity-strawberry',
+    display_text: '用户喜欢草莓。',
+    natural_summary: '用户喜欢草莓。',
+    entity_name: '用户',
+    target_entity_name: '草莓',
+    value_options: ['like', 'dislike', 'neutral'],
+  };
+
+  const invalidFields = [
+    { display_text: { value: 'like' } },
+    { natural_summary: ['用户喜欢草莓。'] },
+    { entity_name: 42 },
+    { target_entity_name: { entity_id: 'entity-strawberry' } },
+    { value_options: 'like' },
+    { value_options: ['like', 42] },
+  ];
+
+  it.each(invalidFields)('rejects malformed display fields in assertion lists: %j', async (invalid) => {
+    vi.spyOn(api, 'get').mockResolvedValue(response({ items: [{ ...fact, ...invalid }], total: 1, limit: 10, offset: 0 }));
+    await expect(memoryApi.getL2Assertions()).rejects.toThrow();
+  });
+
+  it.each(invalidFields)('rejects malformed display fields in dashboard assertions: %j', async (invalid) => {
+    vi.spyOn(api, 'get').mockResolvedValue(response({ pending_assertions: { items: [{ ...fact, ...invalid }] } }));
+    await expect(memoryApi.getDashboard()).rejects.toThrow();
+  });
+
+  it.each(invalidFields)('rejects malformed display fields in pending proposals: %j', async (invalid) => {
+    vi.spyOn(api, 'get').mockResolvedValue(response({ items: [{ review_id: 'review-strawberry', proposed: { ...fact, ...invalid } }], total: 1 }));
+    await expect(memoryApi.listPendingReviews()).rejects.toThrow();
+  });
+
+  it.each(invalidFields)('rejects malformed display fields after confirmation: %j', async (invalid) => {
+    vi.spyOn(api, 'patch').mockResolvedValue(response({ ...fact, ...invalid }));
+    await expect(memoryApi.submitAssertionFeedback('assert-strawberry', 'confirmed')).rejects.toThrow();
+  });
+
+  it('retains complete facts and their independent semantic correction values', async () => {
+    const list = { items: [fact], total: 1, limit: 10, offset: 0 };
+    vi.spyOn(api, 'get').mockResolvedValue({ success: true, message: 'ok', data: list });
+    const result = await memoryApi.getL2Assertions();
+    expect(result).toEqual(list);
+    expect(result.items[0].trait_value).toBe('like');
+    expect(result.items[0].display_text).toBe('用户喜欢草莓。');
+    expect(result.items[0].target_entity_name).toBe('草莓');
+    expect(result.items[0].value_options).toEqual(['like', 'dislike', 'neutral']);
+  });
+
+  it('allows explicit missing names and summaries for honest fallback presentation', async () => {
+    const unresolved = { ...fact, display_text: null, entity_name: null, target_entity_name: null, natural_summary: null, value_options: null };
+    vi.spyOn(api, 'patch').mockResolvedValue(response(unresolved));
+    expect(await memoryApi.submitAssertionFeedback('assert-strawberry', 'confirmed')).toEqual(unresolved);
+  });
+
+  it('rejects malformed conflict comparison display fields', async () => {
+    vi.spyOn(api, 'patch').mockResolvedValue(response({ ...fact, conflict_context: { previous_display_text: 42 } }));
+    await expect(memoryApi.submitAssertionFeedback('assert-strawberry', 'confirmed')).rejects.toThrow();
+  });
+});
+
+
+describe('correction and portrait display response boundaries', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const response = (data: unknown) => ({ success: true, message: 'ok', data });
+  const request: MemoryCorrectionRequest = {
+    request_id: 'correct-strawberry', target: { kind: 'assertion', id: 'strawberry' },
+    correction_kind: 'record_error', replacement: { value: 'dislike' },
+  };
+
+  it.each([
+    { current_claim: { display_text: 42 } },
+    { correction: { before: { display_text: ['用户喜欢草莓。'] } } },
+    { correction: { replacement: { value_options: 'like' } } },
+  ])('rejects invalid comparison text or semantic choices in command responses: %j', async (invalid) => {
+    vi.spyOn(api, 'post').mockResolvedValue(response({ correction: {}, ...invalid }));
+    await expect(memoryApi.applyCorrection(request)).rejects.toThrow();
+    await expect(memoryApi.revertCorrection('correction-1', 'revert-1')).rejects.toThrow();
+  });
+
+  it.each([
+    { versions: [{ display_text: false }] },
+    { corrections: [{ before: { target_entity_name: [] } }] },
+    { corrections: [{ replacement: { value_options: ['like', {}] } }] },
+  ])('rejects invalid presentation fields in correction history: %j', async (invalid) => {
+    vi.spyOn(api, 'get').mockResolvedValue(response({ versions: [], corrections: [], ...invalid }));
+    await expect(memoryApi.getCorrectionHistory('assertion', 'strawberry')).rejects.toThrow();
+  });
+
+  it('preserves host correction text, semantic values, and options independently', async () => {
+    const payload = {
+      correction: {
+        before: { trait_value: 'like', display_text: '用户喜欢草莓。' },
+        replacement: { value: 'dislike', display_text: '用户不喜欢草莓。', value_options: ['like', 'dislike'] },
+      },
+      current_claim: { trait_value: 'dislike', display_text: '用户不喜欢草莓。', value_options: ['like', 'dislike'] },
+    };
+    vi.spyOn(api, 'post').mockResolvedValue(response(payload));
+    expect(await memoryApi.applyCorrection(request)).toEqual(payload);
+  });
+
+  it.each(['world', 'review', 'recent'] as const)('validates portrait correction fields in %s items', async (group) => {
+    const view = { world: { groups: [] as Array<{ items: unknown[] }> }, review: { items: [] as unknown[] }, recent: { items: [] as unknown[] } };
+    const item = { correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: { 0: 'like' } };
+    if (group === 'world') view.world.groups.push({ items: [item] });
+    else view[group].items.push(item);
+    vi.spyOn(api, 'get').mockResolvedValue(response({ self_view: view }));
+    await expect(memoryPortraitSelfApi.get('local_user')).rejects.toThrow();
+  });
+
+  it('preserves portrait natural text separately from nullable correction metadata', async () => {
+    const item = { text: '用户喜欢草莓。', correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: ['like', 'dislike'] };
+    const payload = { self_view: { world: { groups: [{ items: [item] }] }, review: { items: [] }, recent: { items: [] } } };
+    vi.spyOn(api, 'get').mockResolvedValue(response(payload));
+    expect(await memoryPortraitSelfApi.get('local_user')).toEqual(payload);
   });
 });

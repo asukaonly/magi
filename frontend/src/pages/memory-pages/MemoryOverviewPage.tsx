@@ -112,6 +112,8 @@ export const MemoryOverviewPage = () => {
         id: item.payload.assertion_id,
         displaySentence: item.title,
         editableValue: item.payload.trait_value,
+        traitName: item.payload.trait_name,
+        valueOptions: item.payload.value_options,
         expectedUpdatedAt: item.payload.updated_at ?? undefined,
       });
       return;

@@ -1,3 +1,4 @@
+import { validatePortraitCorrectionDisplay } from '../memory-fact-contract';
 import { api, unwrapGatewayPayload } from '../client';
 
 export type PortraitSelfViewWorldGroupId =
@@ -10,6 +11,8 @@ export interface PortraitSelfViewItem {
   id: string;
   text: string;
   correction_value?: string | null;
+  correction_trait_name?: string | null;
+  correction_value_options?: string[] | null;
   source: string;
   source_key: string | null;
   assertion_id: string | null;
@@ -61,6 +64,8 @@ export const memoryPortraitSelfApi = {
     const response = await api.get<SelfPortraitPayload>('/memory/portrait/self', {
       params: { user_id: userId },
     });
-    return unwrapGatewayPayload(response);
+    const result = unwrapGatewayPayload(response);
+    validatePortraitCorrectionDisplay(result);
+    return result;
   },
 };

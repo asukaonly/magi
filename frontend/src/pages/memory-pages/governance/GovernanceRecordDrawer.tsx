@@ -71,12 +71,14 @@ export function RecordDrawer({
             <section className="py-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <h2 className="text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{record.title}</h2>
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[hsl(var(--memory-body))]">
-                    {record.summary || label('drawer.noSummary', '暂无摘要。')}
-                  </p>
+                  <h2 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{record.title}</h2>
+                  {record.summary || record.categoryId !== 'assertions' ? (
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
+                      {record.summary || label('drawer.noSummary', '暂无摘要。')}
+                    </p>
+                  ) : null}
                 </div>
-                <span className={cn('shrink-0 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.72)] px-2.5 py-1 text-xs font-medium', getRowStatusClass(record.status))}>
+                <span className={cn('shrink-0 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.72)] px-2.5 py-1 text-xs font-medium', getRowStatusClass(record.statusKey || record.status))}>
                   {record.status}
                 </span>
               </div>

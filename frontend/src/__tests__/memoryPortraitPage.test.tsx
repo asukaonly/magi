@@ -396,12 +396,12 @@ describe('MemoryPortraitPage', () => {
         recent: {
           items: [
             {
-              id: 'recent-interest', text: 'DIIV', source: '', source_key: null,
+              id: 'recent-interest', text: '用户最近不喜欢 DIIV。', source: '', source_key: null,
               assertion_id: 'assert-interest', basis_count: 3, basis_refs: [],
               claim_kind: 'preference_interest',
             },
             {
-              id: 'recent-project', text: 'Magi', source: '', source_key: null,
+              id: 'recent-project', text: '用户最近在开发 Magi。', source: '', source_key: null,
               assertion_id: 'assert-project', basis_count: 3, basis_refs: [],
               claim_kind: 'active_work',
             },
@@ -413,8 +413,8 @@ describe('MemoryPortraitPage', () => {
 
     renderPage();
 
-    expect(await screen.findByText('最近在关注：DIIV')).toBeInTheDocument();
-    expect(screen.getByText('最近在推进：Magi')).toBeInTheDocument();
+    expect(await screen.findByText('用户最近不喜欢 DIIV。')).toBeInTheDocument();
+    expect(screen.getByText('用户最近在开发 Magi。')).toBeInTheDocument();
   });
 
   it('does not render source text for portrait items without a user-facing source', async () => {

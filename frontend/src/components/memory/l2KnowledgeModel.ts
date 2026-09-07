@@ -1,3 +1,5 @@
+import { getAssertionDisplayText, getAssertionEvidenceBasis, getAssertionStatusLabel, getAssertionTraitLabel } from '@/utils/memory-assertion-copy';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type {
   L2Assertion,
   L2Relation,
@@ -15,17 +17,13 @@ import {
   type MemoryTranslateFn,
 } from './l2KnowledgeTypes';
 import {
-  buildCuratedProfileSummary,
   coerceKnowledgeEventIds,
   coerceKnowledgeText,
   getEntityOverviewKey,
   getEvidenceSummary,
-  getReadableAssertionTitle,
-  getReadableAssertionValue,
   getReadableEntityName,
   getReadableEntityType,
   getReadablePredicateLabel,
-  getReadableTraitLabel,
   getRecordNumber,
   latestPositiveTimestamp,
   normalizeLabelKey,
@@ -51,8 +49,6 @@ export {
   coerceKnowledgeText,
   formatConfidence,
   formatEventTime,
-  getReadableAssertionValue,
-  getReadableTraitLabel,
   translateWithFallback,
 } from './l2KnowledgeModelHelpers';
 
@@ -198,10 +194,10 @@ export const buildKnowledgeItems = ({
   });
 
   const assertionItems = assertions.map((assertion): KnowledgeItem => {
-    const entityName = getEntityName(assertion.entity_id);
-    const traitLabel = getReadableTraitLabel(t, assertion.trait_name);
+    const entityName = assertion.entity_name?.trim() || getEntityName(assertion.entity_id);
+    const traitLabel = getAssertionTraitLabel(assertion, t);
     const rawTraitValue = coerceKnowledgeText(assertion.trait_value);
-    const traitValue = getReadableAssertionValue(t, assertion);
+    const displayText = getAssertionDisplayText(assertion, t);
     const evidenceIds = coerceKnowledgeEventIds(assertion.evidence_events);
     const evidenceCount = evidenceIds.length;
     const statusGroup = getAssertionStatusGroup(assertion);
@@ -210,12 +206,12 @@ export const buildKnowledgeItems = ({
       kind: 'assertion',
       groupId: getAssertionKnowledgeGroupId(assertion),
       kindLabel: t('memory.pages.knowledge.kind.assertion'),
-      title: getReadableAssertionTitle(t, entityName, assertion),
+      title: displayText,
       body: getEvidenceSummary(t, evidenceCount, assertion.confidence_score),
       entityType: assertion.entity_type,
       entityIds: [assertion.entity_id].filter(Boolean),
       statusGroup,
-      statusLabel: t(`memory.pages.knowledge.statusOptions.${statusGroup}`),
+      statusLabel: getAssertionStatusLabel(assertion.status || assertion.validation_state, t),
       confidence: assertion.confidence_score,
       evidenceCount,
       evidenceIds,
@@ -224,16 +220,18 @@ export const buildKnowledgeItems = ({
       detailRows: [
         { label: t('memory.pages.knowledge.fields.entity'), value: entityName },
         { label: t('memory.pages.knowledge.fields.predicate'), value: traitLabel },
-        { label: t('memory.pages.knowledge.fields.object'), value: traitValue },
+        { label: t('memory.governance.fields.assertionValue'), value: displayText },
       ],
       technicalRows: [
         { label: t('memory.pages.knowledge.fields.technicalType'), value: getEntityTypeLabel(assertion.entity_type) },
-        { label: t('memory.pages.knowledge.fields.sourceDomain'), value: assertion.source_domain },
-        { label: t('memory.pages.knowledge.fields.inferenceDepth'), value: assertion.inference_depth },
+        { label: t('memory.pages.knowledge.fields.sourceDomain'), value: getMemorySourceLabel(t, assertion.source_domain) },
+        { label: t('memory.pages.knowledge.fields.inferenceDepth'), value: t(`memory.provenance.${getAssertionEvidenceBasis(assertion)}`) },
         { label: t('memory.pages.knowledge.fields.technicalId'), value: assertion.assertion_id },
       ],
-      searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, traitValue, rawTraitValue, assertion.validation_state, assertion.source_domain].join(' '),
+      searchableText: [entityName, assertion.entity_id, assertion.entity_type, traitLabel, assertion.trait_name, displayText, assertion.target_entity_name, rawTraitValue, assertion.validation_state, assertion.source_domain].join(' '),
       assertionId: assertion.assertion_id,
+      traitName: assertion.trait_name,
+      valueOptions: assertion.value_options,
       correctionValue: rawTraitValue,
       userFeedback: assertion.user_feedback,
     };
@@ -378,7 +376,7 @@ export const buildEntityOverviewItems = ({
       const relationshipTopology = snapshot?.relationship_topology;
       const activeItems = draft.items.filter((item) => item.statusGroup === 'active');
       const reviewItems = draft.items.filter((item) => item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted');
-      const summary = buildCuratedProfileSummary(t, snapshot);
+      const summary = activeItems.filter((item) => item.kind === 'assertion').slice(0, 4).map((item) => item.title);
       const relationCount = Math.max(
         draft.relationIds.size,
         getRecordNumber(currentContext, 'relation_count') ?? 0,

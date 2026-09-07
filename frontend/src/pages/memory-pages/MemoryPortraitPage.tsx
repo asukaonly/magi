@@ -139,6 +139,8 @@ export const MemoryPortraitPage = () => {
       id: item.assertionId,
       displaySentence: item.text,
       editableValue: item.correctionValue,
+      traitName: item.correctionTraitName ?? undefined,
+      valueOptions: item.correctionValueOptions,
       expectedUpdatedAt: item.updatedAt ?? undefined,
     });
   };

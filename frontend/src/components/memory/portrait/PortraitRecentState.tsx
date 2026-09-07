@@ -26,7 +26,7 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
         {items.slice(0, 6).map((item) => (
           <article key={item.id} className="py-2.5">
             <p className="text-sm leading-7 text-[hsl(var(--memory-body))]">
-              {item.expression ? portraitItemText(item, t) : item.claimKind
+              {item.expression || item.assertionId ? portraitItemText(item, t) : item.claimKind
                 ? t(`memory.portrait.recent.kinds.${item.claimKind}`, {
                     value: item.text,
                     defaultValue: item.text,

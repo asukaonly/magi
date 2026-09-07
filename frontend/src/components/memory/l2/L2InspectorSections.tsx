@@ -12,11 +12,8 @@ import {
   type L2Relation,
   type L2Snapshot,
 } from '@/api/modules/memory';
-import {
-  getReadableAssertionValue,
-  getReadableTraitLabel,
-  type MemoryTranslateFn,
-} from '../l2KnowledgeModel';
+import { getAssertionDisplayText, getAssertionEvidenceBasis, getAssertionStatusLabel, getAssertionTraitLabel } from '@/utils/memory-assertion-copy';
+import type { MemoryTranslateFn } from '../l2KnowledgeModel';
 import { InfoCard, MetricCard, PANEL_CARD_CLASS, SOFT_PANEL_CLASS, StatLine, SummaryPill } from './L2Primitives';
 
 interface L2KnowledgeGraphSectionProps {
@@ -98,7 +95,7 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
           <div className="flex flex-wrap gap-2">
             {dominantTraits.slice(0, 8).map(([trait, count]) => (
               <SummaryPill key={trait}>
-                {trait} · {count}
+                {getAssertionTraitLabel({ trait_name: trait }, t)} · {count}
               </SummaryPill>
             ))}
             {dominantTraits.length === 0 ? (
@@ -116,16 +113,16 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
         {assertions.slice(0, 60).map((assertion) => (
           <div key={assertion.assertion_id} className={SOFT_PANEL_CLASS}>
             <div className="flex items-center justify-between gap-3">
-              <span className="font-medium text-[hsl(var(--memory-title))]">{assertion.entity_id}</span>
-              <Badge variant="outline">{assertion.validation_state}</Badge>
+              <span className="font-medium text-[hsl(var(--memory-title))]">{assertion.entity_name || t('memory.governance.assertions.unknownEntity')}</span>
+              <Badge variant="outline">{getAssertionStatusLabel(assertion.status || assertion.validation_state, t)}</Badge>
             </div>
             <div className="mt-2 text-[hsl(var(--memory-body))]">
-              {getReadableTraitLabel(t, assertion.trait_name)}: {getReadableAssertionValue(t, assertion)}
+              {getAssertionDisplayText(assertion, t)}
             </div>
             <div className="mt-3 flex items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary">{`${(assertion.confidence_score * 100).toFixed(0)}%`}</Badge>
-                <Badge variant="outline">{assertion.inference_depth}</Badge>
+                <Badge variant="outline">{t(`memory.provenance.${getAssertionEvidenceBasis(assertion)}`)}</Badge>
                 {assertion.user_feedback && (
                   <Badge variant={assertion.user_feedback === 'confirmed' ? 'default' : 'destructive'}>
                     {assertion.user_feedback === 'confirmed' ? t('memory.l2.confirmed') : t('memory.l2.rejected')}

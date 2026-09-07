@@ -12,10 +12,10 @@ import {
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { getAssertionDisplayText } from '@/utils/memory-assertion-copy';
 import {
   createMemoryCorrectionRequestId,
   canRevertMemoryCorrection,
-  formatMemoryCorrectionValue,
   isMemoryCorrectionScopeOccupied,
   memoryCorrectionErrorCode,
   memoryCorrectionHistoryStatus,
@@ -511,10 +511,7 @@ function correctionValue(
 ): string {
   const safeValue = value ?? {};
   if (target.kind === 'assertion') {
-    return formatMemoryCorrectionValue(
-      safeValue.value ?? safeValue.trait_value ?? target.editableValue,
-      formatMemoryCorrectionValue(target.editableValue, target.editableValue)
-    );
+    return getAssertionDisplayText(safeValue, t);
   }
   const objectId = String(safeValue.object_id ?? target.relationship.objectId).trim();
   const knownObjectName = target.entityOptions.find((entity) => entity.id === objectId)?.name
@@ -551,6 +548,8 @@ function versionMeta(
     statusText = t('memory.correction.history.pastVersion', { defaultValue: '历史版本' });
   } else if (from !== null && from > now) {
     statusText = t('memory.correction.history.plannedVersion', { defaultValue: '计划生效' });
+  } else if (['tentative', 'shadow', 'pending', 'pending_confirmation'].includes(status)) {
+    statusText = t('memory.governance.statuses.needsReview', { defaultValue: '待确认' });
   } else if (from !== null || to !== null) {
     statusText = (from === null || from <= now) && (to === null || to > now)
       ? t('memory.correction.history.currentVersion', { defaultValue: '当前版本' })

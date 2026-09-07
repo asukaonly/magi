@@ -31,6 +31,8 @@ export interface KnowledgeItem {
   technicalRows?: KnowledgeDetailRow[];
   searchableText: string;
   assertionId?: string;
+  traitName?: string;
+  valueOptions?: L2Assertion['value_options'];
   correctionValue?: string;
   userFeedback?: string | null;
 }

@@ -1,3 +1,4 @@
+import { memoryFactCases } from './fixtures/memoryFacts';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -10,17 +11,21 @@ import { useMemory } from '@/hooks/useMemory';
 
 const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async () => {
+  const { default: zh } = await import('@/i18n/locales/zh-CN/app.json');
+  const translate = (key: string) => key.split('.').reduce<unknown>((value, part) => value && typeof value === 'object' ? (value as Record<string, unknown>)[part] : undefined, zh);
+  return ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      const tpl = (opts?.defaultValue as string | undefined) ?? key;
+      const tpl = (opts?.defaultValue as string | undefined) ?? (translate(key) as string | undefined) ?? key;
       return tpl.replace(/\{\{(\w+)\}\}/g, (_match, varName) =>
         varName in (opts ?? {}) ? String(opts?.[varName]) : `{{${varName}}}`
       );
     },
     i18n: { language: 'zh-CN' },
   }),
-}));
+});
+});
 
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
@@ -95,6 +100,7 @@ const baseMemoryState = {
       subject_type: 'person',
       predicate: 'USES',
       object_id: 'tool_codex',
+      object_name: 'codex',
       object_type: 'software',
       confidence: 0.9,
       evidence_event_ids: ['evt_1'],
@@ -108,9 +114,10 @@ const baseMemoryState = {
     {
       assertion_id: 'assert_1',
       entity_id: 'ent_user_8f3e',
+      entity_name: '用户',
       entity_type: 'person',
       trait_name: 'communication.response_style.preferred',
-      trait_value: '直白',
+      trait_value: '直白', display_text: '用户的沟通风格偏好是直白',
       confidence_score: 0.82,
       evidence_events: ['evt_1', 'evt_2'],
       validation_state: 'stable',
@@ -470,6 +477,7 @@ describe('MemoryGovernancePage', () => {
           subject_type: 'person',
           predicate: 'VISITED',
           object_id: 'place:huzhou',
+          object_name: 'huzhou',
           object_type: 'place',
           confidence: 0.76,
           evidence_event_ids: ['evt_2'],
@@ -568,6 +576,7 @@ describe('MemoryGovernancePage', () => {
           subject_type: 'user',
           predicate: 'viewed',
           object_id: 'other_google_com',
+          object_name: 'google com',
           object_type: 'other',
         },
       ],
@@ -628,6 +637,7 @@ describe('MemoryGovernancePage', () => {
         {
           ...baseMemoryState.l2Relations[0],
           object_id: `other:${'b'.repeat(12)}`,
+          object_name: null,
           object_type: 'other',
         },
       ],
@@ -673,6 +683,7 @@ describe('MemoryGovernancePage', () => {
           entity_id: 'user:self',
           trait_name: 'tool.dev-tauri-hot_sh-75135f',
           trait_value: 'dev tauri hot sh',
+          display_text: '用户的工具是dev tauri hot sh',
         },
       ],
       l2Entities: [
@@ -938,11 +949,11 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_1',
         correction_kind: 'record_error',
-        before: { trait_value: '直白' },
+        before: { trait_value: '直白', display_text: '直白' },
         created_at: 1719301300,
         state: 'active',
       },
-      current_claim: { trait_value: '直白', status: 'user_rejected' },
+      current_claim: { trait_value: '直白', display_text: '直白', status: 'user_rejected' },
       derivation_state: 'completed',
       created: true,
     });
@@ -982,13 +993,13 @@ describe('MemoryGovernancePage', () => {
         correction: {
           correction_id: 'correction_2',
           correction_kind: 'situation_changed',
-          before: { trait_value: '直白' },
+          before: { trait_value: '直白', display_text: '直白' },
           replacement: { value: '详细一些' },
           effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
           created_at: 1719374400,
           state: 'active',
         },
-        current_claim: { trait_value: '详细一些' },
+        current_claim: { trait_value: '详细一些', display_text: '详细一些' },
         derivation_state: 'pending',
         created: true,
       });
@@ -1081,14 +1092,14 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_scope_assertion',
         correction_kind: 'scope_refinement',
-        before: { trait_value: '直白' },
+        before: { trait_value: '直白', display_text: '直白' },
         replacement: { value: '直白' },
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
-        trait_value: '直白',
+        trait_value: '直白', display_text: '直白',
       },
       derivation_state: 'completed',
       created: true,
@@ -1249,14 +1260,14 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assert_1' },
       versions: [
-        { trait_value: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
-        { trait_value: '详细一些', status: 'active', valid_from: 1719301300 },
+        { trait_value: '直白', display_text: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
+        { trait_value: '详细一些', display_text: '详细一些', status: 'active', valid_from: 1719301300 },
       ],
       corrections: [
         {
           correction_id: 'correction_old',
           correction_kind: 'record_error',
-          before: { trait_value: '旧内容' },
+          before: { trait_value: '旧内容', display_text: '旧内容' },
           replacement: { value: '直白' },
           created_at: 1719301200,
           state: 'active',
@@ -1265,7 +1276,7 @@ describe('MemoryGovernancePage', () => {
         {
           correction_id: 'correction_latest',
           correction_kind: 'situation_changed',
-          before: { trait_value: '直白' },
+          before: { trait_value: '直白', display_text: '直白' },
           replacement: { value: '详细一些' },
           created_at: 1719301300,
           state: 'active',
@@ -1278,12 +1289,12 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_latest',
         correction_kind: 'situation_changed',
-        before: { trait_value: '直白' },
+        before: { trait_value: '直白', display_text: '直白' },
         created_at: 1719301300,
         state: 'reverted',
         can_revert: false,
       },
-      current_claim: { trait_value: '直白' },
+      current_claim: { trait_value: '直白', display_text: '直白' },
       derivation_state: 'pending',
       created: false,
     });
@@ -1399,5 +1410,23 @@ describe('MemoryGovernancePage', () => {
 
     expect(await screen.findByRole('tab', { name: '对象明细' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sparse entity/ })).toBeInTheDocument();
+  });
+});
+
+
+describe('assertion fact presentation in management', () => {
+  it.each(memoryFactCases)('renders $name in the list and record details', async ({ assertion, expected }) => {
+    vi.mocked(useMemory).mockReturnValue({ ...baseMemoryState, l2Assertions: [assertion], l2AssertionsTotal: 1 } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    const row = await screen.findByRole('button', { name: `打开记录 ${expected}` });
+    expect(row).toHaveTextContent('待确认');
+    expect(row).toHaveTextContent('你亲自提供');
+    expect(row).not.toHaveTextContent(/\blike\b|\bdislike\b|user authored|tentative|ent_private_missing/);
+    await user.click(row);
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).getAllByText(expected).length).toBeGreaterThan(0);
+    expect(within(drawer).queryByText(/^(like|dislike|address|tentative|user authored)$/)).not.toBeInTheDocument();
   });
 });

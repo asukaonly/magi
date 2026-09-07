@@ -4,7 +4,7 @@ import type { L2Assertion, L2ExperienceSeed, L2PendingReview } from '@/api/modul
 import type { StoryItem } from '@/api/modules/memoryStories';
 import type { NotificationItem } from '@/api/modules/notifications';
 import { Button } from '@/components/ui/button';
-import { getAssertionEvidenceBasis, getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
+import { getAssertionEvidenceBasis, getPendingAssertionCopy, getPendingReviewCopy } from '@/utils/memory-assertion-copy';
 import { MEMORY_GHOST_ACTION_CLASS, MEMORY_PRIMARY_ACTION_CLASS } from '../MemoryPageFrame';
 import {
   ConflictActions,
@@ -15,8 +15,6 @@ import {
 import {
   conflictBody,
   conflictTitle,
-  pendingReviewSummary,
-  pendingReviewValue,
   isCurrentPlanReview,
   seedBody,
   seedTitle,
@@ -125,15 +123,16 @@ export function PendingReviewGroups({
           ) : null}
           {reviews.map((review) => {
             const busy = batchBusy || actionId === `review:${review.review_id}`;
-            const value = pendingReviewValue(review, t('memory.pending.reviews.unknownValue'));
+            const copy = getPendingReviewCopy(review, t);
+            const value = copy.title;
             const selectablePlan = isCurrentPlanReview(review) && planReviews.length > 1;
             return (
               <PendingCard
                 key={review.review_id}
                 testId={`pending-review-${review.review_id}`}
                 label={t('memory.pending.meta.preMaterializationReview')}
-                title={t('memory.pending.reviews.title', { value })}
-                body={pendingReviewSummary(review, t('memory.pending.reviews.body'))}
+                title={copy.title}
+                body={copy.body}
                 meta={t('memory.pending.claimCount', { count: review.claim_ids.length })}
                 selection={selectablePlan ? (
                   <input

@@ -6,7 +6,7 @@ import type {
 } from '@/api/modules/memory';
 import type { SourceStatusItem, SourceStatusResponse } from '@/api/modules/sources';
 import type { StoryItem } from '@/api/modules/memoryStories';
-import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
+import { getPendingAssertionCopy, getPendingReviewCopy } from '@/utils/memory-assertion-copy';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { isMemoryUpdateStory } from '../storyFilters';
 
@@ -184,14 +184,12 @@ export const buildPendingItems = (
   t: OverviewTranslateFn,
 ): PendingOverviewItem[] => {
   const reviewItems: PendingOverviewItem[] = reviews.map((review) => {
-    const value = String(review.proposed.trait_value || '').trim()
-      || t('memory.pending.reviews.unknownValue');
+    const copy = getPendingReviewCopy(review, t);
     return {
       kind: 'review',
       id: `review:${review.review_id}`,
-      title: t('memory.pending.reviews.title', { value }),
-      body: String(review.proposed.natural_summary || '').trim()
-        || t('memory.pending.reviews.body'),
+      title: copy.title,
+      body: copy.body,
       status: review.status,
       updatedAt: review.updated_at,
       payload: review,

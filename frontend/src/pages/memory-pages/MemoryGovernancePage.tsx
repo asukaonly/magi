@@ -58,7 +58,7 @@ export const MemoryGovernancePage = () => {
     [t]
   );
 
-  const layerSummaries = useMemo<LayerSummary[]>(() => buildLayerSummaries(memory, label), [memory, label]);
+  const layerSummaries = useMemo<LayerSummary[]>(() => buildLayerSummaries(memory, label, t), [memory, label, t]);
   const normalizedRecordSearchQuery = recordSearchQuery.trim();
   const isRecordSearchActive = normalizedRecordSearchQuery.length > 0;
 
@@ -123,6 +123,8 @@ export const MemoryGovernancePage = () => {
         id: selectedRecord.id,
         displaySentence: selectedRecord.title,
         editableValue: selectedRecord.correction.currentValue,
+        traitName: selectedRecord.correction.traitName,
+        valueOptions: selectedRecord.correction.valueOptions,
         expectedUpdatedAt: selectedRecord.correction.expectedUpdatedAt,
       };
     }

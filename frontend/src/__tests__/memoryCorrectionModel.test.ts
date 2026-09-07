@@ -585,3 +585,35 @@ describe('selectableProjectContextOptions', () => {
     ])).toEqual([projectOptions[0]]);
   });
 });
+
+describe('semantic assertion corrections', () => {
+  const target: MemoryCorrectionUiTarget = {
+    kind: 'assertion',
+    id: 'assertion-strawberry',
+    traitName: 'preference.affinity',
+    displaySentence: '用户喜欢草莓。',
+    editableValue: 'like',
+    valueOptions: ['like', 'dislike'],
+  };
+
+  it('submits the selected semantic value rather than the displayed fact', () => {
+    const draft = { ...createInitialMemoryCorrectionDraft(target), value: 'dislike' };
+    expect(buildMemoryCorrectionRequest(target, draft)?.replacement).toEqual({ value: 'dislike' });
+  });
+
+  it('rejects a natural-language sentence substituted for a semantic value', () => {
+    const draft = { ...createInitialMemoryCorrectionDraft(target), value: '用户不喜欢草莓。' };
+    expect(buildMemoryCorrectionRequest(target, draft)).toBeNull();
+    expect(validateMemoryCorrectionDraft(target, draft).errors.value).toBe('replacement_unavailable');
+  });
+
+  it('keeps the original semantic value when narrowing context', () => {
+    const draft: MemoryCorrectionDraft = {
+      ...createInitialMemoryCorrectionDraft(target),
+      correctionKind: 'scope_refinement',
+      scopeContextId: MAGI_CONTEXT_ID,
+    };
+    expect(buildMemoryCorrectionRequest(target, draft, draft.requestId, projectOptions)?.replacement)
+      .toEqual({ value: 'like' });
+  });
+});
