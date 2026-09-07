@@ -155,7 +155,9 @@ statistics from a separate checkpoint-only view.
 The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, native routes that still have Python parity implementations, and the public/private resource exceptions to the default authenticated access policy. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
 
 The frontend's scoped accessibility lint covers shared primitives, configuration,
-onboarding, plugin and memory-data controls. It checks ARIA attributes, labels,
+onboarding, plugin, memory-data and memory-layer expansion controls. Expansion
+buttons expose translated names and their content state, support Enter/Space,
+and respect disabled layers. The lint checks ARIA attributes, labels,
 images and tab order with `eslint-plugin-jsx-a11y-x`, which supports the current
 ESLint major. Native inputs with real HTML labels are tested through rendered
 controls instead of duplicated ARIA labels just to satisfy static inference.

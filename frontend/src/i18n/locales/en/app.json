@@ -1491,6 +1491,8 @@
     "startupSettings": "Startup",
     "autoStartSyncFailed": "Configuration is saved, but launch at login could not be applied. Retry system settings.",
     "retrySystemSettings": "Retry system settings",
+    "expandMemoryLayer": "Expand {{name}} settings",
+    "collapseMemoryLayer": "Collapse {{name}} settings",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
     "diagnostics": {

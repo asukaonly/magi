@@ -86,6 +86,7 @@ export default defineConfig([
     files: [
       'src/components/ui/**/*.tsx', 'src/components/config-forms/**/*.tsx',
       'src/components/onboarding/**/*.tsx', 'src/components/settings/memory-data/**/*.tsx',
+      'src/components/settings/ExpandableMemoryLayerCard.tsx',
       'src/components/plugins/**/*.tsx', 'src/components/AppWindowControls.tsx',
       'src/pages/tasks-pages/components/ScheduleRunButton.tsx',
     ],

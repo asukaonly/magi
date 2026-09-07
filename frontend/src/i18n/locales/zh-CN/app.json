@@ -1490,6 +1490,8 @@
     "startupSettings": "启动设置",
     "autoStartSyncFailed": "配置已保存，但开机自动启动未能应用。请重试系统设置。",
     "retrySystemSettings": "重试系统设置",
+    "expandMemoryLayer": "展开{{name}}设置",
+    "collapseMemoryLayer": "收起{{name}}设置",
     "autoStartLabel": "开机自动启动",
     "startMinimizedLabel": "启动后最小化到托盘",
     "diagnostics": {
