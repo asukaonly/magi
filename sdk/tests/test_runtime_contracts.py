@@ -9,6 +9,7 @@ from magi_plugin_sdk.contracts import (
     PluginManifest,
 )
 from magi_plugin_sdk.runtime import (
+    SDK_VERSION,
     PluginConnection,
     PluginHandshake,
     SourceChange,
@@ -24,7 +25,7 @@ def test_connection_wire_round_trip_preserves_independent_identity():
 
 
 def test_protocol_mismatch_and_unknown_fields_fail_before_execution():
-    payload = {"protocol_version": 2, "sdk_version": "0.2.0", "plugin_id": "mail", "connection_id": "work"}
+    payload = {"protocol_version": 2, "sdk_version": SDK_VERSION, "plugin_id": "mail", "connection_id": "work"}
     PluginHandshake.model_validate(payload)
     with pytest.raises(ValidationError):
         PluginHandshake.model_validate({**payload, "protocol_version": 1})

@@ -100,7 +100,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
 
     # Plugin SDK (shared contracts; install sdk/ in editable mode for local dev)
-    "magi-plugin-sdk>=0.2.0,<0.3.0",
+    "magi-plugin-sdk>=0.2.1,<0.3.0",
 ]
 
 [project.optional-dependencies]
@@ -113,6 +113,7 @@ dev = [
     "ruff==0.16.0",
     "mypy>=1.8.0",
     "import-linter>=2.11",
+    "semantic-version==2.10.0",
 ]
 
 [project.urls]

@@ -366,6 +366,16 @@ suppression, and retry policy stay in `FunctionCallingToolBatchExecutor`.
 Tool execution results and model observations are separate projections.
 `ToolCallResult` and journal evidence retain structured results for permissions,
 completion checks, trace UI, and replay. `FunctionCallingPostprocessor` renders
+an explicit successful SDK `model_text` observation first, regardless of tool
+name or exported alias. This optional field survives worker transport,
+`OperationResult` / `ToolResult` conversion and `ToolCallResult`; the canonical
+`data` / `value` remains available to programmatic consumers and schema checks.
+Blank or absent text uses the host's existing formatters. Custom text shares
+the total observation budget (currently 24,000 characters) and gets an explicit
+truncation notice when clipped. Failed results ignore custom presentation so
+it cannot conceal error codes or recovery instructions.
+
+Without an explicit observation, the postprocessor renders
 successful web searches as source links and snippets, and fetched pages as text
 with source identity and truncation notices. Web content shares a bounded total
 observation budget instead of silently reducing each page to a generic preview.

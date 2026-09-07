@@ -223,6 +223,7 @@ class PluginOperationRegistry:
             return OperationResult(
                 status=status,
                 value=result.data,
+                model_text=result.model_text,
                 resources=result.resources,
                 error_code=result.error_code,
                 message=result.error,
@@ -287,6 +288,7 @@ class PluginOperationRegistry:
             status=getattr(result, "operation_status", None)
             or ("succeeded" if result.success else "failed"),
             value=result.data,
+            model_text=result.model_text,
             resources=getattr(result, "resources", []),
             error_code=result.error_code,
             message=result.error,

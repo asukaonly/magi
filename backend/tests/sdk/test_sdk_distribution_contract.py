@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SDK_DISTRIBUTION_NAME = "magi-plugin-sdk"
-SDK_PLUGIN_CONTRACT_VERSION = Version("0.2.0")
+SDK_PLUGIN_CONTRACT_VERSION = Version("0.2.1")
 
 
 def _project_metadata(project_dir: str) -> dict[str, object]:
@@ -54,7 +54,7 @@ def test_backend_requires_the_current_plugin_sdk_contract() -> None:
     assert requirement.marker is None
     assert not requirement.extras
     assert requirement.specifier.contains(SDK_PLUGIN_CONTRACT_VERSION)
-    assert not requirement.specifier.contains(Version("0.1.9"))
+    assert not requirement.specifier.contains(Version("0.2.0"))
     assert not requirement.specifier.contains(Version("0.3.0"))
     assert requirement.specifier.contains(sdk_version)
 

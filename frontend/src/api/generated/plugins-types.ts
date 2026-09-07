@@ -824,7 +824,7 @@ export interface components {
             kind: "plugin" | "library";
             /**
              * Min Sdk Version
-             * @default 0.2.0
+             * @default 0.2.1
              */
             min_sdk_version: string;
             /** Name */

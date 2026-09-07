@@ -237,6 +237,10 @@ class ToolResult(BaseModel):
 
     success: bool
     data: Any = None
+    model_text: str | None = Field(
+        default=None,
+        description="Optional plain text or Markdown observation for a successful result; data remains canonical.",
+    )
     error: Optional[str] = None
     error_code: Optional[str] = None
     execution_time: float = 0.0
@@ -252,6 +256,7 @@ class ToolResult(BaseModel):
         return cls(
             success=result.status == "succeeded",
             data=result.value,
+            model_text=result.model_text,
             error=result.message,
             error_code=result.error_code,
             resources=result.resources,

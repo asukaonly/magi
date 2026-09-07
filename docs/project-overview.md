@@ -31,6 +31,40 @@ Current release expectations are:
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
 
+### Dependency security
+
+The root Cargo lockfile owns the desktop dependency graph. Tauri must be at
+least 2.11.1 for the corrected local-origin check. The Linux GTK3 graph still
+requires `glib 0.18`, so the workspace overrides that crate with the reviewed
+upstream `VariantStrIter` safety backport in `vendor/glib`. Its archive and file
+checksums, two-line patch and removal criteria are recorded in
+[`vendor/README.md`](../vendor/README.md). CI verifies those sources and runs
+the upstream iterator tests with optimization; a version-only warning about
+0.18.5 does not authorize ignoring an unpatched registry copy.
+
+The frontend gate rejects moderate-or-higher production advisories and
+high-or-higher advisories across the complete build dependency graph. The Rust
+gate checks both vulnerabilities and `unsound` warnings. Its exact advisory,
+package and version exceptions are rechecked against the dependency graph or
+verified patch on every run, and require review before 2026-10-07. The existing
+quick-xml exceptions cover notification-string escaping only; the rkyv exception
+requires that the optional feature remain disabled on every workspace target.
+
+RustSec is complemented by `scripts/check-rust-github-advisories.py`, which
+downloads the public crates.io [OSV data dump](https://google.github.io/osv.dev/data/)
+and matches GitHub advisories against the lockfile locally. It sends no package
+inventory and fails on download, parsing or unsupported-version-range errors.
+Install its pinned matcher dependency with
+`python -m pip install -r scripts/security-audit-requirements.txt`.
+The `--database` option accepts a downloaded snapshot for reproducible reviews;
+CI always downloads the current public database. Version-only GLib findings are
+accepted only after proving the local backport is still connected and intact.
+The GitHub matcher checks the vendored GLib version for all other advisories
+as well as checking registry releases.
+
+Dependency updates require new desktop builds. Repository audit results do not
+prove that already distributed installers or installed applications were updated.
+
 ### Candidate acceptance
 
 Before publishing the draft, a maintainer records the release commit, artifact

@@ -40,7 +40,7 @@ This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
 Use only `magi_plugin_sdk` in an external plugin. The host backend is not
 installed in the plugin worker and is not an authoring dependency. The current
-contract is SDK `0.2.0`, protocol `2`. The Source naming and host-service
+contract is SDK `0.2.1`, protocol `2`. The Source naming and host-service
 boundaries are part of this unreleased contract. There are no old-name aliases,
 protocol-1 branches or historical data migrations. Both host and worker compare
 `min_sdk_version` numerically and still require exact SDK agreement with each
@@ -420,6 +420,20 @@ forced-process-kill and power-loss recovery are not journaled yet.
 ## Tool Plugins
 
 Tool plugins return normal Magi tool classes from `get_tools()`.
+
+SDK 0.2.1 adds optional `ToolResult.model_text` (and `OperationResult.model_text`)
+for a model-facing plain text or Markdown observation. Keep `data` / `value`
+as the complete canonical result; `output_schema` validates that value, not the
+observation. Set the package's `min_sdk_version` to `0.2.1` when using this field.
+The text survives worker RPC and the operation/tool adapters without requiring
+host registration of a formatter or knowledge of the plugin's tool names.
+The host uses nonblank text only on success, bounds it to the observation budget
+with an explicit truncation notice, and journals the exact message. Failure
+status, error codes and recovery remain host-owned. Missing/blank text uses the
+host's default renderer. Include necessary IDs, paths, source identity, missing
+items and partial-result limitations; omit duplicated UI payloads and provider
+diagnostics. `after_execution` changes the execution result itself and is not
+required to provide this separate observation.
 
 Example:
 

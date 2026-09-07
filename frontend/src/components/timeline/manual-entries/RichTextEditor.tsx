@@ -16,7 +16,8 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, useEditorState, EditorContent, type Editor } from '@tiptap/react';
+import { PLUGIN_KEY as placeholderPluginKey } from '@tiptap/extensions/placeholder';
 import { useTranslation } from 'react-i18next';
 import {
   Bold,
@@ -94,6 +95,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const editor = useEditor({
     extensions,
     content: initialContent,
+    shouldRerenderOnTransaction: false,
     autofocus: autoFocus ?? false,
     editorProps: {
       attributes: {
@@ -152,12 +154,17 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     },
   });
 
-  // useEditor owns destruction. Refresh placeholder decorations without
-  // rebuilding the editor or resetting the draft and undo history.
+  // Reinitialize only the cached placeholder decorations. Keep the document,
+  // selection and all other plugin state, including undo history.
   useEffect(() => {
     placeholderRef.current = placeholder;
     if (editor && !editor.isDestroyed) {
-      editor.view.dispatch(editor.state.tr.setMeta('placeholder', true));
+      const plugins = [...editor.state.plugins];
+      const plugin = placeholderPluginKey.get(editor.state);
+      if (plugin) {
+        editor.unregisterPlugin(placeholderPluginKey);
+        editor.registerPlugin(plugin, () => plugins);
+      }
     }
   }, [editor, placeholder]);
 
@@ -197,48 +204,61 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
  *  `isActive(mark | nodeType, attrs?)` which already knows about the
  *  cursor's surrounding context. */
 const Toolbar: React.FC<{
-  editor: ReturnType<typeof useEditor>;
+  editor: Editor;
   onApplyLink: (url: string) => void;
 }> = ({ editor, onApplyLink }) => {
   const { t } = useTranslation('app');
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkDraft, setLinkDraft] = useState('');
+  const active = useEditorState({
+    editor,
+    selector: ({ editor: current }) => ({
+      bold: current.isActive('bold'),
+      italic: current.isActive('italic'),
+      strike: current.isActive('strike'),
+      code: current.isActive('code'),
+      link: current.isActive('link'),
+      heading2: current.isActive('heading', { level: 2 }),
+      heading3: current.isActive('heading', { level: 3 }),
+      bulletList: current.isActive('bulletList'),
+      orderedList: current.isActive('orderedList'),
+      blockquote: current.isActive('blockquote'),
+    }),
+  });
 
   // Seed the popover input with the currently-applied URL so editing
   // an existing link is a tweak, not a re-entry.
   const openLinkPopover = useCallback(() => {
-    if (!editor) return;
-    const current = (editor.getAttributes('link').href as string | undefined) ?? '';
-    setLinkDraft(current);
+    const href: unknown = editor.getAttributes('link').href;
+    setLinkDraft(typeof href === 'string' ? href : '');
     setLinkOpen(true);
   }, [editor]);
 
-  if (!editor) return null;
   return (
     <div className="flex flex-wrap items-center gap-0.5 rounded-md bg-[hsl(var(--app-chrome-surface)/0.72)] px-1 py-0.5 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
       <Btn
-        active={editor.isActive('bold')}
+        active={active.bold}
         onClick={() => editor.chain().focus().toggleBold().run()}
         title={t('timeline.manualEntry.toolbar.bold', { defaultValue: '粗体 (⌘B)' })}
       >
         <Bold className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('italic')}
+        active={active.italic}
         onClick={() => editor.chain().focus().toggleItalic().run()}
         title={t('timeline.manualEntry.toolbar.italic', { defaultValue: '斜体 (⌘I)' })}
       >
         <Italic className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('strike')}
+        active={active.strike}
         onClick={() => editor.chain().focus().toggleStrike().run()}
         title={t('timeline.manualEntry.toolbar.strike', { defaultValue: '删除线' })}
       >
         <Strikethrough className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('code')}
+        active={active.code}
         onClick={() => editor.chain().focus().toggleCode().run()}
         title={t('timeline.manualEntry.toolbar.code', { defaultValue: '行内代码' })}
       >
@@ -255,10 +275,10 @@ const Toolbar: React.FC<{
             onClick={openLinkPopover}
             title={t('timeline.manualEntry.toolbar.link', { defaultValue: '链接' })}
             aria-label={t('timeline.manualEntry.toolbar.link', { defaultValue: '链接' })}
-            aria-pressed={editor.isActive('link')}
+            aria-pressed={active.link}
             className={cn(
               'flex h-6 w-6 items-center justify-center rounded-md text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-              editor.isActive('link')
+              active.link
                 ? 'bg-[hsl(var(--primary)/0.12)] text-foreground'
                 : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
             )}
@@ -300,7 +320,7 @@ const Toolbar: React.FC<{
           >
             {t('timeline.manualEntry.toolbar.applyLink', { defaultValue: '应用' })}
           </button>
-          {editor.isActive('link') ? (
+          {active.link ? (
             <button
               type="button"
               onClick={() => {
@@ -319,14 +339,14 @@ const Toolbar: React.FC<{
       <Divider />
 
       <Btn
-        active={editor.isActive('heading', { level: 2 })}
+        active={active.heading2}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         title={t('timeline.manualEntry.toolbar.heading2', { defaultValue: '二级标题' })}
       >
         <Heading2 className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('heading', { level: 3 })}
+        active={active.heading3}
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         title={t('timeline.manualEntry.toolbar.heading3', { defaultValue: '三级标题' })}
       >
@@ -336,21 +356,21 @@ const Toolbar: React.FC<{
       <Divider />
 
       <Btn
-        active={editor.isActive('bulletList')}
+        active={active.bulletList}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
         title={t('timeline.manualEntry.toolbar.bulletList', { defaultValue: '无序列表' })}
       >
         <List className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('orderedList')}
+        active={active.orderedList}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
         title={t('timeline.manualEntry.toolbar.orderedList', { defaultValue: '有序列表' })}
       >
         <ListOrdered className="h-3.5 w-3.5" />
       </Btn>
       <Btn
-        active={editor.isActive('blockquote')}
+        active={active.blockquote}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
         title={t('timeline.manualEntry.toolbar.quote', { defaultValue: '引用' })}
       >

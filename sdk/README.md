@@ -1,6 +1,6 @@
 # magi-plugin-sdk
 
-Magi's standalone Python SDK, version **0.2**, protocol **2**. External plugins
+Magi's standalone Python SDK, version **0.2.1**, protocol **2**. External plugins
 import only `magi_plugin_sdk`; the Magi backend is not a plugin dependency.
 The SDK requires Python 3.10+ and Pydantic 2.5+.
 
@@ -67,6 +67,29 @@ before code execution. Setup actions/resources that work while disabled must
 explicitly set `requires_enabled = false`; they do not expose ordinary tools.
 
 ## Execution and authority
+
+Tools may return `ToolResult(data=..., model_text=...)`; operations use
+`OperationResult(value=..., model_text=...)`. `data` / `value` remains the
+canonical structured result, including identifiers needed by the host. The
+optional `model_text` is plain text or Markdown for the model and travels with
+the result across the worker boundary. Declare `min_sdk_version = "0.2.1"`
+when using this field. The host and worker use the same SDK; a package's
+minimum SDK version must not exceed that runtime version.
+
+The host only uses nonblank `model_text` for successful results, applies its
+observation length budget, and records execution status independently. Missing
+text uses the normal host formatter. Errors keep the host's error/recovery
+representation. Include sources, missing results, partial-result notices and
+all IDs/paths needed for the model's next call. Do not duplicate diagnostics or
+claim that an image was inspected merely because its path was resolved.
+
+```python
+return ToolResult(
+    success=True,
+    data={"receipt_id": "receipt-123", "provider_diagnostics": diagnostics},
+    model_text="Receipt created. receipt_id: receipt-123",
+)
+```
 
 External code runs in an isolated Python worker importing only the SDK, that
 package and its exact declared libraries. Framed, typed RPC uses no pickle.

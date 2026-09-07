@@ -153,13 +153,13 @@ and contribution identifiers. Reload, package replacement, and shutdown drain
 the previous instance before publishing a replacement. Package removal requires
 disconnecting its connections first.
 
-The public SDK is version `0.2.0`, with plugin protocol `2`. Disk manifests
+The public SDK is version `0.2.1`, with plugin protocol `2`. Disk manifests
 declare `protocol_version = 2`, `min_sdk_version`, and an execution mode
 (`restricted_process` or `trusted_process`). A package is distinct from its
 host-issued connection instances. The SDK wire contracts in
 `magi_plugin_sdk.runtime` define connection identity, invocation authority,
 resource references, versioned source changes, operation results and readiness.
-The Source naming change stays within this unreleased SDK `0.2.0` / protocol
+The Source naming change stays within this unreleased SDK line / protocol
 `2` contract. No old-name aliases, historical protocol support, or data-layout
 conversion is part of the redesign.
 
@@ -200,6 +200,15 @@ The typed contract lives in:
 - [contracts.py](../backend/src/magi/plugins/contracts.py)
 
 ## Base Plugin Contract
+
+Tool results and model observations have separate SDK fields. Since SDK 0.2.1,
+tools may supply `ToolResult.model_text` and operations may supply
+`OperationResult.model_text` alongside canonical `data` / `value`. The typed
+worker transport and operation adapters preserve both. Output schemas validate
+canonical values; optional presentation text cannot bypass those checks or
+change the recorded execution status. The function-calling postprocessor owns
+the final message budget and error representation. No plugin-specific renderer
+is registered in the host; plugins declare their observation in the result.
 
 Every plugin entry class must inherit:
 

@@ -18,7 +18,7 @@
 
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
-import Placeholder from '@tiptap/extension-placeholder';
+import { Placeholder } from '@tiptap/extensions/placeholder';
 
 /** Build the extension list. ``placeholder`` is a parameter (not baked
  *  into a constant) so the editor and the read-only renderer can share
@@ -35,6 +35,10 @@ export function buildRichTextExtensions(placeholder: string | (() => string) = '
       // mark from StarterKit covers the "monospace fragment" case which
       // is the only one diary entries actually need.
       codeBlock: false,
+      // Keep the stored document schema and explicit Link configuration.
+      link: false,
+      underline: false,
+      trailingNode: false,
     }),
     // openOnClick:false avoids triggering navigation when the user
     // clicks a link while editing — surprising and easy to do by

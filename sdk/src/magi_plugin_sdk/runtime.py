@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints,
 
 from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
 
-SDK_VERSION = "0.2.0"
+SDK_VERSION = "0.2.1"
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 
@@ -165,6 +165,10 @@ class OperationResult(RuntimeModel):
 
     status: Literal["succeeded", "failed", "cancelled", "uncertain"]
     value: JsonValue = None
+    model_text: str | None = Field(
+        default=None,
+        description="Optional model observation; never used to determine operation status or validate value.",
+    )
     resources: list[ResourceRef] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None
