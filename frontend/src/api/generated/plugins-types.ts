@@ -395,7 +395,9 @@ export interface components {
          *     cannot become executable merely by appearing in a package declaration.
          *     The publication policy validates the supported set: screen_recording,
          *     accessibility, calendar, photos, contacts, system_media, filesystem_read,
-         *     filesystem_write, network, subprocess.
+         *     filesystem_write, network, subprocess, memory_search, interaction_ask.
+         *     Public host services require the exact current_user (memory_search) or
+         *     current_session (interaction_ask) scope and separate invocation admission.
          */
         PluginCapability: {
             /** Capability */

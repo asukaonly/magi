@@ -20,6 +20,10 @@ describe('registry plan approval', () => {
 
   it.each(['en', 'zh-CN'])('reviews all packages, versions, reasons and permissions in %s before exact approval', async language => {
     const plan = closurePlan();
+    plan.changes[0].entry.capabilities.push(
+      { capability: 'memory_search', scope: ['current_user'], optional: true, reason: 'Recall evidence.', reason_i18n: {} },
+      { capability: 'interaction_ask', scope: ['current_session'], optional: true, reason: 'Ask the user.', reason_i18n: {} },
+    );
     vi.spyOn(pluginsApi, 'getInstallPlan').mockResolvedValue(plan);
     const confirm = vi.fn();
     const i18n = await setup(language);
@@ -33,6 +37,10 @@ describe('registry plan approval', () => {
       expect(within(section).getByText(i18n.t('settings.marketplace.plan.permissions', { ns: 'app' }))).toBeInTheDocument();
     }
     expect(screen.getByText(i18n.t('settings.marketplace.plan.reason.consumer', { ns: 'app', name: 'fixture_library' }))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.marketplace.capability.memory_search.scope', { ns: 'app' }))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.marketplace.capability.interaction_ask.scope', { ns: 'app' }))).toBeInTheDocument();
+    expect(screen.queryByText('current_user')).not.toBeInTheDocument();
+    expect(screen.queryByText('current_session')).not.toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: i18n.t('settings.marketplace.plan.confirm', { ns: 'app' }) }));
     expect(confirm).toHaveBeenCalledExactlyOnceWith(plan);

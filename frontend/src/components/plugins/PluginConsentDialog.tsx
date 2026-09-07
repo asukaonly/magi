@@ -6,7 +6,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { PluginCapability } from '@/api/modules/plugins';
-import { capabilityMeta, groupCapabilities } from '@/lib/pluginCapabilities';
+import { capabilityMeta, capabilityScopeKey, groupCapabilities } from '@/lib/pluginCapabilities';
 import { PluginIcon } from './PluginIcon';
 
 export type ConsentMode = 'install' | 'update' | 'sideload' | 'trust';
@@ -74,18 +74,17 @@ export const PluginConsentDialog: React.FC<Props> = ({
           </div>
           {c.scope.length > 0 ? (
             <div className="mt-1 space-y-0.5">
-              {c.scope.map((scope, scopeIndex) => (
+              {c.scope.map((scope, scopeIndex) => {
+                const key = capabilityScopeKey(c.capability, scope);
+                return (
                 <code
                   key={`${scope}:${scopeIndex}`}
                   className="block max-w-full whitespace-normal break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]"
                 >
-                  {c.capability === 'memory_search' && scope === 'current_user'
-                    ? t('settings.marketplace.capability.memory_search.scope')
-                    : c.capability === 'interaction_ask' && scope === 'current_session'
-                      ? t('settings.marketplace.capability.interaction_ask.scope')
-                      : scope}
+                  {key ? t(key) : scope}
                 </code>
-              ))}
+                );
+              })}
             </div>
           ) : null}
           <div className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</div>

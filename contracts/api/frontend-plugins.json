@@ -825,7 +825,7 @@
       },
       "PluginCapability": {
         "additionalProperties": false,
-        "description": "A requested capability, never a grant of runtime authority.\n\nThe host authorizes access for a connection separately. Unknown operations\ncannot become executable merely by appearing in a package declaration.\nThe publication policy validates the supported set: screen_recording,\naccessibility, calendar, photos, contacts, system_media, filesystem_read,\nfilesystem_write, network, subprocess.",
+        "description": "A requested capability, never a grant of runtime authority.\n\nThe host authorizes access for a connection separately. Unknown operations\ncannot become executable merely by appearing in a package declaration.\nThe publication policy validates the supported set: screen_recording,\naccessibility, calendar, photos, contacts, system_media, filesystem_read,\nfilesystem_write, network, subprocess, memory_search, interaction_ask.\nPublic host services require the exact current_user (memory_search) or\ncurrent_session (interaction_ask) scope and separate invocation admission.",
         "properties": {
           "capability": {
             "title": "Capability",

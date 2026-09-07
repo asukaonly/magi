@@ -1348,6 +1348,16 @@ lock is missing. `MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS=1` exists only as an explicit
 developer-mode escape hatch and must not be treated as a normal distribution
 path.
 
+When an upstream dependency has no wheel, a maintainer may include a reviewed
+prebuilt artifact in the plugin's fixed `wheels/` directory. The package digest
+covers that artifact and its provenance; the exact wheel hash also appears in
+`requirements.lock`. Installation adds only that verified package directory
+as a wheel search source and retains `--only-binary=:all:` and
+`--require-hashes`. Symlinked directories, links, subdirectories and non-wheel
+files are rejected. Source archives are never built during installation or
+lockfile checks. Maintainer build recipes, fixed source hashes and licenses
+belong outside `wheels/` and travel with the package.
+
 The companion plugin repository regenerates lockfiles, complete-package
 digests, and `registry.json` together. Its CI checks all generated outputs for
 drift. It also records the digest first published for every plugin id and
@@ -1385,9 +1395,12 @@ the approved package. Python `__pycache__` directories are removed before
 sealing and verification; loose bytecode and every source, native extension,
 script, and data file remain covered.
 
-The registry snapshot fingerprint remains separate because it binds user
-consent to the exact marketplace view and source shown at approval time; it is
-not stored as another package identity. A package digest prevents repository
+The registry snapshot fingerprint identifies the marketplace view and source.
+The installation plan adds the requested target, operation, complete dependency
+closure and current installed identities, and hashes that complete review as
+`plan_fingerprint`. Every install or update requires this plan approval; a
+registry-only fingerprint is never accepted. Neither fingerprint is stored as
+another package identity. A package digest prevents repository
 branch drift from changing approved files, but it is not a publisher signature
 if an attacker can replace both the registry and repository. Signing the
 maintainer-owned registry remains future supply-chain work.
@@ -1396,8 +1409,29 @@ An installed library is reusable only when all of that provenance still
 matches and its full nested library closure remains valid. The same recursive
 check runs again under the final lifecycle lock and when a consumer loads after
 startup or reload. Concurrent installs that discover the same identical
-library reuse it without a second publication; a different identity is a
-conflict and never overwrites the library already in use.
+library reuse it without a second publication. A different library identity
+requires a coordinated upgrade reviewed as a complete package graph.
+
+The planner expands a changed library to all installed direct and transitive
+consumers. Each affected consumer must have a newer release in the same
+verified registry, including packages discovered only through persisted
+references. Uninspectable consumers, missing releases, source mismatches or
+unverified installed content block the plan before any package changes.
+The review shows every package's current and proposed version, reason,
+execution mode and declared access, including reused libraries.
+
+Coordinated upgrades claim the full graph, stage and seal all replacements,
+then stop active and setup connections. The host revalidates the approved
+graph after draining and under the final lifecycle lock before replacing any
+files. It preserves connection identities and settings, and retains previous
+packages until the entire graph reloads. Failure or cancellation before commit
+restores packages, configuration and connections; success after the commit
+point remains success even if a late cancellation arrives. A rollback failure
+is reported distinctly and retains backups for recovery.
+
+This rollback covers handled runtime failures and cancellation. It does not
+provide a durable transaction journal for power loss or a forced host-process
+kill during a multi-package replacement.
 
 Before an install decides which packages are already present, it claims the
 complete library closure from the approved registry snapshot in dependency-first
@@ -1457,11 +1491,14 @@ Magi.
 
 ### Installation Flow
 
-1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
-2. Marketplace install and update requests include the exact registry
-   declaration-and-source fingerprint shown when the user approved the action;
-   this is consent binding, while `package_sha256` is the one upstream package
-   identity
+1. Before a marketplace install or update, the frontend requests
+   `POST /api/plugins/install/registry/plan` with `plugin_id` and `update`.
+   The public router exposes the complete plan without loading plugin code.
+2. The user reviews every affected package and grants approval. The frontend
+   then starts the job with the returned `plan_fingerprint` and polls its
+   `job_id`. The host recomputes the complete plan and rejects changed targets,
+   operations, registry content or installed identities. Local archive uploads
+   retain their separate single-use inspected-candidate approval flow.
 3. The backend job reports `status`, `stage`, `progress_pct`, installer
    messages, and bounded install logs while work continues in the background.
    One log entry is limited to 4 KiB, retained logs to 240 entries and 256 KiB,
@@ -1470,10 +1507,10 @@ Magi.
 5. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote
    repository, persists the last successful index under the local plugin cache, and falls back to
    that cached index if the remote registry is temporarily unavailable
-6. The host rejects the action if the current normalized index, registry URL,
-   or repository URL no longer matches the approved fingerprint. It checks
-   again after validating every extracted package so changed marketplace data
-   returns the user to review rather than silently continuing
+6. The host checks the normalized registry and source again after validating
+   extracted packages. Coordinated upgrades also revalidate installed state
+   after worker drain and immediately before replacement. Changed approval
+   inputs return the user to review.
 7. `RegistryClient.clone_plugin()` downloads at most 64 MiB from the repository
    tarball, with short-lived in-memory caching keyed by both tarball URL and
    approved snapshot fingerprint
@@ -1500,7 +1537,27 @@ Packaged desktop builds stage two generated runtime resources under `frontend/sr
 
 ### Frontend
 
-The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Timeline & Sources reuses the same registry fingerprint and install job flow when it offers an uninstalled source.
+The marketplace UI lives in the Plugins settings section under "插件市场 / Marketplace". It shows available plugins with manifest or registry icons, install/uninstall actions, version info, platform compatibility badges, and install progress with job logs. Marketplace cards, the registry install panel and Timeline & Sources all use the same complete-plan review before starting an install or update job.
+
+### Paired Runtime Validation
+
+Both repositories run `scripts/plugin_runtime_ci.py` from the selected host
+checkout on native Linux, macOS and Windows workers. Host CI pins a full
+companion commit; companion CI resolves its exact host commit from the SDK
+requirement in `scripts/registry-requirements.txt`. The gate records both
+checkout identities, creates a worker environment containing only the public
+SDK, exercises actual process lifecycle tests and installs each supported
+official package's locked dependencies before worker registration. Unsupported
+platforms are recorded explicitly. Simulated-platform declaration tests remain
+a separate check and do not count as native collector execution.
+
+Cross-repository publication must make every referenced commit reachable first.
+Publish the reviewed companion artifact commit on a branch, then publish the
+host that pins that artifact and passes the paired gate. Finally publish the
+companion SDK pin selecting that host. The host can keep the preceding artifact
+commit as its package fixture; it need not pin the later companion metadata
+commit, which avoids circular commit references. Local results do not substitute
+for the native remote matrix when publishing either repository.
 
 ## Execution Modes And Boundaries
 

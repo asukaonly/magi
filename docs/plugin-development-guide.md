@@ -393,7 +393,13 @@ during normal installation. Each lock entry must be an ordinary
 package name pinned to one exact version with SHA-256 hashes. Direct URLs,
 local paths, editable installs, package-manager directives, version ranges,
 and source-only distributions are rejected. Runtime installation accepts
-prebuilt wheels only. Keep the manifest at or below 128 dependency declarations
+prebuilt wheels only. A reviewed wheel may be distributed in `wheels/` when
+upstream has no binary artifact; it must be a regular `.whl` file, and its hash
+must appear in the generated lock. Keep the verified upstream source hash,
+license and reproducible maintainer build recipe alongside the package but
+outside `wheels/`. The published artifact is covered by the package digest;
+neither end-user installation nor lock checking runs source builds.
+Keep the manifest at or below 128 dependency declarations
 and the generated lockfile at or below 1 MiB and 1,024 entries. Installation
 also enforces a combined 256 MiB and 50,000-entry limit across its temporary
 workspace and the plugin-local dependency directory. Installer output is
@@ -401,6 +407,15 @@ truncated to a bounded diagnostic tail, so lock generation and validation
 must not depend on parsing unbounded install logs. A marketplace install also
 shares a 512 MiB and 100,000-entry budget across every extracted package source
 and dependency-install output in the complete package closure.
+
+Marketplace installs and updates review the complete package plan before
+execution. If a shared library changes, publish newer releases of every
+installed consumer that needs the new library identity; the host includes
+them in one coordinated upgrade. Missing consumer releases or unverifiable
+installed packages block the plan. The confirmation lists all versions,
+reasons and declared access. Any change to the approved registry or installed
+graph requires a new review. Handled failures restore the previous graph;
+forced-process-kill and power-loss recovery are not journaled yet.
 
 ## Tool Plugins
 

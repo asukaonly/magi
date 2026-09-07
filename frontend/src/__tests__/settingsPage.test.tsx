@@ -15,6 +15,7 @@ import { sourcesApi } from '@/api/modules/sources';
 import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
+import { planFor } from './fixtures/pluginInstallPlan';
 
 const {
   syncCloseToTrayPreferenceMock,
@@ -254,6 +255,7 @@ vi.mock('@/api/modules/plugins', async () => {
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
       getRegistry: vi.fn(),
+      getInstallPlan: vi.fn(),
       installFromRegistryWithProgress: vi.fn(),
       listConnections: vi.fn(),
       getConnection: vi.fn(),
@@ -2435,6 +2437,9 @@ describe('settings page draft saving', () => {
 
   it('shows addable marketplace entries when a capability has only one installed source', async () => {
     const user = userEvent.setup();
+    const plan = planFor('safari-history');
+    plan.changes[0].entry.execution_mode = 'trusted_process';
+    vi.mocked(pluginsApi.getInstallPlan).mockResolvedValue(plan);
     vi.mocked(sourcesApi.getStatus).mockResolvedValue({
       sources: [
         {
@@ -2483,14 +2488,14 @@ describe('settings page draft saving', () => {
     expect(await screen.findByText('plugins.trust.nativeAccess')).toBeInTheDocument();
     await user.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.consent.confirm.install',
+        name: 'settings.marketplace.plan.confirm',
       }),
     );
 
     await waitFor(() => {
       expect(pluginsApi.installFromRegistryWithProgress).toHaveBeenCalledWith(
         'safari-history',
-        'fingerprint-1',
+        plan.fingerprint,
         expect.any(Function),
       );
     });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { pluginsApi, type PluginInstallPlan } from '@/api/modules/plugins';
-import { capabilityMeta } from '@/lib/pluginCapabilities';
+import { capabilityMeta, capabilityScopeKey } from '@/lib/pluginCapabilities';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
 import { getErrorMessage } from '@/utils/error-handler';
 import { Button } from '@/components/ui/button';
@@ -99,7 +99,10 @@ export function PluginRegistryPlanReview({ pluginId, update, onConfirm, onCancel
                       <span className="font-medium">{t(`${capabilityMeta(capability.capability).i18nKey}.label`)}</span>
                       {capability.optional ? <span className="ml-2 text-xs text-muted-foreground">{t('settings.marketplace.plan.optional')}</span> : null}
                       <p className="break-words text-muted-foreground">
-                        {capability.scope.length ? capability.scope.join(', ') : t('settings.marketplace.plan.unscoped')}
+                        {capability.scope.length ? capability.scope.map((scope) => {
+                          const key = capabilityScopeKey(capability.capability, scope);
+                          return key ? t(key) : scope;
+                        }).join(', ') : t('settings.marketplace.plan.unscoped')}
                       </p>
                       <p className="break-words text-muted-foreground">
                         {localizedPluginText(capability.reason, capability.reason_i18n, i18n.language)}

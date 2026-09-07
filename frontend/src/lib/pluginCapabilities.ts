@@ -32,6 +32,16 @@ export function capabilityMeta(capability: string): CapabilityMeta {
   return { group: 'data', icon: 'ShieldQuestionMark', i18nKey: 'settings.marketplace.capability.unknown', known: false };
 }
 
+export function capabilityScopeKey(capability: string, scope: string): string | null {
+  if (capability === 'memory_search' && scope === 'current_user') {
+    return 'settings.marketplace.capability.memory_search.scope';
+  }
+  if (capability === 'interaction_ask' && scope === 'current_session') {
+    return 'settings.marketplace.capability.interaction_ask.scope';
+  }
+  return null;
+}
+
 export function groupCapabilities(caps: PluginCapability[]): {
   system: PluginCapability[];
   data: PluginCapability[];
