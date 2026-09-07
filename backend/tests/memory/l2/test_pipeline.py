@@ -631,8 +631,6 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
             "resolved_refs": [],
             "diagnostics": {"entity_status": "none"},
         }),
-        # Phase 2 may improve wording but does not decide whether to write.
-        json.dumps({"summaries": []}),
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -1043,8 +1041,6 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                 "diagnostics": {"entity_status": "found"},
             }
         ),
-        # Phase 2 wording is optional; Phase 1 owns graph and assertion semantics.
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1223,7 +1219,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
 
 
 @pytest.mark.asyncio
-async def test_optional_inference_failure_persists_phase1_and_completes(
+async def test_graph_projection_needs_no_wording_model_call(
     caplog,
 ):
     phase1_response = json.dumps(
@@ -1312,8 +1308,8 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
 
             assert stats["extract_completed"] == 1
             assert stats["extract_failed"] == 0
-            assert len(adapter.calls) == 3
-            assert any(
+            assert len(adapter.calls) == 1
+            assert not any(
                 "L2 optional summary generation failed" in record.getMessage()
                 for record in caplog.records
             )
@@ -1327,7 +1323,7 @@ async def test_optional_inference_failure_persists_phase1_and_completes(
 
 
 @pytest.mark.asyncio
-async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
+async def test_goal_materialization_needs_no_wording_model_call():
     event_time = time.time()
     phase1_response = json.dumps(
         {
@@ -1431,7 +1427,7 @@ async def test_phase2_json_failure_still_persists_host_owned_goal_assertion():
             ]
             assert [outcome["outcome"] for outcome in assertion_outcomes] == ["projected"]
             assert store.get_l2_pipeline_stats()["extract_failed"] == 0
-            assert len(adapter.calls) == 3
+            assert len(adapter.calls) == 1
         finally:
             await store.shutdown()
 
@@ -1477,8 +1473,7 @@ async def test_goal_text_is_materialized_without_creating_an_activity_entity():
         },
         ensure_ascii=False,
     )
-    phase2_response = json.dumps({"summaries": []})
-    adapter = _FakeAdapter([phase1_response, phase2_response])
+    adapter = _FakeAdapter([phase1_response])
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -1594,8 +1589,6 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
                 "diagnostics": {"entity_status": "found"},
             }
         ),
-        # Phase 2 wording is optional; Phase 1 owns graph and assertion semantics.
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2155,7 +2148,6 @@ async def test_extract_worker_materializes_routed_assertions():
             }
         ),
         # Empty wording output must not suppress host materialization.
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2196,7 +2188,7 @@ async def test_extract_worker_materializes_routed_assertions():
             assert assertions[0]["trait_name"] == "mood"
             # Assertion may already have been reconciled (temporary trait → corroborated)
             assert assertions[0]["validation_state"] in ("tentative", "corroborated")
-            assert assertions[0]["confidence_score"] in (0.3, 0.5)
+            assert assertions[0]["confidence_score"] == pytest.approx(0.94)
             assert store.get_l2_pipeline_stats()["reconcile_enqueued"] >= 1
             claims = await store.l2.list_grounded_claims()
             assert len(claims) == 1
@@ -2219,7 +2211,7 @@ async def test_extract_worker_materializes_routed_assertions():
 
 
 @pytest.mark.asyncio
-async def test_extract_worker_materializes_routed_claim_when_phase2_omits_summary():
+async def test_extract_worker_materializes_routed_claim_without_wording_call():
     responses = [
         json.dumps(
             {
@@ -2243,7 +2235,6 @@ async def test_extract_worker_materializes_routed_claim_when_phase2_omits_summar
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2297,7 +2288,7 @@ async def test_extract_worker_materializes_routed_claim_when_phase2_omits_summar
 
 
 @pytest.mark.asyncio
-async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_assertions():
+async def test_projection_preserves_unrelated_existing_assertions():
     adapter = _FakeAdapter("{}")
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -2350,7 +2341,7 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
             existing_assertions = await store.l2.list_tom_assertions(entity_id="user:u1")
             existing_assertion_id = existing_assertions[0]["assertion_id"]
             adapter._responses = [
-                # Phase 1: extract a fact claim so Phase 2 runs
+                # Phase 1: extract a fact claim for host projection
                 json.dumps(
                     {
                         "entities": [],
@@ -2373,8 +2364,6 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                         "diagnostics": {"entity_status": "none"},
                     }
                 ),
-                # Phase 2 supplies wording only; the host owns all semantic actions.
-                json.dumps({"summaries": []}),
             ]
 
             await store.ingest_event(
@@ -2405,7 +2394,7 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                 item for item in assertions if item["assertion_id"] == existing_assertion_id
             )
             # The independent reconcile worker may normalize a stable row to
-            # corroborated while this test waits. Optional Phase 2 wording must
+            # corroborated while this test waits. An unrelated Claim must
             # not contradict or supersede it.
             assert existing["validation_state"] in {"stable", "corroborated"}
             assert existing["confidence_score"] == pytest.approx(0.84)
@@ -2583,7 +2572,6 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
-            json.dumps({"summaries": []}),
         ]
     )
 
@@ -3553,7 +3541,7 @@ async def test_structured_graph_ref_preserves_its_explicit_identity():
         ]
         assert len(ipad_entities) == 1
         catalog_name_index = await pipeline._build_catalog_name_index()
-        object_id = pipeline._resolve_phase2_object_id(
+        object_id = pipeline._resolve_grounded_object_id(
             raw_object_ref="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
             object_type="hardware", resolved_mentions=[], catalog_name_index=catalog_name_index,
         )
@@ -3662,7 +3650,7 @@ def test_inject_structured_graph_hints_adds_fact_claims():
 
 
 @pytest.mark.asyncio
-async def test_extract_worker_persists_structured_graph_hints_without_phase2_edges():
+async def test_extract_worker_persists_structured_graph_hints_without_model_edges():
     from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth
 
     responses = [
@@ -3674,7 +3662,6 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3747,12 +3734,12 @@ async def test_extract_worker_persists_structured_graph_hints_without_phase2_edg
 
 
 @pytest.mark.asyncio
-async def test_structured_hint_not_double_written_when_phase2_runs():
-    """Structured hints written before Phase 1 must not be re-persisted after Phase 2.
+async def test_structured_hint_not_double_written_during_projection():
+    """Structured hints written before Phase 1 must not be re-persisted during projection.
 
     Before the fix, _build_structured_graph_candidates was called twice in the
-    Phase 2 path: once for the direct-write before Phase 1, and again after
-    Phase 2 where the results were merged and written a second time.  The second
+    projection path: once for the direct-write before Phase 1, and again when
+    the results were merged and written a second time. The second
     upsert triggered Noisy-OR confidence accumulation (e.g. 0.85 → ~0.98) and
     incremented observation_count — inflating both metrics.
     """
@@ -3762,7 +3749,7 @@ async def test_structured_hint_not_double_written_when_phase2_runs():
 
     # Phase 1 must return content so pipeline proceeds past the "empty Phase 1"
     # early-return.  The external_observation policy (allow_assertion_write=True)
-    # blocks the fast-track path, so Phase 2 will run.
+    # blocks the fast-track path, so Claim projection will run.
     responses = [
         json.dumps(
             {
@@ -3782,9 +3769,6 @@ async def test_structured_hint_not_double_written_when_phase2_runs():
                 "diagnostics": {"entity_status": "resolved"},
             }
         ),
-        # Phase 2 returns no new graph edges — the only graph write should be
-        # the single direct-write of the structured hint before Phase 1.
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3878,7 +3862,6 @@ async def test_extract_worker_persists_category_facets_from_structured_graph_hin
                 "diagnostics": {"entity_status": "none"},
             }
         ),
-        json.dumps({"summaries": []}),
     ]
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -4216,178 +4199,10 @@ class TestExtractionInstructions:
         )
         assert "## Source-Specific Instructions" not in prompt
 
-    def test_phase2_prompt_includes_resolved_entity_ids(self):
-        from magi.memory.l2.pipeline.prompts import (
-            PHASE2_INTEGRATE_SYSTEM_PROMPT,
-            render_phase2_integrate_prompt,
-        )
 
-        phase2_prompt = render_phase2_integrate_prompt(
-            phase1_result={
-                "entities": [
-                    {
-                        "surface": "归潮",
-                        "normalized_name": "归潮",
-                        "entity_type": "media",
-                        "specificity": "concrete",
-                        "resolved_id": "media:1ee3b9131dd8",
-                        "is_new": True,
-                    }
-                ],
-                "fact_claims": [
-                    {
-                        "claim_id": "claim:1",
-                        "subject_ref": "user:self",
-                        "predicate": "LISTENED",
-                        "object_ref": "归潮",
-                        "object_type": "media",
-                        "specificity": "concrete",
-                        "confidence": 1.0,
-                    }
-                ],
-            },
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-        )
 
-        assert "**归潮** -> media:1ee3b9131dd8" in phase2_prompt
-        assert "entity_id: media:1ee3b9131dd8" in phase2_prompt
-        assert "host deterministically owns every semantic decision" in PHASE2_INTEGRATE_SYSTEM_PROMPT
-        assert "romanize" in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
-    def test_phase2_prompt_includes_all_phase1_entities(self):
-        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
 
-        phase2_prompt = render_phase2_integrate_prompt(
-            phase1_result={
-                "entities": [
-                    {
-                        "surface": "Magi",
-                        "normalized_name": "Magi",
-                        "entity_type": "software",
-                        "specificity": "concrete",
-                        "resolved_id": "software:magi",
-                        "is_new": False,
-                    },
-                    {
-                        "surface": "Codex",
-                        "normalized_name": "Codex",
-                        "entity_type": "software",
-                        "specificity": "concrete",
-                        "resolved_id": "software:codex",
-                        "is_new": True,
-                    },
-                ],
-                "fact_claims": [],
-            },
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-        )
-
-        assert "**Magi** -> software:magi" in phase2_prompt
-        assert "**Codex** -> software:codex" in phase2_prompt
-
-    def test_phase2_prompt_includes_summary_instructions(self):
-        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
-
-        phase2_prompt = render_phase2_integrate_prompt(
-            phase1_result={"entities": [], "fact_claims": []},
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-            summary_instructions="Keep the source's wording concise.",
-        )
-
-        assert "## Source-Specific Summary Instructions" in phase2_prompt
-        assert "Keep the source's wording concise" in phase2_prompt
-
-    def test_phase2_prompt_omits_summary_instructions_when_absent(self):
-        from magi.memory.l2.pipeline.prompts import render_phase2_integrate_prompt
-
-        phase2_prompt = render_phase2_integrate_prompt(
-            phase1_result={"entities": [], "fact_claims": []},
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-        )
-
-        assert "## Source-Specific Summary Instructions" not in phase2_prompt
-
-    @pytest.mark.asyncio
-    async def test_pipeline_passes_profile_summary_instructions(self):
-        summary_instructions = "Keep summaries in the source language."
-        adapter = _FakeAdapter(
-            [
-                json.dumps(
-                    {
-                        "entities": [],
-                        "fact_claims": [
-                            {
-                                "claim_id": "claim:profile-summary",
-                                "subject_ref": "user:u1",
-                                "subject_type": "user",
-                                "predicate": "LIKES",
-                                "object_ref": "Track A",
-                                "object_type": "media",
-                                "fact_kind": "explicit_fact",
-                                "temporal_cue": "unspecified",
-                                "polarity": "positive",
-                                "specificity": "concrete",
-                                "evidence_text": "I like Track A",
-                                "confidence": 0.9,
-                                "supporting_event_ids": ["evt-phase2-profile-1"],
-                            }
-                        ],
-                        "resolved_refs": [],
-                        "diagnostics": {"entity_status": "none"},
-                    }
-                ),
-                json.dumps({"summaries": []}),
-            ]
-        )
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            base = Path(temp_dir)
-            store = UnifiedMemoryStore(
-                l1_db_path=str(base / "l1_events.db"),
-                memory_db_path=str(base / "memory.db"),
-                persist_dir=str(base / "memories"),
-                l2_batch_flush_interval_seconds=0,
-                scenario_llm_pool=_FakeScenarioPool(adapter),
-                extraction_profile_provider=lambda: [
-                    ExtractionProfileSpec(
-                        profile_id="source.play_history",
-                        source_types=["play_history"],
-                        allowed_entity_types=["media", "topic"],
-                        allowed_predicates=["LIKES"],
-                        allow_graph=True,
-                        allow_assertion=True,
-                        summary_instructions=summary_instructions,
-                    )
-                ],
-            )
-            await store.initialize()
-            try:
-                await store.ingest_event(
-                    {
-                        "id": "evt-phase2-profile-1",
-                        "type": EventTypes.USER_MESSAGE,
-                        "timestamp": time.time(),
-                        "source": "play_history",
-                        "level": EventLevel.INFO.value,
-                        "data": {
-                            "user_id": "u1",
-                            "session_id": "s1",
-                            "content": "I like Track A",
-                        },
-                    }
-                )
-
-                for _ in range(400):
-                    if len(adapter.calls) >= 2:
-                        break
-                    await asyncio.sleep(0.01)
-
-                assert len(adapter.calls) >= 2
-                phase2_prompt = str(adapter.calls[-1]["prompt"])
-                assert "## Source-Specific Summary Instructions" in phase2_prompt
-                assert summary_instructions in phase2_prompt
-            finally:
-                await store.shutdown()
 
     def test_override_replaces_extraction_instructions(self):
         from magi.memory.l2.extraction_profiles import ExtractionProfile, _apply_overrides
@@ -4947,8 +4762,8 @@ class TestEntityResolutionCache:
             assert ("evt-ct-2:magi", "person") in cache
 
 
-class TestPhase2CatalogNameIndex:
-    """Tests for Phase 2 object resolution using catalog name index."""
+class TestGraphCatalogNameIndex:
+    """Tests for graph object resolution using catalog name index."""
 
     @pytest.fixture
     def pipeline_cls(self):
@@ -4959,7 +4774,7 @@ class TestPhase2CatalogNameIndex:
         p = pipeline_cls.__new__(pipeline_cls)
         p._entity_catalog = None
         index = {"bilibili": "software:bilibili-hash"}
-        result = p._resolve_phase2_object_id(
+        result = p._resolve_grounded_object_id(
             raw_object_ref="bilibili",
             object_type="software",
             resolved_mentions=[],
@@ -4971,7 +4786,7 @@ class TestPhase2CatalogNameIndex:
         p = pipeline_cls.__new__(pipeline_cls)
         p._entity_catalog = None
         index = {"something_else": "software:other"}
-        result = p._resolve_phase2_object_id(
+        result = p._resolve_grounded_object_id(
             raw_object_ref="bilibili",
             object_type="software",
             resolved_mentions=[],
@@ -4993,7 +4808,7 @@ class TestPhase2CatalogNameIndex:
             confidence=0.95,
         )
         index = {"bilibili": "software:catalog-entity"}
-        result = p._resolve_phase2_object_id(
+        result = p._resolve_grounded_object_id(
             raw_object_ref="bilibili",
             object_type="software",
             resolved_mentions=[mention],

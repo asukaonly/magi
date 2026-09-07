@@ -105,11 +105,11 @@ class L2Phase1GraphProjectionMixin:
             profile=profile,
         ):
             return None, "graph_shape_not_allowed"
-        subject_id = self._resolve_phase2_subject_id(  # type: ignore[attr-defined]
+        subject_id = self._resolve_grounded_subject_id(  # type: ignore[attr-defined]
             event=event,
             subject_ref=claim.subject_ref,
         )
-        object_id = self._resolve_phase2_object_id(  # type: ignore[attr-defined]
+        object_id = self._resolve_grounded_object_id(  # type: ignore[attr-defined]
             raw_object_ref=claim.object_ref,
             object_type=object_type,
             resolved_mentions=resolved_mentions,

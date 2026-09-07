@@ -5,14 +5,14 @@ from pathlib import Path
 
 import magi.memory.l2.pipeline.extraction as extraction
 from magi.memory.l2.pipeline.extraction import L2PipelineExtractionMixin
-from magi.memory.l2.pipeline.phase2_flow import L2Phase2FlowMixin
+from magi.memory.l2.pipeline.projection_flow import L2ProjectionFlowMixin
 
 
-def test_phase2_flow_lives_in_dedicated_mixin() -> None:
-    assert issubclass(L2PipelineExtractionMixin, L2Phase2FlowMixin)
+def test_projection_flow_lives_in_dedicated_mixin() -> None:
+    assert issubclass(L2PipelineExtractionMixin, L2ProjectionFlowMixin)
     assert (
-        L2PipelineExtractionMixin._run_phase2_flow
-        is L2Phase2FlowMixin._run_phase2_flow
+        L2PipelineExtractionMixin._run_projection_flow
+        is L2ProjectionFlowMixin._run_projection_flow
     )
 
     extraction_source_path = Path(str(inspect.getsourcefile(extraction)))

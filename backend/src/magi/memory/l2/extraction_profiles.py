@@ -83,7 +83,6 @@ class ExtractionProfile:
     allow_assertion: bool = True
     extraction_instructions: str | None = None
     phase1_instructions: str | None = None
-    summary_instructions: str | None = None
     allowed_assertion_traits: frozenset[str] | None = None
     derived_assertion_specs: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
@@ -168,7 +167,6 @@ def _parse_profile_from_dict(profile_id: str, raw: dict[str, Any]) -> Extraction
         allow_assertion=allow_assertion,
         extraction_instructions=phase1_instructions,
         phase1_instructions=phase1_instructions,
-        summary_instructions=_coalesce_text(raw.get("summary_instructions")),
         allowed_assertion_traits=_parse_profile_assertion_traits(
             raw.get("allowed_assertion_traits")
         ),
@@ -415,10 +413,6 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
     if isinstance(override_instructions, str) and override_instructions.strip():
         phase1_instructions = override_instructions.strip()
         extraction_instructions = phase1_instructions
-    summary_instructions = profile.summary_instructions
-    override_summary_instructions = overrides.get("summary_instructions")
-    if isinstance(override_summary_instructions, str) and override_summary_instructions.strip():
-        summary_instructions = override_summary_instructions.strip()
     allow_assertion = _coerce_bool(
         overrides.get("allow_assertion"), default=profile.allow_assertion
     )
@@ -460,7 +454,6 @@ def _apply_overrides(profile: ExtractionProfile, overrides: dict[str, Any]) -> E
         allow_assertion=allow_assertion,
         extraction_instructions=extraction_instructions,
         phase1_instructions=phase1_instructions,
-        summary_instructions=summary_instructions,
         allowed_assertion_traits=_coerce_assertion_traits(
             overrides.get("allowed_assertion_traits"),
             fallback=profile.allowed_assertion_traits,

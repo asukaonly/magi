@@ -1,4 +1,4 @@
-"""L2 graph projection, optional wording, and host materialization flow."""
+"""Deterministic L2 graph and assertion projection flow."""
 
 from __future__ import annotations
 
@@ -18,8 +18,6 @@ from ..assertions.occurrence_stats import (
     load_routed_claim_occurrence_stats,
 )
 from ..claims.outcomes import ClaimTargetOutcomeContext
-from ..factual_rendering import render_grounded_fact
-from ..llm_json_client import L2LLMJsonError
 from ..phase1_models import L2Phase1FactClaim
 from ..reviews import PendingReviewProposal
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
@@ -43,13 +41,6 @@ def _degraded_stages(phase1_flow: _Phase1ExtractionFlow) -> list[str]:
             stage.strip() for stage in raw_stages if isinstance(stage, str) and stage.strip()
         )
     )
-
-
-def _record_degraded_stage(phase1_flow: _Phase1ExtractionFlow, stage: str) -> None:
-    degraded_stages = _degraded_stages(phase1_flow)
-    if stage not in degraded_stages:
-        degraded_stages.append(stage)
-    phase1_flow.phase1_result.diagnostics["degraded_stages"] = degraded_stages
 
 
 def _route_group_key(route: SemanticRouteDecision) -> ClaimRouteValueKey:
@@ -83,50 +74,6 @@ def _claim_groups(
         key: (route_by_key[key], tuple(sorted(claims, key=lambda claim: claim.claim_id)))
         for key, claims in grouped.items()
     }
-
-
-def _validated_summary_by_key(
-    phase1_flow: _Phase1ExtractionFlow,
-    phase2_result: Any,
-) -> tuple[dict[ClaimRouteValueKey, str], int]:
-    claims_by_id = {
-        claim.claim_id: claim
-        for claim in phase1_flow.phase1_result.fact_claims
-        if str(claim.claim_id or "").strip()
-    }
-    accepted: dict[ClaimRouteValueKey, str] = {}
-    rejected = 0
-    for summary in getattr(phase2_result, "summaries", []):
-        claim_ids = tuple(str(item or "").strip() for item in summary.claim_ids)
-        text = " ".join(str(summary.text or "").split())[:500]
-        if not claim_ids or len(set(claim_ids)) != len(claim_ids) or not text:
-            rejected += 1
-            continue
-        if any(claim_id not in claims_by_id for claim_id in claim_ids):
-            rejected += 1
-            continue
-        routes = [phase1_flow.semantic_routes.get(claim_id) for claim_id in claim_ids]
-        if any(route is None or not route.can_project_assertion for route in routes):
-            rejected += 1
-            continue
-        typed_routes = [route for route in routes if route is not None]
-        keys = {_route_group_key(route) for route in typed_routes}
-        if len(keys) != 1:
-            rejected += 1
-            continue
-        key = next(iter(keys))
-        claims = [claims_by_id[claim_id] for claim_id in claim_ids]
-        if not _summary_is_grounded(text, claims):
-            rejected += 1
-            continue
-        accepted.setdefault(key, text)
-    return accepted, rejected
-
-
-def _summary_is_grounded(text: str, claims: list[L2Phase1FactClaim]) -> bool:
-    # Object overlap cannot establish entailment. Accept only host-owned wording.
-    expected = {render_grounded_fact(claim) for claim in claims}
-    return bool(text and expected == {text})
 
 
 def _materialization_outcomes(
@@ -178,10 +125,10 @@ def _ensure_terminal_assertion_outcomes(
         )
 
 
-class L2Phase2FlowMixin:
+class L2ProjectionFlowMixin:
     """Persist Claim projections with model-independent Assertion semantics."""
 
-    async def _run_phase2_flow(
+    async def _run_projection_flow(
         self: Any,
         batch: _PreparedExtractionBatch,
         phase1_flow: _Phase1ExtractionFlow,
@@ -203,32 +150,6 @@ class L2Phase2FlowMixin:
         await self._emit_active_entities(event=batch.stored_event, focal_entities=focal_entities)
 
         groups = _claim_groups(phase1_flow)
-        summaries: dict[ClaimRouteValueKey, str] = {}
-        summary_count = 0
-        rejected_summary_count = 0
-        summary_attempted = bool(
-            groups
-            and batch.policy.allow_assertion_write
-            and batch.extraction_profile.allow_assertion
-        )
-        if summary_attempted:
-            try:
-                phase2_result = await self._run_phase2_integration(batch, phase1_flow)
-            except L2LLMJsonError as exc:
-                logger.warning(
-                    "L2 optional summary generation failed",
-                    event_id=batch.stored_event.event_id,
-                    profile_id=batch.extraction_profile.profile_id,
-                    error_type=type(exc).__name__,
-                )
-                _record_degraded_stage(phase1_flow, "phase2_summary")
-            else:
-                summary_count = len(phase2_result.summaries)
-                summaries, rejected_summary_count = _validated_summary_by_key(
-                    phase1_flow,
-                    phase2_result,
-                )
-
         occurrence_stats = await self._load_materialization_occurrence_stats(groups)
         decisions: list[MaterializationDecision] = []
         assertion_candidates: list[dict[str, Any]] = []
@@ -255,7 +176,6 @@ class L2Phase2FlowMixin:
                     inference_depth=batch.stored_event.tom_depth.label,
                     observed_at=float(batch.stored_event.timestamp),
                     now=datetime.now().timestamp(),
-                    natural_summary=summaries.get(key, ""),
                 )
             )
             decisions.append(decision)
@@ -288,27 +208,6 @@ class L2Phase2FlowMixin:
             pending_review_proposals=pending_review_proposals,
             decisions=decisions,
             rejected_graph_count=len(graph_rejections),
-            summary_attempted=summary_attempted,
-            summary_count=summary_count,
-            accepted_summary_count=len(summaries),
-            rejected_summary_count=rejected_summary_count,
-        )
-
-    async def _run_phase2_integration(
-        self: Any,
-        batch: _PreparedExtractionBatch,
-        phase1_flow: _Phase1ExtractionFlow,
-    ) -> Any:
-        logger.info(
-            "L2 optional summary generation started",
-            event_id=batch.stored_event.event_id,
-            claim_count=len(phase1_flow.phase1_result.fact_claims),
-        )
-        return await self._llm_service.integrate_phase2(
-            phase1_result=phase1_flow.phase1_result,
-            event_window=batch.event_window,
-            focal_subject=batch.focal_subject,
-            summary_instructions=batch.extraction_profile.summary_instructions,
         )
 
     async def _load_materialization_occurrence_stats(
@@ -345,10 +244,6 @@ class L2Phase2FlowMixin:
         pending_review_proposals: list[PendingReviewProposal],
         decisions: list[MaterializationDecision],
         rejected_graph_count: int,
-        summary_attempted: bool,
-        summary_count: int,
-        accepted_summary_count: int,
-        rejected_summary_count: int,
     ) -> dict[str, Any]:
         await self._assert_current_projection_attempt(batch)
         relation_count, _facet_count, assertion_count = await self._persist_extraction_outputs(
@@ -409,9 +304,6 @@ class L2Phase2FlowMixin:
             assertion_count=assertion_count,
             review_count=review_count,
             materialization_by_action=materialization_by_action,
-            summary_count=summary_count,
-            accepted_summary_count=accepted_summary_count,
-            rejected_summary_count=rejected_summary_count,
         )
         return {
             "relation_count": relation_count,
@@ -434,12 +326,8 @@ class L2Phase2FlowMixin:
             "materialization_count": len(decisions),
             "materialization_by_action": materialization_by_action,
             "rejected_graph_candidate_count": rejected_graph_count,
-            "summary_attempted": summary_attempted,
-            "summary_count": summary_count,
-            "accepted_summary_count": accepted_summary_count,
-            "rejected_summary_count": rejected_summary_count,
             "degraded_stages": _degraded_stages(phase1_flow),
         }
 
 
-__all__ = ["L2Phase2FlowMixin"]
+__all__ = ["L2ProjectionFlowMixin"]

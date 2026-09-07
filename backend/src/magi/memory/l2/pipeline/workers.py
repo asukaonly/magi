@@ -252,9 +252,6 @@ class L2PipelineWorkerMixin:
             "graph_candidate_count",
             "materialization_count",
             "rejected_graph_candidate_count",
-            "summary_count",
-            "accepted_summary_count",
-            "rejected_summary_count",
             "contradiction_hint_count",
         ):
             try:
@@ -332,9 +329,6 @@ class L2PipelineWorkerMixin:
             graph_candidate_count=int(result.get("graph_candidate_count", 0)),
             materialization_count=int(result.get("materialization_count", 0)),
             rejected_graph_candidate_count=int(result.get("rejected_graph_candidate_count", 0)),
-            summary_count=int(result.get("summary_count", 0)),
-            accepted_summary_count=int(result.get("accepted_summary_count", 0)),
-            rejected_summary_count=int(result.get("rejected_summary_count", 0)),
             relation_count=int(result["relation_count"]),
             assertion_count=int(result["assertion_count"]),
             degraded_stages=result.get("degraded_stages", []),

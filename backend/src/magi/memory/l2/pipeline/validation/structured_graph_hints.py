@@ -167,7 +167,7 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
         catalog_name_index: dict[str, str] | None,
     ) -> _StructuredGraphHintEndpoints | None:
         host = self._structured_hint_host()
-        subject_id = host._resolve_phase2_subject_id(
+        subject_id = host._resolve_grounded_subject_id(
             event=event,
             subject_ref=shape.hint.subject_ref,
         )
@@ -178,7 +178,7 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
                 continue
             if hint.get("entity_type") == shape.object_type and normalized_entity_name(shape.hint.object_ref) in {normalized_entity_name(str(hint.get("mention_text") or "")), normalized_entity_name(str(hint.get("canonical_name_hint") or ""))}:
                 return _StructuredGraphHintEndpoints(subject_id, entity_hint_id(hint, source=event.source, event_id=event.event_id))
-        object_id = host._resolve_phase2_object_id(
+        object_id = host._resolve_grounded_object_id(
             raw_object_ref=shape.hint.object_ref,
             object_type=shape.object_type,
             resolved_mentions=[],

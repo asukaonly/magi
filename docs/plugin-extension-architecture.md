@@ -916,7 +916,6 @@ class ExtractionProfile:
     allow_assertion: bool
     extraction_instructions: str | None
     phase1_instructions: str | None
-    summary_instructions: str | None
     derived_assertion_specs: tuple[dict[str, Any], ...]
 ```
 
@@ -930,7 +929,6 @@ Key fields:
 - `allowed_assertion_traits`: optional exact or namespace allowlist (`music.*`) for assertion trait names.
 - `source_types`: normalized event sources routed to this profile.
 - `phase1_instructions` / `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section.
-- `summary_instructions`: optional source-specific wording guidance for claim-bound Phase 2 summaries. It cannot introduce or alter semantic fields, and summary failure does not affect materialization.
 - `derived_assertion_specs`: plugin-declared graph-derived assertion specs. The host compiles these into validated rules and runs them in the L2 derive schedule; plugins never bypass assertion lifecycle, source-tier, or conflict protection.
 
 Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence. `preference_profile` covers explicit affinities and tastes, while `interest_profile` covers attention and interests; `routine_profile` covers repeated behavior rhythms and habits. Family policy is host-owned and determines default lifecycle/decay, snapshot placement, and value-localization expectations. Trust and governance decisions remain source-tier controlled, so plugin-derived inference cannot overwrite user-authored assertions.

@@ -14,7 +14,6 @@ from .phase1_models import (
     L2Phase1ResolvedRef,
     L2Phase1Result,
 )
-from .phase2_models import L2Phase2Result, L2Phase2Summary
 from .phase_aux_models import (
     ContradictionHint,
     ReconciledTraitOutcome,
@@ -31,8 +30,6 @@ __all__ = [
     "L2Phase1FactClaim",
     "L2Phase1ResolvedRef",
     "L2Phase1Result",
-    "L2Phase2Result",
-    "L2Phase2Summary",
     "ReconciledTraitOutcome",
     "StructuredEntityHint",
     "StructuredGraphHint",

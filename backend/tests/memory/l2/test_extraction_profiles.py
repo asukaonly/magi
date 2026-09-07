@@ -433,7 +433,7 @@ def test_plugin_allow_assertion_is_preserved():
     assert profiles["source.netease_music"].allow_assertion is True
 
 
-def test_phase1_and_summary_instructions_are_independent():
+def test_phase1_instructions_override_extraction_instructions():
     from magi.memory.l2.extraction_profiles import build_extraction_profile_registry
 
     profiles = build_extraction_profile_registry(
@@ -445,7 +445,6 @@ def test_phase1_and_summary_instructions_are_independent():
                 "allowed_predicates": ["INTERESTED_IN"],
                 "extraction_instructions": "legacy instructions",
                 "phase1_instructions": "new phase one instructions",
-                "summary_instructions": "summary wording instructions",
                 "allow_assertion": False,
             }
         ]
@@ -454,7 +453,6 @@ def test_phase1_and_summary_instructions_are_independent():
     profile = profiles["source.custom_source"]
     assert profile.extraction_instructions == "new phase one instructions"
     assert profile.phase1_instructions == "new phase one instructions"
-    assert profile.summary_instructions == "summary wording instructions"
 
 
 def test_unknown_profile_fields_do_not_change_materialization_authority():

@@ -32,7 +32,7 @@ class _L2GraphValidationHostProtocol(Protocol):
 class L2GraphEndpointResolutionMixin:
     """Resolve graph endpoint references and reject unsafe preference edges."""
 
-    def _resolve_phase2_subject_id(self, *, event: MemoryEvent, subject_ref: str) -> str | None:
+    def _resolve_grounded_subject_id(self, *, event: MemoryEvent, subject_ref: str) -> str | None:
         host = self._graph_validation_host()
         ref = host._non_empty_text(subject_ref)
         if ref:
@@ -41,7 +41,7 @@ class L2GraphEndpointResolutionMixin:
             return ref
         return host._resolve_self_entity_id(event)
 
-    def _resolve_phase2_object_id(
+    def _resolve_grounded_object_id(
         self,
         *,
         raw_object_ref: Any,

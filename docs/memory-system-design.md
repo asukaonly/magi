@@ -825,14 +825,14 @@ an explicit `one_off` `LIKES` or `DISLIKES` Claim remains event/Claim evidence a
 does not create a reusable preference relationship. All other preference and
 interest routes derive a stable semantic target from either the
 catalog entity ID or the complete normalized evidence text; display truncation is
-never used as identity. Phase 2 does not emit graph edges. Graph storage and
+never used as identity. Graph storage and
 internal retrieval continue to use stable catalog IDs, while product-facing
 relationship read models must batch-hydrate endpoint names from the entity
 catalog. A client may cache catalog entities for reuse, but it must not infer a
 user-visible name from an ID prefix such as `concept:` or `other:`; an unresolved
 opaque endpoint is presented as unknown instead.
 Evidence-derived entity text and model-generated summaries have
-different language contracts. The configured user language guides Phase 2
+different language contracts. The configured user language guides host-rendered
 natural-language summaries, but it is interpretation context only in Phase 1 and
 never authorizes translation of imported evidence. Phase 1 protocol keys and enum
 values remain English, while entity surfaces, normalized names, evidence-derived
@@ -867,12 +867,13 @@ as the record summary or as source-evidence references.
 
 The extraction runtime keeps Phase 1 admission, batch preparation, entity
 resolution, evidence grounding, host semantic routing, and deterministic graph
-and Assertion projection separate from optional Phase 2 wording. Phase 2 may
-return only concise natural-language summaries bound to exact current Claim IDs;
-it cannot propose records, families, routes, conflicts, lifecycle fields, or
-persistence actions. Shared handoff data lives in a small extraction contract
-module so wording can evolve without importing or acquiring authority over host
-materialization details.
+and Assertion projection separate. `pipeline/projection_flow.py` owns the
+projection orchestration; the existing stores retain lifecycle and transaction
+ownership. There is no Phase 2 wording model call. Assertion summaries are
+rendered from grounded facts at materialization, so wording cannot propose
+records, families, routes, conflicts, lifecycle fields, or persistence actions.
+Extraction profiles no longer expose `summary_instructions`; L3 narrative
+generation and its source hooks retain their separate ownership.
 
 The grounded Claim is the durable handoff between extraction and downstream
 projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
@@ -1007,7 +1008,7 @@ is never converted to an empty collection or a fresh verdict. Pending reviews
 invalidate the portrait read model for governance consistency, but their proposed
 content is not injected as a current user fact.
 Host conflict discovery is exhaustive over the current slot and does not depend
-on Phase 2 input or output. The host alone defines the comparison set and
+on model wording. The host alone defines the comparison set and
 authorizes conflict side effects. `HAS_METRIC` remains explicitly unrouted with
 `typed_metric_contract_required` until the host can derive metric name, value,
 unit, and value identity without free-form model output.
@@ -1497,7 +1498,7 @@ The default execution model:
    batch descriptor and attempt key derived from the complete canonical lease set;
    only that exact descriptor may mark the jobs `running` or write results.
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
-8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call. A semantically invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry. Repeated failure of the required Phase 1 extraction marks the projection job `failed`; failure of optional entity disambiguation leaves those mentions unresolved, while failure of optional Phase 2 wording persists the host-routed Phase 1 projections and completes with an explicit degraded-stage marker. Non-model infrastructure failures may still requeue to `pending`.
+8. Model output must be a JSON object matching the stage's required top-level fields and field types. Repairable auxiliary metadata is normalized before validation; in Phase 1, an absent, unknown, or source-unsupported `temporal_cue` becomes an unambiguous cue detected in the evidence quote, or `unspecified` when no cue is present, without another model call. A semantically invalid Phase 1 claim is rejected individually so one bad candidate cannot discard valid peers or fail the projection job. Invalid top-level JSON or stage structure still receives one stricter format retry. Repeated failure of the required Phase 1 extraction marks the projection job `failed`; failure of optional entity disambiguation leaves those mentions unresolved and completes with an explicit degraded-stage marker. Non-model infrastructure failures may still requeue to `pending`.
 
 Batch policy:
 
@@ -1530,11 +1531,11 @@ Extraction flow:
   queued work to `pending`; a subset of leases can never complete the whole batch.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. Each fact includes a grounded linguistic temporal cue (`one_off`, `recent`, `recurring`, `stable`, or `unspecified`) that reflects explicit source wording only; it never owns retention policy. The host then assigns each retained fact a deterministic claim reference and verifies its current quote, evidence mode, and bounded antecedent IDs. Missing, out-of-batch, context-only, or unmatchable support rejects that candidate without retrying the full response and without expanding evidence to the whole batch.
 - Phase 1 entity candidates are admitted only when their exact surface occurs in eligible current evidence. Cross-script translated normalized names are restored to that surface before typed entity resolution, and alias signals absent from the same evidence are discarded. Imported Markdown occurrence checks exclude blockquotes, code, and pasted dialogue. Extracted entity mentions are then attributed only to events that literally contain the surface or retained normalized name. A context-only entity may be used transiently only for a validated contextual claim when its exact catalog ID and canonical name already exist, but it cannot create catalog records, aliases, event-entity links, or mention evidence for the current event. Underspecified entities are not registered.
-- Grounded Phase 1 claims receive a deterministic semantic route before projection. Only routes that explicitly target the graph and have resolved catalog endpoints become graph candidates; independently eligible assertion routes are not discarded merely because an optional graph endpoint is unresolved. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
-- Entity disambiguation and Phase 2 wording are optional enrichments. If entity disambiguation exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. If Phase 2 wording exhausts its retries, validated Phase 1 Claims, graph facts, structured facets, Assertions, reviews, and terminal outcomes are still persisted; only optional wording is lost, and the projection is completed with the degraded stage recorded in diagnostics and logs.
-- Host materialization reads the complete active Claim/evidence ledger required for occurrence, currentness, conflict, and lifecycle decisions. This host-owned retrieval does not call an LLM and is never truncated to fit a Phase 2 prompt. Phase 2 receives only the bounded current Claim material needed to produce optional wording.
+- Grounded Phase 1 claims receive a deterministic semantic route before projection. Only routes that explicitly target the graph and have resolved catalog endpoints become graph candidates; independently eligible assertion routes are not discarded merely because an optional graph endpoint is unresolved. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; facts are projected only from their grounded Claims.
+- Entity disambiguation is an optional enrichment. If it exhausts its model/JSON retries, affected mentions remain unresolved and no fallback entity is created. Independently eligible Assertions, reviews, and terminal outcomes still persist with an explicit degraded-stage marker.
+- Host materialization reads the complete active Claim/evidence ledger required for occurrence, currentness, conflict, and lifecycle decisions. This host-owned retrieval does not call an LLM and is never truncated to fit a model prompt.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External source events without a session must not fall back to arbitrary same-user recent chat context.
-- Phase 2 runs only as optional wording synthesis. Its output contains concise summaries bound to deterministic Phase 1 Claim IDs and no record IDs, family, trait, slot, route, confidence, lifecycle, expiry, or persistence action. Invalid or cross-target summaries are discarded without changing materialization. The host independently derives family, evidence, confidence, horizon, volatility, lifecycle, review eligibility, and safe conflict actions from routed Claims and the complete active ledger.
+- The host derives family, evidence, confidence, horizon, volatility, lifecycle, review eligibility, and safe conflict actions from routed Claims and the complete active ledger. A deterministic renderer produces the user-facing factual description without a second model call.
 - Passive observations remain graph or episode evidence. They never enter the direct Assertion write path. A graph-derived rule may independently promote aggregated observations into expiring recent context after its own observation, distinct-day, time-span, and recency thresholds; durable profile conclusions additionally require a plugin-declared non-passive signal preset and explicit durable permission.
 
 #### Evidence Classification and Write Policy
@@ -1601,13 +1602,13 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 
 - Source integrations produce: entity hints, fact hints, optional tags/batch hints
 - Ingestion gateway handles: schema validation, canonical/local ref normalization, writing hints into `MemoryEvent.metadata_json`, generating rule-backed graph candidates per admission policy
-- `L2Pipeline` handles: using source-owned hints as structural anchors, persisting grounded Claims, host semantic routing, graph projection, deterministic Assertion materialization, optional summary wording, governed persistence, and snapshot refresh
+- `L2Pipeline` handles: using source-owned hints as structural anchors, persisting grounded Claims, host semantic routing, graph projection, deterministic Assertion materialization and wording, governed persistence, and snapshot refresh
 
 **Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. Plugins declare the semantic family, a domain signal preset (`passive_exposure`, `sustained_engagement`, `deliberate_choice`, or `structured_source`), recent observation/day thresholds, and whether durable promotion is meaningful. The host reads the original L1 occurrence timestamps for the predicate-bound evidence IDs, calculates exact evidence count, distinct days, span, and recency without an LLM, and then owns the final recent-versus-durable decision. Plugin thresholds may be stricter than the host safety floors but cannot weaken them. Passive exposure can produce only an expiring recent assertion; durable promotion requires an explicitly permitted non-passive preset and higher host floors. All writes use the normal assertion lifecycle and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference.
 
 Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence. Host-owned quality gates also reject low-level object labels such as raw URLs, domains, file paths, coordinates, and hash-like identifiers before they can become profile assertions; those details may remain graph evidence but should not appear as portrait traits. The host fallback interest rule emits `interest_profile` recent context only after repeated activity on multiple original occurrence days. Source-specific rules are appropriate for repeated behavioral domains such as repository work, GitHub project activity, terminal tool usage, foreground app usage, music listening, game play, and browser content interests; single observations from those sources remain graph evidence.
 
-Plugins may strengthen extraction and presentation quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, optional summary wording instructions, and typed `DerivedAssertionRuleSpec` rules. The host routes every grounded Claim and exclusively chooses Assertion family, trait, slot, target, value, promotion horizon, lifecycle, and governance action. Phase 2 may return only claim-bound natural-language summaries; an empty, invalid, or failed Phase 2 response never creates, suppresses, merges, or changes an Assertion. Plugins do not own the final assertion ontology or bypass source-tier governance.
+Plugins may strengthen extraction and presentation quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions and typed `DerivedAssertionRuleSpec` rules. The host routes every grounded Claim and exclusively chooses Assertion family, trait, slot, target, value, promotion horizon, lifecycle, and governance action. Host-rendered summaries never create, suppress, merge, or change an Assertion. Plugins do not own the final assertion ontology or bypass source-tier governance.
 
 **Ontology** uses one closed canonical entity registry for both extraction and
 structured hints. The Phase 1 prompt defines every registered type and the host
@@ -2966,13 +2967,12 @@ positive polarity means an explicit dislike; negative `LIKES` never becomes
 retains negative Claims, evidence, and temporal scope in the ledger with reason
 `negative_claim_requires_scoped_exclusion`. Until a scoped exclusion projection
 is supported, these Claims have no graph or portrait/assertion target. Initial
-projection, optional wording, and route replay share this boundary.
+projection, host rendering, and route replay share this boundary.
 
 Assertion `natural_summary` is a host-rendered view of predicate, target, and
-time qualifiers. Model wording must exactly match this controlled view to be
-accepted; substring overlap is not semantic validation. Materialization renders
-again at the write boundary, so portraits, prompts, full-text and vector indexes
-cannot receive an optional summary that reverses or extends the Claim.
+time qualifiers. There is no optional model wording to validate; substring overlap is not
+semantic validation. Materialization renders at the write boundary, so portraits, prompts, full-text and vector indexes
+cannot receive a generated summary that reverses or extends the Claim.
 
 Temporal summaries persist the union of all generation dependencies in
 `source_event_ids` and the evidence-link table: selected samples, events supplied

@@ -348,82 +348,24 @@ def test_phase1_prompt_rejects_unregistered_first_context_question_text():
     assert "## Conversation Question Context (not evidence)" not in prompt
 
 
-def test_integrate_phase2_passes_source_summary_instructions():
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
-
-    adapter = _FakeAdapter(
-        json.dumps(
-            {
-                "summaries": [],
-            }
-        )
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    asyncio.run(
-        service.integrate_phase2(
-            phase1_result=L2Phase1Result(),
-            event_window=L2EventWindow(
-                events=[{"event_id": "evt-song", "content": "played Track A", "timestamp": 1.0}],
-                summary=L2EventWindowSummary(session_id="s1"),
-            ),
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-            summary_instructions="Keep song names in their source language.",
-        )
-    )
-
-    user_prompt = adapter._client.completions.kwargs["messages"][-1]["content"]
-    assert "## Source-Specific Summary Instructions" in user_prompt
-    assert "Keep song names in their source language" in user_prompt
-
-
-def test_integrate_phase2_retries_undeclared_fields():
-    from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
-
-    adapter = _FakeAdapter(
-        [
-            json.dumps({"summaries": [], "semantic_actions": []}),
-            json.dumps({"summaries": []}),
-        ]
-    )
-    service = L2LLMService(_FakeScenarioPool(adapter))
-
-    result = asyncio.run(
-        service.integrate_phase2(
-            phase1_result=L2Phase1Result(),
-            event_window=L2EventWindow(
-                events=[{"event_id": "evt-1", "content": "I like tea.", "timestamp": 1.0}],
-                summary=L2EventWindowSummary(session_id="s1"),
-            ),
-            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
-        )
-    )
-
-    assert result.to_dict() == {"summaries": []}
-    assert len(adapter.calls) == 2
-
-
 def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
 
     limiter = _install_recording_limiter(monkeypatch)
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "summaries": [],
+                "entities": [], "fact_claims": [], "resolved_refs": [],
             }
         )
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     asyncio.run(
-        service.integrate_phase2(
-            phase1_result=L2Phase1Result(),
+        service.extract_phase1(
             event_window=L2EventWindow(
                 events=[
                     {
@@ -446,21 +388,20 @@ def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
     monkeypatch: pytest.MonkeyPatch,
 ):
     from magi.memory.l2.llm_service import L2LLMService
-    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
 
     limiter = _install_recording_limiter(monkeypatch)
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "summaries": [],
+                "entities": [], "fact_claims": [], "resolved_refs": [],
             }
         )
     )
     service = L2LLMService(_FakeScenarioPool(adapter))
 
     asyncio.run(
-        service.integrate_phase2(
-            phase1_result=L2Phase1Result(),
+        service.extract_phase1(
             event_window=L2EventWindow(
                 events=[
                     {

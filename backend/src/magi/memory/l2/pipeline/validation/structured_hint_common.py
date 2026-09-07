@@ -31,9 +31,9 @@ class _L2StructuredHintHostProtocol(Protocol):
 
     def _normalize_predicate(self, raw_value: Any) -> Optional[str]: ...
 
-    def _resolve_phase2_subject_id(self, *, event: MemoryEvent, subject_ref: str) -> str | None: ...
+    def _resolve_grounded_subject_id(self, *, event: MemoryEvent, subject_ref: str) -> str | None: ...
 
-    def _resolve_phase2_object_id(
+    def _resolve_grounded_object_id(
         self,
         *,
         raw_object_ref: Any,

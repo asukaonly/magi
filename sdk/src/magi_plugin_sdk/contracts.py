@@ -301,7 +301,6 @@ class ExtractionProfileSpec(PluginContract):
     allow_assertion: bool = True
     extraction_instructions: str | None = None
     phase1_instructions: str | None = None
-    summary_instructions: str | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
     derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(
         default_factory=list

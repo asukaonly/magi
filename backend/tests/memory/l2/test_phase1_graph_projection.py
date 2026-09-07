@@ -14,11 +14,11 @@ class _ProjectionHarness(L2Phase1GraphProjectionMixin):
     def _normalize_entity_type(self, raw_value: object) -> str | None:
         return str(raw_value or "").strip().casefold() or None
 
-    def _resolve_phase2_subject_id(self, *, event: object, subject_ref: object) -> str | None:
+    def _resolve_grounded_subject_id(self, *, event: object, subject_ref: object) -> str | None:
         _ = event
         return str(subject_ref or "").strip() or None
 
-    def _resolve_phase2_object_id(
+    def _resolve_grounded_object_id(
         self,
         *,
         raw_object_ref: object,

@@ -31,7 +31,7 @@ from .extraction_contracts import (
 from .external_dialogue_grounding import ground_phase1_external_dialogue_refs
 from .claim_grounding import ground_phase1_fact_claims
 from .claim_persistence import L2ClaimPersistenceMixin
-from .phase2_flow import L2Phase2FlowMixin
+from .projection_flow import L2ProjectionFlowMixin
 
 logger = get_logger("magi.memory.l2.pipeline")
 
@@ -130,7 +130,6 @@ def _structured_only_result(batch: _PreparedExtractionBatch) -> dict[str, Any]:
         "graph_candidate_count": 0,
         "materialization_count": 0,
         "rejected_graph_candidate_count": 0,
-        "summary_count": 0,
         "contradiction_hint_count": 0,
         "structured_only": True,
     }
@@ -155,7 +154,6 @@ def _empty_phase1_result_payload(
         "graph_candidate_count": 0,
         "materialization_count": 0,
         "rejected_graph_candidate_count": 0,
-        "summary_count": 0,
         "contradiction_hint_count": 0,
         "degraded_stages": list(phase1_flow.phase1_result.diagnostics.get("degraded_stages", [])),
     }
@@ -251,8 +249,8 @@ def build_l2_extraction_plan(stored_events: list[MemoryEvent]) -> L2ExtractionPl
     )
 
 
-class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
-    """Run the end-to-end L2 Phase 1/Phase 2 extraction and persistence flow."""
+class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
+    """Run the end-to-end L2 extraction and deterministic projection flow."""
 
     async def _fetch_pinned_payloads(self: Any, event_ids: Any) -> dict[str, str]:
         """Batch-load pinned capture-time full texts for the window (RFC #56 P3).
@@ -323,7 +321,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         if not phase1_flow.phase1_result.has_content:
             return await self._empty_phase1_result(batch, phase1_flow)
 
-        return await self._run_phase2_flow(batch, phase1_flow)
+        return await self._run_projection_flow(batch, phase1_flow)
 
     def _record_extraction_decisions(self: Any, extraction_plan: L2ExtractionPlan) -> None:
         self._stats.events_evaluated += len(extraction_plan.decisions)
@@ -727,7 +725,7 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2Phase2FlowMixin):
         phase1_flow: _Phase1ExtractionFlow,
     ) -> dict[str, Any]:
         logger.info(
-            "L2 Phase 1 returned empty result, skipping Phase 2",
+            "L2 Phase 1 returned empty result, skipping Claim projection",
             event_id=batch.stored_event.event_id,
             profile_id=batch.extraction_profile.profile_id,
             evidence_class=batch.classification.evidence_class,

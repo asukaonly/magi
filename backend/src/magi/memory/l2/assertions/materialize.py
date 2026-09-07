@@ -51,7 +51,6 @@ class MaterializationInput:
     inference_depth: str
     observed_at: float
     now: float
-    natural_summary: str = ""
 
 
 @dataclass(frozen=True, slots=True)

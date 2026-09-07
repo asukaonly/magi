@@ -52,14 +52,6 @@ def _external_interest_phase1() -> str:
     )
 
 
-def _external_interest_phase2() -> str:
-    return json.dumps(
-        {
-            "summaries": [],
-        }
-    )
-
-
 async def _wait_for_relationships(store, *, entity_id: str, attempts: int = 300):
     rows: list = []
     for _ in range(attempts):
@@ -76,7 +68,7 @@ async def _wait_for_relationships(store, *, entity_id: str, attempts: int = 300)
 
 @pytest.mark.asyncio
 async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
-    adapter = _FakeAdapter([_external_interest_phase1(), _external_interest_phase2()])
+    adapter = _FakeAdapter([_external_interest_phase1()])
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
         store = UnifiedMemoryStore(

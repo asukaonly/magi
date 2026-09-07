@@ -1031,10 +1031,9 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 - `allowed_assertion_families`: which ToM assertion families are permitted (empty disables assertions)
 - `allow_graph` / `allow_assertion`: master switches for graph and assertion writing
 - `extraction_instructions` / `phase1_instructions`: free-text instructions injected into the LLM Phase 1 prompt
-- `summary_instructions`: optional wording guidance for claim-bound Phase 2 summaries
 - `derived_assertion_specs`: host-validated graph-derived assertion specs for accumulated source evidence
 
-Phase 1 instructions guide entity and grounded Claim extraction. The host then owns semantic routing and every Assertion field, including family, trait, slot, target, value, evidence, confidence, promotion horizon, lifecycle, and governance action. Phase 2 is optional and may return only concise summaries bound to host-assigned Claim IDs. Empty or invalid summaries do not change materialization. Plugins can declare derived assertion specs when they know source-specific accumulated evidence patterns, but the host still validates assertion families, traits, lifecycle, and source-tier governance.
+Phase 1 instructions guide entity and grounded Claim extraction. The host then owns semantic routing and every Assertion field, including family, trait, slot, target, value, evidence, confidence, promotion horizon, lifecycle, and governance action. The host renders factual summaries directly from grounded Claims. Extraction profiles have no separate wording-model instructions. Plugins can declare derived assertion specs when they know source-specific accumulated evidence patterns, but the host still validates assertion families, traits, lifecycle, and source-tier governance.
 
 Canonical assertion families are `stress`, `mood`, `engagement`, `trigger`, `relationship_shift`, `group_atmosphere`, `public_sentiment`, `identity_profile`, `communication_profile`, `preference_profile`, `interest_profile`, `project_profile`, `goal_profile`, `routine_profile`, and `state_profile`. Use `preference_profile` only for grounded likes and dislikes, `interest_profile` for grounded attention or interest without affinity, `project_profile` for active project work, `goal_profile` for concrete intentions, and `routine_profile` for repeated behavior rhythms and habits. Do not use assertion family names as graph predicates or graph object refs.
 
@@ -1055,7 +1054,6 @@ class ChromeHistoryPlugin(Plugin):
                 allow_graph=True,
                 allow_assertion=False,
                 extraction_instructions="Treat browser history as observed page titles, not user-authored text.",
-                summary_instructions="Keep summaries factual and preserve the source language.",
             )
         ]
 ```

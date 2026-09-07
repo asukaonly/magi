@@ -76,7 +76,7 @@ class _ClaimPersistenceHostProtocol(Protocol):
 
     def _normalize_entity_type(self, raw_value: Any) -> str | None: ...
 
-    def _resolve_phase2_object_id(
+    def _resolve_grounded_object_id(
         self,
         *,
         raw_object_ref: Any,
@@ -87,7 +87,7 @@ class _ClaimPersistenceHostProtocol(Protocol):
 
 
 class L2ClaimPersistenceMixin:
-    """Persist grounded Claims before optional entity resolution and Phase 2."""
+    """Persist grounded Claims before entity resolution and deterministic projection."""
 
     async def _assert_current_projection_attempt(
         self,
@@ -246,7 +246,7 @@ class L2ClaimPersistenceMixin:
         object_refs: dict[str, tuple[str, str]] = {}
         for claim in phase1_result.fact_claims:
             object_type = host._normalize_entity_type(claim.object_type)
-            object_id = host._resolve_phase2_object_id(
+            object_id = host._resolve_grounded_object_id(
                 raw_object_ref=claim.object_ref,
                 object_type=object_type,
                 resolved_mentions=resolved_mentions,

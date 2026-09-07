@@ -40,7 +40,7 @@ class L2StructuredFacetHintMixin(L2StructuredHintHostMixin):
             origin_mode = host._normalize_structured_graph_hint_origin_mode(hint.origin_mode)
             if origin_mode not in _STRUCTURED_GRAPH_HINT_DIRECT_ORIGIN_MODES:
                 continue
-            subject_id = host._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
+            subject_id = host._resolve_grounded_subject_id(event=event, subject_ref=hint.subject_ref)
             subject_type = host._normalize_entity_type(hint.subject_type)
             if not subject_id or not subject_type:
                 continue

@@ -256,8 +256,7 @@ class L2PipelineContextMixin:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Load complete current records relevant to host conflict checks.
 
-        Phase 2 model context stays deliberately small. Host validation must not
-        inherit those presentation limits, so it pages through every active
+        Model context has presentation limits. Host validation pages through every active
         relationship for candidate subjects and every live assertion family for
         candidate routes. The validation layer remains responsible for exact
         slot and graph-taxonomy compatibility.

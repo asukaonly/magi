@@ -10,7 +10,7 @@ Design:
 - Looks up canonical names for all qualifying topic objects in one batch.
 - Builds one assertion candidate per topic and persists each via
   ``store.upsert_assertion_candidate``, the same public entry that the L2
-  pipeline uses for phase2 assertion candidates.  This means:
+  pipeline uses for assertion candidates.  This means:
     * source-aware safety is automatic: ``source_domain="external_activity"``
       classifies as ``source_tier="inferred"``, so an inferred interest can
       never overwrite a user's self-stated preference.
