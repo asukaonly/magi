@@ -652,3 +652,63 @@ async def test_consumer_with_forged_previous_dependency_hash_cannot_be_reapprove
         runtime.before_config["consumer-b"]
     )
     assert_restored(runtime)
+
+
+@pytest.mark.asyncio
+async def test_late_cancellation_reports_completed_commit(runtime, monkeypatch):
+    import threading
+
+    reached = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    original = runtime.manager.install_coordinated_registry_plan
+
+    def hold_committed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        loop.call_soon_threadsafe(reached.set)
+        assert release.wait(5)
+        return result
+
+    monkeypatch.setattr(runtime.manager, "install_coordinated_registry_plan", hold_committed)
+    plan = await runtime.service.plan_registry_install("consumer-a", update=True)
+    task = asyncio.create_task(
+        runtime.service.update_from_registry("consumer-a", expected_fingerprint=plan.fingerprint)
+    )
+    try:
+        await asyncio.wait_for(reached.wait(), 5)
+        task.cancel()
+        await asyncio.sleep(0)
+    finally:
+        release.set()
+    assert (await task).manifest.version == "2.0.0"
+    assert_connections_preserved(runtime)
+
+
+@pytest.mark.asyncio
+async def test_cancellation_does_not_hide_rollback_failure(runtime, monkeypatch):
+    from magi.plugins.installation import PluginInstallRollbackError
+    import threading
+
+    reached = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def fail_recovery(*args, **kwargs):
+        loop.call_soon_threadsafe(reached.set)
+        assert release.wait(5)
+        raise PluginInstallRollbackError("injected recovery failure")
+
+    monkeypatch.setattr(runtime.manager, "install_coordinated_registry_plan", fail_recovery)
+    plan = await runtime.service.plan_registry_install("consumer-a", update=True)
+    task = asyncio.create_task(
+        runtime.service.update_from_registry("consumer-a", expected_fingerprint=plan.fingerprint)
+    )
+    try:
+        await asyncio.wait_for(reached.wait(), 5)
+        task.cancel()
+        await asyncio.sleep(0)
+    finally:
+        release.set()
+    with pytest.raises(PluginInstallRollbackError):
+        await task
+    assert_restored(runtime)

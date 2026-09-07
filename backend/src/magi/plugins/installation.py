@@ -82,6 +82,10 @@ class PluginRegistrySourceConflictError(ValueError):
     """Raised when a registry update does not match the installed source."""
 
 
+class PluginInstallRollbackError(RuntimeError):
+    """An upgrade could not restore its previous state; retain recovery evidence."""
+
+
 class _PluginInstallActivationPolicy(str, Enum):
     """Define how a committed package should enter the runtime."""
 
@@ -425,7 +429,7 @@ class PluginInstallationMixin:
                     logger.critical(
                         "Coordinated plugin rollback failed; backups retained", exc_info=True
                     )
-                    raise RuntimeError(
+                    raise PluginInstallRollbackError(
                         "Coordinated plugin rollback failed; original package backups were retained"
                     ) from rollback_error
                 raise operation_error

@@ -582,8 +582,11 @@ class PluginInstallService:
                     except BaseException:
                         break
                 if not commit_task.cancelled():
-                    commit_task.exception()
-                raise
+                    # Success past the commit point wins a late cancellation;
+                    # rollback failures must remain visible to the caller.
+                    state = commit_task.result()
+                else:
+                    raise
             return PluginRegistryInstallResult(
                 target_state=state,
                 extra_installed=[
@@ -593,11 +596,22 @@ class PluginInstallService:
                 ],
             )
         finally:
-            if provisional_lease is not None:
-                await self._release_provisional_dependencies(provisional_lease)
-            for lease in reversed(admissions):
-                lease.release()
-            await run_plugin_preparation_operation(lambda: shutil.rmtree(temp_root, True))
+            def cleanup() -> None:
+                try:
+                    if provisional_lease is not None:
+                        provisional_lease.release()
+                finally:
+                    for lease in reversed(admissions):
+                        lease.release()
+                    shutil.rmtree(temp_root, True)
+
+            cleanup_task = asyncio.create_task(run_plugin_preparation_operation(cleanup))
+            while not cleanup_task.done():
+                try:
+                    await asyncio.shield(cleanup_task)
+                except asyncio.CancelledError:
+                    continue
+            cleanup_task.result()
 
     async def update_from_registry(
         self,
