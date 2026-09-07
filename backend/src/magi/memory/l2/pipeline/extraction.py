@@ -37,7 +37,7 @@ logger = get_logger("magi.memory.l2.pipeline")
 
 
 def event_allows_llm_extraction(event: Any) -> bool:
-    """Whether an event may drive LLM phase1/2 extraction.
+    """Whether an event may drive model extraction.
 
     A source can set ``allow_llm_extraction=False`` (carried in ``metadata_json``) to run
     in "structured-only" mode: deterministic direct-writes still happen, but the LLM

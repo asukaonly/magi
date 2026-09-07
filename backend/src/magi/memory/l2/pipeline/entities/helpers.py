@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Protocol, cast
 
 from ....event_contracts import MemoryEvent

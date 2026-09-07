@@ -1,12 +1,13 @@
 """Phase extraction and reconciliation contracts for L2 memory.
 
-This module is kept as the compatibility import hub for callers that import
-phase contracts from ``magi.memory.l2.phase_models``.
+This module exposes the supported extraction and reconciliation contracts.
 """
 
 from __future__ import annotations
 
 from .phase1_models import (
+    L2AssertionMode,
+    L2EntityReferentKind,
     L2ClaimEvidenceMode,
     L2FactKind,
     L2Phase1Entity,
@@ -24,6 +25,8 @@ from .phase_aux_models import (
 
 __all__ = [
     "ContradictionHint",
+    "L2AssertionMode",
+    "L2EntityReferentKind",
     "L2ClaimEvidenceMode",
     "L2FactKind",
     "L2Phase1Entity",

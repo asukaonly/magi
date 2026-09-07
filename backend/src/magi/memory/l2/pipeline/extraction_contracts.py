@@ -14,6 +14,7 @@ from ...evidence import (
 from ..models import L2EventWindow, L2ProjectionLease, ResolvedEntityMention
 from ..semantic_routing import SemanticRouteDecision
 
+
 @dataclass(slots=True)
 class L2ExtractionEventDecision:
     """One event's evidence classification and L2 write policy."""
@@ -50,7 +51,7 @@ class _PreparedExtractionBatch:
     stored_event: MemoryEvent
     classification: EvidenceClassification
     policy: PolicyDecision
-    eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision, allows_candidate_claim_extraction]]
+    eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]]
     batch_event_ids: list[str]
     context_messages: list[dict[str, Any]]
     history_contexts: list[dict[str, Any]]

@@ -332,6 +332,8 @@ class L2Phase1Result:
 
 
 __all__ = [
+    "L2AssertionMode",
+    "L2EntityReferentKind",
     "L2ClaimEvidenceMode",
     "L2FactKind",
     "L2Phase1Entity",

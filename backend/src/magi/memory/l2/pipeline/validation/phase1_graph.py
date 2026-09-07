@@ -20,7 +20,7 @@ from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
 
 class L2Phase1GraphProjectionMixin:
-    """Project grounded Phase 1 facts without asking Phase 2 to restate them."""
+    """Project grounded Claims through their persisted route and source authority."""
 
     def _project_phase1_graph_candidates(
         self,
