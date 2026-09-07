@@ -707,3 +707,49 @@ async def test_archive_install_rejects_manifest_changed_after_approval(tmp_path)
             approved_package_sha256=package_sha256,
             consented_capabilities=[],
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["install", "update"])
+@pytest.mark.parametrize("failure, code", [
+    ("plan", "PLUGIN_INSTALL_PLAN_CHANGED"),
+    ("cancel", "PLUGIN_INSTALL_CANCELLED"),
+    ("rollback", "PLUGIN_INSTALL_ROLLBACK_FAILED"),
+])
+async def test_registry_jobs_preserve_plan_and_rollback_outcomes(monkeypatch, operation, failure, code):
+    from magi.plugins.installation import PluginInstallRollbackError
+
+    error = {
+        "plan": PluginInstallApprovalMismatchError("Plan changed"),
+        "cancel": asyncio.CancelledError("Cancelled after rollback"),
+        "rollback": PluginInstallRollbackError("Original backup retained"),
+    }[failure]
+
+    class Service:
+        async def install_from_registry(self, _plugin_id, **kwargs):
+            assert kwargs["expected_fingerprint"] == "b" * 64
+            raise error
+
+        update_from_registry = install_from_registry
+
+    monkeypatch.setattr(plugins_install_jobs, "PluginInstallService", lambda **_: Service())
+    monkeypatch.setattr(plugins_install_jobs, "_get_registry_client", lambda: object())
+    monkeypatch.setattr(plugins_install_jobs, "_try_plugin_manager", lambda: object())
+    monkeypatch.setattr(plugins_install_jobs, "_require_plugin_manager", lambda: object())
+    admission = PluginInstallAdmissionCoordinator()
+    monkeypatch.setattr(plugins_install_jobs, "plugin_install_admission", admission)
+    jobs = PluginInstallJobManager()
+    start = jobs.start_registry_install if operation == "install" else jobs.start_registry_update
+    snapshot = await start("outcome-plugin", expected_fingerprint="b" * 64)
+    task = jobs._tasks[snapshot.job_id]
+    if failure == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        await task
+    result = jobs.get_job(snapshot.job_id)
+    assert result.status == "failed"
+    assert result.error_code == code
+    assert result.result is None
+    lease = admission.acquire("outcome-plugin")
+    lease.release()

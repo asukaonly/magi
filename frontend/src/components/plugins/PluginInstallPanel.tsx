@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
-import { pluginsApi } from '@/api/modules/plugins';
-import type { ExtensionFieldSpec, PluginCapability } from '@/api/modules/plugins';
+import type { ExtensionFieldSpec, PluginInstallPlan } from '@/api/modules/plugins';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
@@ -19,7 +18,7 @@ import {
 import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import { usePluginInstallFlow, type InstallStepId } from '../../hooks/usePluginInstallFlow';
 import { InstallStepper } from './InstallStepper';
-import { PluginConsentDialog } from './PluginConsentDialog';
+import { PluginRegistryPlanReview } from './PluginRegistryPlanReview';
 import { dispatchAppEvent } from '@/constants/events';
 import { localizedPluginText } from '@/utils/plugin-display-groups';
 
@@ -75,24 +74,13 @@ export function PluginInstallPanel(): JSX.Element | null {
 
   const [consented, setConsented] = useState(false);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
-  const [registryState, setRegistryState] = useState<
-    'loading' | 'ready' | 'not_found' | 'error'
-  >('loading');
-  const [entryMeta, setEntryMeta] = useState<{
-    name: string;
-    name_i18n: Record<string, string>;
-    capabilities: PluginCapability[];
-    executionMode?: "restricted_process" | "trusted_process";
-    version: string;
-    official: boolean;
-    icon: string | null;
-    installFingerprint: string | null;
-  } | null>(null);
+  const [approvedPlan, setApprovedPlan] = useState<PluginInstallPlan | null>(null);
+  const matchingPlan = approvedPlan?.target_id === pluginId && !approvedPlan.update ? approvedPlan : null;
+  const entryMeta = matchingPlan?.changes.find(change => change.entry.plugin_id === pluginId)?.entry;
 
   const handleRegistryChanged = useCallback(() => {
     setConsented(false);
-    setEntryMeta(null);
-    setRegistryState('loading');
+    setApprovedPlan(null);
     setRegistryRefreshKey((value) => value + 1);
     toast.error(t('app:settings.marketplace.feedback.registryChanged'));
   }, [t]);
@@ -102,13 +90,13 @@ export function PluginInstallPanel(): JSX.Element | null {
   // stays idle while pluginId is null, so installs never run unseen.
   const flowActive = open && (
     !installMode
-    || (consented && Boolean(entryMeta?.installFingerprint))
+    || (consented && Boolean(matchingPlan?.fingerprint))
   );
   const flow = usePluginInstallFlow(
     flowActive ? pluginId : null,
     installMode,
     panelContext,
-    entryMeta?.installFingerprint ?? null,
+    matchingPlan?.fingerprint ?? null,
     handleRegistryChanged,
   );
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -118,67 +106,10 @@ export function PluginInstallPanel(): JSX.Element | null {
   useEffect(() => {
     if (!open) {
       setConsented(false);
-      setEntryMeta(null);
-      setRegistryState('loading');
+      setApprovedPlan(null);
       setRegistryRefreshKey(0);
     }
   }, [open]);
-
-  // Fetch the plugin's declared capabilities for the install-mode consent gate.
-  useEffect(() => {
-    if (!open || !installMode || !pluginId) return;
-    let cancelled = false;
-    setConsented(false);
-    setEntryMeta(null);
-    setRegistryState('loading');
-    void pluginsApi
-      .getRegistry(registryRefreshKey > 0 ? { force: true } : undefined)
-      .then((reg) => {
-        if (cancelled) return;
-        const e = reg.plugins.find((p) => p.plugin_id === pluginId);
-        if (!e) {
-          setEntryMeta({
-            name: humanizePluginId(pluginId),
-            name_i18n: {},
-            capabilities: [],
-            version: '',
-            official: false,
-            icon: null,
-            installFingerprint: null,
-          });
-          setRegistryState('not_found');
-          return;
-        }
-        setEntryMeta({
-          name: e.name,
-          name_i18n: e.name_i18n ?? {},
-          capabilities: e.capabilities ?? [],
-          executionMode: e.execution_mode,
-          version: e.version,
-          official: e.official ?? false,
-          icon: e.icon ?? null,
-          installFingerprint: reg.install_fingerprint,
-        });
-        setRegistryState(reg.install_fingerprint ? 'ready' : 'error');
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEntryMeta({
-            name: humanizePluginId(pluginId),
-            name_i18n: {},
-            capabilities: [],
-            version: '',
-            official: false,
-            icon: null,
-            installFingerprint: null,
-          });
-          setRegistryState('error');
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, installMode, pluginId, registryRefreshKey]);
 
   // Fire the entry point's onDone exactly once when the flow succeeds (`done`).
   // Reset the guard when the panel closes so a later open can fire again.
@@ -372,16 +303,6 @@ export function PluginInstallPanel(): JSX.Element | null {
       ? t('pluginInstallPanel.closeBackground')
       : t('pluginInstallPanel.close');
   const closeDisabled = flow.phase === 'loading' || flow.phase === 'running';
-  const registryStatusMessage = (
-    registryState === 'loading'
-      ? t('app:settings.marketplace.loading')
-      : registryState === 'not_found'
-        ? t('app:settings.marketplace.empty')
-        : registryState === 'error'
-          ? t('app:settings.marketplace.error')
-          : undefined
-  );
-
   if (!open) {
     return null;
   }
@@ -389,24 +310,13 @@ export function PluginInstallPanel(): JSX.Element | null {
   // Install-mode consent gate: show the declared capabilities and require
   // acceptance before the registry install runs. Already-installed plugins
   // (installMode=false) were consented at install time and skip this.
-  if (installMode && !consented) {
+  if (installMode && (!consented || !matchingPlan)) {
     return (
-      <PluginConsentDialog
-        open
-        mode="install"
-        pluginName={name}
-        pluginIcon={icon}
-        version={entryMeta?.version ?? ''}
-        official={entryMeta?.official}
-        capabilities={entryMeta?.capabilities ?? []}
-        executionMode={entryMeta?.executionMode}
-        confirmDisabled={registryState !== 'ready' || !entryMeta?.installFingerprint}
-        statusMessage={registryStatusMessage}
-        onConfirm={() => {
-          if (registryState === 'ready' && entryMeta?.installFingerprint) {
-            setConsented(true);
-          }
-        }}
+      <PluginRegistryPlanReview
+        key={`${pluginId ?? ''}:${registryRefreshKey}`}
+        pluginId={pluginId ?? ''}
+        update={false}
+        onConfirm={plan => { setApprovedPlan(plan); setConsented(true); }}
         onCancel={closePanel}
       />
     );

@@ -25,6 +25,30 @@ describe('plugin transport contracts', () => {
     Object.values(transport).forEach(mock => mock.mockReset());
   });
 
+  it('fetches a reviewable plan with explicit target and operation', async () => {
+    transport.post.mockResolvedValue(examples.plan);
+    expect(await pluginsApi.getInstallPlan('fixture-source', true)).toEqual(examples.plan);
+    expect(transport.post).toHaveBeenCalledWith('/plugins/install/registry/plan', { plugin_id: 'fixture-source', update: true });
+  });
+
+  it.each([
+    { ...examples.plan, fingerprint: 'registry-fingerprint' },
+    { ...examples.plan, target_id: 'different-plugin' },
+    { ...examples.plan, update: false },
+    { ...examples.plan, changes: [] },
+    { ...examples.plan, changes: [examples.plan.changes[1], examples.plan.changes[1]] },
+    { ...examples.plan, changes: [{ ...examples.plan.changes[1], current_installed_package_sha256: 'invalid' }] },
+    { ...examples.plan, changes: [{ ...examples.plan.changes[1], entry: { ...examples.plan.changes[1].entry, capabilities: [{ capability: 'network', scope: 'all' }] } }] },
+  ])('rejects malformed or mismatched installation plans', async value => {
+    transport.post.mockResolvedValue(value);
+    await expect(pluginsApi.getInstallPlan('fixture-source', true)).rejects.toBeInstanceOf(ApiContractError);
+  });
+
+  it.each(['PLUGIN_INSTALL_PLAN_CHANGED', 'PLUGIN_INSTALL_CANCELLED', 'PLUGIN_INSTALL_ROLLBACK_FAILED'])('preserves job failure %s for callers', async code => {
+    transport.post.mockResolvedValue({ ...examples.job, status: 'failed', result: null, error: 'test failure', error_code: code });
+    await expect(pluginsApi.installFromRegistryWithProgress('fixture-source', examples.plan.fingerprint)).rejects.toMatchObject({ code });
+  });
+
   it('reads the direct resource response without unwrapping its business data', async () => {
     transport.get.mockResolvedValue(resource);
     expect(await pluginsApi.getSettingsResource('fixture-source', 'calendar_lists')).toEqual(resource);
@@ -74,7 +98,7 @@ describe('plugin transport contracts', () => {
     const result = await pluginsApi.installFromRegistryWithProgress('fixture-source', fingerprint, snapshot => { progress.push(snapshot.status); });
     expect(progress).toEqual(['running', 'completed']);
     expect(result).toEqual(examples.package);
-    expect(transport.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', { plugin_id: 'fixture-source', expected_fingerprint: fingerprint });
+    expect(transport.post).toHaveBeenCalledWith('/plugins/install/registry/jobs', { plugin_id: 'fixture-source', plan_fingerprint: fingerprint });
     expect(transport.get).toHaveBeenCalledWith('/plugins/install/jobs/fixture-job');
   });
 
@@ -115,9 +139,9 @@ describe('plugin transport contracts', () => {
     await pluginsApi.updatePlugin('fixture-source', fingerprint);
     await pluginsApi.startUpdatePlugin('fixture-source', fingerprint);
     expect(transport.post.mock.calls).toEqual([
-      ['/plugins/install/registry', { plugin_id: 'fixture-source', expected_fingerprint: fingerprint }],
-      ['/plugins/fixture-source/update', { expected_fingerprint: fingerprint }],
-      ['/plugins/fixture-source/update/jobs', { expected_fingerprint: fingerprint }],
+      ['/plugins/install/registry', { plugin_id: 'fixture-source', plan_fingerprint: fingerprint }],
+      ['/plugins/fixture-source/update', { plan_fingerprint: fingerprint }],
+      ['/plugins/fixture-source/update/jobs', { plan_fingerprint: fingerprint }],
     ]);
   });
 

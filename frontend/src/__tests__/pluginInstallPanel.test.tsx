@@ -5,6 +5,8 @@ import { pluginsApi } from '../api/modules/plugins';
 import { usePluginInstallPanelStore } from '../stores/pluginInstallPanel';
 import { PluginInstallPanel } from '../components/plugins/PluginInstallPanel';
 
+import { planFor } from './fixtures/pluginInstallPlan';
+
 // Mirror the repo convention (see systemSuggestionSideCard.test.tsx): t() echoes
 // the key, so assertions target the i18n key strings rather than translations.
 const { translate } = vi.hoisted(() => ({ translate: (key: string) => key }));
@@ -15,6 +17,7 @@ vi.mock('react-i18next', () => ({
 describe('PluginInstallPanel', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(pluginsApi, 'getInstallPlan').mockImplementation(async (id, update) => planFor(id, update));
     usePluginInstallPanelStore.getState().closePanel();
     vi.spyOn(pluginsApi, 'list').mockResolvedValue({ plugins: [
       'calendar', 'agent-history', 'chrome-history', 'netease-music', 'chatgpt-history', 'platform-history', 'weixin',
@@ -476,20 +479,20 @@ describe('PluginInstallPanel', () => {
     // Consent dialog appears and nothing is installed yet.
     await waitFor(() =>
       expect(
-        screen.getByText(/settings\.marketplace\.consent\.title\.install/),
+        screen.getByText(/settings\.marketplace\.plan\.title/),
       ).toBeInTheDocument(),
     );
-    expect(screen.getByTestId('plugin-icon-fallback')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' })).toBeEnabled());
     expect(installSpy).not.toHaveBeenCalled();
 
     // Confirming consent proceeds to the install.
     fireEvent.click(
-      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+      screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }),
     );
     await waitFor(() =>
       expect(installSpy).toHaveBeenCalledWith(
         'netease-music',
-        'fingerprint-2',
+        planFor('netease-music').fingerprint,
         expect.anything(),
       ),
     );
@@ -532,7 +535,7 @@ describe('PluginInstallPanel', () => {
 
     fireEvent.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.consent.confirm.install',
+        name: 'settings.marketplace.plan.confirm',
       }),
     );
 
@@ -542,7 +545,7 @@ describe('PluginInstallPanel', () => {
     });
     expect(installSpy).toHaveBeenCalledWith(
       'chatgpt-history',
-      'history-import-fingerprint',
+      planFor('chatgpt-history').fingerprint,
       expect.anything(),
     );
     expect(statusSpy).not.toHaveBeenCalled();
@@ -589,7 +592,7 @@ describe('PluginInstallPanel', () => {
 
     fireEvent.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.consent.confirm.install',
+        name: 'settings.marketplace.plan.confirm',
       }),
     );
     expect(await screen.findByText('enable_failed')).toBeInTheDocument();
@@ -603,11 +606,7 @@ describe('PluginInstallPanel', () => {
   });
 
   it('does not allow consent when the requested plugin is absent from the registry', async () => {
-    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
-      plugins: [],
-      registry_version: '4',
-      install_fingerprint: 'fingerprint-for-other-plugins',
-    } as any);
+    vi.mocked(pluginsApi.getInstallPlan).mockRejectedValue(new Error('Plugin not found'));
     const installSpy = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
       .mockResolvedValue({} as any);
@@ -618,20 +617,20 @@ describe('PluginInstallPanel', () => {
     });
 
     expect(
-      await screen.findByText('app:settings.marketplace.empty'),
+      await screen.findByText('settings.marketplace.plan.failed'),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+      screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }),
     ).toBeDisabled();
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+      screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }),
     );
     expect(installSpy).not.toHaveBeenCalled();
   });
 
   it('keeps consent disabled when the registry cannot be loaded', async () => {
-    vi.spyOn(pluginsApi, 'getRegistry').mockRejectedValue(new Error('offline'));
+    vi.mocked(pluginsApi.getInstallPlan).mockRejectedValue(new Error('offline'));
     const installSpy = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
       .mockResolvedValue({} as any);
@@ -642,10 +641,10 @@ describe('PluginInstallPanel', () => {
     });
 
     expect(
-      await screen.findByText('app:settings.marketplace.error'),
+      await screen.findByText('settings.marketplace.plan.failed'),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'settings.marketplace.consent.confirm.install' }),
+      screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }),
     ).toBeDisabled();
     expect(installSpy).not.toHaveBeenCalled();
   });

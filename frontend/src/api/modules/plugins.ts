@@ -1,6 +1,6 @@
 import { api } from '../client';
 import { unwrapGatewayPayload } from '../client';
-import { parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginAction, parsePluginJob, parsePluginResource, parsePluginConnection, parsePluginConnections } from '../plugin-contract';
+import { parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginPlan, parsePluginAction, parsePluginJob, parsePluginResource, parsePluginConnection, parsePluginConnections } from '../plugin-contract';
 import type { PluginWireTypes } from '../plugin-contract';
 
 export type ExtensionSurface = 'extensions' | 'tools' | 'timeline';
@@ -39,6 +39,8 @@ export interface PluginConnectionUpdate {
   credential_refs?: Record<string, string>;
   credentials?: Record<string, string | null>;
 }
+
+export type PluginInstallPlan = PluginWireTypes['PluginInstallPlanResponse'];
 
 export type PluginCapability = PluginWireTypes['PluginCapability'];
 
@@ -422,7 +424,7 @@ export const isPluginRegistryChangedError = (error: unknown): boolean => {
     return false;
   }
   const candidate = error as { code?: unknown };
-  return candidate.code === PLUGIN_REGISTRY_CHANGED_ERROR_CODE;
+  return candidate.code === PLUGIN_REGISTRY_CHANGED_ERROR_CODE || candidate.code === 'PLUGIN_INSTALL_PLAN_CHANGED';
 };
 
 export const isPluginInstallTimeoutError = (error: unknown): boolean => {
@@ -553,25 +555,32 @@ export const pluginsApi = {
   // Installation
   // -----------------------------------------------------------------------
 
+  getInstallPlan: async (pluginId: string, update: boolean): Promise<PluginInstallPlan> => {
+    const response = await api.post<unknown>('/plugins/install/registry/plan', {
+      plugin_id: pluginId, update,
+    } satisfies PluginWireTypes['PluginInstallPlanRequest']);
+    return parsePluginPlan(response, pluginId, update);
+  },
+
   installFromRegistry: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
   ): Promise<PluginPackageState> => {
     const response = await api.post<unknown>('/plugins/install/registry', {
       plugin_id: pluginId,
-      expected_fingerprint: expectedFingerprint,
-    });
+      plan_fingerprint: planFingerprint,
+    } satisfies PluginWireTypes['PluginInstallRequest']);
     return parsePluginPackage(response);
   },
 
   startInstallFromRegistry: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
   ): Promise<PluginInstallJobSnapshot> => {
     const response = await api.post<unknown>('/plugins/install/registry/jobs', {
       plugin_id: pluginId,
-      expected_fingerprint: expectedFingerprint,
-    });
+      plan_fingerprint: planFingerprint,
+    } satisfies PluginWireTypes['PluginInstallRequest']);
     return parsePluginJob(response);
   },
 
@@ -582,10 +591,10 @@ export const pluginsApi = {
 
   installFromRegistryWithProgress: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
     onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
   ): Promise<PluginPackageState> => {
-    const snapshot = await pluginsApi.startInstallFromRegistry(pluginId, expectedFingerprint);
+    const snapshot = await pluginsApi.startInstallFromRegistry(pluginId, planFingerprint);
     return waitForInstallJob(snapshot, onProgress);
   },
 
@@ -648,30 +657,30 @@ export const pluginsApi = {
 
   updatePlugin: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
   ): Promise<PluginPackageState> => {
     const response = await api.post<unknown>(`/plugins/${pluginId}/update`, {
-      expected_fingerprint: expectedFingerprint,
-    });
+      plan_fingerprint: planFingerprint,
+    } satisfies PluginWireTypes['PluginRegistryApprovalRequest']);
     return parsePluginPackage(response);
   },
 
   startUpdatePlugin: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
   ): Promise<PluginInstallJobSnapshot> => {
     const response = await api.post<unknown>(`/plugins/${pluginId}/update/jobs`, {
-      expected_fingerprint: expectedFingerprint,
-    });
+      plan_fingerprint: planFingerprint,
+    } satisfies PluginWireTypes['PluginRegistryApprovalRequest']);
     return parsePluginJob(response);
   },
 
   updatePluginWithProgress: async (
     pluginId: string,
-    expectedFingerprint: string,
+    planFingerprint: string,
     onProgress?: (snapshot: PluginInstallJobSnapshot) => void,
   ): Promise<PluginPackageState> => {
-    const snapshot = await pluginsApi.startUpdatePlugin(pluginId, expectedFingerprint);
+    const snapshot = await pluginsApi.startUpdatePlugin(pluginId, planFingerprint);
     return waitForInstallJob(snapshot, onProgress);
   },
 };

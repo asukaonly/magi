@@ -39,7 +39,7 @@ async function generate(domain, names) {
 }
 
 await generate('config', ['ConfigResponse', 'OnboardingStatusResponse', 'OnboardingTemplateResponse', 'ToolConfigResponse', 'ToolsListResponse', 'CodeAgentSettingsResponse', 'CodeAgentProbeResponse']);
-await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
+await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsResponse', 'PluginPackageResponse', 'PluginInstallCandidateResponse', 'PluginInstallJobSnapshot', 'PluginRegistryResponse', 'PluginInstallPlanResponse', 'PluginSettingsActionRunResponse', 'PluginSettingsResourceResponse', 'PluginsListResponse']);
 
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
 

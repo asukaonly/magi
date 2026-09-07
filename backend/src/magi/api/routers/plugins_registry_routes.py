@@ -16,6 +16,7 @@ from ...plugins.dependency_installation import (
     DependencyInstallResourceLimitError,
     PluginInstallWorkflowTimeoutError,
 )
+from ...plugins.installation import PluginInstallRollbackError
 from ...plugins.install_service import (
     BuiltinPluginUpdateError,
     PluginDependencyConflictError,
@@ -24,6 +25,7 @@ from ...plugins.install_service import (
     PluginRegistryEntryNotFound,
     PluginRegistrySourceConflictError,
     PluginRegistrySnapshotMismatchError,
+    PluginInstallApprovalMismatchError,
     registry_source_matches_installed_package,
 )
 from ...plugins.icon_assets import sanitize_lucide_icon, sanitize_registry_icon
@@ -228,7 +230,7 @@ async def update_plugin(
     try:
         new_state = await install_service.update_from_registry(
             plugin_id,
-            expected_fingerprint=request.expected_fingerprint,
+            expected_fingerprint=request.plan_fingerprint,
         )
     except PluginPackageNotInstalled as exc:
         raise HTTPException(
@@ -264,6 +266,11 @@ async def update_plugin(
                 "plugins.errors.install_job_conflict",
                 fallback="This plugin already has an active installation",
             ),
+        ) from exc
+    except PluginInstallApprovalMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_PLAN_CHANGED"},
         ) from exc
     except PluginRegistrySnapshotMismatchError as exc:
         raise HTTPException(
@@ -316,6 +323,11 @@ async def update_plugin(
         ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except PluginInstallRollbackError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_ROLLBACK_FAILED"},
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
@@ -332,7 +344,7 @@ async def start_plugin_update_job(
     try:
         return await plugin_install_jobs.start_registry_update(
             plugin_id,
-            expected_fingerprint=request.expected_fingerprint,
+            expected_fingerprint=request.plan_fingerprint,
         )
     except PluginInstallJobCapacityError as exc:
         raise HTTPException(
@@ -349,6 +361,11 @@ async def start_plugin_update_job(
                 "plugins.errors.install_job_conflict",
                 fallback="This plugin already has an active installation",
             ),
+        ) from exc
+    except PluginInstallApprovalMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_PLAN_CHANGED"},
         ) from exc
     except PluginRegistrySnapshotMismatchError as exc:
         raise HTTPException(

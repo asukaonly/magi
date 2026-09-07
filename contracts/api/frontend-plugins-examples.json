@@ -279,5 +279,163 @@
     },
     "package_sha256": null,
     "trusted": true
+  },
+  "plan": {
+    "changes": [
+      {
+        "action": "update",
+        "current_dependency_package_sha256": {},
+        "current_installed_package_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "current_package_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "current_version": "1.0.0",
+        "dependency_package_sha256": {},
+        "entry": {
+          "activation_flow": null,
+          "author": "",
+          "capabilities": [],
+          "contribution_types": [],
+          "data_locality": "",
+          "depends_on": [],
+          "description": "",
+          "description_i18n": {},
+          "display_group": null,
+          "execution_mode": "restricted_process",
+          "homepage": "",
+          "icon": "",
+          "icon_data": "",
+          "kind": "library",
+          "min_sdk_version": "0.2.0",
+          "name": "Shared library",
+          "name_i18n": {},
+          "official": false,
+          "package_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "",
+          "platforms": [],
+          "plugin_id": "fixture_library",
+          "projection_sources": [],
+          "protocol_version": 2,
+          "repository": "",
+          "settings_actions": [],
+          "settings_fields": [],
+          "settings_resources": [],
+          "settings_ui_blocks": [],
+          "suggestion_descriptor": null,
+          "version": "2.0.0"
+        },
+        "reason": "dependency of fixture-source"
+      },
+      {
+        "action": "update",
+        "current_dependency_package_sha256": {
+          "fixture_library": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "current_installed_package_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "current_package_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "current_version": "1.0.0",
+        "dependency_package_sha256": {
+          "fixture_library": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "entry": {
+          "activation_flow": null,
+          "author": "",
+          "capabilities": [],
+          "contribution_types": [],
+          "data_locality": "",
+          "depends_on": [
+            "fixture_library"
+          ],
+          "description": "",
+          "description_i18n": {},
+          "display_group": null,
+          "execution_mode": "restricted_process",
+          "homepage": "",
+          "icon": "",
+          "icon_data": "",
+          "kind": "plugin",
+          "min_sdk_version": "0.2.0",
+          "name": "Fixture source",
+          "name_i18n": {},
+          "official": false,
+          "package_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "",
+          "platforms": [],
+          "plugin_id": "fixture-source",
+          "projection_sources": [],
+          "protocol_version": 2,
+          "repository": "",
+          "settings_actions": [],
+          "settings_fields": [],
+          "settings_resources": [],
+          "settings_ui_blocks": [],
+          "suggestion_descriptor": null,
+          "version": "2.0.0"
+        },
+        "reason": "requested"
+      },
+      {
+        "action": "update",
+        "current_dependency_package_sha256": {
+          "fixture_library": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "current_installed_package_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "current_package_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "current_version": "1.0.0",
+        "dependency_package_sha256": {
+          "fixture_library": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "entry": {
+          "activation_flow": null,
+          "author": "",
+          "capabilities": [
+            {
+              "capability": "network",
+              "optional": false,
+              "reason": "Read remote entries",
+              "reason_i18n": {},
+              "scope": [
+                "api.example.test"
+              ]
+            }
+          ],
+          "contribution_types": [],
+          "data_locality": "",
+          "depends_on": [
+            "fixture_library"
+          ],
+          "description": "",
+          "description_i18n": {},
+          "display_group": null,
+          "execution_mode": "restricted_process",
+          "homepage": "",
+          "icon": "",
+          "icon_data": "",
+          "kind": "plugin",
+          "min_sdk_version": "0.2.0",
+          "name": "Other consumer",
+          "name_i18n": {},
+          "official": false,
+          "package_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "path": "",
+          "platforms": [],
+          "plugin_id": "fixture-consumer",
+          "projection_sources": [],
+          "protocol_version": 2,
+          "repository": "",
+          "settings_actions": [],
+          "settings_fields": [],
+          "settings_resources": [],
+          "settings_ui_blocks": [],
+          "suggestion_descriptor": null,
+          "version": "2.0.0"
+        },
+        "reason": "consumer of fixture_library"
+      }
+    ],
+    "coordinated": true,
+    "fingerprint": "3621e4f06f3f95aeb87dee746df87576757f00afb36b2694873772ff6af95b21",
+    "format": "registry-install-plan-v1",
+    "registry_fingerprint": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "target_id": "fixture-source",
+    "update": true
   }
 }

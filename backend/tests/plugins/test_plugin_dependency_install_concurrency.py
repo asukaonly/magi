@@ -281,14 +281,14 @@ async def test_concurrent_targets_reuse_identical_shared_library(
     first = asyncio.create_task(
         service.install_from_registry(
             "first-target",
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan("first-target", snapshot=snapshot, update=False).fingerprint,
         ),
         name="first",
     )
     second = asyncio.create_task(
         service.install_from_registry(
             "second-target",
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan("second-target", snapshot=snapshot, update=False).fingerprint,
         ),
         name="second",
     )
@@ -324,7 +324,7 @@ async def test_preinstalled_library_validation_runs_off_event_loop(
 
     await service.install_from_registry(
         "first-target",
-        expected_fingerprint=snapshot.install_fingerprint,
+        expected_fingerprint=service._build_registry_install_plan("first-target", snapshot=snapshot, update=False).fingerprint,
     )
 
     event_loop_thread = threading.get_ident()
@@ -343,7 +343,7 @@ async def test_preinstalled_library_validation_runs_off_event_loop(
 
     await service.install_from_registry(
         "second-target",
-        expected_fingerprint=snapshot.install_fingerprint,
+        expected_fingerprint=service._build_registry_install_plan("second-target", snapshot=snapshot, update=False).fingerprint,
     )
 
     assert validation_threads
@@ -378,7 +378,7 @@ async def test_concurrent_target_cannot_replace_incompatible_shared_library(
     first = asyncio.create_task(
         first_service.install_from_registry(
             "first-target",
-            expected_fingerprint=first_snapshot.install_fingerprint,
+            expected_fingerprint=first_service._build_registry_install_plan("first-target", snapshot=first_snapshot, update=False).fingerprint,
         ),
         name="first",
     )
@@ -386,7 +386,7 @@ async def test_concurrent_target_cannot_replace_incompatible_shared_library(
     second = asyncio.create_task(
         second_service.install_from_registry(
             "second-target",
-            expected_fingerprint=second_snapshot.install_fingerprint,
+            expected_fingerprint=second_service._build_registry_install_plan("second-target", snapshot=second_snapshot, update=False).fingerprint,
         ),
         name="second",
     )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 
 import pytest
 
@@ -13,6 +14,7 @@ from magi.plugins.contracts import (
 )
 from magi.plugins.install_service import (
     PluginInstallService,
+    PluginInstallApprovalMismatchError,
     PluginRegistrySnapshotMismatchError,
     PluginRegistryVersionError,
 )
@@ -91,6 +93,8 @@ class _Registry:
 
 
 class _Manager:
+    _lifecycle_write_lock = RLock()
+
     def __init__(self, installed: PluginPackageState | None = None) -> None:
         self.install_calls: list[dict] = []
         self.installed = installed
@@ -125,10 +129,10 @@ async def test_registry_install_rejects_stale_consent_before_download() -> None:
     registry = _Registry(changed)
     service = PluginInstallService(registry_client=registry, plugin_manager=_Manager())
 
-    with pytest.raises(PluginRegistrySnapshotMismatchError):
+    with pytest.raises(PluginInstallApprovalMismatchError):
         await service.install_from_registry(
             "demo-plugin",
-            expected_fingerprint=approved.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan("demo-plugin", snapshot=approved, update=False).fingerprint,
         )
 
     assert registry.clone_calls == []
@@ -180,7 +184,7 @@ async def test_registry_install_rechecks_consent_after_manifest_validation(
     with pytest.raises(PluginRegistrySnapshotMismatchError):
         await service.install_from_registry(
             "demo-plugin",
-            expected_fingerprint=approved.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan("demo-plugin", snapshot=approved, update=False).fingerprint,
         )
 
     assert len(registry.clone_calls) == 1
@@ -208,7 +212,7 @@ async def test_registry_install_uses_one_snapshot_and_effective_official_value(
 
     result = await service.install_from_registry(
         "demo-plugin",
-        expected_fingerprint=approved.install_fingerprint,
+        expected_fingerprint=service._build_registry_install_plan("demo-plugin", snapshot=approved, update=False).fingerprint,
     )
 
     assert result.target_state.manifest.plugin_id == "demo-plugin"
@@ -251,4 +255,25 @@ async def test_registry_update_rejects_same_or_older_version_before_download(
             ),
         )
 
+    assert registry.clone_calls == []
+
+
+@pytest.mark.asyncio
+async def test_single_install_requires_target_bound_plan_hash() -> None:
+    from dataclasses import replace
+
+    snapshot = _snapshot(_entry(), _entry(plugin_id="other-plugin"))
+    registry = _Registry(snapshot)
+    service = PluginInstallService(registry_client=registry, plugin_manager=_Manager())
+    plan = await service.plan_registry_install("demo-plugin")
+    assert not plan.coordinated
+    assert plan.fingerprint != snapshot.install_fingerprint
+    assert plan.fingerprint != replace(plan, target_id="other-plugin").fingerprint
+    assert plan.fingerprint != replace(plan, update=True).fingerprint
+    assert plan.fingerprint != replace(plan, changes=(replace(
+        plan.changes[0], current_installed_package_sha256="e" * 64,
+    ),)).fingerprint
+    for obsolete in (snapshot.install_fingerprint, replace(plan, target_id="other-plugin").fingerprint):
+        with pytest.raises(PluginInstallApprovalMismatchError):
+            await service.install_from_registry("demo-plugin", expected_fingerprint=obsolete)
     assert registry.clone_calls == []

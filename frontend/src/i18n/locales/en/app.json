@@ -2980,6 +2980,31 @@
           "label": "Other access",
           "desc": "An access type this version of Magi doesn't recognize"
         }
+      },
+      "plan": {
+        "title": "Review package changes",
+        "description": "Approve these exact package versions and their declared access before continuing.",
+        "loading": "Preparing the installation plan…",
+        "failed": "Unable to prepare this plan: {{message}}",
+        "retry": "Try again",
+        "coordinated": "This shared library upgrade also updates its installed consumers. Their active connections will restart together; settings and credentials are preserved.",
+        "notInstalled": "Not installed",
+        "permissions": "Declared access",
+        "optional": "Optional",
+        "unscoped": "No scope declared",
+        "confirm": "Approve all changes",
+        "action": {
+          "install": "Install",
+          "update": "Update",
+          "reuse": "Keep installed version"
+        },
+        "reason": {
+          "requested": "Requested package",
+          "dependency": "Required by {{name}}",
+          "consumer": "Updates together with {{name}}"
+        },
+        "packageCount_one": "1 package in this plan",
+        "packageCount_other": "{{count}} packages in this plan"
       }
     },
     "pluginInstallProgress": {

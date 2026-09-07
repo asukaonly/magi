@@ -33,12 +33,15 @@ from ...plugins.install_candidates import (
 )
 from ...plugins.install_service import (
     PluginInstallService,
+    PluginInstallApprovalMismatchError,
+    PluginDependencyConflictError,
     PluginPackageConflictError,
     PluginRegistrySourceConflictError,
     PluginRegistrySnapshotMismatchError,
     PluginRegistryVersionError,
 )
 from ...plugins.package_files import InvalidPluginArchiveError
+from ...plugins.installation import PluginInstallRollbackError
 from .plugins_common import (
     _get_registry_client,
     _require_plugin_manager,
@@ -393,6 +396,12 @@ class PluginInstallJobManager:
                     message=f"Also installed: {', '.join(install_result.extra_installed)}",
                 )
             job.complete(_serialize_package(install_result.target_state))
+        except PluginInstallApprovalMismatchError as exc:
+            job.fail(str(exc), error_code="PLUGIN_INSTALL_PLAN_CHANGED")
+        except PluginDependencyConflictError as exc:
+            job.fail(str(exc), error_code="PLUGIN_DEPENDENCY_CONFLICT")
+        except PluginInstallRollbackError as exc:
+            job.fail(str(exc), error_code="PLUGIN_INSTALL_ROLLBACK_FAILED")
         except PluginRegistrySnapshotMismatchError:
             job.fail(
                 core_i18n.t(
@@ -431,7 +440,7 @@ class PluginInstallJobManager:
                 error_code="PLUGIN_INSTALL_RESOURCE_LIMIT",
             )
         except asyncio.CancelledError:
-            job.fail("Plugin installation was cancelled")
+            job.fail("Plugin installation was cancelled", error_code="PLUGIN_INSTALL_CANCELLED")
             raise
         except Exception as exc:
             job.fail(str(exc))
@@ -463,6 +472,12 @@ class PluginInstallJobManager:
                 admission_lease=job.admission_lease,
             )
             job.complete(_serialize_package(new_state))
+        except PluginInstallApprovalMismatchError as exc:
+            job.fail(str(exc), error_code="PLUGIN_INSTALL_PLAN_CHANGED")
+        except PluginDependencyConflictError as exc:
+            job.fail(str(exc), error_code="PLUGIN_DEPENDENCY_CONFLICT")
+        except PluginInstallRollbackError as exc:
+            job.fail(str(exc), error_code="PLUGIN_INSTALL_ROLLBACK_FAILED")
         except PluginRegistrySnapshotMismatchError:
             job.fail(
                 core_i18n.t(
@@ -501,7 +516,7 @@ class PluginInstallJobManager:
                 error_code="PLUGIN_INSTALL_RESOURCE_LIMIT",
             )
         except asyncio.CancelledError:
-            job.fail("Plugin installation was cancelled")
+            job.fail("Plugin installation was cancelled", error_code="PLUGIN_INSTALL_CANCELLED")
             raise
         except Exception as exc:
             job.fail(str(exc))
@@ -571,7 +586,7 @@ class PluginInstallJobManager:
                 error_code="PLUGIN_INSTALL_RESOURCE_LIMIT",
             )
         except asyncio.CancelledError:
-            job.fail("Plugin installation was cancelled")
+            job.fail("Plugin installation was cancelled", error_code="PLUGIN_INSTALL_CANCELLED")
             raise
         except Exception as exc:
             job.fail(str(exc))

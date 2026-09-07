@@ -2979,6 +2979,31 @@
           "label": "其它访问",
           "desc": "当前版本 Magi 不识别的访问类型"
         }
+      },
+      "plan": {
+        "title": "确认软件包变更",
+        "description": "继续前，请确认以下每个软件包的具体版本与访问权限。",
+        "loading": "正在准备安装计划…",
+        "failed": "无法准备安装计划：{{message}}",
+        "retry": "重试",
+        "coordinated": "升级共享库需要一并更新使用它的已安装插件。运行中的连接将一起重启，设置和凭据会保留。",
+        "notInstalled": "未安装",
+        "permissions": "声明的访问权限",
+        "optional": "可选",
+        "unscoped": "未声明访问范围",
+        "confirm": "批准全部变更",
+        "action": {
+          "install": "安装",
+          "update": "更新",
+          "reuse": "保留已安装版本"
+        },
+        "reason": {
+          "requested": "本次选择的软件包",
+          "dependency": "{{name}} 需要此依赖",
+          "consumer": "需要随 {{name}} 一起更新"
+        },
+        "packageCount_one": "本计划包含 1 个软件包",
+        "packageCount_other": "本计划包含 {{count}} 个软件包"
       }
     },
     "pluginInstallProgress": {

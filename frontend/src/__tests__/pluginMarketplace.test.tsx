@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pluginsApi } from '@/api/modules/plugins';
 import { PluginMarketplace } from '@/components/settings/PluginMarketplace';
 
+import { planFor, closurePlan } from './fixtures/pluginInstallPlan';
+
 const SVG_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciLz4=';
 
 vi.mock('react-i18next', () => ({
@@ -16,6 +18,7 @@ vi.mock('react-i18next', () => ({
 describe('PluginMarketplace', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(pluginsApi, 'getInstallPlan').mockImplementation(async (id, update) => planFor(id, update));
   });
 
   const browserDisplayGroup = (memberLabel: string, memberOrder: number) => ({
@@ -29,6 +32,30 @@ describe('PluginMarketplace', () => {
     member_label: memberLabel,
     member_label_i18n: { 'zh-CN': memberLabel },
     member_order: memberOrder,
+  });
+
+  it('reaches a shared library upgrade from the marketplace update button without a permission bypass', async () => {
+    const user = userEvent.setup();
+    const plan = closurePlan();
+    vi.mocked(pluginsApi.getInstallPlan).mockResolvedValue(plan);
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '4', install_fingerprint: plan.registry_fingerprint,
+      plugins: plan.changes.filter(change => change.entry.kind === 'plugin').map(change => ({
+        ...change.entry, installed: true, installed_version: change.current_version, update_available: true,
+      })),
+    });
+    const update = vi.spyOn(pluginsApi, 'updatePluginWithProgress').mockResolvedValue({} as any);
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+    const card = await screen.findByTestId('marketplace-plugin-fixture-source');
+    await user.click(within(card).getAllByRole('button', { name: /settings\.marketplace\.actions\.update/ })[0]);
+    await screen.findByText('api.example.test');
+    expect(pluginsApi.getInstallPlan).toHaveBeenCalledExactlyOnceWith('fixture-source', true);
+    expect(update).not.toHaveBeenCalled();
+    for (const change of plan.changes) {
+      expect(screen.getByRole('region', { name: change.entry.name })).toHaveTextContent('1.0.0 → 2.0.0');
+    }
+    await user.click(screen.getByRole('button', { name: 'settings.marketplace.plan.confirm' }));
+    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith(plan.target_id, plan.fingerprint, expect.any(Function)));
   });
 
   it('shows registry-provided plugin icons on standalone marketplace cards', async () => {
@@ -107,13 +134,15 @@ describe('PluginMarketplace', () => {
         install_fingerprint: 'fingerprint-new',
         plugins: [registryEntry('0.2.0')],
       });
+    const freshPlan = { ...planFor('photo-library'), fingerprint: 'd'.repeat(64) };
+    vi.mocked(pluginsApi.getInstallPlan).mockResolvedValueOnce(planFor('photo-library')).mockResolvedValue(freshPlan);
     const install = vi
       .spyOn(pluginsApi, 'installFromRegistryWithProgress')
-      .mockRejectedValue({
+      .mockRejectedValueOnce({
         status: 409,
-        code: 'PLUGIN_REGISTRY_CHANGED',
+        code: 'PLUGIN_INSTALL_PLAN_CHANGED',
         message: 'Registry changed',
-      });
+      }).mockResolvedValue({} as any);
     const onInstallComplete = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -128,13 +157,13 @@ describe('PluginMarketplace', () => {
       within(card).getByRole('button', { name: 'settings.marketplace.actions.install' }),
     );
     await user.click(
-      await screen.findByText('settings.marketplace.consent.confirm.install'),
+      await screen.findByText('settings.marketplace.plan.confirm'),
     );
 
     await waitFor(() => {
       expect(install).toHaveBeenCalledWith(
         'photo-library',
-        'fingerprint-old',
+        planFor('photo-library').fingerprint,
         expect.any(Function),
       );
       expect(getRegistry).toHaveBeenLastCalledWith({ force: true });
@@ -142,6 +171,9 @@ describe('PluginMarketplace', () => {
     });
     expect(install).toHaveBeenCalledTimes(1);
     expect(onInstallComplete).not.toHaveBeenCalled();
+    await waitFor(() => expect(pluginsApi.getInstallPlan).toHaveBeenCalledTimes(2));
+    await user.click(await screen.findByRole('button', { name: 'settings.marketplace.plan.confirm' }));
+    await waitFor(() => expect(install).toHaveBeenLastCalledWith('photo-library', freshPlan.fingerprint, expect.any(Function)));
   });
 
   it('updates with the fingerprint from the details the user confirmed', async () => {
@@ -211,14 +243,14 @@ describe('PluginMarketplace', () => {
     );
     await user.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.consent.confirm.update',
+        name: 'settings.marketplace.plan.confirm',
       }),
     );
 
     await waitFor(() => {
       expect(update).toHaveBeenCalledWith(
         'photo-library',
-        'update-fingerprint',
+        planFor('photo-library', true).fingerprint,
         expect.any(Function),
       );
     });
@@ -306,7 +338,7 @@ describe('PluginMarketplace', () => {
     expect(update).not.toHaveBeenCalled();
     await user.click(
       await screen.findByRole('button', {
-        name: 'settings.marketplace.consent.confirm.update',
+        name: 'settings.marketplace.plan.confirm',
       }),
     );
 
@@ -314,7 +346,7 @@ describe('PluginMarketplace', () => {
       expect(update).toHaveBeenCalledTimes(1);
       expect(update).toHaveBeenCalledWith(
         'safari-history',
-        'group-update-fingerprint',
+        planFor('safari-history', true).fingerprint,
         expect.any(Function),
       );
     });
@@ -452,22 +484,25 @@ describe('PluginMarketplace', () => {
     expect(within(picker).getByTestId('marketplace-entry-option-brave-history')).toHaveTextContent('Brave');
     await user.click(within(picker).getByTestId('marketplace-entry-checkbox-brave-history'));
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
-    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+    await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pluginsApi.getInstallPlan).toHaveBeenCalledTimes(2));
+    await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
 
     await waitFor(() => {
       expect(install).toHaveBeenCalledWith(
         'chrome-history',
-        'fingerprint-1',
+        planFor('chrome-history').fingerprint,
         expect.any(Function),
       );
       expect(install).toHaveBeenCalledWith(
         'safari-history',
-        'fingerprint-1',
+        planFor('safari-history').fingerprint,
         expect.any(Function),
       );
       expect(install).not.toHaveBeenCalledWith(
         'brave-history',
-        'fingerprint-1',
+        planFor('brave-history').fingerprint,
         expect.any(Function),
       );
     });
@@ -569,22 +604,25 @@ describe('PluginMarketplace', () => {
     const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
     expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeDisabled();
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
-    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+    await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pluginsApi.getInstallPlan).toHaveBeenCalledTimes(2));
+    await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
 
     await waitFor(() => {
       expect(install).toHaveBeenCalledWith(
         'safari-history',
-        'fingerprint-1',
+        planFor('safari-history').fingerprint,
         expect.any(Function),
       );
       expect(install).toHaveBeenCalledWith(
         'firefox-history',
-        'fingerprint-1',
+        planFor('firefox-history').fingerprint,
         expect.any(Function),
       );
       expect(install).not.toHaveBeenCalledWith(
         'chrome-history',
-        'fingerprint-1',
+        planFor('chrome-history').fingerprint,
         expect.any(Function),
       );
     });
@@ -675,7 +713,7 @@ describe('PluginMarketplace', () => {
     await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.chooseEntries' }));
     const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
     await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
-    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+    await user.click(await screen.findByText('settings.marketplace.plan.confirm'));
 
     await waitFor(() => {
       expect(within(browserCard).getByText('settings.marketplace.installProgress.groupTitle')).toBeInTheDocument();

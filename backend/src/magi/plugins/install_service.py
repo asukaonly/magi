@@ -369,31 +369,26 @@ class PluginInstallService:
                 raise PluginRegistryVersionError(
                     "Marketplace updates must use a newer plugin version"
                 )
-        full_closure = self._resolve_install_closure(
-            entry.plugin_id,
-            snapshot=snapshot,
-            entries_by_id=entries_by_id,
-            already_installed=set(),
-        )
-        if self._closure_needs_library_upgrade(full_closure, entries_by_id):
-            plan = await run_plugin_preparation_operation(
-                lambda: self._build_registry_install_plan(
-                    plugin_id,
-                    snapshot=snapshot,
-                    update=expected_registry_update_source is not None,
-                )
+        plan = await run_plugin_preparation_operation(
+            lambda: self._build_registry_install_plan(
+                plugin_id,
+                snapshot=snapshot,
+                update=expected_registry_update_source is not None,
             )
-            if plan.fingerprint != expected_fingerprint:
-                raise PluginInstallApprovalMismatchError(
-                    "Review and approve the coordinated install plan, including every consumer upgrade"
-                )
+        )
+        if plan.fingerprint != expected_fingerprint:
+            raise PluginInstallApprovalMismatchError(
+                "The approved installation plan changed; review every package change again"
+            )
+        full_closure = [change.entry for change in plan.changes]
+        if plan.coordinated:
             return await self._install_coordinated_registry_plan(
                 plan,
                 snapshot=snapshot,
                 workflow_budget=workflow_budget,
                 progress_reporter=progress_reporter,
             )
-        self.assert_expected_registry_fingerprint(snapshot, expected_fingerprint)
+        registry_fingerprint = snapshot.install_fingerprint
         try:
             provisional_lease = await _acquire_provisional_dependencies(
                 self._provisional_coordinator,
@@ -434,7 +429,7 @@ class PluginInstallService:
                     )
                     workflow_budget.ensure_time_remaining()
                     await self._assert_registry_snapshot_current(
-                        expected_fingerprint,
+                        registry_fingerprint,
                         workflow_budget=workflow_budget,
                     )
                     prepared.append((item, plugin_dir, manifest))
@@ -468,25 +463,6 @@ class PluginInstallService:
             target_state=target_state,
             extra_installed=extra_installed,
         )
-
-    def _closure_needs_library_upgrade(
-        self,
-        closure: list[PluginRegistryEntry],
-        entries: dict[str, PluginRegistryEntry],
-    ) -> bool:
-        installed_ids = self._installed_plugin_ids()
-        for entry in closure:
-            if entry.kind != "library" or entry.plugin_id not in installed_ids:
-                continue
-            raw = get_config().plugins.packages.get(entry.plugin_id)
-            configured = PluginSettings.model_validate(raw) if raw is not None else None
-            if configured is not None and (
-                configured.package_sha256 != entry.package_sha256
-                or configured.dependency_package_sha256
-                != {key: entries[key].package_sha256 for key in entry.depends_on}
-            ):
-                return True
-        return False
 
     async def _install_coordinated_registry_plan(
         self,

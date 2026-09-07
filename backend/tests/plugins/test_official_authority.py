@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import RLock
 from types import SimpleNamespace
 
 import pytest
@@ -178,11 +179,16 @@ def test_legacy_official_config_without_registry_provenance_is_not_authoritative
 
 
 class _FakeManager:
+    _lifecycle_write_lock = RLock()
+
     def __init__(self) -> None:
         self.install_kwargs: dict | None = None
 
     def installed_plugin_ids(self) -> set[str]:
         return set()
+
+    def get_package(self, plugin_id: str):
+        return None
 
     def install_plugin_from_directory(self, plugin_dir: Path, **kwargs):
         self.install_kwargs = {"plugin_dir": plugin_dir, **kwargs}
@@ -327,7 +333,7 @@ async def test_install_passes_only_effective_official_value_to_manager(
 
     await service.install_from_registry(
         "calendar",
-        expected_fingerprint=snapshot.install_fingerprint,
+        expected_fingerprint=service._build_registry_install_plan("calendar", snapshot=snapshot, update=False).fingerprint,
     )
 
     assert manager.install_kwargs is not None

@@ -335,6 +335,59 @@ export interface components {
         };
         JsonValue: unknown;
         /**
+         * LocalRequirementAppInstalled
+         * @description Requires an application identified by a platform-native identifier to be installed.
+         */
+        LocalRequirementAppInstalled: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            check_kind: "app_installed";
+            /** Identifier Per Platform */
+            identifier_per_platform: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * LocalRequirementExecutableInPath
+         * @description Requires at least one named executable to be reachable via PATH.
+         */
+        LocalRequirementExecutableInPath: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            check_kind: "executable_in_path";
+            /** Names */
+            names: string[];
+        };
+        /**
+         * LocalRequirementFileExists
+         * @description Requires a file to exist at the platform-specific path.
+         */
+        LocalRequirementFileExists: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            check_kind: "file_exists";
+            /** Paths Per Platform */
+            paths_per_platform: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * LocalizedText
+         * @description Per-locale strings; both zh and en are required.
+         */
+        LocalizedText: {
+            /** En */
+            en: string;
+            /** Zh */
+            zh: string;
+        };
+        /**
          * PluginCapability
          * @description A requested capability, never a grant of runtime authority.
          *
@@ -555,6 +608,65 @@ export interface components {
             /** Ts Ms */
             ts_ms: number;
         };
+        /** PluginInstallPlanChangeResponse */
+        PluginInstallPlanChangeResponse: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "install" | "update" | "reuse";
+            /** Current Dependency Package Sha256 */
+            current_dependency_package_sha256: {
+                [key: string]: string;
+            };
+            /** Current Installed Package Sha256 */
+            current_installed_package_sha256: string | null;
+            /** Current Package Sha256 */
+            current_package_sha256: string | null;
+            /** Current Version */
+            current_version: string | null;
+            /** Dependency Package Sha256 */
+            dependency_package_sha256: {
+                [key: string]: string;
+            };
+            entry: components["schemas"]["PluginRegistryEntry"];
+            /** Reason */
+            reason: string;
+        };
+        /** PluginInstallPlanRequest */
+        PluginInstallPlanRequest: {
+            /** Plugin Id */
+            plugin_id: string;
+            /** Update */
+            update: boolean;
+        };
+        /** PluginInstallPlanResponse */
+        PluginInstallPlanResponse: {
+            /** Changes */
+            changes: components["schemas"]["PluginInstallPlanChangeResponse"][];
+            /** Coordinated */
+            coordinated: boolean;
+            /** Fingerprint */
+            fingerprint: string;
+            /**
+             * Format
+             * @constant
+             */
+            format: "registry-install-plan-v1";
+            /** Registry Fingerprint */
+            registry_fingerprint: string;
+            /** Target Id */
+            target_id: string;
+            /** Update */
+            update: boolean;
+        };
+        /** PluginInstallRequest */
+        PluginInstallRequest: {
+            /** Plan Fingerprint */
+            plan_fingerprint: string;
+            /** Plugin Id */
+            plugin_id: string;
+        };
         /** PluginManifestResponse */
         PluginManifestResponse: {
             /** @default null */
@@ -641,6 +753,128 @@ export interface components {
             package_sha256: string | null;
             /** Trusted */
             trusted: boolean;
+        };
+        /** PluginRegistryApprovalRequest */
+        PluginRegistryApprovalRequest: {
+            /** Plan Fingerprint */
+            plan_fingerprint: string;
+        };
+        /**
+         * PluginRegistryEntry
+         * @description Remote plugin registry entry describing an available plugin.
+         */
+        PluginRegistryEntry: {
+            /** @default null */
+            activation_flow: components["schemas"]["ActivationFlowSpec"] | null;
+            /**
+             * Author
+             * @default
+             */
+            author: string;
+            /** Capabilities */
+            capabilities: components["schemas"]["PluginCapability"][];
+            /** Contribution Types */
+            contribution_types: string[];
+            /**
+             * Data Locality
+             * @default
+             */
+            data_locality: string;
+            /** Depends On */
+            depends_on: string[];
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Description I18N */
+            description_i18n: {
+                [key: string]: string;
+            };
+            /** @default null */
+            display_group: components["schemas"]["PluginDisplayGroupSpec"] | null;
+            /**
+             * Execution Mode
+             * @default restricted_process
+             * @enum {string}
+             */
+            execution_mode: "restricted_process" | "trusted_process";
+            /**
+             * Homepage
+             * @default
+             */
+            homepage: string;
+            /**
+             * Icon
+             * @default
+             */
+            icon: string;
+            /**
+             * Icon Data
+             * @default
+             */
+            icon_data: string;
+            /**
+             * Kind
+             * @default plugin
+             * @enum {string}
+             */
+            kind: "plugin" | "library";
+            /**
+             * Min Sdk Version
+             * @default 0.2.0
+             */
+            min_sdk_version: string;
+            /** Name */
+            name: string;
+            /** Name I18N */
+            name_i18n: {
+                [key: string]: string;
+            };
+            /**
+             * Official
+             * @default false
+             */
+            official: boolean;
+            /**
+             * Package Sha256
+             * @description Host-verified digest of the complete distributable plugin package.
+             */
+            package_sha256: string;
+            /**
+             * Path
+             * @default
+             */
+            path: string;
+            /** Platforms */
+            platforms: string[];
+            /** Plugin Id */
+            plugin_id: string;
+            /** Projection Sources */
+            projection_sources: string[];
+            /**
+             * Protocol Version
+             * @default 2
+             * @constant
+             */
+            protocol_version: 2;
+            /**
+             * Repository
+             * @default
+             */
+            repository: string;
+            /** Settings Actions */
+            settings_actions: components["schemas"]["PluginSettingsActionSpec"][];
+            /** Settings Fields */
+            settings_fields: components["schemas"]["ExtensionFieldSpec"][];
+            /** Settings Resources */
+            settings_resources: components["schemas"]["PluginSettingsResourceSpec"][];
+            /** Settings Ui Blocks */
+            settings_ui_blocks: components["schemas"]["SettingsUIBlockSpec"][];
+            /** @default null */
+            suggestion_descriptor: components["schemas"]["SuggestionDescriptor"] | null;
+            /** Version */
+            version: string;
         };
         /** PluginRegistryEntryResponse */
         PluginRegistryEntryResponse: {
@@ -1095,6 +1329,81 @@ export interface components {
             type: "resource_picker";
             /** Value Key */
             value_key: string;
+        };
+        /**
+         * SuggestionDescriptor
+         * @description Declares how this plugin should be surfaced to users who lack it.
+         *
+         *     See docs/plugin-suggestion-descriptor.md for the author guide.
+         */
+        SuggestionDescriptor: {
+            /** Category */
+            category: string;
+            /**
+             * Data Locality
+             * @default local_only
+             * @enum {string}
+             */
+            data_locality: "local_only" | "uploads";
+            /**
+             * Icon
+             * @default null
+             */
+            icon: string | null;
+            /** Local Requirements */
+            local_requirements: (components["schemas"]["LocalRequirementFileExists"] | components["schemas"]["LocalRequirementExecutableInPath"] | components["schemas"]["LocalRequirementAppInstalled"])[];
+            /** Platform Support */
+            platform_support: string[];
+            rationale: components["schemas"]["LocalizedText"];
+            /**
+             * Setup Time Estimate Seconds
+             * @default 30
+             */
+            setup_time_estimate_seconds: number;
+            surfaces: components["schemas"]["SuggestionSurfacesSpec"];
+            triggers: components["schemas"]["Triggers"];
+        };
+        /**
+         * SuggestionSurfaceSpec
+         * @description Plugin-owned presentation for one recommendation surface.
+         */
+        SuggestionSurfaceSpec: {
+            /**
+             * Order
+             * @default 100
+             */
+            order: number;
+            /** @default null */
+            rationale: components["schemas"]["LocalizedText"] | null;
+            /** @default null */
+            scope: components["schemas"]["LocalizedText"] | null;
+        };
+        /**
+         * SuggestionSurfacesSpec
+         * @description Recommendation surfaces where the plugin opts in to appear.
+         */
+        SuggestionSurfacesSpec: {
+            /** @default null */
+            empty_state: components["schemas"]["SuggestionSurfaceSpec"] | null;
+            /** @default null */
+            first_context: components["schemas"]["SuggestionSurfaceSpec"] | null;
+        };
+        /**
+         * Triggers
+         * @description Conditions under which a plugin should be auto-suggested.
+         *
+         *     All three categories are OR-combined: any matching intent, entity, or keyword
+         *     contributes to the match score (weighted by signal type in the matcher).
+         */
+        Triggers: {
+            /** Entities */
+            entities: string[];
+            /** Intents */
+            intents: string[];
+            /** Keywords */
+            keywords: {
+                [key: string]: string[];
+            };
         };
     };
     responses: never;

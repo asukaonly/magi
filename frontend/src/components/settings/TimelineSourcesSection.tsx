@@ -15,7 +15,7 @@ import {
 import type { UserMode } from '@/api/modules/config';
 import { sourcesApi, type SourceStatusItem } from '@/api/modules/sources';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
-import { PluginConsentDialog } from '@/components/plugins/PluginConsentDialog';
+import { PluginRegistryPlanReview } from '@/components/plugins/PluginRegistryPlanReview';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
 import {
@@ -529,14 +529,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
-  const performAvailableEntryInstall = async (entry: TimelineAvailableEntry) => {
+  const performAvailableEntryInstall = async (entry: TimelineAvailableEntry, planFingerprint: string) => {
     setInstallingEntryId(entry.pluginId);
     setInstallingEntryLabel(entry.entryDisplayName);
     setInstallSnapshot(null);
     try {
       await pluginsApi.installFromRegistryWithProgress(
         entry.pluginId,
-        entry.installFingerprint,
+        planFingerprint,
         setInstallSnapshot,
       );
       toast.success(t('settings.marketplace.feedback.installSuccess'));
@@ -1107,20 +1107,14 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           />
         ) : null}
         {installConsentEntry ? (
-          <PluginConsentDialog
-            open
-            mode="install"
-            pluginName={installConsentEntry.entryDisplayName}
-            pluginIcon={installConsentEntry.icon}
-            version={installConsentEntry.version}
-            official={installConsentEntry.official}
-            capabilities={installConsentEntry.capabilities ?? []}
-            executionMode={installConsentEntry.executionMode}
+          <PluginRegistryPlanReview
+            pluginId={installConsentEntry.pluginId}
+            update={false}
             onCancel={() => setInstallConsentEntry(null)}
-            onConfirm={() => {
+            onConfirm={plan => {
               const entry = installConsentEntry;
               setInstallConsentEntry(null);
-              void performAvailableEntryInstall(entry);
+              void performAvailableEntryInstall(entry, plan.fingerprint);
             }}
           />
         ) : null}

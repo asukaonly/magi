@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import RLock
 import subprocess
 import sys
 import time
@@ -316,11 +317,16 @@ async def test_registry_sources_share_cumulative_workflow_budget_and_cleanup(
             return plugin_dir
 
     class _Manager:
+        _lifecycle_write_lock = RLock()
+
         def __init__(self) -> None:
             self.install_calls: list[str] = []
 
         def installed_plugin_ids(self) -> set[str]:
             return set()
+
+        def get_package(self, plugin_id: str):
+            return None
 
         def install_plugin_from_directory(
             self,
@@ -352,7 +358,7 @@ async def test_registry_sources_share_cumulative_workflow_budget_and_cleanup(
     ):
         await service.install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan(target.plugin_id, snapshot=snapshot, update=False).fingerprint,
         )
 
     assert len(registry.extracted_dirs) == 2

@@ -29,13 +29,16 @@ from ...plugins.install_admission import (
     PluginInstallCapacityError,
     PluginInstallConflictError,
 )
+from ...plugins.installation import PluginInstallRollbackError
 from ...plugins.install_service import (
     DirectLibraryInstallError,
     PluginDependencyConflictError,
     PluginPackageConflictError,
+    PluginPackageNotInstalled,
     PluginRegistryEntryNotFound,
     PluginRegistrySourceConflictError,
     PluginRegistrySnapshotMismatchError,
+    PluginInstallApprovalMismatchError,
 )
 from ...plugins.package_files import InvalidPluginArchiveError
 from .plugins_common import (
@@ -55,6 +58,8 @@ from .plugins_schemas import (
     PluginInstallCandidateResponse,
     PluginInstallJobSnapshot,
     PluginInstallRequest,
+    PluginInstallPlanRequest,
+    PluginInstallPlanResponse,
     PluginManifestResponse,
     PluginPackageResponse,
 )
@@ -356,6 +361,22 @@ async def start_plugin_candidate_install_job(
         ) from exc
 
 
+@plugins_install_router.post("/install/registry/plan", response_model=PluginInstallPlanResponse)
+async def plan_plugin_registry_install(request: PluginInstallPlanRequest):
+    """Inspect every package change before installation consent."""
+    service = _plugin_install_service(_require_plugin_manager())
+    try:
+        plan = await service.plan_registry_install(request.plugin_id, update=request.update)
+        return PluginInstallPlanResponse.model_validate(plan.to_dict())
+    except (PluginRegistryEntryNotFound, PluginPackageNotInstalled) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_PLAN_BLOCKED"},
+        ) from exc
+
+
 @plugins_install_router.post("/install/registry", response_model=PluginPackageResponse)
 async def install_plugin_from_registry(request: PluginInstallRequest):
     """Clone and install a plugin from the remote registry."""
@@ -369,7 +390,7 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
         )
         install_result = await install_service.install_from_registry(
             request.plugin_id,
-            expected_fingerprint=request.expected_fingerprint,
+            expected_fingerprint=request.plan_fingerprint,
         )
         logger.info(
             "Plugin registry install completed",
@@ -410,6 +431,11 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
                 "plugins.errors.install_job_conflict",
                 fallback="This plugin already has an active installation",
             ),
+        ) from exc
+    except PluginInstallApprovalMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_PLAN_CHANGED"},
         ) from exc
     except PluginRegistrySnapshotMismatchError as exc:
         raise HTTPException(
@@ -466,6 +492,11 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
             extra={"plugin_id": request.plugin_id, "error": str(exc)},
         )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except PluginInstallRollbackError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_ROLLBACK_FAILED"},
+        ) from exc
     except RuntimeError as exc:
         logger.exception(
             "Plugin registry install failed",
@@ -490,7 +521,7 @@ async def start_plugin_registry_install_job(request: PluginInstallRequest):
     try:
         return await plugin_install_jobs.start_registry_install(
             request.plugin_id,
-            expected_fingerprint=request.expected_fingerprint,
+            expected_fingerprint=request.plan_fingerprint,
         )
     except PluginInstallJobCapacityError as exc:
         raise HTTPException(
@@ -507,6 +538,11 @@ async def start_plugin_registry_install_job(request: PluginInstallRequest):
                 "plugins.errors.install_job_conflict",
                 fallback="This plugin already has an active installation",
             ),
+        ) from exc
+    except PluginInstallApprovalMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "error_code": "PLUGIN_INSTALL_PLAN_CHANGED"},
         ) from exc
     except PluginRegistrySnapshotMismatchError as exc:
         raise HTTPException(
@@ -542,6 +578,7 @@ async def uninstall_plugin(plugin_id: str):
 
 
 __all__ = [
+    "plan_plugin_registry_install",
     "create_plugin_install_candidate",
     "discard_plugin_install_candidate",
     "install_plugin_from_registry",

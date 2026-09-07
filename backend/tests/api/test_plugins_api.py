@@ -198,7 +198,7 @@ def test_registry_install_rejects_invalid_plugin_id_before_work(
         "/api/plugins/install/registry",
         json={
             "plugin_id": plugin_id,
-            "expected_fingerprint": "a" * 64,
+            "plan_fingerprint": "a" * 64,
         },
     )
 
@@ -216,7 +216,7 @@ def test_registry_update_rejects_invalid_plugin_id_before_work(
 
     response = TestClient(app).post(
         f"/api/plugins/{plugin_id}/{suffix}",
-        json={"expected_fingerprint": "a" * 64},
+        json={"plan_fingerprint": "a" * 64},
     )
 
     assert response.status_code == 422

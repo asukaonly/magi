@@ -186,6 +186,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/install/candidates/{candidate_id}": {"DELETE"},
         "/install/candidates/{candidate_id}/jobs": {"POST"},
         "/install/registry": {"POST"},
+        "/install/registry/plan": {"POST"},
         "/install/registry/jobs": {"POST"},
         "/install/jobs/{job_id}": {"GET"},
         "/{plugin_id}": {"DELETE"},

@@ -323,6 +323,11 @@ def _receipt(
     )
 
 
+async def _approval_fingerprint(manager, snapshot, plugin_id, *, update=False):
+    service = PluginInstallService(registry_client=_Registry(snapshot), plugin_manager=manager)
+    return (await service.plan_registry_install(plugin_id, update=update)).fingerprint
+
+
 @pytest.mark.asyncio
 async def test_registry_update_keeps_disabled_plugin_unloaded(
     monkeypatch: pytest.MonkeyPatch,
@@ -340,7 +345,7 @@ async def test_registry_update_keeps_disabled_plugin_unloaded(
         coordinator,
     ).install_from_registry(
         plugin_id,
-        expected_fingerprint=initial_snapshot.install_fingerprint,
+        expected_fingerprint=await _approval_fingerprint(manager, initial_snapshot, plugin_id, update=False),
     )
     assert installed.target_state.loaded is False
     connection = manager.create_connection(plugin_id, display_name="Disabled account", enabled=False)
@@ -369,7 +374,7 @@ async def test_registry_update_keeps_disabled_plugin_unloaded(
         coordinator,
     ).update_from_registry(
         plugin_id,
-        expected_fingerprint=updated_snapshot.install_fingerprint,
+        expected_fingerprint=await _approval_fingerprint(manager, updated_snapshot, plugin_id, update=True),
     )
 
     configured = PluginSettings.model_validate(config.plugins.packages[plugin_id])
@@ -401,7 +406,7 @@ async def test_registry_update_keeps_enabled_plugin_loaded(
         coordinator,
     ).install_from_registry(
         plugin_id,
-        expected_fingerprint=initial_snapshot.install_fingerprint,
+        expected_fingerprint=await _approval_fingerprint(manager, initial_snapshot, plugin_id, update=False),
     )
     assert installed.target_state.loaded is False
     connection = manager.create_connection(plugin_id, display_name="Enabled account", enabled=True)
@@ -417,7 +422,7 @@ async def test_registry_update_keeps_enabled_plugin_loaded(
         coordinator,
     ).update_from_registry(
         plugin_id,
-        expected_fingerprint=updated_snapshot.install_fingerprint,
+        expected_fingerprint=await _approval_fingerprint(manager, updated_snapshot, plugin_id, update=True),
     )
 
     configured = PluginSettings.model_validate(config.plugins.packages[plugin_id])
@@ -612,7 +617,7 @@ async def test_failed_target_removes_new_provisional_library(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is None
@@ -654,7 +659,7 @@ async def test_identity_capture_failure_rolls_back_published_library(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is None
@@ -686,7 +691,7 @@ async def test_late_workflow_reinstalls_library_after_prior_cleanup(
             coordinator,
         ).install_from_registry(
             failed_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, failed_target.plugin_id, update=False),
         )
 
     assert not (user_root / library.plugin_id).exists()
@@ -697,7 +702,7 @@ async def test_late_workflow_reinstalls_library_after_prior_cleanup(
         coordinator,
     ).install_from_registry(
         successful_target.plugin_id,
-        expected_fingerprint=snapshot.install_fingerprint,
+        expected_fingerprint=await _approval_fingerprint(manager, snapshot, successful_target.plugin_id, update=False),
     )
 
     assert second_registry.cloned_plugin_ids == [
@@ -749,7 +754,7 @@ async def test_failed_target_preserves_preexisting_library(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is not None
@@ -795,13 +800,13 @@ async def test_failed_and_successful_workflows_share_library_without_deletion(
     failed = asyncio.create_task(
         service.install_from_registry(
             failed_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan(failed_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
         )
     )
     successful = asyncio.create_task(
         service.install_from_registry(
             successful_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan(successful_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
         )
     )
 
@@ -868,7 +873,7 @@ async def test_late_workflow_claims_published_library_before_first_release(
             coordinator,
         ).install_from_registry(
             failed_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, failed_target.plugin_id, update=False),
         )
     )
     assert await asyncio.to_thread(library_published.wait, 5)
@@ -881,7 +886,7 @@ async def test_late_workflow_claims_published_library_before_first_release(
             coordinator,
         ).install_from_registry(
             successful_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, successful_target.plugin_id, update=False),
         )
     )
 
@@ -900,7 +905,7 @@ async def test_late_workflow_claims_published_library_before_first_release(
 
 
 @pytest.mark.asyncio
-async def test_creator_manager_cleans_when_stale_manager_releases_last(
+async def test_stale_manager_cannot_approve_undiscovered_dependency(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -946,31 +951,23 @@ async def test_creator_manager_cleans_when_stale_manager_releases_last(
             coordinator,
         ).install_from_registry(
             creator_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(creator_manager, snapshot, creator_target.plugin_id, update=False),
         )
     )
     assert await asyncio.to_thread(library_published.wait, 5)
     assert stale_manager.installed_plugin_ids() == set()
 
-    stale_task = asyncio.create_task(
-        _service(
-            _Registry(snapshot, before_return=hold_stale_library_clone),
-            stale_manager,
-            coordinator,
-        ).install_from_registry(
-            stale_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
-        )
+    stale_service = _service(
+        _Registry(snapshot, before_return=hold_stale_library_clone),
+        stale_manager,
+        coordinator,
     )
+    with pytest.raises(ValueError, match="Undiscovered installed package"):
+        await stale_service.plan_registry_install(stale_target.plugin_id)
+    stale_workflow_claimed.set()
 
     with pytest.raises(RuntimeError, match="target commit failed"):
         await creator_task
-    assert (user_root / library.plugin_id / "plugin.toml").is_file()
-
-    stale_task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await stale_task
-
     assert creator_manager.get_package(library.plugin_id) is None
     assert stale_manager.get_package(library.plugin_id) is None
     assert library.plugin_id not in config.plugins.packages
@@ -1022,11 +1019,11 @@ async def test_two_failed_workflows_remove_shared_library_after_last_release(
     results = await asyncio.gather(
         service.install_from_registry(
             first_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan(first_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
         ),
         service.install_from_registry(
             second_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=service._build_registry_install_plan(second_target.plugin_id, snapshot=snapshot, update=False).fingerprint,
         ),
         return_exceptions=True,
     )
@@ -1061,7 +1058,7 @@ async def test_nested_libraries_are_removed_in_reverse_dependency_order(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(parent.plugin_id) is None
@@ -1119,7 +1116,7 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
             coordinator,
         ).install_from_registry(
             leaf_target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(leaf_manager, snapshot, leaf_target.plugin_id, update=False),
         )
     )
     assert await asyncio.to_thread(leaf_published.wait, 5)
@@ -1150,7 +1147,7 @@ async def test_nested_library_owned_by_stale_manager_preserves_retained_parent(
                 coordinator,
             ).install_from_registry(
                 parent_target.plugin_id,
-                expected_fingerprint=snapshot.install_fingerprint,
+                expected_fingerprint=await _approval_fingerprint(parent_manager, snapshot, parent_target.plugin_id, update=False),
             )
     finally:
         allow_leaf_target_failure.set()
@@ -1202,7 +1199,7 @@ async def test_identity_change_prevents_provisional_library_deletion(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is not None
@@ -1254,7 +1251,7 @@ async def test_managed_path_replacement_prevents_provisional_library_deletion(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is not None
@@ -1306,7 +1303,7 @@ async def test_generation_replaced_before_receipt_registration_is_preserved(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert replacement_completed
@@ -1363,7 +1360,7 @@ async def test_new_consumer_prevents_provisional_library_deletion(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
 
     assert manager.get_package(library.plugin_id) is not None
@@ -1387,7 +1384,7 @@ async def test_package_install_does_not_import_dependency_before_connection(
 
     installed = await _service(
         _Registry(snapshot, plugin_sources={target.plugin_id: target_source}), manager, coordinator,
-    ).install_from_registry(target.plugin_id, expected_fingerprint=snapshot.install_fingerprint)
+    ).install_from_registry(target.plugin_id, expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False))
 
     assert installed.target_state.loaded is False
     assert manager.connection_store.list(target.plugin_id) == []
@@ -1430,7 +1427,7 @@ async def test_cancellation_during_library_commit_waits_and_cleans(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
     )
 
@@ -1475,7 +1472,7 @@ async def test_cancellation_waits_for_commit_then_cleans_provisional_library(
             coordinator,
         ).install_from_registry(
             target.plugin_id,
-            expected_fingerprint=snapshot.install_fingerprint,
+            expected_fingerprint=await _approval_fingerprint(manager, snapshot, target.plugin_id, update=False),
         )
     )
 

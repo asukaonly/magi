@@ -53,8 +53,6 @@ class RegistryInstallPlan:
 
     @property
     def fingerprint(self) -> str:
-        if not self.coordinated:
-            return self.registry_fingerprint
         encoded = json.dumps(self._payload(), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 

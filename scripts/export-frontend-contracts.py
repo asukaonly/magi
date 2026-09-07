@@ -143,10 +143,18 @@ def build_examples() -> dict:
 
 def build_plugin_contract() -> dict:
     from magi.api.routers.plugins import plugins_router
+    from magi.api.routers.plugins_connection_routes import (
+        PluginConnectionResponse,
+        PluginConnectionsResponse,
+    )
     from magi.api.routers.plugins_schemas import (
         PluginInstallCandidateResponse,
         PluginInstallJobSnapshot,
+        PluginInstallPlanRequest,
+        PluginInstallPlanResponse,
+        PluginInstallRequest,
         PluginPackageResponse,
+        PluginRegistryApprovalRequest,
         PluginRegistryResponse,
         PluginSettingsActionRunResponse,
         PluginSettingsResourceResponse,
@@ -154,17 +162,41 @@ def build_plugin_contract() -> dict:
     )
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
-    from magi.api.routers.plugins_connection_routes import PluginConnectionResponse, PluginConnectionsResponse
-
-    models = [PluginConnectionResponse, PluginConnectionsResponse, PluginPackageResponse, PluginInstallCandidateResponse, PluginInstallJobSnapshot,
-              PluginRegistryResponse, PluginSettingsActionRunResponse, PluginSettingsResourceResponse,
-              PluginsListResponse]
+    models = [
+        PluginConnectionResponse,
+        PluginConnectionsResponse,
+        PluginPackageResponse,
+        PluginInstallCandidateResponse,
+        PluginInstallJobSnapshot,
+        PluginRegistryResponse,
+        PluginInstallPlanResponse,
+        PluginSettingsActionRunResponse,
+        PluginSettingsResourceResponse,
+        PluginsListResponse,
+    ]
     public = _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"])
     for model in models:
         if not any(route.response_model is model for route in public.routes):
-            raise RuntimeError(f"Plugin contract is not exposed by the public router: {model.__name__}")
+            raise RuntimeError(
+                f"Plugin contract is not exposed by the public router: {model.__name__}"
+            )
+    requests = [
+        PluginInstallPlanRequest,
+        PluginInstallRequest,
+        PluginRegistryApprovalRequest,
+    ]
+    for model in requests:
+        if not any(
+            parameter.field_info.annotation is model
+            for route in public.routes
+            for parameter in route.dependant.body_params
+        ):
+            raise RuntimeError(
+                f"Plugin request is not exposed by the public router: {model.__name__}"
+            )
     _, document = models_json_schema(
-        [(model, "serialization") for model in models],
+        [(model, "serialization") for model in models]
+        + [(model, "validation") for model in requests],
         schema_generator=ResponseJsonSchema,
         ref_template="#/components/schemas/{model}",
     )
@@ -177,6 +209,7 @@ def build_plugin_contract() -> dict:
 
 
 def build_plugin_examples() -> dict:
+    from magi.api.routers.plugins_connection_routes import PluginConnectionResponse
     from magi.api.routers.plugins_schemas import (
         ExtensionFieldResponse,
         PluginContributionResponse,
@@ -187,38 +220,140 @@ def build_plugin_examples() -> dict:
         PluginsListResponse,
     )
 
-    from magi.api.routers.plugins_connection_routes import PluginConnectionResponse
-
     package = PluginPackageResponse(
         manifest=PluginManifestResponse(
-            protocol_version=2, min_sdk_version="0.2.0", execution_mode="restricted_process", settings_fields=[],
-            plugin_id="fixture-source", name="Fixture source", version="1.0.0",
-            description="Contract fixture", author="Magi", official=False,
-            contribution_types=["source"], source="local", plugin_dir="/fixture", manifest_path="/fixture/plugin.toml",
-        ), enabled=True, trusted=True, loaded=True, healthy=True,
-        contributions=[PluginContributionResponse(
-            plugin_id="fixture-source", contribution_id="source", contribution_type="source",
-            display_name="Source", description="", surface="timeline",
-            fields=[ExtensionFieldResponse(key="enabled", type="switch", label="Enabled", default=True)],
-        )], current_settings={"enabled": True},
+            protocol_version=2,
+            min_sdk_version="0.2.0",
+            execution_mode="restricted_process",
+            settings_fields=[],
+            plugin_id="fixture-source",
+            name="Fixture source",
+            version="1.0.0",
+            description="Contract fixture",
+            author="Magi",
+            official=False,
+            contribution_types=["source"],
+            source="local",
+            plugin_dir="/fixture",
+            manifest_path="/fixture/plugin.toml",
+        ),
+        enabled=True,
+        trusted=True,
+        loaded=True,
+        healthy=True,
+        contributions=[
+            PluginContributionResponse(
+                plugin_id="fixture-source",
+                contribution_id="source",
+                contribution_type="source",
+                display_name="Source",
+                description="",
+                surface="timeline",
+                fields=[
+                    ExtensionFieldResponse(
+                        key="enabled", type="switch", label="Enabled", default=True
+                    )
+                ],
+            )
+        ],
+        current_settings={"enabled": True},
+    )
+    from magi.plugins.contracts import PluginCapability, PluginRegistryEntry
+    from magi.plugins.library_upgrade_plan import (
+        RegistryInstallPlan,
+        RegistryPackageChange,
+    )
+
+    entries = [
+        PluginRegistryEntry(
+            plugin_id="fixture_library",
+            name="Shared library",
+            version="2.0.0",
+            kind="library",
+            package_sha256="a" * 64,
+        ),
+        PluginRegistryEntry(
+            plugin_id="fixture-source",
+            name="Fixture source",
+            version="2.0.0",
+            depends_on=["fixture_library"],
+            package_sha256="b" * 64,
+        ),
+        PluginRegistryEntry(
+            plugin_id="fixture-consumer",
+            name="Other consumer",
+            version="2.0.0",
+            depends_on=["fixture_library"],
+            package_sha256="c" * 64,
+            capabilities=[
+                PluginCapability(
+                    capability="network",
+                    scope=["api.example.test"],
+                    reason="Read remote entries",
+                )
+            ],
+        ),
+    ]
+    plan = RegistryInstallPlan(
+        target_id="fixture-source",
+        update=True,
+        registry_fingerprint="f" * 64,
+        changes=tuple(
+            RegistryPackageChange(
+                entry=entry,
+                action="update",
+                reason="requested"
+                if entry.plugin_id == "fixture-source"
+                else "dependency of fixture-source"
+                if entry.kind == "library"
+                else "consumer of fixture_library",
+                current_version="1.0.0",
+                current_package_sha256="d" * 64,
+                current_installed_package_sha256="e" * 64,
+                current_dependency_package_sha256={
+                    key: "d" * 64 for key in entry.depends_on
+                },
+                dependency_package_sha256={key: "a" * 64 for key in entry.depends_on},
+            )
+            for entry in entries
+        ),
     )
     return {
-        "optional_field": ExtensionFieldResponse(key="optional_path", type="input", label="Optional path").model_dump(mode="json"),
-        "connection": PluginConnectionResponse(connection_id="fixture-connection", plugin_id="fixture-source",
-            display_name="Fixture account", readiness=[]).model_dump(mode="json"),
+        "plan": plan.to_dict(),
+        "optional_field": ExtensionFieldResponse(
+            key="optional_path", type="input", label="Optional path"
+        ).model_dump(mode="json"),
+        "connection": PluginConnectionResponse(
+            connection_id="fixture-connection",
+            plugin_id="fixture-source",
+            display_name="Fixture account",
+            readiness=[],
+        ).model_dump(mode="json"),
         "package": package.model_dump(mode="json"),
         "list": PluginsListResponse(plugins=[package], total=1).model_dump(mode="json"),
         "job": PluginInstallJobSnapshot(
-            job_id="fixture-job", operation="install", plugin_id="fixture-source", status="completed",
-            stage="completed", message="Installed", progress_pct=100, result=package,
-            created_at_ms=1000, updated_at_ms=2000, finished_at_ms=2000,
+            job_id="fixture-job",
+            operation="install",
+            plugin_id="fixture-source",
+            status="completed",
+            stage="completed",
+            message="Installed",
+            progress_pct=100,
+            result=package,
+            created_at_ms=1000,
+            updated_at_ms=2000,
+            finished_at_ms=2000,
         ).model_dump(mode="json"),
         "action": PluginSettingsActionRunResponse(
-            connection_id="fixture-connection", plugin_id="fixture-source", action_id="connect", session_id="fixture-action", status="succeeded",
-            message="Connected", settings_updates={"configured": True},
+            connection_id="fixture-connection",
+            plugin_id="fixture-source",
+            action_id="connect",
+            session_id="fixture-action",
+            status="succeeded",
+            message="Connected",
+            settings_updates={"configured": True},
         ).model_dump(mode="json"),
     }
-
 
 def build_event_contract() -> dict:
     from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent

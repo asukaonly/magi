@@ -171,7 +171,7 @@ async def runtime(monkeypatch, tmp_path, request):
     service = PluginInstallService(registry_client=registry, plugin_manager=manager)
     for key in ("consumer-a", "consumer-b"):
         await service.install_from_registry(
-            key, expected_fingerprint=registry.snapshot.install_fingerprint
+            key, expected_fingerprint=service._build_registry_install_plan(key, snapshot=registry.snapshot, update=False).fingerprint
         )
     connections = [
         manager.create_connection(
@@ -505,7 +505,7 @@ async def test_nested_reverse_consumers_also_need_new_releases(runtime):
     third = _entry("consumer-c", depends_on=["bridge"])
     runtime.registry.snapshot = _snapshot(*runtime.old, bridge, third)
     await runtime.service.install_from_registry(
-        "consumer-c", expected_fingerprint=runtime.registry.snapshot.install_fingerprint
+        "consumer-c", expected_fingerprint=runtime.service._build_registry_install_plan("consumer-c", snapshot=runtime.registry.snapshot, update=False).fingerprint
     )
     bridge_v2 = _entry("bridge", kind="library", version="2.0.0", depends_on=[LIBRARY_ID])
     third_v2 = _entry("consumer-c", version="2.0.0", depends_on=["bridge"])
@@ -712,3 +712,47 @@ async def test_cancellation_does_not_hide_rollback_failure(runtime, monkeypatch)
     with pytest.raises(PluginInstallRollbackError):
         await task
     assert_restored(runtime)
+
+
+@pytest.mark.asyncio
+async def test_public_plan_route_reviews_and_executes_exact_closure(runtime, monkeypatch):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from magi.api.routers import plugins_install_routes, plugins_registry_routes
+    from magi.api.routers.plugins import plugins_router
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    for routes in (plugins_install_routes, plugins_registry_routes):
+        monkeypatch.setattr(routes, "_plugin_install_service", lambda _: runtime.service)
+        monkeypatch.setattr(routes, "_require_plugin_manager", lambda: runtime.manager)
+    app = FastAPI()
+    app.include_router(
+        _build_public_router(plugins_router, _PUBLIC_ROUTE_METHODS["plugins"]),
+        prefix="/api/plugins",
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        review = await client.post(
+            "/api/plugins/install/registry/plan",
+            json={"plugin_id": "consumer-a", "update": True},
+        )
+        assert review.status_code == 200, review.text
+        plan = review.json()
+        assert {item["entry"]["plugin_id"] for item in plan["changes"]} == {
+            "consumer-a", "consumer-b", LIBRARY_ID,
+        }
+        assert all(item["current_version"] == "1.0.0" for item in plan["changes"])
+        assert all(item["entry"]["version"] == "2.0.0" for item in plan["changes"])
+        assert runtime.manager.get_package(LIBRARY_ID).manifest.version == "1.0.0"
+        rejected = await client.post(
+            "/api/plugins/consumer-a/update",
+            json={"plan_fingerprint": plan["registry_fingerprint"]},
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["detail"]["error_code"] == "PLUGIN_INSTALL_PLAN_CHANGED"
+        updated = await client.post(
+            "/api/plugins/consumer-a/update",
+            json={"plan_fingerprint": plan["fingerprint"]},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["manifest"]["version"] == "2.0.0"
+        assert runtime.manager.get_package("consumer-b").manifest.version == "2.0.0"

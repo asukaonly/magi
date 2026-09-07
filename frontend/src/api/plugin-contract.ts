@@ -5,7 +5,7 @@ import type { components } from './generated/plugins-types';
 import type {
   PluginInstallCandidate, PluginInstallJobSnapshot, PluginPackageState, PluginRegistryResponse,
   PluginSettingsActionRunResponse, PluginSettingsResourcePayload, PluginsListResponse,
-  PluginConnection,
+  PluginConnection, PluginInstallPlan,
 } from './modules/plugins';
 
 function parse<T>(name: string, value: unknown, validate: (value: unknown) => value is T): T {
@@ -21,6 +21,15 @@ export const parsePluginCandidate = (value: unknown): PluginInstallCandidate =>
   parse('plugin candidate', value, validators.validatePluginInstallCandidateResponse);
 export const parsePluginRegistry = (value: unknown): PluginRegistryResponse =>
   parse('plugin registry', value, validators.validatePluginRegistryResponse);
+export function parsePluginPlan(value: unknown, pluginId: string, update: boolean): PluginInstallPlan {
+  const plan = parse('plugin install plan', value, validators.validatePluginInstallPlanResponse);
+  const ids = plan.changes.map(change => change.entry.plugin_id);
+  if (plan.target_id !== pluginId || plan.update !== update || !ids.includes(pluginId) || new Set(ids).size !== ids.length) {
+    throw new ApiContractError('plugin install plan identity');
+  }
+  return plan;
+}
+
 export const parsePluginAction = (value: unknown): PluginSettingsActionRunResponse =>
   parse('plugin action', value, validators.validatePluginSettingsActionRunResponse);
 

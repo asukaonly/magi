@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...plugins.contracts import (
     ExtensionFieldOption,
@@ -13,6 +13,7 @@ from ...plugins.contracts import (
     PluginCapability,
     PluginDisplayGroupSpec,
     PluginIdentifier,
+    PluginRegistryEntry,
     PluginSettingsActionSpec,
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,
@@ -161,12 +162,46 @@ class PluginRegistryResponse(BaseModel):
 
 
 class PluginInstallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     plugin_id: PluginIdentifier
-    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class PluginRegistryApprovalRequest(BaseModel):
-    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model_config = ConfigDict(extra="forbid")
+    plan_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class PluginInstallPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plugin_id: PluginIdentifier
+    update: bool
+
+
+_PlanDigest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class PluginInstallPlanChangeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entry: PluginRegistryEntry
+    action: Literal["install", "update", "reuse"]
+    reason: str
+    current_version: str | None
+    current_package_sha256: _PlanDigest | None
+    current_installed_package_sha256: _PlanDigest | None
+    current_dependency_package_sha256: dict[PluginIdentifier, _PlanDigest]
+    dependency_package_sha256: dict[PluginIdentifier, _PlanDigest]
+
+
+class PluginInstallPlanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    format: Literal["registry-install-plan-v1"]
+    target_id: PluginIdentifier
+    update: bool
+    registry_fingerprint: _PlanDigest
+    fingerprint: _PlanDigest
+    coordinated: bool
+    changes: list[PluginInstallPlanChangeResponse] = Field(min_length=1, max_length=16)
 
 
 class PluginInstallCandidateApprovalRequest(BaseModel):
@@ -225,6 +260,9 @@ __all__ = [
     "PluginInstallJobSnapshot",
     "PluginInstallLogEntry",
     "PluginInstallRequest",
+    "PluginInstallPlanRequest",
+    "PluginInstallPlanResponse",
+    "PluginInstallPlanChangeResponse",
     "PluginManifestResponse",
     "PluginPackageResponse",
     "PluginRegistryEntryResponse",
