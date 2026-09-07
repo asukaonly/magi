@@ -21,7 +21,7 @@ import uuid
 
 from .base import Plugin
 from .context import PluginContext
-from .runtime import PluginHandshake, PLUGIN_PROTOCOL_VERSION, SDK_VERSION
+from .runtime import PluginHandshake, PLUGIN_PROTOCOL_VERSION, SDK_VERSION, ResourceRef, SourceChange
 from .versioning import validate_sdk_requirement
 from .transport import (
     MAX_FRAME_BYTES,
@@ -114,6 +114,30 @@ class WorkerProgress:
         )
 
 
+class RemoteSourceEmitter:
+    def __init__(self, server: WorkerServer, lease: str) -> None:
+        self.server, self.lease = server, lease
+
+    async def _call(self, method: str, value: Any) -> Any:
+        future = self.server.callback(
+            "source", {"method": method, "value": value}, parent=self.lease
+        )
+        return await asyncio.wait_for(asyncio.wrap_future(future), self.server.callback_timeout)
+
+    async def emit(self, change: "SourceChange") -> None:
+        await self._call("emit", change)
+
+    async def create_resource(
+        self, content: bytes, *, media_type: str, display_name: str = ""
+    ) -> "ResourceRef":
+        return await self._call("create_resource", {
+            "content": content, "media_type": media_type, "display_name": display_name,
+        })
+
+    async def read_resource(self, reference: "ResourceRef") -> bytes:
+        return await self._call("read_resource", reference)
+
+
 def get_host() -> WorkerHost:
     """Return the worker's scoped host capability client."""
     if _host is None:
@@ -139,6 +163,7 @@ class WorkerServer:
         self.channel_boundaries: dict[str, Any] = {}
         self.streams: dict[str, Any] = {}
         self.stream_busy: set[str] = set()
+        self.source_watches: dict[str, asyncio.Task[None]] = {}
 
     def send(self, message: dict[str, Any]) -> None:
         data = pack(message, self.max_frame_bytes)
@@ -201,6 +226,8 @@ class WorkerServer:
         self.stopping = True
         for task in tuple(self.tasks.values()):
             task.cancel()
+        for task in tuple(self.source_watches.values()):
+            task.cancel()
         self.done.set()
 
     def _receive(self, frame: dict[str, Any]) -> None:
@@ -240,6 +267,9 @@ class WorkerServer:
                 raise ProtocolError("Worker must initialize before invocation")
             elif method == "invoke":
                 payload = frame["payload"]
+                if payload["target"] == "plugin" and payload["method"] == "shutdown":
+                    for lease in tuple(self.source_watches):
+                        await self._stop_source_watch(lease)
                 args, kwargs = payload.get("args", ()), payload.get("kwargs", {})
                 if payload.get("progress"):
                     from .tools import ToolExecutionContext
@@ -260,6 +290,22 @@ class WorkerServer:
                 )
                 if inspect.isawaitable(result):
                     result = await result
+            elif method == "start_source_watch":
+                payload = frame["payload"]
+                lease = payload["lease"]
+                if not isinstance(lease, str) or not lease.startswith("source:") or lease in self.source_watches:
+                    raise ProtocolError("Invalid source subscription")
+                if len(self.source_watches) >= self.max_inflight:
+                    raise ProtocolError("Source subscription capacity exhausted")
+                watch = self.catalog.method(payload["target"], "watch")
+                task = asyncio.create_task(self._watch_source(
+                    lease, watch, payload["context"]
+                ))
+                self.source_watches[lease] = task
+                result = None
+            elif method == "stop_source_watch":
+                await self._stop_source_watch(frame["payload"]["lease"])
+                result = None
             elif method == "stream_open":
                 payload = frame["payload"]
                 if len(self.streams) >= self.max_inflight:
@@ -370,6 +416,26 @@ class WorkerServer:
             self.tasks.pop(identifier, None)
             _request_id.reset(token)
 
+    async def _watch_source(self, lease: str, watch: Any, context: Any) -> None:
+        try:
+            await watch(context, RemoteSourceEmitter(self, lease))
+        except asyncio.CancelledError:
+            if lease in self.source_watches and not self.stopping:
+                self.send({"kind": "source_failure", "lease": lease})
+            raise
+        except Exception:
+            if lease in self.source_watches and not self.stopping:
+                self.send({"kind": "source_failure", "lease": lease})
+        else:
+            if lease in self.source_watches and not self.stopping:
+                self.send({"kind": "source_failure", "lease": lease})
+
+    async def _stop_source_watch(self, lease: str) -> None:
+        task = self.source_watches.pop(lease, None)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
     def _initialize(self, payload: dict[str, Any]) -> dict[str, Any]:
         global _host
         if self.catalog is not None:
@@ -447,6 +513,8 @@ class WorkerServer:
         await self.done.wait()
         if self.tasks:
             await asyncio.gather(*tuple(self.tasks.values()), return_exceptions=True)
+        if self.source_watches:
+            await asyncio.gather(*tuple(self.source_watches.values()), return_exceptions=True)
 
 
 def _verify_confinement(probe_path: Path) -> None:

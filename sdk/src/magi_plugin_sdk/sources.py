@@ -22,6 +22,7 @@ from .runtime import PluginConnection, SourceChange, SourceChangeBatch
 
 if TYPE_CHECKING:
     from .context import PluginContext
+    from .source_watch import SourceEmitter
 
 
 @dataclass(slots=True)
@@ -333,6 +334,15 @@ class Source(ABC):
         self._i18n: PluginI18n | None = None
         self.connection: PluginConnection | None = None
         self.context: PluginContext | None = None
+
+    async def watch(self, context: SourceSyncContext, emitter: "SourceEmitter") -> None:
+        """Run until cancelled, emitting changes through the owned subscription.
+
+        Sources advertising ``supports_watch_mode`` implement this coroutine.
+        Release watcher handles in ``finally`` and propagate cancellation.
+        Returning normally ends the subscription and is treated as a failure.
+        """
+        raise NotImplementedError("Source does not implement watch mode")
 
     def bind_plugin_context(
         self,

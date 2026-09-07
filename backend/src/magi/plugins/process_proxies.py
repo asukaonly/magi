@@ -51,6 +51,12 @@ class SourceProxy(Source):
     async def collect_items(self, context: Any) -> Any:
         return await self.owner.invoke(self.target, "collect_items", context)
 
+    async def start_watch(self, context: Any) -> None:
+        await self.owner.start_source_watch(self.target, context)
+
+    async def stop_watch(self) -> None:
+        await self.owner.stop_source_watch(self.target)
+
     async def discover_changes(self, *args: Any, **kwargs: Any) -> Any:
         return await self.owner.invoke(self.target, "discover_changes", *args, **kwargs)
 
@@ -64,6 +70,7 @@ class SourceProxy(Source):
         return await self.owner.invoke(self.target, "extract_metadata", item)
 
     async def clear_user_content(self, context: Any) -> None:
+        await self.stop_watch()
         await self.owner.invoke(self.target, "clear_user_content", context)
 
     def source_item_identity(self, item: dict[str, Any]) -> str:

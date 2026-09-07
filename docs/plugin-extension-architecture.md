@@ -69,6 +69,16 @@ committed external effects cannot be undone by cancellation. Abnormal worker
 exit notifies its exact connection owner; intentional shutdown does not report
 a crash.
 
+Watch-capable sources implement `Source.watch(context, emitter)` as a coroutine
+that lives until cancelled. The host starts it under a distinct subscription
+bound to the exact connection and registered source, independent of the request
+that started it. `SourceEmitter.emit`, `create_resource`, and `read_resource`
+are typed operations; their resource authority is derived by the host. Stopping
+the subscription revokes its token, drains host callbacks, and awaits watcher
+cleanup. Old tokens cannot be reused after restart. Unexpected watcher exit
+fails its worker connection. An arbitrary background task created inside a
+one-shot invocation does not inherit a persistent capability grant.
+
 ## Scan Paths
 
 The plugin manager scans two roots by default:

@@ -8,6 +8,7 @@ from typing import Any
 SOURCE_METHODS = frozenset(
     {
         "collect_items",
+        "watch",
         "discover_changes",
         "fetch_item",
         "build_output",

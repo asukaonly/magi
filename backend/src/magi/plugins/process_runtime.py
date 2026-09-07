@@ -105,6 +105,14 @@ class _HostCallback:
     revoked: bool = False
 
 
+@dataclass
+class _SourceLease:
+    target: str
+    source_type: str
+    identity: InvocationIdentity
+    loop: asyncio.AbstractEventLoop
+
+
 def _interpreter_paths(executable: str) -> dict[str, Any]:
     probe = (
         "import json,sys,sysconfig;from pathlib import Path;"
@@ -168,6 +176,7 @@ class ProcessPluginProxy(Plugin):
         self._failure: str | None = None
         self._failure_handler: Callable[[str], None] | None = None
         self._host_callbacks: set[_HostCallback] = set()
+        self._source_leases: dict[str, _SourceLease] = {}
         self._stderr = bytearray()
         self._callback_slots = threading.BoundedSemaphore(self.limits.max_inflight)
         self._callbacks = ThreadPoolExecutor(
@@ -626,6 +635,11 @@ class ProcessPluginProxy(Plugin):
                     if not self._callback_slots.acquire(blocking=False):
                         raise ProtocolError("Plugin callback capacity exceeded")
                     self._callbacks.submit(self._dispatch_callback, frame)
+                elif frame.get("kind") == "source_failure":
+                    with self._lock:
+                        active = frame.get("lease") in self._source_leases
+                    if active:
+                        self._terminate("Plugin source watcher stopped unexpectedly")
                 else:
                     raise ProtocolError("Unknown worker frame kind")
         except (EOFError, OSError, ProtocolError, RuntimeError, TypeError, KeyError):
@@ -676,6 +690,7 @@ class ProcessPluginProxy(Plugin):
             invocation = self._pending.get(parent)
             admitted = admitted and (
                 (parent == "channel" and self._channel_active)
+                or parent in self._source_leases
                 or (
                     invocation is not None and not invocation.future.done()
                     and invocation.deadline > time.monotonic()
@@ -765,6 +780,8 @@ class ProcessPluginProxy(Plugin):
         kind, payload = frame.get("callback"), frame.get("payload", {})
         if kind == "channel":
             return self._channel_callback(payload)
+        if kind == "source":
+            return self._source_callback(frame.get("parent"), payload)
         if call is None or call.deadline <= time.monotonic() or call.future.done():
             raise CapabilityDenied("Worker callback has no active invocation")
         if kind == "credential":
@@ -807,6 +824,59 @@ class ProcessPluginProxy(Plugin):
         return self._run_host_callback(
             operation, parent=frame["parent"], loop=call.loop,
             timeout=min(self.limits.callback_timeout, max(0.001, call.deadline - time.monotonic())),
+        )
+
+    async def start_source_watch(self, target: str, context: Any) -> None:
+        descriptor = next((item for item in self._catalog["get_sources"] if item["target"] == target), None)
+        if descriptor is None or not descriptor["attributes"].get("supports_watch_mode"):
+            raise CapabilityDenied("Source does not advertise watch support")
+        source_type = str(descriptor["spec"].metadata.get("source_type") or descriptor["attributes"]["source_type"])
+        if context.connection_id != self.connection_id or context.source_type != source_type:
+            raise CapabilityDenied("Source watch context does not belong to this source")
+        await self.stop_source_watch(target)
+        identifier = "source:" + uuid.uuid4().hex
+        with self._lock:
+            if self._closed or self._draining:
+                raise CapabilityDenied("Source worker is not accepting subscriptions")
+            self._source_leases[identifier] = _SourceLease(target, source_type, self._identity(), asyncio.get_running_loop())
+        try:
+            await self.request("start_source_watch", {
+                "target": target, "lease": identifier, "context": self._safe_args(context),
+            })
+        except BaseException:
+            await self.stop_source_watch(target)
+            raise
+
+    async def stop_source_watch(self, target: str) -> None:
+        with self._lock:
+            identifiers = [key for key, value in self._source_leases.items() if value.target == target]
+            for identifier in identifiers:
+                self._source_leases.pop(identifier)
+        for identifier in identifiers:
+            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier))
+            if not self._closed and not self._draining:
+                try:
+                    await self.request("stop_source_watch", {"lease": identifier})
+                except BaseException:
+                    self._terminate("Plugin source watcher failed to stop")
+                    raise
+
+    def _source_callback(self, identifier: str, payload: dict[str, Any]) -> Any:
+        with self._lock:
+            lease = self._source_leases.get(identifier)
+        if lease is None or set(payload) != {"method", "value"}:
+            raise CapabilityDenied("Source subscription is inactive")
+        method = payload["method"]
+        if method == "emit":
+            capability, resource, value = "source.emit", lease.source_type, {"change": payload["value"]}
+        elif method in {"create_resource", "read_resource"}:
+            capability = "resources.create" if method == "create_resource" else "resources.read"
+            resource, value = self.connection_id, payload["value"]
+        else:
+            raise CapabilityDenied("Unknown source subscription method")
+        return self._run_host_callback(
+            self.broker.invoke(lease.identity, capability, resource, value),
+            parent=identifier, loop=lease.loop, timeout=self.limits.callback_timeout,
         )
 
     def bind_channel_port(self, name: str, port: Any) -> None:
@@ -911,6 +981,7 @@ class ProcessPluginProxy(Plugin):
             pending = [*self._pending.values(), *self._cancelled.values()]
             self._pending.clear()
             self._cancelled.clear()
+            self._source_leases.clear()
             failure_handler = self._failure_handler
         self._revoke_host_callbacks()
         self.broker.close()
