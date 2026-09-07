@@ -295,6 +295,21 @@ class L2BatchPolicy:
     max_wait_seconds: int | None = None
 
 
+def _validate_identity_value(value: Any) -> None:
+    """Reject values that JSON would coerce and collapse into another type."""
+    if type(value) in (str, int, float, bool, type(None)):
+        return
+    if type(value) is list:
+        for member in value:
+            _validate_identity_value(member)
+        return
+    if type(value) is dict and all(type(key) is str for key in value):
+        for member in value.values():
+            _validate_identity_value(member)
+        return
+    raise ValueError("Source identity values must use JSON types with string object keys")
+
+
 class Source(ABC):
     """Base contract for all data collection sources."""
 
@@ -417,9 +432,36 @@ class Source(ABC):
         return plugin_dir
 
     def source_item_identity(self, item: dict[str, Any]) -> str:
-        """Return a producer-side stable item identity for deduplication."""
-        identity_parts = [str(item.get(field_name, "")) for field_name in self.update_key_fields]
-        return ":".join(identity_parts)
+        """Hash named keys without losing JSON types or component boundaries.
+
+        Declare nonempty key fields with present, nonempty JSON values, or
+        override this method to provide a source-specific stable identity.
+        Zero and false are valid keys. Object key order is insignificant.
+
+        Raises:
+            ValueError: Keys are absent, empty, or cannot retain their JSON type.
+        """
+        if not self.update_key_fields:
+            raise ValueError("Source identity requires update_key_fields or a custom override")
+        identity_parts = []
+        for field_name in self.update_key_fields:
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError("Source identity field names must be nonempty strings")
+            if field_name not in item:
+                raise ValueError(f"Source identity field {field_name!r} is missing")
+            value = item[field_name]
+            _validate_identity_value(value)
+            if (
+                value is None
+                or (isinstance(value, str) and not value.strip())
+                or (isinstance(value, (list, dict)) and not value)
+            ):
+                raise ValueError(f"Source identity field {field_name!r} must not be empty")
+            identity_parts.append([field_name, value])
+        payload = json.dumps(
+            identity_parts, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def source_item_version_fingerprint(self, item: dict[str, Any]) -> str:
         """Return a fingerprint used to detect changes in seen items."""
