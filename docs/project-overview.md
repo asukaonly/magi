@@ -154,6 +154,34 @@ statistics from a separate checkpoint-only view.
 
 The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, native routes that still have Python parity implementations, and the public/private resource exceptions to the default authenticated access policy. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
 
+### Frontend state and type boundaries
+
+Production TypeScript under `frontend/src/` uses strict compilation and type-aware
+ESLint. Explicit `any`, unsafe assignments/member access/calls/arguments/returns,
+floating or misused promises, and incomplete hook dependencies fail validation.
+`@ts-ignore` and `@ts-nocheck` are prohibited; a necessary `@ts-expect-error`
+must describe the constraint and remains checked by TypeScript.
+
+The policy has explicit coverage boundaries:
+
+- `src/**/__tests__/` and `src/test/` retain incremental typing cleanup and do not
+  have the production type-aware lint override. They still compile and run tests.
+- `src/api/generated/` is excluded from lint. Generated TypeScript participates
+  in compilation, and generation/export drift checks protect the source contracts.
+- Build/test configuration has a separate strict TypeScript project. It and
+  tooling scripts do not inherit the production type-aware lint override.
+
+External and persisted data enter as `unknown` and must be validated at the owning
+API, event, or storage boundary before reaching editable models or stores. Type
+assertions, including `as unknown as`, do not validate data. The current lint rules
+do not automatically prohibit every double assertion, so this review requirement
+is additional to passing lint. Removing explicit `any` does not prove that all
+runtime boundaries have been validated.
+
+`npm run check` runs static validation; `npm run check:full` adds component tests
+and the production build. CI uses the same full command, and separately verifies
+the Python contract export. These gates supplement desktop runtime verification.
+
 The frontend's scoped accessibility lint covers shared primitives, configuration,
 onboarding, plugin, memory-data and memory-layer expansion controls. Expansion
 buttons expose translated names and their content state, support Enter/Space,
@@ -194,6 +222,8 @@ mount lifetime. A superseded grant can neither replace a newer URL nor report an
 access failure for a different image.
 Local model download polling is serialized and starts after request acceptance;
 list, download, and deletion failures remain visible in model settings.
+
+### Generated frontend contracts
 
 Configuration, onboarding, and tool configuration response contracts are exported by
 `python scripts/export-frontend-contracts.py` to `contracts/api/frontend-config.json`,

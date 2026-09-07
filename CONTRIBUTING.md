@@ -60,13 +60,12 @@ The install script will:
 ```bash
 # frontend
 cd frontend
-npm run type-check
-npm run test
-npm run lint
+npm run check
+npm run check:full
 npm run tauri:dev
 
 # backend
-cd backend
+cd ../backend
 pytest
 
 # repo-level checks
@@ -75,6 +74,19 @@ python scripts/check-api-contract.py
 ./scripts/run-backend-type-gate.sh
 cargo test -p magi-gateway
 ```
+
+`npm run check` covers type checks, lint, module boundaries, generated contracts,
+and translation consistency. `npm run check:full` also runs the frontend tests
+and production build; CI uses this same gate. Run focused tests while iterating,
+then the full gate before delivering frontend changes. Packaged desktop runtime
+verification remains separate.
+
+Production code must pass the type-aware rules in `frontend/eslint.config.mjs`,
+including the explicit `any` and unsafe-operation prohibitions. Test helpers and
+generated code have different coverage; see the frontend state and type boundaries
+in [Project Overview](docs/project-overview.md#frontend-state-and-type-boundaries).
+Treat external values as `unknown` and validate them at their owning boundary;
+a type assertion is not runtime validation.
 
 ## Contribution guidelines
 
@@ -92,7 +104,7 @@ cargo test -p magi-gateway
 ## Before you open a pull request
 
 - For larger features, architecture changes, plugin contract changes, or workflow changes, start with an Issue or Discussion first.
-- Run the narrowest relevant validation locally before asking for review.
+- Run relevant focused validation locally; frontend changes must also pass `npm run check:full` before review.
 - Update docs in the same pull request when product behavior, setup steps, runtime boundaries, or repository ownership change.
 - Keep the pull request focused on one problem or one independently reviewable change.
 - For UI changes, include screenshots or a short recording.
