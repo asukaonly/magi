@@ -164,4 +164,42 @@ describe('ProtectedImage', () => {
     expect(privateResourceMocks.resolvePrivateResourceUrl).not.toHaveBeenCalled();
     expect(observers).toHaveLength(0);
   });
+
+  it('keeps a newer image when an old resource grant completes last', async () => {
+    privateResourceMocks.parsePrivateResourceSource.mockImplementation(source => ({ ...DESCRIPTOR, asset_ref: source }));
+    let finish: (value: string) => void = () => {};
+    privateResourceMocks.resolvePrivateResourceUrl.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const { rerender } = render(<ProtectedImage src="old" alt="Photo" eager />);
+    privateResourceMocks.resolvePrivateResourceUrl.mockResolvedValueOnce('http://127.0.0.1/private/new');
+    rerender(<ProtectedImage src="new" alt="Photo" eager />);
+    await waitFor(() => expect(screen.getByRole('img')).toHaveAttribute('src', 'http://127.0.0.1/private/new'));
+    await act(async () => { finish('http://127.0.0.1/private/old'); });
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'http://127.0.0.1/private/new');
+  });
+
+  it('does not report an old retry failure after changing the image or unmounting', async () => {
+    const onError = vi.fn();
+    const onProtectedAccessError = vi.fn();
+    let reject: (error: Error) => void = () => {};
+    privateResourceMocks.resolvePrivateResourceUrl.mockResolvedValueOnce('http://127.0.0.1/private/old')
+      .mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const { rerender } = render(<ProtectedImage src={PRIVATE_SOURCE} alt="Photo" eager onError={onError} onProtectedAccessError={onProtectedAccessError} />);
+    await waitFor(() => expect(screen.getByRole('img')).toHaveAttribute('src'));
+    fireEvent.error(screen.getByRole('img'));
+    rerender(<ProtectedImage src="https://images.example/new.png" alt="Photo" eager onError={onError} onProtectedAccessError={onProtectedAccessError} />);
+    await act(async () => { reject(new Error('Old retry failed')); });
+    expect(onError).not.toHaveBeenCalled();
+    expect(onProtectedAccessError).not.toHaveBeenCalled();
+    expect(screen.getByRole('img')).toHaveAttribute('src', 'https://images.example/new.png');
+  });
+
+  it('ignores a grant failure after its component closes', async () => {
+    const onProtectedAccessError = vi.fn();
+    let reject: (error: Error) => void = () => {};
+    privateResourceMocks.resolvePrivateResourceUrl.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    const { unmount } = render(<ProtectedImage src={PRIVATE_SOURCE} alt="Photo" eager onProtectedAccessError={onProtectedAccessError} />);
+    unmount();
+    await act(async () => { reject(new Error('Late failure')); });
+    expect(onProtectedAccessError).not.toHaveBeenCalled();
+  });
 });

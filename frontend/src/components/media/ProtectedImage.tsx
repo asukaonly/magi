@@ -12,6 +12,7 @@ import {
   parsePrivateResourceSource,
   resolvePrivateResourceUrl,
 } from '@/api/modules/privateResources';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 
 type ProtectedImageProps = ImgHTMLAttributes<HTMLImageElement> & {
   onProtectedAccessError?: () => void;
@@ -64,6 +65,7 @@ export const ProtectedImage = ({
   const imageRef = useRef<HTMLImageElement>(null);
   const descriptor = useMemo(() => parsePrivateResourceSource(src), [src]);
   const descriptorIdentity = descriptor ? JSON.stringify(descriptor) : '';
+  const beginRequest = useRequestOwner(descriptorIdentity || src);
   const nearViewport = useNearViewport(
     imageRef,
     descriptorIdentity,
@@ -73,19 +75,23 @@ export const ProtectedImage = ({
   const [resolved, setResolved] = useState<{ key: string; url: string } | null>(null);
   const retryCountRef = useRef(0);
 
-  const refresh = useCallback(async (force: boolean): Promise<boolean> => {
+  const refresh = useCallback(async (force: boolean): Promise<'resolved' | 'failed' | 'stale'> => {
     if (!descriptor) {
-      return false;
+      return 'stale';
     }
+    const isCurrent = beginRequest('grant');
+    if (!isCurrent()) return 'stale';
     try {
       const url = await resolvePrivateResourceUrl(descriptor, { force });
+      if (!isCurrent()) return 'stale';
       setResolved({ key: descriptorIdentity, url });
-      return true;
+      return 'resolved';
     } catch {
+      if (!isCurrent()) return 'stale';
       onProtectedAccessError?.();
-      return false;
+      return 'failed';
     }
-  }, [descriptor, descriptorIdentity, onProtectedAccessError]);
+  }, [beginRequest, descriptor, descriptorIdentity, onProtectedAccessError]);
 
   useEffect(() => {
     retryCountRef.current = 0;
@@ -117,8 +123,9 @@ export const ProtectedImage = ({
       onError={(event) => {
         if (descriptor && retryCountRef.current === 0) {
           retryCountRef.current = 1;
+          const isCurrent = beginRequest('image-error');
           void refresh(true).then((refreshed) => {
-            if (!refreshed) {
+            if (refreshed === 'failed' && isCurrent()) {
               onError?.(event);
             }
           });

@@ -185,6 +185,9 @@ Memory list loaders own request admission at the state write boundary. Batch L2
 refreshes use the same per-resource loaders as filtered reads, so neither path can
 overwrite a newer query. Superseded reads are distinct from failed reads, and
 changing or clearing a selected session invalidates its pending workbench read.
+Private image grants and retry callbacks are owned by the current resource and
+mount lifetime. A superseded grant can neither replace a newer URL nor report an
+access failure for a different image.
 Local model download polling is serialized and starts after request acceptance;
 list, download, and deletion failures remain visible in model settings.
 
