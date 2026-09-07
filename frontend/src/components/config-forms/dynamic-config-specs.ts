@@ -29,9 +29,11 @@ export function isExtensionFieldVisible(field: ExtensionFieldSpec, values: Recor
 export type DynamicConfigIssue = 'required' | 'boolean' | 'number' | 'integer' | 'selection' | 'string' | 'stringArray' | 'object';
 
 /** Validate only constraints represented by the host field specification. */
-export function validateDynamicConfigValue(spec: DynamicConfigSpec, value: unknown): DynamicConfigIssue | null {
+export function validateDynamicConfigValue(
+  spec: DynamicConfigSpec, value: unknown, { allowMissing = true }: { allowMissing?: boolean } = {},
+): DynamicConfigIssue | null {
   const normalized = normalizeDynamicSpec(spec);
-  if (value === undefined || value === null) return normalized.required ? 'required' : null;
+  if (allowMissing && (value === undefined || value === null)) return normalized.required ? 'required' : null;
   if (normalized.required && ((typeof value === 'string' && !value.trim()) || (Array.isArray(value) && !value.length))) return 'required';
   switch (normalized.inputKind) {
     case 'boolean': return typeof value === 'boolean' ? null : 'boolean';

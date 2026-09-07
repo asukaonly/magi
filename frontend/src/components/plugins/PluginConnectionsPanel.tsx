@@ -9,6 +9,7 @@ import { PluginSettingsCustomBlocks } from '@/components/settings/PluginSettings
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { validateConnectionField } from './connection-validation';
 
 interface PluginConnectionsPanelProps {
   pluginId: string;
@@ -115,8 +116,23 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
     && !!editor.connection?.credential_refs[field.key]
   ));
 
+  const fieldValues = Object.fromEntries(fields.map(field => [field.key,
+    editor ? readConnectionSetting(editor.settings, field.key) : undefined,
+  ]));
+  const getFieldIssue = (field: ExtensionFieldSpec) => {
+    if (!editor) return null;
+    const value = field.type === 'secret'
+      ? (field.key in editor.credentials ? editor.credentials[field.key] ?? undefined : editor.connection?.credential_refs[field.key])
+      : fieldValues[field.key];
+    return validateConnectionField(field, value, fieldValues, !!editor.connection?.enabled && !willDisableForCredentialRemoval);
+  };
+  const firstFieldIssue = fields.flatMap(field => {
+    const issue = getFieldIssue(field);
+    return issue ? [{ field, issue }] : [];
+  })[0];
+
   const saveEditor = async () => {
-    if (!editor || !editor.displayName.trim()) return;
+    if (!editor || !editor.displayName.trim() || firstFieldIssue) return;
     const input = { display_name: editor.displayName.trim(), settings: editor.settings, credentials: editor.credentials };
     if (editor.connection) {
       await mutate(() => pluginsApi.updateConnection(pluginId, editor.connection!.connection_id, {
@@ -185,12 +201,16 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
           {editor ? <form onSubmit={(event) => { event.preventDefault(); void saveEditor(); }}>
             <div className="space-y-5 px-6 pb-6">
               {error ? <p role="alert" className="text-sm text-destructive">{t(`plugins.connections.${error}`)}</p> : null}
+              {firstFieldIssue ? <p role="alert" className="text-sm text-destructive">{t('settings.dynamicValidation.fieldInvalid', {
+                field: firstFieldIssue.field.label_translated || firstFieldIssue.field.label,
+                reason: t(`settings.dynamicValidation.${firstFieldIssue.issue}`),
+              })}</p> : null}
               {editorConflicted ? <Button type="button" variant="outline" onClick={() => startEditor(latestEditor!)}>{t('plugins.connections.reloadEditor')}</Button> : null}
               <div className="space-y-2">
                 <label htmlFor={nameId} className="text-sm font-medium">{t('plugins.connections.name')}</label>
                 <Input id={nameId} value={editor.displayName} maxLength={256} required disabled={busy} onChange={(event) => setEditor({ ...editor, displayName: event.target.value })} />
               </div>
-              <PluginSettingsFields fields={normalFields} values={Object.fromEntries(normalFields.map((field) => [field.key, readConnectionSetting(editor.settings, field.key)]))} disabled={busy}
+              <PluginSettingsFields fields={normalFields} values={fieldValues} disabled={busy} getValidationIssue={getFieldIssue}
                 onChange={(key, value) => setEditor({ ...editor, settings: writeConnectionSetting(editor.settings, key, value) })} />
               {secretFields.length ? <p className="text-xs text-muted-foreground">{t('plugins.connections.credentialsHelp')}</p> : null}
               {secretFields.map((field) => <div key={field.key} className="space-y-2">
@@ -219,7 +239,7 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
             </div>
             <DialogFooter>
               <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditor(null)}>{t('plugins.connections.cancel')}</Button>
-              <Button type="submit" disabled={busy || !editor.displayName.trim() || editorConflicted}>{t(busy ? 'plugins.connections.saving' : 'plugins.connections.save')}</Button>
+              <Button type="submit" disabled={busy || !editor.displayName.trim() || editorConflicted || !!firstFieldIssue}>{t(busy ? 'plugins.connections.saving' : 'plugins.connections.save')}</Button>
             </DialogFooter>
           </form> : null}
         </DialogContent>

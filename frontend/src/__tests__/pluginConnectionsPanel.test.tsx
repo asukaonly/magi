@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +36,48 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('PluginConnectionsPanel', () => {
+  it('blocks invalid numeric submissions at the form boundary and allows correction', async () => {
+    const user = userEvent.setup();
+    render(<PluginConnectionsPanel pluginId="example" fields={[{ ...fields[0], key: 'count', label: 'Count', type: 'number', default: 5 }]} />);
+    await screen.findByText('Work');
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
+    const input = dialog.getByRole('spinbutton');
+    await user.clear(input);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(dialog.getByRole('button', { name: 'plugins.connections.save' })).toBeDisabled();
+    fireEvent.submit(input.closest('form')!);
+    expect(mocks.createConnection).not.toHaveBeenCalled();
+    await user.type(input, '8');
+    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: { count: 8 } }));
+  });
+
+  it('allows disabled drafts to omit required setup without showing a conflicting error', async () => {
+    const user = userEvent.setup();
+    render(<PluginConnectionsPanel pluginId="example" fields={[{ ...fields[0], type: 'number', default: null }]} />);
+    await screen.findByText('Work');
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Later');
+    expect(dialog.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ enabled: false, settings: {} }));
+  });
+
+  it('requires active setup fields when editing an enabled connection', async () => {
+    const user = userEvent.setup();
+    mocks.listConnections.mockResolvedValue([{ ...connection('home', 'Home'), enabled: true, settings: {} }]);
+    render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
+    const row = (await screen.findByText('Home')).closest('li')!;
+    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByRole('button', { name: 'plugins.connections.save' })).toBeDisabled();
+    await user.type(dialog.getByLabelText(/Directory/), '/ready');
+    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(mocks.updateConnection).toHaveBeenCalledOnce();
+  });
   it('omits an untouched optional field with a production null default', async () => {
     const user = userEvent.setup();
     const [field] = parsePluginsList({ total: 1, plugins: [{

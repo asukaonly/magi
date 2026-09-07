@@ -679,6 +679,10 @@ Expected product behavior:
   connection, while connection switches control all its contributions
 - an absent connection-field default remains omitted, including an SDK default
   serialized as null. Concrete defaults such as false or zero retain their value.
+- connection editors share field validation between inline feedback and the submit
+  boundary. Disabled drafts may omit required setup fields; enabling requires the
+  active required fields. Explicit values, including hidden fields, must retain
+  their declared types and ranges, and invalid values never trigger a save request.
 - built-in tool settings remain in Tools; packages do not own account settings
 - users must see a plugin's declared system and data access before installing it;
   trusted process execution also discloses access under the local user's OS permissions

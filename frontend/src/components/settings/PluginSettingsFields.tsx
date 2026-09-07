@@ -1,4 +1,4 @@
-import { isExtensionFieldVisible } from '@/components/config-forms/dynamic-config-specs';
+import { isExtensionFieldVisible, type DynamicConfigIssue } from '@/components/config-forms/dynamic-config-specs';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -67,6 +67,7 @@ interface PluginSettingsFieldsProps {
   onChange: (key: string, value: unknown) => void;
   disabled?: boolean;
   pluginId?: string;
+  getValidationIssue?: (field: ExtensionFieldSpec) => DynamicConfigIssue | null;
 }
 
 const sortFields = (fields: ExtensionFieldSpec[]) =>
@@ -94,6 +95,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
   values,
   onChange,
   disabled = false,
+  getValidationIssue,
 }) => {
   const { t } = useTranslation('app');
 
@@ -136,6 +138,7 @@ export const PluginSettingsFields: React.FC<PluginSettingsFieldsProps> = ({
                   value={values[field.key] ?? field.default ?? (field.type === 'tags' || (field.type === 'path' && Array.isArray(field.default)) ? [] : '')}
                   onChange={(value) => onChange(field.key, value)}
                   disabled={disabled}
+                  validationIssue={getValidationIssue?.(field)}
                   selectOptions={field.options.map((option) => ({
                     label: getOptionLabel(option),
                     value: option.value,

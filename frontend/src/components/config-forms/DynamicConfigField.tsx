@@ -6,7 +6,7 @@ import { Eye, EyeOff, File, FolderOpen, Plus, X } from 'lucide-react';
 import { SelectField } from '@/components/config-forms/fields';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { normalizeDynamicSpec, validateDynamicConfigValue, type DynamicConfigSpec } from '@/components/config-forms/dynamic-config-specs';
+import { normalizeDynamicSpec, validateDynamicConfigValue, type DynamicConfigSpec, type DynamicConfigIssue } from '@/components/config-forms/dynamic-config-specs';
 import { isRecord, isStringArray } from '@/utils/value-guards';
 import { pickDirectory, pickFile } from '@/runtime/desktop';
 
@@ -17,6 +17,7 @@ interface DynamicConfigFieldProps {
   disabled?: boolean;
   providerName?: string;
   selectOptions?: Array<{ label: string; value: string; disabled?: boolean }>;
+  validationIssue?: DynamicConfigIssue | null;
 }
 
 export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
@@ -26,6 +27,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   disabled = false,
   providerName,
   selectOptions,
+  validationIssue: ownedValidationIssue,
 }) => {
   const { t } = useTranslation('app');
   const fieldId = useId();
@@ -34,7 +36,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
   const [pickerFailed, setPickerFailed] = useState(false);
   const normalized = normalizeDynamicSpec(spec, providerName);
   const effectiveValue = value === undefined ? normalized.defaultValue : value;
-  const validationIssue = validateDynamicConfigValue(spec, effectiveValue);
+  const validationIssue = ownedValidationIssue === undefined
+    ? validateDynamicConfigValue(spec, effectiveValue) : ownedValidationIssue;
 
   const handleChange = useCallback(
     (newValue: unknown) => {
