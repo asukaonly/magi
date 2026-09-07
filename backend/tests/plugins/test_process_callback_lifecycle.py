@@ -3,6 +3,7 @@
 import asyncio
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +11,8 @@ from magi_plugin_sdk.runtime import CapabilityGrant
 from magi_plugin_sdk.tools import ToolExecutionContext
 from magi.plugins.process_broker import CapabilityBroker
 from magi.plugins.process_runtime import ProcessPluginProxy, PluginProcessError, ProcessLimits
-from test_process_runtime import plugin_setup as plugin_setup
+from magi.plugins.process_runtime import PluginProcessTimeout
+from test_process_runtime import PLUGIN, plugin_setup as plugin_setup
 
 
 @pytest.mark.asyncio
@@ -97,3 +99,27 @@ async def test_synchronous_credential_callback_finishes_before_cancellation_retu
         assert completed.is_set()
     finally:
         await proxy.shutdown()
+
+
+def test_sync_request_timeout_also_drains_credential_callbacks(plugin_setup):
+    manifest, _connection, context = plugin_setup
+    Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''
+    def read_settings_resource(self, resource_name):
+        self.context.credentials.delete("boot")
+        return None
+''')
+    completed = threading.Event()
+
+    def delete(key):
+        time.sleep(0.25)
+        context.credentials.values.pop(key, None)
+        completed.set()
+
+    context.credentials.delete = delete
+    proxy = ProcessPluginProxy(*plugin_setup, limits=ProcessLimits(request_timeout=0.1))
+    try:
+        with pytest.raises(PluginProcessTimeout):
+            proxy.read_settings_resource("credential")
+        assert completed.is_set()
+    finally:
+        proxy._terminate()

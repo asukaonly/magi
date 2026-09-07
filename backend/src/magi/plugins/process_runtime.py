@@ -425,6 +425,19 @@ class ProcessPluginProxy(Plugin):
         finally:
             with self._lock:
                 self._pending.pop(identifier, None)
+                completions = [
+                    done for parent, done in self._callback_dispatches.values()
+                    if parent == identifier
+                ]
+            deadline = time.monotonic() + self.limits.drain_timeout
+            for completion in completions:
+                try:
+                    completion.result(timeout=max(0.001, deadline - time.monotonic()))
+                except FutureTimeout:
+                    self._terminate("Synchronous host callback did not settle; outcome is uncertain")
+                    raise PluginProcessError(
+                        "Synchronous host callback did not settle; outcome is uncertain"
+                    ) from None
 
     async def request(
         self,

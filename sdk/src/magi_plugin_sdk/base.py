@@ -126,8 +126,9 @@ class Plugin(ABC):
         every 3s" — actually four source instances at 12s each, stacking.
 
         Default is a no-op. Must be idempotent: the host may call shutdown
-        multiple times. Should not raise; the host will log and continue
-        if you do, but the next reload will still proceed.
+        multiple times. Release owned handles and propagate cancellation.
+        The host waits for worker and callback cleanup before replacement;
+        unresolved shutdown failures must not be treated as a healthy reload.
         """
 
     async def clear_user_content(self, context: UserContentClearContext) -> None:
