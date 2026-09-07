@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 
 export const DESKTOP_OPEN_SETTINGS_EVENT = 'desktop-presence://open-settings';
 export const DESKTOP_QUIT_REQUESTED_EVENT = 'desktop-presence://quit-requested';
@@ -301,4 +302,3 @@ export async function syncWindowCaptionColor(): Promise<void> {
     // ignore; only supported on Windows 10 22H2+/11
   }
 }
-import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
