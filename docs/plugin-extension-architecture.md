@@ -120,6 +120,15 @@ The Source naming change stays within this unreleased SDK `0.2.0` / protocol
 `2` contract. No old-name aliases, historical protocol support, or data-layout
 conversion is part of the redesign.
 
+Both manager and worker apply the same numeric minimum-SDK validator. A
+protocol-2 package is admitted when the runtime SDK meets `min_sdk_version`;
+host and worker still require exact SDK agreement with each other at handshake.
+The handshake version field is not restricted to one patch release. This does
+not admit protocol 1. Default Source identities hash canonical named JSON keys,
+preserving value types and field boundaries; missing or empty identity keys
+fail instead of merging unrelated records. Sources may explicitly implement
+their own stable identity rule.
+
 Public declaration fields are checked rather than silently discarded.
 Numeric settings use `minimum` and `maximum`; unknown extraction-profile
 fields cannot alter memory policy. Connection and invocation identities are

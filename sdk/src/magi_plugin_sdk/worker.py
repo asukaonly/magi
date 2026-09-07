@@ -22,6 +22,7 @@ import uuid
 from .base import Plugin
 from .context import PluginContext
 from .runtime import PluginHandshake, PLUGIN_PROTOCOL_VERSION, SDK_VERSION
+from .versioning import validate_sdk_requirement
 from .transport import (
     MAX_FRAME_BYTES,
     ProtocolError,
@@ -387,11 +388,14 @@ class WorkerServer:
             or connection.plugin_id != manifest.plugin_id
         ):
             raise ProtocolError("Plugin handshake identity mismatch")
-        if (
-            manifest.protocol_version != PLUGIN_PROTOCOL_VERSION
-            or str(manifest.min_sdk_version) != SDK_VERSION
-        ):
-            raise ProtocolError("Plugin requires an incompatible SDK version")
+        try:
+            validate_sdk_requirement(
+                manifest.min_sdk_version,
+                protocol_version=manifest.protocol_version,
+                sdk_version=SDK_VERSION,
+            )
+        except ValueError as exc:
+            raise ProtocolError(str(exc)) from exc
         self.max_inflight = payload["max_inflight"]
         self.callback_timeout = payload["callback_timeout"]
         state_dir, resources_dir = payload["state_dir"], payload["resources_dir"]
