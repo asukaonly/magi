@@ -346,7 +346,13 @@ def test_no_settings_to_connection_migration(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     "sdk,protocol,error",
-    [("0.3.0", 2, "requires SDK"), ("0.2.0", 1, "Unsupported plugin protocol")],
+    [
+        ("0.3.0", 2, "requires SDK"),
+        ("0.10.0", 2, "requires SDK"),
+        ("0.02.0", 2, "canonical MAJOR.MINOR.PATCH"),
+        ("0.2.0", 1, "Unsupported plugin protocol"),
+        ("0.2.0", True, "Unsupported plugin protocol"),
+    ],
 )
 def test_runtime_version_rejected_before_instantiation(tmp_path, monkeypatch, sdk, protocol, error):
     manager, connection, _, instances = make_manager(tmp_path, monkeypatch)

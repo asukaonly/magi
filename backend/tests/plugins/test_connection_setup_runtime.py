@@ -398,6 +398,63 @@ async def test_setup_readiness_requires_manifest_credentials_and_failure_is_sani
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_real_worker_exit_fails_its_connection_and_allows_replacement(
+    setup_runtime, monkeypatch, enabled,
+):
+    from magi_plugin_sdk.runtime import ConnectionStatus
+
+    runtime = setup_runtime
+    manager, connection = runtime.manager, runtime.connection
+    if enabled:
+        connection = await asyncio.to_thread(
+            manager.update_connection, connection.connection_id,
+            expected_revision=connection.revision, enabled=True,
+        )
+        worker = manager.get_connection_plugin(connection.connection_id)
+    else:
+        worker = await asyncio.to_thread(manager.setup_connection, connection.connection_id)
+    second = await asyncio.to_thread(
+        manager.create_connection, connection.plugin_id, display_name="Second", enabled=True,
+    )
+    second_worker = manager.get_connection_plugin(second.connection_id)
+    loop = asyncio.get_running_loop()
+    completed = asyncio.Event()
+    original = manager._handle_worker_failure
+
+    def observed_failure(*args):
+        try:
+            original(*args)
+        finally:
+            loop.call_soon_threadsafe(completed.set)
+
+    monkeypatch.setattr(manager, "_handle_worker_failure", observed_failure)
+    worker._process.kill()
+    await asyncio.wait_for(completed.wait(), 5)
+    await manager.drain_shutdowns()
+    assert runtime.store.get_readiness(connection.connection_id)[0].status == ConnectionStatus.FAILED
+    assert runtime.store.get_readiness(connection.connection_id)[0].reason_code == "worker_failed"
+    assert manager.get_connection_plugin(connection.connection_id) is None
+    assert connection.connection_id not in manager._setup_instances
+    assert f"{connection.connection_id}:sample" not in runtime.tools._tools
+    assert runtime.sources.get_source(f"{connection.connection_id}:source") is None
+    assert manager.get_package(connection.plugin_id).loaded
+    assert manager.get_package(connection.plugin_id).healthy is False
+    assert manager.get_connection_plugin(second.connection_id) is second_worker
+    assert manager.connection_readiness(second.connection_id)[0].status == ConnectionStatus.READY
+
+    if enabled:
+        replacement = await asyncio.to_thread(manager.load_connection, connection.connection_id)
+        assert manager.connection_readiness(connection.connection_id)[0].status == ConnectionStatus.READY
+    else:
+        replacement = await asyncio.to_thread(manager.setup_connection, connection.connection_id)
+        assert manager.connection_readiness(connection.connection_id)[0].reason_code == "enable_required"
+    assert replacement is not worker
+    assert replacement.diagnostics["healthy"]
+    assert manager.get_package(connection.plugin_id).healthy
+
+
+@pytest.mark.asyncio
 async def test_runtime_builder_binds_early_hooks_and_configures_setup_and_active_workers(setup_runtime, monkeypatch):
     from magi.hooks.registry import HookRegistry
     from magi.plugins.manager import build_plugin_runtime

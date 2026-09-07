@@ -23,10 +23,9 @@ from magi_plugin_sdk.runtime import (
     ConnectionStatus,
     InvocationIdentity,
     PluginConnection,
-    PLUGIN_PROTOCOL_VERSION,
     SDK_VERSION,
 )
-from magi_plugin_sdk.versioning import parse_plugin_version
+from magi_plugin_sdk.versioning import validate_sdk_requirement
 
 from ..config import PluginSettings, get_config, save_config
 from .base import Plugin
@@ -72,6 +71,14 @@ class PluginRuntimeBindings:
     plugin_projection_service: PluginProjectionService
     source_registry: SourceRegistry
     history_importer_registry: HistoryImporterRegistry
+
+
+@dataclass(frozen=True)
+class _ConnectionFailure:
+    plugin_id: str
+    revision: int
+    reason: str
+    error: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +206,7 @@ class PluginManager(PluginInstallationMixin):
         self._temporary_clear_instances: dict[str, Plugin] = {}
         self._instance_packages: dict[str, str] = {}
         self._connection_contributions: dict[str, list[Any]] = {}
-        self._connection_failures: dict[str, tuple[int, str]] = {}
+        self._connection_failures: dict[str, _ConnectionFailure] = {}
         self._pending_plugin_shutdowns: dict[str, Future[None]] = {}
         self._shutdown_owners: dict[str, str] = {}
         self._shutdown_tasks: set[asyncio.Task[Any]] = set()
@@ -453,7 +460,71 @@ class PluginManager(PluginInstallationMixin):
 
     def get_connection_plugin(self, connection_id: str) -> Plugin | None:
         with self._lifecycle_write_lock:
+            self._evict_failed_instance(connection_id)
             return self._plugin_instances.get(connection_id)
+
+    @staticmethod
+    def _worker_failure(instance: Plugin) -> str | None:
+        from .process_runtime import ProcessPluginProxy
+
+        if isinstance(instance, ProcessPluginProxy):
+            diagnostics = instance.diagnostics
+            if not diagnostics["healthy"]:
+                return diagnostics["last_error"] or "Plugin worker stopped"
+        return None
+
+    def _watch_worker_failure(self, connection_id: str, instance: Plugin) -> None:
+        from .process_runtime import ProcessPluginProxy
+
+        if not isinstance(instance, ProcessPluginProxy):
+            return
+        if self._runtime_loop is None:
+            try:
+                self._runtime_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+
+        def failed(reason: str) -> None:
+            # Never take the lifecycle lock on a transport or broker thread. A
+            # lifecycle operation may hold it while waiting for that same worker.
+            def cleanup() -> None:
+                try:
+                    self._handle_worker_failure(connection_id, instance, reason)
+                except Exception:
+                    logger.exception("Plugin worker failure cleanup failed: %s", connection_id)
+
+            threading.Thread(
+                target=cleanup, name=f"plugin-failure-{connection_id}", daemon=True,
+            ).start()
+
+        instance.set_failure_handler(failed)
+        self._require_live_worker(instance)
+
+    def _require_live_worker(self, instance: Plugin) -> None:
+        reason = self._worker_failure(instance)
+        if reason is not None:
+            raise RuntimeError(reason)
+
+    @_serialized_lifecycle_mutation
+    def _handle_worker_failure(self, connection_id: str, instance: Plugin, reason: str) -> None:
+        # A late notification belongs to its exact instance, never its successor.
+        if (
+            self._plugin_instances.get(connection_id) is not instance
+            and self._setup_instances.get(connection_id) is not instance
+        ):
+            return
+        try:
+            self.unload_connection(connection_id)
+        finally:
+            self._record_connection_failure(connection_id, "worker_failed", error=reason)
+
+    def _evict_failed_instance(self, connection_id: str) -> None:
+        """Close the window between process death and asynchronous notification cleanup."""
+        instance = self._plugin_instances.get(connection_id) or self._setup_instances.get(connection_id)
+        if instance is not None:
+            reason = self._worker_failure(instance)
+            if reason is not None:
+                self._handle_worker_failure(connection_id, instance, reason)
 
     def get_connection_setup_plugin(self, connection_id: str) -> Plugin:
         """Resolve the retained setup worker through the same admission checks."""
@@ -492,32 +563,44 @@ class PluginManager(PluginInstallationMixin):
             self.unload_connection(connection_id)
             self._record_connection_failure(connection_id, "setup_authorization_failed")
             raise
+        self._evict_failed_instance(connection_id)
+        self._require_no_pending_shutdown(plugin_id)
         existing = self._setup_instances.get(connection_id)
         if existing is not None:
             return existing
         if plugin_id not in self._instance_packages.values():
             self._purge_plugin_modules(plugin_id)
         state = self._require_package(plugin_id)
+        instance: Plugin | None = None
         try:
             instance = self._instantiate_configured_plugin(
                 state.manifest, connection, self.connection_store.context(connection_id)
             )
             self._setup_instances[connection_id] = instance
             self._instance_packages[connection_id] = plugin_id
-            self._connection_failures.pop(connection_id, None)
+            self._watch_worker_failure(connection_id, instance)
+            self._clear_connection_failure(connection_id)
             self._publish_connection_readiness(connection_id)
             self._refresh_package_contributions(plugin_id)
+            self._require_live_worker(instance)
         except BaseException as exc:
+            reason = (
+                "worker_failed"
+                if instance is not None and self._worker_failure(instance)
+                else "setup_start_failed"
+            )
             state.healthy = False
             state.last_error = str(exc)
             self.unload_connection(connection_id)
-            self._record_connection_failure(connection_id, "setup_start_failed")
+            self._record_connection_failure(connection_id, reason, error=str(exc))
             raise
         return instance
 
     def iter_loaded_plugins(self) -> list[Plugin]:
         """Return currently loaded plugin instances."""
         with self._lifecycle_write_lock:
+            for connection_id in tuple(self._plugin_instances):
+                self._evict_failed_instance(connection_id)
             return list(self._plugin_instances.values())
 
     def snapshot_user_content_clear_targets(self) -> PluginUserContentTargetSnapshot:
@@ -663,7 +746,7 @@ class PluginManager(PluginInstallationMixin):
         self._drain_shutdowns_sync(connection.plugin_id)
         self.connection_store.disconnect(connection_id, expected_revision=expected_revision)
         with self._lifecycle_write_lock:
-            self._connection_failures.pop(connection_id, None)
+            self._clear_connection_failure(connection_id)
             self._refresh_package_contributions(connection.plugin_id)
 
     def clear_connection_content(
@@ -704,19 +787,35 @@ class PluginManager(PluginInstallationMixin):
         with self._lifecycle_write_lock:
             return self._publish_connection_readiness(connection_id)
 
-    def _record_connection_failure(self, connection_id: str, reason: str) -> None:
+    def _record_connection_failure(
+        self, connection_id: str, reason: str, *, error: str | None = None,
+    ) -> None:
         connection = self.connection_store.get(connection_id)
-        self._connection_failures[connection_id] = (connection.revision, reason)
+        self._connection_failures[connection_id] = _ConnectionFailure(
+            connection.plugin_id, connection.revision, reason, error or reason,
+        )
         self._publish_connection_readiness(connection_id)
+        self._refresh_package_contributions(connection.plugin_id)
+
+    def _clear_connection_failure(self, connection_id: str) -> None:
+        failure = self._connection_failures.pop(connection_id, None)
+        if failure is not None:
+            # Only clear the package error that this connection contributed.
+            state = self._package_states.get(failure.plugin_id)
+            if state is not None and state.last_error == failure.error:
+                state.healthy = True
+                state.last_error = None
+            self._refresh_package_contributions(failure.plugin_id)
 
     def _publish_connection_readiness(self, connection_id: str) -> list[CapabilityReadiness]:
         from .connection_settings import connection_fields, validate_connection_settings
 
+        self._evict_failed_instance(connection_id)
         connection = self.connection_store.get(connection_id)
         failure = self._connection_failures.get(connection_id)
         status, reason = ConnectionStatus.DISABLED, None
-        if failure is not None and failure[0] == connection.revision:
-            status, reason = ConnectionStatus.FAILED, failure[1]
+        if failure is not None and failure.revision == connection.revision:
+            status, reason = ConnectionStatus.FAILED, failure.reason
         elif connection.enabled or connection_id in self._setup_instances:
             fields = connection_fields(self._require_package(connection.plugin_id))
             candidate = connection.model_copy(update={"enabled": True})
@@ -756,12 +855,11 @@ class PluginManager(PluginInstallationMixin):
         return connection
 
     def _validate_runtime_version(self, manifest: PluginManifest) -> None:
-        if manifest.protocol_version != PLUGIN_PROTOCOL_VERSION:
-            raise ValueError(f"Unsupported plugin protocol: {manifest.protocol_version}")
-        if parse_plugin_version(manifest.min_sdk_version) > parse_plugin_version(SDK_VERSION):
-            raise ValueError(
-                f"Plugin requires SDK {manifest.min_sdk_version}; host SDK is {SDK_VERSION}"
-            )
+        validate_sdk_requirement(
+            manifest.min_sdk_version,
+            protocol_version=manifest.protocol_version,
+            sdk_version=SDK_VERSION,
+        )
 
     def _authorize_connection(self, connection: PluginConnection) -> None:
         state = self._require_connection_package(connection.plugin_id)
@@ -817,6 +915,7 @@ class PluginManager(PluginInstallationMixin):
         loaded_now: list[str] = []
         try:
             for connection in connections:
+                self._evict_failed_instance(connection.connection_id)
                 if connection.enabled and connection.connection_id not in self._plugin_instances:
                     self.load_connection(connection.connection_id)
                     loaded_now.append(connection.connection_id)
@@ -842,13 +941,15 @@ class PluginManager(PluginInstallationMixin):
         except Exception as exc:
             state.healthy = False
             state.last_error = str(exc)
-            self._record_connection_failure(connection_id, "load_authorization_failed")
+            self._record_connection_failure(connection_id, "load_authorization_failed", error=str(exc))
             raise
         if not connection.enabled:
             raise ValueError(f"Plugin connection is disabled: {connection_id}")
         if connection_id in self._setup_instances:
             self.unload_connection(connection_id)
             self._require_no_pending_shutdown(plugin_id)
+        self._evict_failed_instance(connection_id)
+        self._require_no_pending_shutdown(plugin_id)
         existing = self._plugin_instances.get(connection_id)
         if existing is not None:
             return existing
@@ -860,6 +961,7 @@ class PluginManager(PluginInstallationMixin):
             instance = self._instantiate_configured_plugin(state.manifest, connection, context)
             self._plugin_instances[connection_id] = instance
             self._instance_packages[connection_id] = plugin_id
+            self._watch_worker_failure(connection_id, instance)
             contributions = self._contribution_registrar.register(
                 plugin_id=plugin_id,
                 connection_id=connection_id,
@@ -867,14 +969,21 @@ class PluginManager(PluginInstallationMixin):
                 plugin_instance=instance,
             )
             self._connection_contributions[connection_id] = contributions
-            self._connection_failures.pop(connection_id, None)
+            self._require_live_worker(instance)
+            self._clear_connection_failure(connection_id)
             self._publish_connection_readiness(connection_id)
             state.healthy = True
             state.last_error = None
             self._refresh_package_contributions(plugin_id)
             self._request_source_schedule_refresh()
+            self._require_live_worker(instance)
             return instance
         except BaseException as exc:
+            reason = (
+                "worker_failed"
+                if instance is not None and self._worker_failure(instance)
+                else "load_failed"
+            )
             state.healthy = False
             state.last_error = str(exc)
             if instance is not None:
@@ -884,7 +993,7 @@ class PluginManager(PluginInstallationMixin):
                 and plugin_id not in self._shutdown_owners.values()
             ):
                 self._purge_plugin_modules(plugin_id)
-            self._record_connection_failure(connection_id, "load_failed")
+            self._record_connection_failure(connection_id, reason, error=str(exc))
             raise
 
     def _refresh_package_contributions(self, plugin_id: str) -> None:
@@ -907,23 +1016,34 @@ class PluginManager(PluginInstallationMixin):
         ]
         if not loaded_ids:
             state.contributions = placeholder_contributions(state.manifest)
+        for connection in connections:
+            failure = self._connection_failures.get(connection.connection_id)
+            if failure is not None and failure.revision == connection.revision:
+                state.healthy = False
+                state.last_error = failure.error
+                break
 
     @_serialized_lifecycle_mutation
     def unload_connection(self, connection_id: str) -> None:
         instance = self._plugin_instances.get(connection_id) or self._setup_instances.get(connection_id)
         if instance is None:
+            if connection_id in self._connection_failures:
+                self._clear_connection_failure(connection_id)
+                self._publish_connection_readiness(connection_id)
             return
         plugin_id = self._instance_packages[connection_id]
         try:
-            self._settings_service.unregister_connection(connection_id)
-            self._contribution_registrar.unregister(connection_id)
+            try:
+                self._settings_service.unregister_connection(connection_id)
+            finally:
+                self._contribution_registrar.unregister(connection_id)
         finally:
             self._plugin_instances.pop(connection_id, None)
             self._setup_instances.pop(connection_id, None)
             self._instance_packages.pop(connection_id, None)
             self._connection_contributions.pop(connection_id, None)
             self._fire_plugin_shutdown(plugin_id, connection_id, instance)
-            self._connection_failures.pop(connection_id, None)
+            self._clear_connection_failure(connection_id)
             self._publish_connection_readiness(connection_id)
             self._refresh_package_contributions(plugin_id)
             self._request_source_schedule_refresh()
