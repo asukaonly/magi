@@ -62,7 +62,7 @@ vi.mock('react-i18next', () => ({
         'memory.pending.assertions.uncertainBody': '证据还不够一致，但没有明确的相反判断。请确认它准不准。',
         'memory.pending.assertions.traitBody': '判断类型：{{trait}}',
         'memory.pages.knowledge.readable.assertions.communication_address_preferred': '你希望我称呼你为“{{value}}”。',
-        'memory.pending.conflictMeta': '和已确认记忆不一致',
+        'memory.pending.conflictMeta': '和已有记忆不一致',
         'memory.pending.evidenceCount': '{{count}} 条证据',
         'memory.pending.fragmentCount': '{{count}} 个片段',
         'memory.pending.claimCount': '{{count}} 条来源判断',
@@ -256,16 +256,16 @@ const notificationPayload = {
     {
       id: 42,
       kind: 'suggestion',
-      dedupe_key: 'profile_conflict:interest.anime:topic:anime',
-      title: '偏好冲突：interest.anime',
-      body: '你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？',
+      dedupe_key: 'profile_conflict:preference.affinity:food:opaque',
+      title: '有两条记忆需要核对',
+      body: '已有记录：用户最近不喜欢草莓。\n待确认候选：用户最近喜欢草莓。',
       payload: {
         conflict_type: 'profile_conflict',
         shadow_id: 'assert-shadow-1',
         authoritative_id: 'assert-old-1',
-        authoritative_value: '城市热门路线',
-        inferred_value: '安静圣地巡礼',
-        trait_name: 'interest.anime',
+        authoritative_value: 'dislike',
+        inferred_value: 'like',
+        trait_name: 'preference.affinity',
         entity_id: 'user:self',
       },
       status: 'unread',
@@ -344,12 +344,29 @@ describe('MemoryPendingPage', () => {
     expect(screen.queryByText('普通总结')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '整理经历' })).toBeInTheDocument();
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
-    expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
+    expect(screen.getByTestId('pending-conflict-42')).toHaveTextContent('已有记录：用户最近不喜欢草莓。 待确认候选：用户最近喜欢草莓。');
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25, pending_offset: 0 });
     expect(memoryApi.listPendingReviews).toHaveBeenCalledWith(25, 0);
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 25, offset: 0, surface: 'all', group: 'memory_update', review_state: 'pending_confirmation' });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 25, offset: 0 });
     expect(listNotifications).toHaveBeenCalled();
+  });
+
+  it.each([
+    '已有记录：用户最近不喜欢草莓。\n待确认候选：用户最近喜欢草莓。',
+    '已有记录：这条记录缺少完整事实描述。\n待确认候选：用户最近喜欢草莓。',
+  ])('renders projected stored conflict facts without exposing resolution values: %s', async (body) => {
+    vi.mocked(listNotifications).mockResolvedValue({
+      ...notificationPayload,
+      items: [{ ...notificationPayload.items[0], body }],
+    } as never);
+    renderPage();
+    const card = await screen.findByTestId('pending-conflict-42');
+    expect(card).toHaveTextContent(body.replace('\n', ' '));
+    expect(card).not.toHaveTextContent(/\blike\b|\bdislike\b|preference.affinity|food:opaque/);
+    expect(within(card).getByText('和已有记忆不一致')).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: '采用新记忆' })).toBeEnabled();
+    expect(within(card).getByRole('button', { name: '保留旧记忆' })).toBeEnabled();
   });
 
   it('edits and confirms a pre-materialization review through the shared lane', async () => {

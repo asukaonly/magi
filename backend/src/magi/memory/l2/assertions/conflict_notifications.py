@@ -16,9 +16,8 @@ Design decisions for v1:
   how many times maintenance runs.
 - **Kind** is always ``"suggestion"`` to reuse the existing notification feed
   and store schema (``kind`` is the existing string column).
-- Notification body is written in Chinese (the default locale) since
-  ``locale`` defaults to ``"zh"``; the payload carries raw values for the
-  frontend to render localized buttons.
+- Notification text uses the shared fact renderer; the payload retains its
+  structured resolution values and stable assertion IDs.
 """
 
 from __future__ import annotations
@@ -32,6 +31,7 @@ from magi.identity.defaults import CANONICAL_LOCAL_USER
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
+from .conflict_notification_display import render_profile_conflict_notification
 
 logger = get_logger(__name__)
 _CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
@@ -182,10 +182,11 @@ async def _materialize_shadow_conflict_notification(
     authoritative_id = str(authoritative.get("assertion_id") or "")
     authoritative_value = str(authoritative.get("trait_value") or "")
     dedupe_key = _shadow_conflict_dedupe_key(fields)
-    title, body = _shadow_conflict_notification_text(
-        fields=fields,
-        authoritative_value=authoritative_value,
-        locale=locale,
+    title, body = await render_profile_conflict_notification(
+        db_path=store.db_path,
+        shadow=shadow,
+        authoritative=authoritative,
+        language=locale,
     )
     payload_json = _shadow_conflict_payload_json(
         fields=fields,
@@ -221,26 +222,6 @@ def _shadow_conflict_fields(
 
 def _shadow_conflict_dedupe_key(fields: _ShadowConflictFields) -> str:
     return f"profile_conflict:{fields.trait_name}:{fields.target_entity_id}"
-
-
-def _shadow_conflict_notification_text(
-    *,
-    fields: _ShadowConflictFields,
-    authoritative_value: str,
-    locale: str,
-) -> tuple[str, str]:
-    if str(locale).startswith("zh"):
-        return (
-            f"偏好冲突：{fields.trait_name}",
-            f"你最近常关注「{fields.inferred_value}」，"
-            f"但你说过「{authoritative_value}」—— 要更新偏好吗？",
-        )
-    return (
-        f"Preference conflict: {fields.trait_name}",
-        f'You recently showed interest in "{fields.inferred_value}", '
-        f'but you previously stated "{authoritative_value}". '
-        "Would you like to update your preference?",
-    )
 
 
 def _shadow_conflict_payload_json(

@@ -1069,6 +1069,14 @@ resolve authoritative subject and target names, so a corrected fact remains
 findable by its object when its previous summary has been invalidated.
 This display rule does not make review Assertions prompt
 facts: only their independently grounded Claim may use the tentative path above.
+Profile-conflict notifications use this same structured fact renderer. Their
+read projection rebuilds both sides from the retained assertions, so previously
+stored enum-based titles and bodies do not bypass the display contract. Missing,
+expired or forgotten sides remain unavailable; copied source summaries are not
+restored through notifications. Notification resolution payloads and suppression
+rules retain their existing ownership. The dismissed-suggestion read projection
+uses the localized review title for profile conflicts, including already stored
+dismissals, so the restore list does not expose an old internal trait name.
 Portrait wording and prompt selection are deterministic host logic. There is no
 optional portrait LLM post-processor in the runtime path. A transient freshness,
 input, or rebuild failure retains the last successfully persisted projection and

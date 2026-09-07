@@ -3533,7 +3533,7 @@
       },
       "fallbackMemoryUpdateTitle": "待确认总结",
       "fallbackConflictTitle": "偏好冲突",
-      "conflictMeta": "和已确认记忆不一致",
+      "conflictMeta": "和已有记忆不一致",
       "evidenceCount": "{{count}} 条证据",
       "claimCount": "{{count}} 条来源判断",
       "fragmentCount": "{{count}} 个片段",

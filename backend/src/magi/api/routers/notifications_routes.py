@@ -10,6 +10,9 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from magi.notifications.service import NotificationService
+from magi.memory.l2.assertions.conflict_notification_display import (
+    project_profile_conflict_notifications,
+)
 
 _USER_ID = "default_user"
 
@@ -59,6 +62,7 @@ def build_default_notifications_router(
         _list_notifications_endpoint(
             service_dep,
             profile_conflict_suppression_dep,
+            unified_memory_dep,
         ),
         methods=["GET"],
         response_model=ListResponse,
@@ -95,6 +99,7 @@ def build_default_notifications_router(
 def _list_notifications_endpoint(
     service_dep: Callable[[], NotificationService],
     profile_conflict_suppression_dep: "Callable[[], Awaitable[bool]] | None",
+    unified_memory_dep: "Callable[[], object] | None",
 ):
     async def list_notifications(
         limit: int = Query(default=50, ge=1, le=500),
@@ -112,6 +117,13 @@ def _list_notifications_endpoint(
             limit=limit, offset=offset, profile_conflicts_only=profile_conflicts_only,
         )
         items = [_notification_item_model(row) for row in result["items"]]
+        conflicts = [item for item in items if item.payload.get("conflict_type") == "profile_conflict"]
+        if conflicts:
+            memory = (unified_memory_dep or _default_unified_memory_dep)()
+            store = memory.l2 if memory is not None else None
+            projected = await project_profile_conflict_notifications(store, [item.payload for item in conflicts])
+            for item, (title, body) in zip(conflicts, projected):
+                item.title, item.body = title, body
         return ListResponse(items=items, unread_count=result["unread_count"], total=result["total"])
 
     return list_notifications

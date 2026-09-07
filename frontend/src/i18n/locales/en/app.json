@@ -3535,7 +3535,7 @@
       },
       "fallbackMemoryUpdateTitle": "Summary to review",
       "fallbackConflictTitle": "Preference conflict",
-      "conflictMeta": "Differs from confirmed memory",
+      "conflictMeta": "Differs from existing memory",
       "evidenceCount": "{{count}} pieces of evidence",
       "claimCount": "{{count}} source claim(s)",
       "fragmentCount": "{{count}} fragments",

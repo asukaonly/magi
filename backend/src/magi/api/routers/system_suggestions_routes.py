@@ -128,7 +128,13 @@ class _SystemSuggestionsRouteHandlers:
         return DismissResponse(dedupe_key=request.dedupe_key, dismissed=True)
 
     async def list_dismissals(self) -> ListDismissalsResponse:
-        return ListDismissalsResponse(dismissals=self.list_dismissals_dep()())
+        from magi.memory.l2.assertions.conflict_notification_display import profile_conflict_title
+
+        return ListDismissalsResponse(dismissals=[
+            item.model_copy(update={"title": profile_conflict_title()})
+            if item.dedupe_key.startswith("profile_conflict:") else item
+            for item in self.list_dismissals_dep()()
+        ])
 
     async def clear_dismissal(self, dedupe_key: str) -> ClearDismissalResponse:
         cleared = self.clear_dismissal_dep()(dedupe_key)
