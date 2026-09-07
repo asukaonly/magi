@@ -7,6 +7,7 @@ import asyncio
 from fastapi import HTTPException, Query, status
 
 from magi.memory.l2.entities.catalog.lookup import get_canonical_names
+from magi.memory.l2.assertion_display import decorate_assertion_display
 
 from ..dependencies import _resolve_unified_memory
 from ..helpers import canonical_self_id, memory_t
@@ -81,6 +82,7 @@ async def list_l2_assertions(
             include_inactive=include_inactive,
         ),
     )
+    items = await decorate_assertion_display(unified_memory.l2.db_path, items)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -103,7 +105,7 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
             detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"),
         )
     await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
-    return result
+    return (await decorate_assertion_display(unified_memory.l2.db_path, [result]))[0]
 
 
 @memory_router.get("/l2/entities")

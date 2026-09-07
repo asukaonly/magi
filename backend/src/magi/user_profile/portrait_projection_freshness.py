@@ -135,7 +135,7 @@ def _missing_correction_version_metadata(projection: UserPortraitProjection) -> 
                 continue
             if not _float_value(item.get("updated_at")) > 0.0:
                 return True
-            if "correction_value" not in item:
+            if not {"correction_value", "correction_value_options", "correction_trait_name"}.issubset(item):
                 return True
     return False
 

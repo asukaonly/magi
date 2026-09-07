@@ -1043,11 +1043,31 @@ raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
-Assertion-backed portrait items display host-rendered `natural_summary` when one
-exists, or a localized structured behavior expression for inferred observations,
-and retain the typed `trait_value` as the correction payload; this prevents
-distinct preferences that share an enum-like value such as `like` from collapsing
-into one review item. This display rule does not make review Assertions prompt
+Assertion lists, dashboard candidates, pre-materialization review proposals,
+public recall results, correction results/history, and assertion-backed portraits
+share the host-owned fact display read model in `l2/assertion_display.py`.
+`display_text` prefers the retained host-rendered `natural_summary`; when it is
+absent, deterministic rendering uses the existing semantic route descriptors and
+batched authoritative entity names. Missing subjects or targets are stated as
+unresolved, and unsupported incomplete facts receive an explicit unavailable
+description. Entity IDs are never converted into guessed names. Scoped or recent
+wording remains part of the fact, independent of lifecycle or confidence labels.
+The display operation is read-only and makes no model calls.
+
+The API retains `trait_value`, target identity, evidence, temporal scope and
+lifecycle unchanged. `entity_name`, `target_entity_name`, `display_text` and
+`value_options` are presentation fields. The frontend shares one fact adapter
+across lists, details, pending lanes and correction surfaces; it does not rebuild
+sentences from enum values. Portrait items retain `correction_value`,
+`correction_trait_name` and `correction_value_options` separately from their text.
+Distinct assertions keep their own identity even when their semantic value or
+unresolved description is identical. Correction history renders each immutable
+version from its permitted structured fields and the existing forgetting filters;
+it never re-exposes historical free-text summaries or borrows the currently
+selected record's description. Assertion list search and its matching count also
+resolve authoritative subject and target names, so a corrected fact remains
+findable by its object when its previous summary has been invalidated.
+This display rule does not make review Assertions prompt
 facts: only their independently grounded Claim may use the tentative path above.
 Portrait wording and prompt selection are deterministic host logic. There is no
 optional portrait LLM post-processor in the runtime path. A transient freshness,
@@ -1821,8 +1841,11 @@ The product exposes this agency through three complementary surfaces. The
 read model that combines pre-materialization reviews, tentative or contradicted
 Assertions, and reviewable memory stories. They share the same visual decision
 lane while dispatching each item to its owning governed command. A
-pre-materialization review offers confirm, reject, and edit-then-confirm; its edit
-form exposes only the literal memory value and user-facing summary.
+pre-materialization review offers confirm, reject, and edit-then-confirm. Its edit
+form shows the complete fact as read-only context and edits a separate literal or
+controlled semantic value. It submits only that value, never an unchanged summary
+that may describe the previous meaning. Controlled values use localized choices;
+the request retains the corresponding canonical value.
 **About You**
 keeps its grouped summaries read-only and lets the user open the exact source
 behind a long-term understanding or a review item. Assertion-backed items use the

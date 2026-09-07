@@ -7,9 +7,10 @@ from dataclasses import asdict
 from fastapi import HTTPException, status
 
 from magi.memory.hybrid_retrieval import build_query
+from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
-from .dependencies import _resolve_hybrid_retrieval_service
+from .dependencies import _resolve_hybrid_retrieval_service, _resolve_unified_memory
 from .helpers import memory_t
 from .router import memory_router
 from .schemas import RetrievalRequest
@@ -39,4 +40,10 @@ async def search_memory(request: RetrievalRequest):
             limit=request.limit,
         )
     )
-    return asdict(payload)
+    response = asdict(payload)
+    memory = _resolve_unified_memory()
+    l2 = getattr(memory, "l2", None)
+    response["l2_assertions"] = await decorate_assertion_display(
+        getattr(l2, "db_path", None), payload.l2_assertions
+    )
+    return response

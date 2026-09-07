@@ -124,6 +124,7 @@ def test_rebuilds_portrait_when_newer_assertion_exists():
                 "trait_family": "interest_profile",
                 "trait_name": "interest.new_portrait",
                 "trait_value": "新画像",
+                "natural_summary": "新画像",
                 "validation_state": "stable",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",
@@ -150,6 +151,7 @@ def test_rebuilds_time_fresh_cache_missing_correction_version_metadata():
     cached = _portrait(generated_at=300.0)
     cached.world["groups"][0]["items"][0]["assertion_id"] = "assert-current"
     cached.world["groups"][0]["items"][0]["updated_at"] = 200.0
+    cached.world["groups"][0]["items"][0]["correction_value"] = "like"
     portrait_repo.get = AsyncMock(return_value=cached)
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
@@ -162,6 +164,7 @@ def test_rebuilds_time_fresh_cache_missing_correction_version_metadata():
                 "trait_family": "interest_profile",
                 "trait_name": "interest.magi",
                 "trait_value": "Magi 记忆系统",
+                "natural_summary": "Magi 记忆系统",
                 "validation_state": "stable",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",
@@ -199,6 +202,7 @@ def test_portrait_keeps_structured_assertion_value_for_correction_round_trip():
                 "trait_family": "interest_profile",
                 "trait_name": "interest.companions",
                 "trait_value": '["子涵", "哈基米"]',
+                "natural_summary": "子涵、哈基米",
                 "validation_state": "stable",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",
@@ -262,6 +266,7 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
                 "trait_family": "project_profile",
                 "trait_name": "project.magi",
                 "trait_value": "Magi 记忆系统",
+                "natural_summary": "Magi 记忆系统",
                 "validation_state": "stable",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",
@@ -271,6 +276,7 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
                 "trait_family": "interest_profile",
                 "trait_name": "interest.diiv",
                 "trait_value": "DIIV",
+                "natural_summary": "DIIV",
                 "validation_state": "stable",
                 "source_domain": "external_activity",
                 "temporal_scope": "recent",
@@ -280,6 +286,7 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
                 "trait_family": "communication_profile",
                 "trait_name": "communication.answer_style",
                 "trait_value": "先讲结论",
+                "natural_summary": "先讲结论",
                 "validation_state": "tentative",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",
@@ -289,6 +296,7 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
                 "trait_family": "routine_profile",
                 "trait_name": "routine.tool.chrome",
                 "trait_value": "Chrome",
+                "natural_summary": "Chrome",
                 "validation_state": "stable",
                 "source_domain": "external_activity",
                 "temporal_scope": "stable",
@@ -339,6 +347,7 @@ def test_returns_rebuilt_projection_when_cache_write_fails():
                 "trait_family": "interest_profile",
                 "trait_name": "interest.diiv",
                 "trait_value": "DIIV",
+                "natural_summary": "DIIV",
                 "validation_state": "stable",
                 "source_domain": "conversation",
                 "temporal_scope": "stable",

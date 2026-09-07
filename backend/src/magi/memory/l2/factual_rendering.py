@@ -27,11 +27,16 @@ _PREDICATE_WORDING = {
 }
 
 
+def grounded_predicate_wording(predicate: str) -> tuple[str, str] | None:
+    """Return shared localized predicate wording for grounded fact displays."""
+    return _PREDICATE_WORDING.get(predicate.upper())
+
+
 def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = None) -> str:
     """Render a supported positive predicate without adding model-authored facts."""
     if claim.polarity != "positive":
         return ""
-    wording = _PREDICATE_WORDING.get(str(claim.predicate).upper())
+    wording = grounded_predicate_wording(str(claim.predicate))
     if wording is None:
         return ""
     zh = (language or effective_app_language_code()).startswith("zh")
@@ -50,13 +55,17 @@ def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = Non
     return text
 
 
-def render_behavior_observation(value: str, *, recent: bool, language: str | None = None) -> str:
+def render_behavior_observation(
+    value: str, *, recent: bool, language: str | None = None, subject: str | None = None
+) -> str:
     """Describe behavioral evidence as an inference, never a declared preference."""
     zh = (language or effective_app_language_code()).startswith("zh")
     if zh:
         horizon = "近期" if recent else "多次"
-        return f"根据{horizon}活动推测，你可能关注「{value}」。"
+        return f"根据{horizon}活动推测，{subject or '你'}可能关注「{value}」。"
     horizon = "recent" if recent else "repeated"
+    if subject:
+        return f"{horizon.capitalize()} activity suggests {subject} may be interested in {value}."
     return f"Your {horizon} activity suggests you may be interested in {value}."
 
 

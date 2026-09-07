@@ -306,5 +306,7 @@ def test_memory_dashboard_enriches_superseded_assertion_conflict_context(monkeyp
         "previous_value": "阿里巴巴集团",
         "current_assertion_id": "assert-current",
         "current_value": "TypeScript",
+        "previous_display_text": "根据多次活动推测，你可能关注「尚未解析的对象」。",
+        "current_display_text": "这条记录缺少完整事实描述。",
     }
     assert fake_memory.l2.get_assertion_ids == ["assert-current"]

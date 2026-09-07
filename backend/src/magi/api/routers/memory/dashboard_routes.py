@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import HTTPException, Query, status
 
 from magi.memory.event_contracts import RetentionClass
+from magi.memory.l2.assertion_display import decorate_assertion_display
 
 from .dependencies import _resolve_memory_integration, _resolve_unified_memory
 from .helpers import memory_t
@@ -100,6 +101,8 @@ async def _resolve_superseded_successor(
 
 async def _enrich_pending_assertions(l2: Any, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
+    successors: list[dict[str, Any]] = []
+    successor_positions: dict[int, int] = {}
     for item in items:
         assertion = dict(item)
         successor = await _resolve_superseded_successor(l2, assertion)
@@ -113,8 +116,19 @@ async def _enrich_pending_assertions(l2: Any, items: list[dict[str, Any]]) -> li
                     "current_assertion_id": _clean_text(successor.get("assertion_id")),
                     "current_value": current_value,
                 }
+                successor_positions[len(enriched)] = len(successors)
+                successors.append(successor)
         enriched.append(assertion)
-    return enriched
+    displayed = await decorate_assertion_display(
+        getattr(l2, "db_path", None), [*enriched, *successors]
+    )
+    for previous_index, current_index in successor_positions.items():
+        assertion = displayed[previous_index]
+        assertion["conflict_context"]["previous_display_text"] = assertion["display_text"]
+        assertion["conflict_context"]["current_display_text"] = displayed[
+            len(enriched) + current_index
+        ]["display_text"]
+    return displayed[:len(enriched)]
 
 
 async def _default_projection_backlog() -> dict[str, int]:

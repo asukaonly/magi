@@ -63,19 +63,24 @@ async def _ground_claim(
     event_id: str,
     leases: list[L2ProjectionLease],
     value: str = "今年秋天去海边",
+    predicate: str = "PLANS_TO",
+    fact_kind: str = "future_intent",
+    object_type: str = "activity",
+    temporal_cue: str = "one_off",
+    evidence_rule_version: int = 2,
 ) -> str:
     identity = derive_claim_identity_key(
         extractor_contract_version=4,
-        evidence_rule_version=2,
+        evidence_rule_version=evidence_rule_version,
         user_id="u1",
         subject_ref="user:u1",
         subject_type="user",
-        canonical_predicate="PLANS_TO",
-        fact_kind="future_intent",
-        object_type="activity",
+        canonical_predicate=predicate,
+        fact_kind=fact_kind,
+        object_type=object_type,
         polarity="positive",
         specificity="concrete",
-        temporal_cue="one_off",
+        temporal_cue=temporal_cue,
         fact_valid_from=None,
         fact_valid_to=None,
         target_from=None,
@@ -91,21 +96,21 @@ async def _ground_claim(
         claim=GroundedClaimInput(
             identity_key=identity,
             extractor_contract_version=4,
-            evidence_rule_version=2,
+            evidence_rule_version=evidence_rule_version,
             origin_attempt_key=derive_projection_attempt_key(leases),
             profile_id="chat.user_message",
             user_id="u1",
             subject_ref="user:u1",
             subject_type="user",
-            canonical_predicate="PLANS_TO",
-            fact_kind="future_intent",
-            object_type="activity",
+            canonical_predicate=predicate,
+            fact_kind=fact_kind,
+            object_type=object_type,
             polarity="positive",
             specificity="concrete",
             confidence=0.9,
             object_value=value,
             object_surface=value,
-            temporal_cue="one_off",
+            temporal_cue=temporal_cue,
             raw_time_frame={"raw": "秋天", "resolution": "unresolved_text"},
         ),
         evidence=[
@@ -117,7 +122,7 @@ async def _ground_claim(
                 timestamp_confidence="approximate_recorded",
                 timestamp_quality="approximate_recorded",
                 timestamp_anchor_source="file_mtime",
-                evidence_rule_version=2,
+                evidence_rule_version=evidence_rule_version,
                 evidence_mode="direct",
                 source_type="history_import",
                 source_domain="user_authored",
@@ -134,18 +139,24 @@ async def _append_route_receipt(
     *,
     claim_id: str,
     leases: list[L2ProjectionLease],
+    value: str = "今年秋天去海边",
+    predicate: str = "PLANS_TO",
+    fact_kind: str = "future_intent",
+    object_type: str = "activity",
+    temporal_cue: str = "one_off",
+    object_entity_id: str | None = None,
 ) -> None:
     route = derive_semantic_route(
         SemanticRouteInput(
             claim_id=claim_id,
             subject_id="user:u1",
             subject_type="user",
-            canonical_predicate="PLANS_TO",
-            fact_kind="future_intent",
-            object_type="activity",
-            object_value="今年秋天去海边",
-            object_entity_id=None,
-            temporal_cue="one_off",
+            canonical_predicate=predicate,
+            fact_kind=fact_kind,
+            object_type=object_type,
+            object_value=value,
+            object_entity_id=object_entity_id,
+            temporal_cue=temporal_cue,
             specificity="concrete",
             target_from=None,
             target_to=None,
@@ -465,3 +476,69 @@ async def test_route_reprojection_closes_review_that_is_no_longer_authorized(
     closed = await l2_store_with_schema.list_pending_reviews(status="closed")
     assert closed[0]["review_id"] == review.review_id
     assert closed[0]["close_reason"] == "route_contract_changed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("trait_name", "original", "edited", "summary", "expected"), [
+    ("preference.affinity", "like", "dislike", "用户喜欢草莓。", "用户不喜欢草莓。"),
+    ("goal.intent", "去海边", "申请项目", "用户计划去海边。", "用户计划申请项目。"),
+    ("goal.intent", "去海边", "去海边", "用户计划明年去海边。 原文时间: 明年", "用户计划明年去海边。 原文时间: 明年"),
+])
+async def test_public_review_value_edit_invalidates_only_stale_wording(
+    l2_store_with_schema, monkeypatch, trait_name, original, edited, summary, expected,
+) -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.api.routers.memory import memory_router
+    from magi.i18n import language_context
+    from magi.memory.l2.assertion_display import decorate_assertion_display
+    from magi.memory.l2.pipeline.claim_persistence import EVIDENCE_RULE_VERSION
+
+    store = l2_store_with_schema
+    is_affinity = trait_name == "preference.affinity"
+    lease = await _running_lease(store, "review-edit-event")
+    claim_id = await _ground_claim(
+        store, event_id="review-edit-event", leases=[lease], value="草莓" if is_affinity else original,
+        predicate="LIKES" if is_affinity else "PLANS_TO", fact_kind="stable_preference" if is_affinity else "future_intent",
+        object_type="food" if is_affinity else "activity", temporal_cue="stable" if is_affinity else "one_off",
+        evidence_rule_version=EVIDENCE_RULE_VERSION,
+    )
+    await _append_route_receipt(
+        store, claim_id=claim_id, leases=[lease], value="草莓" if is_affinity else original,
+        predicate="LIKES" if is_affinity else "PLANS_TO", fact_kind="stable_preference" if is_affinity else "future_intent",
+        object_type="food" if is_affinity else "activity", temporal_cue="stable" if is_affinity else "one_off",
+        object_entity_id="food:strawberry" if is_affinity else None,
+    )
+    base = _proposal(claim_id)
+    proposal = replace(
+        base, route_contract_version=ROUTE_CONTRACT_VERSION, evidence_rule_version=EVIDENCE_RULE_VERSION,
+        proposed={**base.proposed, "trait_name": trait_name, "trait_family": "preference_profile" if is_affinity else "goal_profile",
+                  "trait_value": original, "natural_summary": summary, "target_entity_id": "food:strawberry" if is_affinity else ""},
+    )
+    review = await store.upsert_pending_review_with_receipt(
+        proposal, claim_outcome_context=ClaimTargetOutcomeContext.for_claim(
+            claim_id=claim_id, attempt_key=derive_projection_attempt_key([lease]), route_contract_version=ROUTE_CONTRACT_VERSION,
+        ), projection_leases=[lease],
+    )
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            "INSERT INTO entity_catalog (entity_id, canonical_name, entity_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            ("food:strawberry", "草莓", "food", 1.0, 1.0),
+        )
+        await db.commit()
+    app = FastAPI()
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    monkeypatch.setattr("magi.api.routers.memory.l2.review_routes._resolve_unified_memory", lambda: SimpleNamespace(l2=store, identity_resolver=None))
+    with language_context("zh-CN"):
+        response = TestClient(app).post(f"/api/memory/l2/reviews/{review.review_id}/resolve", json={
+            "action": "confirm_with_edit", "expected_version": 1, "edit": {"trait_value": edited},
+        })
+        assert response.status_code == 200, response.text
+        row = await store.get_tom_assertion(assertion_id=response.json()["assertion_id"])
+        assert row is not None
+        assert row["trait_value"] == edited
+        assert row["natural_summary"] == (summary if original == edited else "")
+        assert (await decorate_assertion_display(store.db_path, [row]))[0]["display_text"] == expected

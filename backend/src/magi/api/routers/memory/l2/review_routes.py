@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.memory.l2.pipeline.claim_persistence import EVIDENCE_RULE_VERSION
 from magi.memory.l2.reviews.repository import (
     PendingReviewConflictError,
@@ -54,7 +55,12 @@ async def list_l2_pending_reviews(
         status=review_status,
         limit=None,
     )
-    return {"items": items[offset:offset + limit], "total": len(items), "limit": limit, "offset": offset}
+    page = items[offset:offset + limit]
+    proposals = await decorate_assertion_display(
+        unified_memory.l2.db_path, [item["proposed"] for item in page]
+    )
+    page = [{**item, "proposed": proposal} for item, proposal in zip(page, proposals)]
+    return {"items": page, "total": len(items), "limit": limit, "offset": offset}
 
 
 @memory_router.post("/l2/reviews/{review_id}/resolve")

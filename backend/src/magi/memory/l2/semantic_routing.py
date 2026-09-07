@@ -307,6 +307,26 @@ _GOAL_SPEC = _RouteSpec(
     canonical_value="planned",
 )
 
+
+@dataclass(frozen=True, slots=True)
+class AssertionPredicateDescriptor:
+    """Read-only semantic metadata for deterministic assertion presentation."""
+
+    predicate: str
+    trait_code: str
+    object_role: ObjectRole
+    canonical_value: str | None
+
+
+def assertion_predicate_descriptors() -> tuple[AssertionPredicateDescriptor, ...]:
+    """Expose registered projection semantics without a second trait catalog."""
+    specs = {**_LITERAL_SPECS, **_TARGET_SPECS, "PLANS_TO": _GOAL_SPEC, "FEELS": _FEELS_SPEC}
+    return tuple(
+        AssertionPredicateDescriptor(predicate, spec.trait_code, spec.object_role, spec.canonical_value)
+        for predicate, spec in specs.items()
+    )
+
+
 ROUTE_EXTENSION_PREDICATES = frozenset(
     {"CONTRIBUTES_TO", "DEVELOPS", "FEELS", "MAINTAINS", "WORKS_ON"}
 )

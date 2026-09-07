@@ -19,6 +19,7 @@ class _FakeL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.rag",
                 "trait_value": "RAG",
+                "natural_summary": "RAG",
                 "source_domain": "external_activity",
                 "validation_state": "corroborated",
                 "confidence_score": 0.86,
@@ -31,6 +32,7 @@ class _FakeL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.magi_memory",
                 "trait_value": "Magi 记忆系统",
+                "natural_summary": "Magi 记忆系统",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.93,
@@ -43,6 +45,7 @@ class _FakeL2:
                 "trait_family": "communication_profile",
                 "trait_name": "communication.answer_style",
                 "trait_value": "先讲结论，再讲原因",
+                "natural_summary": "先讲结论，再讲原因",
                 "source_domain": "user_authored",
                 "validation_state": "stable",
                 "confidence_score": 1.0,
@@ -55,6 +58,7 @@ class _FakeL2:
                 "trait_family": "project_profile",
                 "trait_name": "interest.one_off",
                 "trait_value": "一次性页面标题",
+                "natural_summary": "一次性页面标题",
                 "source_domain": "external_activity",
                 "validation_state": "tentative",
                 "confidence_score": 0.5,
@@ -67,6 +71,7 @@ class _FakeL2:
                 "trait_family": "state_profile",
                 "trait_name": "current_focus",
                 "trait_value": "验证 L2 断言和画像质量",
+                "natural_summary": "验证 L2 断言和画像质量",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
@@ -104,6 +109,7 @@ class _PassiveProfileSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.deepseek",
                 "trait_value": "DeepSeek",
+                "natural_summary": "DeepSeek",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.82,
@@ -115,6 +121,7 @@ class _PassiveProfileSignalL2:
                 "trait_family": "preference_profile",
                 "trait_name": "tool.chrome",
                 "trait_value": "Chrome",
+                "natural_summary": "Chrome",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
@@ -126,6 +133,7 @@ class _PassiveProfileSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.rag",
                 "trait_value": "RAG",
+                "natural_summary": "RAG",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
@@ -137,6 +145,7 @@ class _PassiveProfileSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.magi_memory",
                 "trait_value": "Magi 记忆系统",
+                "natural_summary": "Magi 记忆系统",
                 "source_domain": "user_authored",
                 "validation_state": "stable",
                 "confidence_score": 0.95,
@@ -157,6 +166,7 @@ class _ConfirmedPassiveSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.deepseek",
                 "trait_value": "DeepSeek",
+                "natural_summary": "DeepSeek",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "user_feedback": "confirmed",
@@ -183,6 +193,7 @@ class _ExpiringGoalL2:
                 "trait_family": "goal_profile",
                 "trait_name": "goal.intent",
                 "trait_value": "去海边",
+                "natural_summary": "去海边",
                 "source_domain": "user_authored",
                 "validation_state": "tentative",
                 "confidence_score": 0.9,
@@ -202,6 +213,7 @@ class _FragmentedProfileSignalL2:
                 "trait_family": "project_profile",
                 "trait_name": "project.magi_memory",
                 "trait_value": "Magi 记忆系统",
+                "natural_summary": "Magi 记忆系统",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.92,
@@ -213,6 +225,7 @@ class _FragmentedProfileSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.plugin_ecosystem",
                 "trait_value": "插件生态",
+                "natural_summary": "插件生态",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
@@ -224,6 +237,7 @@ class _FragmentedProfileSignalL2:
                 "trait_family": "routine_profile",
                 "trait_name": "routine.tool.codex",
                 "trait_value": "Codex",
+                "natural_summary": "Codex",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.88,
@@ -235,6 +249,7 @@ class _FragmentedProfileSignalL2:
                 "trait_family": "communication_profile",
                 "trait_name": "communication.answer_style",
                 "trait_value": "先讲结论，再补关键依据",
+                "natural_summary": "先讲结论，再补关键依据",
                 "source_domain": "user_authored",
                 "validation_state": "stable",
                 "confidence_score": 1.0,
@@ -246,6 +261,7 @@ class _FragmentedProfileSignalL2:
                 "trait_family": "interest_profile",
                 "trait_name": "interest.one_off_page",
                 "trait_value": "一次性页面",
+                "natural_summary": "一次性页面",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.8,
@@ -480,6 +496,7 @@ class _GraphSignalL2:
                 "trait_family": "routine_profile",
                 "trait_name": "tool",
                 "trait_value": "本地插件仓库",
+                "natural_summary": "本地插件仓库",
                 "validation_state": "stable",
                 "source_domain": "user_authored",
                 "evidence_events": ["e1", "e2"],
@@ -635,3 +652,34 @@ async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path)
 
     assert await profile_repo.get("local_user") is None
     assert await portrait_repo.get("local_user") is None
+
+
+def test_goal_display_preserves_grounded_subject_and_original_time():
+    from magi.i18n import language_context
+    from magi.user_profile.portrait_projection_builder import _item_from_assertion
+    with language_context("zh-CN"):
+        item = _item_from_assertion({
+            "assertion_id": "a-goal", "entity_type": "user", "trait_family": "goal_profile", "trait_name": "goal.intent",
+            "trait_value": "申请项目", "natural_summary": "用户计划明年申请项目。 原文时间: 明年",
+            "temporal_scope": "recent", "source_domain": "user_authored", "validation_state": "tentative",
+        })
+    assert item is not None
+    assert item["text"] == "近期计划：用户计划明年申请项目。 原文时间: 明年"
+    assert item["correction_value"] == "申请项目"
+
+
+async def test_unresolved_assertions_remain_distinct_when_fallback_text_matches():
+    from magi.i18n import language_context
+    class UnresolvedTargets:
+        async def list_current_assertions(self, **kwargs):
+            return [{
+                "assertion_id": f"assert-{index}", "entity_id": "user:local_user", "entity_type": "user",
+                "trait_family": "preference_profile", "trait_name": "preference.affinity", "trait_value": "like",
+                "target_entity_id": f"food:unresolved-{index}", "natural_summary": "", "temporal_scope": "stable",
+                "source_domain": "user_authored", "inference_depth": "direct", "validation_state": "tentative",
+                "confidence_score": 0.3,
+            } for index in (1, 2)]
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(UnresolvedTargets()).build("local_user")
+    assert {item["assertion_id"] for item in projection.review["items"]} == {"assert-1", "assert-2"}
+    assert {item["text"] for item in projection.review["items"]} == {"用户喜欢尚未解析的对象。"}

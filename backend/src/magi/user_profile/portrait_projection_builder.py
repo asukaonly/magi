@@ -7,7 +7,11 @@ import time
 from typing import Any
 
 from ..memory.derivation_revision import DerivationRevision
-from ..memory.l2.factual_rendering import assertion_evidence_basis, render_behavior_observation
+from ..memory.l2.assertion_display import (
+    assertion_behavior_target, assertion_display_is_recent, assertion_value_options,
+    decorate_assertion_display, render_assertion_display,
+)
+from ..memory.l2.factual_rendering import assertion_evidence_basis
 from ..i18n import effective_app_language_code
 from .models import (
     DEFAULT_USER_ID,
@@ -86,7 +90,9 @@ class UserPortraitProjectionBuilder:
             derivation_revision.ensure_generation_matches(
                 self._profile_projection.source_generation
             )
-        assertions = await self._list_assertions(entity_id)
+        assertions = await decorate_assertion_display(
+            getattr(self._l2_store, "db_path", None), await self._list_assertions(entity_id)
+        )
         profile_world = self._profile_world_items(self._profile_projection)
         world = self._build_world(assertions, profile_world)
         review = self._build_review(assertions)
@@ -397,16 +403,13 @@ def tentative_portrait_selection_refs(
 
 
 def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
-    text = _display_value(assertion.get("natural_summary")) or _display_value(
-        assertion.get("trait_value")
-    )
+    text = render_assertion_display(assertion)
     if not text:
         return None
     expression = None
     if assertion.get("inference_depth") == "topology_only":
-        recent = assertion.get("memory_subdomain") == "state" or bool(assertion.get("expires_at"))
-        value = _display_value(assertion.get("trait_value"))
-        text = render_behavior_observation(value, recent=recent)
+        recent = assertion_display_is_recent(assertion)
+        value = assertion_behavior_target(assertion)
         expression = {"kind": "behavior", "value": value, "horizon": "recent" if recent else "repeated"}
     elif _text(assertion.get("trait_family")).casefold() == "goal_profile":
         prefix = "近期计划：" if effective_app_language_code().startswith("zh") else "Current plan: "
@@ -431,6 +434,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
         "correction_value": _correction_value(assertion.get("trait_value")),
+        "correction_value_options": assertion_value_options(assertion),
+        "correction_trait_name": _text(assertion.get("trait_name")),
         "source": "",
         "source_key": source_key,
         "assertion_id": assertion_id or None,
@@ -479,9 +484,10 @@ def _dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         text = _text(item.get("text"))
         if not text:
             continue
-        existing = best_by_text.get(text.casefold())
+        key = _text(item.get("assertion_id")) or text.casefold()
+        existing = best_by_text.get(key)
         if existing is None or _item_score(item) > _item_score(existing):
-            best_by_text[text.casefold()] = item
+            best_by_text[key] = item
     return sorted(best_by_text.values(), key=_item_score, reverse=True)
 
 
@@ -490,7 +496,7 @@ def _dedupe_items_in_order(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for item in items:
         text = _text(item.get("text"))
-        key = text.casefold()
+        key = _text(item.get("assertion_id")) or text.casefold()
         if not text or key in seen:
             continue
         seen.add(key)

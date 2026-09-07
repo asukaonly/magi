@@ -39,8 +39,9 @@ def test_review_routes_are_reachable_through_public_router() -> None:
 
 def test_list_reviews_uses_canonical_self_subject(monkeypatch) -> None:
     store = SimpleNamespace(
+        db_path=None,
         list_pending_reviews=AsyncMock(
-            return_value=[{"review_id": "rev_1", "status": "pending", "version": 1}]
+            return_value=[{"review_id": "rev_1", "status": "pending", "version": 1, "proposed": {}}]
         )
     )
     client = _client(monkeypatch, store)
@@ -111,8 +112,8 @@ def test_stale_review_version_returns_conflict(monkeypatch) -> None:
 
 
 def test_pending_reviews_count_and_page_through_public_router(monkeypatch):
-    rows = [{"review_id": f"rev_{i}", "status": "pending", "version": 1} for i in range(123)]
-    store = SimpleNamespace(list_pending_reviews=AsyncMock(return_value=rows))
+    rows = [{"review_id": f"rev_{i}", "status": "pending", "version": 1, "proposed": {}} for i in range(123)]
+    store = SimpleNamespace(db_path=None, list_pending_reviews=AsyncMock(return_value=rows))
     client = _client(monkeypatch, store)
     page = client.get("/api/memory/l2/reviews?limit=25&offset=100").json()
     assert page["total"] == 123

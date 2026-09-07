@@ -36,6 +36,44 @@ def _excluded_status_clause(*, include_superseded: bool = False) -> tuple[str, l
     return f" AND status NOT IN ({placeholders})", list(statuses)
 
 
+def _assertion_list_search_clause(search_query: str | None) -> tuple[str, list[Any]]:
+    """Search assertion content and catalog names with identical list/count filters."""
+    raw_clause, raw_args = build_like_search_clause(
+        [
+            "assertion_id",
+            "entity_id",
+            "entity_type",
+            "trait_family",
+            "trait_name",
+            "trait_value",
+            "evidence_events",
+            "source_domain",
+            "inference_depth",
+            "validation_state",
+            "target_entity_id",
+            "target_entity_type",
+            "target_scope",
+            "temporal_scope",
+            "context_ref_id",
+            "status",
+            "superseded_by",
+            "memory_subdomain",
+            "natural_summary",
+        ],
+        search_query,
+    )
+    if not raw_clause:
+        return "", []
+    name_clause, name_args = build_like_search_clause(["catalog.canonical_name"], search_query)
+    return (
+        " AND (" + raw_clause.removeprefix(" AND ")
+        + " OR EXISTS (SELECT 1 FROM entity_catalog AS catalog"
+        + " WHERE catalog.entity_id IN (tom_trait_assertions.entity_id, tom_trait_assertions.target_entity_id)"
+        + name_clause + "))",
+        [*raw_args, *name_args],
+    )
+
+
 class L2StoreAssertionQueryMixin:
     """Read and batch-query ToM assertions."""
 
@@ -582,30 +620,7 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 sql += f" AND {tc_sql}"
                 args.extend(tc_params)
-        search_sql, search_args = build_like_search_clause(
-            [
-                "assertion_id",
-                "entity_id",
-                "entity_type",
-                "trait_family",
-                "trait_name",
-                "trait_value",
-                "evidence_events",
-                "source_domain",
-                "inference_depth",
-                "validation_state",
-                "target_entity_id",
-                "target_entity_type",
-                "target_scope",
-                "temporal_scope",
-                "context_ref_id",
-                "status",
-                "superseded_by",
-                "memory_subdomain",
-                "natural_summary",
-            ],
-            search_query,
-        )
+        search_sql, search_args = _assertion_list_search_clause(search_query)
         sql += search_sql
         args.extend(search_args)
         async with sqlite_connection_async(host.db_path) as db:
@@ -670,30 +685,7 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
-        search_sql, search_args = build_like_search_clause(
-            [
-                "assertion_id",
-                "entity_id",
-                "entity_type",
-                "trait_family",
-                "trait_name",
-                "trait_value",
-                "evidence_events",
-                "source_domain",
-                "inference_depth",
-                "validation_state",
-                "target_entity_id",
-                "target_entity_type",
-                "target_scope",
-                "temporal_scope",
-                "context_ref_id",
-                "status",
-                "superseded_by",
-                "memory_subdomain",
-                "natural_summary",
-            ],
-            search_query,
-        )
+        search_sql, search_args = _assertion_list_search_clause(search_query)
         query += search_sql
         args.extend(search_args)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"

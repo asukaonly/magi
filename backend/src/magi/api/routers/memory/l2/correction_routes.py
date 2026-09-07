@@ -271,7 +271,8 @@ async def _command_response(
             else "current_relationship"
         )
         actual_current_claim = result[current_result_key]
-        current_claim = public_current_claim(
+        current_claim = await public_current_claim(
+            l2.db_path,
             target_kind,
             actual_current_claim,
         )

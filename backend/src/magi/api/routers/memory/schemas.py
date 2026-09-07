@@ -271,6 +271,8 @@ class MemoryCorrectionClaimValue(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    display_text: Optional[str] = None
+    value_options: Optional[List[str]] = None
     value: Optional[Any] = None
     trait_value: Optional[Any] = None
     subject_id: Optional[str] = None
@@ -321,6 +323,8 @@ class MemoryCorrectionVersion(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    display_text: Optional[str] = None
+    value_options: Optional[List[str]] = None
     trait_value: Optional[Any] = None
     subject_id: Optional[str] = None
     subject_type: Optional[str] = None

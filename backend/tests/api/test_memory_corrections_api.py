@@ -689,6 +689,11 @@ def test_partial_evidence_forget_blocks_revert_without_marking_target_deleted(
         )
         == assertion_id
     )
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute(
+            "UPDATE tom_trait_assertions SET natural_summary = ? WHERE assertion_id = ?",
+            ("Forgotten source private detail", assertion_id),
+        )
     client = _client(monkeypatch, memory)
     corrected = client.post(
         "/api/memory/l2/corrections",
@@ -711,6 +716,7 @@ def test_partial_evidence_forget_blocks_revert_without_marking_target_deleted(
 
     assert history.status_code == 200
     body = history.json()
+    assert "Forgotten source private detail" not in str(body)
     correction = body["corrections"][0]
     assert correction["target_forgotten"] is False
     assert correction["forget_affected"] is True
@@ -1115,3 +1121,39 @@ def test_memory_correction_routes_are_publicly_reachable() -> None:
 
     assert route_methods["/l2/corrections"] == {"GET", "POST"}
     assert route_methods["/l2/corrections/{correction_id}/revert"] == {"POST"}
+
+
+def test_affinity_correction_renders_new_semantics_and_complete_history(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assert memory.l2 is not None
+    now = time.time() - 3600
+    assertion_id = asyncio.run(memory.l2.upsert_assertion_candidate({
+        "entity_id": "user:local_user", "entity_type": "user",
+        "trait_family": "preference_profile", "trait_name": "preference.affinity", "trait_value": "like",
+        "target_entity_id": "food:opaque", "target_entity_type": "food", "target_scope": "entity_bound",
+        "confidence_score": 0.3, "evidence_events": ["event-strawberry"], "volatility_index": 0.2,
+        "source_domain": "user_authored", "inference_depth": "direct", "validation_state": "tentative",
+        "first_inferred_at": now, "last_validated_at": now, "temporal_scope": "stable",
+        "natural_summary": "用户喜欢草莓。",
+    }))
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute(
+            "INSERT INTO entity_catalog (entity_id, canonical_name, entity_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            ("food:opaque", "草莓", "food", now, now),
+        )
+    client = _client(monkeypatch, memory)
+    response = client.post("/api/memory/l2/corrections", json={
+        "request_id": "correct-affinity", "target": {"kind": "assertion", "id": assertion_id},
+        "correction_kind": "record_error", "replacement": {"value": "dislike"},
+    })
+    assert response.status_code == 200
+    result = response.json()
+    assert result["current_claim"]["trait_value"] == "dislike"
+    assert result["current_claim"]["display_text"] == "用户不喜欢草莓。"
+    assert result["correction"]["before"]["display_text"] == "用户喜欢草莓。"
+    assert result["correction"]["replacement"]["value"] == "dislike"
+    assert result["correction"]["replacement"]["display_text"] == "这条记录缺少完整事实描述。"
+    history = client.get("/api/memory/l2/corrections", params={"target_kind": "assertion", "target_id": assertion_id})
+    assert history.status_code == 200
+    assert {version["display_text"] for version in history.json()["versions"]} == {"用户喜欢草莓。", "用户不喜欢草莓。"}
+    assert all("food:opaque" not in version["display_text"] for version in history.json()["versions"])
