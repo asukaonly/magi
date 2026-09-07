@@ -181,6 +181,10 @@ restart initialization or replace an edited draft.
 Timeline snapshots and pending actions belong to their date, scale, query and
 language. Only the latest request in the current mounted scope may update data,
 errors or pending state; an older snapshot is never labeled as a different period.
+Memory list loaders own request admission at the state write boundary. Batch L2
+refreshes use the same per-resource loaders as filtered reads, so neither path can
+overwrite a newer query. Superseded reads are distinct from failed reads, and
+changing or clearing a selected session invalidates its pending workbench read.
 Local model download polling is serialized and starts after request acceptance;
 list, download, and deletion failures remain visible in model settings.
 

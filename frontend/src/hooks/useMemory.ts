@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { memoryApi } from '@/api/modules/memory';
+import { useRequestOwner } from './useRequestOwner';
 import { clearAllMemory } from './clearAllMemory';
 import { summarizeMemoryClear } from './memoryClearFeedback';
 import type {
@@ -42,6 +43,9 @@ import type {
 // Types
 // ============================================================================
 
+/** Undefined means the request was superseded or its view closed. */
+export type MemoryLoadResult = boolean | undefined;
+
 export interface UseMemoryReturn {
   // Loading state
   loading: boolean;
@@ -55,13 +59,13 @@ export interface UseMemoryReturn {
   l0Workbench: L0Workbench | null;
   selectedSessionId: string | null;
   selectSession: (sessionId: string | null) => void;
-  loadL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) => Promise<boolean>;
+  loadL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) => Promise<MemoryLoadResult>;
 
   // L1 data
   l1Events: L1Event[];
   l1Total: number;
   l1LoadFailed: boolean;
-  queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<boolean>;
+  queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<MemoryLoadResult>;
 
   // L2 data
   l2Relations: L2Relation[];
@@ -85,21 +89,21 @@ export interface UseMemoryReturn {
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
   submitAssertionFeedback: (assertionId: string, feedback: 'confirmed') => Promise<void>;
-  loadL2Relations: (params?: MemoryListQueryParams) => Promise<boolean>;
-  loadL2Assertions: (params?: MemoryListQueryParams) => Promise<boolean>;
-  loadL2Entities: (params?: MemoryListQueryParams) => Promise<boolean>;
-  loadL2Mentions: (params?: PaginationParams) => Promise<void>;
-  loadL2Snapshots: (params?: MemoryListQueryParams) => Promise<boolean>;
+  loadL2Relations: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
+  loadL2Assertions: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
+  loadL2Entities: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
+  loadL2Mentions: (params?: PaginationParams) => Promise<MemoryLoadResult>;
+  loadL2Snapshots: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
 
   // L3 data
   l3Summaries: L3Summary[];
   l3Total: number;
-  loadL3Summaries: (params?: MemoryListQueryParams) => Promise<boolean>;
+  loadL3Summaries: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
 
   // L4 data
   l4Skills: L4Skill[];
   l4Total: number;
-  loadL4Skills: (params?: MemoryListQueryParams) => Promise<boolean>;
+  loadL4Skills: (params?: MemoryListQueryParams) => Promise<MemoryLoadResult>;
 
   // Search
   searchQuery: string;
@@ -170,6 +174,7 @@ const DEFAULT_SEARCH_RESULTS: MemorySearchResultPayload = {
 export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const { initialLoadScope = 'all' } = options;
   const { t } = useTranslation('app');
+  const beginRequest = useRequestOwner(initialLoadScope);
 
   // Loading state
   const [loading, setLoading] = useState(false);
@@ -237,153 +242,191 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   // ============================================================================
 
   const loadStatistics = useCallback(async () => {
+    const isCurrent = beginRequest('loadStatistics');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getStatistics();
+      if (!isCurrent()) return;
       setStats(data);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load statistics:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL0Sessions = useCallback(async (params?: PaginationParams & { status?: string; query?: string }) => {
+    const isCurrent = beginRequest('loadL0Sessions');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL0Sessions({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL0Sessions(data.items || []);
       setL0Total(data.total ?? 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L0 sessions:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL0Workbench = useCallback(async (sessionId: string) => {
+    const isCurrent = beginRequest('loadL0Workbench');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL0Workbench(sessionId);
+      if (!isCurrent()) return;
       setL0Workbench(data);
+      return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L0 workbench:', error);
       setL0Workbench(null);
+      return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL1Events = useCallback(async (params?: L1EventQueryParams) => {
+    const isCurrent = beginRequest('loadL1Events');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL1Events({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL1Events(data.items || []);
       setL1Total(data.total || 0);
       setL1LoadFailed(false);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L1 events:', error);
       setL1LoadFailed(true);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const queryL1Events = useCallback(
     async (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => {
+      const isCurrent = beginRequest('loading');
+      if (!isCurrent()) return;
       setLoading(true);
       try {
         return await loadL1Events(params);
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
     },
-    [loadL1Events]
+    [beginRequest, loadL1Events]
   );
 
   const loadL2Relations = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL2Relations');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL2Relations({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL2Relations(data.items || []);
       setL2RelationsTotal(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L2 relations:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL2Assertions = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL2Assertions');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL2Assertions({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL2Assertions(data.items || []);
       setL2AssertionsTotal(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L2 assertions:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL2Entities = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL2Entities');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL2Entities({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL2Entities(data.items || []);
       setL2EntitiesTotal(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L2 entities:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL2Mentions = useCallback(async (params?: PaginationParams) => {
+    const isCurrent = beginRequest('loadL2Mentions');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL2Mentions({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL2Mentions(data.items || []);
       setL2MentionsTotal(data.total || 0);
+      return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L2 mentions:', error);
+      return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL2Snapshots = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL2Snapshots');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL2Snapshots({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL2Snapshots(data.items || []);
       setL2SnapshotsTotal(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L2 snapshots:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
-  const loadL2Data = useCallback(async () => {
+  const loadL2Metadata = useCallback(async () => {
+    const isCurrent = beginRequest('loadL2Metadata');
+    if (!isCurrent()) return;
     try {
-      const [l2StatsData, identityLinksData, relationsRes, assertionsRes, entitiesRes, mentionsRes, snapshotsRes, conflictRules] = await Promise.all([
-        memoryApi.getL2Statistics(),
-        memoryApi.getIdentityLinks(),
-        memoryApi.getL2Relations({ limit: 50 }),
-        memoryApi.getL2Assertions({ limit: 50 }),
-        memoryApi.getL2Entities({ limit: 50 }),
-        memoryApi.getL2Mentions({ limit: 50 }),
-        memoryApi.getL2Snapshots({ limit: 50 }),
-        memoryApi.getL2ConflictRules(),
+      const [statistics, links, rules] = await Promise.all([
+        memoryApi.getL2Statistics(), memoryApi.getIdentityLinks(), memoryApi.getL2ConflictRules(),
       ]);
-      setL2Stats(l2StatsData);
-      setIdentityLinks(identityLinksData.links || []);
-      setL2Relations(relationsRes.items || []);
-      setL2RelationsTotal(relationsRes.total || 0);
-      setL2Assertions(assertionsRes.items || []);
-      setL2AssertionsTotal(assertionsRes.total || 0);
-      setL2Entities(entitiesRes.items || []);
-      setL2EntitiesTotal(entitiesRes.total || 0);
-      setL2Mentions(mentionsRes.items || []);
-      setL2MentionsTotal(mentionsRes.total || 0);
-      setL2Snapshots(snapshotsRes.items || []);
-      setL2SnapshotsTotal(snapshotsRes.total || 0);
-      setL2ConflictRules(conflictRules);
+      if (!isCurrent()) return;
+      setL2Stats(statistics);
+      setIdentityLinks(links.links || []);
+      setL2ConflictRules(rules);
       return true;
     } catch (error) {
-      console.error('Failed to load L2 data:', error);
+      if (!isCurrent()) return;
+      console.error('Failed to load L2 metadata:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
+
+  const loadL2Data = useCallback(async (): Promise<MemoryLoadResult> => {
+    const results = await Promise.all([
+      loadL2Metadata(), loadL2Relations(), loadL2Assertions(), loadL2Entities(),
+      loadL2Mentions(), loadL2Snapshots(),
+    ]);
+    if (results.some(result => result === false)) return false;
+    return results.every(result => result === true) ? true : undefined;
+  }, [loadL2Metadata, loadL2Relations, loadL2Assertions, loadL2Entities, loadL2Mentions, loadL2Snapshots]);
 
   const refreshL2Lab = useCallback(async () => {
     await Promise.all([loadStatistics(), loadL1Events(), loadL2Data()]);
@@ -518,28 +561,36 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   );
 
   const loadL3Summaries = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL3Summaries');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL3Summaries({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL3Summaries(data.items || []);
       setL3Total(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L3 summaries:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadL4Skills = useCallback(async (params?: MemoryListQueryParams) => {
+    const isCurrent = beginRequest('loadL4Skills');
+    if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL4Skills({ limit: 50, ...params });
+      if (!isCurrent()) return;
       setL4Skills(data.items || []);
       setL4Total(data.total || 0);
       return true;
     } catch (error) {
+      if (!isCurrent()) return;
       console.error('Failed to load L4 skills:', error);
       return false;
     }
-  }, []);
+  }, [beginRequest]);
 
   const loadInitialScope = useCallback(async () => {
     const jobs: Promise<unknown>[] = [];
@@ -583,12 +634,14 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
   useEffect(() => {
     const loadAll = async () => {
+      const isCurrent = beginRequest('loading');
+      if (!isCurrent()) return;
       setLoading(true);
       await loadInitialScope();
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     };
     void loadAll();
-  }, [loadInitialScope]);
+  }, [beginRequest, loadInitialScope]);
 
   // ============================================================================
   // Session Selection
@@ -601,14 +654,19 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   }, [selectedSessionId, loadL0Workbench]);
 
   const selectSession = useCallback((sessionId: string | null) => {
+    if (sessionId === selectedSessionId) return;
+    beginRequest('loadL0Workbench');
+    setL0Workbench(null);
     setSelectedSessionId(sessionId);
-  }, []);
+  }, [beginRequest, selectedSessionId]);
 
   // ============================================================================
   // Refresh Actions
   // ============================================================================
 
   const refreshAll = useCallback(async () => {
+    const isCurrent = beginRequest('loading');
+    if (!isCurrent()) return;
     setLoading(true);
     try {
       const results = await Promise.all([
@@ -619,18 +677,21 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
         loadL3Summaries(),
         loadL4Skills(),
       ]);
-      if (results.some((succeeded) => !succeeded)) {
+      if (isCurrent() && results.some((succeeded) => succeeded === false)) {
         throw new Error('One or more memory views failed to refresh');
       }
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+  }, [beginRequest, loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
 
   const refresh = useCallback(
     async (activeTab: string) => {
+      const isCurrent = beginRequest('loading');
+      if (!isCurrent()) return;
       setLoading(true);
       await loadStatistics();
+      if (!isCurrent()) return;
       switch (activeTab) {
         case 'l0':
           await loadL0Sessions();
@@ -651,10 +712,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
           await loadL4Skills();
           break;
       }
+      if (!isCurrent()) return;
       setLoading(false);
       toast.success(t('memory.refreshSuccess'));
     },
-    [loadStatistics, loadL0Sessions, loadL0Workbench, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills, selectedSessionId, t]
+    [beginRequest, loadStatistics, loadL0Sessions, loadL0Workbench, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills, selectedSessionId, t]
   );
 
   // ============================================================================
@@ -697,6 +759,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   }, []);
 
   const resetMemoryView = useCallback(() => {
+    beginRequest('loadL0Workbench');
     setStats(DEFAULT_STATS);
     setL0Sessions([]);
     setL0Total(0);
@@ -724,7 +787,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     setL4Total(0);
     setSearchQuery('');
     setSearchResults(DEFAULT_SEARCH_RESULTS);
-  }, []);
+  }, [beginRequest]);
 
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);
