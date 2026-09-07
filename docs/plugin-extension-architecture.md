@@ -59,6 +59,16 @@ Contribution registration is transactional and each connection has an exact
 cleanup owner. Enabling, stopping, clearing, and disconnecting are separate
 operations. Application shutdown drains all active and setup workers.
 
+Every asynchronous host callback belongs to an invocation or an explicit
+connection subscription. Cancellation revokes admission and cancels its actual
+host task, including progress and channel callbacks. Request completion and
+connection shutdown wait for cancellation cleanup; closing the callback thread
+pool alone is not a drain. If a host task ignores cancellation beyond the drain
+deadline, the connection fails and reports an uncertain outcome. Already
+committed external effects cannot be undone by cancellation. Abnormal worker
+exit notifies its exact connection owner; intentional shutdown does not report
+a crash.
+
 ## Scan Paths
 
 The plugin manager scans two roots by default:

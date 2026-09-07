@@ -20,7 +20,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Sequence
+from typing import Any, Callable, Coroutine, Sequence
 import uuid
 
 from magi_plugin_sdk.base import Plugin
@@ -95,6 +95,16 @@ class _Invocation:
     progress: Any = None
 
 
+@dataclass(eq=False)
+class _HostCallback:
+    parent: str
+    loop: asyncio.AbstractEventLoop
+    result: Future[Any]
+    settled: Future[None]
+    task: asyncio.Task[Any] | None = None
+    revoked: bool = False
+
+
 def _interpreter_paths(executable: str) -> dict[str, Any]:
     probe = (
         "import json,sys,sysconfig;from pathlib import Path;"
@@ -156,6 +166,8 @@ class ProcessPluginProxy(Plugin):
         self._closed = False
         self._draining = False
         self._failure: str | None = None
+        self._failure_handler: Callable[[str], None] | None = None
+        self._host_callbacks: set[_HostCallback] = set()
         self._stderr = bytearray()
         self._callback_slots = threading.BoundedSemaphore(self.limits.max_inflight)
         self._callbacks = ThreadPoolExecutor(
@@ -439,6 +451,8 @@ class ProcessPluginProxy(Plugin):
             with self._lock:
                 self._pending.pop(identifier, None)
 
+            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier))
+
     async def invoke(
         self,
         target: str,
@@ -557,6 +571,7 @@ class ProcessPluginProxy(Plugin):
                 self._cancelled[identifier] = call
         if call is None:
             return
+        self._revoke_host_callbacks(identifier)
         self._send({"kind": "cancel", "id": identifier})
 
         # Revoke admission immediately. A child ignoring cancellation is killed
@@ -646,6 +661,102 @@ class ProcessPluginProxy(Plugin):
         finally:
             self._callback_slots.release()
 
+    def _run_host_callback(
+        self,
+        operation: Coroutine[Any, Any, Any],
+        *,
+        parent: str,
+        loop: asyncio.AbstractEventLoop,
+        timeout: float,
+    ) -> Any:
+        """Track the actual host task, including cancellation cleanup, until settled."""
+        callback = _HostCallback(parent, loop, Future(), Future())
+        with self._lock:
+            admitted = not self._closed and not self._draining
+            invocation = self._pending.get(parent)
+            admitted = admitted and (
+                (parent == "channel" and self._channel_active)
+                or (
+                    invocation is not None and not invocation.future.done()
+                    and invocation.deadline > time.monotonic()
+                )
+            )
+            if not admitted:
+                operation.close()
+                raise CapabilityDenied("Host callback authority was revoked")
+            self._host_callbacks.add(callback)
+
+        def complete(task: asyncio.Task[Any] | None) -> None:
+            try:
+                if task is None or task.cancelled():
+                    callback.result.cancel()
+                else:
+                    error = task.exception()
+                    if not callback.result.done():
+                        if error is not None:
+                            callback.result.set_exception(error)
+                        else:
+                            callback.result.set_result(task.result())
+            finally:
+                callback.settled.set_result(None)
+                with self._lock:
+                    self._host_callbacks.discard(callback)
+
+        def start() -> None:
+            with self._lock:
+                if callback.revoked:
+                    operation.close()
+                    complete(None)
+                    return
+                callback.task = loop.create_task(operation)
+                callback.task.add_done_callback(complete)
+
+        try:
+            loop.call_soon_threadsafe(start)
+        except RuntimeError:
+            operation.close()
+            complete(None)
+            raise CapabilityDenied("Host callback event loop is unavailable") from None
+        try:
+            return callback.result.result(timeout=timeout)
+        except FutureTimeout:
+            self._revoke_host_callback(callback)
+            raise CapabilityDenied("Host callback deadline expired") from None
+
+    def _revoke_host_callback(self, callback: _HostCallback) -> None:
+        with self._lock:
+            if callback.revoked:
+                return
+            callback.revoked = True
+            task = callback.task
+        if task is not None:
+            try:
+                callback.loop.call_soon_threadsafe(task.cancel)
+            except RuntimeError:
+                # A closed loop cannot make progress; draining reports failure.
+                pass
+
+    def _revoke_host_callbacks(self, parent: str | None = None) -> list[_HostCallback]:
+        with self._lock:
+            callbacks = [
+                item for item in self._host_callbacks
+                if parent is None or item.parent == parent
+            ]
+        for callback in callbacks:
+            self._revoke_host_callback(callback)
+        return callbacks
+
+    async def _drain_host_callbacks(self, callbacks: list[_HostCallback]) -> None:
+        if not callbacks:
+            return
+        _done, pending = await asyncio.wait(
+            [asyncio.wrap_future(item.settled) for item in callbacks],
+            timeout=self.limits.drain_timeout,
+        )
+        if pending:
+            self._terminate("Host callback cancellation did not settle; outcome is uncertain")
+            raise PluginProcessError("Host callback cancellation did not settle; outcome is uncertain")
+
     def _callback(self, frame: dict[str, Any]) -> Any:
         with self._lock:
             call = self._pending.get(frame.get("parent"))
@@ -684,31 +795,19 @@ class ProcessPluginProxy(Plugin):
                 value = call.progress(payload["value"])
                 return await value if inspect.isawaitable(value) else value
 
-            future = asyncio.run_coroutine_threadsafe(publish(), call.loop)
-            try:
-                return future.result(
-                    timeout=min(
-                        self.limits.callback_timeout, max(0.001, call.deadline - time.monotonic())
-                    )
-                )
-            except FutureTimeout:
-                future.cancel()
-                raise CapabilityDenied("Progress callback deadline expired") from None
+            return self._run_host_callback(
+                publish(), parent=frame["parent"], loop=call.loop,
+                timeout=min(self.limits.callback_timeout, max(0.001, call.deadline - time.monotonic())),
+            )
         if kind != "capability" or call.bootstrap or call.loop is None:
             raise CapabilityDenied("Host capability requires an active asynchronous invocation")
         operation = self.broker.invoke(
             call.identity, payload["capability"], payload["resource"], payload.get("payload")
         )
-        future = asyncio.run_coroutine_threadsafe(operation, call.loop)
-        try:
-            return future.result(
-                timeout=min(
-                    self.limits.callback_timeout, max(0.001, call.deadline - time.monotonic())
-                )
-            )
-        except FutureTimeout:
-            future.cancel()
-            raise CapabilityDenied("Host callback deadline expired") from None
+        return self._run_host_callback(
+            operation, parent=frame["parent"], loop=call.loop,
+            timeout=min(self.limits.callback_timeout, max(0.001, call.deadline - time.monotonic())),
+        )
 
     def bind_channel_port(self, name: str, port: Any) -> None:
         if name not in CHANNEL_PORTS:
@@ -772,12 +871,10 @@ class ProcessPluginProxy(Plugin):
             result = getattr(self._channel_ports[port_name], method)(*args, **kwargs)
             return await result if inspect.isawaitable(result) else result
 
-        future = asyncio.run_coroutine_threadsafe(invoke(), self._channel_loop)
-        try:
-            result = future.result(timeout=self.limits.callback_timeout)
-        except FutureTimeout:
-            future.cancel()
-            raise CapabilityDenied("Channel callback deadline expired") from None
+        result = self._run_host_callback(
+            invoke(), parent="channel", loop=self._channel_loop,
+            timeout=self.limits.callback_timeout,
+        )
         if method == "capture_inbound_context":
             if result.channel_type != host_channel_type:
                 raise CapabilityDenied("Inbound context belongs to another connection")
@@ -796,6 +893,14 @@ class ProcessPluginProxy(Plugin):
             return replace(result, channel_type=channel_type)
         return result
 
+    def set_failure_handler(self, handler: Callable[[str], None]) -> None:
+        """Notify the owner once on abnormal termination, including startup races."""
+        with self._lock:
+            self._failure_handler = handler
+            reason = self._failure if self._closed else None
+        if reason is not None:
+            handler(reason)
+
     def _terminate(self, reason: str | None = None) -> None:
         with self._lock:
             if self._closed:
@@ -806,6 +911,8 @@ class ProcessPluginProxy(Plugin):
             pending = [*self._pending.values(), *self._cancelled.values()]
             self._pending.clear()
             self._cancelled.clear()
+            failure_handler = self._failure_handler
+        self._revoke_host_callbacks()
         self.broker.close()
         try:
             self._outbox.put_nowait(None)
@@ -830,12 +937,16 @@ class ProcessPluginProxy(Plugin):
             if not call.future.done():
                 call.future.set_exception(PluginProcessError(reason or "Plugin worker stopped"))
         self._callbacks.shutdown(wait=False, cancel_futures=True)
+        if reason is not None and failure_handler is not None:
+            failure_handler(reason)
 
     async def shutdown(self) -> None:
         if self._closed:
+            await self._drain_host_callbacks(self._revoke_host_callbacks())
             return
         self._draining = True
         self._channel_active = False
+        await self._drain_host_callbacks(self._revoke_host_callbacks())
         deadline = time.monotonic() + self.limits.drain_timeout
         while self._pending and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
@@ -850,6 +961,7 @@ class ProcessPluginProxy(Plugin):
             pass
         finally:
             self._terminate()
+            await self._drain_host_callbacks(self._revoke_host_callbacks())
 
     def get_tools(self) -> list[type[Any]]:
         from .process_proxies import tool_proxy_type
