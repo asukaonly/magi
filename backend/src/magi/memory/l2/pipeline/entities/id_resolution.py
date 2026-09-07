@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
 from ...entities.identity import CONCEPT_ENTITY_TYPES, scoped_entity_id, normalized_entity_name
+from ...entity_names import valid_entity_name
 from ...models import L2EntityCandidate, L2EntityResolutionMention, L2ProjectionLease
 from .helpers import L2EntityResolutionHelperMixin
 
@@ -237,7 +238,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             alias_text = self._non_empty_text(alias)  # type: ignore[attr-defined]
             if not alias_text:
                 continue
-            if not self._is_valid_alias(alias_text, canonical_name, entity_type):
+            if not valid_entity_name(alias_text):
                 logger.debug(
                     "L2 alias rejected by validation",
                     alias_text=alias_text,
@@ -245,6 +246,14 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                     entity_type=entity_type,
                     entity_id=entity_id,
                 )
+                continue
+            existing_names = await self._entity_catalog.find_by_canonical_name(alias_text)
+            existing_alias = await self._entity_catalog.resolve_alias(alias_text, entity_type=None)
+            if any(row["entity_id"] != entity_id for row in existing_names) or (
+                existing_alias.get("decision") == "match"
+                and existing_alias.get("entity_id") != entity_id
+            ) or existing_alias.get("decision") == "ambiguous":
+                logger.debug("L2 alias conflicts with catalog identity", alias_text=alias_text, entity_id=entity_id)
                 continue
             await self._entity_catalog.add_alias(
                 entity_id=entity_id,

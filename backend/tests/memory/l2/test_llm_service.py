@@ -652,6 +652,7 @@ def test_phase1_applies_language_and_entity_grounding_contract(
             {
                 "entities": [
                     {
+                        "referent_kind": "proposition",
                         "surface": surface,
                         "normalized_name": translated,
                         "entity_type": "activity",
@@ -713,7 +714,7 @@ def test_phase1_applies_language_and_entity_grounding_contract(
     assert result.fact_claims[0].object_ref == surface
     assert result.diagnostics["entity_status"] == "none"
     assert result.diagnostics["rejected_entity_count"] == 1
-    assert result.diagnostics["rejected_sentence_like_entity_count"] == 1
+    assert result.diagnostics["rejected_non_entity_count"] == 1
     assert result.diagnostics["repaired_entity_name_count"] == 1
     messages = adapter.calls[0]["messages"]
     assert isinstance(messages, list)
@@ -728,6 +729,7 @@ def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence()
     payload = json.loads(_phase1_response("我最近在听 DIIV 的专辑", temporal_cue="recent"))
     payload["entities"] = [
         {
+            "referent_kind": "entity",
             "surface": "DIIV",
             "normalized_name": "DIIV",
             "entity_type": "group",
@@ -737,6 +739,7 @@ def test_phase1_short_reply_does_not_reuse_prior_user_text_as_current_evidence()
             "confidence": 0.95,
         },
         {
+            "referent_kind": "entity",
             "surface": "新专",
             "normalized_name": "新专",
             "entity_type": "media",

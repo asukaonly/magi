@@ -97,6 +97,8 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 17. Every fact claim must include `assertion_mode`. Interpret the complete source message and local context, not isolated keywords. Use `asserted` only when the speaker actually asserts the proposition. Use `quoted` for another speaker's statement, `hypothetical` for an imagined example, `conditional` when an unrepresented condition limits the proposition, `question` or `request` for a question/task without a self fact, and `uncertain` when the speaker does not commit. The host retains only asserted propositions; non-asserted source text remains in L1. Never remove a condition or negation to make a candidate asserted. A title containing first-person words (for example 《我的世界》) is an entity name, not a quoted self-report. A communication preference such as "请叫我小明" asserts a preferred address even though it is phrased as a request.
 18. You own the linguistic interpretation of `fact_kind`, `temporal_cue`, `assertion_mode`, and contextual confirmation. The host validates source authorship, exact quotes, bounded antecedents, identifiers, and typed fields; it does not correct your interpretation with phrase lists. Preserve clause-local meaning: a time phrase about an adjacent activity must not change a general preference. Weak acknowledgements must remain `uncertain`, regardless of confidence.
 
+19. Every entity candidate must include `referent_kind`: `entity` for a named object or reusable concept/activity, `proposition` for a whole assertion or plan, and `unknown` when unresolved. Only `entity` candidates can enter the catalog. Decide from context, not name length, alphabet, or an action verb: short names, numeric work titles, acronyms, and names with sentence-like wording can be valid entities. A plan without a separately named referent belongs in fact_claims. Alias signals must explicitly denote the same entity in the source, not its platform, publisher, or related object.
+
 ## Output Format
 Return JSON only:
 ```json
@@ -104,6 +106,7 @@ Return JSON only:
   "entities": [
     {
       "surface": "original text span",
+      "referent_kind": "entity|proposition|unknown",
       "normalized_name": "source-language normalized name",
       "entity_type": "enum from allowed types",
       "specificity": "concrete|underspecified",

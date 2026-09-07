@@ -64,6 +64,7 @@ class ScriptedTransport:
                         claims.append({**case["claim"], "supporting_event_ids": [event_id]})
             entities = [
                 {
+                    "referent_kind": "entity",
                     "surface": claim["object_ref"],
                     "normalized_name": claim["object_ref"],
                     "entity_type": claim["object_type"],

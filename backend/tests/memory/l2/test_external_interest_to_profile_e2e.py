@@ -21,6 +21,7 @@ def _external_interest_phase1() -> str:
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "rock climbing",
                     "normalized_name": "rock climbing",
                     "entity_type": "activity",

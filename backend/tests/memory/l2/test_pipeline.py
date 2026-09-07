@@ -1013,6 +1013,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
             {
                 "entities": [
                     {
+                        "referent_kind": "entity",
                         "surface": "魔都",
                         "normalized_name": "上海",
                         "entity_type": "place",
@@ -1107,6 +1108,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "DIIV",
                     "normalized_name": "DIIV",
                     "entity_type": "group",
@@ -1116,6 +1118,7 @@ async def test_short_reply_context_error_does_not_fail_or_create_false_mentions(
                     "confidence": 0.95,
                 },
                 {
+                    "referent_kind": "entity",
                     "surface": "新专",
                     "normalized_name": "新专",
                     "entity_type": "media",
@@ -1229,6 +1232,7 @@ async def test_graph_projection_needs_no_wording_model_call(
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "魔都",
                     "normalized_name": "上海",
                     "entity_type": "place",
@@ -1333,6 +1337,7 @@ async def test_goal_materialization_needs_no_wording_model_call():
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "去海边",
                     "normalized_name": "海边旅行",
                     "entity_type": "activity",
@@ -1444,6 +1449,7 @@ async def test_goal_text_is_materialized_without_creating_an_activity_entity():
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "海边",
                     "normalized_name": "海边",
                     "entity_type": "place",
@@ -1566,6 +1572,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
             {
                 "entities": [
                     {
+                        "referent_kind": "entity",
                         "surface": "魔都",
                         "normalized_name": "上海",
                         "entity_type": "place",
@@ -2790,6 +2797,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                 {
                     "entities": [
                         {
+                            "referent_kind": "entity",
                             "surface": "GitHub",
                             "normalized_name": "GitHub",
                             "entity_type": "product",
@@ -2889,6 +2897,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                 {
                     "entities": [
                         {
+                            "referent_kind": "entity",
                             "surface": "西湖醋鱼",
                             "normalized_name": "西湖醋鱼",
                             "entity_type": "dish",
@@ -2974,6 +2983,7 @@ async def test_preference_claim_projects_graph_and_assertion_without_special_sup
                 {
                     "entities": [
                         {
+                            "referent_kind": "entity",
                             "surface": "西湖醋鱼",
                             "normalized_name": "西湖醋鱼",
                             "entity_type": "food",
@@ -3063,6 +3073,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
                 {
                     "entities": [
                         {
+                            "referent_kind": "entity",
                             "surface": "Shanghai",
                             "normalized_name": "Shanghai",
                             "entity_type": "place",
@@ -4121,37 +4132,6 @@ async def test_build_structured_graph_candidates_accepts_internal_topology_hints
     assert candidates[0]["object_id"] == "software:bilibili"
 
 
-class TestAliasValidation:
-    """Tests for _is_valid_alias quality gate."""
-
-    @pytest.fixture
-    def pipeline_cls(self):
-        from magi.memory.l2.pipeline import L2Pipeline
-        return L2Pipeline
-
-    def test_rejects_platform_alias_for_media(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("抖音", "坤的真爱粉的抖音直播间", "media") is False
-
-    def test_rejects_platform_alias_for_person(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("YouTube", "some creator channel", "person") is False
-
-    def test_allows_platform_alias_for_software(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("抖音", "Douyin", "software") is True
-
-    def test_rejects_short_alias_for_long_name(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("X", "a very long canonical entity name", "media") is False
-
-    def test_allows_same_alias_as_canonical(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("GitHub", "GitHub", "software") is True
-
-    def test_allows_reasonable_alias(self, pipeline_cls):
-        p = pipeline_cls.__new__(pipeline_cls)
-        assert p._is_valid_alias("React.js", "React Framework", "technology") is True
 
 
 class TestTypeMergeability:
@@ -4270,9 +4250,9 @@ class TestEntityTypeFiltering:
 
             phase1_payload = {
                 "entities": [
-                    {"surface": "GitHub", "entity_type": "software", "confidence": 0.95},
-                    {"surface": "Schema Panel", "entity_type": "virtual_object", "confidence": 0.9},
-                    {"surface": "SQLite", "entity_type": "technology", "confidence": 0.9},
+                    {"referent_kind": "entity", "surface": "GitHub", "entity_type": "software", "confidence": 0.95},
+                    {"referent_kind": "entity", "surface": "Schema Panel", "entity_type": "virtual_object", "confidence": 0.9},
+                    {"referent_kind": "entity", "surface": "SQLite", "entity_type": "technology", "confidence": 0.9},
                 ],
                 "fact_claims": [],
                 "resolved_refs": [],
@@ -4301,7 +4281,7 @@ class TestEntityTypeFiltering:
 
             phase1_payload = {
                 "entities": [
-                    {"surface": "anything", "entity_type": "virtual_object", "confidence": 0.9},
+                    {"referent_kind": "entity", "surface": "anything", "entity_type": "virtual_object", "confidence": 0.9},
                 ],
                 "fact_claims": [],
                 "resolved_refs": [],
@@ -4371,9 +4351,9 @@ class TestEntityTypeFiltering:
 
         phase1_payload = {
             "entities": [
-                {"surface": "哈基米", "normalized_name": "哈基米", "entity_type": "concept", "confidence": 0.95},
-                {"surface": "子涵", "normalized_name": "子涵", "entity_type": "concept", "confidence": 0.95},
-                {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
+                {"referent_kind": "entity", "surface": "哈基米", "normalized_name": "哈基米", "entity_type": "concept", "confidence": 0.95},
+                {"referent_kind": "entity", "surface": "子涵", "normalized_name": "子涵", "entity_type": "concept", "confidence": 0.95},
+                {"referent_kind": "entity", "surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
             ],
             "fact_claims": [
                 {
@@ -4463,11 +4443,11 @@ class TestEntityTypeFiltering:
 
         phase1_result = L2Phase1Result.from_dict({
             "entities": [
-                {"surface": "他", "normalized_name": "德克萨斯", "entity_type": "person", "confidence": 0.95},
-                {"surface": "那个", "normalized_name": "that one", "entity_type": "other", "confidence": 0.95},
-                {"surface": "app", "normalized_name": "app", "entity_type": "software", "confidence": 0.95},
-                {"surface": "新专", "normalized_name": "新专", "entity_type": "media", "specificity": "underspecified", "confidence": 0.95},
-                {"surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
+                {"referent_kind": "unknown", "surface": "他", "normalized_name": "德克萨斯", "entity_type": "person", "confidence": 0.95},
+                {"referent_kind": "unknown", "surface": "那个", "normalized_name": "that one", "entity_type": "other", "confidence": 0.95},
+                {"referent_kind": "unknown", "surface": "app", "normalized_name": "app", "entity_type": "software", "confidence": 0.95},
+                {"referent_kind": "entity", "surface": "新专", "normalized_name": "新专", "entity_type": "media", "specificity": "underspecified", "confidence": 0.95},
+                {"referent_kind": "entity", "surface": "GitHub", "normalized_name": "GitHub", "entity_type": "software", "confidence": 0.95},
             ],
             "fact_claims": [],
             "resolved_refs": [],
@@ -4588,51 +4568,6 @@ class TestEntityTypeFiltering:
             "PREFERRED_FORM_OF_ADDRESS"
         ]
 
-class TestEntityNameQuality:
-    """Tests for _is_quality_entity_name noise filter."""
-
-    @pytest.fixture
-    def pipeline_cls(self):
-        from magi.memory.l2.pipeline import L2Pipeline
-        return L2Pipeline
-
-    def test_accepts_short_name(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("Claude") is True
-
-    def test_accepts_cjk_short(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("哔哩哔哩") is True
-
-    def test_rejects_empty(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("") is False
-
-    def test_rejects_wide_cjk_name(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("好好好最喜欢的一集以前从来没看过这么好的节目真是太棒了") is False
-
-    def test_rejects_cjk_sentence(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("好好好！最喜欢的一集！") is False
-
-    def test_rejects_email(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("user@example.com") is False
-
-    def test_rejects_ip_address(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("192.168.1.1") is False
-
-    def test_rejects_ui_label(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("Sign in") is False
-
-    def test_accepts_product_name_with_version(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("IntelliJ IDEA 2026.1") is True
-
-    def test_rejects_only_punctuation(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("!!!???") is False
-
-    def test_accepts_name_at_width_boundary(self, pipeline_cls):
-        name = "A" * 50  # 50 display-width units (ASCII)
-        assert pipeline_cls._is_quality_entity_name(name) is True
-        assert pipeline_cls._is_quality_entity_name(name + "B") is False
-
-    def test_accepts_ori_long_english_title(self, pipeline_cls):
-        assert pipeline_cls._is_quality_entity_name("Ori and the Will of the Wisps") is True
 
 
 class TestSameNameEntityDedup:
@@ -4647,7 +4582,7 @@ class TestSameNameEntityDedup:
 
             phase1_first = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Claude", "entity_type": "software", "confidence": 0.95,
+                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "software", "confidence": 0.95,
                      "normalized_name": "Claude"},
                 ],
                 "fact_claims": [],
@@ -4664,7 +4599,7 @@ class TestSameNameEntityDedup:
             # Phase 1 with same canonical name but different type (technology)
             phase1_second = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Claude AI", "entity_type": "technology", "confidence": 0.92,
+                    {"referent_kind": "entity", "surface": "Claude AI", "entity_type": "technology", "confidence": 0.92,
                      "normalized_name": "Claude"},
                 ],
                 "fact_claims": [],
@@ -4688,7 +4623,7 @@ class TestSameNameEntityDedup:
 
             phase1_first = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Claude", "entity_type": "person", "confidence": 0.95,
+                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "person", "confidence": 0.95,
                      "normalized_name": "Claude"},
                 ],
                 "fact_claims": [],
@@ -4703,7 +4638,7 @@ class TestSameNameEntityDedup:
 
             phase1_second = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Claude", "entity_type": "software", "confidence": 0.92,
+                    {"referent_kind": "entity", "surface": "Claude", "entity_type": "software", "confidence": 0.92,
                      "normalized_name": "Claude"},
                 ],
                 "fact_claims": [],
@@ -4730,7 +4665,7 @@ class TestEntityResolutionCache:
 
             phase1 = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Magi", "entity_type": "software", "confidence": 0.95,
+                    {"referent_kind": "entity", "surface": "Magi", "entity_type": "software", "confidence": 0.95,
                      "normalized_name": "Magi"},
                 ],
                 "fact_claims": [],
@@ -4765,7 +4700,7 @@ class TestEntityResolutionCache:
             # Create entity "Magi" as software
             phase1_sw = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Magi", "entity_type": "software", "confidence": 0.95,
+                    {"referent_kind": "entity", "surface": "Magi", "entity_type": "software", "confidence": 0.95,
                      "normalized_name": "Magi"},
                 ],
                 "fact_claims": [],
@@ -4779,7 +4714,7 @@ class TestEntityResolutionCache:
             # Create entity "Magi" as person (different type → different cache key)
             phase1_person = L2Phase1Result.from_dict({
                 "entities": [
-                    {"surface": "Magi", "entity_type": "person", "confidence": 0.95,
+                    {"referent_kind": "entity", "surface": "Magi", "entity_type": "person", "confidence": 0.95,
                      "normalized_name": "Magi"},
                 ],
                 "fact_claims": [],
@@ -4863,6 +4798,7 @@ class TestGraphCatalogNameIndex:
             phase1_result = L2Phase1Result.from_dict({
                 "entities": [
                     {
+                        "referent_kind": "entity",
                         "surface": "归潮",
                         "normalized_name": "归潮",
                         "entity_type": "media",

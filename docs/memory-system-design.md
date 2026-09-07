@@ -1623,10 +1623,16 @@ second ontology. Existing catalog IDs retain their stored type.
 - `concept` represents an abstract idea, quality, style, or preference.
 - `other` represents a concrete reusable entity that fits no more specific type;
   unfamiliarity is not sufficient reason to use it.
-- New catalog names must be reusable noun-like labels. Complete sentences, long
-  action clauses, and multi-action plans remain in the Claim and are rejected as
-  new entities; independently reusable activities, skills, projects, places, and
-  named objects remain eligible.
+- New catalog names must identify reusable referents. Phase 1 declares
+  `referent_kind=entity` for these, `proposition` for a whole statement or plan,
+  and `unknown` for unresolved references. Only concrete `entity` candidates
+  proceed. This semantic judgment belongs to the model; the host validates exact
+  source surfaces, registered types, nonempty single-line names of at most 200
+  characters, and catalog identity. It does not use action-verb patterns, name
+  length heuristics, or platform-name lists to decide what the name means.
+  Acronyms, numeric titles, short names, and titles phrased as sentences remain
+  eligible. Alias signals require source evidence and cannot take a different
+  existing catalog entity's canonical name or unambiguous alias.
 - Internal topology identities such as `presence` are normally supplied by
   source-owned structured hints rather than invented as free-form graph facts.
 - Internal topology predicates: `PRESENCE_OF`, `ON_PLATFORM`, `LOCATED_IN`
@@ -3187,7 +3193,7 @@ requests expressing preferences, quoted/hypothetical statements, negation, and
 one-off experiences. Scripted transports verify contract handling, persistence,
 correction, forgetting, and retrieval, not model semantic accuracy.
 
-Extractor contract 5 and Claim evidence rule 3 identify the changed interpretation.
+Extractor contract 6 and Claim evidence rule 3 identify the changed interpretation.
 Existing immutable Claims and user-governed corrections are not rewritten by an
 upgrade. Re-extraction must use the durable source-event projection workflow and
 its active source/deletion/lease barriers; route-only replay cannot repair a

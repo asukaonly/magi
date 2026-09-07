@@ -69,6 +69,7 @@ async def test_entity_resolution_json_failure_stays_unresolved() -> None:
         {
             "entities": [
                 {
+                    "referent_kind": "entity",
                     "surface": "AcmeX",
                     "normalized_name": "AcmeX",
                     "entity_type": "organization",

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from typing import Any, Protocol, cast
 
 from ....event_contracts import MemoryEvent
@@ -19,103 +18,12 @@ class _EntityResolutionHelperHostProtocol(Protocol):
 class L2EntityResolutionHelperMixin:
     """Shared entity quality, merge, and focal-entity helpers."""
 
-    _GENERIC_PLATFORM_NAMES: frozenset[str] = frozenset(
-        {
-            "youtube",
-            "google",
-            "github",
-            "bilibili",
-            "哔哩哔哩",
-            "b站",
-            "douyin",
-            "抖音",
-            "tiktok",
-            "tiktok china",
-            "zhihu",
-            "知乎",
-            "weibo",
-            "微博",
-            "twitter",
-            "x",
-            "reddit",
-            "medium",
-            "stackoverflow",
-            "stack overflow",
-            "wikipedia",
-            "spotify",
-            "netflix",
-            "twitch",
-            "taobao",
-            "淘宝",
-            "jd",
-            "京东",
-            "xiaohongshu",
-            "小红书",
-            "last.fm",
-            "facebook",
-            "instagram",
-            "linkedin",
-            "baidu",
-            "百度",
-            "bing",
-            "yahoo",
-        }
-    )
-
-    _NAME_NOISE_PATTERNS: re.Pattern = re.compile(
-        r"[\w.+-]+@[\w.-]+\.\w{2,}"  # email
-        r"|(\d{1,3}\.){3}\d{1,3}"  # IPv4
-        r"|^(Home|Inbox|Schema Panel|Import Panel|Verification Code|"
-        r"Sign in|Log in|Welcome|Error|404|Loading)$",
-        re.IGNORECASE,
-    )
-    _SENTENCE_PUNCT: re.Pattern = re.compile(r"[！？。，、；]")
-    _MAX_ENTITY_NAME_WIDTH = 50
     _MERGEABLE_TYPE_GROUPS: list[frozenset[str]] = [
         frozenset({"software", "product", "technology", "organization", "activity"}),
         frozenset({"media", "activity", "topic", "concept"}),
         frozenset({"person", "group"}),
         frozenset({"place", "location_state"}),
     ]
-
-    def _is_valid_alias(
-        self,
-        alias_text: str,
-        canonical_name: str,
-        entity_type: str,
-    ) -> bool:
-        """Check whether an alias is semantically valid for the given entity."""
-        alias_cf = alias_text.casefold().strip()
-        canonical_cf = canonical_name.casefold().strip()
-        if alias_cf == canonical_cf:
-            return True
-        if entity_type != "software" and alias_cf in self._GENERIC_PLATFORM_NAMES:
-            return False
-        if len(canonical_cf) > 8 and len(alias_cf) <= 3:
-            return False
-        return True
-
-    @classmethod
-    def _display_width(cls, text: str) -> int:
-        """East-Asian-aware display width (CJK chars count as 2)."""
-        return sum(2 if unicodedata.east_asian_width(char) in ("W", "F") else 1 for char in text)
-
-    @classmethod
-    def _is_quality_entity_name(cls, name: str) -> bool:
-        """Return False for names that look like noise (page titles, UI labels, etc.)."""
-        text = name.strip()
-        if not text or len(text) < 2:
-            return False
-        if cls._NAME_NOISE_PATTERNS.search(text):
-            return False
-        if cls._display_width(text) > cls._MAX_ENTITY_NAME_WIDTH:
-            return False
-        alpha_count = sum(1 for char in text if char.isalpha())
-        if alpha_count == 0:
-            return False
-        if len(cls._SENTENCE_PUNCT.findall(text)) >= 2:
-            return False
-        return True
 
     async def _build_catalog_name_index(self) -> dict[str, str]:
         """Build casefold(name/alias/id) -> entity_id lookup from the catalog."""

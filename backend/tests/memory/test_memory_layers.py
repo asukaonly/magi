@@ -52,6 +52,7 @@ _STRESS_PHASE2 = json.dumps({"summaries": []})
 _PLACE_PHASE1 = json.dumps({
     "entities": [
         {
+            "referent_kind": "entity",
             "surface": "魔都",
             "normalized_name": "上海",
             "entity_type": "place",

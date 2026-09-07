@@ -109,6 +109,7 @@ async def test_personal_markdown_reaches_l1_and_governed_l2_outputs(
     phase1_payload: dict[str, object] = {
         "entities": [
             {
+                "referent_kind": "entity",
                 "surface": "DIIV",
                 "normalized_name": "DIIV",
                 "entity_type": "group",

@@ -86,11 +86,20 @@ class L2FactKind(str, Enum):
             raise ValueError(f"Unsupported L2 fact kind: {value}") from exc
 
 
+class L2EntityReferentKind(str, Enum):
+    """Whether the extracted span names a reusable referent or a proposition."""
+
+    ENTITY = "entity"
+    PROPOSITION = "proposition"
+    UNKNOWN = "unknown"
+
+
 @dataclass(slots=True)
 class L2Phase1Entity:
     """Entity extracted and resolved during Phase 1."""
 
     surface: str = ""
+    referent_kind: L2EntityReferentKind | str = L2EntityReferentKind.ENTITY
     normalized_name: str = ""
     entity_type: str = ""
     specificity: str = "concrete"
@@ -103,6 +112,7 @@ class L2Phase1Entity:
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1Entity":
         return cls(
             surface=payload.get("surface", ""),
+            referent_kind=payload.get("referent_kind", L2EntityReferentKind.UNKNOWN.value),
             normalized_name=payload.get("normalized_name", ""),
             entity_type=payload.get("entity_type", ""),
             specificity=payload.get("specificity", "concrete"),
@@ -114,6 +124,7 @@ class L2Phase1Entity:
 
     def __post_init__(self) -> None:
         self.surface = _optional_text(self.surface) or ""
+        self.referent_kind = L2EntityReferentKind(self.referent_kind)
         self.normalized_name = _optional_text(self.normalized_name) or self.surface
         self.entity_type = _optional_text(self.entity_type) or ""
         self.specificity = _optional_text(self.specificity) or "concrete"

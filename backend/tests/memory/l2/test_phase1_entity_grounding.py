@@ -30,8 +30,10 @@ def _entity(
     *,
     alias_signals: list[str] | None = None,
     resolved_id: str | None = None,
+    referent_kind: str = "entity",
 ) -> dict[str, object]:
     return {
+        "referent_kind": referent_kind,
         "surface": surface,
         "normalized_name": normalized_name,
         "entity_type": entity_type,
@@ -183,10 +185,10 @@ def test_drops_entity_absent_from_current_evidence() -> None:
     }
 
 
-def test_drops_sentence_like_new_entity_without_dropping_claim() -> None:
+def test_drops_proposition_candidate_without_dropping_claim() -> None:
     action = "今年秋天去海边"
     payload: dict[str, object] = {
-        "entities": [_entity(action, action, "activity")],
+        "entities": [_entity(action, action, "activity", referent_kind="proposition")],
         "fact_claims": [
             {
                 "assertion_mode": "asserted",
@@ -216,15 +218,15 @@ def test_drops_sentence_like_new_entity_without_dropping_claim() -> None:
     assert payload["diagnostics"] == {
         "entity_status": "none",
         "rejected_entity_count": 1,
-        "rejected_sentence_like_entity_count": 1,
+        "rejected_non_entity_count": 1,
     }
 
 
-def test_drops_multi_action_phrase_but_keeps_reusable_entity_names() -> None:
+def test_semantic_referent_kind_separates_propositions_from_entities() -> None:
     sentence_like = "慢悠悠的晨间散步和随性觅食"
     payload: dict[str, object] = {
         "entities": [
-            _entity(sentence_like, sentence_like, "activity"),
+            _entity(sentence_like, sentence_like, "activity", referent_kind="proposition"),
             _entity("攀岩", "攀岩", "activity"),
             _entity("陶艺", "陶艺", "skill"),
             _entity("Magi 记忆重构", "Magi 记忆重构", "project"),
@@ -266,6 +268,7 @@ def test_preserves_verified_existing_entity_identity_even_for_sentence_like_titl
 
     assert payload["entities"] == [
         {
+            "referent_kind": "entity",
             "surface": title,
             "normalized_name": title,
             "entity_type": "media",

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
+from ...entity_names import valid_entity_name
+from ...phase1_models import L2EntityReferentKind
 from ...entities.identity import CONCEPT_ENTITY_TYPES, entity_hint_id, normalized_entity_name
 from ...llm_json_client import L2LLMJsonError
 from ...models import (
@@ -236,7 +238,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
     ) -> _PendingPhase1EntityResolution | None:
-        if not entity.surface:
+        if not entity.surface or entity.referent_kind is not L2EntityReferentKind.ENTITY:
             return None
         if str(entity.specificity or "").strip().casefold() != "concrete":
             logger.debug(
@@ -276,16 +278,6 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
     ) -> bool:
-        if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
-            logger.debug(
-                "L2 Phase 1 entity filtered as vague reference",
-                mention_text=mention_text,
-                normalized_surface=normalized_surface,
-                entity_type=entity_type,
-                event_id=event.event_id,
-            )
-            return False
-
         normalized_profile_value = self._normalize_profile_signal_value(normalized_surface)  # type: ignore[attr-defined]
         normalized_mention_value = self._normalize_profile_signal_value(mention_text)  # type: ignore[attr-defined]
         if profile_signal_object_refs and (
@@ -309,9 +301,9 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             )
             return False
 
-        if not self._is_quality_entity_name(normalized_surface):
+        if not valid_entity_name(normalized_surface):
             logger.debug(
-                "L2 Phase 1 entity filtered by name quality",
+                "L2 Phase 1 entity filtered by name shape",
                 mention_text=mention_text,
                 entity_type=entity_type,
                 event_id=event.event_id,
