@@ -1,10 +1,20 @@
 """Contract tests for independent plugin connections and wire messages."""
 
-import pytest
-from pydantic import ValidationError
+import builtins
 
-from magi_plugin_sdk.runtime import PluginConnection, PluginHandshake, SourceChange, SourceChangeBatch
-from magi_plugin_sdk.contracts import ExtensionFieldSpec, ExtractionProfileSpec, PluginManifest
+import pytest
+from magi_plugin_sdk.contracts import (
+    ExtensionFieldSpec,
+    ExtractionProfileSpec,
+    PluginManifest,
+)
+from magi_plugin_sdk.runtime import (
+    PluginConnection,
+    PluginHandshake,
+    SourceChange,
+    SourceChangeBatch,
+)
+from pydantic import ValidationError
 
 
 def test_connection_wire_round_trip_preserves_independent_identity():
@@ -86,6 +96,27 @@ def test_setup_catalog_is_declarative_before_plugin_execution():
     assert copy.settings_fields[0].type == "secret"
 
 
+def test_manifest_capability_validation_never_imports_runtime_code(monkeypatch):
+    payload = {
+        "id": "mail", "name": "Mail", "version": "1.0.0",
+        "permissions": {"capabilities": [
+            {"capability": "network", "scope": ["mail.example.test"]},
+            {"capability": "memory_search", "scope": ["current_user"]},
+            {"capability": "interaction_ask", "scope": ["current_session"]},
+        ]},
+    }
+
+    def reject_import(*args, **kwargs):
+        raise AssertionError("Manifest validation must not import runtime modules")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(builtins, "__import__", reject_import)
+        manifest = PluginManifest.model_validate(payload)
+    assert [item.capability for item in manifest.capabilities] == [
+        "network", "memory_search", "interaction_ask",
+    ]
+
+
 def test_nested_declarations_reject_typos_and_non_finite_bounds():
     with pytest.raises(ValidationError):
         PluginManifest(id="mail", name="Mail", version="1.0.0",
@@ -95,8 +126,11 @@ def test_nested_declarations_reject_typos_and_non_finite_bounds():
 
 
 def test_scoped_clear_cannot_impersonate_a_global_generation(tmp_path):
-    from magi_plugin_sdk.user_content import UserContentClearRequest, UserContentClearContext
     from magi_plugin_sdk.sources import ScopedSourceRuntimePaths
+    from magi_plugin_sdk.user_content import (
+        UserContentClearContext,
+        UserContentClearRequest,
+    )
 
     request = UserContentClearRequest(connection_id="mail-work", reason="user_clear_connection_content")
     assert request.clear_generation is None

@@ -17,8 +17,9 @@ from pydantic import (
     model_validator,
 )
 
-from .versioning import PluginVersion
+from .capabilities import HOST_SERVICE_PERMISSIONS
 from .runtime import SDK_VERSION
+from .versioning import PluginVersion
 
 
 class PluginContract(BaseModel):
@@ -364,8 +365,6 @@ class PluginCapability(PluginContract):
 
     @model_validator(mode="after")
     def validate_host_service_scope(self) -> PluginCapability:
-        from .capabilities import HOST_SERVICE_PERMISSIONS
-
         scopes = dict(HOST_SERVICE_PERMISSIONS.values())
         if self.capability in scopes and self.scope != [scopes[self.capability]]:
             raise ValueError("Host services require their exact supported scope")
