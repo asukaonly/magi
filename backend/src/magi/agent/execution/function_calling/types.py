@@ -39,6 +39,7 @@ class ToolCallResult:
     error: str | None = None
     error_code: str | None = None
     execution_time: float = 0.0
+    model_text: str | None = None
 
 
 @dataclass

@@ -441,3 +441,61 @@ def test_model_alias_cannot_shadow_builtin_registration(setup):
     assert tools.resolve_tool_name(collision) == collision
     with pytest.raises(ValueError):
         tools.register(Builtin, registered_name=alias)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("surface", ["tool", "operation"])
+@pytest.mark.parametrize("valid_data", [True, False])
+async def test_model_text_survives_execution_without_bypassing_output_schema(setup, surface, valid_data):
+    from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
+    from magi.agent.execution.function_calling._registered_tool_execution import _RegisteredToolExecutor
+    from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
+
+    registry, tools, _, connections = setup
+    operation_spec = spec(effect="read_only", replay="read_only")
+    value = {"receipt": "id-1" if valid_data else 42}
+    model_text = "Receipt: id-1"
+
+    class ReceiptTool(Tool):
+        def _init_schema(self):
+            self.schema = ToolSchema(
+                name="send", description="Read receipt", category="test",
+                effect_class="read_only", effect_replay_policy="read_only",
+                input_schema=operation_spec.input_schema, output_schema=operation_spec.output_schema,
+            )
+
+        async def execute(self, parameters, context):
+            return ToolResult(success=True, data=value, model_text=model_text)
+
+    if surface == "tool":
+        registry.register_tool(plugin_id="test", connection_id="conn_a", tool_class=ReceiptTool)
+    else:
+        registry.register(
+            plugin_id="test", connection_id="conn_a", spec=operation_spec,
+            handler=AsyncMock(return_value=OperationResult(
+                status="succeeded", value=value, model_text=model_text,
+            )),
+        )
+
+    alias = tools.exported_tool_name("conn_a:send")
+    result = await ToolInvocationService(tools).invoke(
+        ToolCall(alias, {"payload": 1}),
+        InvocationContext("plugin", TaskContext("s", "t", "task", "local_user"),
+                          ToolExecutionContext(agent_id="agent")),
+    )
+    executor = _RegisteredToolExecutor(SimpleNamespace(_FILE_SCAN_TOOLS=set()))
+    call_result = executor._to_tool_call_result(
+        SimpleNamespace(start_time=0, tool_name=alias, tool_call=SimpleNamespace(id="call-1")), {}, result,
+    )
+    message = FunctionCallingPostprocessor().build_tool_message(alias, call_result, evidence_ref="ev-1")
+    if valid_data:
+        assert call_result.data == value
+        assert message["content"] == model_text
+        identity = build_host_invocation(connections["conn_a"], trigger="user")
+        direct = await registry.invoke("conn_a", "send", {"payload": 1}, identity=identity)
+        assert direct.value == value
+        assert direct.model_text == model_text
+    else:
+        assert result.success is False
+        assert result.model_text is None
+        assert message["content"] != model_text

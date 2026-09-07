@@ -7,29 +7,30 @@ imported only after version agreement and the native confinement probe succeeds.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future
-from contextvars import ContextVar
 import importlib.util
 import inspect
 import os
-from pathlib import Path
 import socket
 import sys
 import threading
-from typing import Any
 import uuid
+from concurrent.futures import Future
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Any
 
 from .base import Plugin
 from .context import PluginContext
-from .runtime import PluginHandshake, PLUGIN_PROTOCOL_VERSION, SDK_VERSION
+from .runtime import PLUGIN_PROTOCOL_VERSION, SDK_VERSION, PluginHandshake
 from .transport import (
     MAX_FRAME_BYTES,
     ProtocolError,
+    WorkerRuntimePaths,
     pack,
     read_frame,
     write_frame,
-    WorkerRuntimePaths,
 )
+from .versioning import parse_plugin_version
 from .worker_catalog import CHANNEL_PORTS, WorkerCatalog
 from .worker_imports import install_library_imports
 
@@ -389,7 +390,7 @@ class WorkerServer:
             raise ProtocolError("Plugin handshake identity mismatch")
         if (
             manifest.protocol_version != PLUGIN_PROTOCOL_VERSION
-            or str(manifest.min_sdk_version) != SDK_VERSION
+            or parse_plugin_version(manifest.min_sdk_version) > parse_plugin_version(SDK_VERSION)
         ):
             raise ProtocolError("Plugin requires an incompatible SDK version")
         self.max_inflight = payload["max_inflight"]

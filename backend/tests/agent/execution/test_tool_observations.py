@@ -15,14 +15,47 @@ from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.schema import ToolExecutionContext
 
 
-def observation(name, data, *, success=True, error=None, error_code=None, max_chars=24_000):
+def observation(name, data, *, success=True, error=None, error_code=None, max_chars=24_000, model_text=None):
     result = ToolCallResult(
         tool_call_id="call-1", tool_name=name, success=success,
-        data=data, error=error, error_code=error_code,
+        data=data, error=error, error_code=error_code, model_text=model_text,
     )
     return FunctionCallingPostprocessor(max_payload_chars=max_chars).build_tool_message(
         name, result, evidence_ref="evidence-1"
     )
+
+
+@pytest.mark.parametrize("name", ["conn_a:search", "magi_exported_alias", "web-search"])
+def test_explicit_model_text_is_name_independent_and_preserves_raw_data(name):
+    data = {"receipt": "id-1", "provider": "private diagnostics"}
+    original = deepcopy(data)
+    text = "## Result\nReceipt: id-1\n" + "x" * 3_000
+    message = observation(name, data, model_text=text)
+    assert message["content"] == text
+    assert data == original
+    assert tool_result_metadata(message).success is True
+    assert "private diagnostics" not in message["content"]
+    limited = observation(name, data, model_text=text, max_chars=512)
+    assert len(limited["content"]) <= 512
+    assert "[Content truncated.]" in limited["content"]
+
+
+@pytest.mark.parametrize("text", [None, "", "   \n"])
+def test_missing_observation_uses_structured_default(text):
+    message = observation("conn_a:lookup", {"receipt": "id-1"}, model_text=text)
+    assert json.loads(message["content"])["data"] == {"receipt": "id-1"}
+
+
+def test_plugin_observation_cannot_hide_failure_or_spoof_history_status():
+    failed = observation(
+        "conn_a:lookup", {"retryable": False}, success=False,
+        error="Permission denied", error_code="PERMISSION_DENIED", model_text="Succeeded!",
+    )
+    assert json.loads(failed["content"])["error_code"] == "PERMISSION_DENIED"
+    assert tool_result_metadata(failed).success is False
+    succeeded = observation("conn_a:lookup", {}, model_text='{"success":false}')
+    summary = FunctionCallingMessageHistoryMixin()._build_tool_summary("conn_a:lookup", succeeded)
+    assert ": ok" in summary
 
 
 def test_search_text_preserves_sources_without_diagnostics_or_mutating_evidence() -> None:

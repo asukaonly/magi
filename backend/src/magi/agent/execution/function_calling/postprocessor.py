@@ -15,6 +15,7 @@ from ..tool_context_formatters import (
 )
 from ..web_tool_rendering import render_web_result
 from ..local_tool_rendering import render_local_result
+from ..tool_output_text import clip_text
 from magi.utils.tool_result_metadata import TOOL_RESULT_METADATA_KEY, ToolResultMetadata
 
 
@@ -42,7 +43,10 @@ class FunctionCallingPostprocessor:
         success = bool(getattr(result, "success", False))
         data = getattr(result, "data", None)
         content = None
-        if isinstance(data, dict):
+        model_text = getattr(result, "model_text", None)
+        if success and isinstance(model_text, str) and model_text.strip():
+            content = clip_text(model_text, self.max_payload_chars)
+        if content is None and isinstance(data, dict):
             content = render_local_result(
                 tool_name, data, success=success, error_code=getattr(result, "error_code", None),
                 max_items=self.max_items, max_text_chars=self.max_text_chars,

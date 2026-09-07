@@ -149,6 +149,15 @@ The typed contract lives in:
 
 ## Base Plugin Contract
 
+Tool results and model observations have separate SDK fields. Since SDK 0.2.1,
+tools may supply `ToolResult.model_text` and operations may supply
+`OperationResult.model_text` alongside canonical `data` / `value`. The typed
+worker transport and operation adapters preserve both. Output schemas validate
+canonical values; optional presentation text cannot bypass those checks or
+change the recorded execution status. The function-calling postprocessor owns
+the final message budget and error representation. No plugin-specific renderer
+is registered in the host; plugins declare their observation in the result.
+
 Every plugin entry class must inherit:
 
 - [Plugin](../backend/src/magi/plugins/base.py)

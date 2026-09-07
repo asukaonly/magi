@@ -399,6 +399,20 @@ and dependency-install output in the complete package closure.
 
 Tool plugins return normal Magi tool classes from `get_tools()`.
 
+SDK 0.2.1 adds optional `ToolResult.model_text` (and `OperationResult.model_text`)
+for a model-facing plain text or Markdown observation. Keep `data` / `value`
+as the complete canonical result; `output_schema` validates that value, not the
+observation. Set the package's `min_sdk_version` to `0.2.1` when using this field.
+The text survives worker RPC and the operation/tool adapters without requiring
+host registration of a formatter or knowledge of the plugin's tool names.
+The host uses nonblank text only on success, bounds it to the observation budget
+with an explicit truncation notice, and journals the exact message. Failure
+status, error codes and recovery remain host-owned. Missing/blank text uses the
+host's default renderer. Include necessary IDs, paths, source identity, missing
+items and partial-result limitations; omit duplicated UI payloads and provider
+diagnostics. `after_execution` changes the execution result itself and is not
+required to provide this separate observation.
+
 Example:
 
 ```python

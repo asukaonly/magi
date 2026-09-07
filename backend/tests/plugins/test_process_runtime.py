@@ -46,7 +46,7 @@ class EchoTool(Tool):
         self.schema=ToolSchema(name="process_echo", description="Echo", category="test", parameters=[])
     async def execute(self, parameters, context):
         value = await get_host().call("test.echo", parameters.get("resource", "allowed"), {"agent":context.agent_id})
-        return ToolResult(success=True, data=value)
+        return ToolResult(success=True, data=value, model_text="Echo received.")
 class TestPlugin(Plugin):
     def configure(self, **kwargs):
         super().configure(**kwargs)
@@ -162,6 +162,22 @@ def test_real_child_imports_dependencies_and_scoped_boot_credentials(proxy):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("minimum,accepted", [("0.2.0", True), ("99.0.0", False)])
+async def test_worker_enforces_minimum_sdk_version(plugin_setup, minimum, accepted):
+    manifest, connection, context = plugin_setup
+    manifest = manifest.model_copy(update={"min_sdk_version": minimum})
+    if not accepted:
+        with pytest.raises(PluginProcessError, match="incompatible SDK"):
+            ProcessPluginProxy(manifest, connection, context)
+        return
+    process = ProcessPluginProxy(manifest, connection, context)
+    try:
+        assert process.get_tools()
+    finally:
+        await process.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_source_and_settings_real_async_calls(proxy):
     _, source, _ = proxy.get_sources()[0]
     assert source.connection == proxy.connection
@@ -205,6 +221,7 @@ async def test_broker_preserves_host_identity_and_enforces_scope(plugin_setup):
         tool = proxy.get_tools()[0]()
         result = await tool.execute({}, ToolExecutionContext(agent_id="real-agent", task_id="task"))
         assert result.data["principal"] == "real-agent"
+        assert result.model_text == "Echo received."
         assert seen[0].connection_id == connection.connection_id
         with pytest.raises(PluginProcessError, match="RemoteHostError"):
             await tool.execute(

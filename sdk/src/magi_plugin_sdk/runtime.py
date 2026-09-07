@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, field_validator, model_validator
 
-SDK_VERSION = "0.2.0"
+SDK_VERSION = "0.2.1"
 PLUGIN_PROTOCOL_VERSION = 2
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
@@ -164,6 +164,10 @@ class OperationResult(RuntimeModel):
 
     status: Literal["succeeded", "failed", "cancelled", "uncertain"]
     value: JsonValue = None
+    model_text: str | None = Field(
+        default=None,
+        description="Optional model observation; never used to determine operation status or validate value.",
+    )
     resources: list[ResourceRef] = Field(default_factory=list)
     error_code: str | None = None
     message: str | None = None
@@ -173,7 +177,7 @@ class PluginHandshake(RuntimeModel):
     """Version agreement before loading plugin code or accepting contributions."""
 
     protocol_version: Literal[2]
-    sdk_version: Literal["0.2.0"]
+    sdk_version: Literal["0.2.1"]
     plugin_id: RuntimeIdentifier
     connection_id: RuntimeIdentifier
 

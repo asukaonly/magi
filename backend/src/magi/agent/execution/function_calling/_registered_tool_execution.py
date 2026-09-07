@@ -276,6 +276,7 @@ class _RegisteredToolExecutor:
             tool_name=request.tool_name,
             success=result.success,
             data=result.data,
+            model_text=result.model_text,
             error=result.error,
             error_code=getattr(result, "error_code", None),
             execution_time=execution_time,
