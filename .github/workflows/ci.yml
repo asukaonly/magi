@@ -27,7 +27,7 @@ jobs:
     env:
       # Reviewed companion package snapshot. Update only to a published full SHA;
       # scripts/plugin_runtime_ci.py records both revisions and the SDK pin.
-      MAGI_PLUGINS_SHA: 745e488ab0b58058726505c14a5c81302464f755
+      MAGI_PLUGINS_SHA: efa79babf6087dc6dd9e23604f09124cde19c179
       PYTHONUTF8: "1"
     steps:
       - name: Checkout host under test

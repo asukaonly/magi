@@ -85,6 +85,7 @@ def test_selection(host: Path) -> list[str]:
     files = sorted(directory.glob("test_process_*.py"))
     required = [
         directory / "test_worker_sdk_admission.py",
+        directory / "test_plugin_dependency_wheels.py",
         host / "backend/tests/scripts/test_plugin_runtime_ci.py",
     ]
     for path in [

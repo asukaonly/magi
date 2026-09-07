@@ -354,9 +354,52 @@ def _build_dependency_install_command(
         "-r",
         str(resolved_lock_path),
     ]
+    wheels = _validated_package_wheels(lock_path.parent)
+    if wheels is not None:
+        cmd.extend(["--find-links", str(wheels)])
     if quiet:
         cmd.insert(cmd.index("--require-hashes"), "--quiet")
     return cmd
+
+
+def _validated_package_wheels(plugin_dir: Path) -> Path | None:
+    """Accept only regular wheels inside the already verified package tree."""
+    wheels = plugin_dir / "wheels"
+    try:
+        directory_stat = wheels.lstat()
+    except FileNotFoundError:
+        return None
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+
+    def is_link(metadata: os.stat_result) -> bool:
+        return stat.S_ISLNK(metadata.st_mode) or bool(
+            getattr(metadata, "st_file_attributes", 0) & reparse_point
+        )
+
+    if (
+        is_link(plugin_dir.lstat())
+        or is_link(directory_stat)
+        or not stat.S_ISDIR(directory_stat.st_mode)
+    ):
+        raise UnsafeDependencyLockError(
+            "Package wheels directory must be a real directory inside the package"
+        )
+    package_root = plugin_dir.resolve(strict=True)
+    wheel_root = wheels.resolve(strict=True)
+    if wheel_root.parent != package_root:
+        raise UnsafeDependencyLockError("Package wheels directory escapes its package")
+    for path in wheels.iterdir():
+        metadata = path.lstat()
+        if (
+            is_link(metadata)
+            or not stat.S_ISREG(metadata.st_mode)
+            or path.suffix != ".whl"
+            or path.resolve(strict=True).parent != wheel_root
+        ):
+            raise UnsafeDependencyLockError(
+                "Package wheels directory may contain only regular .whl files"
+            )
+    return wheel_root
 
 
 def _validate_dependency_lock(lock_path: Path) -> set[str]:
@@ -368,8 +411,7 @@ def _validate_dependency_lock(lock_path: Path) -> set[str]:
         raise UnsafeDependencyLockError(f"Cannot read plugin dependency lock: {lock_path}") from exc
     if size <= 0 or size > MAX_PLUGIN_DEPENDENCY_LOCK_BYTES:
         raise UnsafeDependencyLockError(
-            f"Plugin dependency lock must be between 1 and "
-            f"{MAX_PLUGIN_DEPENDENCY_LOCK_BYTES} bytes"
+            f"Plugin dependency lock must be between 1 and {MAX_PLUGIN_DEPENDENCY_LOCK_BYTES} bytes"
         )
 
     try:
@@ -438,7 +480,7 @@ def _validate_dependency_lock_coverage(
     missing = sorted(declared_names - locked_names)
     if missing:
         raise UnsafeDependencyLockError(
-            "Plugin dependency lock does not cover declared dependencies: " f"{', '.join(missing)}"
+            f"Plugin dependency lock does not cover declared dependencies: {', '.join(missing)}"
         )
 
 
@@ -901,7 +943,7 @@ def _measure_dependency_resource_usage(
                     continue
                 except OSError as exc:
                     raise DependencyInstallResourceLimitError(
-                        "Cannot inspect plugin dependency installation output: " f"{child.path}"
+                        f"Cannot inspect plugin dependency installation output: {child.path}"
                     ) from exc
                 entries += 1
                 if entries > MAX_PLUGIN_DEPENDENCY_INSTALL_ENTRIES:

@@ -63,6 +63,7 @@ def test_new_process_test_files_are_selected_without_missing_future_paths(tmp_pa
     for name in ["runtime", "callback_lifecycle"]:
         (plugins / f"test_process_{name}.py").touch()
     (plugins / "test_worker_sdk_admission.py").touch()
+    (plugins / "test_plugin_dependency_wheels.py").touch()
     watch = plugins / "test_process_source_watch.py"
     assert str(watch) not in gate.test_selection(tmp_path)
     watch.touch()
