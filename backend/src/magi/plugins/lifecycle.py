@@ -178,6 +178,7 @@ class PluginSystemModule(LifecycleModule):
                 "runtime paths",
             ),
             get_source_sync_executor=lambda: (self._context.agent_runtime.source_sync_executor),
+            get_source_scheduler_contrib=lambda: self._context.agent_runtime.source_scheduler_contrib,
             checkpoint_store=PluginUserContentClearCheckpointStore(
                 require_initialized(
                     self._context.core.runtime_paths,

@@ -191,6 +191,7 @@ def _coordinator(
     current_generation: int,
     checkpoint: _Checkpoint,
     executor=None,
+    watcher=None,
 ) -> PluginUserContentClearCoordinator:
     async def read_generation() -> int:
         return current_generation
@@ -199,10 +200,46 @@ def _coordinator(
         plugin_manager=_Manager(snapshot),  # type: ignore[arg-type]
         runtime_paths=_RuntimePaths(),
         get_source_sync_executor=lambda: executor,
+        get_source_scheduler_contrib=lambda: watcher,
         checkpoint_store=checkpoint,  # type: ignore[arg-type]
         read_current_clear_generation=read_generation,
         hook_timeout_seconds=1,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_watchers_drain_outside_clear_admission_and_resume_only_on_success(fail):
+    from magi.plugins.operation_execution import plugin_runtime_operation
+
+    events = []
+
+    class Watcher:
+        async def stop_watches(self):
+            async with plugin_runtime_operation():
+                events.append("watch-stop")
+
+        async def resume_watches(self):
+            async with plugin_runtime_operation():
+                events.append("watch-resume")
+
+    plugin = _RecordingPlugin("watched", events, fail=fail)
+    coordinator = _coordinator(
+        snapshot=PluginUserContentTargetSnapshot(plugins=(("watched", plugin, {}),), sources=()),
+        current_generation=1, checkpoint=_Checkpoint(), watcher=Watcher(),
+    )
+
+    async def clear():
+        async with coordinator.user_content_clear_boundary() as session:
+            await session.clear_user_content(UserContentClearRequest(1))
+
+    if fail:
+        with pytest.raises(PluginUserContentClearError):
+            await asyncio.wait_for(clear(), 2)
+        assert events == ["watch-stop", "plugin:watched"]
+    else:
+        await asyncio.wait_for(clear(), 2)
+        assert events == ["watch-stop", "plugin:watched", "watch-resume"]
 
 
 @pytest.mark.asyncio

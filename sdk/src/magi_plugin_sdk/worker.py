@@ -7,30 +7,36 @@ imported only after version agreement and the native confinement probe succeeds.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future
-from contextvars import ContextVar
 import importlib.util
 import inspect
 import os
-from pathlib import Path
 import socket
 import sys
 import threading
-from typing import Any
 import uuid
+from concurrent.futures import Future
+from contextvars import ContextVar
+from pathlib import Path
+from typing import Any
 
 from .base import Plugin
 from .context import PluginContext
-from .runtime import PluginHandshake, PLUGIN_PROTOCOL_VERSION, SDK_VERSION, ResourceRef, SourceChange
-from .versioning import validate_sdk_requirement
+from .runtime import (
+    PLUGIN_PROTOCOL_VERSION,
+    SDK_VERSION,
+    PluginHandshake,
+    ResourceRef,
+    SourceChange,
+)
 from .transport import (
     MAX_FRAME_BYTES,
     ProtocolError,
+    WorkerRuntimePaths,
     pack,
     read_frame,
     write_frame,
-    WorkerRuntimePaths,
 )
+from .versioning import validate_sdk_requirement
 from .worker_catalog import CHANNEL_PORTS, WorkerCatalog
 from .worker_imports import install_library_imports
 
@@ -124,17 +130,17 @@ class RemoteSourceEmitter:
         )
         return await asyncio.wait_for(asyncio.wrap_future(future), self.server.callback_timeout)
 
-    async def emit(self, change: "SourceChange") -> None:
+    async def emit(self, change: SourceChange) -> None:
         await self._call("emit", change)
 
     async def create_resource(
         self, content: bytes, *, media_type: str, display_name: str = ""
-    ) -> "ResourceRef":
+    ) -> ResourceRef:
         return await self._call("create_resource", {
             "content": content, "media_type": media_type, "display_name": display_name,
         })
 
-    async def read_resource(self, reference: "ResourceRef") -> bytes:
+    async def read_resource(self, reference: ResourceRef) -> bytes:
         return await self._call("read_resource", reference)
 
 
@@ -402,7 +408,7 @@ class WorkerServer:
                     "code": "cancelled",
                 }
             )
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - Contain arbitrary plugin exceptions.
             # Exception text is bounded. Do not transmit tracebacks or locals.
             self.send(
                 {
@@ -423,7 +429,7 @@ class WorkerServer:
             if lease in self.source_watches and not self.stopping:
                 self.send({"kind": "source_failure", "lease": lease})
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001 - Report plugin watcher failures to the host.
             if lease in self.source_watches and not self.stopping:
                 self.send({"kind": "source_failure", "lease": lease})
         else:

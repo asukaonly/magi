@@ -335,7 +335,7 @@ class Source(ABC):
         self.connection: PluginConnection | None = None
         self.context: PluginContext | None = None
 
-    async def watch(self, context: SourceSyncContext, emitter: "SourceEmitter") -> None:
+    async def watch(self, context: SourceSyncContext, emitter: SourceEmitter) -> None:
         """Run until cancelled, emitting changes through the owned subscription.
 
         Sources advertising ``supports_watch_mode`` implement this coroutine.

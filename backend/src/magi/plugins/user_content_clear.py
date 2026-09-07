@@ -476,6 +476,7 @@ class PluginUserContentClearCoordinator:
         read_current_clear_generation: Callable[[], Awaitable[int]],
         hook_timeout_seconds: float = 10.0,
         source_store: Any | None = None,
+        get_source_scheduler_contrib: Callable[[], Any | None] = lambda: None,
     ) -> None:
         if hook_timeout_seconds <= 0:
             raise ValueError("hook_timeout_seconds must be positive")
@@ -487,6 +488,18 @@ class PluginUserContentClearCoordinator:
         self._hook_timeout_seconds = float(hook_timeout_seconds)
         self._source_store = source_store
         self._suspended_executor: Any | None = None
+        self._get_source_scheduler_contrib = get_source_scheduler_contrib
+        self._watch_clear_lock = asyncio.Lock()
+
+    @asynccontextmanager
+    async def _source_watch_boundary(self) -> AsyncIterator[None]:
+        async with self._watch_clear_lock:
+            contributor = self._get_source_scheduler_contrib()
+            if contributor is not None:
+                await contributor.stop_watches()
+            yield
+            if contributor is not None and not await self.has_pending_generation():
+                await contributor.resume_watches()
 
     @asynccontextmanager
     async def user_content_clear_boundary(
@@ -494,7 +507,7 @@ class PluginUserContentClearCoordinator:
     ) -> AsyncIterator[PluginUserContentClearSession]:
         """Stop source execution and hold an immutable target snapshot."""
 
-        async with plugin_user_content_clear_boundary():
+        async with self._source_watch_boundary(), plugin_user_content_clear_boundary():
             executor = self._get_source_sync_executor()
             executor_was_running = self._executor_needs_restart(executor)
             restart_executor = executor_was_running or (

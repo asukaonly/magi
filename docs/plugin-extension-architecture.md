@@ -82,6 +82,15 @@ cleanup. Old tokens cannot be reused after restart. Unexpected watcher exit
 fails its worker connection. An arbitrary background task created inside a
 one-shot invocation does not inherit a persistent capability grant.
 
+The source scheduler starts enabled `watch` subscriptions, including push-only
+sources, and creates no recurring pull schedule for them. Repeated refreshes do
+not duplicate watches; instance or settings replacement stops the old watcher
+first. Sources without watch support use interval fallback only if they support
+pull sync. Full-content clear suspends and drains watchers before exclusive
+plugin admission, then resumes only after a successful clear and after that
+admission boundary opens. Failed clears keep watches suspended. Runtime shutdown
+stops watchers before the source executor.
+
 ## Scan Paths
 
 The plugin manager scans two roots by default:
