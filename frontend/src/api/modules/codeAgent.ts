@@ -10,6 +10,7 @@ import type { ApiResponse } from '../client';
 import type { components as ConfigComponents } from '../generated/config-types';
 import { validateCodeAgentSettingsResponse, validateCodeAgentProbeResponse } from '../generated/config-validators';
 import { ApiContractError } from '../config-contract';
+import { parseDelegationResponse } from '../code-agent-contract';
 
 type ConfigWire = ConfigComponents['schemas'];
 export type CodeAgentSettings = ConfigWire['CodeAgentSettings'];
@@ -99,10 +100,10 @@ export const codeAgentApi = {
     delegationId: string,
     workspace: string,
   ): Promise<DelegationFetchResponse> => {
-    const response = await api.get<DelegationFetchResponse>(
+    const response = await api.get<unknown>(
       `/code_agent/delegations/${encodeURIComponent(sessionId)}/${encodeURIComponent(delegationId)}?workspace=${encodeURIComponent(workspace)}`,
     );
-    return unwrap(response as DelegationFetchResponse | ApiResponse<DelegationFetchResponse>);
+    return parseDelegationResponse(response, delegationId);
   },
 
   cancelDelegation: async (
@@ -159,36 +160,9 @@ export type DelegationLifecycle =
 export type RunEvent = EventComponents['schemas']['RunEvent'];
 export type RunEventKind = RunEvent['kind'];
 
-export interface DiffStats {
-  files_changed: number;
-  additions: number;
-  deletions: number;
-}
-
-export interface CostInfo {
-  usd: number | null;
-  input_tokens: number | null;
-  output_tokens: number | null;
-}
-
-export interface DelegateResult {
-  delegation_id: string;
-  success: boolean;
-  exit_code: number;
-  duration_ms: number;
-  adapter: AdapterName;
-  diff_path: string | null;
-  diff_stats: DiffStats;
-  files_changed: string[];
-  summary: string | null;
-  logs_path: string;
-  events_path: string;
-  error: string | null;
-  cost: CostInfo | null;
-  applied_at?: number;
-  applied_files?: string[];
-  discarded_at?: number;
-}
+export type DiffStats = EventComponents['schemas']['DiffStats'];
+export type CostInfo = EventComponents['schemas']['CostInfo'];
+export type DelegateResult = EventComponents['schemas']['DelegateResult'] & { discarded_at?: number };
 
 export interface DelegationFetchResponse {
   result: DelegateResult | null;

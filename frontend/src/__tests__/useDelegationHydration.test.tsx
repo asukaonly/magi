@@ -90,7 +90,7 @@ describe('useDelegationHydration', () => {
       DELEGATION_ID,
       TURN_ID,
       'started',
-      {},
+      null,
     );
     vi.mocked(codeAgentApi.getDelegation).mockRejectedValue(new Error('offline'));
 

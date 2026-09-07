@@ -692,6 +692,233 @@
         "title": "ChatSessionSummary",
         "type": "object"
       },
+      "CostInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "input_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output Tokens"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Usd"
+          }
+        },
+        "required": [
+          "usd",
+          "input_tokens",
+          "output_tokens"
+        ],
+        "title": "CostInfo",
+        "type": "object"
+      },
+      "DelegateResult": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$",
+            "title": "Adapter",
+            "type": "string"
+          },
+          "applied": {
+            "default": false,
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Applied At"
+          },
+          "applied_files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied Files",
+            "type": "array"
+          },
+          "artifact_registered": {
+            "default": false,
+            "title": "Artifact Registered",
+            "type": "boolean"
+          },
+          "cancelled": {
+            "default": false,
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delegation_id": {
+            "title": "Delegation Id",
+            "type": "string"
+          },
+          "diff_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff Path"
+          },
+          "diff_stats": {
+            "$ref": "#/components/schemas/DiffStats"
+          },
+          "duration_ms": {
+            "minimum": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "events_path": {
+            "title": "Events Path",
+            "type": "string"
+          },
+          "exit_code": {
+            "title": "Exit Code",
+            "type": "integer"
+          },
+          "files_changed": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files Changed",
+            "type": "array"
+          },
+          "logs_path": {
+            "title": "Logs Path",
+            "type": "string"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "delegation_id",
+          "success",
+          "exit_code",
+          "duration_ms",
+          "adapter",
+          "diff_path",
+          "diff_stats",
+          "files_changed",
+          "summary",
+          "logs_path",
+          "events_path",
+          "error",
+          "cost",
+          "artifact_registered",
+          "applied",
+          "applied_at",
+          "applied_files",
+          "cancelled"
+        ],
+        "title": "DelegateResult",
+        "type": "object"
+      },
+      "DiffStats": {
+        "additionalProperties": false,
+        "properties": {
+          "additions": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Additions",
+            "type": "integer"
+          },
+          "deletions": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Deletions",
+            "type": "integer"
+          },
+          "files_changed": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Files Changed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files_changed",
+          "additions",
+          "deletions"
+        ],
+        "title": "DiffStats",
+        "type": "object"
+      },
       "RunEvent": {
         "additionalProperties": false,
         "properties": {

@@ -219,6 +219,10 @@ before updating stores; invalid or mismatched chat data requests history
 reconciliation instead of inserting partial messages. Task statuses are derived
 from the runtime enum, including `suspended_waiting_user`, which remains active
 and cancellable. Streaming consumes structured events and their final boundary.
+Code-agent terminal results use the same generated execution contract for live
+events and persisted-result reads. Result identities must match the delegation;
+invalid summaries never enter the store. Persisted discard timestamps are checked
+as artifact metadata, and malformed result/event reads remain hydration failures.
 
 History import jobs and source previews, memory backup/restore/export operations,
 and memory/chat deletion acknowledgements use `contracts/api/frontend-lifecycle.json`.

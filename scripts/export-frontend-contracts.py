@@ -223,9 +223,9 @@ def build_plugin_examples() -> dict:
 def build_event_contract() -> dict:
     from magi.agent.background.contracts import BackgroundTask, BackgroundTaskEvent
     from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
-    from magi.tools.code_agent.contracts import RunEvent
+    from magi.tools.code_agent.contracts import DelegateResult, RunEvent
 
-    models = [ChatDisplayMessage, ChatSessionSummary, BackgroundTask, BackgroundTaskEvent, RunEvent]
+    models = [ChatDisplayMessage, ChatSessionSummary, BackgroundTask, BackgroundTaskEvent, RunEvent, DelegateResult]
     _, definitions = ResponseJsonSchema(ref_template="#/components/schemas/{model}").generate_definitions([
         (model.__name__, "serialization", TypeAdapter(model).core_schema) for model in models
     ])
@@ -246,7 +246,7 @@ def build_event_examples() -> dict:
     )
     from magi.chat.read.models import ChatDisplayMessage, ChatSessionSummary
     from magi.runtime_trace import notification_payloads as notifications
-    from magi.tools.code_agent.contracts import RunEvent
+    from magi.tools.code_agent.contracts import DelegateResult, DiffStats, RunEvent
 
     message = ChatDisplayMessage(
         role="assistant", content="Hello", timestamp=1000, kind="assistant",
@@ -266,6 +266,11 @@ def build_event_examples() -> dict:
         return {
             "message": message.to_dict(), "session": session.to_dict(), "task": task.to_dict(),
             "runEvent": RunEvent(kind="status", ts_ms=1000, payload={"text": "Working"}).model_dump(mode="json"),
+            "delegateResult": DelegateResult(
+                delegation_id="fixture-delegation", success=True, exit_code=0, duration_ms=100,
+                adapter="codex", diff_path=None, diff_stats=DiffStats(), summary="Completed",
+                logs_path="/fixture/logs", events_path="/fixture/events", error=None, cost=None,
+            ).model_dump(mode="json"),
             "upsert": notifications.chat_message_upsert_payload(
                 user_id="fixture-user", session_id=session.session_id, message_id=message.message_id,
                 message=message, session_summary=session,

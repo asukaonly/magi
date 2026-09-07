@@ -348,6 +348,91 @@ export interface components {
              */
             workspace_path: string | null;
         };
+        /** CostInfo */
+        CostInfo: {
+            /**
+             * Input Tokens
+             * @default null
+             */
+            input_tokens: number | null;
+            /**
+             * Output Tokens
+             * @default null
+             */
+            output_tokens: number | null;
+            /**
+             * Usd
+             * @default null
+             */
+            usd: number | null;
+        };
+        /** DelegateResult */
+        DelegateResult: {
+            /** Adapter */
+            adapter: string;
+            /**
+             * Applied
+             * @default false
+             */
+            applied: boolean;
+            /**
+             * Applied At
+             * @default null
+             */
+            applied_at: number | null;
+            /** Applied Files */
+            applied_files: string[];
+            /**
+             * Artifact Registered
+             * @default false
+             */
+            artifact_registered: boolean;
+            /**
+             * Cancelled
+             * @default false
+             */
+            cancelled: boolean;
+            cost: components["schemas"]["CostInfo"] | null;
+            /** Delegation Id */
+            delegation_id: string;
+            /** Diff Path */
+            diff_path: string | null;
+            diff_stats: components["schemas"]["DiffStats"];
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: string | null;
+            /** Events Path */
+            events_path: string;
+            /** Exit Code */
+            exit_code: number;
+            /** Files Changed */
+            files_changed: string[];
+            /** Logs Path */
+            logs_path: string;
+            /** Success */
+            success: boolean;
+            /** Summary */
+            summary: string | null;
+        };
+        /** DiffStats */
+        DiffStats: {
+            /**
+             * Additions
+             * @default 0
+             */
+            additions: number;
+            /**
+             * Deletions
+             * @default 0
+             */
+            deletions: number;
+            /**
+             * Files Changed
+             * @default 0
+             */
+            files_changed: number;
+        };
         /** RunEvent */
         RunEvent: {
             /**

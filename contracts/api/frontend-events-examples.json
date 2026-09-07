@@ -21,6 +21,30 @@
     "turn_id": "fixture-turn",
     "user_id": "fixture-user"
   },
+  "delegateResult": {
+    "adapter": "codex",
+    "applied": false,
+    "applied_at": null,
+    "applied_files": [],
+    "artifact_registered": false,
+    "cancelled": false,
+    "cost": null,
+    "delegation_id": "fixture-delegation",
+    "diff_path": null,
+    "diff_stats": {
+      "additions": 0,
+      "deletions": 0,
+      "files_changed": 0
+    },
+    "duration_ms": 100,
+    "error": null,
+    "events_path": "/fixture/events",
+    "exit_code": 0,
+    "files_changed": [],
+    "logs_path": "/fixture/logs",
+    "success": true,
+    "summary": "Completed"
+  },
   "hidden": {
     "message_id": "fixture-message",
     "session_id": "fixture-session",

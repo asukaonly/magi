@@ -1,3 +1,4 @@
+import fixtures from '../../../contracts/api/frontend-events-examples.json';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
   ApplyOutcome,
@@ -23,6 +24,7 @@ function _runEvent(kind: RunEvent['kind'], payload: Record<string, unknown> = {}
 function _result(extra: Partial<DelegateResult> = {}): DelegateResult {
   const { adapter, ...rest } = extra;
   return {
+    ...fixtures.delegateResult,
     delegation_id: DID,
     success: true,
     exit_code: 0,
@@ -57,7 +59,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'started',
-      {},
+      null,
     );
     expect(useDelegationsStore.getState().delegationsBySession[SESSION][DID].lifecycle).toBe('started');
 
@@ -92,7 +94,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'finished',
-      summary as unknown as Record<string, unknown>,
+      summary,
     );
     const card = useDelegationsStore.getState().delegationsBySession[SESSION][DID];
     expect(card.lifecycle).toBe('finished');
@@ -105,7 +107,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'started',
-      {},
+      null,
     );
     useDelegationsStore.getState().setResult(SESSION, DID, _result());
     const card = useDelegationsStore.getState().delegationsBySession[SESSION][DID];
@@ -119,7 +121,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'finished',
-      {},
+      null,
     );
     const outcome: ApplyOutcome = {
       applied: true,
@@ -139,7 +141,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'finished',
-      {},
+      null,
     );
     useDelegationsStore.getState().setApplyOutcome(SESSION, DID, {
       applied: false,
@@ -158,7 +160,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'started',
-      {},
+      null,
     );
     useDelegationsStore.getState().reset();
     expect(useDelegationsStore.getState().delegationsBySession).toEqual({});
@@ -170,7 +172,7 @@ describe('delegations-store', () => {
       DID,
       TURN,
       'started',
-      {},
+      null,
     );
     retireRealtimeChatTurn(SESSION, TURN);
     useDelegationsStore.getState().remove(SESSION, DID);

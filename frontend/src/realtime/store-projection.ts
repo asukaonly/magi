@@ -1,3 +1,4 @@
+import { isDelegateResult } from '@/api/code-agent-contract';
 import { agentResponseSchema, contextUsageSchema, parseChatMessage, parseChatSession, parseBackgroundTask, validateRunEvent, delegationStateSchema } from '@/api/event-contract';
 import { isRecord } from '@/utils/value-guards';
 import {
@@ -318,7 +319,10 @@ export const applyRealtimeStoreProjection = (
     const state = delegationStateSchema.safeParse(payload.state);
     const summary = payload.summary ?? {};
     if (sid && tid && did && state.success && isRecord(summary)) {
-      useDelegationsStore.getState().upsertState(sid, did, tid, state.data, summary);
+      const terminal = state.data === 'finished' || state.data === 'failed' || state.data === 'cancelled';
+      const result = terminal && isDelegateResult(summary, did) ? summary : null;
+      if (terminal && !result) return false;
+      useDelegationsStore.getState().upsertState(sid, did, tid, state.data, result);
       return true;
     }
     return false;

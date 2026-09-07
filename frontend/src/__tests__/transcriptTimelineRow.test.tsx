@@ -1,3 +1,4 @@
+import fixtures from '../../../contracts/api/frontend-events-examples.json';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { codeAgentApi } from '@/api/modules/codeAgent';
@@ -260,6 +261,7 @@ describe('TranscriptTimelineRow', () => {
       delegationId,
     ) => ({
       result: {
+        ...fixtures.delegateResult,
         delegation_id: delegationId,
         success: true,
         exit_code: 0,
@@ -451,6 +453,7 @@ describe('TranscriptTimelineRow', () => {
       workspace_path: WORKSPACE,
     }], SESSION_ID);
     const createResult = (delegationId: string, summary: string) => ({
+      ...fixtures.delegateResult,
       delegation_id: delegationId,
       success: true,
       exit_code: 0,
@@ -470,7 +473,7 @@ describe('TranscriptTimelineRow', () => {
       DELEGATION_ID,
       'turn-current',
       'finished',
-      createResult(DELEGATION_ID, 'Current turn task') as unknown as Record<string, unknown>,
+      createResult(DELEGATION_ID, 'Current turn task'),
     );
     useDelegationsStore.getState().markHydrated(SESSION_ID, DELEGATION_ID);
     useDelegationsStore.getState().upsertState(
@@ -478,7 +481,7 @@ describe('TranscriptTimelineRow', () => {
       SECOND_DELEGATION_ID,
       'turn-previous',
       'finished',
-      createResult(SECOND_DELEGATION_ID, 'Previous turn task') as unknown as Record<string, unknown>,
+      createResult(SECOND_DELEGATION_ID, 'Previous turn task'),
     );
     useDelegationsStore.getState().markHydrated(
       SESSION_ID,
@@ -632,6 +635,7 @@ describe('TranscriptTimelineRow', () => {
     }], SESSION_ID);
     vi.mocked(codeAgentApi.getDelegation).mockResolvedValue({
       result: {
+        ...fixtures.delegateResult,
         delegation_id: DELEGATION_ID,
         success: true,
         exit_code: 0,

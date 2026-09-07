@@ -1,3 +1,4 @@
+import fixtures from '../../../contracts/api/frontend-events-examples.json';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { applyRealtimeStoreProjection } from '@/realtime/store-projection';
@@ -50,6 +51,7 @@ describe('delegations realtime projection', () => {
         delegation_id: DID,
         state: 'finished',
         summary: {
+          ...fixtures.delegateResult,
           delegation_id: DID,
           success: true,
           exit_code: 0,

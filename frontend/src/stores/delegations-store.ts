@@ -49,7 +49,7 @@ interface DelegationsStoreState {
     did: string,
     turnId: string,
     lifecycle: DelegationLifecycle,
-    summary: Record<string, unknown>,
+    result: DelegateResult | null,
   ) => void;
   setResult: (sessionId: string, did: string, result: DelegateResult) => void;
   setEventsTail: (sessionId: string, did: string, events: RunEvent[]) => void;
@@ -137,28 +137,20 @@ export const useDelegationsStore = create<DelegationsStoreState>((set) => ({
       });
     }),
 
-  upsertState: (sessionId, did, turnId, lifecycle, summary) =>
+  upsertState: (sessionId, did, turnId, lifecycle, result) =>
     set((state) => {
+      if (result && result.delegation_id !== did) return state;
       const patch: Partial<DelegationCardState> = {
         lifecycle,
         turn_id: turnId,
         hydrationPlaceholder: false,
       };
-      // When the broadcast carries a result-shaped summary on terminal states,
-      // hydrate the card's result so the UI renders without a separate fetch.
-      if (
-        (lifecycle === 'finished' || lifecycle === 'failed' || lifecycle === 'cancelled') &&
-        summary &&
-        typeof summary === 'object' &&
-        'delegation_id' in summary
-      ) {
-        patch.result = summary as unknown as DelegateResult;
-      }
+      if (result) patch.result = result;
       return upsertCard(state, sessionId, did, patch);
     }),
 
   setResult: (sessionId, did, result) =>
-    set((state) => upsertCard(state, sessionId, did, { result })),
+    set((state) => result.delegation_id === did ? upsertCard(state, sessionId, did, { result }) : state),
 
   setEventsTail: (sessionId, did, events) =>
     set((state) => upsertCard(state, sessionId, did, { events })),
