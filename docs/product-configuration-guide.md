@@ -677,6 +677,8 @@ Expected product behavior:
 - connection settings save directly with revision checks and do not participate
   in the global Settings draft; source switches control that source within its
   connection, while connection switches control all its contributions
+- an absent connection-field default remains omitted, including an SDK default
+  serialized as null. Concrete defaults such as false or zero retain their value.
 - built-in tool settings remain in Tools; packages do not own account settings
 - users must see a plugin's declared system and data access before installing it;
   trusted process execution also discloses access under the local user's OS permissions

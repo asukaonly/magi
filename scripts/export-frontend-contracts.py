@@ -203,6 +203,7 @@ def build_plugin_examples() -> dict:
         )], current_settings={"enabled": True},
     )
     return {
+        "optional_field": ExtensionFieldResponse(key="optional_path", type="input", label="Optional path").model_dump(mode="json"),
         "connection": PluginConnectionResponse(connection_id="fixture-connection", plugin_id="fixture-source",
             display_name="Fixture account", readiness=[]).model_dump(mode="json"),
         "package": package.model_dump(mode="json"),

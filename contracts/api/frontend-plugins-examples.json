@@ -186,6 +186,28 @@
     ],
     "total": 1
   },
+  "optional_field": {
+    "default": null,
+    "depends_on_key": null,
+    "depends_on_values": [],
+    "description": "",
+    "description_translated": null,
+    "key": "optional_path",
+    "label": "Optional path",
+    "label_translated": null,
+    "maximum": null,
+    "minimum": null,
+    "options": [],
+    "order": 0,
+    "path_kind": null,
+    "placeholder": null,
+    "required": false,
+    "section": "general",
+    "section_note_translated": null,
+    "section_translated": null,
+    "surface": "extensions",
+    "type": "input"
+  },
   "package": {
     "contributions": [
       {

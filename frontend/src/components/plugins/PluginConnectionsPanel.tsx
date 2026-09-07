@@ -1,4 +1,4 @@
-import { readConnectionSetting, writeConnectionSetting } from '@/utils/plugin-connection-settings';
+import { connectionInput, readConnectionSetting, writeConnectionSetting } from '@/utils/plugin-connection-settings';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -105,12 +105,7 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
   };
 
   const startEditor = (connection: PluginConnection | null) => {
-    let settings: Record<string, unknown> = connection ? structuredClone(connection.settings) : {};
-    if (!connection) {
-      for (const field of fields) {
-        if (field.type !== 'secret' && field.default !== undefined) settings = writeConnectionSetting(settings, field.key, field.default);
-      }
-    }
+    const settings = connection ? structuredClone(connection.settings) : connectionInput(fields, {}).settings;
     setError(null);
     setEditor({ connection, displayName: connection?.display_name ?? '', settings, credentials: {} });
   };

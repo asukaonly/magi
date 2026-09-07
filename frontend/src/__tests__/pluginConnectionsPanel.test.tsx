@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(), createConnection: vi.fn(), updateConnection: vi.fn(),
@@ -11,6 +11,8 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 
 import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
 import type { ExtensionFieldSpec, PluginConnection } from '@/api/modules/plugins';
+import fixtures from '../../../contracts/api/frontend-plugins-examples.json';
+import { parsePluginsList } from '@/api/plugin-contract';
 
 const connection = (id: string, displayName: string): PluginConnection => ({
   connection_id: id, plugin_id: 'example', display_name: displayName, enabled: false,
@@ -23,6 +25,7 @@ const fields: ExtensionFieldSpec[] = [
 ];
 
 beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.clearAllMocks();
   mocks.listConnections.mockResolvedValue([connection('work', 'Work'), connection('home', 'Home')]);
   mocks.createConnection.mockResolvedValue(connection('new', 'New'));
@@ -30,8 +33,40 @@ beforeEach(() => {
   mocks.disconnectConnection.mockResolvedValue(undefined);
   mocks.clearConnectionContent.mockResolvedValue(connection('home', 'Home'));
 });
+afterEach(() => vi.unstubAllGlobals());
 
 describe('PluginConnectionsPanel', () => {
+  it('omits an untouched optional field with a production null default', async () => {
+    const user = userEvent.setup();
+    const [field] = parsePluginsList({ total: 1, plugins: [{
+      ...fixtures.package,
+      manifest: { ...fixtures.package.manifest, settings_fields: [fixtures.optional_field] },
+    }] }).plugins[0].manifest.settings_fields;
+    expect(fixtures.optional_field).toMatchObject({ type: 'input', default: null, required: false });
+    render(<PluginConnectionsPanel pluginId="example" fields={[field]} />);
+    await screen.findByText('Work');
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
+    expect(dialog.getByLabelText('Optional path')).toHaveValue('');
+    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: {} }));
+  });
+
+  it('preserves concrete false and zero defaults when creating a connection', async () => {
+    const user = userEvent.setup();
+    const base = fields[0];
+    render(<PluginConnectionsPanel pluginId="example" fields={[
+      { ...base, key: 'count', label: 'Count', type: 'number', default: 0 },
+      { ...base, key: 'active', label: 'Active', type: 'switch', default: false },
+    ]} />);
+    await screen.findByText('Work');
+    await user.click(screen.getByRole('button', { name: 'plugins.connections.add' }));
+    const dialog = within(screen.getByRole('dialog'));
+    await user.type(dialog.getByLabelText('plugins.connections.name'), 'Personal');
+    await user.click(dialog.getByRole('button', { name: 'plugins.connections.save' }));
+    expect(mocks.createConnection).toHaveBeenCalledWith('example', expect.objectContaining({ settings: { count: 0, active: false } }));
+  });
   it('edits the selected instance with its revision and write-only credentials', async () => {
     const user = userEvent.setup();
     render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
