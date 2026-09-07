@@ -9,7 +9,7 @@ from magi_plugin_sdk.runtime import CapabilityGrant
 from magi_plugin_sdk.sources import SourceSyncContext
 from magi.plugins.process_broker import CapabilityBroker, CapabilityDenied
 from magi.plugins.process_runtime import ProcessPluginProxy, PluginProcessError
-from test_process_runtime import PLUGIN, plugin_setup  # noqa: F401
+from test_process_runtime import PLUGIN, plugin_setup as plugin_setup
 
 
 WATCH = '''

@@ -176,6 +176,7 @@ class ProcessPluginProxy(Plugin):
         self._failure: str | None = None
         self._failure_handler: Callable[[str], None] | None = None
         self._host_callbacks: set[_HostCallback] = set()
+        self._callback_dispatches: dict[str, tuple[str, Future[None]]] = {}
         self._source_leases: dict[str, _SourceLease] = {}
         self._stderr = bytearray()
         self._callback_slots = threading.BoundedSemaphore(self.limits.max_inflight)
@@ -460,7 +461,7 @@ class ProcessPluginProxy(Plugin):
             with self._lock:
                 self._pending.pop(identifier, None)
 
-            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier))
+            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier), parent=identifier)
 
     async def invoke(
         self,
@@ -634,7 +635,24 @@ class ProcessPluginProxy(Plugin):
                 elif frame.get("kind") == "callback":
                     if not self._callback_slots.acquire(blocking=False):
                         raise ProtocolError("Plugin callback capacity exceeded")
-                    self._callbacks.submit(self._dispatch_callback, frame)
+                    identifier = frame.get("id")
+                    completion: Future[None] = Future()
+                    with self._lock:
+                        if not isinstance(identifier, str) or identifier in self._callback_dispatches:
+                            raise ProtocolError("Invalid or duplicate callback identifier")
+                        self._callback_dispatches[identifier] = (frame.get("parent"), completion)
+
+                    def completed(_future: Any, key: str = identifier, done: Future[None] = completion) -> None:
+                        with self._lock:
+                            self._callback_dispatches.pop(key, None)
+                        done.set_result(None)
+
+                    try:
+                        dispatch = self._callbacks.submit(self._dispatch_callback, frame)
+                        dispatch.add_done_callback(completed)
+                    except RuntimeError:
+                        completed(None)
+                        raise
                 elif frame.get("kind") == "source_failure":
                     with self._lock:
                         active = frame.get("lease") in self._source_leases
@@ -761,11 +779,19 @@ class ProcessPluginProxy(Plugin):
             self._revoke_host_callback(callback)
         return callbacks
 
-    async def _drain_host_callbacks(self, callbacks: list[_HostCallback]) -> None:
-        if not callbacks:
+    async def _drain_host_callbacks(
+        self, callbacks: list[_HostCallback], *, parent: str | None = None
+    ) -> None:
+        with self._lock:
+            completions = [
+                done for owner, done in self._callback_dispatches.values()
+                if parent is None or owner == parent
+            ]
+        completions.extend(item.settled for item in callbacks)
+        if not completions:
             return
         _done, pending = await asyncio.wait(
-            [asyncio.wrap_future(item.settled) for item in callbacks],
+            [asyncio.wrap_future(done) for done in completions],
             timeout=self.limits.drain_timeout,
         )
         if pending:
@@ -853,7 +879,7 @@ class ProcessPluginProxy(Plugin):
             for identifier in identifiers:
                 self._source_leases.pop(identifier)
         for identifier in identifiers:
-            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier))
+            await self._drain_host_callbacks(self._revoke_host_callbacks(identifier), parent=identifier)
             if not self._closed and not self._draining:
                 try:
                     await self.request("stop_source_watch", {"lease": identifier})

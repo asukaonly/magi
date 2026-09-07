@@ -3,7 +3,7 @@
 import pytest
 
 from magi.plugins.process_runtime import ProcessPluginProxy, PluginProcessError
-from test_process_runtime import plugin_setup  # noqa: F401
+from test_process_runtime import plugin_setup as plugin_setup
 
 
 @pytest.mark.parametrize("minimum", ["0.1.0", "0.2.0"])

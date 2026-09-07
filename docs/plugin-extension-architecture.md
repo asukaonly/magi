@@ -68,6 +68,9 @@ deadline, the connection fails and reports an uncertain outcome. Already
 committed external effects cannot be undone by cancellation. Abnormal worker
 exit notifies its exact connection owner; intentional shutdown does not report
 a crash.
+Synchronous scoped credential callbacks cannot be interrupted midway; their
+dispatch completion is also included in draining, so connection cleanup cannot
+finish while such a callback is still mutating its credential store.
 
 Watch-capable sources implement `Source.watch(context, emitter)` as a coroutine
 that lives until cancelled. The host starts it under a distinct subscription

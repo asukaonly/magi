@@ -1,6 +1,8 @@
 """Host callbacks must settle before an invocation or connection is released."""
 
 import asyncio
+import threading
+import time
 
 import pytest
 
@@ -8,7 +10,7 @@ from magi_plugin_sdk.runtime import CapabilityGrant
 from magi_plugin_sdk.tools import ToolExecutionContext
 from magi.plugins.process_broker import CapabilityBroker
 from magi.plugins.process_runtime import ProcessPluginProxy, PluginProcessError, ProcessLimits
-from test_process_runtime import plugin_setup  # noqa: F401
+from test_process_runtime import plugin_setup as plugin_setup
 
 
 @pytest.mark.asyncio
@@ -61,6 +63,7 @@ async def test_failure_handler_excludes_intentional_shutdown_and_reports_late_bi
     seen = []
     proxy.set_failure_handler(seen.append)
     await proxy.shutdown()
+
     assert seen == []
     proxy = ProcessPluginProxy(*plugin_setup)
     with pytest.raises(PluginProcessError):
@@ -70,3 +73,27 @@ async def test_failure_handler_excludes_intentional_shutdown_and_reports_late_bi
     proxy._terminate("Second failure")
     assert len(seen) == 1
     await proxy.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_synchronous_credential_callback_finishes_before_cancellation_returns(plugin_setup):
+    _manifest, _connection, context = plugin_setup
+    entered, completed = threading.Event(), threading.Event()
+
+    def delete(key):
+        entered.set()
+        time.sleep(0.15)
+        context.credentials.values.pop(key, None)
+        completed.set()
+
+    context.credentials.delete = delete
+    proxy = ProcessPluginProxy(*plugin_setup)
+    task = asyncio.create_task(proxy.start_settings_action("credential", session_id="s"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert completed.is_set()
+    finally:
+        await proxy.shutdown()
