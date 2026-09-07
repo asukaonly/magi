@@ -175,6 +175,9 @@ Desktop event connection failures remain visible without replacing the current p
 the reconnect action reattaches native listeners and refreshes session state. Each
 subscription/request lifetime discards stale completions. Background history
 reconciliation retries transport failures without inventing a terminal task outcome.
+Settings capture their initial loaders per mount and restart them when an effect
+lifetime restarts, including development StrictMode replay. Preview changes do not
+restart initialization or replace an edited draft.
 Local model download polling is serialized and starts after request acceptance;
 list, download, and deletion failures remain visible in model settings.
 

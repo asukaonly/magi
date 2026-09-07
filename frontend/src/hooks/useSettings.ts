@@ -150,7 +150,6 @@ export function useSettings(): UseSettingsReturn {
     setSavedThemeMode,
     setDraftThemeMode,
   });
-  const initialLoadStartedRef = useRef(false);
 
   const {
     activeSection,
@@ -229,21 +228,14 @@ export function useSettings(): UseSettingsReturn {
   // Effects
   // ========================================
 
-  // Initial data load
+  // Own the mount snapshot without preventing a new effect lifetime from loading.
+  const [initialLoaders] = useState(() => [
+    fetchConfig, loadControlSettings, fetchTimelineStatuses,
+    loadPlugins, () => loadPluginRegistry({ silent: true }), loadTools,
+  ]);
   useEffect(() => {
-    if (initialLoadStartedRef.current) {
-      return;
-    }
-    initialLoadStartedRef.current = true;
-    void Promise.all([
-      fetchConfig(),
-      loadControlSettings(),
-      fetchTimelineStatuses(),
-      loadPlugins(),
-      loadPluginRegistry({ silent: true }),
-      loadTools(),
-    ]);
-  }, [fetchConfig, loadControlSettings, fetchTimelineStatuses, loadPlugins, loadPluginRegistry, loadTools]);
+    void Promise.all(initialLoaders.map(load => load()));
+  }, [initialLoaders]);
 
   // Reset timeline selection when statuses change
   useEffect(() => {
