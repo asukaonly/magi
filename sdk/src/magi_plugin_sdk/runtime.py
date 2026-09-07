@@ -12,8 +12,9 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints, field_validator, model_validator
 
+from .versioning import PLUGIN_PROTOCOL_VERSION, PluginVersion
+
 SDK_VERSION = "0.2.0"
-PLUGIN_PROTOCOL_VERSION = 2
 RuntimeIdentifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]*$")]
 
 
@@ -170,10 +171,10 @@ class OperationResult(RuntimeModel):
 
 
 class PluginHandshake(RuntimeModel):
-    """Version agreement before loading plugin code or accepting contributions."""
+    """Peer versions that the worker must compare with its actual runtime."""
 
     protocol_version: Literal[2]
-    sdk_version: Literal["0.2.0"]
+    sdk_version: PluginVersion
     plugin_id: RuntimeIdentifier
     connection_id: RuntimeIdentifier
 

@@ -22,6 +22,30 @@ def test_protocol_mismatch_and_unknown_fields_fail_before_execution():
         PluginHandshake.model_validate({**payload, "authority": "admin"})
 
 
+@pytest.mark.parametrize("version", ["0.2.0", "0.2.1", "0.2.10", "0.3.0"])
+def test_handshake_preserves_canonical_sdk_versions_without_a_patch_literal(version):
+    handshake = PluginHandshake(protocol_version=2, sdk_version=version, plugin_id="mail", connection_id="work")
+    assert PluginHandshake.model_validate_json(handshake.model_dump_json()) == handshake
+    assert handshake.sdk_version == version
+
+
+@pytest.mark.parametrize("version", ["", "latest", "0.2", "00.2.0", "0.2.0-rc.1", "0.2.0+build", None, 2])
+def test_handshake_rejects_malformed_sdk_versions(version):
+    with pytest.raises(ValidationError):
+        PluginHandshake(protocol_version=2, sdk_version=version, plugin_id="mail", connection_id="work")
+
+
+@pytest.mark.parametrize("version", ["0.2.0", "0.2.2"])
+def test_worker_rejects_different_actual_sdk_versions_before_plugin_loading(monkeypatch, version):
+    from magi_plugin_sdk import worker
+    from magi_plugin_sdk.transport import ProtocolError
+
+    monkeypatch.setattr(worker, "SDK_VERSION", "0.2.1")
+    handshake = PluginHandshake(protocol_version=2, sdk_version=version, plugin_id="mail", connection_id="work")
+    with pytest.raises(ProtocolError, match="Plugin protocol agreement failed"):
+        worker.WorkerServer(None, None)._initialize({"handshake": handshake})
+
+
 def test_source_change_preserves_delete_and_opaque_progress():
     batch = SourceChangeBatch(changes=[SourceChange(object_id="message/1", version="2", operation="delete")], next_cursor="opaque-progress")
     assert SourceChangeBatch.model_validate_json(batch.model_dump_json()) == batch
