@@ -92,3 +92,22 @@ it('retains the current workbench when the same session is selected again', asyn
   expect(result.current.l0Workbench).toEqual({ session_id: 'current' });
   expect(api.getL0Workbench).toHaveBeenCalledOnce();
 });
+
+it('does not load a departed session after an older refresh finishes its list step', async () => {
+  api.getL0Workbench.mockImplementation(async sessionId => ({ session_id: sessionId }));
+  const { result } = renderHook(() => useMemory({ initialLoadScope: 'overview' }));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => result.current.selectSession('old'));
+  await waitFor(() => expect(result.current.l0Workbench).toEqual({ session_id: 'old' }));
+  let finish: (value: unknown) => void = () => {};
+  api.getL0Sessions.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  let pending = Promise.resolve();
+  act(() => { pending = result.current.refresh('l0'); });
+  await waitFor(() => expect(api.getL0Sessions).toHaveBeenCalledOnce());
+  act(() => result.current.selectSession('new'));
+  await waitFor(() => expect(result.current.l0Workbench).toEqual({ session_id: 'new' }));
+  await act(async () => { finish({ items: [], total: 0 }); await pending; });
+  expect(result.current.selectedSessionId).toBe('new');
+  expect(result.current.l0Workbench).toEqual({ session_id: 'new' });
+  expect(api.getL0Workbench).toHaveBeenCalledTimes(2);
+});

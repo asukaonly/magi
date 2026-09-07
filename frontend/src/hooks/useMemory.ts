@@ -187,6 +187,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const [l0Total, setL0Total] = useState(0);
   const [l0Workbench, setL0Workbench] = useState<L0Workbench | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const beginWorkbenchRequest = useRequestOwner(selectedSessionId ?? '');
 
   // L1 data
   const [l1Events, setL1Events] = useState<L1Event[]>([]);
@@ -273,7 +274,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   }, [beginRequest]);
 
   const loadL0Workbench = useCallback(async (sessionId: string) => {
-    const isCurrent = beginRequest('loadL0Workbench');
+    const isCurrent = beginWorkbenchRequest('workbench');
     if (!isCurrent()) return;
     try {
       const data = await memoryApi.getL0Workbench(sessionId);
@@ -286,7 +287,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       setL0Workbench(null);
       return false;
     }
-  }, [beginRequest]);
+  }, [beginWorkbenchRequest]);
 
   const loadL1Events = useCallback(async (params?: L1EventQueryParams) => {
     const isCurrent = beginRequest('loadL1Events');
@@ -655,10 +656,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
   const selectSession = useCallback((sessionId: string | null) => {
     if (sessionId === selectedSessionId) return;
-    beginRequest('loadL0Workbench');
+    beginWorkbenchRequest('workbench');
     setL0Workbench(null);
     setSelectedSessionId(sessionId);
-  }, [beginRequest, selectedSessionId]);
+  }, [beginWorkbenchRequest, selectedSessionId]);
 
   // ============================================================================
   // Refresh Actions
@@ -695,6 +696,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       switch (activeTab) {
         case 'l0':
           await loadL0Sessions();
+          if (!isCurrent()) return;
           if (selectedSessionId) {
             await loadL0Workbench(selectedSessionId);
           }
@@ -759,7 +761,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   }, []);
 
   const resetMemoryView = useCallback(() => {
-    beginRequest('loadL0Workbench');
+    beginWorkbenchRequest('workbench');
     setStats(DEFAULT_STATS);
     setL0Sessions([]);
     setL0Total(0);
@@ -787,7 +789,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     setL4Total(0);
     setSearchQuery('');
     setSearchResults(DEFAULT_SEARCH_RESULTS);
-  }, [beginRequest]);
+  }, [beginWorkbenchRequest]);
 
   const handleClearConfirm = useCallback(async () => {
     setClearing(true);

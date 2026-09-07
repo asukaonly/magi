@@ -20,6 +20,8 @@ it('isolates resources and invalidates old requests, departed scopes and unmount
   rerender({ scope: 'A' });
   expect(other()).toBe(false);
   const last = result.current('list');
+  expect(startA('list')()).toBe(false);
+  expect(last()).toBe(true);
   unmount();
   expect(last()).toBe(false);
   expect(result.current('list')()).toBe(false);
