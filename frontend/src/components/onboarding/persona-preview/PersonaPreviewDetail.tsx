@@ -1,4 +1,5 @@
-import type { RefObject } from "react";
+import { useRef, type RefObject } from "react";
+import { shouldSubmitOnEnter } from '@/utils/keyboard';
 import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,8 @@ export function PersonaPreviewDetail({
   onEditReference,
 }: PersonaPreviewDetailProps): JSX.Element {
   const { t } = useTranslation("onboarding");
+  const composing = useRef(false);
+  const composingAdjustment = useRef(false);
   const {
     activeTranscript,
     draft,
@@ -303,16 +306,15 @@ export function PersonaPreviewDetail({
                 <input
                   aria-label={t("personaPreview.adjustment.placeholder")}
                   data-testid="persona-adjustment-input"
+                  onCompositionStart={() => { composingAdjustment.current = true; }}
+                  onCompositionEnd={() => { composingAdjustment.current = false; }}
                   value={adjustmentDraft}
                   disabled={adjusting}
                   onChange={(event) =>
                     setAdjustmentDraft(event.target.value)
                   }
                   onKeyDown={(event) => {
-                    if (
-                      event.key === "Enter" &&
-                      !event.shiftKey
-                    ) {
+                    if (shouldSubmitOnEnter(event, composingAdjustment.current)) {
                       event.preventDefault();
                       void adjustActivePersona();
                     }
@@ -351,6 +353,8 @@ export function PersonaPreviewDetail({
             <input
               type="text"
               value={draft}
+              onCompositionStart={() => { composing.current = true; }}
+              onCompositionEnd={() => { composing.current = false; }}
               onChange={(event) => setDraft(event.target.value)}
               placeholder={t(
                 "personaPreview.composerPlaceholder",
@@ -358,7 +362,7 @@ export function PersonaPreviewDetail({
               disabled={adjusting}
               className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-200 focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/15"
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (shouldSubmitOnEnter(event, composing.current)) {
                   event.preventDefault();
                   void send();
                 }

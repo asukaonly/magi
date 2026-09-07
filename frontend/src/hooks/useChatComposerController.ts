@@ -4,7 +4,7 @@ import {
   buildRecallFeedbackDraftText,
   type RecallFeedbackDraft,
 } from '@/domain/chat/recall-feedback';
-import { shouldSubmitOnEnter } from '@/domain/chat/shell-routing';
+import { shouldSubmitOnEnter } from '@/utils/keyboard';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
 import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
 import type { PendingResponseTurnIdentity } from '@/domain/chat/turn-completion';

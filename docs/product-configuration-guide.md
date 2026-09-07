@@ -723,6 +723,8 @@ Expected product behavior:
   its saved baseline but replaces the editable draft only if that draft still
   matches the submitted snapshot. Edits and theme previews made during a save
   remain unsaved and survive completion; Discard restores the confirmed baseline.
+- Enter-based submission in chat, persona preview and manual memory input respects
+  IME composition. Confirming a candidate word never submits the unfinished input.
 - source and installed-plugin fetch failures have explicit retryable errors and preserve the last snapshot. Older responses and callbacks after unmount cannot overwrite newer state. Registry refresh failure remains visible separately from installed source availability.
 
 Tool-specific expectations:

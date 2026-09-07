@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { shouldSubmitOnEnter } from '@/utils/keyboard';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,6 +18,7 @@ export const PortraitAddFactRow = ({ onSubmitted }: PortraitAddFactRowProps) => 
   const { t } = useTranslation('app');
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const composing = useRef(false);
 
   const submit = async () => {
     const body = value.trim();
@@ -47,8 +49,10 @@ export const PortraitAddFactRow = ({ onSubmitted }: PortraitAddFactRowProps) => 
         placeholder={t('memory.portrait.addFact.placeholder')}
         aria-label={t('memory.portrait.addFact.placeholder')}
         onChange={(event) => setValue(event.target.value)}
+        onCompositionStart={() => { composing.current = true; }}
+        onCompositionEnd={() => { composing.current = false; }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') {
+          if (shouldSubmitOnEnter(event, composing.current)) {
             event.preventDefault();
             void submit();
           }

@@ -1,5 +1,6 @@
+import { shouldSubmitOnEnter } from '@/utils/keyboard';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { panelByPathname, shouldClosePanelToChat, shouldRenderChatWorkspace, shouldSubmitOnEnter } from '@/domain/chat/shell-routing';
+import { panelByPathname, shouldClosePanelToChat, shouldRenderChatWorkspace } from '@/domain/chat/shell-routing';
 import { useChatShellStore } from '@/stores';
 
 describe('chat shell state', () => {

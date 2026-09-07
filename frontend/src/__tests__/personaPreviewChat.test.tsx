@@ -481,6 +481,20 @@ describe('PersonaPreviewChat', () => {
     );
   });
 
+  it('does not send a preview message when Enter confirms an IME candidate', async () => {
+    renderPersonaPreview({ previews });
+    const input = screen.getByPlaceholderText(/composerPlaceholder/i);
+    fireEvent.change(input, { target: { value: '你好' } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mockStream).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+    expect(mockStream).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 });
+    await waitFor(() => expect(mockStream).toHaveBeenCalledOnce());
+  });
+
   it('shows a typing indicator while waiting, then swaps it for the streamed reply', async () => {
     // Gate the stream so the assistant turn stays empty until we release it.
     let release: () => void = () => {};
@@ -1324,6 +1338,11 @@ describe('PersonaPreviewChat', () => {
       screen.getByTestId('persona-adjustment-input'),
       '回复短一点',
     );
+    const adjustmentInput = screen.getByTestId('persona-adjustment-input');
+    fireEvent.compositionStart(adjustmentInput);
+    fireEvent.keyDown(adjustmentInput, { key: 'Enter' });
+    expect(adjustSpy).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(adjustmentInput);
     await userEvent.click(screen.getByTestId('persona-adjustment-submit'));
 
     expect(await screen.findByTestId('persona-adjustment-divider')).toBeInTheDocument();
