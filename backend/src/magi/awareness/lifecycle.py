@@ -97,10 +97,13 @@ class SourceScheduleRegistrationModule(LifecycleModule):
         logger.info("Source schedule registration initialized (L9)")
 
     async def shutdown(self) -> None:
-        if self._contrib is None or self._context.scheduler.scheduler_service is None:
+        if self._contrib is None:
             self._context.agent_runtime.source_scheduler_contrib = None
             return
-        await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
+        if self._context.scheduler.scheduler_service is None:
+            await self._contrib.stop_watches()
+        else:
+            await self._contrib.unregister_schedules(self._context.scheduler.scheduler_service)
         self._context.agent_runtime.source_scheduler_contrib = None
         self._contrib = None
 
@@ -172,6 +175,9 @@ class SourceSyncExecutorModule(LifecycleModule):
         logger.info("Source sync executor initialized (L9)")
 
     async def shutdown(self) -> None:
+        contributor = self._context.agent_runtime.source_scheduler_contrib
+        if contributor is not None:
+            await contributor.stop_watches()
         if self._executor is not None:
             await self._executor.stop()
         self._context.agent_runtime.source_sync_executor = None

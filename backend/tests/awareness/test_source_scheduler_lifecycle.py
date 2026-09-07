@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,7 +17,7 @@ from magi.awareness.source_output import (
     SourceNarration,
 )
 from magi.awareness.scheduler_contrib import SourceSchedulerContrib
-from magi.awareness.source_sync import PullSource
+from magi.awareness.source_sync import PullSource, SourceSyncContext
 from magi.awareness.source_store import SourceStore, SourceCheckpointConflict
 from magi_plugin_sdk.context import PluginContext
 from magi_plugin_sdk.runtime import PluginConnection, SourceChangeBatch
@@ -104,6 +106,12 @@ class _FakeSchedulerService:
                 "cursor": cursor,
                 "watermark_ts": watermark_ts,
             }
+        )
+
+    async def get_target_state(self, target_type, target_key):
+        return ScheduledTargetState(
+            target_type=target_type, target_key=target_key,
+            last_cursor="scheduler-progress-is-not-source-progress", last_success_at=1700000000.0,
         )
 
 
@@ -907,6 +915,437 @@ async def test_automatic_source_sync_advances_past_pre_clear_history(tmp_path) -
     assert ingestion_gateway.items == []
     assert ingestion_gateway.governed_skip_count == 1
     assert ingestion_gateway.allow_pre_clear_events == [False]
+
+
+class _WatchHistorySource(_PullHistorySource):
+    supports_pull_sync = False
+    supports_watch_mode = True
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.contexts: list[SourceSyncContext] = []
+        self.events: list[str] = []
+        self.start_entered = asyncio.Event()
+        self.stop_entered = asyncio.Event()
+        self.start_gate: asyncio.Event | None = None
+        self.stop_gate: asyncio.Event | None = None
+        self.watch_task: asyncio.Task[None] | None = None
+
+    async def start_watch(self, context: SourceSyncContext) -> None:
+        assert self.watch_task is None
+        self.contexts.append(context)
+        self.start_entered.set()
+        if self.start_gate is not None:
+            await self.start_gate.wait()
+        self.watch_task = asyncio.create_task(self._watch())
+        await asyncio.sleep(0)
+        self.events.append("started")
+
+    async def _watch(self) -> None:
+        try:
+            await asyncio.Future()
+        finally:
+            self.events.append("cancelled")
+
+    async def stop_watch(self) -> None:
+        self.stop_entered.set()
+        if self.watch_task is not None:
+            self.watch_task.cancel()
+            await asyncio.gather(self.watch_task, return_exceptions=True)
+            self.watch_task = None
+        if self.stop_gate is not None:
+            await self.stop_gate.wait()
+        self.events.append("drained")
+
+
+@pytest.fixture
+async def watch_runtime(tmp_path):
+    source = _WatchHistorySource()
+    registry = _build_source_registry_with_source(source, tmp_path)
+    connection = CONNECTION.model_copy(deep=True)
+    connection.settings["sources"]["pull_history"].update(
+        sync_mode="watch", max_items_per_sync=37, nested={"folder": "before"}
+    )
+    source.bind_plugin_context(connection=connection, context=replace(source.context, connection=connection))
+    context = RuntimeBootstrapContext()
+    context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.plugins.source_store = SourceStore(tmp_path / "sources.db")
+    context.plugins.source_registry = registry
+    context.plugins.plugin_manager = _FakePluginManager()
+    context.scheduler.scheduler_service = _FakeSchedulerService()
+    context.agent_runtime.source_ingestion_gateway = _FakeIngestionGateway()
+    contributor = SourceSchedulerContrib(
+        scheduler_service=context.scheduler.scheduler_service,
+        source_registry=registry,
+        plugin_manager=context.plugins.plugin_manager,
+        runtime_paths=context.core.runtime_paths,
+        get_config=lambda: None,
+        ingestion_gateway=context.agent_runtime.source_ingestion_gateway,
+        source_store=context.plugins.source_store,
+    )
+    context.agent_runtime.source_scheduler_contrib = contributor
+    runtime = SimpleNamespace(
+        source=source, registry=registry, contributor=contributor, context=context,
+        scheduler=context.scheduler.scheduler_service,
+        spec=registry.get_spec(f"{CONNECTION_ID}:{source.source_id}"),
+    )
+    try:
+        yield runtime
+    finally:
+        await contributor.stop_watches()
+
+
+@pytest.mark.asyncio
+async def test_watch_activates_from_lifecycle_with_host_context(watch_runtime, monkeypatch) -> None:
+    from magi.awareness.lifecycle import SourceScheduleRegistrationModule
+
+    runtime = watch_runtime
+    source = runtime.source
+    store = runtime.context.plugins.source_store
+    checkpoint = await store.checkpoint(source.connection, source.source_id, source.source_type)
+    batch = await store.stage_batch(
+        source.connection, checkpoint, SourceChangeBatch(changes=[], next_cursor="accepted-progress")
+    )
+    await store.accept_batch(source.connection, batch)
+    monkeypatch.setattr("magi.awareness.scheduler_contrib.get_preferred_language", lambda: "zh-CN")
+    module = SourceScheduleRegistrationModule(runtime.context)
+    try:
+        await module.init()
+        assert len(source.contexts) == 1
+        context = source.contexts[0]
+        assert context.connection_id == CONNECTION_ID
+        assert context.source_type == "pull_history"
+        assert context.manual is False
+        assert context.last_cursor == "accepted-progress"
+        assert context.last_success_at == 1700000000.0
+        assert context.limit == 37
+        assert context.plugin_settings["locale"] == "zh-CN"
+        assert context.runtime_paths.connection_id == CONNECTION_ID
+        assert context.runtime_paths.plugin_cache_dir("pull-plugin") == source.context.state_dir
+        with pytest.raises(PermissionError):
+            context.runtime_paths.plugin_cache_dir("other-plugin")
+        assert source.watch_task is not None and not source.watch_task.done()
+        assert runtime.scheduler.interval_calls == []
+        source.connection.settings["sources"]["pull_history"]["nested"]["folder"] = "after"
+        assert context.plugin_settings["sources"]["pull_history"]["nested"]["folder"] == "before"
+    finally:
+        await module.shutdown()
+    assert source.events == ["started", "cancelled", "drained"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_watch_refreshes_start_once(watch_runtime) -> None:
+    runtime = watch_runtime
+    runtime.source.start_gate = asyncio.Event()
+    first = asyncio.create_task(runtime.contributor.sync_schedules())
+    await runtime.source.start_entered.wait()
+    following = [asyncio.create_task(runtime.contributor.sync_schedules()) for _ in range(8)]
+    runtime.source.start_gate.set()
+    await asyncio.wait_for(asyncio.gather(first, *following), timeout=2)
+    assert len(runtime.source.contexts) == 1
+    assert runtime.source.events == ["started"]
+    assert runtime.scheduler.interval_calls == []
+
+
+@pytest.mark.asyncio
+async def test_watch_refresh_preserves_persisted_ingress_status(watch_runtime, tmp_path) -> None:
+    from magi.awareness.lifecycle import SourceScheduleRegistrationModule
+    from magi.scheduler.service import SchedulerService
+
+    runtime = watch_runtime
+    scheduler = SchedulerService(db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path)
+    runtime.context.scheduler.scheduler_service = scheduler
+    module = SourceScheduleRegistrationModule(runtime.context)
+    await scheduler.start(paused=True)
+    try:
+        await module.init()
+        contributor = runtime.context.agent_runtime.source_scheduler_contrib
+        target_type = ScheduledTargetType.SOURCE_SYNC
+        target_key = build_source_target_key(CONNECTION_ID, "pull_history")
+        await scheduler.repository.record_target_failure(
+            target_type, target_key, error="Ingress failed", scheduler_job_id="source-ingress:failed"
+        )
+        failed = await scheduler.get_target_state(target_type, target_key)
+        await contributor.sync_schedules()
+        assert await scheduler.get_target_state(target_type, target_key) == failed
+        assert await scheduler.repository.acquire_target_lock(target_type, target_key)
+        running = await scheduler.get_target_state(target_type, target_key)
+        await contributor.sync_schedules()
+        assert await scheduler.get_target_state(target_type, target_key) == running
+        assert len(runtime.source.contexts) == 1
+    finally:
+        await module.shutdown()
+        await scheduler.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["source_disabled", "connection_disabled", "manual", "interval", "removed"])
+async def test_watch_stops_and_drains_when_no_longer_desired(watch_runtime, change) -> None:
+    runtime = watch_runtime
+    source = runtime.source
+    source.supports_pull_sync = True
+    await runtime.contributor.sync_schedules()
+    settings = source.connection.settings["sources"]["pull_history"]
+    if change == "source_disabled":
+        settings["enabled"] = False
+    elif change == "connection_disabled":
+        connection = source.connection.model_copy(update={"enabled": False})
+        source.bind_plugin_context(
+            connection=connection, context=replace(source.context, connection=connection)
+        )
+    elif change == "removed":
+        runtime.registry.unregister(runtime.spec.source_id, plugin_id="pull-plugin")
+    else:
+        settings["sync_mode"] = change
+    source.stop_gate = asyncio.Event()
+    refresh = asyncio.create_task(runtime.contributor.sync_schedules())
+    await source.stop_entered.wait()
+    await asyncio.sleep(0)
+    assert not refresh.done()
+    assert runtime.scheduler.interval_calls == []
+    source.stop_gate.set()
+    await asyncio.wait_for(refresh, timeout=2)
+    await runtime.contributor.sync_schedules()
+    assert source.events == ["started", "cancelled", "drained"]
+    assert source.watch_task is None
+    assert bool(runtime.scheduler.interval_calls) is (change == "interval")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["settings", "revision", "spec", "instance", "owned_path"])
+async def test_watch_restarts_after_instance_or_configuration_changes(watch_runtime, tmp_path, change) -> None:
+    runtime = watch_runtime
+    source = runtime.source
+    await runtime.contributor.sync_schedules()
+    if change == "settings":
+        source.connection.settings["sources"]["pull_history"]["nested"]["folder"] = "updated"
+    elif change == "revision":
+        connection = source.connection.model_copy(update={"revision": 1})
+        source.bind_plugin_context(
+            connection=connection, context=replace(source.context, connection=connection)
+        )
+    elif change == "spec":
+        runtime.spec.metadata["default_settings"] = {"enabled": True, "new_option": "changed"}
+    elif change == "owned_path":
+        source.bind_plugin_context(connection=source.connection, context=PluginContext(
+            source.connection, tmp_path / "replacement-state", source.context.resources_dir, MagicMock()
+        ))
+    else:
+        replacement = _WatchHistorySource()
+        replacement.events = source.events
+        replacement.bind_plugin_context(connection=source.connection, context=source.context)
+        runtime.registry.unregister(runtime.spec.source_id, plugin_id="pull-plugin")
+        runtime.registry.register("pull-plugin", runtime.spec.source_id, replacement, runtime.spec)
+        runtime.source = replacement
+    await runtime.contributor.sync_schedules()
+    await runtime.contributor.sync_schedules()
+    assert source.events == ["started", "cancelled", "drained", "started"]
+    assert len(runtime.source.contexts) == (1 if change == "instance" else 2)
+
+
+@pytest.mark.asyncio
+async def test_watch_unregister_blocks_queued_refresh_and_resume(watch_runtime) -> None:
+    runtime = watch_runtime
+    await runtime.contributor.register_schedules(runtime.scheduler)
+    runtime.source.stop_gate = asyncio.Event()
+    unregister = asyncio.create_task(runtime.contributor.unregister_schedules(runtime.scheduler))
+    await runtime.source.stop_entered.wait()
+    refresh = asyncio.create_task(runtime.contributor.sync_schedules())
+    runtime.source.stop_gate.set()
+    await asyncio.wait_for(asyncio.gather(unregister, refresh), timeout=2)
+    await runtime.contributor.resume_watches()
+    assert runtime.source.events == ["started", "cancelled", "drained"]
+    await runtime.contributor.register_schedules(runtime.scheduler)
+    assert len(runtime.source.contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_watch_clear_stop_holds_across_refresh_until_explicit_resume(watch_runtime) -> None:
+    from magi.plugins.operation_execution import plugin_user_content_clear_boundary
+
+    runtime = watch_runtime
+    await runtime.contributor.sync_schedules()
+    await runtime.contributor.stop_watches()
+    async with plugin_user_content_clear_boundary():
+        refresh = asyncio.create_task(runtime.contributor.sync_schedules())
+        await asyncio.sleep(0)
+        assert not refresh.done()
+        assert runtime.source.events == ["started", "cancelled", "drained"]
+    await asyncio.wait_for(refresh, timeout=2)
+    assert len(runtime.source.contexts) == 1
+    await runtime.contributor.resume_watches()
+    assert len(runtime.source.contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_watch_start_failure_drains_partial_start_and_can_retry(watch_runtime, monkeypatch) -> None:
+    runtime = watch_runtime
+    start = runtime.source.start_watch
+
+    async def fail_after_start(context):
+        await start(context)
+        raise RuntimeError("Watch activation failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime.source, "start_watch", fail_after_start)
+        with pytest.raises(RuntimeError, match="Watch activation failed"):
+            await runtime.contributor.sync_schedules()
+    assert runtime.source.events == ["started", "cancelled", "drained"]
+    await runtime.contributor.sync_schedules()
+    assert len(runtime.source.contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_watch_stop_failure_preserves_owner_and_blocks_replacement(watch_runtime, monkeypatch) -> None:
+    runtime = watch_runtime
+    await runtime.contributor.sync_schedules()
+    runtime.source.connection.settings["sources"]["pull_history"]["nested"]["folder"] = "updated"
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime.source, "stop_watch", AsyncMock(side_effect=TimeoutError("Watch drain failed")))
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await runtime.contributor.sync_schedules()
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await runtime.contributor.stop_watches()
+        assert len(runtime.source.contexts) == 1
+    await runtime.contributor.stop_watches()
+    await runtime.contributor.sync_schedules()
+    assert len(runtime.source.contexts) == 1
+    await runtime.contributor.resume_watches()
+    assert len(runtime.source.contexts) == 2
+
+
+@pytest.mark.asyncio
+async def test_watch_resume_retries_failed_drain_without_configuration_change(watch_runtime, monkeypatch) -> None:
+    runtime = watch_runtime
+    await runtime.contributor.sync_schedules()
+    stop = runtime.source.stop_watch
+
+    async def fail_after_cancel():
+        await stop()
+        raise TimeoutError("Watch drain failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime.source, "stop_watch", fail_after_cancel)
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await runtime.contributor.stop_watches()
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await runtime.contributor.resume_watches()
+        assert len(runtime.source.contexts) == 1
+    await runtime.contributor.resume_watches()
+    assert len(runtime.source.contexts) == 2
+    assert runtime.source.watch_task is not None
+
+
+@pytest.mark.asyncio
+async def test_watch_stop_serializes_with_activation_in_progress(watch_runtime) -> None:
+    runtime = watch_runtime
+    runtime.source.start_gate = asyncio.Event()
+    refresh = asyncio.create_task(runtime.contributor.sync_schedules())
+    await runtime.source.start_entered.wait()
+    stop = asyncio.create_task(runtime.contributor.stop_watches())
+    following = asyncio.create_task(runtime.contributor.sync_schedules())
+    runtime.source.start_gate.set()
+    await asyncio.wait_for(asyncio.gather(refresh, stop, following), timeout=2)
+    assert runtime.source.events == ["started", "cancelled", "drained"]
+
+
+@pytest.mark.asyncio
+async def test_watch_failed_unregister_stays_stopped_and_can_retry(watch_runtime, monkeypatch) -> None:
+    runtime = watch_runtime
+    await runtime.contributor.register_schedules(runtime.scheduler)
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime.source, "stop_watch", AsyncMock(side_effect=TimeoutError("Watch drain failed")))
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await runtime.contributor.unregister_schedules(runtime.scheduler)
+    await runtime.contributor.sync_schedules()
+    await runtime.contributor.resume_watches()
+    assert len(runtime.source.contexts) == 1
+    await runtime.contributor.unregister_schedules(runtime.scheduler)
+    assert runtime.source.watch_task is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supports_pull", [False, True])
+async def test_unsupported_watch_falls_back_only_when_pull_supported(watch_runtime, supports_pull) -> None:
+    runtime = watch_runtime
+    runtime.source.supports_watch_mode = False
+    runtime.source.supports_pull_sync = supports_pull
+    runtime.source.connection.settings["sources"]["pull_history"]["sync_interval_minutes"] = 0.1
+    await runtime.contributor.sync_schedules()
+    assert runtime.source.contexts == []
+    assert len(runtime.scheduler.interval_calls) == int(supports_pull)
+    if supports_pull:
+        assert runtime.scheduler.interval_calls[0]["seconds"] == 60
+
+
+@pytest.mark.asyncio
+async def test_pull_interval_is_preserved_then_removed_when_watch_selected(watch_runtime) -> None:
+    runtime = watch_runtime
+    runtime.source.supports_pull_sync = True
+    settings = runtime.source.connection.settings["sources"]["pull_history"]
+    settings["sync_mode"] = "interval"
+    await runtime.contributor.sync_schedules()
+    assert runtime.source.contexts == []
+    assert runtime.scheduler.interval_calls[0]["seconds"] == 300
+    assert runtime.scheduler.repository.schedules
+    settings["sync_mode"] = "watch"
+    await runtime.contributor.sync_schedules()
+    assert len(runtime.source.contexts) == 1
+    assert len(runtime.scheduler.interval_calls) == 1
+    assert runtime.scheduler.repository.schedules == {}
+
+
+@pytest.mark.asyncio
+async def test_executor_shutdown_drains_watches_before_stopping_jobs(watch_runtime) -> None:
+    from magi.awareness.lifecycle import SourceSyncExecutorModule
+
+    runtime = watch_runtime
+    await runtime.contributor.sync_schedules()
+
+    async def stop_executor():
+        assert runtime.source.events == ["started", "cancelled", "drained"]
+
+    executor = SimpleNamespace(stop=AsyncMock(side_effect=stop_executor))
+    module = SourceSyncExecutorModule(runtime.context)
+    module._executor = executor
+    runtime.context.agent_runtime.source_sync_executor = executor
+    await module.shutdown()
+    executor.stop.assert_awaited_once()
+    assert runtime.context.agent_runtime.source_sync_executor is None
+
+
+@pytest.mark.asyncio
+async def test_executor_shutdown_preserves_runtime_when_watch_stop_fails(watch_runtime, monkeypatch) -> None:
+    from magi.awareness.lifecycle import SourceSyncExecutorModule
+
+    runtime = watch_runtime
+    await runtime.contributor.sync_schedules()
+    executor = SimpleNamespace(stop=AsyncMock())
+    module = SourceSyncExecutorModule(runtime.context)
+    module._executor = executor
+    runtime.context.agent_runtime.source_sync_executor = executor
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime.source, "stop_watch", AsyncMock(side_effect=TimeoutError("Watch drain failed")))
+        with pytest.raises(TimeoutError, match="Watch drain failed"):
+            await module.shutdown()
+    executor.stop.assert_not_awaited()
+    assert runtime.context.agent_runtime.source_sync_executor is executor
+    assert module._executor is executor
+    await module.shutdown()
+    executor.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_registration_shutdown_stops_watch_without_scheduler_binding(watch_runtime) -> None:
+    from magi.awareness.lifecycle import SourceScheduleRegistrationModule
+
+    runtime = watch_runtime
+    module = SourceScheduleRegistrationModule(runtime.context)
+    await module.init()
+    runtime.context.scheduler.scheduler_service = None
+    await module.shutdown()
+    assert runtime.source.events == ["started", "cancelled", "drained"]
+    assert runtime.context.agent_runtime.source_scheduler_contrib is None
 
 
 @pytest.mark.asyncio

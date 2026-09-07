@@ -51,6 +51,13 @@ class _SourceSyncSettings:
     limit: int
 
 
+@dataclass(slots=True)
+class _SourceWatch:
+    source: Any
+    configuration: dict[str, Any]
+    started: bool = False
+
+
 def request_source_schedule_refresh() -> None:
     """Schedule a best-effort refresh of source-owned schedules."""
     try:
@@ -108,28 +115,88 @@ class SourceSchedulerContrib:
         self._source_ingestor = SourceBatchIngestor(store=self.source_store, gateway=ingestion_gateway)
         self._source_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._registered_schedule_ids: set[str] = set()
+        self._refresh_lock = asyncio.Lock()
+        self._watches: dict[tuple[str, str], _SourceWatch] = {}
+        self._watches_stopped = False
+        self._unregistered = False
 
     async def register_schedules(self, scheduler: SchedulerService) -> None:
         scheduler.register_handler(
             ScheduledTargetType.SOURCE_SYNC,
             self._handle_source_sync,
         )
-        await self.sync_schedules()
+        async with plugin_runtime_operation(), self._refresh_lock:
+            self._unregistered = False
+            self._watches_stopped = False
+            await self._sync_schedules()
 
     async def unregister_schedules(self, scheduler: SchedulerService) -> None:
-        for schedule_id in list(self._registered_schedule_ids):
-            try:
+        async with self._refresh_lock:
+            self._unregistered = True
+            self._watches_stopped = True
+            await self._stop_watches()
+            for schedule_id in list(self._registered_schedule_ids):
                 await scheduler.unschedule(
                     schedule_id,
                     target_type=ScheduledTargetType.SOURCE_SYNC,
                     target_key="",
                 )
-            except Exception:
-                pass
-        self._registered_schedule_ids.clear()
+                self._registered_schedule_ids.discard(schedule_id)
+
+    async def stop_watches(self) -> None:
+        """Suspend watch activation and drain callbacks before clear admission.
+
+        The caller must stop watches before entering the exclusive plugin clear
+        boundary: draining a callback may itself need plugin admission. Failed
+        stops retain ownership for a later retry and keep refreshes suspended.
+        """
+        async with self._refresh_lock:
+            self._watches_stopped = True
+            await self._stop_watches()
+
+    async def resume_watches(self) -> None:
+        """Resume watches after successful clear and release of clear admission."""
+        async with plugin_runtime_operation(), self._refresh_lock:
+            if self._unregistered:
+                return
+            self._watches_stopped = False
+            try:
+                await self._sync_schedules()
+            except BaseException:
+                self._watches_stopped = True
+                await self._stop_watches()
+                raise
+
+    async def _stop_watch(self, key: tuple[str, str]) -> None:
+        watch = self._watches.get(key)
+        if watch is not None:
+            watch.started = False
+            await watch.source.stop_watch()
+            del self._watches[key]
+
+    async def _stop_watches(self) -> None:
+        failure: Exception | None = None
+        for key in list(self._watches):
+            try:
+                await self._stop_watch(key)
+            except Exception as exc:
+                logger.error(
+                    "Source watch stop failed",
+                    connection_id=key[0], source_type=key[1], error=str(exc),
+                )
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
 
     async def sync_schedules(self) -> None:
+        async with plugin_runtime_operation(), self._refresh_lock:
+            if not self._unregistered:
+                await self._sync_schedules()
+
+    async def _sync_schedules(self) -> None:
         desired_schedule_ids: set[str] = set()
+        desired_watch_keys: set[tuple[str, str]] = set()
         for contribution in self._source_registry.list_contributions():
             source_type = str(
                 contribution.metadata.get("source_type")
@@ -150,6 +217,18 @@ class SourceSchedulerContrib:
             sync_mode = str(
                 source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode))
             )
+            key = (connection_id, source_type)
+            supports_watch = bool(getattr(source, "supports_watch_mode", False))
+            if enabled and sync_mode == "watch" and supports_watch:
+                # Remove an old interval without resetting active ingress state
+                # when this watch has no recurring schedule to remove.
+                await self._scheduler_service.unschedule(schedule_id)
+                self._registered_schedule_ids.discard(schedule_id)
+                if not self._watches_stopped:
+                    await self._start_watch(key, source=source, spec=spec)
+                    desired_watch_keys.add(key)
+                continue
+            await self._stop_watch(key)
             interval_minutes = float(
                 source_settings.get(
                     "sync_interval_minutes", default_settings.get("sync_interval_minutes", 1)
@@ -164,7 +243,8 @@ class SourceSchedulerContrib:
                 )
                 self._registered_schedule_ids.discard(schedule_id)
                 continue
-            if sync_mode == "watch" and not bool(getattr(source, "supports_watch_mode", False)):
+            if sync_mode == "watch" and not supports_watch:
+                # Sources without watch support retain the polling fallback.
                 interval_minutes = max(1.0, interval_minutes)
             await self._scheduler_service.schedule_interval(
                 schedule_id=schedule_id,
@@ -184,6 +264,58 @@ class SourceSchedulerContrib:
         for removed_id in self._registered_schedule_ids - desired_schedule_ids:
             await self._scheduler_service.unschedule(removed_id, target_type=ScheduledTargetType.SOURCE_SYNC, target_key="")
         self._registered_schedule_ids.intersection_update(desired_schedule_ids)
+        for removed_key in self._watches.keys() - desired_watch_keys:
+            await self._stop_watch(removed_key)
+
+    async def _start_watch(self, key: tuple[str, str], *, source: Any, spec: Any) -> None:
+        connection_id, source_type = key
+        connection = source.connection
+        settings = self._source_sync_settings(
+            connection=connection, source_type=source_type, spec=spec
+        )
+        preferred_language = get_preferred_language()
+        if preferred_language:
+            settings.package_settings.setdefault("locale", preferred_language)
+        runtime_paths = ScopedSourceRuntimePaths(
+            connection_id, connection.plugin_id, source.context.state_dir
+        )
+        configuration = {
+            "connection": connection.model_dump(mode="json"),
+            "spec": copy.deepcopy(spec),
+            "runtime_paths": runtime_paths,
+            "settings": copy.deepcopy(settings),
+        }
+        current = self._watches.get(key)
+        if current is not None:
+            if (
+                current.source is source
+                and current.configuration == configuration
+                and current.started
+            ):
+                return
+            await self._stop_watch(key)
+
+        checkpoint = await self.source_store.checkpoint(connection, source.source_id, source_type)
+        target_state = await self._scheduler_service.get_target_state(
+            ScheduledTargetType.SOURCE_SYNC, build_source_target_key(connection_id, source_type)
+        )
+        watch = _SourceWatch(source=source, configuration=configuration)
+        self._watches[key] = watch
+        try:
+            await source.start_watch(SourceSyncContext(
+                connection_id=connection_id,
+                source_type=source_type,
+                manual=False,
+                last_cursor=checkpoint.cursor,
+                last_success_at=target_state.last_success_at,
+                limit=settings.limit,
+                runtime_paths=runtime_paths,
+                plugin_settings=settings.package_settings,
+            ))
+        except BaseException:
+            await self._stop_watch(key)
+            raise
+        watch.started = True
 
     async def queue_manual_sync(
         self,
