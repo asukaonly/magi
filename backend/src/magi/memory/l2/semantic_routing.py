@@ -14,10 +14,10 @@ from typing import Any, Mapping
 
 from ...utils.calendar_timezone import canonical_timezone_id
 from .claims.identity import canonical_json
-from .ontology import PROFILE_SIGNAL_PREDICATES
+from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 7
+ROUTE_CONTRACT_VERSION = 8
 SLOT_SCHEMA_VERSION = 2
 
 
@@ -232,7 +232,7 @@ _TARGET_SPECS: dict[str, _RouteSpec] = {
         "interest_profile",
         "interest.attention",
         ObjectRole.TARGET_ID_OR_TEXT,
-        frozenset({"explicit_fact"}),
+        frozenset({"explicit_fact", "stable_preference"}),
         _GRAPH_AND_ASSERTION,
         canonical_value="interested",
     ),
@@ -605,6 +605,11 @@ def derive_semantic_route(route_input: SemanticRouteInput) -> SemanticRouteDecis
         disposition=RouteDisposition.UNROUTED,
         reason_code="unsupported_route",
         object_role=ObjectRole.UNSUPPORTED,
+        projection_targets=(
+            _GRAPH_ONLY
+            if is_valid_open_predicate(predicate) and not is_low_value_open_predicate(predicate)
+            else frozenset()
+        ),
     )
 
 
@@ -755,7 +760,6 @@ def _mismatch(
         disposition=RouteDisposition.UNROUTED,
         reason_code="predicate_fact_kind_mismatch",
         object_role=spec.object_role,
-        projection_targets=spec.projection_targets,
     )
 
 
@@ -775,6 +779,8 @@ def _non_routed(
         projection_targets=projection_targets,
         subject_id=_required(route_input.subject_id),
         subject_type=_required(route_input.subject_type),
+        target_entity_id=(route_input.object_entity_id if ProjectionTarget.GRAPH in projection_targets else None),
+        target_entity_type=(route_input.object_type if ProjectionTarget.GRAPH in projection_targets else None),
     )
 
 

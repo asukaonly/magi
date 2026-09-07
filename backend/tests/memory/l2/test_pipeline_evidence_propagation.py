@@ -78,8 +78,11 @@ def test_phase1_graph_projection_includes_evidence_class():
         effective_structured_allowed_predicates=frozenset({"LIKES"}),
     )
 
+    from .test_phase1_graph_projection import _routes
+
     candidates, outcomes = pipeline._project_phase1_graph_candidates(
         phase1_result=phase1_result,
+        semantic_routes=_routes(phase1_result.fact_claims),
         event=event,
         evidence_event_ids=["evt-ft"],
         resolved_mentions=[],

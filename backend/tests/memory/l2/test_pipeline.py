@@ -4495,8 +4495,11 @@ class TestEntityTypeFiltering:
                 ),
             ]
         )
+        from .test_phase1_graph_projection import _routes
+
         prepared, rejected_outcomes = pipeline._project_phase1_graph_candidates(
             phase1_result=phase1_result,
+            semantic_routes=_routes(phase1_result.fact_claims, {"claim:2": "product:magi"}),
             event=event,
             profile=profile,
             resolved_mentions=[],
@@ -4505,7 +4508,7 @@ class TestEntityTypeFiltering:
         )
 
         assert len(rejected_outcomes) == 1
-        assert rejected_outcomes[0].reason_code == "graph_shape_not_allowed"
+        assert rejected_outcomes[0].reason_code == "unsupported_route"
         assert len(prepared) == 1
         assert prepared[0]["predicate"] == "MAINTAINS"
         assert prepared[0]["object_id"] == "product:magi"
@@ -4860,8 +4863,11 @@ class TestGraphCatalogNameIndex:
                 confidence=1.0,
                 supporting_event_ids=[event.event_id],
             )
+            from .test_phase1_graph_projection import _routes
+
             prepared, rejected = pipeline._project_phase1_graph_candidates(
                 phase1_result=L2Phase1Result(fact_claims=[invented_claim]),
+                semantic_routes=_routes([invented_claim], {}),
                 event=event,
                 profile=_FakeProfile(),
                 resolved_mentions=resolved_mentions,
@@ -4883,8 +4889,11 @@ class TestGraphCatalogNameIndex:
                 confidence=1.0,
                 supporting_event_ids=[event.event_id],
             )
+            from .test_phase1_graph_projection import _routes
+
             prepared, rejected = pipeline._project_phase1_graph_candidates(
                 phase1_result=L2Phase1Result(fact_claims=[surface_claim]),
+                semantic_routes=_routes([surface_claim], {surface_claim.claim_id: resolved_mentions[0].resolved_entity_id}),
                 event=event,
                 profile=_FakeProfile(),
                 resolved_mentions=resolved_mentions,

@@ -267,6 +267,7 @@ class _GraphWriteHostProtocol(Protocol):
         fact_kind: str,
         extraction_method: str,
         confidence: float,
+        evidence_class: str | None = None,
     ) -> str: ...
 
     async def _resolve_graph_conflicts(
@@ -746,6 +747,7 @@ class L2StoreGraphWriteMixin:
             normalized_fact_kind,
             edge.extraction_method,
             confidence_float,
+            edge.evidence_class,
         )
 
         effective_expires_at = edge.expires_at

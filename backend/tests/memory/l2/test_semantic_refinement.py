@@ -377,3 +377,17 @@ async def test_validate_fact_kind_static_method():
     assert L2CognitionStore._validate_fact_kind("interaction_evidence", "llm_phase2_integration", 0.5) == "interaction_evidence"
     # empty → empty (caller handles default)
     assert L2CognitionStore._validate_fact_kind("", "rule", 0.5) == ""
+
+
+def test_model_preference_kind_uses_source_authority_instead_of_model_lineage():
+    from magi.memory.l2.store import L2CognitionStore
+
+    assert L2CognitionStore._validate_fact_kind(
+        "stable_preference", "llm_phase1_grounded", 0.9, "user_self_report"
+    ) == "stable_preference"
+    assert L2CognitionStore._validate_fact_kind(
+        "stable_preference", "llm_phase1_grounded", 0.9, "external_observation"
+    ) == "explicit_fact"
+    assert L2CognitionStore._validate_fact_kind(
+        "public_topology", "llm_phase1_grounded", 0.9, "user_self_report"
+    ) == "explicit_fact"

@@ -24,6 +24,7 @@ class L2StoreFactKindMixin:
         fact_kind: str,
         extraction_method: str,
         confidence: float,
+        evidence_class: str | None = None,
     ) -> str:
         """Validate fact_kind against extraction_method, downgrading on mismatch."""
         if not fact_kind:
@@ -45,7 +46,7 @@ class L2StoreFactKindMixin:
 
         elif fact_kind == "stable_preference":
             allowed = cls._FACT_KIND_RULES["stable_preference"]
-            if extraction_method not in allowed:
+            if extraction_method not in allowed and evidence_class != "user_self_report":
                 logger.warning(
                     "fact_kind_downgraded",
                     original=fact_kind,

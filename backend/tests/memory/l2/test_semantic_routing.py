@@ -529,3 +529,18 @@ def test_negative_claim_has_no_positive_projection(predicate: str) -> None:
     assert decision.reason_code == "negative_claim_requires_scoped_exclusion"
     assert not decision.can_project_assertion
     assert not decision.can_project_graph
+
+
+@pytest.mark.parametrize("predicate", ["LIKES", "DISLIKES", "INTERESTED_IN"])
+def test_stated_preferences_and_interests_keep_both_projection_targets(predicate):
+    route = derive_semantic_route(_route_input(predicate, fact_kind="stable_preference"))
+    assert route.can_project_assertion
+    assert route.can_project_graph
+
+
+@pytest.mark.parametrize("predicate", ["LIVES_IN", "USES", "ALLERGIC_TO"])
+def test_graph_only_routes_retain_resolved_identity(predicate):
+    route = derive_semantic_route(_route_input(predicate, object_entity_id="entity:target"))
+    assert route.can_project_graph
+    assert route.target_entity_id == "entity:target"
+    assert not route.can_project_assertion

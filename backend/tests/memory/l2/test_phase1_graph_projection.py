@@ -69,6 +69,7 @@ def test_phase1_claim_projects_directly_to_graph_candidate() -> None:
 
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes=_routes([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
         resolved_mentions=[],
@@ -121,6 +122,7 @@ def test_future_plan_is_assertion_only_and_never_uses_target_window_as_fact_vali
 
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes=_routes([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-goal"],
         resolved_mentions=[],
@@ -130,7 +132,7 @@ def test_future_plan_is_assertion_only_and_never_uses_target_window_as_fact_vali
     assert candidates == []
     assert len(outcomes) == 1
     assert outcomes[0].outcome == "skipped"
-    assert outcomes[0].reason_code == "goal_assertion_only"
+    assert outcomes[0].reason_code == "assertion_only_route"
 
 
 def test_one_off_preference_stays_out_of_reusable_graph_relationships() -> None:
@@ -149,6 +151,7 @@ def test_one_off_preference_stays_out_of_reusable_graph_relationships() -> None:
 
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes=_routes([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="history_import"),
         evidence_event_ids=["evt-trip"],
         resolved_mentions=[],
@@ -158,7 +161,7 @@ def test_one_off_preference_stays_out_of_reusable_graph_relationships() -> None:
     assert candidates == []
     assert len(outcomes) == 1
     assert outcomes[0].outcome == "skipped"
-    assert outcomes[0].reason_code == "one_off_preference_event_only"
+    assert outcomes[0].reason_code == "assertion_only_route"
 
 
 def test_phase1_graph_projection_rejects_missing_support() -> None:
@@ -172,6 +175,7 @@ def test_phase1_graph_projection_rejects_missing_support() -> None:
 
     candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
         phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes=_routes([claim]),
         event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
         evidence_event_ids=["evt-diiv"],
         resolved_mentions=[],
@@ -201,6 +205,7 @@ def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
         claim.claim_id = "claim:negative"
         candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
             phase1_result=L2Phase1Result(fact_claims=[claim]),
+            semantic_routes=_routes([claim]),
             event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
             evidence_event_ids=["evt-negative"],
             resolved_mentions=[],
@@ -210,3 +215,44 @@ def test_negative_predicate_never_becomes_a_positive_graph_edge() -> None:
         assert outcomes[0].reason_code == "negative_claim_requires_scoped_exclusion"
         assert claim.polarity == "negative"
         assert claim.temporal_cue == "recent"
+
+
+def _routes(claims, object_ids=None):
+    from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
+
+    return {
+        claim.claim_id: derive_semantic_route(SemanticRouteInput(
+            claim_id=claim.claim_id,
+            subject_id=claim.subject_ref,
+            subject_type=claim.subject_type,
+            canonical_predicate=claim.predicate,
+            fact_kind=str(claim.fact_kind),
+            object_type=claim.object_type,
+            object_value=claim.object_ref,
+            object_entity_id=(object_ids.get(claim.claim_id) if object_ids is not None else claim.object_ref),
+            temporal_cue=claim.temporal_cue.value,
+            specificity=claim.specificity,
+            target_from=claim.target_from,
+            target_to=claim.target_to,
+            raw_time_expression=claim.raw_time_expression,
+            time_resolution="unscheduled",
+            polarity=claim.polarity,
+        ))
+        for claim in claims
+    }
+
+
+def test_graph_projection_obeys_route_rejection_instead_of_reinterpreting_claim():
+    claim = L2Phase1FactClaim(
+        claim_id="claim:mismatch", subject_ref="user:u1", predicate="LIKES",
+        object_ref="group:diiv", object_type="group", fact_kind="future_intent",
+        supporting_event_ids=["evt-diiv"], evidence_text="我打算听 DIIV",
+    )
+    candidates, outcomes = _ProjectionHarness()._project_phase1_graph_candidates(
+        phase1_result=L2Phase1Result(fact_claims=[claim]),
+        semantic_routes=_routes([claim]),
+        event=SimpleNamespace(timestamp=1_700_000_000.0, source="chat"),
+        evidence_event_ids=["evt-diiv"], resolved_mentions=[], profile=_profile(),
+    )
+    assert candidates == []
+    assert outcomes[0].reason_code == "predicate_fact_kind_mismatch"

@@ -135,6 +135,7 @@ class L2ProjectionFlowMixin:
     ) -> dict[str, Any]:
         graph_candidates, graph_rejections = self._project_phase1_graph_candidates(
             phase1_result=phase1_flow.phase1_result,
+            semantic_routes=phase1_flow.semantic_routes,
             event=batch.stored_event,
             evidence_event_ids=batch.batch_event_ids,
             resolved_mentions=phase1_flow.resolved_mentions,

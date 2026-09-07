@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from ....event_contracts import MemoryEvent
 from ....evidence import EvidenceClassification
@@ -14,7 +14,7 @@ from ...ontology import (
     is_valid_open_predicate,
     validate_graph_candidate,
 )
-from ...semantic_routing import allows_preference_graph_projection
+from ...semantic_routing import SemanticRouteDecision, ProjectionTarget
 from .evidence import validate_supporting_event_ids
 from ..extraction_contracts import ClaimProjectionOutcomeDraft
 
@@ -26,6 +26,7 @@ class L2Phase1GraphProjectionMixin:
         self,
         *,
         phase1_result: L2Phase1Result,
+        semantic_routes: Mapping[str, SemanticRouteDecision],
         event: MemoryEvent,
         evidence_event_ids: list[str],
         resolved_mentions: list[ResolvedEntityMention],
@@ -38,6 +39,7 @@ class L2Phase1GraphProjectionMixin:
         for claim in phase1_result.fact_claims:
             candidate, reason_code = self._project_phase1_claim(
                 claim=claim,
+                route=semantic_routes.get(claim.claim_id),
                 event=event,
                 evidence_event_ids=evidence_event_ids,
                 resolved_mentions=resolved_mentions,
@@ -48,7 +50,7 @@ class L2Phase1GraphProjectionMixin:
             if candidate is None:
                 outcome = (
                     "skipped"
-                    if reason_code in {"goal_assertion_only", "one_off_preference_event_only", "negative_claim_requires_scoped_exclusion"}
+                    if reason_code in {"assertion_only_route", "negative_claim_requires_scoped_exclusion"}
                     else (
                         "unresolved_entity"
                         if reason_code in {"unresolved_object", "unresolved_subject"}
@@ -72,6 +74,7 @@ class L2Phase1GraphProjectionMixin:
         self,
         *,
         claim: Any,
+        route: SemanticRouteDecision | None,
         event: MemoryEvent,
         evidence_event_ids: list[str],
         resolved_mentions: list[ResolvedEntityMention],
@@ -90,14 +93,16 @@ class L2Phase1GraphProjectionMixin:
         )
         if not supporting_event_ids:
             return None, "missing_grounded_support"
-        if claim.polarity != "positive":
-            return None, "negative_claim_requires_scoped_exclusion"
+        if route is None:
+            return None, "missing_semantic_route"
+        if not route.can_project_graph:
+            if ProjectionTarget.GRAPH in route.projection_targets:
+                return None, "unresolved_object"
+            if route.can_project_assertion:
+                return None, "assertion_only_route"
+            return None, route.reason_code
         predicate = self._normalize_predicate(claim.predicate)  # type: ignore[attr-defined]
         fact_kind = self._non_empty_text(claim.fact_kind) or "explicit_fact"  # type: ignore[attr-defined]
-        if predicate == "PLANS_TO" and fact_kind == "future_intent":
-            return None, "goal_assertion_only"
-        if not allows_preference_graph_projection(predicate, claim.temporal_cue):
-            return None, "one_off_preference_event_only"
         object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
         if not self._phase1_graph_shape_allowed(
             predicate=predicate,
@@ -105,16 +110,8 @@ class L2Phase1GraphProjectionMixin:
             profile=profile,
         ):
             return None, "graph_shape_not_allowed"
-        subject_id = self._resolve_grounded_subject_id(  # type: ignore[attr-defined]
-            event=event,
-            subject_ref=claim.subject_ref,
-        )
-        object_id = self._resolve_grounded_object_id(  # type: ignore[attr-defined]
-            raw_object_ref=claim.object_ref,
-            object_type=object_type,
-            resolved_mentions=resolved_mentions,
-            catalog_name_index=catalog_name_index,
-        )
+        subject_id = route.subject_id
+        object_id = route.target_entity_id
         if not subject_id:
             return None, "unresolved_subject"
         if not object_id:
