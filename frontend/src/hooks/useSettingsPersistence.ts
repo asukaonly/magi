@@ -11,6 +11,7 @@ import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notificati
 import type { ThemeMode, ThemeState } from '@/stores/theme';
 import type { ToolDraftMap } from '@/types/settings';
 import {
+  acceptSavedDraft,
   diffFlatMaps,
   persistLanguageSelection,
   previewLanguageSelection,
@@ -84,6 +85,8 @@ export function useSettingsPersistence({
   const { t } = useTranslation('app');
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const currentThemeRef = useRef(draftThemeMode);
+  currentThemeRef.current = draftThemeMode;
   const [embeddingPreflightPrompt, setEmbeddingPreflightPrompt] = useState<EmbeddingPreflightPrompt | null>(null);
   const embeddingPreflightResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
 
@@ -204,13 +207,13 @@ export function useSettingsPersistence({
         await syncSkipQuitConfirmationPreference(persistedConfig.preferences.skip_quit_confirmation);
         syncDesktopNotificationPreferences(persistedConfig.preferences);
         setSavedConfig(structuredClone(persistedConfig));
-        setDraftConfig(structuredClone(persistedConfig));
+        setDraftConfig(current => acceptSavedDraft(current, draftConfig, persistedConfig));
       }
 
       if (controlDirty && draftControlSettings) {
         const persistedControlSettings = await updateControlSettings(draftControlSettings);
         setSavedControlSettings(structuredClone(persistedControlSettings));
-        setDraftControlSettings(structuredClone(persistedControlSettings));
+        setDraftControlSettings(current => acceptSavedDraft(current, draftControlSettings, persistedControlSettings));
       }
 
       if (toolsDirty) {
@@ -228,12 +231,18 @@ export function useSettingsPersistence({
           });
           const canonical = { enabled: persistedTool.enabled, values: persistedTool.current_values };
           setSavedToolDrafts(current => ({ ...current, [tool.name]: structuredClone(canonical) }));
-          setDraftToolDrafts(current => ({ ...current, [tool.name]: structuredClone(canonical) }));
+          setDraftToolDrafts(current => ({
+            ...current,
+            [tool.name]: acceptSavedDraft(current[tool.name] ?? draftSnapshot, draftSnapshot, canonical),
+          }));
         }
       }
 
       if (themeDirty) {
         setThemeMode(draftThemeMode, { persist: true });
+        if (currentThemeRef.current !== draftThemeMode) {
+          setThemeMode(currentThemeRef.current, { persist: false });
+        }
         setSavedThemeMode(draftThemeMode);
       }
       if (languageChanged) {

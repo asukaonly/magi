@@ -14,6 +14,10 @@ import { LANGUAGE_STORAGE_KEY } from '@/constants/settings';
 
 export const serialize = (value: unknown): string => JSON.stringify(value);
 
+/** Apply confirmed values only while the submitted draft is still current. */
+export const acceptSavedDraft = <T>(current: T, submitted: T, confirmed: T): T =>
+  serialize(current) === serialize(submitted) ? structuredClone(confirmed) : current;
+
 // ============================================================================
 // Language Helpers
 // ============================================================================
