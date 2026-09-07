@@ -349,7 +349,9 @@ class PluginCapability(PluginContract):
     cannot become executable merely by appearing in a package declaration.
     The publication policy validates the supported set: screen_recording,
     accessibility, calendar, photos, contacts, system_media, filesystem_read,
-    filesystem_write, network, subprocess.
+    filesystem_write, network, subprocess, memory_search, interaction_ask.
+    Public host services require the exact current_user (memory_search) or
+    current_session (interaction_ask) scope and separate invocation admission.
     """
 
     capability: str
@@ -359,6 +361,15 @@ class PluginCapability(PluginContract):
     optional: bool = False
     reason: str = ""
     reason_i18n: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_host_service_scope(self) -> PluginCapability:
+        from .capabilities import HOST_SERVICE_PERMISSIONS
+
+        scopes = dict(HOST_SERVICE_PERMISSIONS.values())
+        if self.capability in scopes and self.scope != [scopes[self.capability]]:
+            raise ValueError("Host services require their exact supported scope")
+        return self
 
 
 class PluginPermissions(PluginContract):

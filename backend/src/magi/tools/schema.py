@@ -1,9 +1,4 @@
-"""Tool contracts - re-exported from magi-plugin-sdk.
-
-Internal backend code may continue importing from this module during the
-migration window. External plugin authors should prefer
-``magi_plugin_sdk.tools``.
-"""
+"""Tool contracts and the internal execution context for bundled tools."""
 
 from enum import Enum
 
@@ -13,11 +8,11 @@ from magi_plugin_sdk.tools import (  # noqa: F401
     Tool,
     ToolConfigSpec,
     ToolErrorCode as SDKToolErrorCode,
-    ToolExecutionContext,
     ToolParameter,
     ToolResult,
     ToolSchema,
 )
+from ..core.tool_context import ToolExecutionContext
 
 _TOOL_ERROR_CODE_VALUES = {
     member.name: member.value for member in SDKToolErrorCode

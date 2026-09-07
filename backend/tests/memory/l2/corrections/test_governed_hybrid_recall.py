@@ -1248,7 +1248,7 @@ async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_re
     from magi.memory.retrieval_projection import project_historical_recall
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
     from magi.tools.schema import ToolExecutionContext
-    from magi_plugin_sdk.capabilities import ToolCapabilities
+    from magi.core.tool_capabilities import ToolCapabilities
 
     store = l2_store_with_schema
     magi_workspace = tmp_path / "Magi"

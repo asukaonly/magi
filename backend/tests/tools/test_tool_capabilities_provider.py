@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 def test_runtime_modules_do_not_import_bootstrap_tool_capabilities() -> None:

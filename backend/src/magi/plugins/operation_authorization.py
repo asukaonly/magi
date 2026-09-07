@@ -15,6 +15,7 @@ from magi_plugin_sdk.runtime import (
     OperationSpec,
     PluginConnection,
 )
+from magi_plugin_sdk.capabilities import HOST_SERVICE_PERMISSIONS, HostMethod
 
 from ..config import get_config
 from ..identity import CANONICAL_LOCAL_USER
@@ -68,7 +69,39 @@ class InstalledOperationAuthorizer:
             or connection_store.get_readiness
         )
         self._config = config_provider
-        self._supported_scopes = supported_host_scopes or {}
+        self._supported_scopes = {
+            **(supported_host_scopes or {}),
+            **{name: frozenset({scope}) for name, scope in HOST_SERVICE_PERMISSIONS.values()},
+        }
+
+    def authorize_host_service(
+        self,
+        identity: InvocationIdentity,
+        connection: PluginConnection,
+        spec: OperationSpec,
+        parameters: dict[str, Any],
+        method: HostMethod,
+    ) -> bool:
+        """Recheck installation consent; an ordinary operation grant is insufficient."""
+        permission = HOST_SERVICE_PERMISSIONS.get(method)
+        if permission is None:
+            return False
+        if method == "interaction.ask" and (
+            spec.effect != "external_write" or spec.replay != "non_idempotent"
+        ):
+            return False
+        capability, scope = permission
+        scoped_spec = spec.model_copy(update={
+            "required_capabilities": list(dict.fromkeys([*spec.required_capabilities, capability])),
+        })
+        if not self(identity, connection, scoped_spec, parameters):
+            return False
+        manifest = self._package(connection.plugin_id).manifest
+        declarations = [item for item in manifest.capabilities if item.capability == capability]
+        return (
+            len(declarations) == 1
+            and declarations[0].scope == [scope]
+        )
 
     def __call__(
         self,

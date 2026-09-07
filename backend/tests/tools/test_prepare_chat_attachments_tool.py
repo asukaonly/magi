@@ -8,7 +8,7 @@ from magi.tools.builtin.prepare_chat_attachments_tool import (
     PrepareChatAttachmentsTool,
 )
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 class _AsyncChatPort:

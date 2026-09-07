@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 from magi_plugin_sdk.providers import ExternalAgentEvent, ExternalAgentResult
 from magi_plugin_sdk.runtime import PluginConnection
 

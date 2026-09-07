@@ -22,7 +22,8 @@ from magi_plugin_sdk.runtime import (
     PluginConnection,
     ResourceRef,
 )
-from magi_plugin_sdk.tools import Tool, ToolExecutionContext, ToolResult, ToolSchema
+from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
+from magi_plugin_sdk.capabilities import HOST_METHODS, HostMethod
 
 from ..agent.execution.tool_invocation_service import (
     InvocationContext,
@@ -31,6 +32,8 @@ from ..agent.execution.tool_invocation_service import (
 )
 from ..events.domain_payloads import TaskContext
 from .operation_progress import publish_operation_progress
+from .host_services import HostServiceAuthorizer
+from ..core.tool_context import ToolExecutionContext
 
 OperationHandler = Callable[[dict[str, Any], ToolExecutionContext], Awaitable[OperationResult]]
 
@@ -262,7 +265,7 @@ class PluginOperationRegistry:
             session_id=identity.session_id,
             task_id=identity.task_id,
             user_id=identity.principal_id,
-            turn_id=None,
+            turn_id=execution.env_vars.get("turn_id"),
         )
         try:
             result = await ToolInvocationService(self._tools, require_effect_ledger=True).invoke(
@@ -373,6 +376,23 @@ class PluginOperationRegistry:
         """Execute a validated handler and preserve output uncertainty."""
         active = True
 
+        # This lease belongs only to this registered tool invocation. Declaring
+        # an operation, injecting a port or changing worker context cannot mint it.
+        identity = context.invocation.model_copy(deep=True)
+        connection = context.connection.model_copy(deep=True)
+
+        def authorize_host_service(method: HostMethod) -> bool:
+            return (
+                active
+                and binding.source_tool is not None
+                and self._entries.get((binding.connection_id, binding.spec.operation_id)) is binding
+                and self._get_connection(binding.connection_id) == connection
+                and isinstance(self._authorize, HostServiceAuthorizer)
+                and self._authorize.authorize_host_service(
+                    identity, connection, binding.spec, parameters, method,
+                ) is True
+            )
+
         async def progress(payload: dict[str, Any]) -> None:
             if (
                 not active
@@ -387,7 +407,11 @@ class PluginOperationRegistry:
             if self._publish_progress is not None:
                 await self._publish_progress(context.invocation, payload)
 
-        context = context.model_copy(update={"progress": progress})
+        context = context.model_copy(update={
+            "progress": progress,
+            "host_service_grants": frozenset(method for method in HOST_METHODS if authorize_host_service(method)),
+            "host_service_authorize": authorize_host_service,
+        })
 
         async def invoke_handler() -> OperationResult:
             task = asyncio.create_task(binding.handler(parameters, context))
@@ -505,7 +529,15 @@ class _BoundOperationTool(Tool):
                 task_id=ctx.task_context.task_id,
                 session_id=ctx.task_context.session_id,
             )
-        execution = ctx.execution_context.model_copy(update={"invocation": identity})
+        execution = ctx.execution_context.model_copy(update={
+            "invocation": identity,
+            "env_vars": {
+                **ctx.execution_context.env_vars,
+                "user_id": ctx.task_context.user_id or identity.principal_id,
+                "session_id": ctx.task_context.session_id or "",
+                "turn_id": ctx.task_context.turn_id or "",
+            },
+        })
         return replace(ctx, execution_context=execution)
 
     async def admit_operation(
@@ -525,6 +557,10 @@ class _BoundOperationTool(Tool):
                     "INVOCATION_IDENTITY_INVALID",
                     "Invocation trigger does not match the caller",
                 )
+            )
+        if identity.session_id != ctx.task_context.session_id:
+            return ToolResult.from_operation(
+                _failure("INVOCATION_IDENTITY_INVALID", "Invocation session does not match the caller")
             )
         return await self._operation_registry.admit(
             self._operation_binding, dict(parameters), ctx.execution_context

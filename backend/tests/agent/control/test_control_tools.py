@@ -20,7 +20,7 @@ from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
 from magi.control.tools import EnterPlanModeTool, ExitPlanModeTool, TodoWriteTool
 from magi.bootstrap.tool_capabilities import _HostInteractionPort
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 class _RecordingBus:

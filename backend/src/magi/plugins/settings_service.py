@@ -14,7 +14,7 @@ from magi_plugin_sdk.runtime import (
     OperationSpec,
     PluginConnection,
 )
-from magi_plugin_sdk.tools import ToolExecutionContext
+from ..core.tool_context import ToolExecutionContext
 from .operations import PluginOperationRegistry
 from .operation_authorization import build_host_invocation
 from ..identity import CANONICAL_LOCAL_USER

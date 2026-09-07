@@ -22,7 +22,7 @@ from magi_plugin_sdk.image_generation import (
     ImageGenerationRequest,
     ImageGenerationResponse,
 )
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 import magi.tools.builtin.image_generation_tool as image_tool_module
 from magi.tools.builtin.image_generation_tool import ImageGenerationTool
 from magi.tools.schema import ToolErrorCode, ToolExecutionContext

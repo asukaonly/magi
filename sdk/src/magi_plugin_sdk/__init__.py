@@ -158,11 +158,15 @@ from .versioning import (
     parse_plugin_version,
 )
 from .capabilities import (
-    BackgroundPort,
-    DelegationEventPort,
-    ToolCapabilities,
-    TracePort,
+    AskUserRequest,
+    AskUserResult,
+    MemoryFinding,
+    MemorySearchRequest,
+    MemorySearchResult,
 )
+
+from .host_services import HostServices, RemoteHostServices
+from .source_watch import SourceEmitter
 
 __version__ = SDK_VERSION
 
@@ -278,10 +282,14 @@ __all__ = [
     "ToolResult",
     "ToolSchema",
     # Capabilities
-    "BackgroundPort",
-    "DelegationEventPort",
-    "ToolCapabilities",
-    "TracePort",
+    "AskUserRequest",
+    "AskUserResult",
+    "MemoryFinding",
+    "MemorySearchRequest",
+    "MemorySearchResult",
+    "HostServices",
+    "RemoteHostServices",
+    "SourceEmitter",
     # i18n
     "PluginI18n",
     "DEFAULT_LANGUAGE",

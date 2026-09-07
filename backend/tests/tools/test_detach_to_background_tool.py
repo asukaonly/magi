@@ -20,7 +20,7 @@ from magi.control.run_control import (
 )
 from magi.tools.builtin.detach_to_background_tool import DetachToBackgroundTool
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import DetachPort, ToolCapabilities
+from magi.core.tool_capabilities import DetachPort, ToolCapabilities
 from magi.agent.turn_input import UserTurnInput
 
 
@@ -257,7 +257,7 @@ async def test_orchestrator_bind_makes_detach_tool_flip_signal_and_exit(
         # Build a context with the HostDetachPort backed by the live signal.
         # We use a thin _FakeDetachPort that reads the signal via bind_detach_signal.
         from magi.control.run_control import current_detach_signal as _cds
-        from magi_plugin_sdk.capabilities import ToolCapabilities
+        from magi.core.tool_capabilities import ToolCapabilities
 
         class _SignalBridgePort:
             def is_available(self):

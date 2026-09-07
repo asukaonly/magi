@@ -23,7 +23,7 @@ class TestTraceQueryTool:
     async def test_tool_errors_when_trace_capability_unavailable(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
-        from magi_plugin_sdk.capabilities import ToolCapabilities
+        from magi.core.tool_capabilities import ToolCapabilities
 
         tool = TraceQueryTool()
         env = {"user_id": "local_user", "session_id": "session-1"}
@@ -48,7 +48,7 @@ class TestTraceQueryTool:
     async def test_tool_returns_recent_previous_turn_trace(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
-        from magi_plugin_sdk.capabilities import ToolCapabilities
+        from magi.core.tool_capabilities import ToolCapabilities
 
         class _FakeTraceService:
             def get_turn_activity_map(self, *, user_id: str, session_id: str):
@@ -113,7 +113,7 @@ class TestTraceQueryTool:
     async def test_tool_filters_named_tool(self):
         from magi.tools.builtin.trace_query_tool import TraceQueryTool
         from magi.tools.schema import ToolExecutionContext
-        from magi_plugin_sdk.capabilities import ToolCapabilities
+        from magi.core.tool_capabilities import ToolCapabilities
 
         class _FakeTraceService:
             def get_turn_activity_map(self, *, user_id: str, session_id: str):

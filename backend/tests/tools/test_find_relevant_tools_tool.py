@@ -8,7 +8,7 @@ import pytest
 def _make_context_with_memory_query(memory_query_port=None, *, env_vars=None):
     """Build a ToolExecutionContext with an injected memory_query port."""
     from magi.tools.schema import ToolExecutionContext
-    from magi_plugin_sdk.capabilities import ToolCapabilities
+    from magi.core.tool_capabilities import ToolCapabilities
 
     caps = ToolCapabilities(memory_query=memory_query_port)
     return ToolExecutionContext(

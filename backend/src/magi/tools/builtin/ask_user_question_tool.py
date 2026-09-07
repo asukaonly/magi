@@ -1,6 +1,6 @@
 """``ask_user_question`` — suspend the loop until the user replies.
 
-The tool is a thin shell over the SDK ``InteractionPort`` ask-user
+The tool is a thin shell over the internal ``InteractionPort`` ask-user
 capability (``ctx.capabilities.interaction``). It validates the request,
 delegates the entire control-protocol orchestration (opening the ask,
 emitting transcript/UI events, suspending on the interaction broker, and

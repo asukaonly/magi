@@ -56,6 +56,7 @@ contribution; `source_type` describes the semantic category of its records.
 | Memory projections | Declared source selectors with extraction/summary profiles; advisory structured results governed and persisted by the host. |
 | Settings | Manifest `settings_fields`, `activation_flow`, `settings_actions`, `settings_resources`, `settings_ui_blocks`; host-rendered connection setup and operation-backed actions. |
 | Resources | `ResourceRef` and scoped host create/read calls; bounded opaque references instead of arbitrary host file access. |
+| Host services | `ToolExecutionContext.host`: typed, invocation-bound `memory_search` and `ask_user` calls with explicit permission and bounded JSON results. |
 | Lifecycle | Connection enable/disable, revision-checked updates, readiness, disconnect and `clear_user_content`. |
 
 `get_sources()` returns `(source_id, source, SourceSpec)` tuples.
@@ -82,6 +83,83 @@ existing effect ledger.
 
 SDK contracts reject unknown fields and non-finite JSON numbers. Protocol 1,
 package-global account configuration and old source result types are unsupported.
+
+## Typed host services for tools
+
+Inside an external tool's `execute(parameters, context)`, `context.host` is a
+typed `HostServices` client. Its `permitted_methods` tuple describes methods
+available for this invocation. No method is granted by default. A tool must
+handle a missing client or missing method; capability declarations alone do
+not grant access. The host checks the current connection and stored install
+consent on every call and before releasing its result. Completion, cancellation,
+connection changes and revoked consent invalidate the invocation's access.
+
+```toml
+[[plugin.permissions.capabilities]]
+capability = "memory_search"
+scope = ["current_user"]
+optional = true
+reason = "Find relevant evidence in your memory during a tool call."
+
+[[plugin.permissions.capabilities]]
+capability = "interaction_ask"
+scope = ["current_session"]
+optional = true
+reason = "Ask a clarifying question in the current conversation."
+```
+
+The host must also inject the corresponding service into the original tool
+context. Both services currently require an active local-user session and turn.
+They are not available to plain `invoke_operation`, setup, provider or Source
+callbacks. Each tool call receives a separate lease. User/session/turn selectors
+and arbitrary host-service method names are not accepted in requests.
+
+```python
+from magi_plugin_sdk import MemorySearchRequest, ToolResult
+
+async def execute(self, parameters, context):
+    host = context.host
+    if host is None or "memory.search" not in host.permitted_methods:
+        return ToolResult(success=False, error="Memory search is unavailable")
+    result = await host.memory_search(
+        MemorySearchRequest(query=parameters["query"], limit=5)
+    )
+    return ToolResult(success=True, data=result.model_dump(mode="json"))
+```
+
+`MemorySearchRequest` accepts only `query` (1–2000 characters) and `limit`
+(1–10, default 5). The host runs its governed personal-memory retrieval and
+answer-facing projection. `MemorySearchResult` contains `status`, `summary`,
+bounded `findings`, `insufficient_evidence` and `truncated`. Findings preserve
+evidence and correction semantics where available; they do not contain raw
+records, internal traces, database handles or host file-path metadata. Search
+uses the host's current principal and conversation context; it does not grant a
+plugin access to other principals. Empty and incomplete evidence stays explicit.
+Text limits and a 128 KiB response budget mark omitted content as truncated.
+
+`await host.ask_user(AskUserRequest(question="...", options=["A", "B"]))`
+uses the host's existing ask-user flow. A request allows a 2000-character
+question, at most six distinct 200-character options, `allow_free_text`
+(default true), and `timeout_seconds` (1–300, default 60). The typed result
+distinguishes `user`, `cancelled` and `timeout` resolutions; user text is returned
+unchanged and responses over 16000 characters are rejected. Only user/model
+triggered tools with `effect_class="external_write"` and
+`effect_replay_policy="non_idempotent"` can receive this method. Background
+questions additionally require the host's existing background-question
+preference or explicit invocation flag. Set the tool timeout long enough for
+the question; the parent invocation deadline always wins.
+
+For example, declare `ToolSchema(..., timeout=90,
+effect_class="external_write", effect_replay_policy="non_idempotent")` for
+a tool using the default 60-second question. The default 30-second tool timeout
+is too short for that wait. Longer questions need a larger tool timeout that
+also covers the tool's other work.
+
+Rich memory, chat, trace, delegation, image-generation, background and detach
+ports belong to bundled host tools. They are absent from the public SDK. The
+public context carries the worker-bound typed `host` client and progress
+publisher; the host's cancellation tokens, traces, environment and service
+objects are not transmitted to external tools.
 
 ## Destructive-clear-safe channel ingress
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from magi_plugin_sdk.capabilities import AskOutcome, ToolCapabilities
+from magi.core.tool_capabilities import AskOutcome, ToolCapabilities
 
 _capabilities: ToolCapabilities | None = None
 

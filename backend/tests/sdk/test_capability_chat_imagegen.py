@@ -109,8 +109,8 @@ def test_chat_port_wired():
     reset_tool_capabilities()
 
 
-def test_chat_port_protocol_in_sdk():
-    from magi_plugin_sdk.capabilities import ChatPort
+def test_chat_port_protocol_is_host_owned():
+    from magi.core.tool_capabilities import ChatPort
     assert ChatPort is not None
 
 
@@ -133,6 +133,6 @@ def test_image_gen_port_wired():
     reset_tool_capabilities()
 
 
-def test_image_gen_port_protocol_in_sdk():
-    from magi_plugin_sdk.capabilities import ImageGenPort
+def test_image_gen_port_protocol_is_host_owned():
+    from magi.core.tool_capabilities import ImageGenPort
     assert ImageGenPort is not None

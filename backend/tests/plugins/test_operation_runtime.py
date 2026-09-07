@@ -12,7 +12,7 @@ from magi_plugin_sdk.runtime import (
     PluginConnection,
     ResourceRef,
 )
-from magi_plugin_sdk.tools import ToolExecutionContext
+from magi.core.tool_context import ToolExecutionContext
 from magi.agent.background import BackgroundTaskStore
 from magi.agent.execution.tool_invocation_service import (
     InvocationContext,

@@ -76,7 +76,7 @@ def test_memory_query_port_has_make_conversation_turn():
 
 def test_memory_query_port_type_annotation():
     """ToolCapabilities.memory_query type annotation must be MemoryQueryPort, not Any."""
-    from magi_plugin_sdk.capabilities import MemoryQueryPort, ToolCapabilities
+    from magi.core.tool_capabilities import MemoryQueryPort, ToolCapabilities
     import typing
 
     hints = typing.get_type_hints(ToolCapabilities)
@@ -90,12 +90,12 @@ def test_memory_query_port_type_annotation():
     )
 
 
-def test_memory_query_port_in_sdk_all():
-    """MemoryQueryPort must be exported from magi_plugin_sdk.capabilities.__all__."""
+def test_memory_query_port_is_internal_only():
+    """Rich query adapters must not be exposed to external plugins."""
     from magi_plugin_sdk import capabilities
 
-    assert "MemoryQueryPort" in capabilities.__all__, (
-        "MemoryQueryPort must appear in magi_plugin_sdk.capabilities.__all__"
+    assert "MemoryQueryPort" not in capabilities.__all__, (
+        "MemoryQueryPort must remain host-owned"
     )
 
 

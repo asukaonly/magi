@@ -32,7 +32,7 @@ from magi.memory.hybrid_retrieval.models import RetrievalConfig
 from magi.memory.hybrid_retrieval.service import HybridRetrievalService
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 CASES = json.loads((Path(__file__).parent / "fixtures/chinese_memory.json").read_text())["cases"]
 

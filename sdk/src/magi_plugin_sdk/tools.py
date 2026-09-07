@@ -10,11 +10,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, WithJsonSchema
 
 from .runtime import InvocationIdentity, OperationResult, PluginConnection, ResourceRef
+from .host_services import HostServices
 
 
 class ParameterType(str, Enum):
@@ -205,7 +206,9 @@ class ToolSchema(BaseModel):
 
 
 class ToolExecutionContext(BaseModel):
-    """Tool execution context."""
+    """Public tool context; the worker binds its invocation-scoped host client."""
+
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     agent_id: str
     invocation: InvocationIdentity | None = None
@@ -222,17 +225,10 @@ class ToolExecutionContext(BaseModel):
     enabled_features: List[str] = Field(
         default_factory=list, description="Enabled feature flags"
     )
-    cancellation: Any = Field(
-        default=None, description="Cooperative cancellation token"
-    )
-    trace_context: Any = Field(default=None, description="Runtime trace context")
-    # Any (not Optional[ToolCapabilities]) on purpose: the bundle carries
-    # Protocol-typed/adapter objects pydantic cannot build a schema for —
-    # typing it as the dataclass raises PydanticSchemaGenerationError even
-    # with arbitrary_types_allowed. Mirrors cancellation/trace_context above.
-    capabilities: Any = Field(
+    host: Annotated[HostServices | None, WithJsonSchema({"type": "null"})] = Field(
         default=None,
-        description="Host-injected capability ports (magi_plugin_sdk.capabilities.ToolCapabilities)",
+        exclude=True,
+        description="Worker-bound typed host client; never serialized",
     )
 
 

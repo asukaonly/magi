@@ -13,6 +13,7 @@ from magi_plugin_sdk.tools import ToolSchema as SdkToolSchema
 def test_backend_tool_contracts_reexport_sdk_symbols() -> None:
     assert BackendTool is SdkTool
     assert BackendToolSchema is SdkToolSchema
-    assert BackendToolExecutionContext is SdkToolExecutionContext
+    assert BackendToolExecutionContext is not SdkToolExecutionContext
+    assert issubclass(BackendToolExecutionContext, SdkToolExecutionContext)
     assert BackendToolResult is SdkToolResult
     assert BackendMultiProviderTool is SdkMultiProviderTool

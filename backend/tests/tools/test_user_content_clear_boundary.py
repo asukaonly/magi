@@ -98,9 +98,8 @@ class _NestedParentTool(Tool):
 
 def _context() -> ToolExecutionContext:
     return ToolExecutionContext(
-        user_id="user-1",
         agent_id="agent-1",
-        session_id="session-1",
+        env_vars={"user_id": "user-1", "session_id": "session-1"},
     )
 
 

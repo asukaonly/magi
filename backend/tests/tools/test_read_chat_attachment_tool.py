@@ -9,7 +9,7 @@ from magi.core.chat_assets.mutations import run_chat_asset_mutation
 from magi.tools.builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from magi.tools.schema import ToolExecutionContext
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 class _FakeChatPort:

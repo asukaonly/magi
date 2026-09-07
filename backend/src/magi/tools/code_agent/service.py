@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Optional
 
-from magi_plugin_sdk.capabilities import (
+from magi.core.tool_capabilities import (
     DelegationArtifactPort,
     DelegationEventPort,
 )

@@ -33,7 +33,7 @@ from magi.control.common import InteractionTimeoutError
 from magi.control.session_store import ControlSessionStore
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 import magi.control.common.events as control_events
 import magi.control.provider as control_provider

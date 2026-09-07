@@ -1,5 +1,5 @@
-def test_sdk_exposes_capabilities_container():
-    from magi_plugin_sdk.capabilities import ToolCapabilities
+def test_host_owns_capabilities_container():
+    from magi.core.tool_capabilities import ToolCapabilities
 
     caps = ToolCapabilities()
     assert caps.trace is None
@@ -7,8 +7,8 @@ def test_sdk_exposes_capabilities_container():
 
 
 def test_context_carries_capabilities():
-    from magi_plugin_sdk.capabilities import ToolCapabilities
-    from magi_plugin_sdk.tools import ToolExecutionContext
+    from magi.core.tool_capabilities import ToolCapabilities
+    from magi.core.tool_context import ToolExecutionContext
 
     caps = ToolCapabilities()
     ctx = ToolExecutionContext(agent_id="a", capabilities=caps)
@@ -16,7 +16,7 @@ def test_context_carries_capabilities():
 
 
 def test_context_capabilities_defaults_none():
-    from magi_plugin_sdk.tools import ToolExecutionContext
+    from magi.core.tool_context import ToolExecutionContext
 
     ctx = ToolExecutionContext(agent_id="a")
     assert ctx.capabilities is None
@@ -24,7 +24,7 @@ def test_context_capabilities_defaults_none():
 
 def test_host_builder_returns_capabilities():
     from magi.bootstrap.tool_capabilities import build_tool_capabilities, reset_tool_capabilities
-    from magi_plugin_sdk.capabilities import ToolCapabilities
+    from magi.core.tool_capabilities import ToolCapabilities
 
     reset_tool_capabilities()  # ensure clean state
     caps = build_tool_capabilities()

@@ -14,7 +14,7 @@ import aiosqlite
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> None:

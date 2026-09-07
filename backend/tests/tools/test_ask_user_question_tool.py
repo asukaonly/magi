@@ -16,7 +16,7 @@ from magi.agent.cancel import EventCancelToken
 from magi.tools.builtin.ask_user_question_tool import AskUserQuestionTool
 from magi.tools.registry import ToolRegistry
 from magi.tools.schema import ToolExecutionContext
-from magi_plugin_sdk.capabilities import AskOutcome, ToolCapabilities
+from magi.core.tool_capabilities import AskOutcome, ToolCapabilities
 
 
 class _FakeInteraction:

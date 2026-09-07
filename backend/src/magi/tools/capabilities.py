@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from magi_plugin_sdk.capabilities import ToolCapabilities
+from magi.core.tool_capabilities import ToolCapabilities
 
 
 ToolCapabilitiesProvider = Callable[[], ToolCapabilities]
@@ -29,6 +29,6 @@ def build_tool_capabilities() -> ToolCapabilities:
 
 
 def reset_tool_capabilities_provider() -> None:
-    """Restore the SDK-only default provider; intended for shutdown and tests."""
+    """Restore the empty host default provider; intended for shutdown and tests."""
     global _provider
     _provider = ToolCapabilities
