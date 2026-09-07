@@ -78,6 +78,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     configError,
     fetchConfig,
     saving,
+    autoStartSyncFailed,
     activeSection,
     getGroupExpanded,
     setGroupExpanded,
@@ -497,11 +498,11 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       {showSettingsFooter ? (
         <footer className="shrink-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] shadow-[inset_0_1px_0_hsl(var(--settings-subnav-border)/0.18)] backdrop-blur-sm">
           <div data-testid="settings-main-footer" className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
-            <p className={cn(
+            <p role={autoStartSyncFailed ? 'alert' : undefined} className={cn(
               'text-sm leading-6 transition-colors duration-200',
               settingsValidationMessage ? 'font-medium text-amber-700 dark:text-amber-300' : dirty ? 'text-primary font-medium' : 'text-muted-foreground'
             )}>
-              {settingsValidationMessage || (dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
+              {settingsValidationMessage || (autoStartSyncFailed ? t('settings.autoStartSyncFailed') : dirty ? t('settings.pendingChanges') : t('settings.allChangesSaved'))}
             </p>
             <div className="flex flex-wrap items-center gap-2.5">
               <Button
@@ -519,14 +520,14 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
                 type="button"
                 size="sm"
                 onClick={() => void handleSaveChanges()}
-                disabled={!dirty || saving || llmValidationIssues.length > 0 || Boolean(memoryL0ValidationIssue)}
+                disabled={(!dirty && !autoStartSyncFailed) || saving || llmValidationIssues.length > 0 || Boolean(memoryL0ValidationIssue)}
                 className={cn(
                   'h-9 rounded-lg px-4 transition-all duration-200 shadow-[0_8px_18px_hsl(var(--primary)/0.11)] hover:shadow-[0_10px_22px_hsl(var(--primary)/0.15)]',
                   dirty && 'animate-in pulse duration-300'
                 )}
               >
                 <Save className="mr-1.5 h-4 w-4" />
-                {saving ? t('settings.saving') : t('settings.actions.save')}
+                {saving ? t('settings.saving') : autoStartSyncFailed ? t('settings.retrySystemSettings') : t('settings.actions.save')}
               </Button>
             </div>
           </div>

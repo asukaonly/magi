@@ -725,6 +725,10 @@ Expected product behavior:
   remain unsaved and survive completion; Discard restores the confirmed baseline.
 - Enter-based submission in chat, persona preview and manual memory input respects
   IME composition. Confirming a candidate word never submits the unfinished input.
+- launch-at-login configuration and its system application are distinct outcomes.
+  Native errors or readback mismatches stay visible across Settings reopenings;
+  retry reapplies the confirmed preference without repeating an unchanged config
+  write. Discarding edits cannot claim a failed system operation has succeeded.
 - source and installed-plugin fetch failures have explicit retryable errors and preserve the last snapshot. Older responses and callbacks after unmount cannot overwrite newer state. Registry refresh failure remains visible separately from installed source availability.
 
 Tool-specific expectations:

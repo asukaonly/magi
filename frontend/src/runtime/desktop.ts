@@ -59,14 +59,17 @@ export async function syncAutoStartPreference(enabled: boolean): Promise<void> {
     return;
   }
   try {
-    const { enable, disable } = await import('@tauri-apps/plugin-autostart');
+    const { enable, disable, isEnabled } = await import('@tauri-apps/plugin-autostart');
     if (enabled) {
       await enable();
     } else {
       await disable();
     }
-  } catch {
-    // autostart plugin unavailable in dev mode
+    if (await isEnabled() !== enabled) throw new Error('System autostart state did not match the requested preference');
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
+  } catch (error) {
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: true });
+    throw error;
   }
 }
 
@@ -298,3 +301,4 @@ export async function syncWindowCaptionColor(): Promise<void> {
     // ignore; only supported on Windows 10 22H2+/11
   }
 }
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';

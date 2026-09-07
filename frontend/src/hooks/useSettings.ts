@@ -12,6 +12,7 @@ import { type PluginPackageState, type PluginRegistryEntry } from '@/api/modules
 import { type ToolConfig } from '@/api/modules/tools';
 import { type SourceStatusItem } from '@/api/modules/sources';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 import type {
   MemoryToggleFieldId,
   SettingsPageHandle,
@@ -35,6 +36,7 @@ export interface UseSettingsReturn {
   configError: string | null;
   fetchConfig: () => Promise<void>;
   saving: boolean;
+  autoStartSyncFailed: boolean;
 
   // Navigation
   activeSection: string;
@@ -116,6 +118,7 @@ export interface UseSettingsReturn {
 // ============================================================================
 
 export function useSettings(): UseSettingsReturn {
+  const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const themeMode = useThemeStore((state) => state.mode);
   const setThemeMode = useThemeStore((state) => state.setMode);
 
@@ -309,6 +312,7 @@ export function useSettings(): UseSettingsReturn {
     configError,
     fetchConfig,
     saving,
+    autoStartSyncFailed,
 
     // Navigation
     activeSection,

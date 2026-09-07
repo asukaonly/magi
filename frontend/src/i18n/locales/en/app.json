@@ -1489,6 +1489,8 @@
     "desktopNotificationsLabel": "System notifications for new messages",
     "desktopNotificationPreviewsLabel": "Show message content in notifications",
     "startupSettings": "Startup",
+    "autoStartSyncFailed": "Configuration is saved, but launch at login could not be applied. Retry system settings.",
+    "retrySystemSettings": "Retry system settings",
     "autoStartLabel": "Launch at login",
     "startMinimizedLabel": "Start minimized to tray",
     "diagnostics": {

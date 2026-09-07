@@ -4,11 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // declaration; runtime/desktop now statically imports these modules, so
 // the mock factory runs during the test file's module-evaluation and
 // would otherwise hit a TDZ on invokeMock/listenMock.
-const { invokeMock, listenMock, dialogOpenMock } = vi.hoisted(() => ({
+const { invokeMock, listenMock, dialogOpenMock, autostart } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   listenMock: vi.fn(),
   dialogOpenMock: vi.fn(),
+  autostart: { enable: vi.fn(), disable: vi.fn(), isEnabled: vi.fn() },
 }));
+vi.mock('@tauri-apps/plugin-autostart', () => autostart);
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: invokeMock,
@@ -34,6 +37,7 @@ import {
   registerDesktopQuitHandler,
   readPendingFullDataClear,
   syncCloseToTrayPreference,
+  syncAutoStartPreference,
   syncOnboardingCompleted,
 } from '@/runtime/desktop';
 
@@ -42,6 +46,8 @@ describe('desktop runtime bridge', () => {
     invokeMock.mockReset();
     listenMock.mockReset();
     dialogOpenMock.mockReset();
+    Object.values(autostart).forEach(mock => mock.mockReset());
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
     delete (window as Window & { __TAURI__?: object }).__TAURI__;
     delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
   });
@@ -88,6 +94,22 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenNthCalledWith(1, 'set_close_to_tray_enabled', { enabled: false });
     expect(invokeMock).toHaveBeenNthCalledWith(2, 'confirm_exit_app');
     expect(invokeMock).toHaveBeenNthCalledWith(3, 'cancel_exit_request');
+  });
+
+  it('propagates autostart failures and clears pending status only after verified retry', async () => {
+    Object.assign(window, { __TAURI_INTERNALS__: {} });
+    autostart.enable.mockRejectedValueOnce(new Error('System denied autostart'));
+    await expect(syncAutoStartPreference(true)).rejects.toThrow('System denied autostart');
+    expect(useDesktopPreferencesStore.getState().autoStartSyncFailed).toBe(true);
+    autostart.isEnabled.mockResolvedValueOnce(false);
+    await expect(syncAutoStartPreference(true)).rejects.toThrow('System autostart state did not match');
+    expect(useDesktopPreferencesStore.getState().autoStartSyncFailed).toBe(true);
+    autostart.isEnabled.mockResolvedValueOnce(true);
+    await expect(syncAutoStartPreference(true)).resolves.toBeUndefined();
+    expect(useDesktopPreferencesStore.getState().autoStartSyncFailed).toBe(false);
+    autostart.isEnabled.mockResolvedValueOnce(false);
+    await syncAutoStartPreference(false);
+    expect(autostart.disable).toHaveBeenCalledOnce();
   });
 
   it('forwards the onboarding completion state to the desktop shell', async () => {

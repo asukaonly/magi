@@ -115,7 +115,11 @@ const RuntimeBootstrap: React.FC = () => {
         }
         await syncCloseToTrayPreference(prefs?.close_to_tray_enabled ?? true);
         await syncOnboardingCompleted(prefs?.onboarding_completed ?? false);
-        await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
+        try {
+          await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
+        } catch {
+          toast.error(i18n.t('settings.autoStartSyncFailed', { ns: 'app' }));
+        }
         await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
         await syncSkipQuitConfirmationPreference(prefs?.skip_quit_confirmation ?? false);
         syncDesktopNotificationPreferences(prefs);

@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preflight: vi.fn(), controlUpdate: vi.fn(), toolList: vi.fn(), toolUpdate: vi.fn(), t: (key: string) => key }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preflight: vi.fn(), autoStart: vi.fn(), controlUpdate: vi.fn(), toolList: vi.fn(), toolUpdate: vi.fn(), t: (key: string) => key }));
 vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: mocks.t }) }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
 vi.mock('@/api/modules/config', async original => ({ ...await original<typeof import('@/api/modules/config')>(), configApi: { get: mocks.get, update: mocks.update, embeddingPreflight: mocks.preflight } }));
@@ -11,6 +11,10 @@ vi.mock('@/api/modules/plugins', () => ({ pluginsApi: { list: async () => ({ plu
 vi.mock('@/api/modules/sources', () => ({ sourcesApi: { getStatus: async () => ({ sources: [] }) } }));
 vi.mock('@/api/modules/tools', () => ({ toolsApi: { listWithConfig: mocks.toolList, updateToolConfig: mocks.toolUpdate } }));
 
+vi.mock('@/runtime/desktop', async original => ({ ...await original<typeof import('@/runtime/desktop')>(), syncAutoStartPreference: mocks.autoStart }));
+
+import { toast } from 'sonner';
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 import { useSettings } from '@/hooks/useSettings';
 import fixtures from '../../../contracts/api/frontend-config-examples.json';
 import { useThemeStore } from '@/stores/theme';
@@ -18,6 +22,7 @@ import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 
 beforeEach(() => {
   vi.resetAllMocks();
+  useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
   useThemeStore.getState().setMode('light');
   mocks.toolList.mockResolvedValue({ tools: [] });
   mocks.get.mockResolvedValue({ success: true, data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
@@ -119,4 +124,32 @@ it('preserves edits made during save and discards to the confirmed response', as
   await act(() => result.current.handleDiscardChanges());
   expect(result.current.draftConfig.agent.name).toBe('Submitted');
   expect(result.current.dirty).toBe(false);
+});
+
+it('keeps native application failure visible and retries without rewriting confirmed config', async () => {
+  mocks.update.mockImplementation(async data => ({ success: true, data }));
+  mocks.autoStart.mockImplementationOnce(async () => {
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: true });
+    throw new Error('Native failure');
+  }).mockImplementationOnce(async () => {
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
+  });
+  const { result, unmount } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => result.current.patchDraftConfig(draft => { draft.preferences.auto_start_enabled = true; }));
+  await act(() => result.current.handleSaveChanges());
+  expect(result.current.autoStartSyncFailed).toBe(true);
+  expect(result.current.dirty).toBe(false);
+  expect(toast.success).not.toHaveBeenCalled();
+  expect(toast.error).toHaveBeenCalledWith('settings.autoStartSyncFailed');
+  unmount();
+  mocks.get.mockResolvedValue({ success: true, data: mocks.update.mock.calls[0][0] });
+  const reopened = renderHook(useSettings);
+  await waitFor(() => expect(reopened.result.current.loading).toBe(false));
+  expect(reopened.result.current.autoStartSyncFailed).toBe(true);
+  await act(() => reopened.result.current.handleSaveChanges());
+  expect(mocks.update).toHaveBeenCalledOnce();
+  expect(mocks.autoStart).toHaveBeenCalledTimes(2);
+  expect(reopened.result.current.autoStartSyncFailed).toBe(false);
+  expect(toast.success).toHaveBeenCalledWith('settings.saveSuccess');
 });

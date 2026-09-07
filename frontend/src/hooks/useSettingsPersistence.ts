@@ -9,6 +9,7 @@ import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import { syncAutoStartPreference, syncCloseToTrayPreference, syncSkipQuitConfirmationPreference, syncStartMinimizedPreference } from '@/runtime/desktop';
 import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notifications';
 import type { ThemeMode, ThemeState } from '@/stores/theme';
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 import type { ToolDraftMap } from '@/types/settings';
 import {
   acceptSavedDraft,
@@ -83,6 +84,7 @@ export function useSettingsPersistence({
   loadTools,
 }: UseSettingsPersistenceParams): UseSettingsPersistenceReturn {
   const { t } = useTranslation('app');
+  const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const currentThemeRef = useRef(draftThemeMode);
@@ -177,6 +179,7 @@ export function useSettingsPersistence({
       const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
       const themeDirty = savedThemeMode !== draftThemeMode;
+      let autoStartApplied = true;
       let persistedConfig = structuredClone(draftConfig);
 
       if (configDirty) {
@@ -201,13 +204,21 @@ export function useSettingsPersistence({
         }
         const response = await configApi.update(draftConfig);
         persistedConfig = structuredClone(requireConfiguration(response));
+        setSavedConfig(structuredClone(persistedConfig));
+        setDraftConfig(current => acceptSavedDraft(current, draftConfig, persistedConfig));
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
-        await syncAutoStartPreference(persistedConfig.preferences.auto_start_enabled);
         await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);
         await syncSkipQuitConfirmationPreference(persistedConfig.preferences.skip_quit_confirmation);
         syncDesktopNotificationPreferences(persistedConfig.preferences);
-        setSavedConfig(structuredClone(persistedConfig));
-        setDraftConfig(current => acceptSavedDraft(current, draftConfig, persistedConfig));
+      }
+
+      if (configDirty || autoStartSyncFailed) {
+        try {
+          await syncAutoStartPreference(persistedConfig.preferences.auto_start_enabled);
+        } catch {
+          autoStartApplied = false;
+          toast.error(t('settings.autoStartSyncFailed'));
+        }
       }
 
       if (controlDirty && draftControlSettings) {
@@ -256,7 +267,7 @@ export function useSettingsPersistence({
         loadTools({ silent: true }),
       ]);
 
-      toast.success(t('settings.saveSuccess'));
+      if (autoStartApplied) toast.success(t('settings.saveSuccess'));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'unknown';
       toast.error(t('settings.saveFailed', { message }));
@@ -265,6 +276,7 @@ export function useSettingsPersistence({
       setSaving(false);
     }
   }, [
+    autoStartSyncFailed,
     t,
     savedConfig,
     setSavedConfig,

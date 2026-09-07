@@ -14,6 +14,7 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { sourcesApi } from '@/api/modules/sources';
 import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
+import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 
 const {
   syncCloseToTrayPreferenceMock,
@@ -689,6 +690,7 @@ const skillsFixture = [
 
 describe('settings page draft saving', () => {
   beforeEach(() => {
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
     vi.clearAllMocks();
     vi.spyOn(XMLHttpRequest.prototype, 'open');
     llmFormMock.mockReset();
@@ -812,6 +814,22 @@ describe('settings page draft saving', () => {
       tool.enabled = updates.enabled ?? tool.enabled;
       return tool;
     });
+  });
+
+  it('offers a system retry without unsaved edits or an extra configuration write', async () => {
+    useDesktopPreferencesStore.setState({ autoStartSyncFailed: true });
+    syncAutoStartPreferenceMock.mockImplementationOnce(async () => {
+      useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
+    });
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    const retry = await screen.findByRole('button', { name: 'settings.retrySystemSettings' });
+    expect(retry).toBeEnabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('settings.autoStartSyncFailed');
+    await user.click(retry);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'settings.actions.save' })).toBeDisabled());
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(syncAutoStartPreferenceMock).toHaveBeenCalledOnce();
   });
 
   afterEach(() => {
