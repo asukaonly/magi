@@ -46,8 +46,8 @@ contribution; `source_type` describes the semantic category of its records.
 
 | Surface | Contract and purpose |
 | --- | --- |
-| Operations and tools | `OperationSpec`, `InvocationIdentity`, `OperationResult`; schemas, effects, cancellation, idempotency and bounded output. Existing `BaseTool` declarations normalize into the same operation execution path. |
-| Sources | `Source`, `SourceSyncContext`, `SourceChangeBatch`, `SourceChange`, `SourceSpec`; stable connection-local object IDs, revisions, checkpoints and evidence. |
+| Operations and tools | `OperationSpec`, `InvocationIdentity`, `OperationResult`; schemas, effects, cancellation, idempotency and bounded output. `Tool` declarations normalize into the same operation execution path. |
+| Sources | `Source`, `SourceSyncContext`, `SourceChangeBatch`, `SourceChange`, `SourceSpec`, `SourceEmitter`; pull batches and persistent watches with stable connection-local object IDs, revisions, checkpoints and evidence. |
 | Historical imports | `HistoryImporter`, `HistoryImporterSpec`; connection-scoped file or account history transformed through host ingestion. |
 | Channels | `Channel`, host-injected session mapping, message dispatch and inbound admission contracts. |
 | Providers | Web search, model generation/streaming and external agent contracts; host-owned provider selection. |
@@ -71,8 +71,11 @@ explicitly set `requires_enabled = false`; they do not expose ordinary tools.
 External code runs in an isolated Python worker importing only the SDK, that
 package and its exact declared libraries. Framed, typed RPC uses no pickle.
 Host callbacks validate the connection, capability grants and resource scope;
-returned declarations are not grants. Source emission and resources are accessed
-through `magi_plugin_sdk.worker.get_host().call(...)` and remain host-validated.
+returned declarations are not grants. Persistent Sources receive a typed
+`SourceEmitter` in `Source.watch(context, emitter)`. Its emit/create/read calls
+remain valid until that subscription is revoked. One-shot source callbacks can
+use `magi_plugin_sdk.worker.get_host().call(...)` only while their host invocation
+is active. Source identity and connection scopes always remain host-validated.
 
 `trusted_process` requires explicit package trust and runs with the current
 user's OS access. Process separation is not an OS sandbox. `restricted_process` uses

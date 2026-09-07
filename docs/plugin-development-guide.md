@@ -40,9 +40,11 @@ This keeps plugin code portable when only `magi-plugin-sdk` is installed.
 
 Use only `magi_plugin_sdk` in an external plugin. The host backend is not
 installed in the plugin worker and is not an authoring dependency. The current
-contract is SDK `0.2.0`, protocol `2`. This Source naming change is part of
-the unreleased contract: it adds no version bump, old-name aliases, or
-data migration.
+contract is SDK `0.2.0`, protocol `2`. The Source naming and host-service
+boundaries are part of this unreleased contract. There are no old-name aliases,
+protocol-1 branches or historical data migrations. Both host and worker compare
+`min_sdk_version` numerically and still require exact SDK agreement with each
+other at handshake.
 
 ## Authoring Surface
 
@@ -60,7 +62,12 @@ HOME or a package name. Never read another connection's directory.
 
 The install manifest must describe `settings_fields`, `activation_flow`,
 `settings_actions`, `settings_resources` and `settings_ui_blocks` before code
-runs. Keep schema declarations consistent with the implementation. A setup
+runs. These manifest sections are the static source of truth. Runtime settings
+views copy them instead of redefining fields, actions or activation flows in
+Python. In the companion repository, `scripts/export-settings-fields.py` exports
+validated JSON without importing plugins or touching manifests; use `--check`
+for validation. The output is independent of OS support, local files and enabled
+settings. A setup
 action or resource must explicitly set `requires_enabled=false` to be available
 on a disabled connection after package consent. This permits OAuth/QR setup
 without starting collection or messaging.
@@ -514,15 +521,7 @@ class ExamplePlugin(Plugin):
         return ExampleChannel()
 
     def get_channel_fields(self) -> list[ExtensionFieldSpec]:
-        return [
-            ExtensionFieldSpec(
-                key="channels.example.enabled",
-                type="switch",
-                label="Enabled",
-                default=True,
-                surface="extensions",
-            )
-        ]
+        return [field.model_copy(deep=True) for field in self.manifest.settings_fields]
 ```
 
 Guidelines:
@@ -555,7 +554,18 @@ Guidelines:
 
 Use settings actions when setup requires an imperative provider interaction that
 plain fields cannot model, such as QR-code login, device-code authorization, or
-connection testing.
+connection testing. Declare the action before implementing its handler:
+
+```toml
+[[plugin.settings_actions]]
+action_id = "qr_login"
+label = "Scan Login"
+button_label = "Start Login"
+presentation = "qr_code"
+contribution_type = "channel"
+persist_settings_on_success = true
+requires_enabled = false
+```
 
 Example:
 
@@ -565,16 +575,7 @@ from magi_plugin_sdk import Plugin, PluginSettingsActionResult, PluginSettingsAc
 
 class ExamplePlugin(Plugin):
     def get_settings_actions(self) -> list[PluginSettingsActionSpec]:
-        return [
-            PluginSettingsActionSpec(
-                action_id="qr_login",
-                label="Scan Login",
-                button_label="Start Login",
-                presentation="qr_code",
-                contribution_type="channel",
-                persist_settings_on_success=True,
-            )
-        ]
+        return [action.model_copy(deep=True) for action in self.manifest.settings_actions]
 
     async def start_settings_action(self, action_id, *, session_id, field_values=None):
         if action_id != "qr_login":
@@ -799,13 +800,8 @@ class ExamplePlugin(Plugin):
             surface="timeline",
             sync_mode="interval",
             fields=[
-                ExtensionFieldSpec(
-                    key="sources.example_source.enabled",
-                    type="switch",
-                    label="Enabled",
-                    default=True,
-                    surface="timeline",
-                ),
+                field.model_copy(deep=True) for field in self.manifest.settings_fields
+                if field.key.startswith("sources.example_source.")
             ],
             metadata={
                 "source_type": "example_source",
@@ -839,6 +835,46 @@ A pull-capable Source implements the SDK `PullSource` protocol: set
 item limit, scoped runtime paths, and plugin settings. Return versioned
 changes for that connection and source type; only the host acknowledges
 cursor progress after durable ingestion.
+
+
+### Persistent Watch Collection
+
+Set `supports_watch_mode = True`, expose `sync_mode = "watch"` in the manifest,
+and implement a coroutine that runs until cancellation:
+
+```python
+from magi_plugin_sdk import SourceEmitter, SourceChange, SourceSyncContext
+
+async def watch(self, context: SourceSyncContext, emitter: SourceEmitter) -> None:
+    async with self.reader.subscribe() as changes:
+        async for item in changes:
+            await emitter.emit(SourceChange(
+                object_id=self.source_item_identity(item),
+                version=self.source_item_version_fingerprint(item),
+                payload=item,
+            ))
+```
+
+The host starts one subscription for each enabled connection/source. It stops
+the old subscription before settings replacement, disable, clear or shutdown.
+Use `finally` or an async context manager to release external watchers and let
+cancellation propagate. Returning or raising ends the watcher and fails its
+connection. A watcher may emit after its startup request returns; an arbitrary
+background task spawned by `collect_items()` cannot use that completed request's
+authority. `emitter.create_resource(content, media_type=...)` returns a scoped
+`ResourceRef`, and `read_resource(reference)` reads owned content. The host
+chooses the source and connection; neither can be supplied in emitter calls.
+
+Watch-only sources do not need `supports_pull_sync`. Sources advertising no
+watch support retain polling fallback only when pull sync is supported. Full
+content clear pauses watches before acquiring exclusive plugin admission and
+resumes only after successful completion; a failed clear leaves them paused.
+
+For the default `source_item_identity`, declare nonempty `update_key_fields`.
+The SDK hashes canonical JSON with field names and value types; missing or empty
+key values fail. If the upstream service has a stable opaque ID, an explicit
+`source_item_identity()` override may return it. A mutable version or display
+name should not become the object's identity.
 
 ### Source Hooks
 
@@ -1067,27 +1103,20 @@ Typical surfaces:
 - `tools`
   reserved for tool-facing settings surfaces
 
-Example field list:
+Declare the field in `plugin.toml`; Python runtime views select these fields
+from `self.manifest.settings_fields`.
 
-```python
-from magi.plugins import ExtensionFieldOption, ExtensionFieldSpec
-
-fields = [
-    ExtensionFieldSpec(
-        key="sources.example_source.sync_mode",
-        type="select",
-        label="Sync Mode",
-        description="How synchronization is performed.",
-        default="manual",
-        options=[
-            ExtensionFieldOption(label="Manual", value="manual"),
-            ExtensionFieldOption(label="Interval", value="interval"),
-        ],
-        section="sync",
-        surface="timeline",
-        order=10,
-    ),
-]
+```toml
+[[plugin.settings_fields]]
+key = "sources.example_source.sync_mode"
+type = "select"
+label = "Sync Mode"
+description = "How synchronization is performed."
+default = "manual"
+section = "sync"
+surface = "timeline"
+order = 10
+options = [{ label = "Manual", value = "manual" }, { label = "Interval", value = "interval" }]
 ```
 
 ## Reading Persisted Settings
