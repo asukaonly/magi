@@ -28,7 +28,10 @@ def _make_hanging_cli(directory: Path, binary_name: str) -> Path:
         "import os\n"
         "import time\n"
         "from pathlib import Path\n"
-        "Path(os.environ['CODE_AGENT_TEST_PID_FILE']).write_text(str(os.getpid()))\n"
+        "pid_file = Path(os.environ['CODE_AGENT_TEST_PID_FILE'])\n"
+        "pending_pid = pid_file.with_suffix('.pending')\n"
+        "pending_pid.write_text(str(os.getpid()))\n"
+        "pending_pid.replace(pid_file)\n"
         "while True:\n"
         "    time.sleep(60)\n",
         encoding="utf-8",
