@@ -1614,3 +1614,7 @@ channel, lifecycle or memory-projection ownership.
 - [Product Configuration Guide](./product-configuration-guide.md)
 - [Plugin Development Guide](./plugin-development-guide.md)
 - [Memory System Design](./memory-system-design.md)
+
+Managed subprocess orphan cleanup requires a live matching process identity.
+If the operating system cannot provide that identity, the SDK keeps the registry
+entry for a later check and does not terminate the process.

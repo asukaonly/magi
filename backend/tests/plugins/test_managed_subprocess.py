@@ -287,3 +287,18 @@ def test_pid_alive_for_self() -> None:
 def test_pid_alive_for_dead_pid() -> None:
     # 2**30 is well above the max PID on macOS/Linux
     assert _pid_alive(2**30) is False
+
+
+def test_cleanup_orphans_retains_unverifiable_process(registry_path, monkeypatch):
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        entry = RegistryEntry(pid=proc.pid, label="unknown", argv0=sys.executable,
+                              parent_pid=2**30, started_at=time.time())
+        _save_registry(registry_path, [entry])
+        monkeypatch.setattr("magi_plugin_sdk.subprocess._argv0_of", lambda _pid: None)
+        assert ManagedSubprocess.cleanup_orphans(registry_path=registry_path) == 0
+        assert proc.poll() is None
+        assert [row.pid for row in _load_registry(registry_path)] == [proc.pid]
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)

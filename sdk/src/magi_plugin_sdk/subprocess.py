@@ -1286,17 +1286,21 @@ class ManagedSubprocess:
             # the current comm, treat it as PID reuse and skip the kill.
             current_comm = _argv0_of(entry.pid)
             expected_comm = Path(entry.argv0).name
-            if current_comm is not None:
-                lhs = current_comm.lower()
-                rhs = expected_comm.lower()
-                if rhs not in lhs and lhs.rsplit("/", 1)[-1] not in rhs:
-                    logger.info(
-                        "managed_subprocess.skip_pid_reused pid=%d expected=%s found=%s",
-                        entry.pid,
-                        expected_comm,
-                        current_comm,
-                    )
-                    continue
+            if not current_comm or not expected_comm:
+                # Missing process-inspection permission is not proof of ownership.
+                survivors.append(entry)
+                logger.info("managed_subprocess.skip_unverified_identity pid=%d", entry.pid)
+                continue
+            lhs = current_comm.lower()
+            rhs = expected_comm.lower()
+            if rhs not in lhs and lhs.rsplit("/", 1)[-1] not in rhs:
+                logger.info(
+                    "managed_subprocess.skip_pid_reused pid=%d expected=%s found=%s",
+                    entry.pid,
+                    expected_comm,
+                    current_comm,
+                )
+                continue
 
             # It's an orphan. Ask the platform to terminate the full tree,
             # then force it if the process remains alive.
