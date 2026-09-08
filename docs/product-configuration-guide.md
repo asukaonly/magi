@@ -1045,3 +1045,11 @@ Layer reads retain their last submitted filters and page; summary and pending
 feeds retain the loaded depth. A failed background read keeps the confirmed
 snapshot. Corrections and open editors stay mounted. Explicit recall queries,
 content generation, and draft saves are not replayed by read reconciliation.
+
+Installed packages, available source catalogs, plugin connections, and source
+views reconcile center changes without resetting open editors. Background read
+failures keep the mounted settings view. Source detail feeds retain their loaded
+depth. Source-setting drafts capture the connection revision at the first edit;
+saving cannot adopt a newer revision fetched afterward. Conflicts retain the
+draft and provide an explicit reload action. Successful own saves advance the
+baseline for any newer edits still pending on the same device.

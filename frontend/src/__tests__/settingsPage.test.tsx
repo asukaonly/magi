@@ -2046,6 +2046,29 @@ describe('settings page draft saving', () => {
     expect(configApi.update).not.toHaveBeenCalled();
   });
 
+  it('does not rebase a source draft onto a newer connection at save time', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-photo_library'));
+    const panel = await screen.findByTestId('timeline-source-detail-photo_library');
+    fireEvent.change(within(panel).getByLabelText('Sync Interval (minutes)'), { target: { value: '75' } });
+    vi.mocked(pluginsApi.getConnection).mockResolvedValue({
+      plugin_id: 'photo-library', connection_id: 'photo-account', display_name: 'Photos',
+      enabled: true, revision: 8, credential_refs: {}, readiness: [], settings: {},
+    });
+    await user.click(within(panel).getByRole('button', { name: 'plugins.connections.save' }));
+    await within(panel).findByText('plugins.connections.conflict');
+    expect(pluginsApi.updateConnection).not.toHaveBeenCalled();
+    expect(within(panel).getByLabelText('Sync Interval (minutes)')).toHaveValue(75);
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [{
+      ...timelineSourceFixture, connection_revision: 8,
+      current_settings: { ...timelineSourceFixture.current_settings, 'sources.photo_library.sync_interval_minutes': 90 },
+    }] } as any);
+    await user.click(within(panel).getByRole('button', { name: 'plugins.connections.reloadEditor' }));
+    await waitFor(() => expect(screen.getByLabelText('Sync Interval (minutes)')).toHaveValue(90));
+  });
+
   it('keeps drafts isolated between two accounts of the same package', async () => {
     const user = userEvent.setup();
     vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [
@@ -2072,6 +2095,7 @@ describe('settings page draft saving', () => {
 
   it('toggles one source flag while retaining sibling sources and connection enablement', async () => {
     const user = userEvent.setup();
+    vi.mocked(sourcesApi.getStatus).mockResolvedValue({ sources: [{ ...timelineSourceFixture, connection_revision: 8 }] } as any);
     vi.mocked(pluginsApi.getConnection).mockResolvedValue({
       plugin_id: 'photo-library', connection_id: 'photo-account', display_name: 'Photos',
       enabled: true, revision: 8, credential_refs: {}, readiness: [],

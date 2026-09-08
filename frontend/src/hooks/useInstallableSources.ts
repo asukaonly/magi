@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 /**
  * Lists the plugins the backend can surface in the empty-state grid: the union
  * of locally-installed sources and registry-available plugins that could fill a
@@ -21,31 +23,37 @@ export function useInstallableSources(enabled = true) {
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const beginRead = useRequestOwner(String(enabled));
+  const load = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('catalog');
+    if (!silent) { setLoading(true); setError(null); }
     try {
       const result = await listInstallable();
+      if (!isCurrent()) return;
+      setError(null);
       setItems(result.items);
       setCatalogMode(result.catalog_mode);
     } catch (caught) {
-      setItems([]);
-      setCatalogMode(null);
-      setError(
+      if (!isCurrent()) return;
+      if (!silent) setError(
         caught instanceof Error
           ? caught
           : new Error("Failed to load installable sources"),
       );
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [beginRead]);
+
+  const refresh = useCallback(() => load(), [load]);
 
   useEffect(() => {
     if (enabled) {
       void refresh();
     }
   }, [enabled, refresh]);
+
+  useCenterRefresh(() => load(true), enabled);
 
   return { items, catalogMode, loading, error, refresh };
 }

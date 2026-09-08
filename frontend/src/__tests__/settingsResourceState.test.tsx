@@ -1,5 +1,6 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { APP_EVENTS } from '@/constants/events';
 import { useSettingsPluginsTimeline } from '@/hooks/useSettingsPluginsTimeline';
 import { parsePluginsList } from '@/api/plugin-contract';
 import fixtures from '../../../contracts/api/frontend-plugins-examples.json';
@@ -52,4 +53,19 @@ describe('settings resource request ownership', () => {
     expect(result.current.timelineStatusesError).toBeNull();
     expect(result.current.timelineStatusesLoading).toBe(false);
   });
+});
+
+it('keeps mounted plugin editors usable when a background snapshot read fails', async () => {
+  const packages = parsePluginsList(fixtures.list);
+  list.mockResolvedValueOnce(packages).mockRejectedValue(new Error('Disconnected'));
+  getStatus.mockResolvedValueOnce({ sources: [] }).mockRejectedValue(new Error('Disconnected'));
+  getRegistry.mockRejectedValue(new Error('Disconnected'));
+  const { result } = renderHook(useSettingsPluginsTimeline);
+  await act(() => result.current.loadPlugins());
+  await act(() => result.current.fetchTimelineStatuses());
+  act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(2), { timeout: 3000 });
+  expect(result.current.plugins).toEqual(packages.plugins);
+  expect(result.current.pluginsError).toBeNull();
+  expect(result.current.timelineStatusesError).toBeNull();
 });

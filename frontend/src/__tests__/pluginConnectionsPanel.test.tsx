@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/api/modules/plugins', () => ({ pluginsApi: mocks }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
+import { APP_EVENTS } from '@/constants/events';
 import { PluginConnectionsPanel } from '@/components/plugins/PluginConnectionsPanel';
 import type { ExtensionFieldSpec, PluginConnection } from '@/api/modules/plugins';
 import fixtures from '../../../contracts/api/frontend-plugins-examples.json';
@@ -138,6 +139,21 @@ describe('PluginConnectionsPanel', () => {
     expect(mocks.createConnection).toHaveBeenCalledWith('example', {
       display_name: 'Personal', settings: { directory: '/personal' }, credentials: {}, enabled: false,
     });
+  });
+
+  it('retains an open draft when another client edits the same connection', async () => {
+    const user = userEvent.setup();
+    render(<PluginConnectionsPanel pluginId="example" fields={fields} canEnable />);
+    const row = (await screen.findByText('Home')).closest('li')!;
+    await user.click(within(row).getByRole('button', { name: 'plugins.connections.edit' }));
+    const dialog = screen.getByRole('dialog');
+    await user.clear(within(dialog).getByLabelText(/Directory/));
+    await user.type(within(dialog).getByLabelText(/Directory/), '/local-draft');
+    mocks.listConnections.mockResolvedValue([{ ...connection('home', 'Home'), revision: 5, settings: { directory: '/remote' } }]);
+    act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+    await within(dialog).findByRole('button', { name: 'plugins.connections.reloadEditor' }, { timeout: 3000 });
+    expect(within(dialog).getByLabelText(/Directory/)).toHaveValue('/local-draft');
+    expect(mocks.updateConnection).not.toHaveBeenCalled();
   });
 
   it('preserves a conflicted draft until an explicit reload', async () => {

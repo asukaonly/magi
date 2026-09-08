@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { connectionInput, readConnectionSetting, writeConnectionSetting } from '@/utils/plugin-connection-settings';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -56,16 +57,15 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
   const currentPlugin = useRef(pluginId);
   currentPlugin.current = pluginId;
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (silent = false) => {
     const generation = ++requestGeneration.current;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const result = await pluginsApi.listConnections(pluginId);
       if (generation === requestGeneration.current) setConnections(result);
     } catch {
       if (generation === requestGeneration.current) {
-        setConnections([]);
-        setError('loadFailed');
+        if (!silent) setError('loadFailed');
       }
     } finally {
       if (generation === requestGeneration.current) setLoading(false);
@@ -81,6 +81,8 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
     void refresh();
     return () => { requestGeneration.current += 1; };
   }, [refresh]);
+
+  useCenterRefresh(() => refresh(true));
 
   const mutate = async (operation: () => Promise<unknown>, onSuccess?: () => void) => {
     if (busyRef.current) return;
@@ -148,7 +150,7 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
   const normalFields = fields.filter((field) => field.type !== 'secret');
   const secretFields = fields.filter((field) => field.type === 'secret');
   const latestEditor = editor?.connection ? connections.find((item) => item.connection_id === editor.connection!.connection_id) : null;
-  const editorConflicted = !!editor?.connection && !!latestEditor && latestEditor.revision !== editor.connection.revision;
+  const editorConflicted = !!editor?.connection && (!latestEditor || latestEditor.revision !== editor.connection.revision);
   const selectedConnection = connections.find((connection) => connection.connection_id === (selectedConnectionId === undefined ? localSelection : selectedConnectionId));
 
   return (
@@ -205,7 +207,7 @@ export const PluginConnectionsPanel = ({ pluginId, fields, canEnable = false, ac
                 field: firstFieldIssue.field.label_translated || firstFieldIssue.field.label,
                 reason: t(`settings.dynamicValidation.${firstFieldIssue.issue}`),
               })}</p> : null}
-              {editorConflicted ? <Button type="button" variant="outline" onClick={() => startEditor(latestEditor!)}>{t('plugins.connections.reloadEditor')}</Button> : null}
+              {editorConflicted ? <Button type="button" variant="outline" onClick={() => latestEditor ? startEditor(latestEditor) : setEditor(null)}>{t('plugins.connections.reloadEditor')}</Button> : null}
               <div className="space-y-2">
                 <label htmlFor={nameId} className="text-sm font-medium">{t('plugins.connections.name')}</label>
                 <Input id={nameId} value={editor.displayName} maxLength={256} required disabled={busy} onChange={(event) => setEditor({ ...editor, displayName: event.target.value })} />

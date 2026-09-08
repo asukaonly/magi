@@ -8,6 +8,7 @@ import { historyImportsApi, type HistoryImportJob } from '@/api/modules/historyI
 import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
 import { sourcesApi } from '@/api/modules/sources';
+import { APP_EVENTS } from '@/constants/events';
 import { MemorySourceDetailPage, MemorySourcesPage } from '@/pages/memory-pages';
 import { useChatShellStore } from '@/stores';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
@@ -1217,6 +1218,11 @@ describe('MemorySourcesPage', () => {
     expect(await screen.findByText('Chrome event 75')).toBeInTheDocument();
     expect(screen.getByText('已显示 75 / 共 75 条')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 50 });
+    const callsBeforeRefresh = vi.mocked(memoryApi.getL1Events).mock.calls.length;
+    act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+    await waitFor(() => expect(memoryApi.getL1Events).toHaveBeenCalledTimes(callsBeforeRefresh + 2), { timeout: 3000 });
+    expect(screen.getByText('Chrome event 75')).toBeInTheDocument();
+    expect(screen.getByText('已显示 75 / 共 75 条')).toBeInTheDocument();
   });
 
   it('filters source detail events by text and a custom date range', async () => {

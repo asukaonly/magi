@@ -272,13 +272,22 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const [pluginDrafts, setConnectionDrafts] = useState<Record<string, Record<string, unknown>>>({});
+  const draftBases = useRef(new Map<string, SourceStatusItem>());
+  const [conflictedConnections, setConflictedConnections] = useState<Record<string, boolean>>({});
   const [savingConnection, setSavingConnection] = useState(false);
   const actionGenerationRef = useRef(0);
   const settingsPendingRef = useRef(false);
-  const onPluginFieldsChange = (connectionId: string, updates: Record<string, unknown>) => setConnectionDrafts((previous) => ({ ...previous, [connectionId]: { ...previous[connectionId], ...updates } }));
+  const onPluginFieldsChange = (connectionId: string, updates: Record<string, unknown>) => {
+    if (!draftBases.current.has(connectionId)) {
+      const source = statuses.find((item) => item.connection_id === connectionId);
+      if (source) draftBases.current.set(connectionId, structuredClone(source));
+    }
+    setConnectionDrafts((previous) => ({ ...previous, [connectionId]: { ...previous[connectionId], ...updates } }));
+  };
   const onPluginFieldChange = (connectionId: string, key: string, value: unknown) => onPluginFieldsChange(connectionId, { [key]: value });
   const saveSourceSettings = async (source: SourceStatusItem, updates: Record<string, unknown>): Promise<boolean> => {
     if (settingsPendingRef.current) return false;
+    const baseline = draftBases.current.get(source.connection_id) ?? source;
     for (const field of source.fields) {
       if (!(field.key in updates) || !isExtensionFieldVisible(field, { ...source.current_settings, ...updates })) continue;
       const issue = validateDynamicConfigValue(field, updates[field.key]);
@@ -299,6 +308,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       if (connection.plugin_id !== source.plugin_id || connection.connection_id !== source.connection_id) {
         throw new Error('Connection response identity mismatch');
       }
+      if (connection.revision !== baseline.connection_revision) throw Object.assign(new Error('Connection changed on the center'), { status: 409 });
       const credentials: Record<string, string> = {};
       const settingsUpdates = { ...updates };
       for (const field of source.fields) {
@@ -308,11 +318,15 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           delete settingsUpdates[field.key];
         }
       }
-      await pluginsApi.updateConnection(source.plugin_id, source.connection_id, {
-        expected_revision: connection.revision,
+      const saved = await pluginsApi.updateConnection(source.plugin_id, source.connection_id, {
+        expected_revision: baseline.connection_revision,
         settings: mergeConnectionSettings(connection.settings, settingsUpdates), credentials,
       });
       if (!isCurrent()) return false;
+      setConflictedConnections((current) => ({ ...current, [source.connection_id]: false }));
+      if (draftBases.current.has(source.connection_id)) {
+        draftBases.current.set(source.connection_id, { ...baseline, connection_revision: saved.revision, current_settings: { ...baseline.current_settings, ...settingsUpdates } });
+      }
       setConnectionDrafts((previous) => {
         const next = { ...previous };
         const remaining = { ...next[source.connection_id] };
@@ -320,13 +334,17 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           if (Object.is(remaining[key], value)) delete remaining[key];
         }
         if (Object.keys(remaining).length) next[source.connection_id] = remaining;
-        else delete next[source.connection_id];
+        else { delete next[source.connection_id]; draftBases.current.delete(source.connection_id); }
         return next;
       });
       await onRefreshSources();
       return isCurrent();
-    } catch {
-      if (isCurrent()) toast.error(t('plugins.connections.saveFailed'));
+    } catch (error) {
+      if (isCurrent()) {
+        const conflict = error != null && typeof error === 'object' && 'status' in error && error.status === 409;
+        setConflictedConnections((current) => ({ ...current, [source.connection_id]: conflict }));
+        toast.error(t(conflict ? 'plugins.connections.conflict' : 'plugins.connections.saveFailed'));
+      }
       return false;
     } finally {
       if (isCurrent()) {
@@ -405,7 +423,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   }, [selectedIdentity]);
 
   const resolveSourceValue = (source: SourceStatusItem, key: string, fallback?: unknown) =>
-    pluginDrafts[source.connection_id]?.[key] ?? source.current_settings[key] ?? fallback;
+    pluginDrafts[source.connection_id]?.[key] ?? draftBases.current.get(source.connection_id)?.current_settings[key] ?? source.current_settings[key] ?? fallback;
   const getSourceDisplayName = (source: SourceStatusItem) => getTimelineSourceDisplayName(t, source);
 
   const handleSourceEnabledChange = async (source: SourceStatusItem, checked: boolean) => {
@@ -1063,6 +1081,17 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                         onChange={(key, nextValue) => onPluginFieldChange(selectedSource.connection_id, key, nextValue)}
                         pluginId={selectedSource.plugin_id}
                       />
+                  {(conflictedConnections[selectedSource.connection_id] || (draftBases.current.has(selectedSource.connection_id) && selectedSource.connection_revision > (draftBases.current.get(selectedSource.connection_id)?.connection_revision ?? -1))) ? (
+                    <div role="alert" className="space-y-2 text-sm text-destructive">
+                      <p>{t('plugins.connections.conflict')}</p>
+                      <Button variant="outline" disabled={savingConnection} onClick={() => {
+                        draftBases.current.delete(selectedSource.connection_id);
+                        setConnectionDrafts((current) => { const next = { ...current }; delete next[selectedSource.connection_id]; return next; });
+                        setConflictedConnections((current) => ({ ...current, [selectedSource.connection_id]: false }));
+                        void onRefreshSources();
+                      }}>{t('plugins.connections.reloadEditor')}</Button>
+                    </div>
+                  ) : null}
                   <Button disabled={savingConnection || !Object.keys(pluginDrafts[selectedSource.connection_id] ?? {}).length} onClick={() => {
                     void saveSourceSettings(selectedSource, pluginDrafts[selectedSource.connection_id] ?? {});
                   }}>{t(savingConnection ? 'plugins.connections.saving' : 'plugins.connections.save')}</Button>

@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -21,7 +22,7 @@ interface UseSettingsPluginsTimelineReturn {
   loadPluginsAndSources: () => Promise<void>;
   timelineStatuses: SourceStatusItem[];
   timelineStatusesLoading: boolean;
-  fetchTimelineStatuses: () => Promise<void>;
+  fetchTimelineStatuses: (options?: { silent?: boolean }) => Promise<void>;
 }
 
 export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
@@ -45,9 +46,9 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [pluginRegistryLoading, setPluginRegistryLoading] = useState(false);
   const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
 
-  const fetchTimelineStatuses = useCallback(async () => {
+  const fetchTimelineStatuses = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const requestId = ++requestIds.current.sources;
-    setTimelineStatusesLoading(true);
+    if (!silent) setTimelineStatusesLoading(true);
     try {
       const response = await sourcesApi.getStatus();
       if (requestId !== requestIds.current.sources) return;
@@ -59,8 +60,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       const message = error instanceof Error ? error.message : 'unknown';
       if (requestId !== requestIds.current.sources) return;
       const errorText = t('settings.timeline.errors.statusLoadFailed', { message });
-      setTimelineStatusesError(errorText);
-      toast.error(errorText);
+      if (!silent) setTimelineStatusesError(errorText);
+      if (!silent) toast.error(errorText);
     } finally {
       if (requestId === requestIds.current.sources) setTimelineStatusesLoading(false);
     }
@@ -81,8 +82,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       const message = error instanceof Error ? error.message : 'unknown';
       if (requestId !== requestIds.current.plugins) return;
       const errorText = t('settings.pluginPackages.errors.loadFailed', { message });
-      setPluginsError(errorText);
-      toast.error(errorText);
+      if (!silent) setPluginsError(errorText);
+      if (!silent) toast.error(errorText);
     } finally {
       if (requestId === requestIds.current.plugins) {
         setPluginsLoading(false);
@@ -107,7 +108,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     } catch (error) {
       if (requestId !== requestIds.current.registry) return;
       const message = error instanceof Error ? error.message : 'unknown';
-      setPluginRegistryError(t('settings.pluginPackages.errors.loadFailed', { message }));
+      if (!silent) setPluginRegistryError(t('settings.pluginPackages.errors.loadFailed', { message }));
     } finally {
       if (requestId === requestIds.current.registry) {
         setPluginRegistryLoading(false);
@@ -142,6 +143,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
       });
     }
   }, [t, fetchTimelineStatuses]);
+
+  useCenterRefresh(() => Promise.all([loadPlugins({ silent: true }), fetchTimelineStatuses({ silent: true }), loadPluginRegistry({ silent: true })]));
 
   return {
     pluginsError, timelineStatusesError, pluginRegistryError,

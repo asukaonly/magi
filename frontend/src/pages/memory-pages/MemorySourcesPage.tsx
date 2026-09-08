@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
@@ -1056,35 +1058,32 @@ export const MemorySourcesPage = () => {
   const [sourceRefreshVersion, setSourceRefreshVersion] = useState(0);
   const notifiedBackfillJobsRef = useRef(new Set<string>());
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+  const beginRead = useRequestOwner();
+  const loadOverview = useCallback(async (silent = false) => {
+      const isCurrent = beginRead('source-overview');
+      if (!silent) { setLoading(true); setError(null); }
       try {
         const payload = await loadSourceOverview();
-        if (cancelled) {
+        if (!isCurrent()) {
           return;
         }
+        setError(null);
         setDashboard(payload.dashboard);
         setSourceStatus(payload.sourceStatus);
         setTodaySummary(payload.todaySummary);
         setTodayEvents(payload.todayEvents);
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+        if (isCurrent()) {
+          if (!silent) setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent()) {
           setLoading(false);
         }
       }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [sourceRefreshVersion]);
+  }, [beginRead]);
+  useEffect(() => { void loadOverview(); }, [loadOverview, sourceRefreshVersion]);
+  useCenterRefresh(() => loadOverview(true));
 
   const allRows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
@@ -1117,9 +1116,10 @@ export const MemorySourcesPage = () => {
         return;
       }
       polling = true;
+      const isCurrent = beginRead('source-overview');
       try {
         const nextStatus = await sourcesApi.getStatus();
-        if (cancelled) {
+        if (cancelled || !isCurrent()) {
           return;
         }
         let finished = false;
@@ -1140,7 +1140,7 @@ export const MemorySourcesPage = () => {
         setSourceStatus(nextStatus);
         if (finished) {
           const payload = await loadSourceOverview();
-          if (!cancelled) {
+          if (!cancelled && isCurrent()) {
             setDashboard(payload.dashboard);
             setSourceStatus(payload.sourceStatus);
             setTodaySummary(payload.todaySummary);
@@ -1160,7 +1160,7 @@ export const MemorySourcesPage = () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeBackfillKey, activeBackfillJobs, t]);
+  }, [activeBackfillKey, activeBackfillJobs, t, beginRead]);
 
   const openSourceMarketplace = () => {
     setSettingsNavigationIntent({
@@ -1804,8 +1804,10 @@ export const MemorySourceDetailPage = () => {
     }
   }, []);
 
+  const loadedEventCount = useRef(0);
   const loadEvents = useCallback(async (options?: {
     offset?: number;
+    silent?: boolean;
     append?: boolean;
     cancelledRef?: { cancelled: boolean };
     isCurrent?: () => boolean;
@@ -1816,29 +1818,33 @@ export const MemorySourceDetailPage = () => {
     const append = Boolean(options?.append);
     if (append) {
       setLoadingMore(true);
-    } else {
+    } else if (!options?.silent) {
       setLoadingMore(false);
       setEventsLoading(true);
     }
-    setError(null);
+    if (!options?.silent) setError(null);
     try {
-      const eventsPayload = await memoryApi.getL1Events(buildSourceDetailEventParams({
-        sourceName,
-        timeRange,
-        query,
-        anchorDate: todaySummary?.date || formatDateString(new Date()),
-        customStartDate: customDateRange.start,
-        customEndDate: customDateRange.end,
-        offset,
-      }));
-      if (!active()) {
-        return;
-      }
-      const nextEvents = eventsPayload.items || [];
+      const nextEvents: L1Event[] = [];
+      const targetSize = options?.silent ? Math.max(1, loadedEventCount.current) : 1;
+      let total = 0;
+      do {
+        const eventsPayload = await memoryApi.getL1Events(buildSourceDetailEventParams({
+          sourceName, timeRange, query,
+          anchorDate: todaySummary?.date || formatDateString(new Date()),
+          customStartDate: customDateRange.start, customEndDate: customDateRange.end,
+          offset: offset + nextEvents.length,
+        }));
+        if (!active()) return;
+        const page = eventsPayload.items || [];
+        nextEvents.push(...page);
+        total = eventsPayload.total ?? nextEvents.length;
+        if (!page.length) break;
+      } while (nextEvents.length < targetSize && offset + nextEvents.length < total);
+      loadedEventCount.current = offset + nextEvents.length;
       setEvents((current) => (append ? [...current, ...nextEvents] : nextEvents));
-      setEventsTotal(eventsPayload.total ?? nextEvents.length);
+      setEventsTotal(total);
     } catch (err) {
-      if (active()) {
+      if (active() && !options?.silent) {
         setError(err instanceof Error ? err.message : String(err));
       }
     } finally {
@@ -1872,6 +1878,11 @@ export const MemorySourceDetailPage = () => {
       eventsRequestRef.current += 1;
     };
   }, [metadataReady, loadEvents]);
+
+  useCenterRefresh(() => Promise.all([
+    loadMetadata(undefined, true),
+    metadataReady ? loadEvents({ silent: true }) : Promise.resolve(),
+  ]));
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sourceStatus, t),
@@ -2029,7 +2040,7 @@ export const MemorySourceDetailPage = () => {
       if (!isCurrent()) return;
       if (connection.connection_id !== selectedSource.connection_id || connection.plugin_id !== pluginId) throw new Error('Connection response identity mismatch');
       await pluginsApi.updateConnection(pluginId, selectedSource.connection_id, {
-        expected_revision: connection.revision,
+        expected_revision: selectedSource.connection_revision,
         settings: mergeConnectionSettings(connection.settings, {
           [sourceEnabledSettingKey(selectedSource, sourceName)]: nextEnabled,
         }),
