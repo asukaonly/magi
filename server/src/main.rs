@@ -1,3 +1,4 @@
+mod managed_output;
 mod service_install;
 
 use std::io::{BufRead, Read, Write};
@@ -13,13 +14,19 @@ struct DesktopBootstrap {
 }
 
 fn main() {
-    if let Err(error) = execute() {
+    let mut output = None;
+    let outcome = execute(&mut output);
+    let failed = outcome.is_err();
+    if let Err(error) = outcome {
         eprintln!("{error}");
+    }
+    drop(output);
+    if failed {
         std::process::exit(1);
     }
 }
 
-fn execute() -> Result<(), String> {
+fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), String> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args == ["--version"] {
         println!("Magi Server {} (protocol 1)", env!("CARGO_PKG_VERSION"));
@@ -140,11 +147,24 @@ fn execute() -> Result<(), String> {
             Ok(())
         }
         "run" => {
-            reject_unknown_options(&args[1..], &["--config"], &["--bootstrap-stdin"])?;
+            reject_unknown_options(
+                &args[1..],
+                &["--config", "--log-file"],
+                &["--bootstrap-stdin"],
+            )?;
+            let desktop = args.iter().any(|a| a == "--bootstrap-stdin");
+            if let Some(path) = optional_option(&args[1..], "--log-file")? {
+                if desktop {
+                    return Err("Desktop bootstrap cannot redirect its output log".into());
+                }
+                *output = Some(
+                    managed_output::ManagedOutput::start(std::path::Path::new(&path))
+                        .map_err(|e| e.to_string())?,
+                );
+            }
             let config = ServerConfig::load(&PathBuf::from(config_path))?;
             // Resolve process-wide runtime paths before creating any runtime threads.
             std::env::set_var("MAGI_HOME", &config.data_dir);
-            let desktop = args.iter().any(|a| a == "--bootstrap-stdin");
             let token = if desktop {
                 let mut line = String::new();
                 std::io::stdin()

@@ -33,7 +33,7 @@ fn launch_agent(
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>{LABEL}</string>
-<key>ProgramArguments</key><array><string>{}</string><string>run</string><string>--config</string><string>{}</string></array>
+<key>ProgramArguments</key><array><string>{}</string><string>run</string><string>--config</string><string>{}</string><string>--log-file</string><string>{}</string></array>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>30</integer>
@@ -41,14 +41,11 @@ fn launch_agent(
 <key>ProcessType</key><string>Background</string>
 <key>LimitLoadToSessionType</key><string>Aqua</string>
 <key>Umask</key><integer>63</integer>
-<key>StandardOutPath</key><string>{}</string>
-<key>StandardErrorPath</key><string>{}</string>
 </dict></plist>
 "#,
         text(executable)?,
         text(config_path)?,
-        text(&config.data_dir.join("logs/service.stdout.log"))?,
-        text(&config.data_dir.join("logs/service.stderr.log"))?
+        text(&config.data_dir.join("logs/service.log"))?
     ))
 }
 
@@ -178,7 +175,9 @@ mod tests {
         .unwrap();
         assert!(plist.contains("<string>/Applications/Magi Server/magi-server</string>"));
         assert!(plist.contains("config &amp; service.json"));
-        assert!(plist.contains("Magi &amp; data/logs/service.stderr.log"));
+        assert!(plist.contains("Magi &amp; data/logs/service.log"));
+        assert!(!plist.contains("StandardOutPath"));
+        assert!(!plist.contains("StandardErrorPath"));
         assert!(!plist.contains("--bootstrap-stdin"));
         assert!(!plist.contains("/bin/sh"));
         assert!(plist.contains("<string>Aqua</string>"));

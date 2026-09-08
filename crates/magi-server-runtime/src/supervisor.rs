@@ -502,6 +502,8 @@ fn ipc_address(config: &ServerConfig) -> Result<String, String> {
 struct WorkerProcess {
     child: Child,
     pid: u32,
+    output: Vec<tokio::task::JoinHandle<()>>,
+    group_stopped: bool,
     #[cfg(windows)]
     job: crate::windows_job::WorkerJob,
 }
@@ -515,12 +517,7 @@ impl WorkerProcess {
         restore_id: Option<&str>,
     ) -> Result<Self, String> {
         let log_path = config.data_dir.join("logs/backend.log");
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map_err(|e| e.to_string())?;
-        let stderr = log.try_clone().map_err(|e| e.to_string())?;
+        let log = crate::logs::RotatingLog::open(&log_path).map_err(|e| e.to_string())?;
         let mut command = Command::new(&config.worker.executable);
         command
             .args(&config.worker.args)
@@ -535,8 +532,8 @@ impl WorkerProcess {
             .env_remove("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID")
             .env_remove("MAGI_MEMORY_RESTORE_OPERATION_ID")
             .stdin(Stdio::piped())
-            .stdout(Stdio::from(log))
-            .stderr(Stdio::from(stderr))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
         if let Some(cwd) = &config.worker.working_directory {
             command.current_dir(cwd);
@@ -559,15 +556,22 @@ impl WorkerProcess {
         if let Some(restore_id) = restore_id {
             command.env("MAGI_MEMORY_RESTORE_OPERATION_ID", restore_id);
         }
-        let child = command
+        let mut child = command
             .spawn()
             .map_err(|e| format!("Failed to spawn Python: {e}"))?;
         let pid = child.id().ok_or("Python process has no PID")?;
         #[cfg(windows)]
         let job = crate::windows_job::WorkerJob::attach(&child)?;
+        let output = crate::logs::capture_worker_output(
+            child.stdout.take().ok_or("Python stdout is unavailable")?,
+            child.stderr.take().ok_or("Python stderr is unavailable")?,
+            log,
+        );
         Ok(Self {
             child,
             pid,
+            output,
+            group_stopped: false,
             #[cfg(windows)]
             job,
         })
@@ -580,23 +584,42 @@ impl WorkerProcess {
             .await
             .is_err()
         {
-            #[cfg(windows)]
-            self.job.terminate();
-            #[cfg(unix)]
-            unsafe {
-                libc::kill(-(self.pid as i32), libc::SIGKILL);
-            }
+            self.stop_group();
             let _ = self.child.start_kill();
             let _ = self.child.wait().await;
+        }
+        self.stop_group();
+        // Finish or abort pipe readers before maintenance truncates old logs.
+        for mut task in self.output.drain(..) {
+            if tokio::time::timeout(Duration::from_secs(2), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+                let _ = task.await;
+            }
+        }
+    }
+
+    fn stop_group(&mut self) {
+        if self.group_stopped {
+            return;
+        }
+        self.group_stopped = true;
+        #[cfg(windows)]
+        self.job.terminate();
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(self.pid as i32), libc::SIGKILL);
         }
     }
 }
 
 impl Drop for WorkerProcess {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(-(self.pid as i32), libc::SIGKILL);
+        self.stop_group();
+        for task in &self.output {
+            task.abort();
         }
     }
 }

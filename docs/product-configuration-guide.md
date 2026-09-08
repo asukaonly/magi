@@ -261,6 +261,11 @@ log instead of displaying a PyInstaller exception dialog.
 Current log ownership:
 
 - Center Python: `<data-dir>/logs/backend.log`, owned and cleared by center maintenance.
+- The Mac LaunchAgent sends service diagnostics to `<data-dir>/logs/service.log`
+  using `run --log-file`; foreground console runs keep their terminal output.
+  Each native output log keeps an 8 MiB current file and two 8 MiB backups.
+  The service drains Python output even if the log cannot be written, and stops
+  its worker output readers before clearing logs during maintenance.
 - Desktop: OS app log directory, with `desktop.log` (50 MB rotation) and local-service supervisor output in `service.log`.
 - Desktop log clearing cannot truncate center Python logs or another connection's data.
 

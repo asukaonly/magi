@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod instance;
+pub mod logs;
 pub mod supervisor;
 #[cfg(windows)]
 mod windows_job;
