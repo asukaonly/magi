@@ -29,7 +29,10 @@ export async function retryPersonaAfterEnablingCompatibility({
   clearRetry,
 }: RetryPersonaCompatibilityOptions): Promise<void> {
   if (!isActive()) return;
+  const current = await toolsApi.getToolConfig("web-fetch");
+  if (!isActive()) return;
   await toolsApi.updateToolConfig("web-fetch", {
+    revision: current.revision,
     updates: { allow_rfc2544_benchmark_range: true },
   });
   if (!isActive()) return;

@@ -2,7 +2,6 @@
  * Tools API - Tool configuration management
  */
 import { api } from '../client';
-import { z } from 'zod';
 import { ApiContractError } from '../config-contract';
 import type { components } from '../generated/config-types';
 import { validateToolConfigResponse, validateToolsListResponse } from '../generated/config-validators';
@@ -26,6 +25,7 @@ function parseToolConfig(value: unknown): ToolConfig {
 }
 
 export interface ToolConfigUpdateRequest {
+  revision: string;
   updates: Record<string, unknown>;
   enabled?: boolean;
 }
@@ -48,12 +48,12 @@ export const toolsApi = {
     return tool;
   },
 
-  /** Confirm the write, then read the persisted configuration as the saved baseline. */
+  /** Use the atomic write receipt as the acknowledged baseline. */
   updateToolConfig: async (toolName: string, updates: ToolConfigUpdateRequest): Promise<ToolConfig> => {
     const response = await api.put<unknown>(`/tools/${encodeURIComponent(toolName)}/config`, updates);
-    const confirmed = z.object({ success: z.literal(true), message: z.string() }).safeParse(response);
-    if (!confirmed.success) throw new ApiContractError('Tool configuration was not saved');
-    return toolsApi.getToolConfig(toolName);
+    const tool = parseToolConfig(response);
+    if (tool.name !== toolName) throw new ApiContractError('Tool configuration identity mismatch');
+    return tool;
   },
 };
 

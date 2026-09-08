@@ -606,6 +606,7 @@ const pluginsListFixture = {
 const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
   tools: [
     {
+      revision: 'a'.repeat(64),
       name: 'weather',
       display_name: 'Weather',
       description: 'Weather tool',
@@ -632,6 +633,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
       },
     },
     {
+      revision: 'a'.repeat(64),
       name: 'web-search',
       display_name: 'Web Search',
       description: 'Web search tool',
@@ -647,6 +649,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
       },
     },
     {
+      revision: 'a'.repeat(64),
       name: 'web-fetch',
       display_name: 'Web Fetch',
       description: 'Web fetch tool',
@@ -664,6 +667,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
       },
     },
     {
+      revision: 'a'.repeat(64),
       name: 'browser-automation',
       display_name: 'Browser Automation',
       description: 'Plugin-provided browser automation tool',
@@ -1130,6 +1134,7 @@ describe('settings page draft saving', () => {
     await user.click(compatibilitySwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(toolsApi.updateToolConfig).toHaveBeenCalledWith('web-fetch', {
+      revision: 'a'.repeat(64),
       updates: { allow_rfc2544_benchmark_range: false },
       enabled: undefined,
     }));

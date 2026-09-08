@@ -9128,7 +9128,7 @@ return errors === 0;
 validate160.evaluated = {"props":{"data":true,"message":true,"success":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateToolConfigResponse = validate164;
-const schema73 = {"description":"Tool configuration response","properties":{"category":{"description":"Tool category","title":"Category","type":"string"},"config_specs":{"description":"Config specifications","items":{"$ref":"#/components/schemas/ToolConfigSpecResponse"},"title":"Config Specs","type":"array"},"current_values":{"additionalProperties":true,"description":"Current config values (non-sensitive)","title":"Current Values","type":"object"},"description":{"description":"Tool description","title":"Description","type":"string"},"display_name":{"description":"Human-readable tool name","title":"Display Name","type":"string"},"enabled":{"default":true,"description":"Whether tool is enabled","title":"Enabled","type":"boolean"},"is_multi_provider":{"default":false,"description":"Whether this is a multi-provider tool","title":"Is Multi Provider","type":"boolean"},"is_ready":{"default":true,"description":"Whether tool is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Tool name","title":"Name","type":"string"},"providers":{"description":"Available providers","items":{"$ref":"#/components/schemas/ToolProviderInfo"},"title":"Providers","type":"array"},"version":{"default":"1.0.0","description":"Tool version","title":"Version","type":"string"}},"required":["name","display_name","description","category","version","enabled","is_ready","is_multi_provider","providers","config_specs","current_values"],"title":"ToolConfigResponse","type":"object"};
+const schema73 = {"description":"Tool configuration response","properties":{"category":{"description":"Tool category","title":"Category","type":"string"},"config_specs":{"description":"Config specifications","items":{"$ref":"#/components/schemas/ToolConfigSpecResponse"},"title":"Config Specs","type":"array"},"current_values":{"additionalProperties":true,"description":"Current config values (non-sensitive)","title":"Current Values","type":"object"},"description":{"description":"Tool description","title":"Description","type":"string"},"display_name":{"description":"Human-readable tool name","title":"Display Name","type":"string"},"enabled":{"default":true,"description":"Whether tool is enabled","title":"Enabled","type":"boolean"},"is_multi_provider":{"default":false,"description":"Whether this is a multi-provider tool","title":"Is Multi Provider","type":"boolean"},"is_ready":{"default":true,"description":"Whether tool is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Tool name","title":"Name","type":"string"},"providers":{"description":"Available providers","items":{"$ref":"#/components/schemas/ToolProviderInfo"},"title":"Providers","type":"array"},"revision":{"description":"Opaque settings snapshot revision","pattern":"^[a-f0-9]{64}$","title":"Revision","type":"string"},"version":{"default":"1.0.0","description":"Tool version","title":"Version","type":"string"}},"required":["name","revision","display_name","description","category","version","enabled","is_ready","is_multi_provider","providers","config_specs","current_values"],"title":"ToolConfigResponse","type":"object"};
 const schema74 = {"description":"Tool config spec for API response","properties":{"default":{"anyOf":[{},{"type":"null"}],"default":null,"description":"Default value","title":"Default"},"description":{"default":"","description":"Config item description","title":"Description","type":"string"},"enum":{"anyOf":[{"items":{},"type":"array"},{"type":"null"}],"default":null,"description":"Enum values for selection","title":"Enum"},"is_template":{"default":false,"description":"Whether this is a template path (e.g., providers.{provider}.api_key)","title":"Is Template","type":"boolean"},"path":{"description":"Config path (relative to tool namespace)","title":"Path","type":"string"},"placeholder":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"description":"Input placeholder hint","title":"Placeholder"},"providers":{"anyOf":[{"items":{"type":"string"},"type":"array"},{"type":"null"}],"default":null,"description":"Providers that this spec applies to","title":"Providers"},"read_only":{"default":false,"description":"Cannot be changed","title":"Read Only","type":"boolean"},"required":{"default":false,"description":"Whether this config is required","title":"Required","type":"boolean"},"sensitive":{"default":false,"description":"Can be set but not read","title":"Sensitive","type":"boolean"},"type":{"default":"string","description":"Config value type","enum":["string","integer","float","boolean","array","object"],"title":"Type","type":"string"}},"required":["path","type","description","sensitive","read_only","required","default","enum","placeholder","is_template","providers"],"title":"ToolConfigSpecResponse","type":"object"};
 
 function validate165(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -9612,6 +9612,7 @@ return errors === 0;
 }
 validate167.evaluated = {"props":{"display_name":true,"is_ready":true,"name":true,"required_config":true},"dynamicProps":false,"dynamicItems":false};
 
+const pattern3 = new RegExp("^[a-f0-9]{64}$", "u");
 
 function validate164(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -9626,7 +9627,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if((((((((((((data.name === undefined) && (missing0 = "name")) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.category === undefined) && (missing0 = "category"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.enabled === undefined) && (missing0 = "enabled"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.is_multi_provider === undefined) && (missing0 = "is_multi_provider"))) || ((data.providers === undefined) && (missing0 = "providers"))) || ((data.config_specs === undefined) && (missing0 = "config_specs"))) || ((data.current_values === undefined) && (missing0 = "current_values"))){
+if(((((((((((((data.name === undefined) && (missing0 = "name")) || ((data.revision === undefined) && (missing0 = "revision"))) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.category === undefined) && (missing0 = "category"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.enabled === undefined) && (missing0 = "enabled"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.is_multi_provider === undefined) && (missing0 = "is_multi_provider"))) || ((data.providers === undefined) && (missing0 = "providers"))) || ((data.config_specs === undefined) && (missing0 = "config_specs"))) || ((data.current_values === undefined) && (missing0 = "current_values"))){
 validate164.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -9792,16 +9793,38 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.version !== undefined){
+if(data.revision !== undefined){
+let data12 = data.revision;
 const _errs24 = errors;
-if(typeof data.version !== "string"){
-validate164.errors = [{instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(errors === _errs24){
+if(typeof data12 === "string"){
+if(!pattern3.test(data12)){
+validate164.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{64}$"},message:"must match pattern \""+"^[a-f0-9]{64}$"+"\""}];
 return false;
+}
+}
+else {
+validate164.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
 }
 var valid0 = _errs24 === errors;
 }
 else {
 var valid0 = true;
+}
+if(valid0){
+if(data.version !== undefined){
+const _errs26 = errors;
+if(typeof data.version !== "string"){
+validate164.errors = [{instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs26 === errors;
+}
+else {
+var valid0 = true;
+}
 }
 }
 }
@@ -9823,7 +9846,7 @@ return false;
 validate164.errors = vErrors;
 return errors === 0;
 }
-validate164.evaluated = {"props":{"category":true,"config_specs":true,"current_values":true,"description":true,"display_name":true,"enabled":true,"is_multi_provider":true,"is_ready":true,"name":true,"providers":true,"version":true},"dynamicProps":false,"dynamicItems":false};
+validate164.evaluated = {"props":{"category":true,"config_specs":true,"current_values":true,"description":true,"display_name":true,"enabled":true,"is_multi_provider":true,"is_ready":true,"name":true,"providers":true,"revision":true,"version":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateToolsListResponse = validate169;
 const schema76 = {"description":"Tools list response with config info","properties":{"tools":{"description":"List of tools with config info","items":{"$ref":"#/components/schemas/ToolConfigResponse"},"title":"Tools","type":"array"},"total":{"description":"Total number of tools","title":"Total","type":"integer"}},"required":["tools","total"],"title":"ToolsListResponse","type":"object"};

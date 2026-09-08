@@ -46,6 +46,7 @@ export const buildToolDraftSnapshot = (tools: ToolConfig[]): ToolDraftMap =>
     tools.map((tool) => [
       tool.name,
       {
+        revision: tool.revision,
         enabled: tool.enabled,
         values: structuredClone(tool.current_values || {}),
       },

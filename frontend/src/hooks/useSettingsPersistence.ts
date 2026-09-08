@@ -12,7 +12,7 @@ import { syncAutoStartPreference, syncCloseToTrayPreference, syncSkipQuitConfirm
 import { syncDesktopNotificationPreferences } from '@/runtime/desktop-notifications';
 import type { ThemeMode, ThemeState } from '@/stores/theme';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
-import type { ToolDraftMap } from '@/types/settings';
+import type { ToolDraftMap, SettingsConflictTarget } from '@/types/settings';
 import {
   acceptSavedDraft,
   diffFlatMaps,
@@ -50,7 +50,7 @@ interface UseSettingsPersistenceParams {
 
 interface UseSettingsPersistenceReturn {
   saving: boolean;
-  configConflict: 'config' | 'control' | null;
+  configConflict: SettingsConflictTarget | null;
   handleSaveChanges: () => Promise<void>;
   handleDiscardChanges: () => Promise<void>;
   embeddingPreflightPrompt: EmbeddingPreflightPrompt | null;
@@ -89,7 +89,17 @@ export function useSettingsPersistence({
   const { t } = useTranslation('app');
   const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const [saving, setSaving] = useState(false);
-  const [configConflict, setConfigConflict] = useState<'config' | 'control' | null>(null);
+  const [configConflict, setConfigConflict] = useState<SettingsConflictTarget | null>(null);
+  const previousToolBaselines = useRef(savedToolDrafts);
+  useEffect(() => {
+    const previous = previousToolBaselines.current;
+    previousToolBaselines.current = savedToolDrafts;
+    setConfigConflict((current) => {
+      if (!current?.startsWith('tool:')) return current;
+      const name = current.slice(5);
+      return previous[name]?.revision !== savedToolDrafts[name]?.revision ? null : current;
+    });
+  }, [savedToolDrafts]);
   useEffect(() => { setConfigConflict(current => current === 'config' ? null : current); }, [savedConfig.revision]);
   useEffect(() => { setConfigConflict(current => current === 'control' ? null : current); }, [savedControlSettings?.revision]);
   const savingRef = useRef(false);
@@ -179,7 +189,7 @@ export function useSettingsPersistence({
 
     savingRef.current = true;
     setSaving(true);
-    let configWritePending: 'config' | 'control' | null = null;
+    let configWritePending: SettingsConflictTarget | null = null;
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
       const centerConfigDirty = serialize(toCenterConfig(savedConfig)) !== serialize(toCenterConfig(draftConfig));
@@ -252,22 +262,25 @@ export function useSettingsPersistence({
 
       if (toolsDirty) {
         for (const tool of tools) {
-          const savedSnapshot = savedToolDrafts[tool.name] ?? { enabled: tool.enabled, values: tool.current_values };
+          const savedSnapshot = savedToolDrafts[tool.name] ?? { revision: tool.revision, enabled: tool.enabled, values: tool.current_values };
           const draftSnapshot = draftToolDrafts[tool.name] ?? savedSnapshot;
           const updates = diffFlatMaps(savedSnapshot.values || {}, draftSnapshot.values || {});
           const enabledChanged = savedSnapshot.enabled !== draftSnapshot.enabled;
           if (Object.keys(updates).length === 0 && !enabledChanged) {
             continue;
           }
+          configWritePending = `tool:${tool.name}`;
           const persistedTool = await toolsApi.updateToolConfig(tool.name, {
             updates,
+            revision: savedSnapshot.revision,
             enabled: enabledChanged ? draftSnapshot.enabled : undefined,
           });
-          const canonical = { enabled: persistedTool.enabled, values: persistedTool.current_values };
+          configWritePending = null;
+          const canonical = { revision: persistedTool.revision, enabled: persistedTool.enabled, values: persistedTool.current_values };
           setSavedToolDrafts(current => ({ ...current, [tool.name]: structuredClone(canonical) }));
           setDraftToolDrafts(current => ({
             ...current,
-            [tool.name]: acceptSavedDraft(current[tool.name] ?? draftSnapshot, draftSnapshot, canonical),
+            [tool.name]: { ...acceptSavedDraft(current[tool.name] ?? draftSnapshot, draftSnapshot, canonical), revision: canonical.revision },
           }));
         }
       }

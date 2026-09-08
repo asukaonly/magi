@@ -15,21 +15,20 @@ describe('tool configuration confirmation', () => {
     get.mockResolvedValue(value);
     await expect(toolsApi.listWithConfig()).rejects.toThrow();
   });
-  it('returns the canonical persisted value instead of echoing the submitted draft', async () => {
-    put.mockResolvedValue({ success: true, message: 'Saved' });
-    get.mockResolvedValue({ ...fixtures.tool, current_values: { limit: 8 } });
-    await expect(toolsApi.updateToolConfig('fixture-tool', { updates: { limit: 999 } })).resolves.toMatchObject({ current_values: { limit: 8 } });
+  it('returns the write receipt without a racy follow-up read', async () => {
+    put.mockResolvedValue({ ...fixtures.tool, revision: 'b'.repeat(64), current_values: { limit: 8 } });
+    await expect(toolsApi.updateToolConfig('fixture-tool', { revision: fixtures.tool.revision, updates: { limit: 999 } })).resolves.toMatchObject({ revision: 'b'.repeat(64), current_values: { limit: 8 } });
+    expect(get).not.toHaveBeenCalled();
   });
   it('does not read or accept a rejected save', async () => {
     put.mockResolvedValue({ success: false, message: 'Rejected' });
-    await expect(toolsApi.updateToolConfig('fixture-tool', { updates: { limit: 8 } })).rejects.toThrow();
+    await expect(toolsApi.updateToolConfig('fixture-tool', { revision: fixtures.tool.revision, updates: { limit: 8 } })).rejects.toThrow();
     expect(get).not.toHaveBeenCalled();
   });
-  it('does not confirm a write when readback fails or belongs to another tool', async () => {
-    put.mockResolvedValue({ success: true, message: 'Saved' });
-    get.mockRejectedValueOnce(new Error('Unavailable'));
-    await expect(toolsApi.updateToolConfig('fixture-tool', { updates: {} })).rejects.toThrow('Unavailable');
-    get.mockResolvedValueOnce({ ...fixtures.tool, name: 'other-tool' });
-    await expect(toolsApi.updateToolConfig('fixture-tool', { updates: {} })).rejects.toThrow();
+  it('rejects a receipt with missing revision or a different tool identity', async () => {
+    put.mockResolvedValueOnce({ ...fixtures.tool, revision: undefined });
+    await expect(toolsApi.updateToolConfig('fixture-tool', { revision: fixtures.tool.revision, updates: {} })).rejects.toThrow();
+    put.mockResolvedValueOnce({ ...fixtures.tool, name: 'other-tool' });
+    await expect(toolsApi.updateToolConfig('fixture-tool', { revision: fixtures.tool.revision, updates: {} })).rejects.toThrow();
   });
 });

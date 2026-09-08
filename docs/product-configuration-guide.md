@@ -1077,3 +1077,12 @@ delete receipts invalidate older list reads, and background read failures retain
 the last confirmed jobs. LLM usage statistics refresh the selected time window
 without resetting provider/model filters. These reads never resume an import,
 change its selection, or submit a mutation.
+
+Tool configuration writes echo the original per-tool revision and return the
+confirmed snapshot directly from the write boundary. Revisions include secret
+configuration without exposing it, and unrelated tools have independent
+revisions. A rejected draft remains until the user explicitly reloads that tool;
+other tool drafts are preserved. Confirmed receipts advance the baseline for
+newer local edits, and reads started before a receipt cannot roll it back. Tools
+without a center configuration namespace reject configuration writes; plugin
+connection configuration remains owned by the plugin connection APIs.

@@ -7,6 +7,7 @@ import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import type { ToolDraftMap } from '@/types/settings';
 import { buildToolDraftSnapshot, serialize } from '@/utils/settings-helpers';
 
+interface ToolLoadOptions { silent?: boolean; discardTool?: string; }
 interface UseSettingsToolsReturn {
   tools: ToolConfig[];
   toolsLoading: boolean;
@@ -15,7 +16,7 @@ interface UseSettingsToolsReturn {
   setSavedToolDrafts: Dispatch<SetStateAction<ToolDraftMap>>;
   draftToolDrafts: ToolDraftMap;
   setDraftToolDrafts: Dispatch<SetStateAction<ToolDraftMap>>;
-  loadTools: (options?: { silent?: boolean }) => Promise<void>;
+  loadTools: (options?: ToolLoadOptions) => Promise<void>;
   handleToolDraftChange: (toolName: string, path: string, value: unknown) => void;
   handleToolEnabledChange: (toolName: string, enabled: boolean) => void;
 }
@@ -45,8 +46,10 @@ export function useSettingsTools(): UseSettingsToolsReturn {
   const currentDrafts = useRef({ tools, savedToolDrafts, draftToolDrafts });
   currentDrafts.current = { tools, savedToolDrafts, draftToolDrafts };
 
-  const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+  const loadTools = useCallback(async ({ silent = false, discardTool }: ToolLoadOptions = {}) => {
     const requestId = ++requestIdRef.current;
+    const savedAtStart = savedRef.current;
+    const draftAtStart = discardTool ? serialize(draftRef.current[discardTool]) : null;
     if (!silent) {
       setToolsLoading(true);
       setToolsError(null);
@@ -54,6 +57,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
     try {
       const response = await toolsApi.listWithConfig();
       if (requestId !== requestIdRef.current) return;
+      if (savedRef.current !== savedAtStart) return;
       setToolsError(null);
       const nextTools = response.tools;
       const nextDrafts = buildToolDraftSnapshot(nextTools);
@@ -62,6 +66,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
       const drafts = { ...nextDrafts };
       const visibleTools = [...nextTools];
       for (const [name, draft] of Object.entries(current.draftToolDrafts)) {
+        if (name === discardTool && serialize(draft) === draftAtStart) continue;
         if (serialize(draft) === serialize(current.savedToolDrafts[name])) continue;
         drafts[name] = draft;
         if (current.savedToolDrafts[name]) saved[name] = current.savedToolDrafts[name];
@@ -89,6 +94,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
     setDraftToolDrafts((prev) => ({
       ...prev,
       [toolName]: {
+        revision: prev[toolName]?.revision ?? tools.find((tool) => tool.name === toolName)?.revision ?? '',
         enabled: prev[toolName]?.enabled ?? tools.find((tool) => tool.name === toolName)?.enabled ?? true,
         values: {
           ...(prev[toolName]?.values || {}),
@@ -102,6 +108,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
     setDraftToolDrafts((prev) => ({
       ...prev,
       [toolName]: {
+        revision: prev[toolName]?.revision ?? tools.find((tool) => tool.name === toolName)?.revision ?? '',
         enabled,
         values: {
           ...(prev[toolName]?.values || tools.find((tool) => tool.name === toolName)?.current_values || {}),

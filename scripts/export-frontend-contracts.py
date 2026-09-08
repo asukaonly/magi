@@ -126,7 +126,7 @@ def build_examples() -> dict:
             for name in ("claude_code", "codex")
         })).model_dump(mode="json"),
         "tool": ToolConfigResponse(
-            name="fixture-tool", display_name="Fixture tool", description="Contract fixture", category="file",
+            name="fixture-tool", revision="a" * 64, display_name="Fixture tool", description="Contract fixture", category="file",
             config_specs=[ToolConfigSpecResponse(path="limit", type="integer", default=5)],
             current_values={"limit": 5},
         ).model_dump(mode="json"),

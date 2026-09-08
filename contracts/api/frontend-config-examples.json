@@ -715,6 +715,7 @@
     "is_ready": true,
     "name": "fixture-tool",
     "providers": [],
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "version": "1.0.0"
   }
 }

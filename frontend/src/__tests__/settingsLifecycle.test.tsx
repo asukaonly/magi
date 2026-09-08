@@ -14,6 +14,7 @@ vi.mock('@/api/modules/tools', () => ({ toolsApi: { listWithConfig: mocks.toolLi
 vi.mock('@/runtime/desktop', async original => ({ ...await original<typeof import('@/runtime/desktop')>(), syncAutoStartPreference: mocks.autoStart }));
 
 import { toast } from 'sonner';
+import { useSettingsTools } from '@/hooks/useSettingsTools';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 import { useSettings } from '@/hooks/useSettings';
 import fixtures from '../../../contracts/api/frontend-config-examples.json';
@@ -51,11 +52,12 @@ it('keeps control and tool edits while advancing their confirmed baselines', asy
   await act(async () => { finishControl({ revision: 'b'.repeat(64), permission_mode: 'high_only', plan_approval_required: false }); });
   await waitFor(() => expect(mocks.toolUpdate).toHaveBeenCalledTimes(1));
   act(() => result.current.handleToolDraftChange('fixture-tool', 'limit', 12));
-  const confirmedTool = { ...fixtures.tool, current_values: { limit: 8 } };
+  const confirmedTool = { ...fixtures.tool, revision: 'b'.repeat(64), current_values: { limit: 8 } };
   mocks.toolList.mockResolvedValue({ tools: [confirmedTool] });
   await act(async () => { finishTool(confirmedTool); await pending; });
   expect(result.current.draftControlSettings?.plan_approval_required).toBe(true);
   expect(result.current.draftToolDrafts['fixture-tool'].values.limit).toBe(12);
+  expect(result.current.draftToolDrafts['fixture-tool'].revision).toBe('b'.repeat(64));
   expect(result.current.dirty).toBe(true);
   await act(() => result.current.handleDiscardChanges());
   expect(result.current.draftControlSettings?.plan_approval_required).toBe(false);
@@ -210,4 +212,44 @@ it('retains a rejected control draft and reloads only that resource on request',
   expect(result.current.draftControlSettings?.permission_mode).toBe('all');
   expect(result.current.draftConfig.agent.name).toBe('Unrelated local draft');
   expect(mocks.controlUpdate).toHaveBeenCalledTimes(1);
+});
+
+it('retains the original tool revision and reloads only the conflicting draft', async () => {
+  mocks.toolList.mockResolvedValue({ tools: [fixtures.tool, { ...fixtures.tool, name: 'second-tool' }] });
+  mocks.toolUpdate.mockRejectedValue({ status: 409 });
+  const { result } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => {
+    result.current.handleToolDraftChange('fixture-tool', 'limit', 8);
+    result.current.handleToolDraftChange('second-tool', 'limit', 19);
+  });
+  await act(() => result.current.handleSaveChanges());
+  expect(result.current.configConflict).toBe('tool:fixture-tool');
+  expect(mocks.toolUpdate).toHaveBeenCalledWith('fixture-tool', expect.objectContaining({ revision: fixtures.tool.revision }));
+  expect(result.current.draftToolDrafts['fixture-tool'].values.limit).toBe(8);
+  mocks.toolList.mockResolvedValue({ tools: [{ ...fixtures.tool, revision: 'b'.repeat(64), current_values: { limit: 12 } }, { ...fixtures.tool, name: 'second-tool' }] });
+  await act(() => result.current.reloadConflictedSettings());
+  expect(result.current.configConflict).toBeNull();
+  expect(result.current.draftToolDrafts['fixture-tool'].values.limit).toBe(12);
+  expect(result.current.draftToolDrafts['fixture-tool'].revision).toBe('b'.repeat(64));
+  expect(result.current.draftToolDrafts['second-tool'].values.limit).toBe(19);
+  expect(mocks.toolUpdate).toHaveBeenCalledTimes(1);
+});
+
+it('does not roll a confirmed tool receipt back with an earlier read', async () => {
+  mocks.toolList.mockResolvedValue({ tools: [fixtures.tool] });
+  const { result } = renderHook(useSettingsTools);
+  await act(() => result.current.loadTools());
+  let finish: (value: unknown) => void = () => {};
+  mocks.toolList.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  let pending = Promise.resolve();
+  act(() => { pending = result.current.loadTools({ silent: true }); });
+  const acknowledged = { 'fixture-tool': { revision: 'b'.repeat(64), enabled: true, values: { limit: 8 } } };
+  act(() => {
+    result.current.setSavedToolDrafts(acknowledged);
+    result.current.setDraftToolDrafts(acknowledged);
+  });
+  await act(async () => { finish({ tools: [fixtures.tool] }); await pending; });
+  expect(result.current.savedToolDrafts['fixture-tool']).toEqual(acknowledged['fixture-tool']);
+  expect(result.current.draftToolDrafts['fixture-tool']).toEqual(acknowledged['fixture-tool']);
 });

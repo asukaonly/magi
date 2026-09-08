@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from unittest.mock import AsyncMock
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 import yaml
@@ -57,9 +59,9 @@ def test_tool_save_survives_later_general_settings_save(client: TestClient) -> N
         },
     }
     for name, change in tool_changes.items():
-        response = client.put(f"/api/tools/{name}/config", json=change)
+        response = client.put(f"/api/tools/{name}/config", json={**change, "revision": client.get(f"/api/tools/{name}/config").json()["revision"]})
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        assert len(response.json()["revision"]) == 64
 
     stale_general_config["preferences"]["conversation_rhythm_enabled"] = False
     stale_general_config["skills"] = ["selected-skill"]
@@ -94,10 +96,10 @@ def test_fake_ip_policy_update_does_not_enable_private_access(client: TestClient
     for enabled in (False, True):
         response = client.put(
             "/api/tools/web-fetch/config",
-            json={"updates": {"allow_rfc2544_benchmark_range": enabled}},
+            json={"revision": client.get("/api/tools/web-fetch/config").json()["revision"], "updates": {"allow_rfc2544_benchmark_range": enabled}},
         )
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        assert len(response.json()["revision"]) == 64
         current = client.get("/api/tools/web-fetch/config").json()
         assert current["enabled"] is True
         assert current["current_values"] == {
@@ -111,6 +113,33 @@ def test_failed_tool_save_is_an_http_error(client: TestClient, monkeypatch: pyte
     monkeypatch.setattr("magi.config.save_config", lambda updates: False)
     response = client.put(
         "/api/tools/web-fetch/config",
-        json={"updates": {"allow_rfc2544_benchmark_range": True}},
+        json={"revision": client.get("/api/tools/web-fetch/config").json()["revision"], "updates": {"allow_rfc2544_benchmark_range": True}},
     )
     assert response.status_code == 500
+
+
+def test_tool_revision_covers_secrets_and_is_scoped_to_one_tool(client: TestClient) -> None:
+    search = client.get("/api/tools/web-search/config").json()
+    weather = client.get("/api/tools/weather/config").json()
+    assert client.put("/api/tools/web-search/config", json={"updates": {}, "enabled": False}).status_code == 428
+    saved = client.put("/api/tools/web-search/config", json={"revision": search["revision"], "updates": {"providers.tavily.api_key": "new-private-test-key"}})
+    assert saved.status_code == 200
+    assert saved.json()["revision"] != search["revision"]
+    assert "new-private-test-key" not in saved.text
+    rejected = client.put("/api/tools/web-search/config", json={"revision": search["revision"], "updates": {}, "enabled": False})
+    assert rejected.status_code == 409
+    assert client.get("/api/tools/web-search/config").json()["enabled"] is True
+    assert client.put("/api/tools/weather/config", json={"revision": weather["revision"], "updates": {}, "enabled": False}).status_code == 200
+
+
+def test_simultaneous_tool_edits_have_one_winner(client: TestClient) -> None:
+    revision = client.get("/api/tools/web-fetch/config").json()["revision"]
+    barrier = Barrier(2)
+
+    def submit(host: str) -> int:
+        barrier.wait(timeout=5)
+        return client.put("/api/tools/web-fetch/config", json={"revision": revision, "updates": {"private_network_allowlist": [host]}}).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(submit, host) for host in ("first.example", "second.example")]
+        assert sorted(future.result(timeout=10) for future in futures) == [200, 409]

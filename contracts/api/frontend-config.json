@@ -2638,6 +2638,12 @@
             "title": "Providers",
             "type": "array"
           },
+          "revision": {
+            "description": "Opaque settings snapshot revision",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
           "version": {
             "default": "1.0.0",
             "description": "Tool version",
@@ -2647,6 +2653,7 @@
         },
         "required": [
           "name",
+          "revision",
           "display_name",
           "description",
           "category",

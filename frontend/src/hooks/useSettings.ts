@@ -17,6 +17,7 @@ import type {
   MemoryToggleFieldId,
   SettingsPageHandle,
   ToolDraftMap,
+  SettingsConflictTarget,
 } from '@/types/settings';
 import { serialize } from '@/utils/settings-helpers';
 import { getTimelineCapabilityId } from '@/utils/timeline-capabilities';
@@ -36,7 +37,7 @@ export interface UseSettingsReturn {
   configError: string | null;
   fetchConfig: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
   saving: boolean;
-  configConflict: 'config' | 'control' | null;
+  configConflict: SettingsConflictTarget | null;
   reloadConflictedSettings: () => Promise<void>;
   autoStartSyncFailed: boolean;
 
@@ -312,7 +313,8 @@ export function useSettings(): UseSettingsReturn {
   const reloadConflictedSettings = useCallback(async () => {
     if (configConflict === 'control') await loadControlSettings({ silent: true, discardDraft: true });
     else if (configConflict === 'config') await fetchConfig({ silent: true, discardDraft: true });
-  }, [configConflict, loadControlSettings, fetchConfig]);
+    else if (configConflict?.startsWith('tool:')) await loadTools({ silent: true, discardTool: configConflict.slice(5) });
+  }, [configConflict, loadControlSettings, fetchConfig, loadTools]);
 
   return {
     // Loading states

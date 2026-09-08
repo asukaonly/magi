@@ -120,23 +120,23 @@ async def test_update_tool_config_returns_success_without_logger_crash(monkeypat
     with language_context("en"):
         response = await update_tool_config(
             "web-search",
-            ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}),
+            ToolConfigUpdateRequest(updates={"default_provider": "duckduckgo"}, revision=_build_tool_config_response("web-search", WebSearchTool()).revision),
         )
 
-    assert response["success"] is True
-    assert response["message"] == "Tool web-search configuration updated"
-    assert response["updated_keys"] == ["default_provider"]
+    assert response.name == "web-search"
+    assert len(response.revision) == 64
 
 
 @pytest.mark.asyncio
-async def test_update_tool_config_returns_localized_no_updates() -> None:
+async def test_update_tool_config_returns_snapshot_for_no_updates() -> None:
     with language_context("zh-CN"):
         response = await update_tool_config(
             "web-search",
-            ToolConfigUpdateRequest(updates={}),
+            ToolConfigUpdateRequest(updates={}, revision=_build_tool_config_response("web-search", WebSearchTool()).revision),
         )
 
-    assert response == {"success": True, "message": "没有需要应用的更新"}
+    assert response.name == "web-search"
+    assert len(response.revision) == 64
 
 
 @pytest.mark.asyncio

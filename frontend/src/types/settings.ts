@@ -41,11 +41,13 @@ export type MemoryToggleFieldId =
 // ============================================================================
 
 export type ToolDraftSnapshot = {
+  revision: string;
   enabled: boolean;
   values: Record<string, unknown>;
 };
 
 export type ToolDraftMap = Record<string, ToolDraftSnapshot>;
+export type SettingsConflictTarget = 'config' | 'control' | `tool:${string}`;
 
 // ============================================================================
 // Handle Types

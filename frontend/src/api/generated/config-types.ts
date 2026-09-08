@@ -1270,6 +1270,11 @@ export interface components {
              */
             providers: components["schemas"]["ToolProviderInfo"][];
             /**
+             * Revision
+             * @description Opaque settings snapshot revision
+             */
+            revision: string;
+            /**
              * Version
              * @description Tool version
              * @default 1.0.0

@@ -10,6 +10,7 @@ import logging
 
 from ... import i18n as core_i18n
 from ...plugins.provider import resolve_plugin_manager
+from ..services.revisions import require_snapshot_revision, snapshot_revision
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class ToolConfigSpecResponse(BaseModel):
 class ToolConfigResponse(BaseModel):
     """Tool configuration response"""
     name: str = Field(..., description="Tool name")
+    revision: str = Field(..., pattern=r"^[a-f0-9]{64}$", description="Opaque settings snapshot revision")
     display_name: str = Field(..., description="Human-readable tool name")
     description: str = Field(..., description="Tool description")
     category: str = Field(..., description="Tool category")
@@ -74,6 +76,7 @@ class ToolConfigUpdateRequest(BaseModel):
 
     updates: Dict[str, Any] = Field(..., description="Config updates (path -> value)")
     enabled: Optional[bool] = Field(default=None, description="Update enabled status")
+    revision: str | None = None
 
 
 # ============ Tool Config Endpoints ============
@@ -130,6 +133,11 @@ def _get_provider_display_name(provider_name: str) -> str:
         "qweather": "QWeather",
     }
     return name_map.get(provider_name, provider_name.replace("-", " ").title())
+
+
+def _tool_config_revision(tool_name: str, config: Any) -> str:
+    settings = getattr(config.tools, tool_name.replace("-", "_"), None)
+    return snapshot_revision({"name": tool_name, "settings": settings.model_dump(mode="json") if isinstance(settings, BaseModel) else None})
 
 
 def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
@@ -195,6 +203,7 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
 
     return ToolConfigResponse(
         name=tool_name,
+        revision=_tool_config_revision(tool_name, config),
         display_name=_get_tool_display_name(tool_name),
         description=schema.description if schema else "",
         category=schema.category if schema else "general",
@@ -311,7 +320,7 @@ async def get_tool_config(tool_name: str):
     return _build_tool_config_response(tool_name, tool)
 
 
-@tools_router.put("/{tool_name}/config")
+@tools_router.put("/{tool_name}/config", response_model=ToolConfigResponse)
 async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     """
     Update tool configuration.
@@ -323,7 +332,8 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
     Returns:
         Update result
     """
-    from ...config import save_config, reload_config
+    from ...config import get_config, save_config, reload_config
+    from ...config.loader import config_write_guard
     _ensure_plugins_loaded()
 
     tool = _resolve_tool_instance(tool_name)
@@ -348,32 +358,17 @@ async def update_tool_config(tool_name: str, request: ToolConfigUpdateRequest):
         full_path = f"tools.{tool_name.replace('-', '_')}.enabled"
         config_updates[full_path] = request.enabled
 
-    if not config_updates:
-        return {
-            "success": True,
-            "message": core_i18n.t("tools.config.no_updates", fallback="No updates to apply"),
-        }
-
-    # Save configuration
-    if save_config(config_updates):
-        # Reload config to apply changes
-        reload_config()
-
-        logger.info(
-            "Tool %s config updated: %s",
-            tool_name,
-            list(request.updates.keys()),
-        )
-
-        return {
-            "success": True,
-            "message": core_i18n.t(
-                "tools.config.updated",
-                fallback="Tool {tool_name} configuration updated",
-                tool_name=tool_name,
-            ),
-            "updated_keys": list(request.updates.keys()),
-        }
+    with config_write_guard():
+        current = get_config()
+        require_snapshot_revision(request.revision, _tool_config_revision(tool_name, current))
+        if not config_updates:
+            return _build_tool_config_response(tool_name, tool)
+        if not isinstance(getattr(current.tools, tool_name.replace("-", "_"), None), BaseModel):
+            raise HTTPException(status_code=422, detail="This tool has no center-owned configuration")
+        if save_config(config_updates):
+            reload_config()
+            logger.info("Tool %s config updated: %s", tool_name, list(request.updates.keys()))
+            return _build_tool_config_response(tool_name, tool)
 
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
