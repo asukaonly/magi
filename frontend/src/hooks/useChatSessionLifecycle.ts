@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { messagesApi } from '@/api';
@@ -71,6 +73,7 @@ type UseChatSessionLifecycleOptions = {
 };
 
 const normalizeHistoryVersion = (value: unknown): number | null => {
+  if (typeof value !== 'number') return null;
   const version = Number(value);
   if (!Number.isFinite(version) || version < 0) {
     return null;
@@ -120,40 +123,30 @@ export function useChatSessionLifecycle({
   // below re-runs, but session history is still checked first.
   const { completed: tourCompleted, loaded: tourLoaded } = useProductTourFlag();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadCoreModelConfig = async () => {
-      try {
-        const response = await configApi.get();
-        if (!cancelled) {
-          const coreSelection = response.data?.llm?.selections?.core;
-          const contextWindow = coreSelection?.limits?.context_window;
-          setCoreModelSupportsVision(Boolean(coreSelection?.capabilities?.vision));
-          setCoreModelContextWindow(
-            typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
-              ? contextWindow
-              : null,
-          );
-          const prefs = response.data?.preferences;
-          setAllowInterjection(prefs?.allow_interjection === true);
-          setInterjectionSettingLoaded(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setCoreModelSupportsVision(false);
-          setCoreModelContextWindow(null);
-          setAllowInterjection(false);
-          setInterjectionSettingLoaded(true);
-        }
+  const beginRead = useRequestOwner('chat-lifecycle');
+  const loadCoreModelConfig = useCallback(async () => {
+    const isCurrent = beginRead('model-config');
+    try {
+      const response = await configApi.get();
+      if (isCurrent()) {
+        const coreSelection = response.data?.llm?.selections?.core;
+        const contextWindow = coreSelection?.limits?.context_window;
+        setCoreModelSupportsVision(Boolean(coreSelection?.capabilities?.vision));
+        setCoreModelContextWindow(
+          typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
+            ? contextWindow
+            : null,
+        );
+        const prefs = response.data?.preferences;
+        setAllowInterjection(prefs?.allow_interjection === true);
+        setInterjectionSettingLoaded(true);
       }
-    };
-
-    void loadCoreModelConfig();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    } catch {
+      // Keep the last confirmed model policy when a background read fails.
+      if (isCurrent()) setInterjectionSettingLoaded(true);
+    }
+  }, [beginRead]);
+  useEffect(() => { void loadCoreModelConfig(); }, [loadCoreModelConfig]);
 
   const requestHistory = useCallback(async (
     sessionId: string,
@@ -217,6 +210,12 @@ export function useChatSessionLifecycle({
         const fallbackVersion = normalizeHistoryVersion(
           useConversationStore.getState().sessionsById[sessionId]?.history_version,
         );
+        const cachedVersion = normalizeHistoryVersion(useConversationStore.getState().historyVersionBySession[sessionId]);
+        if ((responseVersion === null && (fallbackVersion !== null || cachedVersion !== null))
+          || (responseVersion !== null && Math.max(fallbackVersion ?? 0, cachedVersion ?? 0) > responseVersion)) {
+          if (attempt + 1 < maxAttempts) continue;
+          return { loaded: false, hasUserMessage: false, messages: [], historyVersion: null };
+        }
         const historyVersion = responseVersion ?? fallbackVersion;
         if (options.commit !== false) {
           useConversationStore.getState().receiveHistory(
@@ -273,6 +272,8 @@ export function useChatSessionLifecycle({
       historyVersion: null,
     };
   }, [translate]);
+
+
 
   const reconcileTurnFromHistory = useCallback(async (
     sessionId: string,
@@ -331,11 +332,9 @@ export function useChatSessionLifecycle({
     return request;
   }, [requestHistory]);
 
-  const loadPersonality = useCallback(async (
-    sessionId: string,
-    historyStatePromise: Promise<HistoryBootstrapState>,
-    isCancelled: () => boolean,
-  ) => {
+  const loadPersonaDisplay = useCallback(async () => {
+    const isCurrent = beginRead('persona-display');
+    const isCancelled = () => !isCurrent();
     try {
       const personasResponse = await personasApi.list({ includeDeleted: true });
       const personaItems = Array.isArray(personasResponse.data)
@@ -351,27 +350,35 @@ export function useChatSessionLifecycle({
         ])));
       }
     } catch {
-      if (!isCancelled()) {
-        setAssistantPersonas({});
-      }
+      // Retain the last confirmed persona registry on transient read errors.
     }
 
     try {
       const response = await personasApi.getGreeting();
-      const data = response.data as {
-        greeting?: string;
-        name?: string;
-        avatar?: string;
-        needs_bootstrap?: boolean;
-        needs_bootstrap_init?: boolean;
-      } | undefined;
-
-      if (!data || isCancelled()) {
-        return;
-      }
-
+      const data = response.data;
+      if (!data || isCancelled()) return undefined;
       setAiName(data.name || 'AI');
       setAiAvatar(data.avatar || '');
+      return data;
+    } catch { return undefined; }
+  }, [beginRead]);
+
+  useCenterRefresh(async () => {
+    await Promise.all([
+      loadCoreModelConfig(),
+      loadPersonaDisplay(),
+      currentSessionId ? requestHistory(currentSessionId, { force: true, maxAttempts: 1, showError: false }) : Promise.resolve(),
+    ]);
+  });
+
+  const loadPersonality = useCallback(async (
+    sessionId: string,
+    historyStatePromise: Promise<HistoryBootstrapState>,
+    isCancelled: () => boolean,
+  ) => {
+    try {
+      const data = await loadPersonaDisplay();
+      if (!data || isCancelled()) return;
 
       const needsBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
       if (
@@ -430,7 +437,7 @@ export function useChatSessionLifecycle({
     } catch {
       // Non-critical — keep default AI name.
     }
-  }, [removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
+  }, [loadPersonaDisplay, removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
 
   const requestHistoryRef = useRef(requestHistory);
   const ensureSessionHistoryReadyRef = useRef(ensureSessionHistoryReady);

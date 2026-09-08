@@ -1012,7 +1012,7 @@ quit prompt explicitly states that center tasks continue after closing the clien
 Pairing asks separately for the saved center connection name and the current
 device name. Only the device name identifies the authorization on the center.
 
-Mounted settings and device access panels reconcile center snapshots after
+Mounted chat, persona headers, settings, and device access panels reconcile center snapshots after
 change hints, focus/reconnect, and a 30-second fallback check while visible.
 Reads are coalesced and paused during maintenance. Pristine values update in
 place; dirty configuration, control, and tool drafts retain their original
@@ -1024,3 +1024,11 @@ maintenance admission. A stale revision returns 409; an absent revision returns
 428. The desktop preserves the rejected draft and offers an explicit action to
 discard that configuration draft and load the latest center snapshot. Successful
 saves advance the baseline even if the user has continued typing during the save.
+
+Chat reconciliation rereads session summaries and the active history without
+replaying bootstrap or creating conversations. A late history response cannot
+replace a newer history version; local pending turns remain in place. Only the
+initial empty-center load may create the first session, using a shared durable
+idempotency key derived from the center content epoch. Explicit New Chat remains
+a separate user action. Transient reads retain the last confirmed session and
+persona display snapshots.

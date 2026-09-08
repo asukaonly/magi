@@ -7,8 +7,10 @@
  * `persona: null` when no active persona exists (e.g. during onboarding)
  * so the PersonaHeader can render nothing instead of a skeleton.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { personasApi } from '@/api/modules/personas';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 
 export interface ActivePersonaSnapshot {
   personaId: string;
@@ -26,46 +28,40 @@ export function useActivePersona(): UseActivePersonaResult {
   const [persona, setPersona] = useState<ActivePersonaSnapshot | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const active = await personasApi.getActive();
-        const activeId = active.persona_id;
-        if (!activeId) {
-          if (!cancelled) {
-            setPersona(null);
-            setLoading(false);
-          }
-          return;
-        }
-        const detail = await personasApi.get(activeId);
-        const data = detail.data;
-        if (!cancelled) {
-          setPersona(data
-            ? {
-                personaId: data.persona_id,
-                name: data.name,
-                avatarPath: data.avatar_path || '',
-                createdAt: data.created_at,
-              }
-            : null);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
+  const beginRead = useRequestOwner();
+  const load = useCallback(async () => {
+    const isCurrent = beginRead('active-persona');
+    try {
+      const active = await personasApi.getActive();
+      const activeId = active.persona_id;
+      if (!activeId) {
+        if (isCurrent()) {
           setPersona(null);
           setLoading(false);
         }
+        return;
       }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      const detail = await personasApi.get(activeId);
+      const data = detail.data;
+      if (isCurrent()) {
+        setPersona(data
+          ? {
+              personaId: data.persona_id,
+              name: data.name,
+              avatarPath: data.avatar_path || '',
+              createdAt: data.created_at,
+            }
+          : null);
+        setLoading(false);
+      }
+    } catch {
+      if (isCurrent()) {
+        setLoading(false);
+      }
+    }
+  }, [beginRead]);
+  useEffect(() => { void load(); }, [load]);
+  useCenterRefresh(load);
 
   return { persona, loading };
 }

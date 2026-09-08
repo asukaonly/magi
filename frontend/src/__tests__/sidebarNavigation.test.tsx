@@ -1,4 +1,6 @@
 import { centerStorageKey } from '@/runtime/center-storage';
+import * as runtimeConfig from '@/runtime/config';
+import { webcrypto } from 'node:crypto';
 import { MemoryRouter, useLocation } from 'react-router';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,7 +8,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { toast } from 'sonner';
 import { configApi, messagesApi } from '@/api';
 import Sidebar from '@/components/layout/Sidebar';
-import { dispatchAppEvent } from '@/constants/events';
+import { APP_EVENTS, dispatchAppEvent } from '@/constants/events';
 import { useChatShellStore, useConversationStore } from '@/stores';
 import { useNotificationStore } from '@/stores/notifications';
 import {
@@ -366,6 +368,35 @@ describe('sidebar navigation', () => {
       expect(useConversationStore.getState().currentSessionId).toBe('session-new');
     });
     expect(storage.get(centerStorageKey('chat_session_local_user'))).toBe('session-new');
+  });
+
+  it('uses the same initial creation receipt when two clients open an empty center', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    const config = vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
+      isDesktop: true, apiBaseUrl: 'http://127.0.0.1:8000/api', contentEpoch: 'shared-center-epoch',
+    });
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', count: 0 });
+    vi.mocked(messagesApi.createNewSession).mockResolvedValue({ success: true, user_id: 'local_user', session_id: null });
+    try {
+      const first = render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+      await waitFor(() => expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1));
+      first.unmount();
+      const second = render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+      await waitFor(() => expect(messagesApi.createNewSession).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(messagesApi.createNewSession).mock.calls[1]).toEqual(vi.mocked(messagesApi.createNewSession).mock.calls[0]);
+      expect(vi.mocked(messagesApi.createNewSession).mock.calls[0][1]).toMatch(/^initial_[a-f0-9]{64}$/);
+      second.unmount();
+    } finally { config.mockRestore(); vi.unstubAllGlobals(); }
+  });
+
+  it('keeps background center refresh read-only when the session list is empty', async () => {
+    vi.mocked(messagesApi.listSessions).mockResolvedValue({ sessions: [], user_id: 'local_user', count: 0 });
+    render(<MemoryRouter initialEntries={['/chat']}><Sidebar /></MemoryRouter>);
+    await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(1));
+    vi.mocked(messagesApi.createNewSession).mockClear();
+    act(() => { window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)); });
+    await waitFor(() => expect(messagesApi.listSessions).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    expect(messagesApi.createNewSession).not.toHaveBeenCalled();
   });
 
   it('does not restore a session whose create response arrives after a full clear starts', async () => {

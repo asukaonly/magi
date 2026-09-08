@@ -1,8 +1,9 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clearPersistedChatRetriesForTurn } from '@/hooks/chatRetryLifecycle';
-import { dispatchAppEvent } from '@/constants/events';
+import { APP_EVENTS, dispatchAppEvent } from '@/constants/events';
+import { personasApi } from '@/api/modules/personas';
 import { useChatSessionLifecycle } from '@/hooks/useChatSessionLifecycle';
 import { useConversationStore } from '@/stores/conversation-store';
 
@@ -107,6 +108,26 @@ describe('useChatSessionLifecycle destructive invalidation', () => {
     });
 
     expect(useConversationStore.getState().messagesBySession['session-1']).toBeUndefined();
+  });
+
+  it('reconciles another device history without replaying persona bootstrap', async () => {
+    const history = (version: number, content: string) => ({
+      user_id: 'local_user', session_id: 'session-1', history_version: version,
+      messages: [{ message_id: 'message-1', role: 'user', content, timestamp: 1, kind: 'user' }], count: 1,
+    });
+    getHistoryMock.mockResolvedValueOnce(history(1, 'Before')).mockResolvedValue(history(2, 'After'));
+    const hook = renderHook(() => useChatSessionLifecycle({
+      currentSessionId: 'session-1',
+      upsertMessage: useConversationStore.getState().upsertMessage,
+      removeMessage: useConversationStore.getState().removeMessage,
+      translate: (key) => key,
+    }));
+    await waitFor(() => expect(useConversationStore.getState().historyVersionBySession['session-1']).toBe(1));
+    act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+    await waitFor(() => expect(useConversationStore.getState().historyVersionBySession['session-1']).toBe(2), { timeout: 3000 });
+    expect(useConversationStore.getState().messagesBySession['session-1'][0].content).toBe('After');
+    expect(personasApi.bootstrapInit).not.toHaveBeenCalled();
+    hook.unmount();
   });
 
   it('does not restore history whose response arrives after a full clear starts', async () => {

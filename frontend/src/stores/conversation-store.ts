@@ -282,10 +282,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
     };
   }),
   receiveHistory: (sessionId, messages, historyVersion) => set((state) => {
+    const incomingVersion = Number(historyVersion);
+    const knownVersion = state.historyVersionBySession[sessionId];
+    if (knownVersion !== undefined && (historyVersion == null || !Number.isFinite(incomingVersion) || incomingVersion < knownVersion)) return state;
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const normalizedHistoryVersion = Number(historyVersion);
-    const shouldRecordHistoryVersion = Number.isFinite(normalizedHistoryVersion) && normalizedHistoryVersion >= 0;
+    const shouldRecordHistoryVersion = historyVersion != null && Number.isFinite(normalizedHistoryVersion) && normalizedHistoryVersion >= 0;
     const mergedMessages = mergeHistorySnapshot(previousMessages, messages);
     if (state.currentSessionId === sessionId) {
       persistSessionReadCursor(sessionId, ensured.sessionsById[sessionId], mergedMessages);

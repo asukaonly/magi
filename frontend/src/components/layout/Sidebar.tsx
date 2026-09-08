@@ -1,3 +1,5 @@
+import { getRuntimeConfig } from '@/runtime/config';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { ConnectionsButton } from '@/components/connections/ConnectionsButton';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -28,7 +30,6 @@ import {
 } from '@/lib/browserContentGeneration';
 import { messagesApi, type ChatSessionListItem } from '@/api';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
-import { APP_EVENTS } from '@/constants/events';
 import { completeChatSessionDeletion } from '@/hooks/chatRetryLifecycle';
 import {
   activateRealtimeChatSession,
@@ -133,7 +134,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
   const refreshRequestIdRef = useRef(0);
   const sessionCreationPromiseRef = useRef<Promise<string | null> | null>(null);
 
-  const refreshSessions = useCallback(async (preferredSessionId?: string | null) => {
+  const refreshSessions = useCallback(async (preferredSessionId?: string | null, initialize = false) => {
     const contentGeneration = captureBrowserContentGeneration();
     const requestId = refreshRequestIdRef.current + 1;
     refreshRequestIdRef.current = requestId;
@@ -161,7 +162,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       }
     };
 
-    setLoading(true);
+    if (initialize) setLoading(true);
     try {
       const loadSessions = async (
         allowCreate: boolean,
@@ -172,9 +173,13 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
           return;
         }
         const sessions = response.sessions || [];
-        if (sessions.length === 0 && allowCreate) {
+        const contentEpoch = getRuntimeConfig().contentEpoch;
+        if (sessions.length === 0 && allowCreate && contentEpoch) {
           if (!sessionCreationPromiseRef.current) {
-            sessionCreationPromiseRef.current = messagesApi.createNewSession(USER_ID)
+            const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(contentEpoch));
+            if (!requestIsCurrent()) return;
+            const key = `initial_${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+            sessionCreationPromiseRef.current = messagesApi.createNewSession(USER_ID, key)
               .then((created) => String(created.session_id || '').trim() || null)
               .finally(() => {
                 sessionCreationPromiseRef.current = null;
@@ -210,11 +215,9 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         persistSessionId(nextSessionId);
       };
 
-      await loadSessions(true);
+      await loadSessions(initialize);
     } catch {
-      if (requestIsCurrent()) {
-        hydrateSessions([], useConversationStore.getState().currentSessionId);
-      }
+      // A failed read must not erase the last confirmed session list.
     } finally {
       if (refreshRequestIdRef.current === requestId) {
         setLoading(false);
@@ -222,31 +225,16 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     }
   }, [hydrateSessions, setCurrentSessionId]);
 
+  useCenterRefresh(() => refreshSessions(), shouldRefreshSessions);
+
   useEffect(() => {
     if (!shouldRefreshSessions) {
       return undefined;
     }
 
-    void refreshSessions();
-    const handleSync = () => {
-      void refreshSessions();
-    };
-    const handleFocus = () => {
-      void refreshSessions();
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        void refreshSessions();
-      }
-    };
-    window.addEventListener(APP_EVENTS.SESSION_SYNC, handleSync as EventListener);
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    void refreshSessions(undefined, true);
     return () => {
       refreshRequestIdRef.current += 1;
-      window.removeEventListener(APP_EVENTS.SESSION_SYNC, handleSync as EventListener);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [refreshSessions, shouldRefreshSessions]);
 

@@ -1299,7 +1299,7 @@ defineChatPageSuite('ChatPage message interactions', () => {
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).toBeNull();
 
-    vi.mocked(messagesApi.getHistory).mockResolvedValue(emptyHistory());
+    vi.mocked(messagesApi.getHistory).mockResolvedValue({ ...emptyHistory(), history_version: 9 });
     await user.type(
       screen.getByPlaceholderText('chat.inputPlaceholder'),
       'Message after exact delete',

@@ -142,6 +142,14 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().unreadBySession['session-b']).toBe(2);
   });
 
+  it('rejects a late history snapshot from an older center version', () => {
+    const store = useConversationStore.getState();
+    store.receiveHistory('session-a', [{ id: 'new', messageId: 'new', role: 'user', kind: 'user', content: 'Current', timestamp: 2 }], 12);
+    store.receiveHistory('session-a', [{ id: 'old', messageId: 'old', role: 'user', kind: 'user', content: 'Stale', timestamp: 1 }], 11);
+    expect(useConversationStore.getState().messagesBySession['session-a'].map(message => message.content)).toEqual(['Current']);
+    expect(useConversationStore.getState().historyVersionBySession['session-a']).toBe(12);
+  });
+
   it('records the history version for received session history', () => {
     const store = useConversationStore.getState();
 

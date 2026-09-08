@@ -28,6 +28,7 @@ export function subscribeCenterRefresh(listener: () => void): () => void {
   if (listeners.size === 0) {
     lastRefreshAt = 0;
     window.addEventListener(APP_EVENTS.CENTER_STATE_CHANGED, schedule);
+    window.addEventListener(APP_EVENTS.SESSION_SYNC, schedule);
     window.addEventListener(APP_EVENTS.CENTER_MAINTENANCE, onMaintenance);
     window.addEventListener('focus', schedule);
     window.addEventListener('online', schedule);
@@ -39,6 +40,7 @@ export function subscribeCenterRefresh(listener: () => void): () => void {
     listeners.delete(listener);
     if (listeners.size) return;
     window.removeEventListener(APP_EVENTS.CENTER_STATE_CHANGED, schedule);
+    window.removeEventListener(APP_EVENTS.SESSION_SYNC, schedule);
     window.removeEventListener(APP_EVENTS.CENTER_MAINTENANCE, onMaintenance);
     window.removeEventListener('focus', schedule);
     window.removeEventListener('online', schedule);
