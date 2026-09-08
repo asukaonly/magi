@@ -1011,3 +1011,9 @@ quit prompt explicitly states that center tasks continue after closing the clien
 
 Pairing asks separately for the saved center connection name and the current
 device name. Only the device name identifies the authorization on the center.
+
+Mounted settings and device access panels reconcile center snapshots after
+change hints, focus/reconnect, and a 30-second fallback check while visible.
+Reads are coalesced and paused during maintenance. Pristine values update in
+place; dirty configuration, control, and tool drafts retain their original
+baseline. Background refresh does not reset theme previews or remount editors.

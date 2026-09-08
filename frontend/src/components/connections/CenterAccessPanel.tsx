@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { serverApi } from '@/api/modules/server';
@@ -42,6 +43,8 @@ export function CenterAccessPanel() {
     const timer = window.setTimeout(() => { setGrant(null); setCopied(false); }, Math.max(0, grant.expires_at_ms - Date.now()));
     return () => window.clearTimeout(timer);
   }, [grant]);
+
+  useCenterRefresh(load, !busy);
 
   const run = async (action: () => Promise<void>) => {
     if (actionPending.current) return;

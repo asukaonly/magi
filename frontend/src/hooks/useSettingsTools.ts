@@ -1,10 +1,11 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
 import type { ToolDraftMap } from '@/types/settings';
-import { buildToolDraftSnapshot } from '@/utils/settings-helpers';
+import { buildToolDraftSnapshot, serialize } from '@/utils/settings-helpers';
 
 interface UseSettingsToolsReturn {
   tools: ToolConfig[];
@@ -26,8 +27,23 @@ export function useSettingsTools(): UseSettingsToolsReturn {
   const [tools, setTools] = useState<ToolConfig[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  const [savedToolDrafts, setSavedToolDrafts] = useState<ToolDraftMap>({});
-  const [draftToolDrafts, setDraftToolDrafts] = useState<ToolDraftMap>({});
+  const [savedToolDrafts, setSavedToolDraftsState] = useState<ToolDraftMap>({});
+  const savedRef = useRef<ToolDraftMap>({});
+  const setSavedToolDrafts: Dispatch<SetStateAction<ToolDraftMap>> = useCallback((update) => {
+    const next = typeof update === 'function' ? update(savedRef.current) : update;
+    savedRef.current = next;
+    setSavedToolDraftsState(next);
+  }, []);
+  const [draftToolDrafts, setDraftToolDraftsState] = useState<ToolDraftMap>({});
+  const draftRef = useRef<ToolDraftMap>({});
+  const setDraftToolDrafts: Dispatch<SetStateAction<ToolDraftMap>> = useCallback((update) => {
+    const next = typeof update === 'function' ? update(draftRef.current) : update;
+    draftRef.current = next;
+    setDraftToolDraftsState(next);
+  }, []);
+
+  const currentDrafts = useRef({ tools, savedToolDrafts, draftToolDrafts });
+  currentDrafts.current = { tools, savedToolDrafts, draftToolDrafts };
 
   const loadTools = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const requestId = ++requestIdRef.current;
@@ -41,35 +57,33 @@ export function useSettingsTools(): UseSettingsToolsReturn {
       setToolsError(null);
       const nextTools = response.tools;
       const nextDrafts = buildToolDraftSnapshot(nextTools);
-      setTools(nextTools);
-      setSavedToolDrafts(nextDrafts);
-      setDraftToolDrafts((prev) => {
-        if (Object.keys(prev).length === 0) {
-          return nextDrafts;
-        }
-        const merged = structuredClone(prev);
-        for (const [toolName, snapshot] of Object.entries(nextDrafts)) {
-          merged[toolName] = {
-            enabled: merged[toolName]?.enabled ?? snapshot.enabled,
-            values: {
-              ...snapshot.values,
-              ...(merged[toolName]?.values || {}),
-            },
-          };
-        }
-        return merged;
-      });
+      const current = { ...currentDrafts.current, savedToolDrafts: savedRef.current, draftToolDrafts: draftRef.current };
+      const saved = { ...nextDrafts };
+      const drafts = { ...nextDrafts };
+      const visibleTools = [...nextTools];
+      for (const [name, draft] of Object.entries(current.draftToolDrafts)) {
+        if (serialize(draft) === serialize(current.savedToolDrafts[name])) continue;
+        drafts[name] = draft;
+        if (current.savedToolDrafts[name]) saved[name] = current.savedToolDrafts[name];
+        const previous = current.tools.find((tool) => tool.name === name);
+        if (previous && !visibleTools.some((tool) => tool.name === name)) visibleTools.push(previous);
+      }
+      setTools(visibleTools);
+      setSavedToolDrafts(saved);
+      setDraftToolDrafts(drafts);
     } catch (error: unknown) {
       if (requestId !== requestIdRef.current) return;
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       setToolsError(t('settings.loadToolsFailed', { message }));
-      toast.error(t('settings.loadToolsFailed', { message }));
+      if (!silent) toast.error(t('settings.loadToolsFailed', { message }));
     } finally {
       if (requestId === requestIdRef.current) {
         setToolsLoading(false);
       }
     }
-  }, [t]);
+  }, [t, setDraftToolDrafts, setSavedToolDrafts]);
+
+  useCenterRefresh(() => loadTools({ silent: true }), !toolsLoading);
 
   const handleToolDraftChange = useCallback((toolName: string, path: string, value: unknown) => {
     setDraftToolDrafts((prev) => ({
@@ -82,7 +96,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
         },
       },
     }));
-  }, [tools]);
+  }, [tools, setDraftToolDrafts]);
 
   const handleToolEnabledChange = useCallback((toolName: string, enabled: boolean) => {
     setDraftToolDrafts((prev) => ({
@@ -94,7 +108,7 @@ export function useSettingsTools(): UseSettingsToolsReturn {
         },
       },
     }));
-  }, [tools]);
+  }, [tools, setDraftToolDrafts]);
 
   return {
     tools,

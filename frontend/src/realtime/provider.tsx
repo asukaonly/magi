@@ -168,6 +168,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
       if (cancelled) return;
       setConnectionState('ready');
       window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+      window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
     }).catch(() => {
       if (!cancelled) setConnectionState('error');
     });

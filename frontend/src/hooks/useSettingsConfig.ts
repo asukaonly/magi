@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -33,8 +34,8 @@ interface UseSettingsConfigReturn {
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   syncNormalizedLlmConfig: (nextLlmConfig: SystemConfig['llm']) => void;
   patchDraftControlSettings: (updater: (draft: ControlSettingsDTO) => void) => void;
-  fetchConfig: () => Promise<void>;
-  loadControlSettings: () => Promise<void>;
+  fetchConfig: (options?: { silent?: boolean }) => Promise<void>;
+  loadControlSettings: (options?: { silent?: boolean }) => Promise<void>;
   handleLanguageDraftChange: (value: string) => void;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 }
@@ -90,44 +91,52 @@ export function useSettingsConfig({
     });
   }, []);
 
+  const currentDrafts = useRef({ savedConfig, draftConfig, savedControlSettings, draftControlSettings });
+  currentDrafts.current = { savedConfig, draftConfig, savedControlSettings, draftControlSettings };
   const configRequestId = useRef(0);
   const controlRequestId = useRef(0);
   useEffect(() => () => { configRequestId.current += 1; controlRequestId.current += 1; }, []);
 
-  const fetchConfig = useCallback(async () => {
+  const fetchConfig = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const requestId = ++configRequestId.current;
-    setLoading(true);
-    setConfigError(null);
+    if (!silent) { setLoading(true); setConfigError(null); }
     try {
       const response = await configApi.get();
       const nextConfig = requireConfiguration(response);
       if (requestId !== configRequestId.current) return;
+      const current = currentDrafts.current;
+      if (silent && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
-      setSavedThemeMode(themeMode);
-      setDraftThemeMode(themeMode);
+      if (!silent) { setSavedThemeMode(themeMode); setDraftThemeMode(themeMode); }
     } catch (error: unknown) {
       if (requestId !== configRequestId.current) return;
       const message = getErrorMessage(error) || t('settings.errorUnknown');
-      setConfigError(t('settings.loadFailed', { message }));
+      if (!silent) setConfigError(t('settings.loadFailed', { message }));
     } finally {
       if (requestId === configRequestId.current) setLoading(false);
     }
   }, [setDraftThemeMode, setSavedThemeMode, t, themeMode]);
 
-  const loadControlSettings = useCallback(async () => {
+  const loadControlSettings = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const requestId = ++controlRequestId.current;
     try {
       const nextSettings = await getControlSettings();
       if (requestId !== controlRequestId.current) return;
+      const current = currentDrafts.current;
+      if (silent && serialize(current.savedControlSettings) !== serialize(current.draftControlSettings)) return;
       setSavedControlSettings(nextSettings);
       setDraftControlSettings(structuredClone(nextSettings));
     } catch (error: unknown) {
       if (requestId !== controlRequestId.current) return;
       const message = error instanceof Error ? error.message : 'unknown';
-      toast.error(t('settings.loadFailed', { message }));
+      if (!silent) toast.error(t('settings.loadFailed', { message }));
     }
   }, [t]);
+
+  useCenterRefresh(async () => {
+    await Promise.all([fetchConfig({ silent: true }), loadControlSettings({ silent: true })]);
+  }, !loading);
 
   const handleLanguageDraftChange = useCallback((value: string) => {
     const nextLanguage = value as LanguageCode;
