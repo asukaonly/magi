@@ -1,8 +1,9 @@
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { ArrowLeft, ChevronDown, ImageIcon, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 import {
   memoryApi,
   type ExperienceDraft,
@@ -133,7 +134,8 @@ const nextChapterOrder = (draft: ExperienceDraft): number => {
   return orders.length > 0 ? Math.max(...orders) + 1 : 0;
 };
 
-const toUpdatePayload = (draft: ExperienceDraft): ExperienceDraftUpdatePayload => ({
+const toUpdatePayload = (draft: ExperienceDraft, version: number): ExperienceDraftUpdatePayload => ({
+  expected_updated_at: version,
   title: draft.title,
   one_sentence_review: draft.one_sentence_review,
   time_start: draft.time_start,
@@ -209,7 +211,15 @@ interface DraftSaveContext {
   queuedRevision: number;
   saveQueue: Promise<void>;
   pendingSaveCount: number;
+  serverVersion: number;
+  conflicted: boolean;
+  creating: boolean;
+  coverPending: boolean;
+  read: symbol | null;
 }
+
+const isDraftConflict = (error: unknown): boolean => typeof error === 'object' && error !== null
+  && 'status' in error && (error.status === 409 || error.status === 428);
 
 export const MemoryExperienceDraftPage = () => {
   const { t, i18n } = useTranslation('app');
@@ -219,6 +229,7 @@ export const MemoryExperienceDraftPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [conflicted, setConflicted] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createFailed, setCreateFailed] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -254,12 +265,18 @@ export const MemoryExperienceDraftPage = () => {
       queuedRevision: 0,
       saveQueue: Promise.resolve(),
       pendingSaveCount: 0,
+      serverVersion: 0,
+      conflicted: false,
+      creating: false,
+      coverPending: false,
+      read: null,
     };
     saveContextRef.current = context;
     setDraft(null);
     setLoading(true);
     setSaving(false);
     setSaveFailed(false);
+    setConflicted(false);
     setCreating(false);
     setCreateFailed(false);
     setNotFound(false);
@@ -283,6 +300,7 @@ export const MemoryExperienceDraftPage = () => {
         if (!cancelled && saveContextRef.current === context) {
           const normalized = normalizeDraftEvidence(payload);
           context.draft = normalized.draft;
+          context.serverVersion = payload.updated_at;
           context.revision = normalized.changed ? 1 : 0;
           setDraft(normalized.draft);
         }
@@ -310,22 +328,24 @@ export const MemoryExperienceDraftPage = () => {
     const nextSave = priorSave.then(async () => {
       if (saveContextRef.current === context) setSaveFailed(false);
       try {
+        if (context.conflicted) throw new Error('Experience draft requires explicit reload');
         const savedDraft = await memoryApi.updateExperienceDraft(
           context.draftId,
-          toUpdatePayload(snapshot),
+          toUpdatePayload(snapshot, context.serverVersion),
         );
+        context.serverVersion = savedDraft.updated_at;
+        context.read = null;
         context.savedRevision = Math.max(context.savedRevision, revision);
         if (saveContextRef.current === context && context.draft) {
-          const merged = mergeHydratedChapterCounts(context.draft, savedDraft, snapshot);
+          const merged = { ...mergeHydratedChapterCounts(context.draft, savedDraft, snapshot), updated_at: savedDraft.updated_at };
           context.draft = merged;
-          setDraft((current) => {
-            if (saveContextRef.current !== context || current?.draft_id !== context.draftId) {
-              return current;
-            }
-            return mergeHydratedChapterCounts(current, savedDraft, snapshot);
-          });
+          setDraft(merged);
         }
       } catch (error) {
+        if (isDraftConflict(error)) {
+          context.conflicted = true;
+          if (saveContextRef.current === context) setConflicted(true);
+        }
         if (context.queuedRevision === revision) {
           context.queuedRevision = context.savedRevision;
         }
@@ -345,6 +365,7 @@ export const MemoryExperienceDraftPage = () => {
   useEffect(() => {
     const context = saveContextRef.current;
     if (!draftId || !draft || !context || context.draftId !== draftId) return;
+    if (context.conflicted || context.creating || draft.status !== 'editing') return;
     const revision = context.revision;
     if (revision <= context.savedRevision || revision <= context.queuedRevision) return;
     const timer = window.setTimeout(() => {
@@ -354,15 +375,41 @@ export const MemoryExperienceDraftPage = () => {
   }, [draft, draftId, enqueueSave]);
 
   const changeDraft = useCallback((mutate: (current: ExperienceDraft) => ExperienceDraft) => {
-    setDraft((current) => {
-      const context = saveContextRef.current;
-      if (!current || !context || current.draft_id !== context.draftId) return current;
-      const normalized = normalizeDraftEvidence(mutate(current)).draft;
-      context.revision += 1;
-      context.draft = normalized;
-      return normalized;
-    });
+    const context = saveContextRef.current;
+    if (!context?.draft || context.creating || context.draft.status !== 'editing') return;
+    const normalized = normalizeDraftEvidence(mutate(context.draft)).draft;
+    context.revision += 1;
+    context.draft = normalized;
+    setDraft(normalized);
   }, []);
+
+  const refreshDraft = useCallback(async (discard = false) => {
+    const context = saveContextRef.current;
+    if (!context?.draft || context.pendingSaveCount || context.creating) return;
+    if (!discard && (context.conflicted || context.revision !== context.savedRevision)) return;
+    const revision = context.revision;
+    const version = context.serverVersion;
+    const request = Symbol('draft-read');
+    context.read = request;
+    try {
+      const next = await memoryApi.getExperienceDraft(context.draftId);
+      if (saveContextRef.current !== context || context.read !== request || context.pendingSaveCount
+        || context.creating || context.revision !== revision || context.serverVersion !== version) return;
+      context.serverVersion = next.updated_at;
+      context.draft = normalizeDraftEvidence(next).draft;
+      context.savedRevision = context.revision;
+      context.queuedRevision = context.revision;
+      context.conflicted = false;
+      setDraft(context.draft);
+      setConflicted(false);
+      setSaveFailed(false);
+      setCoverFailed(false);
+      replaceLocalCoverUrl(null);
+    } catch {
+      if (discard && saveContextRef.current === context) setSaveFailed(true);
+    }
+  }, [replaceLocalCoverUrl]);
+  useCenterRefresh(() => refreshDraft());
 
   useEffect(() => {
     const pendingFocus = pendingFocusRef.current;
@@ -500,49 +547,69 @@ export const MemoryExperienceDraftPage = () => {
 
   const createExperience = async () => {
     const context = saveContextRef.current;
-    if (!draftId || !context?.draft || context.draftId !== draftId) return;
+    if (!draftId || !context?.draft || context.draftId !== draftId || context.creating || context.conflicted || context.coverPending) return;
+    context.creating = true;
     setCreateFailed(false);
     setCreating(true);
     try {
       await flushLatestDraft(context);
+      await context.saveQueue.catch(() => undefined);
+      if (context.conflicted) throw new Error('Experience draft requires explicit reload');
       if (saveContextRef.current !== context) return;
-      const result = await memoryApi.createExperienceFromDraft(draftId);
+      const result = await memoryApi.createExperienceFromDraft(draftId, context.serverVersion);
       if (saveContextRef.current === context) {
         navigate(`/memory/episodes/${result.experience_id}`);
       }
-    } catch {
-      if (saveContextRef.current === context) setCreateFailed(true);
+    } catch (error) {
+      if (isDraftConflict(error)) context.conflicted = true;
+      if (saveContextRef.current === context) {
+        setCreateFailed(true);
+        setConflicted(context.conflicted);
+      }
     } finally {
+      context.creating = false;
       if (saveContextRef.current === context) setCreating(false);
     }
   };
 
   const updateCover = async (file: File) => {
     const context = saveContextRef.current;
-    if (!draftId || !context || context.draftId !== draftId) return;
+    if (!draftId || !context?.draft || context.draftId !== draftId || context.coverPending || context.creating || context.conflicted || context.draft.status !== 'editing') return;
+    context.coverPending = true;
     const previewUrl = URL.createObjectURL(file);
     replaceLocalCoverUrl(previewUrl);
     setCoverFailed(false);
     setCoverSaving(true);
+    void enqueueSave(context, context.draft, context.revision).catch(() => undefined);
+    context.pendingSaveCount += 1;
+    const nextSave = context.saveQueue.catch(() => undefined).then(async () => {
+      if (context.conflicted) throw new Error('Experience draft requires explicit reload');
+      const updatedDraft = await memoryApi.uploadExperienceDraftCover(draftId, file, context.serverVersion);
+      context.serverVersion = updatedDraft.updated_at;
+      context.read = null;
+      if (context.draft) context.draft = { ...context.draft, updated_at: updatedDraft.updated_at, user_cover_asset_ref: updatedDraft.user_cover_asset_ref };
+      if (saveContextRef.current === context) {
+        setDraft(context.draft);
+        replaceLocalCoverUrl(null);
+      }
+    });
+    context.saveQueue = nextSave;
     try {
-      const updatedDraft = await memoryApi.uploadExperienceDraftCover(draftId, file);
-      if (saveContextRef.current !== context) return;
-      context.draft = context.draft
-        ? { ...context.draft, user_cover_asset_ref: updatedDraft.user_cover_asset_ref }
-        : context.draft;
-      setDraft((current) => (
-        current?.draft_id === draftId
-          ? { ...current, user_cover_asset_ref: updatedDraft.user_cover_asset_ref }
-          : current
-      ));
-      replaceLocalCoverUrl(null);
-    } catch {
+      await nextSave;
+    } catch (error) {
+      if (isDraftConflict(error)) context.conflicted = true;
       if (saveContextRef.current === context) {
         replaceLocalCoverUrl(null);
         setCoverFailed(true);
+        setConflicted(context.conflicted);
       }
     } finally {
-      if (saveContextRef.current === context) setCoverSaving(false);
+      context.coverPending = false;
+      context.pendingSaveCount -= 1;
+      if (saveContextRef.current === context) {
+        setCoverSaving(false);
+        if (!context.pendingSaveCount) setSaving(false);
+      }
     }
   };
 
@@ -574,6 +641,11 @@ export const MemoryExperienceDraftPage = () => {
       ) : null}
       {visibleDraft ? (
         <div className="flex min-h-0 flex-1 flex-col">
+          {conflicted ? <div role="alert" className="m-4 rounded-md border border-amber-500/40 p-3 text-sm">
+            <p>{t('memory.episodes.draft.conflict')}</p>
+            <Button variant="outline" className="mt-2" disabled={saving || coverSaving || creating} onClick={() => { void refreshDraft(true); }}>{t('memory.episodes.draft.reload')}</Button>
+          </div> : null}
+          <fieldset disabled={creating || visibleDraft.status !== 'editing'} className="contents">
           <main className="w-full flex-1 space-y-8 px-4 pb-8 pt-3 sm:px-8 sm:pb-10">
             <input
               ref={fileInputRef}
@@ -597,14 +669,15 @@ export const MemoryExperienceDraftPage = () => {
                 topContent={(
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     <Button
-                      type="button"
+                      asChild
                       variant="ghost"
                       aria-label={t('memory.episodes.draft.back')}
                       className="h-7 shrink-0 px-0 text-xs text-[hsl(var(--memory-muted))] hover:bg-transparent hover:text-[hsl(var(--memory-title))]"
-                      onClick={() => navigate('/memory/episodes')}
                     >
+                      <Link to="/memory/episodes">
                       <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>{t('memory.episodes.draft.back')}</span>
+                      </Link>
                     </Button>
                     <span className="flex min-w-0 items-start gap-2 leading-5">
                       <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
@@ -618,7 +691,7 @@ export const MemoryExperienceDraftPage = () => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      disabled={coverSaving}
+                      disabled={coverSaving || conflicted}
                       onClick={() => fileInputRef.current?.click()}
                       className="h-9 border-[hsl(var(--memory-border)/0.62)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-3 text-xs shadow-none"
                     >
@@ -803,6 +876,7 @@ export const MemoryExperienceDraftPage = () => {
               </details>
             ) : null}
           </main>
+          </fieldset>
 
           <div className="sticky bottom-0 z-20 border-t border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated)/0.97)] px-4 py-4 sm:px-8">
             <div className="mx-auto w-full max-w-[900px]">
@@ -812,7 +886,7 @@ export const MemoryExperienceDraftPage = () => {
                 </p>
                 <Button
                   onClick={() => { void createExperience(); }}
-                  disabled={creating || !visibleDraft.title.trim() || visibleDraft.chapters.length === 0}
+                  disabled={creating || coverSaving || conflicted || !visibleDraft.title.trim() || visibleDraft.chapters.length === 0}
                   className="h-10 px-5 sm:self-auto"
                 >
                   {creating ? t('common.saving') : t('memory.episodes.draft.create')}

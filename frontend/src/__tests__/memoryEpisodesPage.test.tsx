@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
-import type { ImgHTMLAttributes } from 'react';
+import { useEffect, type ImgHTMLAttributes } from 'react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router';
 
@@ -18,6 +18,13 @@ import type {
   L2ExperienceSeed,
   L2ExperienceWithReview,
 } from '@/api/modules/memory';
+
+const centerReads = vi.hoisted(() => new Set<() => Promise<void>>());
+vi.mock('@/hooks/useCenterRefresh', () => ({ useCenterRefresh: (read: () => Promise<void>) => {
+  useEffect(() => { centerReads.add(read); return () => { centerReads.delete(read); }; }, [read]);
+} }));
+
+const refreshCenter = async () => { await act(async () => { await Promise.all([...centerReads].map(read => read())); }); };
 
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
@@ -623,6 +630,73 @@ beforeEach(() => {
 });
 
 describe('MemoryEpisodesPage', () => {
+  it('pauses autosave on conflict and preserves the draft until explicit reload', async () => {
+    const user = userEvent.setup();
+    renderDraftPage();
+    await openDraftEditor(user);
+    const title = await screen.findByLabelText('Title');
+    vi.mocked(memoryApi.updateExperienceDraft).mockRejectedValue({ status: 409 });
+    await user.clear(title);
+    await user.type(title, 'My draft');
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls[0][1].expected_updated_at).toBe(1778500000);
+    const latest = makeExperienceDraft({ title: 'Other device', updated_at: 1778500001 });
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValue(latest);
+    await refreshCenter();
+    expect(title).toHaveValue('My draft');
+    await user.type(title, ' continued');
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 600)); });
+    expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: 'memory.episodes.draft.reload' }));
+    await waitFor(() => expect(title).toHaveValue('Other device'));
+    expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes cover and text writes against their latest confirmed versions', async () => {
+    const firstSave = createDeferred<ExperienceDraft>();
+    const coverSave = createDeferred<ExperienceDraft>();
+    vi.mocked(memoryApi.updateExperienceDraft).mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValue(makeExperienceDraft({ title: 'Latest text', updated_at: 1778500003 }));
+    vi.mocked(memoryApi.uploadExperienceDraftCover).mockImplementationOnce(() => coverSave.promise);
+    const user = userEvent.setup();
+    renderDraftPage();
+    await openDraftEditor(user);
+    const title = await screen.findByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'First text');
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1));
+    const cover = new File(['image'], 'cover.png', { type: 'image/png' });
+    await user.upload(screen.getByLabelText('Choose cover file'), cover);
+    expect(memoryApi.uploadExperienceDraftCover).not.toHaveBeenCalled();
+    await act(async () => { firstSave.resolve(makeExperienceDraft({ title: 'First text', updated_at: 1778500001 })); });
+    await waitFor(() => expect(memoryApi.uploadExperienceDraftCover).toHaveBeenCalledWith('draft-japan', cover, 1778500001));
+    await user.clear(title);
+    await user.type(title, 'Latest text');
+    await act(async () => { coverSave.resolve(makeExperienceDraft({ user_cover_asset_ref: 'manual-entry-asset://cover.png', updated_at: 1778500002 })); });
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls[1][1]).toMatchObject({ title: 'Latest text', expected_updated_at: 1778500002 });
+    expect(title).toHaveValue('Latest text');
+  });
+
+  it('ignores an old draft read after its own autosave receipt', async () => {
+    const user = userEvent.setup();
+    renderDraftPage();
+    await openDraftEditor(user);
+    const title = await screen.findByLabelText('Title');
+    const oldRead = createDeferred<ExperienceDraft>();
+    vi.mocked(memoryApi.getExperienceDraft).mockImplementationOnce(() => oldRead.promise);
+    let pending = Promise.resolve();
+    act(() => { pending = Promise.all([...centerReads].map(read => read())).then(() => {}); });
+    vi.mocked(memoryApi.updateExperienceDraft).mockResolvedValue(makeExperienceDraft({ title: 'Saved here', updated_at: 1778500001 }));
+    await user.clear(title);
+    await user.type(title, 'Saved here');
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1));
+    await act(async () => { oldRead.resolve(makeExperienceDraft()); await pending; });
+    expect(title).toHaveValue('Saved here');
+    await user.click(screen.getByRole('button', { name: 'Create experience' }));
+    await waitFor(() => expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan', 1778500001));
+  });
+
   it('lists experiences as a focused review index without management controls', async () => {
     renderPage();
 
@@ -890,7 +964,7 @@ describe('MemoryEpisodesPage', () => {
 
     expect(URL.createObjectURL).toHaveBeenCalledWith(coverFile);
     await waitFor(() => {
-      expect(draftApi.uploadExperienceDraftCover).toHaveBeenCalledWith('draft-japan', coverFile);
+      expect(draftApi.uploadExperienceDraftCover).toHaveBeenCalledWith('draft-japan', coverFile, 1778500000);
     });
     expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://persisted-draft-cover.jpg'),
@@ -1601,7 +1675,7 @@ describe('MemoryEpisodesPage', () => {
         'draft-japan',
         expect.objectContaining({ chapters: [ownerChapter, directEventChapter] }),
       );
-      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan', 1778500000);
     }, { timeout: 1500 });
   });
 
@@ -1825,7 +1899,7 @@ describe('MemoryEpisodesPage', () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan', 1778500000);
     });
   });
 
@@ -1849,7 +1923,7 @@ describe('MemoryEpisodesPage', () => {
           })],
         }),
       );
-      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan', 1778500000);
     });
   });
 

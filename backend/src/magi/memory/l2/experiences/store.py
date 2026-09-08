@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from typing import Any, Iterable
 
@@ -521,6 +522,93 @@ async def _assert_draft_sources_are_active(
         )
 
 
+async def _write_experience_chapters(
+    db: aiosqlite.Connection, *, experience_id: str,
+    chapters: list[dict[str, Any]], now: float,
+) -> None:
+    """Write ordered chapters within the caller's transaction."""
+    await db.execute(
+        "DELETE FROM experience_chapters WHERE experience_id = ?",
+        (experience_id,),
+    )
+    await db.executemany(
+        """
+        INSERT INTO experience_chapters(
+            experience_id, chapter_id, position, title, summary,
+            time_start, time_end, episode_ids_json, event_ids_json,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                experience_id,
+                str(chapter.get("chapter_id") or f"chapter-{index + 1}"),
+                index,
+                str(chapter.get("title") or "").strip(),
+                str(chapter.get("summary") or "").strip(),
+                chapter.get("time_start"),
+                chapter.get("time_end"),
+                json.dumps(chapter.get("episode_ids") or [], ensure_ascii=False),
+                json.dumps(chapter.get("event_ids") or [], ensure_ascii=False),
+                now,
+                now,
+            )
+            for index, chapter in enumerate(chapters)
+        ],
+    )
+
+
+async def _read_experience_counts(
+    db: aiosqlite.Connection, experience_id: str,
+) -> tuple[int, int]:
+    """Count active source memberships in the current transaction."""
+    active_episode_member = _active_member_predicate("member")
+    async with db.execute(
+        f"""
+        SELECT COUNT(DISTINCT member.member_id)
+        FROM experience_members AS member
+        WHERE member.experience_id = ?
+          AND member.member_type = 'episode'
+          AND member.role != 'excluded'
+          AND {active_episode_member}
+        """,
+        (experience_id,),
+    ) as cursor:
+        episode_row = await cursor.fetchone()
+    active_episode_ref = _active_source_reference_predicate(
+        "em.member_type",
+        "em.member_id",
+    )
+    active_event_ref = _active_event_reference_predicate("em.member_id")
+    async with db.execute(
+        f"""
+        SELECT COUNT(DISTINCT source_event_id)
+        FROM (
+            SELECT ee.event_id AS source_event_id
+            FROM experience_members em
+            JOIN episode_events ee ON ee.episode_id = em.member_id
+            WHERE em.experience_id = ?
+              AND em.member_type = 'episode'
+              AND em.role != 'excluded'
+              AND {active_episode_ref}
+              AND {_active_event_reference_predicate("ee.event_id")}
+            UNION
+            SELECT em.member_id AS source_event_id
+            FROM experience_members em
+            WHERE em.experience_id = ?
+              AND em.member_type = 'event'
+              AND em.role != 'excluded'
+              AND {active_event_ref}
+        )
+        """,
+        (experience_id, experience_id),
+    ) as cursor:
+        event_row = await cursor.fetchone()
+    source_episode_count = int(episode_row[0]) if episode_row else 0
+    source_event_count = int(event_row[0]) if event_row else 0
+    return source_episode_count, source_event_count
+
+
 def _json_list(values: list[str] | None) -> str:
     return json.dumps(values or [], ensure_ascii=False)
 
@@ -820,6 +908,26 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         **updates: Any,
     ) -> bool:
         """Update editable draft fields, optionally guarded by its timestamp."""
+        if not updates:
+            return False
+        return await self._write_experience_draft(
+            draft_id=draft_id, expected_updated_at=expected_updated_at,
+            expected_status=expected_status, **updates,
+        ) is not None
+
+    async def edit_experience_draft(
+        self, *, draft_id: str, expected_updated_at: float, **updates: Any,
+    ) -> dict[str, Any] | None:
+        """Return an atomic receipt for a conditional user edit."""
+        return await self._write_experience_draft(
+            draft_id=draft_id, expected_updated_at=expected_updated_at,
+            expected_status="editing", **updates,
+        )
+
+    async def _write_experience_draft(
+        self, *, draft_id: str, expected_updated_at: float | None,
+        expected_status: str | None, **updates: Any,
+    ) -> dict[str, Any] | None:
         allowed = {
             "status",
             "query_text",
@@ -838,8 +946,6 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
             raise ValueError(f"Unsupported experience draft fields: {sorted(invalid)}")
         if "status" in updates and updates["status"] not in _DRAFT_STATUSES:
             raise ValueError(f"Unsupported experience draft status: {updates['status']}")
-        if not updates:
-            return False
         reference_updates = {key: updates[key] for key in _DRAFT_JSON_FIELDS if key in updates}
         columns: list[str] = []
         values: list[Any] = []
@@ -848,23 +954,13 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
             values.append(
                 json.dumps(value, ensure_ascii=False) if key in _DRAFT_JSON_FIELDS else value
             )
-        columns.append("updated_at = ?")
-        values.extend([time.time(), draft_id])
-        where_clause = "draft_id = ?"
-        if expected_updated_at is not None:
-            where_clause += " AND updated_at = ?"
-            values.append(float(expected_updated_at))
-        if expected_status is not None:
-            where_clause += " AND status = ?"
-            values.append(str(expected_status))
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
                     """
-                    SELECT chapters_json, possible_evidence_json,
-                           excluded_evidence_json
+                    SELECT *
                     FROM experience_drafts WHERE draft_id = ?
                     """,
                     (draft_id,),
@@ -872,26 +968,35 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                     current = await current_cursor.fetchone()
                 if current is None:
                     await db.rollback()
-                    return False
+                    return None
+                if (
+                    (expected_updated_at is not None and current["updated_at"] != expected_updated_at)
+                    or (expected_status is not None and current["status"] != expected_status)
+                ):
+                    await db.rollback()
+                    return None
                 try:
                     reference_fields = {
-                        "chapters": json.loads(current[0]),
-                        "possible_evidence": json.loads(current[1]),
-                        "excluded_evidence": json.loads(current[2]),
+                        key: json.loads(current[column]) for key, column in _DRAFT_JSON_FIELDS.items()
                     }
                 except (TypeError, json.JSONDecodeError) as exc:
                     raise ValueError("Experience draft evidence is malformed") from exc
                 reference_fields.update(reference_updates)
                 await _assert_draft_sources_are_active(db, **reference_fields)
-                cursor = await db.execute(
-                    f"UPDATE experience_drafts SET {', '.join(columns)} WHERE {where_clause}",
-                    tuple(values),
-                )
+                if columns:
+                    columns.append("updated_at = ?")
+                    values.extend([max(time.time(), math.nextafter(current["updated_at"], math.inf)), draft_id])
+                    await db.execute(
+                        f"UPDATE experience_drafts SET {', '.join(columns)} WHERE draft_id = ?",
+                        tuple(values),
+                    )
+                async with db.execute("SELECT * FROM experience_drafts WHERE draft_id = ?", (draft_id,)) as cursor:
+                    snapshot = self._experience_draft_row_to_dict(await cursor.fetchone())
                 await db.commit()
             except BaseException:
                 await db.rollback()
                 raise
-        return bool(cursor.rowcount > 0)
+        return snapshot
 
     async def replace_experience_chapters(
         self,
@@ -926,35 +1031,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 possible_evidence=[],
                 excluded_evidence=[],
             )
-            await db.execute(
-                "DELETE FROM experience_chapters WHERE experience_id = ?",
-                (experience_id,),
-            )
-            await db.executemany(
-                """
-                INSERT INTO experience_chapters(
-                    experience_id, chapter_id, position, title, summary,
-                    time_start, time_end, episode_ids_json, event_ids_json,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        experience_id,
-                        str(chapter.get("chapter_id") or f"chapter-{index + 1}"),
-                        index,
-                        str(chapter.get("title") or "").strip(),
-                        str(chapter.get("summary") or "").strip(),
-                        chapter.get("time_start"),
-                        chapter.get("time_end"),
-                        json.dumps(chapter.get("episode_ids") or [], ensure_ascii=False),
-                        json.dumps(chapter.get("event_ids") or [], ensure_ascii=False),
-                        now,
-                        now,
-                    )
-                    for index, chapter in enumerate(chapters)
-                ],
-            )
+            await _write_experience_chapters(db, experience_id=experience_id, chapters=chapters, now=now)
         return True
 
     async def list_experience_chapters(self, *, experience_id: str) -> list[dict[str, Any]]:
@@ -1660,50 +1737,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 ):
                     await db.rollback()
                     return {"source_episode_count": 0, "source_event_count": 0}
-                active_episode_member = _active_member_predicate("member")
-                async with db.execute(
-                    f"""
-                    SELECT COUNT(DISTINCT member.member_id)
-                    FROM experience_members AS member
-                    WHERE member.experience_id = ?
-                      AND member.member_type = 'episode'
-                      AND member.role != 'excluded'
-                      AND {active_episode_member}
-                    """,
-                    (experience_id,),
-                ) as cursor:
-                    episode_row = await cursor.fetchone()
-                active_episode_ref = _active_source_reference_predicate(
-                    "em.member_type",
-                    "em.member_id",
-                )
-                active_event_ref = _active_event_reference_predicate("em.member_id")
-                async with db.execute(
-                    f"""
-                    SELECT COUNT(DISTINCT source_event_id)
-                    FROM (
-                        SELECT ee.event_id AS source_event_id
-                        FROM experience_members em
-                        JOIN episode_events ee ON ee.episode_id = em.member_id
-                        WHERE em.experience_id = ?
-                          AND em.member_type = 'episode'
-                          AND em.role != 'excluded'
-                          AND {active_episode_ref}
-                          AND {_active_event_reference_predicate("ee.event_id")}
-                        UNION
-                        SELECT em.member_id AS source_event_id
-                        FROM experience_members em
-                        WHERE em.experience_id = ?
-                          AND em.member_type = 'event'
-                          AND em.role != 'excluded'
-                          AND {active_event_ref}
-                    )
-                    """,
-                    (experience_id, experience_id),
-                ) as cursor:
-                    event_row = await cursor.fetchone()
-                source_episode_count = int(episode_row[0]) if episode_row else 0
-                source_event_count = int(event_row[0]) if event_row else 0
+                source_episode_count, source_event_count = await _read_experience_counts(db, experience_id)
                 await db.execute(
                     """
                     UPDATE experiences

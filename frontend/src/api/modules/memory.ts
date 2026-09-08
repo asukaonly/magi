@@ -643,6 +643,7 @@ export interface ExperienceDraftOrganizeResponse {
 }
 
 export interface ExperienceDraftUpdatePayload {
+  expected_updated_at: number;
   title?: string;
   one_sentence_review?: string;
   time_start?: number;
@@ -995,6 +996,13 @@ type L3SummariesParams = MemoryListQueryParams & { summary_type?: string; summar
 
 const unwrapMemoryResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
+const requireExperienceDraft = (draft: ExperienceDraft, draftId: string): ExperienceDraft => {
+  if (draft.draft_id !== draftId || !Number.isFinite(draft.updated_at) || draft.updated_at < 0) {
+    throw new Error('Invalid experience draft snapshot');
+  }
+  return draft;
+};
+
 // Memory API client
 export interface MemoryMaintenanceTask {
   id: 'events' | 'structure' | 'chapter' | 'summary' | 'skills';
@@ -1133,23 +1141,23 @@ export const memoryApi = {
   }): Promise<ExperienceDraftOrganizeResponse> =>
     unwrapMemoryResponse(await api.post<ExperienceDraftOrganizeResponse>('/memory/l2/experience-drafts/organize', payload)),
   getExperienceDraft: async (draftId: string): Promise<ExperienceDraft> =>
-    unwrapMemoryResponse(await api.get<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`)),
+    requireExperienceDraft(unwrapMemoryResponse(await api.get<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`)), draftId),
   updateExperienceDraft: async (draftId: string, payload: ExperienceDraftUpdatePayload): Promise<ExperienceDraft> =>
-    unwrapMemoryResponse(await api.patch<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`, payload)),
-  uploadExperienceDraftCover: async (draftId: string, file: File): Promise<ExperienceDraft> => {
+    requireExperienceDraft(unwrapMemoryResponse(await api.patch<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`, payload)), draftId),
+  uploadExperienceDraftCover: async (draftId: string, file: File, expectedUpdatedAt: number): Promise<ExperienceDraft> => {
     const formData = new FormData();
     formData.append('file', file);
-    return unwrapMemoryResponse(await api.post<ExperienceDraft>(
+    return requireExperienceDraft(unwrapMemoryResponse(await api.post<ExperienceDraft>(
       `/memory/l2/experience-drafts/${draftId}/cover`,
       formData,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    ));
+      { headers: { 'Content-Type': 'multipart/form-data' }, params: { expected_updated_at: expectedUpdatedAt } },
+    )), draftId);
   },
-  createExperienceFromDraft: async (draftId: string): Promise<{
+  createExperienceFromDraft: async (draftId: string, expectedUpdatedAt: number): Promise<{
     draft_id: string;
     experience_id: string;
     experience?: L2ExperienceReviewDetail | null;
-  }> => unwrapMemoryResponse(await api.post(`/memory/l2/experience-drafts/${draftId}/create`)),
+  }> => unwrapMemoryResponse(await api.post(`/memory/l2/experience-drafts/${draftId}/create`, undefined, { params: { expected_updated_at: expectedUpdatedAt } })),
   promoteExperienceSeed: async (seedId: string): Promise<ExperienceSeedPromotionResponse> =>
     unwrapMemoryResponse(await api.post<ExperienceSeedPromotionResponse>(`/memory/l2/experience-seeds/${seedId}/promote`)),
   rejectExperienceSeed: async (seedId: string): Promise<{ seed_id: string; seed?: L2ExperienceSeed | null }> =>

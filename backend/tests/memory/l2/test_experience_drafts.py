@@ -2,7 +2,44 @@
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 import pytest
+from magi.core.sqlite import sqlite_transaction_async
+
+
+@pytest.mark.asyncio
+async def test_draft_edits_and_promotion_obey_one_snapshot_version(l2_store_with_schema):
+    from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
+
+    store = l2_store_with_schema
+    await store.create_episode(episode_id="ep-cas", status="active", time_start=100.0, time_end=200.0)
+    await store.create_experience_draft(
+        draft_id="draft-cas", query_text="Trip", title="Initial", one_sentence_review="Trip recap",
+        time_start=100.0, time_end=200.0, chapters=[{"episode_ids": ["ep-cas"], "event_ids": []}], possible_evidence=[],
+    )
+    original = await store.get_experience_draft(draft_id="draft-cas")
+    results = await asyncio.gather(*(
+        store.edit_experience_draft(draft_id="draft-cas", expected_updated_at=original["updated_at"], title=title)
+        for title in ("First", "Second")
+    ))
+    assert sum(result is None for result in results) == 1
+    receipt = next(result for result in results if result is not None)
+    assert receipt == await store.get_experience_draft(draft_id="draft-cas")
+    with pytest.raises(ValueError, match="changed"):
+        await create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=original["updated_at"])
+    assert await store.list_experiences() == []
+    first_id, second_id = await asyncio.gather(*(
+        create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"])
+        for _ in range(2)
+    ))
+    assert first_id == second_id
+    assert len(await store.list_experiences()) == 1
+    completed = await store.get_experience_draft(draft_id="draft-cas")
+    assert await store.edit_experience_draft(draft_id="draft-cas", expected_updated_at=completed["updated_at"], title="Too late") is None
+    await store.update_experience(experience_id=first_id, user_note="Later annotation")
+    assert await create_experience_from_draft(store, draft_id="draft-cas", expected_updated_at=receipt["updated_at"]) == first_id
+    assert (await store.get_experience(experience_id=first_id))["user_note"] == "Later annotation"
 
 
 @pytest.mark.asyncio
@@ -211,9 +248,8 @@ async def test_create_experience_from_draft_preserves_chapters(l2_store_with_sch
 
 
 @pytest.mark.asyncio
-async def test_create_experience_from_draft_retries_after_completion_update_failure(
+async def test_create_experience_from_draft_rolls_back_on_completion_failure(
     l2_store_with_schema,
-    monkeypatch,
 ):
     from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
 
@@ -262,24 +298,16 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
         ],
         possible_evidence=[],
     )
-    update_draft = store.update_experience_draft
-    should_fail_completion = True
-
-    async def fail_first_completion_update(*, draft_id: str, **fields):
-        nonlocal should_fail_completion
-        if fields.get("status") == "completed" and should_fail_completion:
-            should_fail_completion = False
-            raise RuntimeError("Simulated draft completion failure")
-        return await update_draft(draft_id=draft_id, **fields)
-
-    monkeypatch.setattr(store, "update_experience_draft", fail_first_completion_update)
-
-    with pytest.raises(RuntimeError, match="Simulated draft completion failure"):
+    async with sqlite_transaction_async(store.db_path) as db:
+        await db.execute("""CREATE TRIGGER reject_draft_completion BEFORE UPDATE OF status ON experience_drafts
+            WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'Simulated completion failure'); END""")
+    with pytest.raises(sqlite3.IntegrityError, match="Simulated completion failure"):
         await create_experience_from_draft(store, draft_id="draft-retry")
-
-    experiences_after_failure = await store.list_experiences()
-    assert len(experiences_after_failure) == 1
-    stable_experience_id = experiences_after_failure[0]["experience_id"]
+    assert await store.list_experiences() == []
+    async with sqlite_transaction_async(store.db_path) as db:
+        assert (await db.execute_fetchall("SELECT COUNT(*) FROM experience_members"))[0][0] == 0
+        assert (await db.execute_fetchall("SELECT COUNT(*) FROM experience_chapters"))[0][0] == 0
+        await db.execute("DROP TRIGGER reject_draft_completion")
     draft_after_failure = await store.get_experience_draft(draft_id="draft-retry")
     assert draft_after_failure is not None
     assert draft_after_failure["status"] == "editing"
@@ -308,7 +336,7 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
         draft_id="draft-retry",
     )
 
-    assert retry_experience_id == stable_experience_id
+    stable_experience_id = retry_experience_id
     experiences_after_retry = await store.list_experiences()
     assert [item["experience_id"] for item in experiences_after_retry] == [stable_experience_id]
     experience = await store.get_experience(experience_id=stable_experience_id)
@@ -338,7 +366,6 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
 @pytest.mark.asyncio
 async def test_episode_forget_during_draft_creation_cannot_publish_experience(
     l2_store_with_schema,
-    monkeypatch,
 ):
     from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
 
@@ -359,17 +386,13 @@ async def test_episode_forget_during_draft_creation_cannot_publish_experience(
         chapters=[{"episode_ids": ["ep-private-race"], "event_ids": []}],
         possible_evidence=[],
     )
-    replace_chapters = store.replace_experience_chapters
-
-    async def replace_then_forget(**kwargs):
-        replaced = await replace_chapters(**kwargs)
-        await store.forget_episode(episode_id="ep-private-race")
-        return replaced
-
-    monkeypatch.setattr(store, "replace_experience_chapters", replace_then_forget)
-
-    with pytest.raises(ValueError, match="Draft changed during creation"):
-        await create_experience_from_draft(store, draft_id="draft-private-race")
+    results = await asyncio.gather(
+        create_experience_from_draft(store, draft_id="draft-private-race"),
+        store.forget_episode(episode_id="ep-private-race"),
+        return_exceptions=True,
+    )
+    assert not isinstance(results[1], BaseException)
+    assert not isinstance(results[0], BaseException) or isinstance(results[0], ValueError)
 
     assert await store.list_experiences(status="active") == []
     assert await store.get_experience_draft(draft_id="draft-private-race") is None

@@ -402,6 +402,7 @@ class ExperienceDraftOrganizeRequest(BaseModel):
 
 
 class ExperienceDraftUpdateRequest(BaseModel):
+    expected_updated_at: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     title: Optional[str] = Field(default=None, min_length=1, max_length=500)
     one_sentence_review: Optional[str] = Field(default=None, max_length=2000)
     time_start: Optional[float] = None

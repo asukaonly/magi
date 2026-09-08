@@ -520,14 +520,6 @@ async def _hydrate_experience_draft_event_counts(
         l2_store,
         "list_episode_events",
     )
-    update_experience_draft = get_configured_or_real_method(
-        l2_store,
-        "update_experience_draft",
-    )
-    get_experience_draft = get_configured_or_real_method(
-        l2_store,
-        "get_experience_draft",
-    )
     draft_id = _clean_text(draft.get("draft_id"))
 
     missing_episode_ids: set[str] = set()
@@ -657,41 +649,14 @@ async def _hydrate_experience_draft_event_counts(
         return hydrated
 
     hydrated_draft = dict(draft)
-    changed_fields: dict[str, Any] = {}
     if "chapters" in draft:
         chapters = [hydrate_chapter(chapter) for chapter in draft.get("chapters") or []]
         hydrated_draft["chapters"] = chapters
-        if chapters != draft.get("chapters"):
-            changed_fields["chapters"] = chapters
     for key in ("possible_evidence", "excluded_evidence"):
         if key not in draft:
             continue
         evidence_items = [hydrate_evidence(evidence) for evidence in draft.get(key) or []]
         hydrated_draft[key] = evidence_items
-        if evidence_items != draft.get(key):
-            changed_fields[key] = evidence_items
-    initial_updated_at = draft.get("updated_at")
-    if (
-        changed_fields
-        and draft_id
-        and initial_updated_at is not None
-        and get_experience_draft is not None
-        and update_experience_draft is not None
-    ):
-        try:
-            latest_draft = await get_experience_draft(draft_id=draft_id)
-            if latest_draft is not None and latest_draft.get("updated_at") == initial_updated_at:
-                await update_experience_draft(
-                    draft_id=draft_id,
-                    expected_updated_at=float(initial_updated_at),
-                    **changed_fields,
-                )
-        except Exception as exc:
-            logger.warning(
-                "experience_draft_count_backfill_failed",
-                draft_id=draft_id,
-                error=str(exc),
-            )
     return hydrated_draft
 
 
@@ -730,21 +695,27 @@ async def update_experience_draft_route(
     body: ExperienceDraftUpdateRequest,
 ) -> dict[str, Any]:
     """Autosave user edits to an experience draft."""
+    if body.expected_updated_at is None:
+        raise HTTPException(status_code=428, detail="Experience draft snapshot version is required")
     unified_memory = _require_l2_memory()
     await _get_experience_draft_or_404(unified_memory, draft_id)
-    updates = body.model_dump(exclude_unset=True)
-    if updates:
-        await unified_memory.l2.update_experience_draft(draft_id=draft_id, **updates)
-    return await _get_experience_draft_or_404(
-        unified_memory,
-        draft_id,
-        hydrate_event_counts=True,
+    updates = body.model_dump(exclude_unset=True, exclude={"expected_updated_at"})
+    saved = await unified_memory.l2.edit_experience_draft(
+        draft_id=draft_id, expected_updated_at=body.expected_updated_at, **updates,
     )
+    if saved is None:
+        raise HTTPException(status_code=409, detail="Experience draft changed; reload its current snapshot")
+    return await _hydrate_experience_draft_event_counts(unified_memory, saved)
 
 
 @memory_router.post("/l2/experience-drafts/{draft_id}/cover")
-async def upload_experience_draft_cover(draft_id: str, file: UploadFile) -> dict[str, Any]:
+async def upload_experience_draft_cover(
+    draft_id: str, file: UploadFile,
+    expected_updated_at: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+) -> dict[str, Any]:
     """Upload and persist a user-selected cover image for an experience draft."""
+    if expected_updated_at is None:
+        raise HTTPException(status_code=428, detail="Experience draft snapshot version is required")
     unified_memory = _require_l2_memory()
     asset_store = _resolve_manual_entry_asset_store()
     if asset_store is None:
@@ -755,35 +726,35 @@ async def upload_experience_draft_cover(draft_id: str, file: UploadFile) -> dict
             ),
         )
 
-    await _get_experience_draft_or_404(unified_memory, draft_id)
+    current = await _get_experience_draft_or_404(unified_memory, draft_id)
+    if current["updated_at"] != expected_updated_at or current["status"] != "editing":
+        raise HTTPException(status_code=409, detail="Experience draft changed; reload its current snapshot")
     upload = await store_uploaded_image_asset(file, asset_store)
-    ok = await unified_memory.l2.update_experience_draft(
+    saved = await unified_memory.l2.edit_experience_draft(
         draft_id=draft_id,
+        expected_updated_at=expected_updated_at,
         user_cover_asset_ref=upload["asset_ref"],
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=memory_t(
-                "memory.errors.experience_draft_not_found", "Experience draft not found"
-            ),
-        )
-    return await _get_experience_draft_or_404(
-        unified_memory,
-        draft_id,
-        hydrate_event_counts=True,
-    )
+    if saved is None:
+        raise HTTPException(status_code=409, detail="Experience draft changed; reload its current snapshot")
+    return await _hydrate_experience_draft_event_counts(unified_memory, saved)
 
 
 @memory_router.post("/l2/experience-drafts/{draft_id}/create")
-async def create_experience_from_draft_route(draft_id: str) -> dict[str, Any]:
+async def create_experience_from_draft_route(
+    draft_id: str,
+    expected_updated_at: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+) -> dict[str, Any]:
     """Create an active experience from the user-approved draft."""
+    if expected_updated_at is None:
+        raise HTTPException(status_code=428, detail="Experience draft snapshot version is required")
     unified_memory = _require_l2_memory()
     await _get_experience_draft_or_404(unified_memory, draft_id)
     try:
         experience_id = await create_experience_from_draft(
             unified_memory.l2,
             draft_id=draft_id,
+            expected_updated_at=expected_updated_at,
         )
     except ValueError as exc:
         raise HTTPException(

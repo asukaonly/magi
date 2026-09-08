@@ -104,7 +104,7 @@ def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_
     )
 
 
-def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
+def test_get_experience_draft_projects_distinct_counts_without_writes(
     public_app_with_mock_memory,
 ):
     app, build_patcher = public_app_with_mock_memory
@@ -216,16 +216,10 @@ def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
             "ep-train",
             "ep-lodging",
             "ep-possible",
-        ]
+        ] * 2
     )
-    assert len(fetched_episode_ids) == len(set(fetched_episode_ids))
-    l2.update_experience_draft.assert_awaited_once_with(
-        draft_id="draft-japan",
-        expected_updated_at=10.0,
-        chapters=payload["chapters"],
-        possible_evidence=payload["possible_evidence"],
-        excluded_evidence=payload["excluded_evidence"],
-    )
+    l2.update_experience_draft.assert_not_awaited()
+    assert payload["updated_at"] == 10.0
 
 
 def test_get_experience_draft_keeps_episode_counts_unknown_without_membership_capability(
@@ -275,12 +269,10 @@ def test_get_experience_draft_keeps_episode_counts_unknown_without_membership_ca
     assert "event_count" not in payload["chapters"][0]
     assert payload["possible_evidence"][0]["event_count"] == 1
     assert "event_count" not in payload["excluded_evidence"][0]
-    persisted = l2.update_experience_draft.await_args.kwargs
-    assert "chapters" not in persisted
-    assert persisted["possible_evidence"][0]["event_count"] == 1
+    l2.update_experience_draft.assert_not_awaited()
 
 
-def test_get_experience_draft_returns_hydrated_counts_when_persistence_fails(
+def test_get_experience_draft_hydration_does_not_require_writes(
     public_app_with_mock_memory,
 ):
     from magi.api.routers.memory.l2 import experiences_routes
@@ -316,10 +308,8 @@ def test_get_experience_draft_returns_hydrated_counts_when_persistence_fails(
 
     assert response.status_code == 200
     assert response.json()["chapters"][0]["event_count"] == 1
-    warning = logger.warning
-    warning.assert_called_once()
-    assert warning.call_args.args[0] == "experience_draft_count_backfill_failed"
-    assert warning.call_args.kwargs["draft_id"] == "draft-write-fails"
+    logger.warning.assert_not_called()
+    l2.update_experience_draft.assert_not_awaited()
 
 
 def test_get_experience_draft_skips_count_persistence_after_concurrent_update(
@@ -408,89 +398,52 @@ def test_get_experience_draft_bounds_membership_read_concurrency(
     assert 1 < max_active_reads <= 8
 
 
+def test_public_draft_mutations_require_versions_and_report_conflicts(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value={"draft_id": "draft-cas", "status": "editing", "updated_at": 2.0})
+    l2.edit_experience_draft = AsyncMock(return_value=None)
+    with build_patcher(MagicMock(l2=l2)):
+        client = TestClient(app)
+        url = "/api/memory/l2/experience-drafts/draft-cas"
+        assert client.patch(url, json={"title": "Missing version"}).status_code == 428
+        assert client.post(url + "/create").status_code == 428
+        assert client.post(url + "/cover", files={"file": ("cover.jpg", b"image", "image/jpeg")}).status_code == 428
+        assert client.patch(url, json={"title": "Stale draft", "expected_updated_at": 1.0}).status_code == 409
+    l2.edit_experience_draft.assert_awaited_once_with(draft_id="draft-cas", title="Stale draft", expected_updated_at=1.0)
+
+
 def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
-    l2.get_experience_draft = AsyncMock(
-        side_effect=[
-            {"draft_id": "draft-japan", "status": "editing", "title": "日本旅行"},
-            {"draft_id": "draft-japan", "status": "editing", "title": "十天日本旅行"},
-        ]
-    )
-    l2.update_experience_draft = AsyncMock(return_value=True)
-    unified = MagicMock()
-    unified.l2 = l2
-
-    with build_patcher(unified):
-        response = TestClient(app).patch(
-            "/api/memory/l2/experience-drafts/draft-japan",
-            json={"title": "十天日本旅行"},
-        )
-
+    l2.get_experience_draft = AsyncMock(return_value={"draft_id": "draft-japan", "status": "editing", "title": "Original", "updated_at": 1.0})
+    receipt = {"draft_id": "draft-japan", "status": "editing", "title": "Edited", "updated_at": 2.0}
+    l2.edit_experience_draft = AsyncMock(return_value=receipt)
+    with build_patcher(MagicMock(l2=l2)):
+        response = TestClient(app).patch("/api/memory/l2/experience-drafts/draft-japan", json={"title": "Edited", "expected_updated_at": 1.0})
     assert response.status_code == 200
-    assert response.json()["title"] == "十天日本旅行"
-    l2.update_experience_draft.assert_awaited_once_with(
-        draft_id="draft-japan",
-        title="十天日本旅行",
-    )
+    assert response.json() == receipt
+    l2.edit_experience_draft.assert_awaited_once_with(draft_id="draft-japan", title="Edited", expected_updated_at=1.0)
+    l2.get_experience_draft.assert_awaited_once()
 
 
 def test_upload_experience_draft_cover_persists_local_asset(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
-    l2.get_experience_draft = AsyncMock(
-        side_effect=[
-            {
-                "draft_id": "draft-japan",
-                "status": "editing",
-                "title": "日本旅行",
-                "chapters": [],
-                "possible_evidence": [],
-                "excluded_evidence": [],
-            },
-            {
-                "draft_id": "draft-japan",
-                "status": "editing",
-                "title": "日本旅行",
-                "user_cover_asset_ref": "manual-entry-asset://cover.jpg",
-                "chapters": [],
-                "possible_evidence": [],
-                "excluded_evidence": [],
-            },
-        ]
-    )
-    l2.update_experience_draft = AsyncMock(return_value=True)
-    unified = MagicMock(l2=l2)
-    asset_store = MagicMock()
-
+    original = {"draft_id": "draft-japan", "status": "editing", "title": "Trip", "updated_at": 1.0}
+    receipt = {**original, "updated_at": 2.0, "user_cover_asset_ref": "manual-entry-asset://cover.jpg"}
+    l2.get_experience_draft = AsyncMock(return_value=original)
+    l2.edit_experience_draft = AsyncMock(return_value=receipt)
     with (
-        build_patcher(unified),
-        patch(
-            "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
-            return_value=asset_store,
-        ),
-        patch(
-            "magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset",
-            new=AsyncMock(
-                return_value={
-                    "asset_ref": "manual-entry-asset://cover.jpg",
-                    "content_type": "image/jpeg",
-                }
-            ),
-        ) as store_asset,
+        build_patcher(MagicMock(l2=l2)),
+        patch("magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store", return_value=MagicMock()),
+        patch("magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset", new=AsyncMock(return_value={"asset_ref": "manual-entry-asset://cover.jpg", "content_type": "image/jpeg"})) as store_asset,
     ):
-        response = TestClient(app).post(
-            "/api/memory/l2/experience-drafts/draft-japan/cover",
-            files={"file": ("cover.jpg", b"image-bytes", "image/jpeg")},
-        )
-
+        response = TestClient(app).post("/api/memory/l2/experience-drafts/draft-japan/cover", params={"expected_updated_at": 1.0}, files={"file": ("cover.jpg", b"image-bytes", "image/jpeg")})
     assert response.status_code == 200
-    assert response.json()["user_cover_asset_ref"] == "manual-entry-asset://cover.jpg"
+    assert response.json() == receipt
     store_asset.assert_awaited_once()
-    l2.update_experience_draft.assert_awaited_once_with(
-        draft_id="draft-japan",
-        user_cover_asset_ref="manual-entry-asset://cover.jpg",
-    )
+    l2.edit_experience_draft.assert_awaited_once_with(draft_id="draft-japan", expected_updated_at=1.0, user_cover_asset_ref="manual-entry-asset://cover.jpg")
 
 
 def test_create_experience_from_draft_returns_created_experience(public_app_with_mock_memory):
@@ -521,12 +474,12 @@ def test_create_experience_from_draft_returns_created_experience(public_app_with
         ) as create,
     ):
         response = TestClient(app).post(
-            "/api/memory/l2/experience-drafts/draft-japan/create",
+            "/api/memory/l2/experience-drafts/draft-japan/create", params={"expected_updated_at": 1.0},
         )
 
     assert response.status_code == 200
     assert response.json()["experience_id"] == "exp-japan"
-    create.assert_awaited_once_with(l2, draft_id="draft-japan")
+    create.assert_awaited_once_with(l2, draft_id="draft-japan", expected_updated_at=1.0)
 
 
 def test_create_experience_from_completed_draft_returns_existing_experience(
@@ -549,15 +502,18 @@ def test_create_experience_from_completed_draft_returns_existing_experience(
         }
     )
 
-    with build_patcher(MagicMock(l2=l2)):
+    with (
+        build_patcher(MagicMock(l2=l2)),
+        patch("magi.api.routers.memory.l2.experiences_routes.create_experience_from_draft", new=AsyncMock(return_value="exp-japan")),
+    ):
         response = TestClient(app).post(
-            "/api/memory/l2/experience-drafts/draft-japan/create",
+            "/api/memory/l2/experience-drafts/draft-japan/create", params={"expected_updated_at": 1.0},
         )
 
     assert response.status_code == 200
     assert response.json()["experience_id"] == "exp-japan"
     assert response.json()["experience"]["experience_id"] == "exp-japan"
-    assert l2.get_experience.await_count == 2
+    assert l2.get_experience.await_count == 1
     l2.get_experience.assert_awaited_with(experience_id="exp-japan")
 
 

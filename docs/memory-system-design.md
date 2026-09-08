@@ -1592,6 +1592,18 @@ retry reconciliation after a partially completed create operation. Draft and
 active review surfaces share the same cover-hero presentation while keeping
 their editing actions and lifecycle behavior separate.
 
+Draft text edits, cover uploads, and final creation require the displayed
+`expected_updated_at` version. Edits return their committed snapshot; missing
+versions return 428 and stale versions return 409. The client serializes text
+and cover writes, advances its baseline only from its own receipts, and pauses
+autosave on conflict while preserving the draft. Explicit reload discards the
+local edits. Read-only center refreshes update pristine drafts; event-count
+hydration is a response projection and does not rewrite draft storage. Creation
+commits the approved draft, experience, memberships, chapters, distinct counts,
+and completion receipt in one SQLite transaction. Failure rolls all of them
+back; concurrent or delayed retries return the deterministic existing experience
+without changing later annotations or recreating a forgotten experience.
+
 **Semantic Memory** stores durable entities, relations, and preferences:
 
 - Knowledge graph edges carry `fact_kind` (`explicit_fact`, `public_topology`, `interaction_evidence`, `stable_preference`) for admission policy enforcement
