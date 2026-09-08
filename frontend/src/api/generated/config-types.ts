@@ -99,6 +99,8 @@ export interface components {
         };
         /** CodeAgentSettingsResponse */
         CodeAgentSettingsResponse: {
+            /** Revision */
+            revision: string;
             settings: components["schemas"]["CodeAgentSettings"];
             /** Workspace Used */
             workspace_used: string | null;

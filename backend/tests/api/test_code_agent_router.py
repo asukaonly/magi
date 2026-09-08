@@ -50,6 +50,41 @@ def test_get_settings_returns_defaults(client: TestClient, tmp_path: Path) -> No
     assert settings["enabled"] is True
 
 
+def test_settings_require_revision_and_concurrent_edits_have_one_winner(client: TestClient) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    body = {"level": "user", "patch": {"auto_apply": True}}
+    assert client.patch("/api/code_agent/settings", json=body).status_code == 428
+    body["expected_revision"] = client.get("/api/code_agent/settings").json()["revision"]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        requests = [pool.submit(client.patch, "/api/code_agent/settings", json={**body, "patch": patch})
+                    for patch in ({"auto_apply": True}, {"enabled": False})]
+        responses = [request.result() for request in requests]
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    receipt = next(response.json() for response in responses if response.status_code == 200)
+    assert client.get("/api/code_agent/settings").json() == receipt
+
+
+def test_project_revision_includes_hidden_user_changes_and_guards_reset(client: TestClient, tmp_path: Path) -> None:
+    from magi.tools.code_agent.settings_writer import write_user_settings, write_project_settings
+
+    workspace = tmp_path / "ws"
+    write_user_settings({"default_adapter": "auto"})
+    write_project_settings(workspace, {"default_adapter": "codex"})
+    first = client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
+    write_user_settings({"default_adapter": "claude_code"})
+    second = client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()
+    assert second["settings"] == first["settings"]
+    assert second["revision"] != first["revision"]
+    reset = {"level": "project", "workspace": str(workspace), "expected_revision": first["revision"]}
+    assert client.post("/api/code_agent/settings/reset", json=reset).status_code == 409
+    assert (workspace / ".magi" / "code_agent.toml").exists()
+    reset["expected_revision"] = second["revision"]
+    receipt = client.post("/api/code_agent/settings/reset", json=reset)
+    assert receipt.status_code == 200
+    assert receipt.json()["settings"]["default_adapter"] == "claude_code"
+
+
 def test_patch_user_settings(client: TestClient, tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()
@@ -59,6 +94,7 @@ def test_patch_user_settings(client: TestClient, tmp_path: Path) -> None:
             "level": "user",
             "patch": {"default_adapter": "codex"},
             "workspace": str(workspace),
+            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
         },
     )
     assert res.status_code == 200
@@ -87,6 +123,7 @@ def test_patch_project_settings_creates_project_toml(
             "level": "project",
             "patch": {"default_adapter": "codex"},
             "workspace": str(workspace),
+            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
         },
     )
     assert res.status_code == 200
@@ -103,11 +140,13 @@ def test_reset_project_settings_endpoint(client: TestClient, tmp_path: Path) -> 
             "level": "project",
             "patch": {"default_adapter": "codex"},
             "workspace": str(workspace),
+            "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"],
         },
     )
     res = client.post(
         "/api/code_agent/settings/reset",
-        json={"level": "project", "workspace": str(workspace)},
+        json={"level": "project", "workspace": str(workspace),
+              "expected_revision": client.get("/api/code_agent/settings", params={"workspace": str(workspace)}).json()["revision"]},
     )
     assert res.status_code == 200
     assert not (workspace / ".magi" / "code_agent.toml").is_file()
@@ -365,7 +404,10 @@ def test_get_delegation_rejects_symlinked_artifact_file(
 @pytest.mark.parametrize("level", ["user", "project"])
 def test_invalid_patch_does_not_persist(client: TestClient, tmp_path: Path, level: str) -> None:
     request = {"level": level, "workspace": str(tmp_path / "workspace"), "patch": {"constraints": {"default_timeout_s": 120}}}
-    assert client.patch("/api/code_agent/settings", json=request).status_code == 200
+    request["expected_revision"] = client.get("/api/code_agent/settings", params={"workspace": request["workspace"]}).json()["revision"]
+    saved = client.patch("/api/code_agent/settings", json=request)
+    assert saved.status_code == 200
+    request["expected_revision"] = saved.json()["revision"]
     request["patch"] = {"constraints": {"default_timeout_s": 0}}
     assert client.patch("/api/code_agent/settings", json=request).status_code == 422
     response = client.get("/api/code_agent/settings", params={"workspace": request["workspace"]})

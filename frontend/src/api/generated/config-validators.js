@@ -9938,7 +9938,7 @@ return errors === 0;
 validate169.evaluated = {"props":{"tools":true,"total":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateCodeAgentSettingsResponse = validate171;
-const schema77 = {"properties":{"settings":{"$ref":"#/components/schemas/CodeAgentSettings"},"workspace_used":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Workspace Used"}},"required":["settings","workspace_used"],"title":"CodeAgentSettingsResponse","type":"object"};
+const schema77 = {"properties":{"revision":{"pattern":"^[a-f0-9]{64}$","title":"Revision","type":"string"},"settings":{"$ref":"#/components/schemas/CodeAgentSettings"},"workspace_used":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Workspace Used"}},"required":["settings","workspace_used","revision"],"title":"CodeAgentSettingsResponse","type":"object"};
 const schema78 = {"additionalProperties":false,"properties":{"auto_apply":{"default":false,"title":"Auto Apply","type":"boolean"},"claude_code":{"$ref":"#/components/schemas/ClaudeCodeSettings"},"codex":{"$ref":"#/components/schemas/CodexSettings"},"constraints":{"$ref":"#/components/schemas/ConstraintsSettings"},"default_adapter":{"default":"auto","enum":["auto","claude_code","codex"],"title":"Default Adapter","type":"string"},"enabled":{"default":true,"title":"Enabled","type":"boolean"}},"required":["enabled","default_adapter","claude_code","codex","constraints","auto_apply"],"title":"CodeAgentSettings","type":"object"};
 const schema79 = {"additionalProperties":false,"properties":{"allowed_tools":{"default":"Read Edit Write Grep Glob Bash(git diff*) Bash(git status*) Bash(pytest*)","title":"Allowed Tools","type":"string"},"binary_path":{"default":"","title":"Binary Path","type":"string"},"default_model":{"default":"","title":"Default Model","type":"string"},"disallowed_tools":{"default":"Bash(git push*) Bash(git commit*) Bash(rm*)","title":"Disallowed Tools","type":"string"},"extra_args":{"items":{"type":"string"},"title":"Extra Args","type":"array"},"max_budget_usd":{"default":5,"title":"Max Budget Usd","type":"number"}},"required":["binary_path","default_model","extra_args","max_budget_usd","allowed_tools","disallowed_tools"],"title":"ClaudeCodeSettings","type":"object"};
 
@@ -10460,16 +10460,25 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((data.settings === undefined) && (missing0 = "settings")) || ((data.workspace_used === undefined) && (missing0 = "workspace_used"))){
+if((((data.settings === undefined) && (missing0 = "settings")) || ((data.workspace_used === undefined) && (missing0 = "workspace_used"))) || ((data.revision === undefined) && (missing0 = "revision"))){
 validate171.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
 else {
-if(data.settings !== undefined){
+if(data.revision !== undefined){
+let data0 = data.revision;
 const _errs1 = errors;
-if(!(validate172(data.settings, {instancePath:instancePath+"/settings",parentData:data,parentDataProperty:"settings",rootData,dynamicAnchors}))){
-vErrors = vErrors === null ? validate172.errors : vErrors.concat(validate172.errors);
-errors = vErrors.length;
+if(errors === _errs1){
+if(typeof data0 === "string"){
+if(!pattern3.test(data0)){
+validate171.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{64}$"},message:"must match pattern \""+"^[a-f0-9]{64}$"+"\""}];
+return false;
+}
+}
+else {
+validate171.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
 }
 var valid0 = _errs1 === errors;
 }
@@ -10477,13 +10486,25 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.workspace_used !== undefined){
-let data1 = data.workspace_used;
-const _errs2 = errors;
+if(data.settings !== undefined){
 const _errs3 = errors;
-let valid1 = false;
+if(!(validate172(data.settings, {instancePath:instancePath+"/settings",parentData:data,parentDataProperty:"settings",rootData,dynamicAnchors}))){
+vErrors = vErrors === null ? validate172.errors : vErrors.concat(validate172.errors);
+errors = vErrors.length;
+}
+var valid0 = _errs3 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.workspace_used !== undefined){
+let data2 = data.workspace_used;
 const _errs4 = errors;
-if(typeof data1 !== "string"){
+const _errs5 = errors;
+let valid1 = false;
+const _errs6 = errors;
+if(typeof data2 !== "string"){
 const err0 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err0];
@@ -10493,10 +10514,10 @@ vErrors.push(err0);
 }
 errors++;
 }
-var _valid0 = _errs4 === errors;
+var _valid0 = _errs6 === errors;
 valid1 = valid1 || _valid0;
-const _errs6 = errors;
-if(data1 !== null){
+const _errs8 = errors;
+if(data2 !== null){
 const err1 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err1];
@@ -10506,7 +10527,7 @@ vErrors.push(err1);
 }
 errors++;
 }
-var _valid0 = _errs6 === errors;
+var _valid0 = _errs8 === errors;
 valid1 = valid1 || _valid0;
 if(!valid1){
 const err2 = {instancePath:instancePath+"/workspace_used",schemaPath:"#/properties/workspace_used/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -10521,20 +10542,21 @@ validate171.errors = vErrors;
 return false;
 }
 else {
-errors = _errs3;
+errors = _errs5;
 if(vErrors !== null){
-if(_errs3){
-vErrors.length = _errs3;
+if(_errs5){
+vErrors.length = _errs5;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs2 === errors;
+var valid0 = _errs4 === errors;
 }
 else {
 var valid0 = true;
+}
 }
 }
 }
@@ -10547,7 +10569,7 @@ return false;
 validate171.errors = vErrors;
 return errors === 0;
 }
-validate171.evaluated = {"props":{"settings":true,"workspace_used":true},"dynamicProps":false,"dynamicItems":false};
+validate171.evaluated = {"props":{"revision":true,"settings":true,"workspace_used":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateCodeAgentProbeResponse = validate180;
 const schema82 = {"properties":{"results":{"$ref":"#/components/schemas/CodeAgentProbeResults"}},"required":["results"],"title":"CodeAgentProbeResponse","type":"object"};

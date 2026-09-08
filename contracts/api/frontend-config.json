@@ -183,6 +183,11 @@
       },
       "CodeAgentSettingsResponse": {
         "properties": {
+          "revision": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Revision",
+            "type": "string"
+          },
           "settings": {
             "$ref": "#/components/schemas/CodeAgentSettings"
           },
@@ -200,7 +205,8 @@
         },
         "required": [
           "settings",
-          "workspace_used"
+          "workspace_used",
+          "revision"
         ],
         "title": "CodeAgentSettingsResponse",
         "type": "object"

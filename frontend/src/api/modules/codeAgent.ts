@@ -78,21 +78,24 @@ export const codeAgentApi = {
     level: 'user' | 'project',
     patch: CodeAgentSettingsPatch,
     workspace: string | null,
+    expectedRevision: string,
   ): Promise<SettingsResponse> => {
     const response = await api.patch<unknown>('/code_agent/settings', {
       level,
       patch,
       workspace,
+      expected_revision: expectedRevision,
     });
     return readSettings(response);
   },
 
-  resetProject: async (workspace: string): Promise<{ ok: boolean }> => {
-    const response = await api.post<{ ok: boolean }>('/code_agent/settings/reset', {
+  resetProject: async (workspace: string, expectedRevision: string): Promise<SettingsResponse> => {
+    const response = await api.post<unknown>('/code_agent/settings/reset', {
       level: 'project',
       workspace,
+      expected_revision: expectedRevision,
     });
-    return unwrap(response as { ok: boolean } | ApiResponse<{ ok: boolean }>);
+    return readSettings(response);
   },
 
   getDelegation: async (

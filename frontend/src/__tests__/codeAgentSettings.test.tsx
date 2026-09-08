@@ -38,6 +38,52 @@ describe('code tool settings drafts', () => {
     vi.spyOn(codeAgentApi, 'patchSettings').mockResolvedValue(structuredClone(settings));
   });
 
+  it('keeps the original draft revision during refresh and reloads explicitly after conflict', async () => {
+    const user = userEvent.setup();
+    render(<CodeAgentSection />);
+    const timeout = await screen.findByLabelText('settings.codeAgent.defaultTimeout');
+    await user.clear(timeout);
+    await user.type(timeout, '120');
+    const updated = { ...settings, revision: 'b'.repeat(64), settings: { ...settings.settings, constraints: { ...settings.settings.constraints, default_timeout_s: 180 } } };
+    vi.mocked(codeAgentApi.getSettings).mockResolvedValue(updated);
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => expect(codeAgentApi.getSettings).toHaveBeenCalledTimes(2));
+    expect(timeout).toHaveValue(120);
+    vi.mocked(codeAgentApi.patchSettings).mockRejectedValueOnce({ status: 409 });
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('settings.centerConflict');
+    expect(timeout).toHaveValue(120);
+    expect(codeAgentApi.patchSettings).toHaveBeenCalledWith('user', expect.anything(), null, settings.revision);
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'settings.reloadCenterConfig' }));
+    const reloaded = await screen.findByLabelText('settings.codeAgent.defaultTimeout');
+    expect(reloaded).toHaveValue(180);
+    await user.clear(reloaded);
+    await user.type(reloaded, '240');
+    vi.mocked(codeAgentApi.patchSettings).mockResolvedValueOnce(updated);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(codeAgentApi.patchSettings).toHaveBeenLastCalledWith('user', expect.anything(), null, updated.revision));
+  });
+
+  it('ignores a delayed read after accepting its own save receipt', async () => {
+    const user = userEvent.setup();
+    render(<CodeAgentSection />);
+    const timeout = await screen.findByLabelText('settings.codeAgent.defaultTimeout');
+    let resolve!: (snapshot: SettingsResponse) => void;
+    vi.mocked(codeAgentApi.getSettings).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => expect(codeAgentApi.getSettings).toHaveBeenCalledTimes(2));
+    await user.clear(timeout);
+    await user.type(timeout, '120');
+    const accepted = { ...settings, revision: 'b'.repeat(64), settings: { ...settings.settings, constraints: { ...settings.settings.constraints, default_timeout_s: 120 } } };
+    vi.mocked(codeAgentApi.patchSettings).mockResolvedValueOnce(accepted);
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await screen.findByText('settings.codeAgent.saved');
+    await act(async () => { resolve(settings); });
+    expect(timeout).toHaveValue(120);
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+  });
+
   it('shows a failed initial load and recovers through retry', async () => {
     vi.mocked(codeAgentApi.getSettings).mockRejectedValueOnce(new Error('Offline'));
     const user = userEvent.setup();
@@ -73,7 +119,7 @@ describe('code tool settings drafts', () => {
     await waitFor(() => expect(model).toHaveValue('canonical'));
     expect(timeout).toHaveValue(600);
     expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
-    expect(codeAgentApi.patchSettings).toHaveBeenLastCalledWith('user', expect.objectContaining({ constraints: expect.objectContaining({ default_timeout_s: 120 }) }), null);
+    expect(codeAgentApi.patchSettings).toHaveBeenLastCalledWith('user', expect.objectContaining({ constraints: expect.objectContaining({ default_timeout_s: 120 }) }), null, settings.revision);
   });
 
   it('keeps detected paths as hints, allows clearing overrides and guards duplicate saves', async () => {

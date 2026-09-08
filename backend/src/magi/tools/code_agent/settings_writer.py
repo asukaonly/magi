@@ -15,7 +15,7 @@ import tomli_w
 
 from magi_plugin_sdk.fs import atomic_write_text
 from ._user_paths import code_agent_settings_path
-from .settings import CodeAgentSettings
+from .settings import CodeAgentSettings, settings_guard
 
 
 def _load_toml_text(text: str) -> dict[str, Any]:
@@ -50,11 +50,12 @@ def _write_toml(path: Path, payload: dict[str, Any]) -> None:
 
 def write_user_settings(patch: dict[str, Any]) -> Path:
     """Deep-merge ``patch`` into ``~/.magi/code_agent.toml``."""
-    target = code_agent_settings_path()
-    merged = _deep_merge(_read_optional(target), patch)
-    CodeAgentSettings.model_validate(merged)
-    _write_toml(target, merged)
-    return target
+    with settings_guard():
+        target = code_agent_settings_path()
+        merged = _deep_merge(_read_optional(target), patch)
+        CodeAgentSettings.model_validate(merged)
+        _write_toml(target, merged)
+        return target
 
 
 def _project_path(workspace_root: Path | str) -> Path:
@@ -63,18 +64,20 @@ def _project_path(workspace_root: Path | str) -> Path:
 
 def write_project_settings(workspace_root: Path | str, patch: dict[str, Any]) -> Path:
     """Deep-merge ``patch`` into ``<workspace>/.magi/code_agent.toml``."""
-    target = _project_path(workspace_root)
-    merged = _deep_merge(_read_optional(target), patch)
-    CodeAgentSettings.model_validate(merged)
-    _write_toml(target, merged)
-    return target
+    with settings_guard():
+        target = _project_path(workspace_root)
+        merged = _deep_merge(_read_optional(target), patch)
+        CodeAgentSettings.model_validate(merged)
+        _write_toml(target, merged)
+        return target
 
 
 def reset_project_settings(workspace_root: Path | str) -> None:
     """Remove the project-level toml; no-op when missing."""
-    target = _project_path(workspace_root)
-    if target.is_file():
-        target.unlink()
+    with settings_guard():
+        target = _project_path(workspace_root)
+        if target.is_file():
+            target.unlink()
 
 
 __all__ = [

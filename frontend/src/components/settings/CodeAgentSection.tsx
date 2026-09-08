@@ -20,6 +20,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 
 const CLI_ADAPTERS: AdapterName[] = ['claude_code', 'codex'];
 const DEFAULT_ADAPTERS: DefaultAdapterName[] = ['auto', ...CLI_ADAPTERS];
@@ -51,10 +52,15 @@ export function CodeAgentSection(): JSX.Element {
   const requestGeneration = useRef(0);
   const savePending = useRef(false);
   const rescanPending = useRef(false);
+  const savedRevision = useRef<string | null>(null);
+  const refreshGeneration = useRef(0);
+  const [conflict, setConflict] = useState(false);
+  const hasDraft = useRef(false);
   const timeout = timeoutDraft.trim() ? Number(timeoutDraft) : Number.NaN;
   const timeoutValid = Number.isInteger(timeout) && timeout >= 60 && timeout <= 3600;
   const dirty = JSON.stringify(settings) !== JSON.stringify(savedSettings)
     || timeoutDraft !== String(savedSettings?.constraints.default_timeout_s ?? '');
+  hasDraft.current = dirty || Boolean(forbidPathDraft.trim());
 
   const defaultAdapterOptions = useMemo(
     () =>
@@ -75,10 +81,14 @@ export function CodeAgentSection(): JSX.Element {
           codeAgentApi.getSettings(null),
         ]);
         if (generation !== requestGeneration.current) return;
+        savedRevision.current = settingsResp.revision;
+        refreshGeneration.current += 1;
         setProbeMap(probe.results);
         setSettings(settingsResp.settings);
         setSavedSettings(settingsResp.settings);
         setTimeoutDraft(String(settingsResp.settings.constraints.default_timeout_s));
+        setForbidPathDraft('');
+        setConflict(false);
         setError(null);
       } catch (err) {
         if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
@@ -91,9 +101,25 @@ export function CodeAgentSection(): JSX.Element {
     };
   }, [loadAttempt]);
 
+  useCenterRefresh(async () => {
+    if (savePending.current) return;
+    const generation = requestGeneration.current;
+    const read = ++refreshGeneration.current;
+    const baseline = savedRevision.current;
+    const [snapshot, probe] = await Promise.all([codeAgentApi.getSettings(null), codeAgentApi.probe(false)]);
+    if (generation !== requestGeneration.current || read !== refreshGeneration.current || savePending.current) return;
+    if (!rescanPending.current) setProbeMap(probe.results);
+    if (hasDraft.current || savedRevision.current !== baseline) return;
+    savedRevision.current = snapshot.revision;
+    setSettings(snapshot.settings);
+    setSavedSettings(snapshot.settings);
+    setTimeoutDraft(String(snapshot.settings.constraints.default_timeout_s));
+  }, !loading);
+
   const onRescan = async () => {
     if (rescanPending.current) return;
     rescanPending.current = true;
+    refreshGeneration.current += 1;
     const generation = requestGeneration.current;
     setRescanning(true);
     try {
@@ -103,11 +129,13 @@ export function CodeAgentSection(): JSX.Element {
       if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
     } finally {
       rescanPending.current = false;
+      refreshGeneration.current += 1;
       if (generation === requestGeneration.current) setRescanning(false);
     }
   };
 
   const updateDraft = (patch: CodeAgentSettingsPatch) => {
+    hasDraft.current = true;
     setSaved(false);
     setSettings((previous) => previous ? {
       ...previous, ...patch,
@@ -118,23 +146,30 @@ export function CodeAgentSection(): JSX.Element {
   };
 
   const saveSettings = async () => {
-    if (!settings || !timeoutValid || savePending.current) return;
+    if (!settings || !timeoutValid || savePending.current || !savedRevision.current || conflict) return;
     savePending.current = true;
+    refreshGeneration.current += 1;
     const generation = requestGeneration.current;
     setSaving(true);
     setSaved(false);
     try {
       const out = await codeAgentApi.patchSettings('user', {
         ...settings, constraints: { ...settings.constraints, default_timeout_s: timeout },
-      }, null);
+      }, null, savedRevision.current);
       if (generation !== requestGeneration.current) return;
+      savedRevision.current = out.revision;
+      refreshGeneration.current += 1;
       setSettings(out.settings);
       setSavedSettings(out.settings);
       setTimeoutDraft(String(out.settings.constraints.default_timeout_s));
       setError(null);
       setSaved(true);
     } catch (err) {
-      if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : String(err));
+      if (generation === requestGeneration.current) {
+        const stale = err != null && typeof err === 'object' && 'status' in err && err.status === 409;
+        setConflict(stale);
+        setError(stale ? t('settings.centerConflict') : err instanceof Error ? err.message : String(err));
+      }
     } finally {
       savePending.current = false;
       if (generation === requestGeneration.current) setSaving(false);
@@ -158,6 +193,7 @@ export function CodeAgentSection(): JSX.Element {
       {error && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
+          <Button variant="outline" disabled={saving} onClick={() => setLoadAttempt((attempt) => attempt + 1)}>{t('settings.reloadCenterConfig')}</Button>
         </div>
       )}
 
@@ -294,7 +330,7 @@ export function CodeAgentSection(): JSX.Element {
             <Input
               id="code-agent-forbidden-path"
               value={forbidPathDraft}
-              onChange={(e) => setForbidPathDraft(e.target.value)}
+              onChange={(e) => { hasDraft.current = true; setForbidPathDraft(e.target.value); }}
               placeholder={t('settings.codeAgent.forbidPathsPlaceholder')}
               className={SETTINGS_INPUT_CLASS}
             />
@@ -341,7 +377,7 @@ export function CodeAgentSection(): JSX.Element {
               value={timeoutDraft}
               aria-invalid={!timeoutValid}
               aria-describedby={!timeoutValid ? 'code-agent-timeout-error' : undefined}
-              onChange={(e) => { setTimeoutDraft(e.target.value); setSaved(false); }}
+              onChange={(e) => { hasDraft.current = true; setTimeoutDraft(e.target.value); setSaved(false); }}
               className={`${SETTINGS_INPUT_CLASS} w-32`}
             />
             <span className="text-xs text-muted-foreground">{t('settings.codeAgent.seconds')}</span>
@@ -352,7 +388,7 @@ export function CodeAgentSection(): JSX.Element {
       </fieldset>
       {!timeoutValid && <p id="code-agent-timeout-error" role="alert" className="text-sm text-destructive">{t('settings.codeAgent.invalidTimeout')}</p>}
       <div className="flex items-center gap-3 pt-4">
-        <Button disabled={saving || !dirty || !timeoutValid} onClick={asEventHandler(saveSettings)}>
+        <Button disabled={saving || conflict || !dirty || !timeoutValid} onClick={asEventHandler(saveSettings)}>
           {t(saving ? 'settings.codeAgent.saving' : 'common.save')}
         </Button>
         {saved && <p role="status">{t('settings.codeAgent.saved')}</p>}

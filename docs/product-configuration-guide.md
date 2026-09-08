@@ -313,6 +313,12 @@ Expected behavior:
   project TOML overrides still take precedence when a task uses that project
 - changes stay in an editable draft until Save; failure retains the draft and
   successful saves display the validated canonical response
+- code tool settings return a revision covering user defaults, project overrides,
+  and workspace identity. PATCH and project reset require the original revision;
+  a stale request returns 409, and a missing revision returns 428. All file writers
+  share a guard through validation, persistence, and the returned receipt.
+  Background center refresh updates pristine editors; dirty drafts retain their
+  original version and conflicts require an explicit discard-and-reload action.
 - detected executable paths are hints, separate from an explicitly saved override;
   clearing an override restores automatic detection
 - timeouts must be whole seconds from 60 through 3600; writers validate the merged

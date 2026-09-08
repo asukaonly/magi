@@ -29,7 +29,7 @@ from ...core.logger import get_logger
 from ...tools.code_agent.apply_diff import apply_delegation, discard_delegation
 from ...tools.code_agent.probe import probe_all
 from ...tools.code_agent.service import CodeAgentService
-from ...tools.code_agent.settings import CodeAgentSettings, load_settings
+from ...tools.code_agent.settings import CodeAgentSettings, load_settings, settings_guard, settings_revision
 from ...tools.code_agent.contracts import ProbeResult
 from ...tools.code_agent.settings_writer import (
     reset_project_settings,
@@ -54,6 +54,7 @@ class CodeAgentProbeResponse(BaseModel):
 class CodeAgentSettingsResponse(BaseModel):
     settings: CodeAgentSettings
     workspace_used: str | None
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 @code_agent_router.get("/probe", response_model=CodeAgentProbeResponse)
@@ -71,17 +72,27 @@ def post_rescan() -> dict[str, Any]:
 @code_agent_router.get("/settings", response_model=CodeAgentSettingsResponse)
 def get_settings(workspace: Optional[str] = None) -> dict[str, Any]:
     workspace_path: Optional[Path] = Path(workspace) if workspace else None
-    s = load_settings(workspace_root=workspace_path)
-    return {
-        "settings": s.model_dump(),
-        "workspace_used": str(workspace_path) if workspace_path else None,
-    }
+    with settings_guard():
+        s = load_settings(workspace_root=workspace_path)
+        return {
+            "settings": s.model_dump(),
+            "workspace_used": str(workspace_path) if workspace_path else None,
+            "revision": settings_revision(workspace_path),
+        }
+
+
+def _require_settings_revision(workspace: str | None, expected: str | None) -> None:
+    if not expected:
+        raise HTTPException(status_code=428, detail="Code tool settings revision is required")
+    if expected != settings_revision(workspace):
+        raise HTTPException(status_code=409, detail="Code tool settings changed; reload before saving")
 
 
 class _PatchSettingsBody(BaseModel):
     level: Literal["user", "project"]
     patch: dict[str, Any] = Field(default_factory=dict)
     workspace: Optional[str] = None
+    expected_revision: str | None = None
 
 
 @code_agent_router.patch("/settings", response_model=CodeAgentSettingsResponse)
@@ -97,32 +108,31 @@ def patch_settings(body: _PatchSettingsBody) -> dict[str, Any]:
             detail="patch must be an object",
         )
 
-    try:
-        if body.level == "user":
-            write_user_settings(body.patch)
-        else:
-            assert body.workspace is not None
-            write_project_settings(Path(body.workspace), body.patch)
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail="Invalid code agent settings") from exc
-
-    workspace_path = Path(body.workspace) if body.workspace else None
-    s = load_settings(workspace_root=workspace_path)
-    return {
-        "settings": s.model_dump(),
-        "workspace_used": str(workspace_path) if workspace_path else None,
-    }
+    with settings_guard():
+        _require_settings_revision(body.workspace, body.expected_revision)
+        try:
+            if body.level == "user":
+                write_user_settings(body.patch)
+            else:
+                assert body.workspace is not None
+                write_project_settings(Path(body.workspace), body.patch)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail="Invalid code agent settings") from exc
+        return get_settings(body.workspace)
 
 
 class _ResetSettingsBody(BaseModel):
     level: Literal["project"]
     workspace: str
+    expected_revision: str | None = None
 
 
-@code_agent_router.post("/settings/reset")
+@code_agent_router.post("/settings/reset", response_model=CodeAgentSettingsResponse)
 def post_reset(body: _ResetSettingsBody) -> dict[str, Any]:
-    reset_project_settings(Path(body.workspace))
-    return {"ok": True}
+    with settings_guard():
+        _require_settings_revision(body.workspace, body.expected_revision)
+        reset_project_settings(Path(body.workspace))
+        return get_settings(body.workspace)
 
 
 # ---------------------------------------------------------------------------

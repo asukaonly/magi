@@ -22,6 +22,7 @@
     }
   },
   "codeAgentSettings": {
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "settings": {
       "auto_apply": false,
       "claude_code": {

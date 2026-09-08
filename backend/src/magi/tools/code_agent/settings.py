@@ -7,8 +7,12 @@ Project values override user values (deep merge).
 from __future__ import annotations
 
 import sys
+import hashlib
+import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Literal
+from threading import RLock
+from typing import Any, Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +20,26 @@ from ._user_paths import code_agent_settings_path
 
 
 DefaultAdapterName = Literal["auto", "claude_code", "codex"]
+_SETTINGS_LOCK = RLock()
+
+
+@contextmanager
+def settings_guard() -> Iterator[None]:
+    """Keep two-level reads and atomic write receipts in one critical section."""
+    with _SETTINGS_LOCK:
+        yield
+
+
+def settings_revision(workspace_root: Path | str | None) -> str:
+    """Version both layers so hidden project overrides cannot mask user edits."""
+    with settings_guard():
+        workspace = Path(workspace_root).resolve() if workspace_root else None
+        snapshot = {
+            "workspace": str(workspace) if workspace else None,
+            "user": _read_optional_toml(code_agent_settings_path()),
+            "project": _read_optional_toml(workspace / ".magi" / "code_agent.toml") if workspace else None,
+        }
+        return hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _load_toml(text: str) -> dict[str, Any]:
@@ -84,14 +108,14 @@ def _read_optional_toml(path: Path) -> dict[str, Any]:
 
 
 def load_settings(*, workspace_root: Path | str | None = None) -> CodeAgentSettings:
-    user_data = _read_optional_toml(code_agent_settings_path())
-    project_data: dict[str, Any] = {}
-    if workspace_root is not None:
-        ws = Path(workspace_root)
-        project_data = _read_optional_toml(ws / ".magi" / "code_agent.toml")
-    merged = _deep_merge(user_data, project_data)
-
-    return CodeAgentSettings.model_validate(merged)
+    with settings_guard():
+        user_data = _read_optional_toml(code_agent_settings_path())
+        project_data: dict[str, Any] = {}
+        if workspace_root is not None:
+            ws = Path(workspace_root)
+            project_data = _read_optional_toml(ws / ".magi" / "code_agent.toml")
+        merged = _deep_merge(user_data, project_data)
+        return CodeAgentSettings.model_validate(merged)
 
 
 __all__ = [

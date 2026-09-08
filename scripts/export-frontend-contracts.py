@@ -51,6 +51,7 @@ def build_contract() -> dict:
     public_code = _build_public_router(code_agent_router, _PUBLIC_ROUTE_METHODS["code_agent"])
     for method, path, model in [
         ("GET", "/settings", CodeAgentSettingsResponse), ("PATCH", "/settings", CodeAgentSettingsResponse),
+        ("POST", "/settings/reset", CodeAgentSettingsResponse),
         ("GET", "/probe", CodeAgentProbeResponse), ("POST", "/rescan", CodeAgentProbeResponse),
     ]:
         if not any(route.path == path and method in route.methods and route.response_model is model for route in public_code.routes):
@@ -120,7 +121,7 @@ def build_examples() -> dict:
         selection.provider_id = "openai"
         selection.model = "fixture-model"
     return {
-        "codeAgentSettings": CodeAgentSettingsResponse(settings=CodeAgentSettings(), workspace_used=None).model_dump(mode="json"),
+        "codeAgentSettings": CodeAgentSettingsResponse(settings=CodeAgentSettings(), workspace_used=None, revision="a" * 64).model_dump(mode="json"),
         "codeAgentProbe": CodeAgentProbeResponse(results=CodeAgentProbeResults(**{
             name: ProbeResult(name=name, installed=False, binary_path=None, version=None, detected_at=1, error=None, extras={})
             for name in ("claude_code", "codex")
