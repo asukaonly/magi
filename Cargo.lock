@@ -2311,6 +2311,7 @@ dependencies = [
 name = "magi-desktop"
 version = "0.1.29"
 dependencies = [
+ "base64 0.22.1",
  "libc",
  "log",
  "magi-platform",
@@ -2323,6 +2324,7 @@ dependencies = [
  "security-framework",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -2332,6 +2334,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "url",
  "uuid",

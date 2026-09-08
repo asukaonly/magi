@@ -1900,12 +1900,12 @@
       },
       "dataManagement": {
         "title": "备份、导出或恢复记忆",
-        "description": "为本地记忆保留可迁移副本、生成便于阅读的导出，或从 Magi 备份替换当前记忆。这些操作不会改动设置中的待保存配置。",
+        "description": "备份、导出或恢复当前中心的记忆。完成的备份和导出也可以保存到这台设备。这些操作不会改动待保存配置。",
         "common": {
           "cancel": "取消",
           "close": "关闭",
           "retry": "重试",
-          "destinationDirectory": "保存目录",
+          "destinationDirectory": "中心保存目录",
           "chooseDirectory": "选择目录",
           "noDirectorySelected": "尚未选择目录"
         },
@@ -1914,7 +1914,7 @@
           "description": "创建可恢复的 .magibackup 文件，包含各层记忆、归档和受管理的记忆素材；不包含聊天记录与附件。",
           "action": "创建备份",
           "dialogTitle": "创建记忆备份",
-          "dialogDescription": "选择备份的保存位置和保护方式。",
+          "dialogDescription": "选择中心电脑上的保存目录和保护方式。完成后可以下载到这台设备。",
           "passwordProtection": "使用密码保护",
           "passwordProtectionDescription": "默认开启。备份会先加密，再写入所选目录。",
           "password": "密码",
@@ -1935,7 +1935,7 @@
           "description": "生成便于查阅或迁移的可读副本，可自行选择是否包含短期关注状态，不能用于恢复 Magi。",
           "action": "导出记忆",
           "dialogTitle": "导出可读记忆数据",
-          "dialogDescription": "请选择一个私密位置，保存可在 Magi 之外阅读的副本。",
+          "dialogDescription": "选择中心电脑上的私密目录，生成可读副本后可以下载到这台设备。",
           "contentsDescription": "导出包含可迁移的记忆记录，用于阅读和数据迁移，不能用来恢复 Magi。默认不包含短期关注状态。",
           "includeL0": "包含短期关注状态（L0），其中可能有最近对话产生的临时上下文。",
           "readabilityConfirmation": "我明白导出内容可以直接阅读，其中可能含有敏感个人信息，并会把它保存到可信位置。",
@@ -1950,7 +1950,7 @@
           "title": "从备份恢复",
           "description": "先检查 .magibackup 文件，再替换当前记忆。最终切换前，Magi 会先创建安全备份。",
           "action": "选择备份",
-          "choosingFile": "正在选择…",
+          "choosingFile": "正在选择或上传…",
           "fileFilter": "Magi 记忆备份",
           "dialogTitle": "检查记忆恢复",
           "dialogDescription": "Magi 会先验证备份。只有在你检查内容并确认后，当前记忆才会被替换。",
@@ -1991,7 +1991,7 @@
           "dismiss": "收起",
           "progressLabel": "记忆数据操作进度",
           "reconnecting": "Magi 正在重启或暂时不可用，连接恢复后会自动继续显示进度。",
-          "outputPath": "保存位置",
+          "outputPath": "中心保存位置",
           "fileSize": "文件大小：{{size}}",
           "elapsedTime": "已用时 {{duration}}",
           "safetyBackup": "安全备份",
@@ -5665,6 +5665,10 @@
     "more": "加载更多",
     "newFolder": "新文件夹名称",
     "create": "新建文件夹",
-    "select": "选择"
+    "select": "选择",
+    "download": "保存到这台设备",
+    "downloading": "正在保存到这台设备…",
+    "downloadFailed": "文件未能保存。请检查连接和可用磁盘空间后重试。",
+    "downloadSaved": "已保存到你选择的位置。"
   }
 }

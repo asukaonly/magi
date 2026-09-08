@@ -132,6 +132,37 @@ impl CenterClient {
         token: &str,
         body: Option<Value>,
     ) -> Result<T, String> {
+        let bytes = self
+            .request_bytes(method, path, token, body, MAX_RESPONSE_BYTES)
+            .await?;
+        let envelope: Envelope<T> =
+            serde_json::from_slice(&bytes).map_err(|_| "Center returned an invalid response")?;
+        if !envelope.success {
+            return Err("Center request was rejected".into());
+        }
+        Ok(envelope.data)
+    }
+
+    pub async fn file_output<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        token: &str,
+    ) -> Result<T, String> {
+        let bytes = self
+            .request_bytes(Method::GET, path, token, None, 2 * 1024 * 1024)
+            .await?;
+        serde_json::from_slice(&bytes)
+            .map_err(|_| "Center returned invalid file output metadata".into())
+    }
+
+    async fn request_bytes(
+        &self,
+        method: Method,
+        path: &str,
+        token: &str,
+        body: Option<Value>,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, String> {
         if token.is_empty() || token.len() > 256 {
             return Err("Center credential is invalid".into());
         }
@@ -159,17 +190,12 @@ impl CenterClient {
             .await
             .map_err(|_| "Center response was interrupted")?
         {
-            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            if bytes.len() + chunk.len() > max_bytes {
                 return Err("Center response exceeds the size limit".into());
             }
             bytes.extend_from_slice(&chunk);
         }
-        let envelope: Envelope<T> =
-            serde_json::from_slice(&bytes).map_err(|_| "Center returned an invalid response")?;
-        if !envelope.success {
-            return Err("Center request was rejected".into());
-        }
-        Ok(envelope.data)
+        Ok(bytes)
     }
 }
 
@@ -183,6 +209,30 @@ fn initialize_tls() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn download_contract_accepts_bounded_raw_json_without_native_envelopes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let length = socket.read(&mut request).await.unwrap();
+            let headers = String::from_utf8_lossy(&request[..length]);
+            assert!(headers.contains("x-magi-session-token: test-access"));
+            let body = serde_json::json!({"data":"x".repeat(1400000)}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            socket.write_all(body.as_bytes()).await.unwrap();
+        });
+        let client = CenterClient::local(&format!("http://{address}/api")).unwrap();
+        let output: Value = client
+            .file_output("files/outputs/id/chunks", "test-access")
+            .await
+            .unwrap();
+        assert_eq!(output["data"].as_str().unwrap().len(), 1400000);
+        server.await.unwrap();
+    }
 
     #[test]
     fn remote_address_cannot_inject_paths_credentials_or_insecure_transport() {

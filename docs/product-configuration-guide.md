@@ -990,3 +990,11 @@ History files are limited to 256 MiB each and backups to 2 GiB; domain-specific
 parser limits still apply. Original relative names and modification times survive
 staging. Full user-content clear removes staged uploads. Import progress remains
 owned by the center after preview/confirmation; closing a client does not stop it.
+
+Completed memory backups and exports offer **Save to this device**. The desktop
+opens its native save dialog, reads authenticated 1 MiB chunks by operation ID,
+and validates file version, offsets and checksums. It stages output beside the
+chosen destination and replaces that destination only after complete receipt and
+sync. Interrupted downloads leave the previous destination intact. At most two
+downloads run concurrently, each limited to 2 GiB and one hour. Switching centers
+invalidates a pending transfer; download access never uses a credential in a URL.

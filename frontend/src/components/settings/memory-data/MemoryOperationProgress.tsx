@@ -13,6 +13,7 @@ import {
   operationPhaseLabel,
 } from '@/components/settings/memory-data/presentation';
 import { Button } from '@/components/ui/button';
+import { MemoryOutputDownload } from './MemoryOutputDownload';
 
 interface MemoryOperationProgressProps {
   operation: MemoryPortabilityOperation;
@@ -128,6 +129,7 @@ export function MemoryOperationProgress({
               <p className="mt-1 break-all text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
                 {operation.output_path}
               </p>
+              {(operation.kind === 'backup' || operation.kind === 'export') && <MemoryOutputDownload operationId={operation.operation_id} />}
             </div>
           ) : null}
           {fileSize ? (

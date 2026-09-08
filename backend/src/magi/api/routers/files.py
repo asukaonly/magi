@@ -8,6 +8,8 @@ from ..services.center_files import CenterDirectory, CenterPathError, browse_cen
 
 from ..services.file_transfers import CHUNK_BYTES, TransferError, UploadSpec, UploadState, append_upload, begin_upload
 
+from ..services.portability_downloads import OutputChunk, OutputMetadata, describe_output, read_output_chunk
+
 files_router = APIRouter()
 
 
@@ -56,5 +58,22 @@ async def upload_chunk(resource_id: str, request: Request, offset: int = Query(g
         chunks.extend(chunk)
     try:
         return await append_upload(resource_id, offset, bytes(chunks), sha256)
+    except TransferError as error:
+        raise HTTPException(error.status, detail={"error_code": error.code}) from error
+
+
+@files_router.get("/outputs/{operation_id}", response_model=OutputMetadata)
+async def describe_portability_output(operation_id: str) -> OutputMetadata:
+    try:
+        return await describe_output(operation_id)
+    except TransferError as error:
+        raise HTTPException(error.status, detail={"error_code": error.code}) from error
+
+
+@files_router.get("/outputs/{operation_id}/chunks", response_model=OutputChunk)
+async def download_portability_chunk(operation_id: str, offset: int = Query(ge=0),
+                                     version: str = Query(pattern=r"^[0-9a-f]{64}$")) -> OutputChunk:
+    try:
+        return await read_output_chunk(operation_id, offset, version)
     except TransferError as error:
         raise HTTPException(error.status, detail={"error_code": error.code}) from error

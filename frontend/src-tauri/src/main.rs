@@ -5,6 +5,7 @@ mod connections;
 mod desktop_log_history;
 mod desktop_presence;
 mod dmg_cleanup;
+mod downloads;
 mod external_url;
 mod service_host;
 
@@ -22,6 +23,7 @@ const DESKTOP_LOG_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
 #[derive(Default)]
 struct BackendState {
+    generation: std::sync::atomic::AtomicU64,
     runtime: Mutex<Option<ActiveConnection>>,
     operation: tokio::sync::Mutex<()>,
     last_log: Mutex<Option<PathBuf>>,
@@ -63,11 +65,11 @@ struct BackendStartupDiagnosticsResponse {
 }
 
 fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
-    let previous = state
-        .runtime
-        .lock()
-        .map_err(|_| "Service state lock failed")?
-        .take();
+    let previous = {
+        let mut runtime = state.runtime.lock().map_err(|_| "Service state lock failed")?;
+        state.generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        runtime.take()
+    };
     // Dropping a local service closes its owner pipe and waits for its children.
     drop(previous);
     Ok(())
@@ -626,6 +628,7 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            downloads::download_portability_file,
             list_connection_profiles,
             pair_center,
             select_connection_profile,
