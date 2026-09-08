@@ -405,10 +405,6 @@ def test_list_personas_can_include_soft_deleted_records(tmp_path, monkeypatch) -
     persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG, locale="en", slug="deleted_persona"))
     asyncio.run(repo.delete(persona_id))
 
-    async def _skip_builtin_sync(_repo):
-        return None
-
-    monkeypatch.setattr(personas_module, "_sync_registered_builtin_personas", _skip_builtin_sync)
     client = _build_client(repo, monkeypatch)
 
     default_response = client.get("/api/personas/")
@@ -426,7 +422,9 @@ def test_list_personas_can_include_soft_deleted_records(tmp_path, monkeypatch) -
 def _build_client(repo: PersonaRepository, monkeypatch) -> TestClient:
     monkeypatch.setattr(personas_module, "_get_repo", lambda: repo)
     app = FastAPI()
-    app.include_router(personas_router, prefix="/api/personas")
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    app.include_router(_build_public_router(personas_router, _PUBLIC_ROUTE_METHODS["personas"]), prefix="/api/personas")
     return TestClient(app)
 
 
@@ -499,7 +497,41 @@ def test_delete_active_persona_returns_localized_conflict(tmp_path, monkeypatch)
     asyncio.run(repo.set_active(persona_id))
     client = _build_client(repo, monkeypatch)
 
-    response = client.delete(f"/api/personas/{persona_id}", headers={"Accept-Language": "zh-CN"})
+    response = client.delete(
+        f"/api/personas/{persona_id}", headers={"Accept-Language": "zh-CN"},
+        params={"expected_updated_at": asyncio.run(repo.get(persona_id)).updated_at},
+    )
 
     assert response.status_code == 409
     assert response.json()["detail"] == "不能删除当前启用的人格"
+
+
+def test_public_persona_updates_require_the_original_version(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG))
+    client = _build_client(repo, monkeypatch)
+    url = f"/api/personas/{persona_id}"
+    version = client.get(url).json()["data"]["updated_at"]
+    assert client.put(url, json={"name": "Missing version"}).status_code == 428
+    assert client.delete(url).status_code == 428
+    response = client.put(url, json={"name": "First device", "expected_updated_at": version})
+    assert response.status_code == 200
+    confirmed = response.json()["data"]
+    assert confirmed["updated_at"] > version
+    assert client.put(url, json={"name": "Stale device", "expected_updated_at": version}).status_code == 409
+    assert client.delete(url, params={"expected_updated_at": version}).status_code == 409
+    assert client.get(url).json()["data"]["name"] == "First device"
+    assert client.delete(url, params={"expected_updated_at": confirmed["updated_at"]}).status_code == 200
+
+
+def test_listing_personas_does_not_rewrite_builtin_configuration(tmp_path, monkeypatch) -> None:
+    repo = PersonaRepository(str(tmp_path / "persona_registry.db"))
+    asyncio.run(repo.init())
+    persona_id = asyncio.run(repo.create(_SAMPLE_CONFIG, is_builtin=True, seed_slug="test_builtin"))
+    asyncio.run(repo.update(persona_id, name="Edited builtin"))
+    snapshot = asyncio.run(repo.get(persona_id))
+    client = _build_client(repo, monkeypatch)
+    for _ in range(2):
+        assert client.get("/api/personas/").status_code == 200
+    assert asyncio.run(repo.get(persona_id)) == snapshot

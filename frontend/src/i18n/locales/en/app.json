@@ -5388,6 +5388,7 @@
     "switching": "Switching...",
     "switch": "Switch",
     "reload": "Reload",
+    "conflict": "This persona changed on the center. Your draft is preserved. Reload to discard this draft and use the current version.",
     "create": "Create",
     "cancel": "Cancel",
     "delete": "Delete",

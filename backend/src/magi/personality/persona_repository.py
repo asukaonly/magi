@@ -7,6 +7,7 @@ and active-persona tracking.
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import uuid
@@ -20,6 +21,10 @@ from .loader import PersonalityConfig
 from .reference_research.models import ReferenceDossier
 
 logger = get_logger(__name__)
+
+
+class PersonaConflictError(ValueError):
+    """The persona changed after the caller read its snapshot."""
 
 _CREATE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS personas (
@@ -155,12 +160,6 @@ class PersonaRepository:
                 )
                 if existing:
                     if existing[0]["deleted_at"] is None:
-                        if reference_dossier_json is not None:
-                            await self._upsert_reference_dossier(
-                                db,
-                                persona_id,
-                                reference_dossier_json,
-                            )
                         await db.commit()
                         return persona_id
                     await db.rollback()
@@ -224,12 +223,21 @@ class PersonaRepository:
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             rows = await db.execute_fetchall(
-                """SELECT persona_id FROM personas
+                """SELECT * FROM personas
                    WHERE is_builtin = 1 AND seed_slug = ? AND deleted_at IS NULL""",
                 (seed_slug,),
             )
             if rows:
                 persona_id = rows[0]["persona_id"]
+                desired = {
+                    "name": display_name, "locale": locale, "config_json": config_json,
+                    "avatar_path": avatar, "group_name": group, "sort_order": order,
+                    "description": description,
+                }
+                if all(rows[0][key] == value for key, value in desired.items()):
+                    await db.commit()
+                    return persona_id, False
+                now = max(now, math.nextafter(rows[0]["updated_at"], math.inf))
                 await db.execute(
                     """UPDATE personas
                        SET name = ?, locale = ?, config_json = ?, avatar_path = ?,
@@ -343,25 +351,27 @@ class PersonaRepository:
                 return None
             return ReferenceDossier.model_validate_json(rows[0]["dossier_json"])
 
-    async def save_reference_dossier(
-        self,
-        persona_id: str,
-        dossier: ReferenceDossier,
-    ) -> None:
-        """Replace the traceable reference dossier for an existing persona."""
+    async def get_snapshot(
+        self, persona_id: str, *, include_deleted: bool = False,
+    ) -> tuple[PersonaRecord, ReferenceDossier | None]:
+        """Read configuration and provenance from the same database snapshot."""
         async with sqlite_connection_async(self._db_path) as db:
-            exists = await db.execute_fetchall(
-                "SELECT 1 FROM personas WHERE persona_id = ? AND deleted_at IS NULL",
-                (persona_id,),
-            )
-            if not exists:
-                raise KeyError(f"Persona not found: {persona_id}")
-            await self._upsert_reference_dossier(
-                db,
-                persona_id,
-                dossier.model_dump_json(),
-            )
-            await db.commit()
+            return await self._read_snapshot(db, persona_id, include_deleted=include_deleted)
+
+    async def _read_snapshot(
+        self, db, persona_id: str, *, include_deleted: bool = False,
+    ) -> tuple[PersonaRecord, ReferenceDossier | None]:
+        sql = """SELECT p.*, d.dossier_json FROM personas p
+                 LEFT JOIN persona_reference_dossiers d USING (persona_id)
+                 WHERE p.persona_id = ?"""
+        if not include_deleted:
+            sql += " AND p.deleted_at IS NULL"
+        rows = await db.execute_fetchall(sql, (persona_id,))
+        if not rows:
+            raise KeyError(f"Persona not found: {persona_id}")
+        row = rows[0]
+        dossier = ReferenceDossier.model_validate_json(row["dossier_json"]) if row["dossier_json"] else None
+        return self._row_to_record(row), dossier
 
     async def list_all(self, *, include_deleted: bool = False) -> list[PersonaSummary]:
         """Return all personas in display order."""
@@ -385,8 +395,10 @@ class PersonaRepository:
         avatar_path: str | None = None,
         group_name: str | None = None,
         sort_order: int | None = None,
-    ) -> None:
-        """Update mutable fields of an existing persona."""
+        reference_dossier: ReferenceDossier | None = None,
+        expected_updated_at: float | None = None,
+    ) -> tuple[PersonaRecord, ReferenceDossier | None]:
+        """Conditionally update a persona and return its committed snapshot."""
         # When config_json changes, sync denormalized columns from it.
         description: str | None = None
         if config_json is not None:
@@ -430,27 +442,33 @@ class PersonaRepository:
             sets.append("description = ?")
             params.append(description)
 
-        if not sets:
-            return
-
-        sets.append("updated_at = ?")
-        params.append(time.time())
-        params.append(persona_id)
-
         async with sqlite_connection_async(self._db_path) as db:
-            result = await db.execute(
-                f"UPDATE personas SET {', '.join(sets)} WHERE persona_id = ? AND deleted_at IS NULL",
-                tuple(params),
-            )
-            if result.rowcount == 0:
-                raise KeyError(f"Persona not found: {persona_id}")
+            await db.execute("BEGIN IMMEDIATE")
+            current, _ = await self._read_snapshot(db, persona_id)
+            if expected_updated_at is not None and current.updated_at != expected_updated_at:
+                raise PersonaConflictError("Persona changed; reload its current snapshot")
+            if sets or reference_dossier is not None:
+                sets.append("updated_at = ?")
+                params.extend((max(time.time(), math.nextafter(current.updated_at, math.inf)), persona_id))
+                await db.execute(
+                    f"UPDATE personas SET {', '.join(sets)} WHERE persona_id = ? AND deleted_at IS NULL",
+                    tuple(params),
+                )
+                if reference_dossier is not None:
+                    await self._upsert_reference_dossier(db, persona_id, reference_dossier.model_dump_json())
+            snapshot = await self._read_snapshot(db, persona_id)
             await db.commit()
+            return snapshot
 
     # ---- delete ----
 
-    async def delete(self, persona_id: str) -> None:
+    async def delete(self, persona_id: str, *, expected_updated_at: float | None = None) -> None:
         """Soft-delete a persona.  Raises KeyError if not found."""
         async with sqlite_connection_async(self._db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            current, _ = await self._read_snapshot(db, persona_id)
+            if expected_updated_at is not None and current.updated_at != expected_updated_at:
+                raise PersonaConflictError("Persona changed; reload its current snapshot")
             # Prevent deleting the active persona.
             active_rows = await db.execute_fetchall(
                 "SELECT persona_id FROM persona_active WHERE persona_id = ?",
@@ -484,6 +502,7 @@ class PersonaRepository:
     async def set_active(self, persona_id: str) -> None:
         """Switch the active persona."""
         async with sqlite_connection_async(self._db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
             # Verify persona exists.
             exists = await db.execute_fetchall(
                 "SELECT 1 FROM personas WHERE persona_id = ? AND deleted_at IS NULL", (persona_id,)

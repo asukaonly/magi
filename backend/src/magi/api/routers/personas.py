@@ -11,14 +11,14 @@ from dataclasses import asdict
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ...core.logger import get_logger
-from ...personality.persona_repository import PersonaRecord, PersonaRepository
+from ...personality.persona_repository import PersonaConflictError, PersonaRecord, PersonaRepository
 from ...personality.reference_research.models import ReferenceDossier
 from ... import i18n as core_i18n
-from ...personality.persona_seed import list_seed_previews, resolve_locale, seed_builtin_personas
+from ...personality.persona_seed import list_seed_previews, seed_builtin_personas
 from ...utils.runtime import get_runtime_paths
 
 logger = get_logger(__name__)
@@ -79,6 +79,7 @@ class PersonaCreateRequest(BaseModel):
 
 
 class PersonaUpdateRequest(BaseModel):
+    expected_updated_at: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     name: Optional[str] = None
     config_json: Optional[str] = None
     slug: Optional[str] = None
@@ -114,19 +115,6 @@ def _get_repo() -> PersonaRepository:
 
 def _request_language(request: Request) -> str | None:
     return request.headers.get("Accept-Language") or None
-
-
-async def _sync_registered_builtin_personas(repo: PersonaRepository) -> None:
-    summaries = await repo.list_all(include_deleted=True)
-    locales = {
-        item.locale
-        for item in summaries
-        if item.is_builtin and item.seed_slug and item.deleted_at is None
-    }
-    if not locales:
-        locales = {resolve_locale(core_i18n.get_preferred_language())}
-    for locale in sorted(locales):
-        await seed_builtin_personas(repo, locale)
 
 
 async def _restore_previous_persona(
@@ -203,7 +191,6 @@ async def list_personas(include_deleted: bool = False):
     """List all registered personas."""
     repo = _get_repo()
     await repo.init()
-    await _sync_registered_builtin_personas(repo)
     summaries = await repo.list_all(include_deleted=include_deleted)
     return PersonaListResponse(
         data=[PersonaSummaryModel(**asdict(s)) for s in summaries],
@@ -320,8 +307,7 @@ async def create_persona(request: Request, payload: PersonaCreateRequest):
             else None
         ),
     )
-    record = await repo.get(persona_id)
-    reference_dossier = await repo.get_reference_dossier(persona_id)
+    record, reference_dossier = await repo.get_snapshot(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -348,7 +334,7 @@ async def get_persona(request: Request, persona_id: str, include_deleted: bool =
     repo = _get_repo()
     await repo.init()
     try:
-        record = await repo.get(persona_id, include_deleted=include_deleted)
+        record, reference_dossier = await repo.get_snapshot(persona_id, include_deleted=include_deleted)
     except KeyError:
         raise HTTPException(
             status_code=404,
@@ -358,7 +344,6 @@ async def get_persona(request: Request, persona_id: str, include_deleted: bool =
                 fallback="Persona not found",
             ),
         )
-    reference_dossier = await repo.get_reference_dossier(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -382,20 +367,23 @@ async def get_persona(request: Request, persona_id: str, include_deleted: bool =
 @personas_router.put("/{persona_id}", response_model=PersonaDetailResponse)
 async def update_persona(request: Request, persona_id: str, payload: PersonaUpdateRequest):
     """Update mutable fields of an existing persona."""
+    if payload.expected_updated_at is None:
+        raise HTTPException(status_code=428, detail="Persona snapshot version is required")
     repo = _get_repo()
     await repo.init()
     try:
-        await repo.update(
+        record, reference_dossier = await repo.update(
             persona_id,
             name=payload.name,
             config_json=payload.config_json,
             slug=payload.slug,
             avatar_path=payload.avatar_path,
             sort_order=payload.sort_order,
+            reference_dossier=payload.reference_dossier,
+            expected_updated_at=payload.expected_updated_at,
         )
-        if payload.reference_dossier is not None:
-            await repo.save_reference_dossier(persona_id, payload.reference_dossier)
-        record = await repo.get(persona_id)
+    except PersonaConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         raise HTTPException(
             status_code=404,
@@ -405,7 +393,6 @@ async def update_persona(request: Request, persona_id: str, payload: PersonaUpda
                 fallback="Persona not found",
             ),
         )
-    reference_dossier = await repo.get_reference_dossier(persona_id)
     return PersonaDetailResponse(
         data=PersonaDetailModel(
             persona_id=record.persona_id,
@@ -427,12 +414,19 @@ async def update_persona(request: Request, persona_id: str, payload: PersonaUpda
 
 
 @personas_router.delete("/{persona_id}")
-async def delete_persona(request: Request, persona_id: str):
+async def delete_persona(
+    request: Request, persona_id: str,
+    expected_updated_at: float | None = Query(default=None, ge=0, allow_inf_nan=False),
+):
     """Delete a persona (cannot delete the active one)."""
+    if expected_updated_at is None:
+        raise HTTPException(status_code=428, detail="Persona snapshot version is required")
     repo = _get_repo()
     await repo.init()
     try:
-        await repo.delete(persona_id)
+        await repo.delete(persona_id, expected_updated_at=expected_updated_at)
+    except PersonaConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError:
         raise HTTPException(
             status_code=404,

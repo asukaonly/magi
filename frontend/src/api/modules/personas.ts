@@ -511,6 +511,7 @@ export const personasApi = {
   update: (
     personaId: string,
     payload: {
+      expected_updated_at: number;
       name?: string;
       config_json?: string;
       slug?: string;
@@ -521,7 +522,9 @@ export const personasApi = {
   ) => api.put<PersonaDetail>('/personas/' + personaId, payload),
 
   /** Delete a persona (cannot delete the active one). */
-  delete: (personaId: string) => api.delete('/personas/' + personaId),
+  delete: (personaId: string, expectedUpdatedAt: number) => api.delete('/personas/' + personaId, {
+    params: { expected_updated_at: expectedUpdatedAt },
+  }),
 
   /** Get the active persona ID. Returns persona_id at the top level. */
   getActive: async (): Promise<ActivePersonaResponse> =>

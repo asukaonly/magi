@@ -50,6 +50,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
     isNewMode,
     loading,
     saving,
+    conflict,
     generating,
     generationProgress,
     generationStageKey,
@@ -136,6 +137,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
 
       <div className={cn('flex-1 overflow-y-auto', embedded ? 'px-5 py-4' : 'p-6')}>
         <div className={cn('w-full space-y-3', embedded ? 'max-w-none' : 'mx-auto max-w-[1080px]')}>
+          {conflict ? <p role="alert" className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">{t('personality.conflict')}</p> : null}
           <section className="space-y-3">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <button
@@ -313,6 +315,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                   <Button
                     variant="outline"
                     onClick={asEventHandler(reload)}
+                    disabled={saving || loading}
                     size="sm"
                     className="rounded-md"
                   >
@@ -322,7 +325,7 @@ const PersonalityModern: React.FC<PersonalityModernProps> = ({ embedded = false 
                 )}
                 <Button
                   onClick={asEventHandler(save)}
-                  disabled={saving || loading}
+                  disabled={saving || loading || conflict}
                   size="sm"
                   className="rounded-md"
                 >

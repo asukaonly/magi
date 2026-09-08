@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 
 from magi.core.initialization_state import InitializationStateStore
-from magi.personality.persona_repository import PersonaRepository, PersonaSummary
+from magi.personality.persona_repository import PersonaConflictError, PersonaRepository, PersonaSummary
 from magi.personality.reference_research.models import ReferenceDossier, ReferenceIdentity
 from magi.personality import persona_seed
 
@@ -50,6 +50,26 @@ async def repo(tmp_path: Path) -> PersonaRepository:
 
 class TestPersonaRepository:
     """CRUD operations on PersonaRepository."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_editors_share_one_configuration_and_dossier_version(self, repo: PersonaRepository) -> None:
+        pid = await repo.create(_SAMPLE_CONFIG)
+        original = await repo.get(pid)
+        other = PersonaRepository(repo._db_path)
+        results = await asyncio.gather(
+            repo.update(pid, name="First", reference_dossier=_reference_dossier(), expected_updated_at=original.updated_at),
+            other.update(pid, name="Second", expected_updated_at=original.updated_at),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(result, PersonaConflictError) for result in results) == 1
+        receipt = next(result for result in results if isinstance(result, tuple))
+        assert await repo.get_snapshot(pid) == receipt
+        assert receipt[0].updated_at > original.updated_at
+        next_receipt = await repo.update(pid, reference_dossier=_reference_dossier(), expected_updated_at=receipt[0].updated_at)
+        assert next_receipt[0].updated_at > receipt[0].updated_at
+        assert next_receipt[1] is not None
+        with pytest.raises(PersonaConflictError):
+            await other.delete(pid, expected_updated_at=receipt[0].updated_at)
 
     @pytest.mark.asyncio
     async def test_create_and_get(self, repo: PersonaRepository) -> None:
@@ -227,7 +247,7 @@ class TestPersonaRepository:
         assert roundtrip["name"] == "Test Persona"
 
     @pytest.mark.asyncio
-    async def test_reference_dossier_roundtrip_and_idempotent_refresh(
+    async def test_create_retry_does_not_overwrite_reference_dossier(
         self,
         repo: PersonaRepository,
     ) -> None:
@@ -254,7 +274,7 @@ class TestPersonaRepository:
 
         stored = await repo.get_reference_dossier(persona_id)
         assert stored is not None
-        assert stored.grounding_status == "insufficient"
+        assert stored.grounding_status == "verified"
         assert await repo.count() == 1
 
 
