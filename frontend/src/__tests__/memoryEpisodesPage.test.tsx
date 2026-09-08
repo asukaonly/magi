@@ -896,7 +896,7 @@ describe('MemoryEpisodesPage', () => {
         query_text: '2026年5月1日到10日 日本旅行',
       });
     });
-    expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Back to experiences' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Organize experience' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2026年5月 日本旅行' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '出发前，把路线定下来' })).toBeChecked();
@@ -934,7 +934,7 @@ describe('MemoryEpisodesPage', () => {
 
     renderDraftPage();
 
-    const backButtons = await screen.findAllByRole('button', { name: 'Back to experiences' });
+    const backButtons = await screen.findAllByRole('link', { name: 'Back to experiences' });
     expect(backButtons).toHaveLength(1);
     expect(screen.queryByRole('heading', { name: 'Organize experience' })).not.toBeInTheDocument();
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
