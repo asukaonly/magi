@@ -45,7 +45,6 @@ def validate_schema(schema: dict[str, Any]) -> None:
         raise RuntimeError(f"OpenAPI schema missing required Python routes: {', '.join(missing)}")
     rust_native_only_routes = {
         "/api/metrics/runtime/overview",
-        "/api/tasks",
     }
     leaked = sorted(rust_native_only_routes & set(paths))
     if leaked:

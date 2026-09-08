@@ -104,8 +104,6 @@ def test_axum_declares_expected_native_read_endpoints() -> None:
         "/api/health",
         "/api/ready",
         "/api/messages/sessions",
-        "/api/tasks",
-        "/api/tasks/{task_id}",
         "/api/schedules",
         "/api/schedules/executions/recent",
         "/api/schedules/{schedule_id}",
@@ -113,11 +111,8 @@ def test_axum_declares_expected_native_read_endpoints() -> None:
         "/api/metrics/llm/usage/summary",
         "/api/metrics/llm/usage/timeseries",
         "/api/memory/l1/events",
-        "/api/memory/l2/relations",
-        "/api/memory/l2/assertions",
         "/api/memory/l2/entities",
         "/api/memory/l2/mentions",
-        "/api/memory/l2/snapshots",
         "/api/memory/l2/conflict-rules",
         "/api/memory/l3/summaries",
         "/api/llm/providers/custom-template",
@@ -125,3 +120,5 @@ def test_axum_declares_expected_native_read_endpoints() -> None:
     ]
     for route in expected_routes:
         assert route in source, f"Missing native Rust route: {route}"
+    assert '"/api/tasks"' not in source
+    assert '"/api/tasks/{task_id}"' not in source

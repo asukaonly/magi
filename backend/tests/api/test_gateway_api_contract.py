@@ -38,6 +38,9 @@ def test_gateway_api_contract_manifest_matches_router_inventory() -> None:
         "/api/memory/l0/workbench/{session_id}"
     ] == ["GET"]
     assert inventory["python_routes"]["/api/config/"] == ["GET", "PUT"]
+    assert "/api/tasks" not in inventory["rust_native_routes"]
+    assert "/api/tasks/{task_id}" not in inventory["rust_native_routes"]
+    assert "/api/background-tasks" in inventory["python_routes"]
 
 
 def test_gateway_api_contract_rejects_new_public_business_route() -> None:

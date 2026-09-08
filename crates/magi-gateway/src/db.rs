@@ -89,11 +89,6 @@ pub fn runtime_trace_db_path() -> PathBuf {
     magi_base_dir().join("runtime").join("runtime_trace.db")
 }
 
-/// Path to the tasks database.
-pub fn tasks_db_path() -> PathBuf {
-    magi_base_dir().join("runtime").join("tasks.db")
-}
-
 /// Path to the scheduler database.
 pub fn scheduler_db_path() -> PathBuf {
     magi_base_dir().join("runtime").join("scheduler.db")

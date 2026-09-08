@@ -14,7 +14,6 @@ pub mod security;
 mod server;
 mod sessions;
 pub mod state;
-mod tasks;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -92,17 +91,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/messages/session/{session_id}",
             axum::routing::patch(messages::rename_session).delete(proxy::proxy_handler),
-        )
-        // Tasks
-        .route(
-            "/api/tasks/{task_id}",
-            axum::routing::get(tasks::get_task)
-                .patch(tasks::update_task)
-                .delete(tasks::delete_task),
-        )
-        .route(
-            "/api/tasks",
-            axum::routing::get(tasks::list_tasks).post(tasks::create_task),
         )
         // Schedules
         .route(

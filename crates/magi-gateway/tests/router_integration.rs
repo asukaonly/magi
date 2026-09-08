@@ -1032,7 +1032,7 @@ async fn cors_does_not_allow_untrusted_origins() {
     let router = api::build_router(state);
     let request = Request::builder()
         .method("OPTIONS")
-        .uri("/api/tasks")
+        .uri("/api/schedules")
         .header("origin", "https://attacker.example")
         .header("access-control-request-method", "GET")
         .header(
@@ -1502,10 +1502,6 @@ async fn native_read_routes_distinguish_missing_l1_store_from_empty_data() {
     let home = isolated_home("missing-dbs");
     let state = test_state().await;
     let router = api::build_router(state);
-
-    let (status, tasks) = request_json(router.clone(), "GET", "/api/tasks?user_id=u1", None).await;
-    assert_eq!(status, 200);
-    assert_eq!(tasks["tasks"].as_array().unwrap().len(), 0);
 
     let (status, schedules) = request_json(router.clone(), "GET", "/api/schedules", None).await;
     assert_eq!(status, 200);
@@ -2254,73 +2250,6 @@ async fn assertion_confirmation_is_governed_by_python_runtime() {
         serde_json::json!({"feedback": "confirmed"})
     );
     drop(guard);
-}
-
-#[tokio::test]
-async fn native_task_create_persists_owned_product_fields() {
-    let home = isolated_home("task-create");
-    let runtime_dir = home.path().join(".magi").join("runtime");
-    std::fs::create_dir_all(&runtime_dir).unwrap();
-    let conn = rusqlite::Connection::open(runtime_dir.join("tasks.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE tasks (
-            task_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            description TEXT NOT NULL,
-            status TEXT NOT NULL,
-            priority TEXT NOT NULL,
-            tags_json TEXT NOT NULL,
-            due_date REAL,
-            created_by TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            session_id TEXT,
-            linked_turn_id TEXT,
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL
-        );",
-    )
-    .unwrap();
-    drop(conn);
-
-    let state = test_state().await;
-    let router = api::build_router(state);
-    let (status, created) = request_json(
-        router.clone(),
-        "POST",
-        "/api/tasks?user_id=u1",
-        Some(
-            r#"{
-                "title":"Review memory evidence",
-                "description":"Check the Alpha trace path",
-                "priority":"high",
-                "tags":["alpha","memory"],
-                "linked_turn_id":"turn-1"
-            }"#,
-        ),
-    )
-    .await;
-
-    assert_eq!(status, 201, "created={created:?} home={:?}", home.path());
-    let task_id = created["task"]["task_id"].as_str().unwrap();
-    assert_eq!(created["task"]["title"], "Review memory evidence");
-    assert_eq!(created["task"]["status"], "open");
-    assert_eq!(created["task"]["priority"], "high");
-    assert_eq!(
-        created["task"]["tags"],
-        serde_json::json!(["alpha", "memory"])
-    );
-
-    let (status, fetched) =
-        request_json(router, "GET", &format!("/api/tasks/{task_id}"), None).await;
-    assert_eq!(
-        status,
-        200,
-        "created={created:?} fetched={fetched:?} home={:?}",
-        home.path()
-    );
-    assert_eq!(fetched["task"]["task_id"], task_id);
-    assert_eq!(fetched["task"]["user_id"], "u1");
-    drop(home);
 }
 
 #[tokio::test]
