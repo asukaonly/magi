@@ -472,6 +472,7 @@ export interface TimelineConfig {
 }
 
 export interface SystemConfig {
+  revision?: string | null;
   agent: AgentConfig;
   llm: LLMConfig;
   memory: MemoryConfig;

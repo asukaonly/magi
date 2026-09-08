@@ -334,6 +334,7 @@
         "suggestion_dismissals": {},
         "user_mode": null
       },
+      "revision": null,
       "skills": [],
       "timeline": {
         "sources": {
@@ -655,6 +656,7 @@
           "suggestion_dismissals": {},
           "user_mode": null
         },
+        "revision": null,
         "skills": [],
         "timeline": {
           "sources": {

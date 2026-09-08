@@ -2,7 +2,7 @@
 "use strict";
 export const validateConfigResponse = validate53;
 const schema20 = {"properties":{"data":{"anyOf":[{"$ref":"#/components/schemas/SystemConfigModel"},{"type":"null"}],"default":null},"message":{"title":"Message","type":"string"},"success":{"title":"Success","type":"boolean"}},"required":["success","message","data"],"title":"ConfigResponse","type":"object"};
-const schema21 = {"properties":{"agent":{"$ref":"#/components/schemas/AgentConfigModel"},"diagnostics":{"$ref":"#/components/schemas/DiagnosticsConfigModel"},"llm":{"$ref":"#/components/schemas/LLMConfigModel"},"memory":{"$ref":"#/components/schemas/MemoryConfigModel"},"network":{"$ref":"#/components/schemas/NetworkProxyConfigModel"},"personality":{"$ref":"#/components/schemas/PersonalityConfigModel"},"personalitySettings":{"$ref":"#/components/schemas/PersonalitySettingsModel"},"preferences":{"$ref":"#/components/schemas/UserPreferencesModel"},"skills":{"items":{"type":"string"},"title":"Skills","type":"array"},"timeline":{"$ref":"#/components/schemas/TimelineConfigModel"}},"required":["agent","llm","memory","preferences","network","diagnostics","personality","personalitySettings","skills","timeline"],"title":"SystemConfigModel","type":"object"};
+const schema21 = {"properties":{"agent":{"$ref":"#/components/schemas/AgentConfigModel"},"diagnostics":{"$ref":"#/components/schemas/DiagnosticsConfigModel"},"llm":{"$ref":"#/components/schemas/LLMConfigModel"},"memory":{"$ref":"#/components/schemas/MemoryConfigModel"},"network":{"$ref":"#/components/schemas/NetworkProxyConfigModel"},"personality":{"$ref":"#/components/schemas/PersonalityConfigModel"},"personalitySettings":{"$ref":"#/components/schemas/PersonalitySettingsModel"},"preferences":{"$ref":"#/components/schemas/UserPreferencesModel"},"revision":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"description":"Snapshot revision required for general configuration writes.","title":"Revision"},"skills":{"items":{"type":"string"},"title":"Skills","type":"array"},"timeline":{"$ref":"#/components/schemas/TimelineConfigModel"}},"required":["revision","agent","llm","memory","preferences","network","diagnostics","personality","personalitySettings","skills","timeline"],"title":"SystemConfigModel","type":"object"};
 const schema22 = {"properties":{"description":{"anyOf":[{"type":"string"},{"type":"null"}],"default":"Magi AI Agent Framework","title":"Description"},"name":{"default":"magi-agent","title":"Name","type":"string"}},"required":["name","description"],"title":"AgentConfigModel","type":"object"};
 
 function validate55(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -8517,7 +8517,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((((((((data.agent === undefined) && (missing0 = "agent")) || ((data.llm === undefined) && (missing0 = "llm"))) || ((data.memory === undefined) && (missing0 = "memory"))) || ((data.preferences === undefined) && (missing0 = "preferences"))) || ((data.network === undefined) && (missing0 = "network"))) || ((data.diagnostics === undefined) && (missing0 = "diagnostics"))) || ((data.personality === undefined) && (missing0 = "personality"))) || ((data.personalitySettings === undefined) && (missing0 = "personalitySettings"))) || ((data.skills === undefined) && (missing0 = "skills"))) || ((data.timeline === undefined) && (missing0 = "timeline"))){
+if((((((((((((data.revision === undefined) && (missing0 = "revision")) || ((data.agent === undefined) && (missing0 = "agent"))) || ((data.llm === undefined) && (missing0 = "llm"))) || ((data.memory === undefined) && (missing0 = "memory"))) || ((data.preferences === undefined) && (missing0 = "preferences"))) || ((data.network === undefined) && (missing0 = "network"))) || ((data.diagnostics === undefined) && (missing0 = "diagnostics"))) || ((data.personality === undefined) && (missing0 = "personality"))) || ((data.personalitySettings === undefined) && (missing0 = "personalitySettings"))) || ((data.skills === undefined) && (missing0 = "skills"))) || ((data.timeline === undefined) && (missing0 = "timeline"))){
 validate54.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -8618,21 +8618,81 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.skills !== undefined){
-let data8 = data.skills;
+if(data.revision !== undefined){
+let data8 = data.revision;
 const _errs9 = errors;
-if(errors === _errs9){
-if(Array.isArray(data8)){
-var valid1 = true;
-const len0 = data8.length;
-for(let i0=0; i0<len0; i0++){
+const _errs10 = errors;
+let valid1 = false;
 const _errs11 = errors;
-if(typeof data8[i0] !== "string"){
+if(typeof data8 !== "string"){
+const err0 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+var _valid0 = _errs11 === errors;
+valid1 = valid1 || _valid0;
+const _errs13 = errors;
+if(data8 !== null){
+const err1 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+var _valid0 = _errs13 === errors;
+valid1 = valid1 || _valid0;
+if(!valid1){
+const err2 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+validate54.errors = vErrors;
+return false;
+}
+else {
+errors = _errs10;
+if(vErrors !== null){
+if(_errs10){
+vErrors.length = _errs10;
+}
+else {
+vErrors = null;
+}
+}
+}
+var valid0 = _errs9 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.skills !== undefined){
+let data9 = data.skills;
+const _errs15 = errors;
+if(errors === _errs15){
+if(Array.isArray(data9)){
+var valid2 = true;
+const len0 = data9.length;
+for(let i0=0; i0<len0; i0++){
+const _errs17 = errors;
+if(typeof data9[i0] !== "string"){
 validate54.errors = [{instancePath:instancePath+"/skills/" + i0,schemaPath:"#/properties/skills/items/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-var valid1 = _errs11 === errors;
-if(!valid1){
+var valid2 = _errs17 === errors;
+if(!valid2){
 break;
 }
 }
@@ -8642,22 +8702,23 @@ validate54.errors = [{instancePath:instancePath+"/skills",schemaPath:"#/properti
 return false;
 }
 }
-var valid0 = _errs9 === errors;
+var valid0 = _errs15 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.timeline !== undefined){
-const _errs13 = errors;
+const _errs19 = errors;
 if(!(validate144(data.timeline, {instancePath:instancePath+"/timeline",parentData:data,parentDataProperty:"timeline",rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate144.errors : vErrors.concat(validate144.errors);
 errors = vErrors.length;
 }
-var valid0 = _errs13 === errors;
+var valid0 = _errs19 === errors;
 }
 else {
 var valid0 = true;
+}
 }
 }
 }
@@ -8678,7 +8739,7 @@ return false;
 validate54.errors = vErrors;
 return errors === 0;
 }
-validate54.evaluated = {"props":{"agent":true,"diagnostics":true,"llm":true,"memory":true,"network":true,"personality":true,"personalitySettings":true,"preferences":true,"skills":true,"timeline":true},"dynamicProps":false,"dynamicItems":false};
+validate54.evaluated = {"props":{"agent":true,"diagnostics":true,"llm":true,"memory":true,"network":true,"personality":true,"personalitySettings":true,"preferences":true,"revision":true,"skills":true,"timeline":true},"dynamicProps":false,"dynamicItems":false};
 
 
 function validate53(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -8721,6 +8782,7 @@ props0.network = true;
 props0.personality = true;
 props0.personalitySettings = true;
 props0.preferences = true;
+props0.revision = true;
 props0.skills = true;
 props0.timeline = true;
 }

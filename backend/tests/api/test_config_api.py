@@ -53,6 +53,17 @@ from magi.i18n import language_context
 from magi.system_suggestions.contracts import DismissalKind, DismissalRecord
 
 
+def _config_write_payload(payload):
+    """Attach the read baseline to existing route-isolation fixtures."""
+    from magi.api.services.revisions import snapshot_revision
+    current = config_module._build_system_config()
+    if current.revision is None:
+        current.revision = snapshot_revision(current.model_dump(mode="json", exclude={"revision"}))
+    body = payload.model_dump(mode="json") if isinstance(payload, SystemConfigModel) else dict(payload)
+    body["revision"] = current.revision
+    return body
+
+
 @pytest.mark.parametrize("field,value", [
     ("summary_interval_minutes", 15),
     ("digest_enabled", False),
@@ -1433,7 +1444,7 @@ def test_config_update_validation_error_is_localized():
 
     response = client.put(
         "/config/",
-        json=payload.model_dump(mode="json"),
+        json=_config_write_payload(payload),
         headers={"Accept-Language": "zh-CN"},
     )
 
@@ -1839,7 +1850,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
-    response = client.put("/config/", json=payload.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(payload))
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
@@ -1902,7 +1913,7 @@ def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resume
         lambda mask_secrets=True: proposed,
     )
 
-    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(proposed))
 
     assert response.status_code == 200
     assert calls == ["pause", "save", "reload", "refresh", "resume"]
@@ -1947,7 +1958,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
         lambda mask_secrets=True: proposed,
     )
 
-    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(proposed))
 
     assert response.status_code == 200
 
@@ -1971,6 +1982,7 @@ def test_embedding_config_save_failure_still_resumes_rebuild_starts(
             calls.append("resume")
 
     monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_build_system_config", lambda mask_secrets=True: current)
     monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
     monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
     monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
@@ -1985,7 +1997,7 @@ def test_embedding_config_save_failure_still_resumes_rebuild_starts(
         lambda _updates: calls.append("save") or False,
     )
 
-    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(proposed))
 
     assert response.status_code == 500
     assert calls == ["pause", "save", "resume"]
@@ -2015,6 +2027,7 @@ def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
         raise RuntimeError("refresh failed")
 
     monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_build_system_config", lambda mask_secrets=True: current)
     monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
     monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
     monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
@@ -2039,7 +2052,7 @@ def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
         failing_refresh,
     )
 
-    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(proposed))
 
     assert response.status_code == 500
     assert calls == ["pause", "save", "reload", "refresh", "resume"]
@@ -2129,7 +2142,7 @@ def test_update_config_initializes_runtime_when_runtime_is_deferred(
         _fake_enqueue_runtime_llm_refresh_command,
     )
 
-    response = client.put("/config/", json=payload.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(payload))
 
     assert response.status_code == 200
     assert calls == ["initialize", "enqueue"]
@@ -2171,7 +2184,7 @@ def test_update_config_never_persists_device_preferences(
     payload["preferences"]["desktop_notifications_enabled"] = True
     payload["preferences"]["desktop_notification_previews_enabled"] = False
 
-    response = client.put("/config/", json=payload)
+    response = client.put("/config/", json=_config_write_payload(payload))
 
     assert response.status_code == 200
     assert captured_updates["preferences"]["language"] == "en"
@@ -2222,7 +2235,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
         lambda mask_secrets=True: returned_config,
     )
 
-    response = client.put("/config/", json=payload.model_dump(mode="json"))
+    response = client.put("/config/", json=_config_write_payload(payload))
 
     assert response.status_code == 200
     assert captured_updates == expected_updates
@@ -2416,3 +2429,46 @@ def test_user_preferences_product_tour_completed_roundtrip():
 
     prefs = UserPreferencesModel(product_tour_completed=True)
     assert prefs.model_dump()["product_tour_completed"] is True
+
+
+def test_public_configuration_writes_reject_a_stale_device_snapshot(monkeypatch):
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    async def skip_refresh(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(config_module, "_refresh_or_initialize_runtime_after_config_update", skip_refresh)
+    monkeypatch.setattr(config_module, "_enqueue_runtime_channels_refresh_command", skip_refresh)
+    app = FastAPI()
+    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/api/config")
+    client = TestClient(app)
+    snapshot = client.get("/api/config/").json()["data"]
+    first = {**snapshot, "agent": {**snapshot["agent"], "name": "First device"}}
+    second = {**snapshot, "agent": {**snapshot["agent"], "name": "Stale device"}}
+    assert client.put("/api/config/", json={**first, "revision": None}).status_code == 428
+    assert client.put("/api/config/", json={**first, "revision": "invalid-版本"}).status_code == 409
+    accepted = client.put("/api/config/", json=first)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["data"]["revision"] != snapshot["revision"]
+    assert client.put("/api/config/", json=second).status_code == 409
+    assert client.get("/api/config/").json()["data"]["agent"]["name"] == "First device"
+
+
+def test_configuration_revision_is_rechecked_after_async_maintenance_admission(monkeypatch):
+    from contextlib import asynccontextmanager
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
+    @asynccontextmanager
+    async def concurrent_write(**_kwargs):
+        assert config_module.save_config({"agent.name": "Concurrent writer"})
+        yield
+
+    monkeypatch.setattr(config_module, "pause_rebuilds_for_embedding_config_change", concurrent_write)
+    app = FastAPI()
+    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/api/config")
+    client = TestClient(app)
+    snapshot = client.get("/api/config/").json()["data"]
+    snapshot["agent"]["name"] = "Stale writer"
+    response = client.put("/api/config/", json=snapshot)
+    assert response.status_code == 409, response.text
+    assert client.get("/api/config/").json()["data"]["agent"]["name"] == "Concurrent writer"

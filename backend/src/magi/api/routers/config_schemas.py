@@ -332,6 +332,7 @@ class TimelineConfigModel(BaseModel):
 
 
 class SystemConfigModel(BaseModel):
+    revision: Optional[str] = Field(default=None, description="Snapshot revision required for general configuration writes.")
     agent: AgentConfigModel = Field(default_factory=AgentConfigModel)
     llm: LLMConfigModel = Field(default_factory=LLMConfigModel)
     memory: MemoryConfigModel = Field(default_factory=MemoryConfigModel)

@@ -429,7 +429,7 @@ def test_general_config_update_cannot_reset_onboarding_completion(
     config_path = tmp_path / "agent.yaml"
     _write_onboarding_state(config_path, completed=True)
     _patch_config_path(monkeypatch, config_path)
-    submitted = SystemConfigModel()
+    submitted = SystemConfigModel(revision="fixture")
     submitted.preferences.onboarding_completed = False
     captured_completed: list[bool] = []
 
@@ -456,7 +456,7 @@ def test_general_config_update_cannot_reset_onboarding_completion(
     monkeypatch.setattr(
         config_module,
         "_build_system_config",
-        lambda mask_secrets=True: SystemConfigModel(),
+        lambda mask_secrets=True: SystemConfigModel(revision="fixture"),
     )
 
     response = client.put("/config/", json=submitted.model_dump(mode="json"))

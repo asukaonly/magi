@@ -103,6 +103,7 @@ def test_public_catalog_exposes_only_live_plugin_choices(runtime):
 
 def test_public_config_saves_and_reloads_plugin_selection_without_native_credentials(runtime):
     payload = SystemConfigModel()
+    payload.revision = runtime.client.get("/api/config/").json()["data"]["revision"]
     payload.llm.selections["core"] = LLMSelectionConfigModel(
         provider_id="account-a:chat", model="local/manual-model"
     )
@@ -131,6 +132,7 @@ def test_plugin_models_cannot_be_assigned_to_unsupported_services(runtime, scena
 
 def test_plugin_selection_requires_manual_model_and_live_connection(runtime):
     payload = SystemConfigModel()
+    payload.revision = runtime.client.get("/api/config/").json()["data"]["revision"]
     payload.llm.selections["core"] = LLMSelectionConfigModel(
         provider_id="account-a:chat", model="  "
     )

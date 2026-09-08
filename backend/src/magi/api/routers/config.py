@@ -11,7 +11,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 
 from ... import i18n as core_i18n
-from ...config.loader import get_config, get_config_file_path, get_user_preference, reload_config, save_config
+from ...config.loader import config_write_guard, get_config, get_config_file_path, get_user_preference, reload_config, save_config
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
@@ -25,6 +25,7 @@ from ...memory.embedding.vector_admin import (
     build_embedding_config_preflight,
     get_embedding_rebuild_manager as _resolve_embedding_rebuild_manager,
 )
+from ..services.revisions import require_snapshot_revision, snapshot_revision
 from ..services.config_onboarding import (
     build_onboarding_template as _build_onboarding_template_service,
     load_quick_mode_personality,
@@ -167,6 +168,7 @@ def _build_system_config(mask_secrets: bool = True) -> SystemConfigModel:
             **(raw.get("timeline", {}) if isinstance(raw.get("timeline"), dict) else {})
         ),
     )
+    config.revision = snapshot_revision(config.model_dump(mode="json", exclude={"revision"}))
     return mask_system_config_secrets(config) if mask_secrets else config
 
 
@@ -302,6 +304,7 @@ async def _persist_config_update(
     reason: str,
     save_error_detail: str,
     before_save: Callable[[], None] | None = None,
+    before_commit: Callable[[], None] | None = None,
 ) -> Any:
     """Serialize config persistence with any affected vector rebuild."""
 
@@ -314,8 +317,11 @@ async def _persist_config_update(
             proposed_config=proposed_config,
             manager_factory=_get_embedding_rebuild_manager,
         ):
-            if not save_config(updates):
-                raise HTTPException(status_code=500, detail=save_error_detail)
+            with config_write_guard():
+                if before_commit is not None:
+                    before_commit()
+                if not save_config(updates):
+                    raise HTTPException(status_code=500, detail=save_error_detail)
             refreshed_config = reload_config()
             await _refresh_or_initialize_runtime_after_config_update(
                 refreshed_config,
@@ -371,6 +377,7 @@ async def update_config(request: Request, config: SystemConfigModel):
     try:
 
         def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
+            require_snapshot_revision(config.revision, _build_system_config().revision)
             config.preferences.onboarding_completed = _get_onboarding_completed_or_error(request)
             # General settings do not own the center's fallback locale.
             config.preferences.language = core_i18n.app_language_code(get_user_preference("language", "zh"))
@@ -383,6 +390,7 @@ async def update_config(request: Request, config: SystemConfigModel):
         await _persist_config_update(
             prepare_update=prepare_update,
             reason="config_updated",
+            before_commit=lambda: require_snapshot_revision(config.revision, _build_system_config().revision),
             save_error_detail=_t(
                 request,
                 "config.errors.save_failed",

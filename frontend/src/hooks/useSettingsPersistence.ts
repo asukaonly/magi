@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@/utils/error-handler';
 import { writeDevicePreferences } from '@/runtime/device-preferences';
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -49,6 +50,7 @@ interface UseSettingsPersistenceParams {
 
 interface UseSettingsPersistenceReturn {
   saving: boolean;
+  configConflict: boolean;
   handleSaveChanges: () => Promise<void>;
   handleDiscardChanges: () => Promise<void>;
   embeddingPreflightPrompt: EmbeddingPreflightPrompt | null;
@@ -87,6 +89,8 @@ export function useSettingsPersistence({
   const { t } = useTranslation('app');
   const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const [saving, setSaving] = useState(false);
+  const [configConflict, setConfigConflict] = useState(false);
+  useEffect(() => { setConfigConflict(false); }, [savedConfig.revision]);
   const savingRef = useRef(false);
   const currentThemeRef = useRef(draftThemeMode);
   currentThemeRef.current = draftThemeMode;
@@ -174,6 +178,7 @@ export function useSettingsPersistence({
 
     savingRef.current = true;
     setSaving(true);
+    let configWritePending = false;
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
       const centerConfigDirty = serialize(toCenterConfig(savedConfig)) !== serialize(toCenterConfig(draftConfig));
@@ -204,8 +209,10 @@ export function useSettingsPersistence({
             layers: uniqueWarningLayers,
           }));
         }
-        const response = await configApi.update(draftConfig);
+        configWritePending = true;
+        const response = await configApi.update({ ...draftConfig, revision: savedConfig.revision });
         persistedConfig = structuredClone(requireConfiguration(response));
+        configWritePending = false;
       }
 
       if (configDirty) {
@@ -218,7 +225,7 @@ export function useSettingsPersistence({
           'start_minimized', 'skip_quit_confirmation',
         ] as const) persistedConfig.preferences[key] = draftConfig.preferences[key];
         setSavedConfig(structuredClone(persistedConfig));
-        setDraftConfig(current => acceptSavedDraft(current, draftConfig, persistedConfig));
+        setDraftConfig(current => ({ ...acceptSavedDraft(current, draftConfig, persistedConfig), revision: persistedConfig.revision }));
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);
         await syncStartMinimizedPreference(persistedConfig.preferences.start_minimized);
         await syncSkipQuitConfirmationPreference(persistedConfig.preferences.skip_quit_confirmation);
@@ -282,7 +289,10 @@ export function useSettingsPersistence({
 
       if (autoStartApplied) toast.success(t('settings.saveSuccess'));
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'unknown';
+      const conflict = configWritePending && typeof error === 'object' && error !== null
+        && 'status' in error && (error.status === 409 || error.status === 428);
+      if (conflict) setConfigConflict(true);
+      const message = conflict ? t('settings.centerConflict') : getErrorMessage(error) || 'unknown';
       toast.error(t('settings.saveFailed', { message }));
     } finally {
       savingRef.current = false;
@@ -336,6 +346,7 @@ export function useSettingsPersistence({
 
   return {
     saving,
+    configConflict,
     handleSaveChanges,
     handleDiscardChanges,
     embeddingPreflightPrompt,

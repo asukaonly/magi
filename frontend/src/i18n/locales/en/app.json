@@ -3068,7 +3068,9 @@
       }
     },
     "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again.",
-    "deviceOnly": "These settings apply to this device."
+    "deviceOnly": "These settings apply to this device.",
+    "centerConflict": "Configuration changed on the center. Your edits are preserved. Copy any changes you want to keep before loading the latest configuration.",
+    "reloadCenterConfig": "Discard configuration draft and reload"
   },
   "memory": {
     "facts": {

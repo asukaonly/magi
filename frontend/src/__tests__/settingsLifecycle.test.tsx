@@ -157,3 +157,38 @@ it('keeps native application failure visible and retries without rewriting confi
   expect(reopened.result.current.autoStartSyncFailed).toBe(false);
   expect(toast.success).toHaveBeenCalledWith('settings.saveSuccess');
 });
+
+it('preserves the stale draft on conflict and requires an explicit latest snapshot reload', async () => {
+  mocks.get.mockResolvedValue({ success: true, data: { ...structuredClone(DEFAULT_SYSTEM_CONFIG), revision: 'base' } });
+  mocks.update.mockRejectedValue({ status: 409, message: 'Center configuration changed' });
+  const { result } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => result.current.patchDraftConfig(draft => { draft.agent.name = 'My unsaved changes'; }));
+  await act(() => result.current.handleSaveChanges());
+  expect(result.current.configConflict).toBe(true);
+  expect(result.current.draftConfig.agent.name).toBe('My unsaved changes');
+  expect(mocks.update).toHaveBeenCalledTimes(1);
+  expect(mocks.update.mock.calls[0][0].revision).toBe('base');
+  mocks.get.mockResolvedValue({ success: true, data: { ...structuredClone(DEFAULT_SYSTEM_CONFIG), revision: 'new', agent: { name: 'Other device' } } });
+  await act(() => result.current.fetchConfig({ silent: true, discardDraft: true }));
+  expect(result.current.configConflict).toBe(false);
+  expect(result.current.draftConfig.agent.name).toBe('Other device');
+  expect(result.current.draftConfig.revision).toBe('new');
+});
+
+it('advances the write baseline while preserving edits made during a successful save', async () => {
+  let finish: (value: unknown) => void = () => {};
+  mocks.get.mockResolvedValue({ success: true, data: { ...structuredClone(DEFAULT_SYSTEM_CONFIG), revision: 'old' } });
+  mocks.update.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const { result } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => result.current.patchDraftConfig(draft => { draft.agent.name = 'Submitted'; }));
+  let pending = Promise.resolve();
+  act(() => { pending = result.current.handleSaveChanges(); });
+  await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+  act(() => result.current.patchDraftConfig(draft => { draft.agent.name = 'New edit'; }));
+  await act(async () => { finish({ success: true, data: { ...mocks.update.mock.calls[0][0], revision: 'confirmed' } }); await pending; });
+  expect(result.current.draftConfig.agent.name).toBe('New edit');
+  expect(result.current.draftConfig.revision).toBe('confirmed');
+  expect(result.current.dirty).toBe(true);
+});

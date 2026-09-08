@@ -34,7 +34,7 @@ interface UseSettingsConfigReturn {
   patchDraftConfig: (updater: (draft: SystemConfig) => void) => void;
   syncNormalizedLlmConfig: (nextLlmConfig: SystemConfig['llm']) => void;
   patchDraftControlSettings: (updater: (draft: ControlSettingsDTO) => void) => void;
-  fetchConfig: (options?: { silent?: boolean }) => Promise<void>;
+  fetchConfig: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
   loadControlSettings: (options?: { silent?: boolean }) => Promise<void>;
   handleLanguageDraftChange: (value: string) => void;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
@@ -97,7 +97,7 @@ export function useSettingsConfig({
   const controlRequestId = useRef(0);
   useEffect(() => () => { configRequestId.current += 1; controlRequestId.current += 1; }, []);
 
-  const fetchConfig = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+  const fetchConfig = useCallback(async ({ silent = false, discardDraft = false }: { silent?: boolean; discardDraft?: boolean } = {}) => {
     const requestId = ++configRequestId.current;
     if (!silent) { setLoading(true); setConfigError(null); }
     try {
@@ -105,7 +105,7 @@ export function useSettingsConfig({
       const nextConfig = requireConfiguration(response);
       if (requestId !== configRequestId.current) return;
       const current = currentDrafts.current;
-      if (silent && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
+      if (silent && !discardDraft && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
       if (!silent) { setSavedThemeMode(themeMode); setDraftThemeMode(themeMode); }

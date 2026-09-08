@@ -34,8 +34,9 @@ export interface UseSettingsReturn {
   // Loading states
   loading: boolean;
   configError: string | null;
-  fetchConfig: () => Promise<void>;
+  fetchConfig: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
   saving: boolean;
+  configConflict: boolean;
   autoStartSyncFailed: boolean;
 
   // Navigation
@@ -198,6 +199,7 @@ export function useSettings(): UseSettingsReturn {
 
   const {
     saving,
+    configConflict,
     handleSaveChanges,
     handleDiscardChanges,
     embeddingPreflightPrompt,
@@ -312,6 +314,7 @@ export function useSettings(): UseSettingsReturn {
     configError,
     fetchConfig,
     saving,
+    configConflict,
     autoStartSyncFailed,
 
     // Navigation

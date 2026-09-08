@@ -32,6 +32,8 @@ First Run:
     An empty installed-package metadata index is created at plugins/index.yaml.
 """
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from magi_plugin_sdk.runtime_paths import get_magi_home
 from threading import RLock
@@ -213,6 +215,15 @@ def reload_config() -> AppConfig:
         return _loader.reload()
 
     return get_config()
+
+
+@contextmanager
+def config_write_guard() -> Iterator[None]:
+    """Serialize a synchronous precondition check and persistence with all writers."""
+    get_config()
+    assert _loader is not None
+    with _loader._persistence_lock:
+        yield
 
 
 def save_config(updates: Dict[str, Any]) -> bool:

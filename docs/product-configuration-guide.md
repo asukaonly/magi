@@ -1017,3 +1017,10 @@ change hints, focus/reconnect, and a 30-second fallback check while visible.
 Reads are coalesced and paused during maintenance. Pristine values update in
 place; dirty configuration, control, and tool drafts retain their original
 baseline. Background refresh does not reset theme previews or remount editors.
+
+General configuration writes must echo the revision from their read snapshot.
+The center checks it again under the persistence lock after asynchronous
+maintenance admission. A stale revision returns 409; an absent revision returns
+428. The desktop preserves the rejected draft and offers an explicit action to
+discard that configuration draft and load the latest center snapshot. Successful
+saves advance the baseline even if the user has continued typing during the save.

@@ -1139,6 +1139,12 @@ export interface components {
             personality: components["schemas"]["PersonalityConfigModel"];
             personalitySettings: components["schemas"]["PersonalitySettingsModel"];
             preferences: components["schemas"]["UserPreferencesModel"];
+            /**
+             * Revision
+             * @description Snapshot revision required for general configuration writes.
+             * @default null
+             */
+            revision: string | null;
             /** Skills */
             skills: string[];
             timeline: components["schemas"]["TimelineConfigModel"];

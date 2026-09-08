@@ -2373,6 +2373,19 @@
           "preferences": {
             "$ref": "#/components/schemas/UserPreferencesModel"
           },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Snapshot revision required for general configuration writes.",
+            "title": "Revision"
+          },
           "skills": {
             "items": {
               "type": "string"
@@ -2385,6 +2398,7 @@
           }
         },
         "required": [
+          "revision",
           "agent",
           "llm",
           "memory",
