@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
-from ...entities.identity import scoped_entity_id, normalized_entity_name
+from ...entities.identity import allocate_entity_id
 from ...entity_names import valid_entity_name
 from ...models import L2EntityCandidate, L2EntityResolutionMention, L2ProjectionLease
 from .helpers import L2EntityResolutionHelperMixin
@@ -146,7 +146,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         source_event_ids: Iterable[str],
         projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> tuple[Optional[str], Optional[float]]:
-        """Create an evidence-scoped identity only after a concrete new-entity decision."""
+        """Allocate a new identity only after a concrete new-entity decision."""
         assert self._entity_catalog is not None
 
         canonical_name = self._non_empty_text(mention.get("canonical_name_hint")) or mention_text  # type: ignore[attr-defined]
@@ -156,11 +156,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
         if existing_by_name and mention.get("is_new") is False:
             return None, mention_confidence
-        entity_id = scoped_entity_id(
-            entity_type,
-            "unresolved_mention",
-            ":".join(sorted(source_event_ids)) + ":" + normalized_entity_name(canonical_name),
-        )
+        entity_id = allocate_entity_id()
         entity_id = await self._entity_catalog.upsert_entity(
             entity_id=entity_id,
             canonical_name=canonical_name,

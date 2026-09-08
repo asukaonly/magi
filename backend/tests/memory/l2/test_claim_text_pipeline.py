@@ -157,7 +157,7 @@ async def test_entity_claim_name_survives_pipeline_restart_and_portrait(
         assert claim["object_surface"] == surface
         assert claim["subject_ref"] == "user:u1"
         assert claim["temporal_cue"] == "unspecified"
-        assert claim["extractor_contract_version"] == 7
+        assert claim["extractor_contract_version"] == 8
         hydrated_claim = await store.l2.get_grounded_claim(claim["claim_id"])
         assert hydrated_claim is not None
         evidence_rows = hydrated_claim["evidence"]

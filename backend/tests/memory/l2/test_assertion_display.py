@@ -136,6 +136,7 @@ async def test_batch_names_preserve_distinct_objects_and_source_rows(tmp_path):
     db_path = str(tmp_path / "memory.db")
     with sqlite3.connect(db_path) as db:
         db.execute("CREATE TABLE entity_catalog (entity_id TEXT, canonical_name TEXT)")
+        db.execute("CREATE TABLE entity_identity_redirects (source_entity_id TEXT, target_entity_id TEXT)")
         db.executemany("INSERT INTO entity_catalog VALUES (?, ?)", [
             ("food:first", "草莓"), ("food:second", "芒果"),
         ])

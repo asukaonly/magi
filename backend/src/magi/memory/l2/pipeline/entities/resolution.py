@@ -47,11 +47,12 @@ class _PendingPhase1EntityResolution:
     llm_mention_key: str | None = None
     source_event_ids: tuple[str, ...] = ()
     candidate_ids: tuple[str, ...] = ()
+    local_mention_key: str = ""
 
     @property
     def cache_key(self) -> tuple[str, str | None]:
         surface = self.mention_text.strip().casefold()
-        surface = ":".join(self.source_event_ids) + ":" + surface
+        surface = ":".join(self.source_event_ids) + ":" + self.local_mention_key + ":" + surface
         return (surface, self.entity_type)
 
     @property
@@ -74,8 +75,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     _entity_catalog: Optional[L2EntityCatalog]
     _llm_service: Optional[L2LLMService]
 
-    # Session-level memo cache: (mention_text_casefold, entity_type) → (entity_id, confidence)
-    # Avoids repeated LLM calls for the same mention across events within a pipeline run.
+    # Cache only one evidence-backed local mention, never another homonym.
     _entity_resolution_cache: dict[tuple[str, str | None], tuple[str | None, float | None]]
 
     async def _resolve_phase1_entities(
@@ -92,7 +92,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         """Register Phase 1 entities in the entity catalog and return resolved mentions.
 
         Uses a two-pass approach to batch LLM entity resolution calls:
-        Pass 1 — alias resolution (fast DB lookups), collect unresolved entities.
+        Pass 1 — validate explicit identities and collect unresolved entities.
         Batch LLM call for all unresolved entities.
         Pass 2 — apply LLM results, finalize catalog records.
         """
@@ -160,7 +160,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         pending: list[_PendingPhase1EntityResolution] = []
         llm_batch_items: list[L2BatchEntityResolutionItem] = []
         context_only_mentions: list[ResolvedEntityMention] = []
-        for entity in phase1_result.entities:
+        for entity_index, entity in enumerate(phase1_result.entities):
             pending_item = self._build_phase1_entity_resolution_candidate(
                 entity=entity,
                 event=event,
@@ -169,6 +169,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             )
             if pending_item is None:
                 continue
+            pending_item.local_mention_key = str(entity_index)
             pending_item.source_event_ids = tuple(
                 self._resolve_entity_mention_event_ids(
                     mention_text=pending_item.mention_text,

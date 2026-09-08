@@ -72,7 +72,7 @@ def test_normalize_assertion_candidate_prepares_write_shape() -> None:
     assert normalized["trait_value"] == '{"a": 1, "b": 2}'
     assert normalized["evidence_events"] == ["evt-2", "evt-1"]
     assert normalized["target_entity_type"] == "place"
-    assert normalized["target_entity_id"] == "place:manner_coffee"
+    assert normalized["target_entity_id"] == "entity:manner_coffee"
     assert normalized["target_scope"] == "global"
     assert normalized["temporal_scope"] == "session"
     assert normalized["decay_policy"] == "evidence_only"

@@ -14,15 +14,18 @@ async def test_returns_only_entries_with_non_empty_canonical_name(tmp_path):
     db_path = tmp_path / "catalog.sqlite"
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "CREATE TABLE entity_catalog ("
-            " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
+            "CREATE TABLE entity_catalog (" " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
         )
+        await db.execute(
+            "CREATE TABLE entity_identity_redirects (source_entity_id TEXT PRIMARY KEY, target_entity_id TEXT)"
+        )
+        await db.execute("INSERT INTO entity_identity_redirects VALUES ('old_alice', 'entity_a')")
         await db.executemany(
             "INSERT INTO entity_catalog (entity_id, canonical_name) VALUES (?, ?)",
             [
                 ("entity_a", "Alice"),
-                ("entity_b", ""),           # empty canonical_name → dropped
-                ("entity_c", None),          # NULL canonical_name → dropped
+                ("entity_b", ""),  # empty canonical_name → dropped
+                ("entity_c", None),  # NULL canonical_name → dropped
                 ("entity_d", "Dave"),
             ],
         )
@@ -30,9 +33,9 @@ async def test_returns_only_entries_with_non_empty_canonical_name(tmp_path):
 
     result = await get_canonical_names(
         str(db_path),
-        ["entity_a", "entity_b", "entity_c", "entity_d", "missing"],
+        ["entity_a", "entity_b", "entity_c", "entity_d", "missing", "old_alice"],
     )
-    assert result == {"entity_a": "Alice", "entity_d": "Dave"}
+    assert result == {"entity_a": "Alice", "entity_d": "Dave", "old_alice": "Alice"}
 
 
 @pytest.mark.asyncio
@@ -40,8 +43,7 @@ async def test_empty_input_returns_empty_dict(tmp_path):
     db_path = tmp_path / "catalog.sqlite"
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
-            "CREATE TABLE entity_catalog ("
-            " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
+            "CREATE TABLE entity_catalog (" " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
         )
         await db.commit()
 

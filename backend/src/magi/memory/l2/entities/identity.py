@@ -12,6 +12,11 @@ def normalized_entity_name(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).casefold().split())
 
 
+def allocate_entity_id() -> str:
+    """Allocate an identity for a new referent independently of spelling and type."""
+    return f"entity:{uuid.uuid4().hex}"
+
+
 def scoped_entity_id(entity_type: str, namespace: str, source_key: str) -> str:
     """Keep a producer's identity stable without conflating it with its label."""
     identity = json.dumps([namespace, source_key], ensure_ascii=False)

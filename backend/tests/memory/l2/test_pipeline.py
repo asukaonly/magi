@@ -4666,7 +4666,7 @@ class TestEntityResolutionCache:
 
             # Verify cache is populated
             cache = getattr(pipeline, "_entity_resolution_cache", {})
-            assert ("evt-cache-1:magi", "software") in cache
+            assert ("evt-cache-1:0:magi", "software") in cache
 
     @pytest.mark.asyncio
     async def test_degraded_resolution_does_not_seed_an_identity_cache(self):
@@ -4705,8 +4705,8 @@ class TestEntityResolutionCache:
             assert len(resolved2) == 1
 
             cache = getattr(pipeline, "_entity_resolution_cache", {})
-            assert ("evt-ct-1:magi", "software") in cache
-            assert ("evt-ct-2:magi", "person") not in cache
+            assert ("evt-ct-1:0:magi", "software") in cache
+            assert ("evt-ct-2:0:magi", "person") not in cache
             assert resolved2[0].resolved_entity_id is None
 
 

@@ -733,7 +733,7 @@ async def test_upsert_knowledge_edge_normalizes_alias_object_type(tmp_path):
     active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
 
     assert active_edges[0]["object_type"] == "food"
-    assert active_edges[0]["object_id"] == "food:west-lake-vinegar-fish"
+    assert active_edges[0]["object_id"] == "dish:west-lake-vinegar-fish"
 
 
 @pytest.mark.asyncio
