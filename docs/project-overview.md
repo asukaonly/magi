@@ -801,6 +801,20 @@ stop/start cannot silently accept a departing job as a running center.
 data root, refuses to replace an existing installation, and removes its own
 registration while preserving its test data.
 
+Packaged acceptance uses isolated generated data roots. Run
+`scripts/smoke-service-bundle.py --bundle build/service --deny-checkout <repository>`
+on macOS to validate relocation with source and Homebrew access denied. Run
+`scripts/smoke-service-transfers.py --executable build/service/magi-server --tls-proxy --full-clear`
+for authenticated upload/download, two paired clients, SSE reconnection, concurrent
+configuration reads, and center-owned clear recovery through an HTTPS proxy.
+The proxy uses a temporary test certificate trusted only by that test client;
+ordinary certificate verification must reject it, and the OS trust store is unchanged.
+Run `scripts/smoke-service-restore.py --executable build/service/magi-server`
+for packaged restore, then add `--restart-during-restore` for interrupted-service
+recovery. Omit `--project` to use the shipped worker instead of source Python.
+These same-host probes do not replace signed, two-device, permission, or target-OS
+acceptance, and their concurrent-read timings are not agent performance benchmarks.
+
 Mac release CI builds the standalone disk image from the same signed service
 component inside the desktop candidate. The standalone image requires an accepted
 notarization result, stapled ticket, SHA-256 checksum, and status manifest.

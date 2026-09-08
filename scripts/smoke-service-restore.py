@@ -20,14 +20,17 @@ from uuid import uuid4
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--executable', type=Path, required=True)
-    parser.add_argument('--project', type=Path, required=True)
+    parser.add_argument('--project', type=Path, help='Use a source worker instead of the packaged runtime')
     parser.add_argument('--restart-during-restore', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
     root = Path(tempfile.mkdtemp(prefix='ms-restore-', dir='/private/tmp' if os.uname().sysname == 'Darwin' else None)).resolve()
     config = root / 'server.json'
     executable = str(args.executable.resolve())
-    subprocess.run([executable, 'init', '--config', str(config), '--data-dir', str(root / 'data'), '--development-root', str(args.project.resolve()), '--port', '0'], check=True, capture_output=True)
+    init_args = [executable, 'init', '--config', str(config), '--data-dir', str(root / 'data'), '--port', '0']
+    if args.project:
+        init_args.extend(['--development-root', str(args.project.resolve())])
+    subprocess.run(init_args, check=True, capture_output=True)
     log = (root / 'service.log').open('w')
     process = subprocess.Popen([executable, 'run', '--config', str(config)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log, text=True)
     print(json.dumps({'data_root': str(root)}), flush=True)
