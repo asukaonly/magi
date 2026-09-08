@@ -2,6 +2,7 @@ import { asEventHandler } from '@/utils/as-event-handler';
 import type { TFunction } from 'i18next';
 import { getErrorMessage } from '@/utils/error-handler';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, Clock3, FileText, Image, MapPin, Pencil, Smile, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -245,6 +246,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const autoLocationLabelRef = useRef<string | null>(null);
   const attachmentsRef = useRef<AttachmentDraft[]>([]);
   const uploadControllersRef = useRef(new Map<string, AbortController>());
+  const editBaseline = useRef<ManualEntry | null>(null);
+  const beginEditRequest = useRequestOwner(`${open}:${existingEntry?.entry_id ?? 'create'}`);
+  const [editConflict, setEditConflict] = useState(false);
 
   const [body, setBody] = useState('');
   const [mode, setMode] = useState<EditorMode>('quick');
@@ -273,6 +277,21 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const [weather, setWeather] = useState<ManualEntryWeather | null>(null);
   const [saving, setSaving] = useState(false);
   attachmentsRef.current = attachments;
+
+  const applyExistingEntry = useCallback((entry: ManualEntry) => {
+    editBaseline.current = entry;
+    setBody(entry.body);
+    setBodyDoc(entry.body_doc ?? null);
+    setMode(entry.body_doc ? 'long' : 'quick');
+    setMood(entry.mood);
+    setAttachments(entry.attachments.map((ref) => ({
+      draftId: nextDraftId(), assetRef: ref, previewUrl: resolveTimelineAssetUrl(ref) ?? '', status: 'ready' as const,
+    })));
+    setTimeShift({ kind: 'custom', eventAt: entry.event_at });
+    setLocation(entry.location_label);
+    setWeather(entry.weather ?? null);
+    setEditConflict(false);
+  }, []);
 
   const abortPendingUploads = useCallback(() => {
     for (const controller of uploadControllersRef.current.values()) {
@@ -308,6 +327,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   }, []);
 
   const clearDraftForMemoryClear = useCallback(() => {
+    beginEditRequest('edit');
+    editBaseline.current = null;
+    setEditConflict(false);
     abortPendingUploads();
     releaseAttachmentPreviews(true);
     createAttemptRef.current = null;
@@ -319,7 +341,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     setWeather(null);
     setTimeShift({ kind: 'now' });
     setSaving(false);
-  }, [abortPendingUploads, releaseAttachmentPreviews]);
+  }, [abortPendingUploads, releaseAttachmentPreviews, beginEditRequest]);
 
   const retireUploadsForMemoryClear = useCallback(() => {
     abortPendingUploads();
@@ -345,6 +367,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   // update must not reset text the user has already entered.
   useEffect(() => {
     if (!open) {
+      editBaseline.current = null;
       wasOpenRef.current = false;
       initializedEntryKeyRef.current = null;
       createAttemptRef.current = null;
@@ -361,26 +384,14 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     createAttemptRef.current = null;
     editRetryAsNewRef.current = false;
     locationEditedRef.current = false;
+    setEditConflict(false);
+    setSaving(false);
 
     if (existingEntry) {
       autoLocationLabelRef.current = null;
-      setBody(existingEntry.body);
-      setBodyDoc(existingEntry.body_doc ?? null);
-      // Entries that were saved with a rich doc open back into long
-      // mode — converting them down to a textarea on every open would
-      // be lossy and surprising. Plain-body entries stay in quick mode.
-      setMode(existingEntry.body_doc ? 'long' : 'quick');
-      setMood(existingEntry.mood);
-      setAttachments(existingEntry.attachments.map((ref) => ({
-        draftId: nextDraftId(),
-        assetRef: ref,
-        previewUrl: resolveTimelineAssetUrl(ref) ?? '',
-        status: 'ready' as const,
-      })));
-      setTimeShift({ kind: 'custom', eventAt: existingEntry.event_at });
-      setLocation(existingEntry.location_label);
-      setWeather(existingEntry.weather ?? null);
+      applyExistingEntry(existingEntry);
     } else {
+      editBaseline.current = null;
       const initialAutoLocation = normalizeLocationHint(initialLocationLabel);
       autoLocationLabelRef.current = initialAutoLocation;
       setBody('');
@@ -400,7 +411,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     setTimePickerOpen(false);
     setMoodPickerOpen(false);
     setEditingLocation(false);
-  }, [open, existingEntry, initialLocationLabel]);
+  }, [open, existingEntry, initialLocationLabel, applyExistingEntry]);
 
   // Apply a location that resolves after the sheet opens without touching the
   // rest of the draft. Once the user edits or clears location, their choice
@@ -436,7 +447,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
 
   const anyUploading = attachments.some((a) => a.status === 'uploading');
   const hasContent = body.trim().length > 0 || attachments.some((a) => a.status === 'ready');
-  const canSave = hasContent && !anyUploading && !saving;
+  const canSave = hasContent && !anyUploading && !saving && !editConflict;
   const moodHint = useCallback(
     (value: MoodValence) => {
       const hint = MOOD_HINT[value];
@@ -521,6 +532,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
 
   const handleSave = useCallback(async () => {
     if (!canSave) return;
+    const isCurrent = beginEditRequest('edit');
+    const original = editBaseline.current;
     setSaving(true);
     const refs = attachments
       .filter((a) => a.status === 'ready' && a.assetRef)
@@ -564,12 +577,14 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       let result: ManualEntry;
       let memoryStatus: 'ready' | 'pending' = 'ready';
       if (existingEntry && !createAsNew) {
+        if (!original || original.entry_id !== existingEntry.entry_id) throw new Error('Manual entry edit baseline is unavailable');
         // Use the empty-string-clears convention for the two text
         // fields the backend supports clearing (mood, location_label).
         // For weather we hit a dedicated DELETE endpoint AFTER the
         // primary update — keeps the update body homogeneous and the
         // weather lifecycle separately auditable.
         result = await manualEntriesApi.update(existingEntry.entry_id, {
+          expected_revision: original.revision,
           body: payload.body,
           // Include the rich-text doc so formatting survives an edit.
           // Same conditional-attach as create — only send when we have
@@ -580,7 +595,9 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           location_label: location ?? '',
           attachment_refs: payload.attachment_refs,
         });
-        if (existingEntry.weather && !weather) {
+        if (!isCurrent()) return;
+        editBaseline.current = result;
+        if (original?.weather && !weather) {
           // User ✕'d the chip → persist the clear and pick up the
           // refreshed entry (with weather=null) for onSaved.
           try {
@@ -601,6 +618,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         result = created;
         memoryStatus = created.memory_status;
       }
+      if (!isCurrent()) return;
       toast.success(
         memoryStatus === 'pending'
           ? t('timeline.manualEntry.savedPendingToast', {
@@ -611,6 +629,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       onSaved?.(result);
       onClose();
     } catch (err) {
+      if (!isCurrent()) return;
       const memoryForgetConflict = getMemoryForgetConflict(err);
       if (memoryForgetConflict) {
         // A rejected create cannot reuse its governed identity. An edit keeps
@@ -638,6 +657,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         );
         return;
       }
+      if (typeof err === 'object' && err !== null && 'status' in err && (err.status === 409 || err.status === 428)) {
+        setEditConflict(true);
+        return;
+      }
       toast.error(
         t('timeline.manualEntry.errors.saveFailed', {
           defaultValue: '保存失败',
@@ -645,12 +668,30 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
         }),
       );
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   }, [
     canSave, attachments, body, bodyDoc, timeShift, mood, location, weather,
-    existingEntry, onClose, onSaved, t,
+    existingEntry, onClose, onSaved, t, beginEditRequest,
   ]);
+
+  const reloadEntry = async () => {
+    const original = editBaseline.current;
+    if (!original || saving) return;
+    const isCurrent = beginEditRequest('edit');
+    setSaving(true);
+    try {
+      const entry = await manualEntriesApi.get(original.entry_id);
+      if (!isCurrent()) return;
+      abortPendingUploads();
+      releaseAttachmentPreviews(false);
+      applyExistingEntry(entry);
+    } catch (error) {
+      if (isCurrent()) toast.error(t('timeline.manualEntry.errors.reloadFailed', { message: getErrorMessage(error) }));
+    } finally {
+      if (isCurrent()) setSaving(false);
+    }
+  };
 
   // Quick-mode textarea handlers — Cmd+Enter saves, image clipboard
   // items get routed to the upload pipeline. (Long mode delegates these
@@ -1000,7 +1041,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   );
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) onClose(); }}>
       <DialogContent
         // DialogContent is already centered (left-50% top-50% +
         // translate -50%/-50%). We only override sizing here.
@@ -1034,6 +1075,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           'overflow-hidden rounded-lg border-0 bg-[hsl(var(--app-chrome-elevated)/0.98)] p-0 shadow-[0_28px_80px_hsl(var(--foreground)/0.20)]',
         )}
       >
+        <fieldset disabled={saving} className="min-w-0">
         {/* Header. The mode toggle sits on the LEFT as a segmented
             control. A single segmented control reads more naturally
             than two asymmetric buttons ("转长文" button vs. "← 简单
@@ -1110,6 +1152,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
               identical. */}
           {mode === 'long' ? (
             <RichTextEditor
+              key={editBaseline.current?.revision ?? 'create'}
+              disabled={saving}
               value={bodyDoc}
               fallbackPlainText={body}
               onChange={setBodyDoc}
@@ -1194,6 +1238,11 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           </div>
 
 
+          {editConflict ? <div role="alert" className="rounded-md border border-amber-500/40 p-3 text-sm">
+            <p>{t('timeline.manualEntry.errors.conflict')}</p>
+            <Button className="mt-2" variant="outline" disabled={saving} onClick={() => { void reloadEntry(); }}>{t('timeline.manualEntry.reload')}</Button>
+          </div> : null}
+
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t border-border/30 pt-4">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={saving} className="px-4">
@@ -1207,6 +1256,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
             </Button>
           </div>
         </div>
+        </fieldset>
       </DialogContent>
     </Dialog>
   );

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from typing import Any, Optional
 
 
@@ -53,9 +55,20 @@ class ManualEntry:
     # fetcher disabled / failed.
     weather: Optional[dict[str, Any]] = None
 
+    @property
+    def revision(self) -> str:
+        """Version authored content independently of projection and enrichment."""
+        fields = {name: getattr(self, name) for name in (
+            "entry_id", "created_at", "event_at", "body", "body_doc", "kind", "mood",
+            "location_label", "location_lat", "location_lng", "attachments",
+            "exclude_from_llm", "user_pinned", "deleted_at", "delete_requested_at",
+        )}
+        return hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "entry_id": self.entry_id,
+            "revision": self.revision,
             "created_at": self.created_at,
             "event_at": self.event_at,
             "body": self.body,

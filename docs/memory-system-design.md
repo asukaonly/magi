@@ -532,6 +532,17 @@ inside the explicit source/facet/time/user scope used to query that index.
 
 #### Canonical Source Deletion
 
+Manual-entry edits carry the original authored-content `revision`. The single
+center writer checks it inside the entry mutation lock, which also owns the
+cross-store projection workflow. Weather and projection progress do not change
+this revision. A stale edit with different requested content returns 409; a
+retry whose requested fields already match the source returns the existing
+receipt and can finish its pending projection without rewriting content. Missing
+versions return 428. The editor preserves conflicting drafts until an explicit
+reload of `GET /manual-entries/{entry_id}`; this read excludes deletion and
+unconfirmed replacement states. Delete and clear-weather remain explicit,
+idempotent commands rather than whole-entry snapshot replacement.
+
 Deleting an L1 source event is a cross-layer governance operation, not a direct
 soft-delete of one row. The unified workflow separates permanent replay
 barriers from broader derivative-cleanup references. Permanent barriers include

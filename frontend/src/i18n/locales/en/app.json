@@ -852,8 +852,11 @@
         "imageTooLarge": "Image exceeds the {{maxMb}}MB limit",
         "uploadFailed": "Image upload failed",
         "saveFailed": "Save failed",
-        "deleteFailed": "Delete failed"
-      }
+        "deleteFailed": "Delete failed",
+        "conflict": "This entry changed on another device. Your draft is preserved.",
+        "reloadFailed": "Could not reload this entry: {{message}}"
+      },
+      "reload": "Discard draft and reload"
     }
   },
   "dashboard": {

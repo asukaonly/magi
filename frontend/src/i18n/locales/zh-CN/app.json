@@ -852,8 +852,11 @@
         "imageTooLarge": "图片超过 {{maxMb}}MB 上限",
         "uploadFailed": "图片上传失败",
         "saveFailed": "保存失败",
-        "deleteFailed": "删除失败"
-      }
+        "deleteFailed": "删除失败",
+        "conflict": "其他设备已修改这条记录，草稿已保留。",
+        "reloadFailed": "未能重新载入记录：{{message}}"
+      },
+      "reload": "放弃草稿并重新载入"
     }
   },
   "dashboard": {

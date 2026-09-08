@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const {
   createMock,
   updateMock,
+  getMock,
   clearWeatherMock,
   uploadMock,
   toastErrorMock,
@@ -15,6 +16,7 @@ const {
 } = vi.hoisted(() => ({
   createMock: vi.fn(),
   updateMock: vi.fn(),
+  getMock: vi.fn(),
   clearWeatherMock: vi.fn(),
   uploadMock: vi.fn(),
   toastErrorMock: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock("@/api/modules/manualEntries", () => ({
   manualEntriesApi: {
     create: createMock,
     update: updateMock,
+    get: getMock,
     clearWeather: clearWeatherMock,
     uploadAsset: uploadMock,
     list: vi.fn(),
@@ -131,6 +134,7 @@ import { QuickEntrySheet } from "@/components/timeline/manual-entries/QuickEntry
 import { dispatchAppEvent } from "@/constants/events";
 
 beforeEach(() => {
+  getMock.mockReset();
   createMock.mockReset();
   updateMock.mockReset();
   clearWeatherMock.mockReset();
@@ -155,6 +159,33 @@ beforeEach(() => {
 });
 
 describe("QuickEntrySheet", () => {
+  it("retains the original edit revision until an explicit conflict reload", async () => {
+    const user = userEvent.setup();
+    const entry: import('@/api/modules/manualEntries').ManualEntry = {
+      entry_id: 'me-edit', revision: 'a'.repeat(64), body: 'Original', body_doc: null,
+      created_at: 50, event_at: 100, kind: 'quick', mood: null, attachments: [],
+      location_label: null, location_lat: null, location_lng: null, exclude_from_llm: false,
+      user_pinned: false, deleted_at: null, l1_event_id: 'event-original', weather: null,
+    };
+    const onClose = vi.fn();
+    updateMock.mockRejectedValueOnce({ status: 409 });
+    const view = render(<QuickEntrySheet open onClose={onClose} existingEntry={entry} />);
+    await user.clear(screen.getByRole('textbox'));
+    await user.type(screen.getByRole('textbox'), 'My draft');
+    const changed = { ...entry, revision: 'b'.repeat(64), body: 'Other device' };
+    view.rerender(<QuickEntrySheet open onClose={onClose} existingEntry={changed} />);
+    await user.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(updateMock).toHaveBeenCalledWith('me-edit', expect.objectContaining({ expected_revision: 'a'.repeat(64), body: 'My draft' })));
+    expect(screen.getByRole('textbox')).toHaveValue('My draft');
+    expect(onClose).not.toHaveBeenCalled();
+    getMock.mockResolvedValue(changed);
+    await user.click(screen.getByRole('button', { name: 'timeline.manualEntry.reload' }));
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Other device'));
+    await user.type(screen.getByRole('textbox'), ' edited');
+    updateMock.mockResolvedValue({ ...changed, revision: 'c'.repeat(64), body: 'Other device edited' });
+    await user.click(screen.getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(updateMock).toHaveBeenLastCalledWith('me-edit', expect.objectContaining({ expected_revision: 'b'.repeat(64), body: 'Other device edited' })));
+  });
   it("aborts an unfinished upload and releases its preview on a full clear", async () => {
     uploadMock.mockImplementation((_file: File, options: { signal: AbortSignal }) => (
       new Promise((_resolve, reject) => {
@@ -528,6 +559,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={() => {}}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-with-weather",
           body: "下雨天",
           mood: null,
@@ -560,6 +592,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={() => {}}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-no-weather",
           body: "啥也没有",
           mood: null,
@@ -607,6 +640,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={onClose}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-with-weather",
           body: "下雨天",
           mood: null,
@@ -652,6 +686,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={() => {}}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-existing",
           body: "原文",
           mood: null,
@@ -707,6 +742,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={onClose}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-existing",
           body: "原文",
           mood: null,
@@ -770,6 +806,7 @@ describe("QuickEntrySheet", () => {
         open
         onClose={onClose}
         existingEntry={{
+          revision: "a".repeat(64),
           entry_id: "me-terminalized",
           body: "原文",
           mood: null,

@@ -54,9 +54,49 @@ def test_manual_entry_routes_are_publicly_reachable() -> None:
             route_methods.setdefault(route.path, set()).update(route.methods)
 
     assert route_methods["/manual-entries"] == {"GET", "POST"}
-    assert route_methods["/manual-entries/{entry_id}"] == {"DELETE", "PATCH"}
+    assert route_methods["/manual-entries/{entry_id}"] == {"DELETE", "GET", "PATCH"}
     assert route_methods["/manual-entries/{entry_id}/weather"] == {"DELETE"}
     assert route_methods["/manual-entries/assets"] == {"POST"}
+
+
+@pytest.mark.asyncio
+async def test_edit_revision_rejects_stale_content_but_retries_confirmed_content(monkeypatch):
+    store, memory, _ = _install_stores(monkeypatch, _entry())
+    original = store.entry.revision
+    store.entry.weather = None
+    store.entry.l1_event_id = "event-old"
+    assert store.entry.revision == original
+    with pytest.raises(HTTPException) as missing:
+        await routes.update_manual_entry("manual-1", routes.ManualEntryUpdateBody(body="after"))
+    assert missing.value.status_code == 428
+    saved = await routes.update_manual_entry("manual-1", routes.ManualEntryUpdateBody(expected_revision=original, body="after"))
+    assert saved["revision"] != original
+    with pytest.raises(HTTPException) as stale:
+        await routes.update_manual_entry("manual-1", routes.ManualEntryUpdateBody(expected_revision=original, body="stale edit"))
+    assert stale.value.status_code == 409
+    assert store.entry.body == "after"
+    mutations = store.update_calls
+    receipt = await routes.update_manual_entry("manual-1", routes.ManualEntryUpdateBody(expected_revision=original, body="after"))
+    assert receipt["revision"] == saved["revision"]
+    assert store.update_calls == mutations
+
+
+def test_explicit_editor_reload_is_read_only_and_excludes_unconfirmed_entries(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    store, memory, projector = _install_stores(monkeypatch, _entry())
+    app = FastAPI()
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    client = TestClient(app)
+    response = client.get("/api/memory/manual-entries/manual-1")
+    assert response.status_code == 200
+    assert response.json()["revision"] == store.entry.revision
+    store.entry.pending_l1_event_id = "unconfirmed"
+    assert client.get("/api/memory/manual-entries/manual-1").status_code == 503
+    store.entry.delete_requested_at = 123.0
+    assert client.get("/api/memory/manual-entries/manual-1").status_code == 404
+    assert store.update_calls == 0
+    assert projector.calls == []
 
 
 class _EntryStore:
@@ -506,7 +546,7 @@ async def test_manual_entry_writes_fail_closed_while_memory_clear_is_pending(
         else:
             await routes.update_manual_entry(
                 "manual-1",
-                routes.ManualEntryUpdateBody(body="private update"),
+                routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="private update"),
             )
 
     assert error.value.status_code == 409
@@ -556,7 +596,7 @@ async def test_update_cleanup_failure_hides_reserved_replacement_and_allows_retr
 ):
     store, memory, projector = _install_stores(monkeypatch, _entry())
     memory.fail_forget_count = 1
-    body = routes.ManualEntryUpdateBody(body="after")
+    body = routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after")
 
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry("manual-1", body)
@@ -588,7 +628,7 @@ async def test_update_reservation_failure_leaves_old_source_and_projection(
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="after"),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after"),
         )
 
     assert error.value.status_code == 503
@@ -605,7 +645,7 @@ async def test_update_recovers_replacement_reservation_commit_ack_loss(monkeypat
 
     result = await routes.update_manual_entry(
         "manual-1",
-        routes.ManualEntryUpdateBody(body="after"),
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after"),
     )
 
     assert result["body"] == "after"
@@ -621,7 +661,7 @@ async def test_update_rejects_empty_final_entry_before_forgetting(monkeypatch):
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="   ", attachment_refs=[]),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="   ", attachment_refs=[]),
         )
 
     assert error.value.status_code == 400
@@ -732,7 +772,7 @@ async def test_create_database_lock_writes_no_l1_and_noop_update_repairs(monkeyp
 
     result = await routes.update_manual_entry(
         store.entry.entry_id,
-        routes.ManualEntryUpdateBody(),
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, ),
     )
 
     assert result["l1_event_id"] is not None
@@ -758,7 +798,7 @@ async def test_create_complete_false_is_repaired_without_a_second_l1_row(monkeyp
 
     result = await routes.update_manual_entry(
         store.entry.entry_id,
-        routes.ManualEntryUpdateBody(),
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, ),
     )
 
     assert result["l1_event_id"] == pending_event_id
@@ -1015,7 +1055,7 @@ async def test_update_validates_attachments_before_forgetting(monkeypatch, tmp_p
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(attachment_refs=["manual-entry-asset:///tmp/private.jpg"]),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, attachment_refs=["manual-entry-asset:///tmp/private.jpg"]),
         )
 
     assert error.value.status_code == 400
@@ -1036,7 +1076,7 @@ async def test_update_accepts_an_existing_uploaded_attachment(monkeypatch, tmp_p
 
     result = await routes.update_manual_entry(
         "manual-1",
-        routes.ManualEntryUpdateBody(attachment_refs=[asset_ref]),
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, attachment_refs=[asset_ref]),
     )
 
     assert result["attachments"] == [asset_ref]
@@ -1048,7 +1088,7 @@ async def test_update_accepts_an_existing_uploaded_attachment(monkeypatch, tmp_p
 async def test_update_projection_failure_is_completed_by_idempotent_retry(monkeypatch):
     store, memory, projector = _install_stores(monkeypatch, _entry())
     projector.fail_count = 1
-    body = routes.ManualEntryUpdateBody(body="after")
+    body = routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after")
 
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry("manual-1", body)
@@ -1071,7 +1111,7 @@ async def test_update_projection_failure_is_completed_by_idempotent_retry(monkey
 async def test_update_link_failure_reuses_unlinked_projection_on_retry(monkeypatch):
     store, memory, projector = _install_stores(monkeypatch, _entry())
     store.fail_complete_count = 1
-    body = routes.ManualEntryUpdateBody(body="after")
+    body = routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after")
 
     with pytest.raises(HTTPException) as error:
         await routes.update_manual_entry("manual-1", body)
@@ -1091,7 +1131,7 @@ async def test_update_link_failure_reuses_unlinked_projection_on_retry(monkeypat
 async def test_delete_after_link_failure_removes_the_unlinked_projection(monkeypatch):
     store, memory, _ = _install_stores(monkeypatch, _entry())
     store.fail_complete_count = 1
-    body = routes.ManualEntryUpdateBody(body="after")
+    body = routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after")
     with pytest.raises(HTTPException):
         await routes.update_manual_entry("manual-1", body)
     unlinked_id = next(event_id for event_id in memory.l1.events if event_id != "event-old")
@@ -1106,22 +1146,25 @@ async def test_delete_after_link_failure_removes_the_unlinked_projection(monkeyp
 async def test_concurrent_updates_leave_only_the_linked_projection_active(monkeypatch):
     store, memory, _ = _install_stores(monkeypatch, _entry())
 
-    await asyncio.gather(
+    outcomes = await asyncio.gather(
         routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="first"),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="first"),
         ),
         routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="second"),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="second"),
         ),
+        return_exceptions=True,
     )
 
     active_ids = [
         event_id for event_id, event in memory.l1.events.items() if event["deleted_at"] is None
     ]
     assert active_ids == [store.entry.l1_event_id]
-    assert store.entry.body == "second"
+    assert store.entry.body == "first"
+    assert isinstance(outcomes[1], HTTPException)
+    assert outcomes[1].status_code == 409
 
 
 @pytest.mark.asyncio
@@ -1131,7 +1174,7 @@ async def test_concurrent_update_then_delete_cannot_revive_entry(monkeypatch):
     update_task = asyncio.create_task(
         routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="after"),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="after"),
         )
     )
     await asyncio.sleep(0)
@@ -1220,7 +1263,7 @@ async def test_terminal_write_retry_returns_forgotten_conflict(
         elif operation == "update":
             await routes.update_manual_entry(
                 "me-terminal-retry",
-                routes.ManualEntryUpdateBody(body="retry after lost response"),
+                routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="retry after lost response"),
             )
         else:
             await routes.clear_manual_entry_weather("me-terminal-retry")
@@ -1244,7 +1287,7 @@ async def test_update_nonprojected_fields_does_not_rewrite_memory(monkeypatch):
 
     result = await routes.update_manual_entry(
         "manual-1",
-        routes.ManualEntryUpdateBody(
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, 
             user_pinned=True,
             body_doc={"type": "doc", "content": []},
         ),
@@ -1273,7 +1316,7 @@ async def test_delete_cleanup_failure_does_not_hide_entry_and_retry_finishes(mon
     with pytest.raises(HTTPException) as update_error:
         await routes.update_manual_entry(
             "manual-1",
-            routes.ManualEntryUpdateBody(body="must remain blocked"),
+            routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, body="must remain blocked"),
         )
     assert update_error.value.status_code == 409
 
@@ -1386,7 +1429,7 @@ async def test_event_time_update_persists_and_projects_one_weather_snapshot(monk
     )
     result = await routes.update_manual_entry(
         "manual-1",
-        routes.ManualEntryUpdateBody(event_at=1000.0),
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, event_at=1000.0),
     )
 
     assert result["event_at"] == 1000.0

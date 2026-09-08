@@ -62,6 +62,7 @@ interface RichTextEditorProps {
   onSubmitShortcut?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
+  disabled?: boolean;
   /** Minimum editor height in pixels. Defaults to 96 (the historical
    *  quick-capture size). Long-form callers should pass a larger value
    *  so the writing surface doesn't feel like a comment box. */
@@ -77,6 +78,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   onSubmitShortcut,
   placeholder,
   autoFocus,
+  disabled = false,
   minHeightPx = 96,
 }) => {
   // Stable initial content: prefer the saved doc, then the plain-text
@@ -94,6 +96,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
   const editor = useEditor({
     extensions,
+    editable: !disabled,
     content: initialContent,
     shouldRerenderOnTransaction: false,
     autofocus: autoFocus ?? false,
@@ -153,6 +156,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
       onChangeText(editor.getText());
     },
   });
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.setEditable(!disabled);
+  }, [editor, disabled]);
 
   // Reinitialize only the cached placeholder decorations. Keep the document,
   // selection and all other plugin state, including undo history.

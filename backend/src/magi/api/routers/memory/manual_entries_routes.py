@@ -109,6 +109,7 @@ class ManualEntryCreateBody(BaseModel):
 
 
 class ManualEntryUpdateBody(BaseModel):
+    expected_revision: str | None = None
     body: Optional[str] = None
     body_doc: Optional[dict] = None
     # Explicit flag for clearing body_doc — there's no natural "empty"
@@ -129,6 +130,7 @@ class ManualEntryCreateResponse(BaseModel):
     """Public entry plus the readiness of its derived memory."""
 
     entry_id: str
+    revision: str
     created_at: float
     event_at: float
     kind: str
@@ -754,6 +756,18 @@ async def list_manual_entries(
     return {"items": [_entry_to_dict(e) for e in entries]}
 
 
+@memory_router.get("/manual-entries/{entry_id}")
+async def get_manual_entry(entry_id: str):
+    """Read the current authored entry for an explicit editor reload."""
+    store, *_ = _resolve_stores()
+    entry = await store.get(entry_id)
+    if entry is None or entry.deleted_at is not None or entry.delete_requested_at is not None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    if entry.pending_l1_event_id is not None:
+        raise HTTPException(status_code=503, detail="Entry update is still being reconciled")
+    return _entry_to_dict(entry)
+
+
 @memory_router.patch("/manual-entries/{entry_id}")
 @_guard_manual_entry_write
 async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
@@ -779,6 +793,13 @@ async def _update_manual_entry_locked(entry_id: str, body: ManualEntryUpdateBody
             entry=existing,
             predecessor_event_id=existing.l1_event_id,
         )
+
+    if not body.expected_revision:
+        raise HTTPException(status_code=428, detail="Manual entry revision is required")
+    if body.expected_revision != existing.revision and _has_entry_changes(existing, body):
+        raise HTTPException(status_code=409, detail={
+            "code": "manual_entry_conflict", "message": "Entry changed; reload before saving",
+        })
 
     if existing.pending_l1_event_id is not None:
         await _repair_projection_if_needed(

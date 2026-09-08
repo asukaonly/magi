@@ -422,6 +422,7 @@ describe("PeriodCard", () => {
         manualEntries={[
           {
             entry_id: "note-a",
+            revision: "a".repeat(64),
             created_at: 100,
             event_at: 100,
             kind: "quick",

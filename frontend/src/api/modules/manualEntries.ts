@@ -15,6 +15,7 @@ export interface ManualEntryWeather {
 
 export interface ManualEntry {
   entry_id: string;
+  revision: string;
   created_at: number;
   event_at: number;
   kind: 'quick' | 'rich';
@@ -109,6 +110,7 @@ export interface ManualEntryCreateResult extends ManualEntry {
 }
 
 export interface ManualEntryUpdate {
+  expected_revision: string;
   body?: string;
   body_doc?: Record<string, unknown> | null;
   /** Explicit flag to clear body_doc — JSON docs don't have a natural
@@ -130,7 +132,18 @@ export interface AssetUploadResponse {
   byte_size: number;
 }
 
+const requireEntry = <T extends ManualEntry>(entry: T, entryId: string): T => {
+  if (entry.entry_id !== entryId || typeof entry.revision !== 'string' || !/^[a-f0-9]{64}$/.test(entry.revision)) {
+    throw new Error('Invalid manual entry snapshot');
+  }
+  return entry;
+};
+
 export const manualEntriesApi = {
+  async get(entryId: string): Promise<ManualEntry> {
+    const response = await api.get<ManualEntry>(`/memory/manual-entries/${encodeURIComponent(entryId)}`);
+    return requireEntry(unwrapGatewayPayload(response), entryId);
+  },
   async list({
     timeStart, timeEnd, includeDeleted = false, limit = 500,
   }: ListManualEntriesOptions): Promise<ManualEntry[]> {
@@ -154,7 +167,7 @@ export const manualEntriesApi = {
       `/memory/manual-entries`,
       body,
     );
-    return unwrapGatewayPayload(response);
+    return requireEntry(unwrapGatewayPayload(response), body.entry_id);
   },
 
   async update(entryId: string, patch: ManualEntryUpdate): Promise<ManualEntry> {
@@ -162,7 +175,7 @@ export const manualEntriesApi = {
       `/memory/manual-entries/${encodeURIComponent(entryId)}`,
       patch,
     );
-    return unwrapGatewayPayload(response);
+    return requireEntry(unwrapGatewayPayload(response), entryId);
   },
 
   async remove(entryId: string): Promise<void> {
@@ -178,7 +191,7 @@ export const manualEntriesApi = {
     const response = await api.delete<ManualEntry>(
       `/memory/manual-entries/${encodeURIComponent(entryId)}/weather`,
     );
-    return unwrapGatewayPayload(response);
+    return requireEntry(unwrapGatewayPayload(response), entryId);
   },
 
   /**
