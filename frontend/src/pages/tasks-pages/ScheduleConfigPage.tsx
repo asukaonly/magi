@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -41,19 +43,24 @@ export const ScheduleConfigPage: React.FC = () => {
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [showDisabled, setShowDisabled] = useState(false);
 
-  const loadSchedules = useCallback(async () => {
-    setLoading(true);
+  const beginRead = useRequestOwner(String(showDisabled));
+  const loadSchedules = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('list');
+    if (!silent) setLoading(true);
     try {
       const res = await schedulesApi.list({ enabledOnly: !showDisabled });
+      if (!isCurrent()) return;
       hydrate(res.schedules);
+      setInfoSchedule((current) => current ? res.schedules.find((item) => item.schedule_id === current.schedule_id) ?? null : null);
     } catch {
-      toast.error(t('tasks.scheduled.feedback.loadFailed'));
+      if (isCurrent() && !silent) toast.error(t('tasks.scheduled.feedback.loadFailed'));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [hydrate, showDisabled, t]);
+  }, [hydrate, showDisabled, t, beginRead]);
 
   useEffect(() => { void loadSchedules(); }, [loadSchedules]);
+  useCenterRefresh(() => loadSchedules(true));
 
   const counts = useMemo<Record<CategoryFilter, number>>(() => {
     const next = { ...EMPTY_COUNTS };

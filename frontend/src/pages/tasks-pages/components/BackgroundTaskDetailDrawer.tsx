@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -75,31 +77,22 @@ export const BackgroundTaskDetailDrawer: React.FC<BackgroundTaskDetailDrawerProp
     'cancel' | 'retry' | 'dismiss' | null
   >(null);
 
-  useEffect(() => {
-    if (!taskId) {
-      setEvents([]);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    backgroundTasksApi
-      .get(taskId)
-      .then((response) => {
-        if (cancelled) return;
-        upsertTask(response.task);
-        setEvents(response.events);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        toast.error(t('tasks.feedback.loadFailed'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId, t, upsertTask]);
+  const beginRead = useRequestOwner(taskId ?? '');
+  const load = useCallback(async (silent = false) => {
+    if (!taskId) return;
+    const isCurrent = beginRead('detail');
+    if (!silent) setLoading(true);
+    try {
+      const response = await backgroundTasksApi.get(taskId);
+      if (!isCurrent()) return;
+      upsertTask(response.task);
+      setEvents(response.events);
+    } catch {
+      if (isCurrent() && !silent) toast.error(t('tasks.feedback.loadFailed'));
+    } finally { if (isCurrent()) setLoading(false); }
+  }, [taskId, t, upsertTask, beginRead]);
+  useEffect(() => { setEvents([]); void load(); }, [load]);
+  useCenterRefresh(() => load(true), Boolean(taskId));
 
   const handleCancel = useCallback(async () => {
     if (!taskId) return;

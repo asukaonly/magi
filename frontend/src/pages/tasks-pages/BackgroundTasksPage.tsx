@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -77,14 +79,17 @@ export const BackgroundTasksPage: React.FC = () => {
     }
   }, [searchParams, selectedTaskId, setSearchParams]);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const beginRead = useRequestOwner(String(offset));
+  const refresh = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('list');
+    if (!silent) setLoading(true);
     try {
       const response = await backgroundTasksApi.list({
         userId: DEFAULT_USER_ID,
         limit: BACKGROUND_TASK_PAGE_SIZE,
         offset,
       });
+      if (!isCurrent()) return;
       if (response.total > 0 && offset >= response.total) {
         const fallbackOffset = Math.max(
           0,
@@ -98,13 +103,14 @@ export const BackgroundTasksPage: React.FC = () => {
       hydrate(response.tasks, response.active_count);
       setTotal(response.total);
     } catch {
-      toast.error(t('tasks.feedback.loadFailed'));
+      if (isCurrent() && !silent) toast.error(t('tasks.feedback.loadFailed'));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [offset, hydrate, t]);
+  }, [offset, hydrate, t, beginRead]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useCenterRefresh(() => refresh(true));
 
   const { running, queued, finished } = useMemo(() => {
     const r: BackgroundTaskDTO[] = [];

@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -84,8 +86,10 @@ export const ScheduleActivityPage: React.FC = () => {
     return targetTypesForCategory(category);
   }, [category]);
 
-  const reload = useCallback(async () => {
-    setLoading(true);
+  const beginRead = useRequestOwner(JSON.stringify([windowKey, category, statusFilter, offset]));
+  const reload = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('list');
+    if (!silent) setLoading(true);
     try {
       const [act, sched] = await Promise.all([
         schedulesApi.listActivity({
@@ -97,19 +101,22 @@ export const ScheduleActivityPage: React.FC = () => {
         }),
         schedulesApi.list({ enabledOnly: false }),
       ]);
+      if (!isCurrent()) return;
       setActivities(act.activities);
+      setSelectedActivity((current) => current ? act.activities.find((item) => item.activity_id === current.activity_id) ?? current : null);
       setTotal(act.total ?? 0);
       setTargetTypeCounts(act.target_type_counts ?? {});
       setServerStatusCounts(act.status_counts ?? {});
       setSchedulesById(Object.fromEntries(sched.schedules.map((s) => [s.schedule_id, s])));
     } catch {
-      toast.error(t('tasks.scheduled.feedback.loadFailed'));
+      if (isCurrent() && !silent) toast.error(t('tasks.scheduled.feedback.loadFailed'));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [windowKey, targetTypes, statusFilter, offset, t]);
+  }, [windowKey, targetTypes, statusFilter, offset, t, beginRead]);
 
   useEffect(() => { void reload(); }, [reload]);
+  useCenterRefresh(() => reload(true));
 
   // Build category chip counts by bucketing target_type → category, using
   // the server's window-scoped aggregation (so chips reflect the full

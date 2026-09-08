@@ -1032,3 +1032,9 @@ initial empty-center load may create the first session, using a shared durable
 idempotency key derived from the center content epoch. Explicit New Chat remains
 a separate user action. Transient reads retain the last confirmed session and
 persona display snapshots.
+
+Task lists, open background-task details, schedule configuration/activity, and
+timeline views reconcile their current filters and pages in place. Background
+reads retain confirmed data on failure and never submit actions or replace an
+open schedule editor. Request ownership rejects responses from an earlier page
+or selection, including navigating away and back to the same scope.

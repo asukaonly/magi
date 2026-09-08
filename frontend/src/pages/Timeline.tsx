@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
@@ -154,10 +155,10 @@ export const TimelinePage: React.FC = () => {
   const canGoNext = shiftPeriodStart(scale, viewportStart, 1) <= latestPeriodStart;
   const dateLabel = formatWindowLabel(scale, viewportStart, viewportEnd, timelineLocale);
 
-  const loadViewport = useCallback(async () => {
+  const loadViewport = useCallback(async (silent = false) => {
     const isCurrent = beginRequest('viewport');
     if (!isCurrent()) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const response = await timelineApi.getViewport({
         scale,
@@ -169,7 +170,7 @@ export const TimelinePage: React.FC = () => {
       });
       if (isCurrent()) setViewportSnapshot({ scope, data: response });
     } catch (error) {
-      if (!isCurrent()) return;
+      if (!isCurrent() || silent) return;
       toast.error(
         t("timeline.errors.loadFailed", {
           message: getErrorMessage(error) || "unknown",
@@ -234,6 +235,8 @@ export const TimelinePage: React.FC = () => {
   useEffect(() => {
     void loadManualEntries();
   }, [loadManualEntries]);
+
+  useCenterRefresh(() => Promise.all([loadViewport(true), loadManualEntries(), loadSidebar()]));
 
   const handleTogglePinned = async (episodeId: string, nextPinned: boolean) => {
     const isCurrent = beginRequest(`feedback:${episodeId}`);
