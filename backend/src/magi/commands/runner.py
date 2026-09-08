@@ -24,7 +24,6 @@ from typing import Any, Callable, Protocol
 
 from magi_plugin_sdk.tools import (
     ToolErrorCode,
-    ToolExecutionContext,
     ToolResult,
 )
 
@@ -35,6 +34,7 @@ from ..control.permission.contracts import (
     ToolOrigin,
 )
 from ..core.runtime_bindings import require_chat_surface_write_service
+from ..core.tool_context import ToolExecutionContext
 from ..tools.capabilities import build_tool_capabilities
 from ..tools.registry import ToolRegistry
 from .resolver import UserInvocableResolver, get_default_resolver
