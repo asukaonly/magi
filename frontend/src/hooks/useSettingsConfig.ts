@@ -47,10 +47,22 @@ export function useSettingsConfig({
 }: UseSettingsConfigOptions): UseSettingsConfigReturn {
   const { t } = useTranslation('app');
   const [loading, setLoading] = useState(true);
-  const [savedConfig, setSavedConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [savedConfig, setSavedConfigState] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const savedConfigRef = useRef(savedConfig);
+  const setSavedConfig: Dispatch<SetStateAction<SystemConfig>> = useCallback((update) => {
+    const next = typeof update === 'function' ? update(savedConfigRef.current) : update;
+    savedConfigRef.current = next;
+    setSavedConfigState(next);
+  }, []);
   const [draftConfig, setDraftConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [savedControlSettings, setSavedControlSettings] = useState<ControlSettingsDTO | null>(null);
+  const [savedControlSettings, setSavedControlSettingsState] = useState<ControlSettingsDTO | null>(null);
+  const savedControlRef = useRef(savedControlSettings);
+  const setSavedControlSettings: Dispatch<SetStateAction<ControlSettingsDTO | null>> = useCallback((update) => {
+    const next = typeof update === 'function' ? update(savedControlRef.current) : update;
+    savedControlRef.current = next;
+    setSavedControlSettingsState(next);
+  }, []);
   const [draftControlSettings, setDraftControlSettings] = useState<ControlSettingsDTO | null>(null);
 
   const patchDraftConfig = useCallback((updater: (draft: SystemConfig) => void) => {
@@ -78,7 +90,7 @@ export function useSettingsConfig({
       next.llm = structuredClone(nextSnapshot);
       return next;
     });
-  }, [draftConfig.llm, savedConfig.llm]);
+  }, [draftConfig.llm, savedConfig.llm, setSavedConfig]);
 
   const patchDraftControlSettings = useCallback((updater: (draft: ControlSettingsDTO) => void) => {
     setDraftControlSettings((prev) => {
@@ -99,12 +111,14 @@ export function useSettingsConfig({
 
   const fetchConfig = useCallback(async ({ silent = false, discardDraft = false }: { silent?: boolean; discardDraft?: boolean } = {}) => {
     const requestId = ++configRequestId.current;
+    const savedAtStart = savedConfigRef.current;
     const draftAtStart = serialize(currentDrafts.current.draftConfig);
     if (!silent) { setLoading(true); setConfigError(null); }
     try {
       const response = await configApi.get();
       const nextConfig = requireConfiguration(response);
       if (requestId !== configRequestId.current) return;
+      if (savedConfigRef.current !== savedAtStart) return;
       const current = currentDrafts.current;
       if (discardDraft && serialize(current.draftConfig) !== draftAtStart) return;
       if (silent && !discardDraft && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
@@ -118,14 +132,16 @@ export function useSettingsConfig({
     } finally {
       if (requestId === configRequestId.current) setLoading(false);
     }
-  }, [setDraftThemeMode, setSavedThemeMode, t, themeMode]);
+  }, [setDraftThemeMode, setSavedThemeMode, t, themeMode, setSavedConfig]);
 
   const loadControlSettings = useCallback(async ({ silent = false, discardDraft = false }: { silent?: boolean; discardDraft?: boolean } = {}) => {
     const requestId = ++controlRequestId.current;
+    const savedAtStart = savedControlRef.current;
     const draftAtStart = serialize(currentDrafts.current.draftControlSettings);
     try {
       const nextSettings = await getControlSettings();
       if (requestId !== controlRequestId.current) return;
+      if (savedControlRef.current !== savedAtStart) return;
       const current = currentDrafts.current;
       if (discardDraft && serialize(current.draftControlSettings) !== draftAtStart) return;
       if (silent && !discardDraft && serialize(current.savedControlSettings) !== serialize(current.draftControlSettings)) return;
@@ -136,7 +152,7 @@ export function useSettingsConfig({
       const message = error instanceof Error ? error.message : 'unknown';
       if (!silent) toast.error(t('settings.loadFailed', { message }));
     }
-  }, [t]);
+  }, [t, setSavedControlSettings]);
 
   useCenterRefresh(async () => {
     await Promise.all([fetchConfig({ silent: true }), loadControlSettings({ silent: true })]);

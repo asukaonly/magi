@@ -15,6 +15,7 @@ vi.mock('@/runtime/desktop', async original => ({ ...await original<typeof impor
 
 import { toast } from 'sonner';
 import { useSettingsTools } from '@/hooks/useSettingsTools';
+import { useSettingsConfig } from '@/hooks/useSettingsConfig';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
 import { useSettings } from '@/hooks/useSettings';
 import fixtures from '../../../contracts/api/frontend-config-examples.json';
@@ -252,4 +253,31 @@ it('does not roll a confirmed tool receipt back with an earlier read', async () 
   await act(async () => { finish({ tools: [fixtures.tool] }); await pending; });
   expect(result.current.savedToolDrafts['fixture-tool']).toEqual(acknowledged['fixture-tool']);
   expect(result.current.draftToolDrafts['fixture-tool']).toEqual(acknowledged['fixture-tool']);
+});
+
+it.each(['config', 'control'] as const)('keeps the confirmed %s receipt when an older read arrives', async (resource) => {
+  const setTheme = vi.fn();
+  const { result } = renderHook(() => useSettingsConfig({ themeMode: 'light', setSavedThemeMode: setTheme, setDraftThemeMode: setTheme }));
+  await act(() => result.current.fetchConfig());
+  await act(() => result.current.loadControlSettings());
+  let finish: (value: unknown) => void = () => {};
+  const pendingRead = new Promise(resolve => { finish = resolve; });
+  const confirmedConfig = { ...structuredClone(DEFAULT_SYSTEM_CONFIG), revision: 'confirmed', agent: { ...DEFAULT_SYSTEM_CONFIG.agent, name: 'Confirmed' } };
+  const confirmedControl = { revision: 'b'.repeat(64), permission_mode: 'all' as const, plan_approval_required: false };
+  let pending = Promise.resolve();
+  if (resource === 'config') {
+    mocks.get.mockReturnValueOnce(pendingRead);
+    act(() => { pending = result.current.fetchConfig({ silent: true }); });
+    act(() => { result.current.setSavedConfig(confirmedConfig); result.current.setDraftConfig(confirmedConfig); });
+    await act(async () => { finish({ success: true, data: DEFAULT_SYSTEM_CONFIG }); await pending; });
+    expect(result.current.savedConfig).toEqual(confirmedConfig);
+    expect(result.current.draftConfig).toEqual(confirmedConfig);
+  } else {
+    mocks.controlGet.mockReturnValueOnce(pendingRead);
+    act(() => { pending = result.current.loadControlSettings({ silent: true }); });
+    act(() => { result.current.setSavedControlSettings(confirmedControl); result.current.setDraftControlSettings(confirmedControl); });
+    await act(async () => { finish({ revision: 'a'.repeat(64), permission_mode: 'high_only', plan_approval_required: true }); await pending; });
+    expect(result.current.savedControlSettings).toEqual(confirmedControl);
+    expect(result.current.draftControlSettings).toEqual(confirmedControl);
+  }
 });
