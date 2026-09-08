@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   resolveInitialLanguage,
-  shouldApplyConfigLanguagePreference,
   toI18nLanguage,
 } from '@/utils/language';
 
@@ -23,24 +22,4 @@ describe('language defaults', () => {
     expect(toI18nLanguage('en')).toBe('en');
   });
 
-  it('does not let the default config language override first-run browser language', () => {
-    expect(
-      shouldApplyConfigLanguagePreference({
-        storedLanguage: null,
-        onboardingCompleted: false,
-      })
-    ).toBe(false);
-    expect(
-      shouldApplyConfigLanguagePreference({
-        storedLanguage: 'en',
-        onboardingCompleted: false,
-      })
-    ).toBe(true);
-    expect(
-      shouldApplyConfigLanguagePreference({
-        storedLanguage: null,
-        onboardingCompleted: true,
-      })
-    ).toBe(true);
-  });
 });

@@ -276,7 +276,7 @@ export function SettingsPreferencesSection({
         />
       </SettingsGroup>
 
-      <DesktopUpdateSection networkConfig={draftConfig.network} />
+      <DesktopUpdateSection />
     </SettingsSectionShell>
   );
 }

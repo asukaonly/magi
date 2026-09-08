@@ -2,7 +2,6 @@ import { getVersion } from '@tauri-apps/api/app';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 
-import type { NetworkProxyConfig } from '../api/modules/config';
 
 const AUTO_UPDATE_CHECK_AT_KEY = 'magi.desktop-updates.last-auto-check-at';
 
@@ -25,7 +24,6 @@ export interface UpdateCheckOptions {
 }
 
 export interface StartupUpdateCheckOptions {
-  network?: NetworkProxyConfig | null;
   delayMs?: number;
   cooldownMs?: number;
   timeoutMs?: number;
@@ -102,27 +100,6 @@ function cancelScheduledStartupCheck(): void {
   scheduledStartupCheckPromise = null;
 }
 
-export function buildUpdaterProxyUrl(network?: NetworkProxyConfig | null): string | undefined {
-  if (!network?.enabled) {
-    return undefined;
-  }
-
-  const host = network.host.trim();
-  const port = Number(network.port);
-
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) {
-    return undefined;
-  }
-
-  const username = network.username?.trim() ?? '';
-  const password = network.password?.trim() ?? '';
-  const auth = username
-    ? `${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
-    : '';
-
-  return `${network.proxy_type}://${auth}${host}:${port}`;
-}
-
 export function isUpdaterRuntimeAvailable(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -166,7 +143,7 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
   const timeout = options.timeoutMs ?? DEFAULT_UPDATE_CHECK_TIMEOUT_MS;
 
   console.info('[updater] checking for app update', {
-    proxy: proxy ?? null,
+    proxyConfigured: Boolean(proxy),
     timeoutMs: timeout,
   });
 
@@ -175,7 +152,7 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
     currentVersion = await getVersion();
   } catch (error) {
     console.warn('[updater] continuing update check after current version lookup failed', {
-      proxy: proxy ?? null,
+      proxyConfigured: Boolean(proxy),
       timeoutMs: timeout,
       error: serializeUpdaterError(error),
     });
@@ -193,14 +170,14 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
     if (update) {
       console.info('[updater] update available', {
         currentVersion,
-        proxy: proxy ?? null,
+        proxyConfigured: Boolean(proxy),
         timeoutMs: timeout,
         update: summarizeUpdate(update),
       });
     } else {
       console.info('[updater] no update available', {
         currentVersion,
-        proxy: proxy ?? null,
+        proxyConfigured: Boolean(proxy),
         timeoutMs: timeout,
       });
     }
@@ -212,7 +189,7 @@ export async function checkForAppUpdate(options: UpdateCheckOptions = {}): Promi
   } catch (error) {
     console.error('[updater] update check failed', {
       currentVersion,
-      proxy: proxy ?? null,
+      proxyConfigured: Boolean(proxy),
       timeoutMs: timeout,
       error: serializeUpdaterError(error),
     });
@@ -247,13 +224,11 @@ export function scheduleStartupUpdateCheck(
   }
 
   const delayMs = options.delayMs ?? DEFAULT_STARTUP_UPDATE_CHECK_DELAY_MS;
-  const proxy = buildUpdaterProxyUrl(options.network);
   const timeoutMs = options.timeoutMs ?? DEFAULT_UPDATE_CHECK_TIMEOUT_MS;
 
   console.info('[updater] scheduling startup update check', {
     delayMs,
     cooldownMs,
-    proxy: proxy ?? null,
     timeoutMs,
   });
 
@@ -263,12 +238,10 @@ export function scheduleStartupUpdateCheck(
       writeLastAutoCheckAt(Date.now());
 
       console.info('[updater] running scheduled startup update check', {
-        proxy: proxy ?? null,
-        timeoutMs,
+            timeoutMs,
       });
 
       void checkForAppUpdate({
-        proxy,
         timeoutMs,
         cancelScheduledStartupCheck: false,
       })
@@ -284,8 +257,7 @@ export function scheduleStartupUpdateCheck(
         })
         .catch((error) => {
           console.error('[updater] scheduled startup update check failed', {
-            proxy: proxy ?? null,
-            timeoutMs,
+                    timeoutMs,
             error: serializeUpdaterError(error),
           });
           options.onError?.(error);

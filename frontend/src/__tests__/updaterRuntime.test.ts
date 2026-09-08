@@ -74,37 +74,6 @@ describe('updater runtime', () => {
     vi.unstubAllGlobals();
   });
 
-  it('builds a proxy URL from the global network proxy settings', async () => {
-    const { buildUpdaterProxyUrl } = await loadUpdaterModule();
-
-    expect(buildUpdaterProxyUrl({
-      enabled: true,
-      proxy_type: 'socks5',
-      host: '127.0.0.1',
-      port: 7890,
-      username: '',
-      password: '',
-    })).toBe('socks5://127.0.0.1:7890');
-
-    expect(buildUpdaterProxyUrl({
-      enabled: true,
-      proxy_type: 'http',
-      host: 'proxy.example.test',
-      port: 8080,
-      username: 'magi user',
-      password: 'pa:ss@word',
-    })).toBe('http://magi%20user:pa%3Ass%40word@proxy.example.test:8080');
-
-    expect(buildUpdaterProxyUrl({
-      enabled: false,
-      proxy_type: 'http',
-      host: '127.0.0.1',
-      port: 7890,
-      username: '',
-      password: '',
-    })).toBeUndefined();
-  });
-
   it('passes proxy and timeout to the updater check call', async () => {
     getVersionMock.mockResolvedValue('0.1.2');
     checkMock.mockResolvedValue(null);
@@ -136,14 +105,6 @@ describe('updater runtime', () => {
     } = await loadUpdaterModule();
 
     const scheduledCheck = scheduleStartupUpdateCheck({
-      network: {
-        enabled: true,
-        proxy_type: 'http',
-        host: '127.0.0.1',
-        port: 7890,
-        username: '',
-        password: '',
-      },
       delayMs: 25,
       cooldownMs: 60_000,
     });
@@ -155,7 +116,7 @@ describe('updater runtime', () => {
     await scheduledCheck!;
 
     expect(checkMock).toHaveBeenCalledWith({
-      proxy: 'http://127.0.0.1:7890',
+      proxy: undefined,
       timeout: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
     });
     expect(scheduleStartupUpdateCheck({ cooldownMs: 60_000 })).toBeNull();

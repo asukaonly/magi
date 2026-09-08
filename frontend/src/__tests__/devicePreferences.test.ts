@@ -24,5 +24,14 @@ it('does not transmit device preferences in a center configuration write', async
   await configApi.update(config);
   const transmitted = put.mock.calls[0][1] as { preferences: Record<string, unknown> };
   expect(transmitted.preferences).toHaveProperty('default_chat_workspace_path');
+  expect(transmitted.preferences).not.toHaveProperty('language');
   for (const key of Object.keys(DEFAULT_DEVICE_PREFERENCES)) expect(transmitted.preferences).not.toHaveProperty(key);
+});
+
+it("keeps device language when centers use different defaults", () => {
+  localStorage.setItem("magi_language", "en");
+  setCenterStorageScope("center-a", "epoch-a");
+  expect(parseConfigResponse(fixtures.config).data?.preferences.language).toBe("en");
+  setCenterStorageScope("center-b", "epoch-b");
+  expect(parseConfigResponse(fixtures.config).data?.preferences.language).toBe("en");
 });

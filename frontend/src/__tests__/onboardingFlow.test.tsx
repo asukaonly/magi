@@ -592,25 +592,23 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(configApi.testLLMProviderConnection).not.toHaveBeenCalled();
   });
 
-  it("persists the onboarding language preference as soon as it is selected", async () => {
+  it("persists the device language without changing center configuration", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
     await waitFor(() =>
-      expect((configApi as any).updateLanguagePreference).toHaveBeenCalledWith(
-        "zh",
-      ),
+      expect(localStorageMock.setItem).toHaveBeenCalledWith("magi_language", "zh"),
     );
 
     await user.click(screen.getByRole("button", { name: "EN" }));
 
     await waitFor(() =>
-      expect((configApi as any).updateLanguagePreference).toHaveBeenCalledWith(
-        "en",
-      ),
+      expect(localStorageMock.setItem).toHaveBeenCalledWith("magi_language", "en"),
     );
+    expect((configApi as any).updateLanguagePreference).not.toHaveBeenCalled();
+    expect(document.documentElement.lang).toBe("en");
     expect(screen.getByRole("button", { name: "EN" })).toHaveAttribute(
       "aria-pressed",
       "true",

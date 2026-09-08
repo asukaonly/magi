@@ -762,14 +762,14 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 export function toCenterConfig(config: Partial<SystemConfig>) {
-  return { ...config, ...(config.preferences ? { preferences: withoutDevicePreferences(config.preferences) } : {}) };
+  if (!config.preferences) return { ...config };
+  const { language: _language, ...preferences } = withoutDevicePreferences(config.preferences);
+  return { ...config, preferences };
 }
 
 export const configApi = {
   get: () => api.get<unknown>('/config/').then(parseConfigResponse),
   update: (config: Partial<SystemConfig>) => api.put<unknown>('/config/', toCenterConfig(config)).then(parseConfigResponse),
-  updateLanguagePreference: (language: LanguageCode) =>
-    api.put<unknown>('/config/preferences/language', { language }).then(parseConfigResponse),
   embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
     unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', toCenterConfig(config))),
   getTemplate: () => api.get<unknown>('/config/template').then(parseConfigResponse),

@@ -20,7 +20,6 @@ import './i18n';
 import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
-import type { LanguageCode } from './api/modules/config';
 import { initializeRuntime, readBackendStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
 import type { BackendStartupDiagnostics, StartupPhase } from './runtime/config';
 import { Button } from './components/ui/button';
@@ -29,8 +28,6 @@ import { syncDesktopNotificationPreferences } from './runtime/desktop-notificati
 import { initializeDesktopLogging } from './runtime/logging';
 import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
-import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
-import { shouldApplyConfigLanguagePreference } from './utils/language';
 import { finishPendingCenterMaintenanceBeforeAppReady } from './runtime/fullDataClearBootstrap';
 import { useFullDataClearInteractionGate } from './hooks/useFullDataClearInteractionGate';
 import DesktopQuitPrompt from './components/layout/DesktopQuitPrompt';
@@ -116,16 +113,6 @@ const RuntimeBootstrap: React.FC = () => {
         const response = await configApi.get();
         if (!current()) return;
         const prefs = response.data?.preferences;
-        if (
-          prefs?.language
-          && shouldApplyConfigLanguagePreference({
-            onboardingCompleted: prefs.onboarding_completed,
-          })
-        ) {
-          const lang = prefs.language as LanguageCode;
-          persistLanguageSelection(lang);
-          await previewLanguageSelection(lang);
-        }
         const devicePrefs = readDevicePreferences();
         await syncCloseToTrayPreference(devicePrefs.close_to_tray_enabled);
         await syncOnboardingCompleted(prefs?.onboarding_completed ?? false);
@@ -139,7 +126,6 @@ const RuntimeBootstrap: React.FC = () => {
         syncDesktopNotificationPreferences(devicePrefs);
         await applyStartMinimized();
         void scheduleStartupUpdateCheck({
-          network: response.data?.network,
           onUpdateAvailable: (result) => {
             if (!result.update) {
               return;

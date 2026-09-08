@@ -6,11 +6,6 @@ type InitialLanguageOptions = {
   browserLanguage?: string | null;
 };
 
-type ConfigLanguageOptions = {
-  storedLanguage?: string | null;
-  onboardingCompleted?: boolean | null;
-};
-
 const normalizeStoredLanguage = (language?: string | null): LanguageCode | null => {
   if (language === 'en' || language === 'zh') {
     return language;
@@ -44,10 +39,3 @@ export const resolveInitialLanguage = ({
 export const toI18nLanguage = (language: LanguageCode): 'en' | 'zh-CN' =>
   language === 'zh' ? 'zh-CN' : 'en';
 
-export const shouldApplyConfigLanguagePreference = ({
-  storedLanguage,
-  onboardingCompleted,
-}: ConfigLanguageOptions = {}): boolean => {
-  const stored = storedLanguage === undefined ? readStoredLanguage() : storedLanguage;
-  return normalizeStoredLanguage(stored) !== null || onboardingCompleted === true;
-};

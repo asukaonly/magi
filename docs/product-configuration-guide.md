@@ -66,7 +66,7 @@ Expected behavior:
 
 - first launch uses the browser/system language when no language preference has been saved
 - users can switch language at any time
-- language preference is persisted
+- interface language is persisted on each device and survives center changes; center responses never overwrite it
 - the application re-renders in the chosen language
 - onboarding and settings must remain language-aware
 
@@ -97,7 +97,7 @@ Safety and configuration ownership rules:
 - the client persists onboarding as one versioned progress snapshot; unsupported or malformed snapshots fall back safely, while valid snapshots retain persona drafts, source progress, and first-context work without restoring transient request ownership
 - onboarding configuration has one typed progress owner; model editors receive explicit values and change callbacks, without a second untyped form state or implicit field-binding wrapper
 - the browser-owned progress snapshot contains UI progress, language, and user-authored onboarding drafts, but never LLM configuration or credential fields; the backend owns the complete LLM draft and credentials, persists it when model setup is verified, and returns only masked credentials when an unfinished setup is resumed
-- onboarding writes own only the selected language, LLM configuration, and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
+- changing the welcome-screen language is device-local; an explicit onboarding save sets the center default language alongside LLM configuration and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
 - onboarding completion is server-owned state; ordinary settings saves must preserve it and cannot move a completed installation back into onboarding
 
 The current first-run path is intentionally single-lane and progressive. It should
@@ -227,7 +227,7 @@ Current product expectations:
   parameters, private keys, and high-confidence provider token formats are
   masked before file or console output
 - packaged desktop builds should expose a manual update surface that checks the latest published stable GitHub Release, downloads signed updater artifacts, and prompts for restart after installation
-- packaged desktop builds should also run a delayed background update check shortly after startup and reuse the global network proxy settings when that proxy is enabled
+- packaged desktop builds run a delayed background update check shortly after startup using the device network; they never use the center proxy settings or credentials
 - global network proxy settings should support optional username and password credentials for authenticated HTTP and SOCKS5 proxies
 - system configuration responses treat model keys and proxy passwords as write-only fields: a configured value is returned only as `***`; submitting `***` keeps the stored value, a non-empty replacement rotates it, and an explicit empty value deletes it
 - built-in outbound request tools, including web search, web fetch, weather, and shell subprocess networking, should use the global network proxy only when it is enabled; disabled proxy settings must not imply the default `127.0.0.1:7890` endpoint

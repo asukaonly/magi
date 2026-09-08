@@ -171,7 +171,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [installableLoading, setInstallableLoading] = useState(true);
   const [installableError, setInstallableError] = useState<Error | null>(null);
   const installablePreloadStartedRef = useRef(false);
-  const lastPersistedLanguageRef = useRef<LanguageCode | null>(null);
   const lastPersistedDraftFingerprintRef = useRef(
     JSON.stringify({
       language: initialConfig.preferences.language,
@@ -219,20 +218,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     };
   }, []);
 
-  const persistOnboardingLanguagePreference = useCallback(
-    (language: LanguageCode) => {
-      if (lastPersistedLanguageRef.current === language) {
-        return;
-      }
-      lastPersistedLanguageRef.current = language;
-      void configApi.updateLanguagePreference(language).catch((error) => {
-        lastPersistedLanguageRef.current = null;
-        console.warn("Failed to persist onboarding language preference", error);
-      });
-    },
-    [],
-  );
-
   useEffect(() => {
     const formLanguage = normalizeLanguageCode(
       onboardingProgress.values.preferences?.language,
@@ -246,7 +231,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     localStorage.setItem("magi_language", formLanguage);
     document.documentElement.lang = configuredLanguage;
     setRenderLanguage(configuredLanguage);
-    persistOnboardingLanguagePreference(formLanguage);
 
     if ((i18n.resolvedLanguage || i18n.language) !== configuredLanguage) {
       void i18n.changeLanguage(configuredLanguage);
@@ -254,7 +238,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   }, [
     i18n,
     onboardingProgress.values.preferences?.language,
-    persistOnboardingLanguagePreference,
   ]);
 
   // Linear sequence: Welcome → LLM Setup → Persona Preview → First Context → Complete
@@ -663,7 +646,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     const mapped = toI18nLanguage(lang);
     document.documentElement.lang = mapped;
     setRenderLanguage(mapped);
-    persistOnboardingLanguagePreference(lang);
     void i18n.changeLanguage(mapped);
   };
 

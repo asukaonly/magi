@@ -4,10 +4,8 @@ import { Download, RefreshCcw, RotateCcw } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Update } from '@tauri-apps/plugin-updater';
 
-import type { NetworkProxyConfig } from '@/api/modules/config';
 import { Button } from '@/components/ui/button';
 import {
-  buildUpdaterProxyUrl,
   checkForAppUpdate,
   DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
   getCurrentAppVersion,
@@ -33,10 +31,6 @@ async function restartBackendAfterInstallFailure(): Promise<void> {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-interface DesktopUpdateSectionProps {
-  networkConfig?: NetworkProxyConfig | null;
 }
 
 function formatReleaseDate(value: string | undefined): string | null {
@@ -66,7 +60,7 @@ function serializeUpdaterError(error: unknown): Record<string, unknown> {
   };
 }
 
-export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProps) {
+export function DesktopUpdateSection() {
   const { t } = useTranslation('app');
   const desktopRuntime = isUpdaterRuntimeAvailable();
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
@@ -123,10 +117,8 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
       return;
     }
 
-    const proxy = buildUpdaterProxyUrl(networkConfig);
     console.info('[updater] manual update check requested from settings', {
       currentVersion,
-      proxy: proxy ?? null,
       timeoutMs: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
     });
 
@@ -137,7 +129,6 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
 
     try {
       const result = await checkForAppUpdate({
-        proxy,
         timeoutMs: DEFAULT_UPDATE_CHECK_TIMEOUT_MS,
       });
       setCurrentVersion(result.currentVersion);
@@ -153,8 +144,7 @@ export function DesktopUpdateSection({ networkConfig }: DesktopUpdateSectionProp
     } catch (error: unknown) {
       console.error('[updater] manual update check failed in settings', {
         currentVersion,
-        proxy: proxy ?? null,
-        error: serializeUpdaterError(error),
+          error: serializeUpdaterError(error),
       });
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.checkFailed', { message }));

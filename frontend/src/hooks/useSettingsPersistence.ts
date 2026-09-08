@@ -210,6 +210,7 @@ export function useSettingsPersistence({
 
       if (configDirty) {
         writeDevicePreferences(draftConfig.preferences);
+        persistedConfig.preferences.language = draftConfig.preferences.language;
         // The response contains current device values; apply the submitted snapshot.
         for (const key of [
           'close_to_tray_enabled', 'desktop_notifications_enabled',

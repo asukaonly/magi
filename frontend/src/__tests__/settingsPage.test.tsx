@@ -865,9 +865,9 @@ describe('settings page draft saving', () => {
     const user = userEvent.setup();
     vi.mocked(configApi.update).mockResolvedValueOnce({ success: false, message: 'Rejected' });
     render(<SettingsPage />);
-    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
-    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
-    await user.click(await screen.findByRole('button', { name: 'language.en' }));
+    pickDirectoryMock.mockResolvedValue('/center/workspace');
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.actions.chooseDirectory' }));
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
     expect(screen.getByText('settings.pendingChanges')).toBeInTheDocument();
@@ -878,7 +878,7 @@ describe('settings page draft saving', () => {
     await waitFor(() => expect(screen.queryByText('settings.pendingChanges')).not.toBeInTheDocument());
   });
 
-  it('keeps regular config changes local until save', async () => {
+  it('saves interface language on the device without center writes', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
@@ -891,13 +891,10 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
-    await waitFor(() =>
-      expect(configApi.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          preferences: expect.objectContaining({ language: 'en' }),
-        })
-      )
-    );
+    await waitFor(() => expect(changeLanguageMock).toHaveBeenCalledWith('en'));
+    expect(document.documentElement.lang).toBe('en');
+    expect(configApi.update).not.toHaveBeenCalled();
+    expect(configApi.embeddingPreflight).not.toHaveBeenCalled();
   });
 
   it('does not apply interface language before save', async () => {
@@ -942,9 +939,9 @@ describe('settings page draft saving', () => {
 
     render(<SettingsPage />);
 
-    await screen.findByRole('button', { name: 'settings.tabs.preferences' });
-    await user.click(screen.getByRole('button', { name: 'settings.fields.language' }));
-    await user.click(await screen.findByRole('button', { name: 'language.en' }));
+    pickDirectoryMock.mockResolvedValue('/center/workspace');
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.actions.chooseDirectory' }));
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -965,7 +962,7 @@ describe('settings page draft saving', () => {
     await waitFor(() =>
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          preferences: expect.objectContaining({ language: 'en' }),
+          preferences: expect.objectContaining({ default_chat_workspace_path: '/center/workspace' }),
         })
       )
     );
