@@ -578,3 +578,60 @@ async def test_full_clear_boundary_reports_unavailable_archive_target(
 
     assert failure.value.code == "archive_target_invalid"
     assert failure.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_restore_accepts_configuration_only_startup_and_defers_indexing(monkeypatch, tmp_path: Path) -> None:
+    from magi.bootstrap import runtime_startup_state
+
+    service, operations, events = _wire_restore(monkeypatch, tmp_path)
+    def unavailable():
+        raise RuntimeError('unified_memory binding is not initialized')
+    monkeypatch.setattr(service_module, 'get_unified_memory', unavailable)
+    monkeypatch.setattr(runtime_startup_state, 'get_runtime_startup_snapshot', lambda: SimpleNamespace(startup_state='deferred'))
+    await service._run_restore(operation_id='restore-op', candidate_id='candidate-id')
+    assert operations.failed is None
+    assert operations.succeeded['index_rebuild_status'] == 'deferred'
+    assert 'rebuild.start' not in events
+    assert events.index('runtime.initialize') < events.index('commit') < events.index('succeed')
+
+
+def test_missing_memory_binding_is_not_accepted_as_a_ready_runtime(monkeypatch) -> None:
+    from magi.bootstrap import runtime_startup_state
+
+    def unavailable():
+        raise RuntimeError('broken binding')
+    monkeypatch.setattr(service_module, 'get_unified_memory', unavailable)
+    monkeypatch.setattr(runtime_startup_state, 'get_runtime_startup_snapshot', lambda: SimpleNamespace(startup_state='ready'))
+    with pytest.raises(RuntimeError, match='broken binding'):
+        service_module._validated_replacement_memory()
+
+
+@pytest.mark.asyncio
+async def test_committed_restore_rebuild_resumes_after_worker_replacement_and_newer_export(monkeypatch, tmp_path: Path) -> None:
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+    from magi.memory.embedding import vector_admin
+
+    paths = RuntimePaths(tmp_path / 'runtime')
+    original = MemoryPortabilityService(runtime_paths=paths)
+    async def committed(operation_id: str) -> None:
+        original.operations.succeed(operation_id, index_rebuild_status='running')
+    restored = await original.operations.start(kind='restore', restore_candidate_id=str(uuid4()), runner=committed)
+    await _wait_for_operation(original, restored.operation_id)
+    async def exported(operation_id: str) -> None:
+        original.operations.succeed(operation_id)
+    newer = await original.operations.start(kind='export', runner=exported)
+    await _wait_for_operation(original, newer.operation_id)
+    replacement = MemoryPortabilityService(runtime_paths=paths)
+    manager = SimpleNamespace(start_rebuild=AsyncMock(return_value={'job_id': 'resumed', 'status': 'pending'}), get_job=AsyncMock(return_value={'status': 'succeeded'}))
+    memory = object()
+    monkeypatch.setattr(service_module, 'get_unified_memory', lambda: memory)
+    monkeypatch.setattr(vector_admin, 'get_embedding_rebuild_manager', lambda: manager)
+    await replacement.resume_restore_indexing()
+    await replacement._restore_index_task
+    assert replacement.get_operation(restored.operation_id).index_rebuild_status == 'succeeded'
+    assert replacement.get_latest_operation().operation_id == newer.operation_id
+    manager.start_rebuild.assert_awaited_once_with(unified_memory=memory, layers=vector_admin.VECTOR_LAYERS, require_active_coverage=True)
+    await replacement.resume_restore_indexing()
+    manager.start_rebuild.assert_awaited_once()

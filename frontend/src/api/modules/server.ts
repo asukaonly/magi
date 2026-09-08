@@ -3,8 +3,9 @@ import { api, unwrapGatewayPayload } from '../client';
 import { getRuntimeConfig } from '@/runtime/config';
 
 export const maintenanceSchema = z.object({
-  version: z.literal(1), operation_id: z.string().nullable(),
-  phase: z.enum(['idle', 'pending', 'draining', 'clearing', 'failed', 'completed']),
+  version: z.literal(2), kind: z.enum(['clear', 'restore']).nullable(), operation_id: z.string().nullable(),
+  phase: z.enum(['idle', 'admitting', 'pending', 'draining', 'clearing', 'restoring', 'verifying', 'failed', 'completed']),
+  content_epoch: z.string().min(1).max(128),
   data_epoch: z.string().min(1).max(128), result: z.unknown().nullable(), error: z.string().nullable(),
 });
 export type CenterMaintenance = z.infer<typeof maintenanceSchema>;
@@ -22,6 +23,16 @@ export const serverApi = {
   },
   async maintenance(): Promise<CenterMaintenance> {
     return maintenanceSchema.parse(unwrapGatewayPayload(await api.get<unknown>('/server/maintenance')));
+  },
+  async operation(operationId: string): Promise<CenterMaintenance> {
+    const status = maintenanceSchema.parse(unwrapGatewayPayload(await api.get<unknown>(`/server/maintenance/${encodeURIComponent(operationId)}`)));
+    if (status.operation_id !== operationId) throw new Error('Maintenance operation identity changed');
+    return status;
+  },
+  async restore(candidateId: string): Promise<CenterMaintenance> {
+    const status = maintenanceSchema.parse(unwrapGatewayPayload(await api.post<unknown>(`/memory/portability/restores/${encodeURIComponent(candidateId)}/confirm`)));
+    if (status.operation_id !== candidateId || status.kind !== 'restore') throw new Error('Restore operation identity changed');
+    return status;
   },
   async clear(operationId: string): Promise<CenterMaintenance> {
     const status = maintenanceSchema.parse(unwrapGatewayPayload(await api.delete<unknown>('/memory/clear', {

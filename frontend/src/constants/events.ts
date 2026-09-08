@@ -12,6 +12,7 @@ import { advanceBrowserContentGeneration } from '@/lib/browserContentGeneration'
 // ============================================================================
 
 export const APP_EVENTS = {
+  CENTER_MAINTENANCE: 'magi-center-maintenance',
   /** Center snapshots may have changed; subscribers reconcile their own reads. */
   CENTER_STATE_CHANGED: 'magi-center-state-changed',
   /** Dispatched before the durable clear request to retire in-flight writes. */
@@ -107,6 +108,7 @@ export function subscribeToAppEvent(
 // ============================================================================
 
 export const dispatchAppEvent = {
+  centerMaintenance: (kind: 'clear' | 'restore' | null, status: 'idle' | 'running' | 'failed', message: string | null = null) => dispatchCustomAppEvent(APP_EVENTS.CENTER_MAINTENANCE, { kind, status, message }),
   memoryClearStarted: () => {
     advanceBrowserContentGeneration();
     dispatchCustomAppEvent(APP_EVENTS.MEMORY_CLEAR_STARTED);

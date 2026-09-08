@@ -1,3 +1,4 @@
+import { confirmCenterRestore } from '@/hooks/clearAllMemory';
 import { api, apiClient } from '../client';
 import { type LifecycleWire, parseMemoryOperation } from '../lifecycle-contract';
 import { ApiContractError } from '../config-contract';
@@ -64,11 +65,9 @@ export const memoryPortabilityApi = {
   },
 
   async confirmRestore(candidateId: string): Promise<MemoryPortabilityOperation> {
-    const response = await api.post<unknown>(
-      `/memory/portability/restores/${encodeURIComponent(candidateId)}/confirm`,
-      {},
-    );
-    return parseMemoryOperation(response, { kind: 'restore' });
+    await confirmCenterRestore(candidateId);
+    const response = await api.get<unknown>(`/memory/portability/operations/${encodeURIComponent(candidateId)}`);
+    return parseMemoryOperation(response, { kind: 'restore', operationId: candidateId });
   },
 
   async discardRestoreCandidate(candidateId: string): Promise<void> {

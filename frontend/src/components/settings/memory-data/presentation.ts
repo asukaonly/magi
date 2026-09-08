@@ -200,6 +200,7 @@ const PHASE_KEY_ALIASES: Record<string, string> = {
 };
 
 const INDEX_REBUILD_KEY_ALIASES: Record<string, string> = {
+  deferred: 'deferred',
   pending: 'pending',
   running: 'running',
   succeeded: 'succeeded',

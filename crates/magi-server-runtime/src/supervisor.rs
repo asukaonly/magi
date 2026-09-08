@@ -62,13 +62,16 @@ pub async fn run(
             );
     let storage_ready = Arc::clone(&state.storage_ready);
     let events = Arc::clone(&state.events);
-    let maintenance = Arc::new(crate::maintenance::Coordinator::open(
-        &config.data_dir,
-        &auth.server_id,
-        Arc::clone(&storage_ready),
-        Arc::clone(&events),
-        Arc::clone(&security),
-    )?);
+    let maintenance = Arc::new(
+        crate::maintenance::Coordinator::open(
+            &config.data_dir,
+            &auth.server_id,
+            Arc::clone(&storage_ready),
+            Arc::clone(&events),
+            Arc::clone(&security),
+        )?
+        .with_connection(Arc::clone(&connection)),
+    );
     state.maintenance = Some(maintenance.clone());
     let router = api::build_router(state);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port))
@@ -129,11 +132,13 @@ pub async fn run(
             continue;
         }
         let recovery = maintenance.pending();
-        if recovery.is_none() && maintenance.is_active() {
+        let restore = maintenance.pending_restore();
+        let recovering = recovery.is_some() || restore.is_some();
+        if !recovering && maintenance.is_active() {
             tokio::select! { _ = shutdown.changed() => break Ok(()), _ = maintenance.changed.notified() => {} }
             continue;
         }
-        let database_drain = if recovery.is_some() {
+        let database_drain = if recovering {
             maintenance.set_phase("draining", None);
             match tokio::time::timeout(
                 Duration::from_secs(30),
@@ -164,6 +169,7 @@ pub async fn run(
             recovery
                 .as_ref()
                 .map(|marker| marker.transaction_id.as_str()),
+            restore.as_ref().map(|marker| marker.operation_id.as_str()),
         ) {
             Ok(mut worker) => {
                 let mut context = WorkerContext {
@@ -175,8 +181,14 @@ pub async fn run(
                     maintenance: &maintenance,
                     shutdown: &mut shutdown,
                 };
-                let outcome =
-                    run_worker(&mut context, &mut worker, &token, recovery.as_ref()).await;
+                let outcome = run_worker(
+                    &mut context,
+                    &mut worker,
+                    &token,
+                    recovery.as_ref(),
+                    restore.as_ref(),
+                )
+                .await;
                 storage_ready.store(false, Ordering::Release);
                 events.reset("runtime_unavailable");
                 connection.replace(None);
@@ -207,9 +219,19 @@ pub async fn run(
                             Err(error) => maintenance.set_phase("failed", Some(error)),
                         }
                     }
+                    Ok(WorkerExit::RestoreExecuted) => match maintenance.verify_restore().await {
+                        Ok(()) => planned_restart = true,
+                        Err(error) => maintenance.set_phase("failed", Some(error)),
+                    },
+                    Ok(WorkerExit::RestoreVerified(operation)) => {
+                        match maintenance.complete_restore(operation).await {
+                            Ok(()) => planned_restart = true,
+                            Err(error) => maintenance.set_phase("failed", Some(error)),
+                        }
+                    }
                     Ok(WorkerExit::Stopped) => {}
                     Err(error) => {
-                        if recovery.is_some() {
+                        if recovering {
                             maintenance.set_phase("failed", Some(error));
                         } else {
                             eprintln!("Python runtime unavailable: {error}");
@@ -218,7 +240,7 @@ pub async fn run(
                 }
             }
             Err(error) => {
-                if recovery.is_some() {
+                if recovering {
                     maintenance.set_phase("failed", Some(error));
                 } else {
                     eprintln!("Python runtime could not start: {error}");
@@ -236,7 +258,7 @@ pub async fn run(
             attempts = 0;
             continue;
         }
-        if maintenance.pending().is_some() {
+        if maintenance.has_pending() {
             continue;
         }
         if attempts >= config.max_restarts {
@@ -278,6 +300,8 @@ enum WorkerExit {
     Stopped,
     Maintenance,
     Cleared(serde_json::Value),
+    RestoreExecuted,
+    RestoreVerified(serde_json::Value),
 }
 
 struct WorkerContext<'a> {
@@ -295,6 +319,7 @@ async fn run_worker(
     worker: &mut WorkerProcess,
     token: &str,
     recovery: Option<&magi_platform::full_data_clear::PendingFullDataClear>,
+    restore: Option<&crate::maintenance::PendingRestore>,
 ) -> Result<WorkerExit, String> {
     let deadline = Instant::now() + Duration::from_secs(context.config.startup_timeout_secs);
     let mut connected = false;
@@ -302,7 +327,7 @@ async fn run_worker(
         if *context.shutdown.borrow() {
             return Ok(WorkerExit::Stopped);
         }
-        if recovery.is_none() && context.maintenance.is_active() {
+        if recovery.is_none() && restore.is_none() && context.maintenance.has_pending() {
             return Ok(WorkerExit::Maintenance);
         }
         if let Some(status) = worker.child.try_wait().map_err(|e| e.to_string())? {
@@ -335,13 +360,21 @@ async fn run_worker(
                     }
                     return Ok(WorkerExit::Cleared(result["body"].clone()));
                 }
-                if context.maintenance.is_active() {
+                if let Some(restore) = restore {
+                    // Drain notifications while the restricted worker executes, without exposing
+                    // any runtime endpoint or activating a normal worker before journal recovery.
+                    let notifications =
+                        tokio::spawn(async move { while ipc_events.recv().await.is_some() {} });
+                    let result = run_restore_worker(context, &client, restore).await;
+                    notifications.abort();
+                    return result;
+                }
+                if context.maintenance.has_pending() {
                     return Ok(WorkerExit::Maintenance);
                 }
-                if context.maintenance.is_active() {
-                    return Ok(WorkerExit::Maintenance);
+                if !context.maintenance.is_active() {
+                    context.storage_ready.store(true, Ordering::Release);
                 }
-                context.storage_ready.store(true, Ordering::Release);
                 context
                     .events
                     .publish("state.changed", serde_json::json!({"resource":"runtime"}));
@@ -357,7 +390,69 @@ async fn run_worker(
         tokio::select! {
             _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
             _ = tokio::time::sleep(Duration::from_millis(200)) => {},
-            _ = context.maintenance.changed.notified(), if recovery.is_none() => {},
+            _ = context.maintenance.changed.notified(), if recovery.is_none() && restore.is_none() => {},
+        }
+    }
+}
+
+async fn run_restore_worker(
+    context: &mut WorkerContext<'_>,
+    client: &IpcClient,
+    restore: &crate::maintenance::PendingRestore,
+) -> Result<WorkerExit, String> {
+    use crate::maintenance::RestoreStage;
+    let verifying = restore.stage == RestoreStage::Verify;
+    context
+        .maintenance
+        .set_phase(if verifying { "verifying" } else { "restoring" }, None);
+    let path = format!(
+        "/api/memory/portability/operations/{}",
+        restore.operation_id
+    );
+    let deadline = Instant::now() + Duration::from_secs(3600);
+    let mut admission = !verifying;
+    loop {
+        let (method, endpoint) = if admission {
+            (
+                "POST",
+                format!(
+                    "/api/memory/portability/restores/{}/confirm",
+                    restore.operation_id
+                ),
+            )
+        } else {
+            ("GET", path.clone())
+        };
+        let result = tokio::select! {
+            _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
+            result = client.request_with_timeout("api.forward", Some(serde_json::json!({
+                "method":method, "path":endpoint, "query":{}, "headers":{}, "body":null
+            })), Duration::from_secs(30)) => result.map_err(|_| "Restore worker request failed")?,
+        };
+        if !matches!(result["status"].as_u64(), Some(200 | 202))
+            || result["body"]["operation_id"] != restore.operation_id
+            || result["body"]["kind"] != "restore"
+        {
+            return Err("Restore operation could not be reconciled".into());
+        }
+        admission = false;
+        match result["body"]["status"].as_str() {
+            Some("succeeded" | "failed") => {
+                return Ok(if verifying {
+                    WorkerExit::RestoreVerified(result["body"].clone())
+                } else {
+                    WorkerExit::RestoreExecuted
+                })
+            }
+            Some("pending" | "running") if !verifying => {}
+            _ => return Err("Restore worker returned an invalid operation state".into()),
+        }
+        if Instant::now() >= deadline {
+            return Err("Restore worker timed out; recovery is required".into());
+        }
+        tokio::select! {
+            _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {},
         }
     }
 }
@@ -417,6 +512,7 @@ impl WorkerProcess {
         socket: &str,
         token: &str,
         clear_id: Option<&str>,
+        restore_id: Option<&str>,
     ) -> Result<Self, String> {
         let log_path = config.data_dir.join("logs/backend.log");
         let log = OpenOptions::new()
@@ -437,6 +533,7 @@ impl WorkerProcess {
             .env_remove("MAGI_DESKTOP_SESSION_TOKEN")
             .env_remove("MAGI_EXTERNAL_BACKEND_SESSION_TOKEN")
             .env_remove("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID")
+            .env_remove("MAGI_MEMORY_RESTORE_OPERATION_ID")
             .stdin(Stdio::piped())
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
@@ -458,6 +555,9 @@ impl WorkerProcess {
         command.creation_flags(0x08000000);
         if let Some(clear_id) = clear_id {
             command.env("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID", clear_id);
+        }
+        if let Some(restore_id) = restore_id {
+            command.env("MAGI_MEMORY_RESTORE_OPERATION_ID", restore_id);
         }
         let child = command
             .spawn()

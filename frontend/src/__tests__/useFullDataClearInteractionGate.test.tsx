@@ -16,6 +16,7 @@ describe('full data clear interaction gate', () => {
     act(() => dispatchAppEvent.memoryClearFailed('desktop marker remains pending'));
     expect(result.current.gate).toEqual({
       status: 'failed',
+      kind: 'clear',
       message: 'desktop marker remains pending',
     });
 

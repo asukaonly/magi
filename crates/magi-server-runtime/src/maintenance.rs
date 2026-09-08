@@ -1,4 +1,4 @@
-//! Durable center-owned full clear, independent of a connected desktop.
+//! Durable center maintenance, independent of a connected desktop.
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -21,6 +21,9 @@ use tokio::sync::Notify;
 pub struct Coordinator {
     marker: Arc<FullDataClearRuntime>,
     operations: PathBuf,
+    restore_marker: PathBuf,
+    restore_pending: Arc<Mutex<Option<PendingRestore>>>,
+    connection: Arc<magi_gateway::ipc::RuntimeConnection>,
     state: Arc<Mutex<MaintenanceStatus>>,
     pending: Arc<Mutex<Option<PendingFullDataClear>>>,
     command: Arc<tokio::sync::Mutex<()>>,
@@ -45,10 +48,12 @@ impl Coordinator {
         fs::create_dir_all(&operations).map_err(|e| e.to_string())?;
         let mut state =
             read_status(&operations.join("latest.json"))?.unwrap_or(MaintenanceStatus {
-                version: 1,
+                version: 2,
                 operation_id: None,
+                kind: None,
                 phase: "idle".into(),
                 data_epoch: initial_epoch.into(),
+                content_epoch: initial_epoch.into(),
                 result: None,
                 error: None,
             });
@@ -63,6 +68,29 @@ impl Coordinator {
                 pending = None;
             } else {
                 state.operation_id = Some(existing.transaction_id.clone());
+                state.kind = Some("clear".into());
+                state.phase = "pending".into();
+                state.result = None;
+                state.error = None;
+                database_gate::global().close();
+            }
+        }
+        let restore_marker = root.join("service/memory-restore.pending.json");
+        let mut restore_pending = read_restore_marker(&restore_marker)?;
+        if pending.is_some() && restore_pending.is_some() {
+            return Err("Conflicting maintenance recovery markers".into());
+        }
+        if let Some(restore) = &restore_pending {
+            if let Some(completed) =
+                read_status(&operations.join(format!("{}.json", restore.operation_id)))?
+            {
+                write_status(&operations.join("latest.json"), &completed)?;
+                remove_marker(&restore_marker)?;
+                state = completed;
+                restore_pending = None;
+            } else {
+                state.operation_id = Some(restore.operation_id.clone());
+                state.kind = Some("restore".into());
                 state.phase = "pending".into();
                 state.result = None;
                 state.error = None;
@@ -72,6 +100,9 @@ impl Coordinator {
         Ok(Self {
             marker,
             operations,
+            restore_marker,
+            restore_pending: Arc::new(Mutex::new(restore_pending)),
+            connection: Arc::new(magi_gateway::ipc::RuntimeConnection::default()),
             state: Arc::new(Mutex::new(state)),
             pending: Arc::new(Mutex::new(pending)),
             command: Arc::new(tokio::sync::Mutex::new(())),
@@ -85,7 +116,13 @@ impl Coordinator {
     pub fn is_active(&self) -> bool {
         matches!(
             self.status().phase.as_str(),
-            "pending" | "draining" | "clearing" | "failed"
+            "admitting"
+                | "pending"
+                | "draining"
+                | "clearing"
+                | "restoring"
+                | "verifying"
+                | "failed"
         )
     }
 
@@ -108,12 +145,15 @@ impl Coordinator {
     }
 
     pub async fn complete(&self, operation_id: &str, result: Value) -> Result<(), String> {
+        let _command = self.command.lock().await;
         let result = clear_receipt(&result)?;
         let completed = MaintenanceStatus {
-            version: 1,
+            version: 2,
             operation_id: Some(operation_id.into()),
+            kind: Some("clear".into()),
             phase: "completed".into(),
             data_epoch: operation_id.into(),
+            content_epoch: operation_id.into(),
             result: Some(result),
             error: None,
         };
@@ -146,12 +186,20 @@ impl Coordinator {
             return Err("Clear operation identifier is invalid".into());
         }
         let _command = self.command.lock().await;
+        if self.pending_restore().is_some()
+            || (self.is_active() && self.status().kind.as_deref() == Some("restore"))
+        {
+            return Err("Another maintenance operation is pending".into());
+        }
         let saved_path = self.operations.join(format!("{operation_id}.json"));
         if let Some(completed) = tokio::task::spawn_blocking(move || read_status(&saved_path))
             .await
             .map_err(|e| e.to_string())??
         {
-            return Ok(completed);
+            if completed.kind.as_deref() != Some("clear") {
+                return Err("Maintenance identity is already in use".into());
+            }
+            return Ok(self.with_current_epochs(completed));
         }
         if let Some(pending) = self.pending() {
             if pending.transaction_id != operation_id {
@@ -170,6 +218,7 @@ impl Coordinator {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             state.operation_id = Some(operation_id.clone());
+            state.kind = Some("clear".into());
             state.phase = "pending".into();
             state.result = None;
             state.error = None;
@@ -229,6 +278,42 @@ impl MaintenanceControl for Coordinator {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    fn operation_status(
+        &self,
+        operation_id: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<Option<MaintenanceStatus>, String>> + Send + '_,
+        >,
+    > {
+        Box::pin(async move {
+            validate_operation_id(&operation_id)?;
+            let current = self.status();
+            if current.operation_id.as_deref() == Some(&operation_id) {
+                return Ok(Some(current));
+            }
+            let path = self.operations.join(format!("{operation_id}.json"));
+            let saved = tokio::task::spawn_blocking(move || read_status(&path))
+                .await
+                .map_err(|e| e.to_string())??;
+            Ok(saved.map(|status| self.with_current_epochs(status)))
+        })
+    }
+
+    fn begin_restore(
+        &self,
+        operation_id: String,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<MaintenanceStatus, String>> + Send + '_>,
+    > {
+        let owner = self.clone();
+        Box::pin(async move {
+            tokio::spawn(async move { owner.admit_restore(operation_id).await })
+                .await
+                .map_err(|_| "Maintenance admission task failed".to_owned())?
+        })
+    }
+
     fn begin_clear(
         &self,
         operation_id: String,
@@ -243,6 +328,254 @@ impl MaintenanceControl for Coordinator {
                 .map_err(|_| "Maintenance admission task failed".to_owned())?
         })
     }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PendingRestore {
+    version: u8,
+    pub operation_id: String,
+    pub stage: RestoreStage,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RestoreStage {
+    Run,
+    Verify,
+}
+
+impl Coordinator {
+    pub fn with_connection(
+        mut self,
+        connection: Arc<magi_gateway::ipc::RuntimeConnection>,
+    ) -> Self {
+        self.connection = connection;
+        self
+    }
+
+    pub fn pending_restore(&self) -> Option<PendingRestore> {
+        self.restore_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.pending().is_some() || self.pending_restore().is_some()
+    }
+
+    fn with_current_epochs(&self, mut saved: MaintenanceStatus) -> MaintenanceStatus {
+        let current = self.status();
+        saved.data_epoch = current.data_epoch;
+        saved.content_epoch = current.content_epoch;
+        saved
+    }
+
+    async fn admit_restore(&self, operation_id: String) -> Result<MaintenanceStatus, String> {
+        validate_restore_id(&operation_id)?;
+        let _command = self.command.lock().await;
+        if self.pending().is_some() {
+            return Err("Another maintenance operation is pending".into());
+        }
+        let saved_path = self.operations.join(format!("{operation_id}.json"));
+        if let Some(saved) = tokio::task::spawn_blocking(move || read_status(&saved_path))
+            .await
+            .map_err(|e| e.to_string())??
+        {
+            if saved.kind.as_deref() != Some("restore") {
+                return Err("Maintenance identity is already in use".into());
+            }
+            return Ok(self.with_current_epochs(saved));
+        }
+        if let Some(pending) = self.pending_restore() {
+            if pending.operation_id != operation_id {
+                return Err("Another maintenance operation is pending".into());
+            }
+            if self.status().phase == "failed" {
+                self.set_phase("pending", None);
+                self.changed.notify_one();
+            }
+            return Ok(self.status());
+        }
+        if self.is_active() {
+            return Err("Maintenance recovery is required".into());
+        }
+        let client = self
+            .connection
+            .current()
+            .map_err(|_| "Python runtime is unavailable")?;
+        let previous = self.status();
+        let was_ready = self.ready.swap(false, Ordering::AcqRel);
+        database_gate::global().close();
+        self.security.invalidate_resource_tickets();
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.operation_id = Some(operation_id.clone());
+            state.kind = Some("restore".into());
+            state.phase = "admitting".into();
+            state.result = None;
+            state.error = None;
+        }
+        // Close admission before checking background jobs; the normal worker stays alive
+        // until a durable marker is published, so this check cannot stop an active export.
+        let preflight = async {
+            let _drain = tokio::time::timeout(std::time::Duration::from_secs(30), database_gate::global().drain()).await.map_err(|_| "Requests did not drain")??;
+            let response = client.request_with_timeout("api.forward", Some(serde_json::json!({
+                "method":"GET", "path":"/api/memory/portability/operations/active", "query":{}, "headers":{}, "body":null
+            })), std::time::Duration::from_secs(10)).await.map_err(|_| "Restore admission check failed")?;
+            if response["status"] != 200 || !response.get("body").is_some_and(Value::is_null) {
+                return Err("A memory data operation is active or unavailable".to_owned());
+            }
+            Ok::<(), String>(())
+        }.await;
+        if let Err(error) = preflight {
+            *self.state.lock().unwrap_or_else(|e| e.into_inner()) = previous;
+            database_gate::global().reopen();
+            self.ready.store(
+                was_ready && self.connection.current().is_ok(),
+                Ordering::Release,
+            );
+            return Err(error);
+        }
+        let marker = PendingRestore {
+            version: 1,
+            operation_id,
+            stage: RestoreStage::Run,
+        };
+        let path = self.restore_marker.clone();
+        let saved = marker.clone();
+        let published = tokio::task::spawn_blocking(move || write_status(&path, &saved))
+            .await
+            .map_err(|_| "Restore marker publication failed".to_owned())
+            .and_then(|result| result);
+        if let Err(error) = published {
+            // An uncertain fsync outcome must remain closed until startup can inspect it.
+            *self
+                .restore_pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = read_restore_marker(&self.restore_marker)?;
+            self.set_phase("failed", Some(error.clone()));
+            self.changed.notify_one();
+            return Err(error);
+        }
+        *self
+            .restore_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(marker);
+        self.set_phase("pending", None);
+        self.events.reset("maintenance_started");
+        self.changed.notify_one();
+        Ok(self.status())
+    }
+
+    pub async fn verify_restore(&self) -> Result<(), String> {
+        let _command = self.command.lock().await;
+        let mut marker = self.pending_restore().ok_or("Restore owner is missing")?;
+        marker.stage = RestoreStage::Verify;
+        let path = self.restore_marker.clone();
+        let saved = marker.clone();
+        tokio::task::spawn_blocking(move || write_status(&path, &saved))
+            .await
+            .map_err(|e| e.to_string())??;
+        *self
+            .restore_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(marker);
+        self.set_phase("verifying", None);
+        Ok(())
+    }
+
+    pub async fn complete_restore(&self, operation: Value) -> Result<(), String> {
+        let _command = self.command.lock().await;
+        let marker = self.pending_restore().ok_or("Restore owner is missing")?;
+        if marker.stage != RestoreStage::Verify
+            || operation["operation_id"] != marker.operation_id
+            || operation["kind"] != "restore"
+            || !matches!(operation["status"].as_str(), Some("succeeded" | "failed"))
+        {
+            return Err("Restore completion is not verified".into());
+        }
+        let completed = MaintenanceStatus {
+            version: 2,
+            operation_id: Some(marker.operation_id.clone()),
+            kind: Some("restore".into()),
+            phase: "completed".into(),
+            data_epoch: marker.operation_id.clone(),
+            content_epoch: self.status().content_epoch,
+            result: Some(
+                serde_json::json!({"success":operation["status"] == "succeeded", "rollback_performed":operation["rollback_performed"] == true}),
+            ),
+            error: None,
+        };
+        let saved = completed.clone();
+        let path = self
+            .operations
+            .join(format!("{}.json", marker.operation_id));
+        let latest = self.operations.join("latest.json");
+        let marker_path = self.restore_marker.clone();
+        tokio::task::spawn_blocking(move || {
+            write_status(&path, &saved)?;
+            write_status(&latest, &saved)?;
+            remove_marker(&marker_path)
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        *self
+            .restore_pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = completed;
+        self.events.reset("memory_restored");
+        Ok(())
+    }
+}
+
+fn validate_operation_id(id: &str) -> Result<(), String> {
+    if !(16..=128).contains(&id.len())
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err("Maintenance operation identifier is invalid".into());
+    }
+    Ok(())
+}
+
+fn validate_restore_id(id: &str) -> Result<(), String> {
+    let parsed = uuid::Uuid::parse_str(id).map_err(|_| "Restore identity is invalid")?;
+    if parsed.get_version_num() != 4 || parsed.to_string() != id {
+        return Err("Restore identity is invalid".into());
+    }
+    Ok(())
+}
+
+fn read_restore_marker(path: &Path) -> Result<Option<PendingRestore>, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 4096 {
+        return Err("Restore marker is invalid".into());
+    }
+    let marker: PendingRestore =
+        serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
+            .map_err(|_| "Restore marker is invalid")?;
+    if marker.version != 1 {
+        return Err("Restore marker version is invalid".into());
+    }
+    validate_restore_id(&marker.operation_id)?;
+    Ok(Some(marker))
+}
+
+fn remove_marker(path: &Path) -> Result<(), String> {
+    fs::remove_file(path).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    fs::File::open(path.parent().ok_or("Maintenance directory is missing")?)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Persist counts only; completion records survive deletion of private user content.
@@ -283,13 +616,24 @@ fn read_status(path: &Path) -> Result<Option<MaintenanceStatus>, String> {
     let status: MaintenanceStatus =
         serde_json::from_slice(&fs::read(path).map_err(|e| e.to_string())?)
             .map_err(|_| "Maintenance record is invalid")?;
-    if status.version != 1 || status.phase != "completed" || status.operation_id.is_none() {
+    if status.version != 2
+        || status.phase != "completed"
+        || status.operation_id.is_none()
+        || !matches!(status.kind.as_deref(), Some("clear" | "restore"))
+        || status.content_epoch.is_empty()
+        || status.data_epoch.is_empty()
+    {
         return Err("Maintenance completion record is invalid".into());
+    }
+    if path.file_stem().and_then(|name| name.to_str()) != Some("latest")
+        && path.file_stem().and_then(|name| name.to_str()) != status.operation_id.as_deref()
+    {
+        return Err("Maintenance record identity is invalid".into());
     }
     Ok(Some(status))
 }
 
-fn write_status(path: &Path, status: &MaintenanceStatus) -> Result<(), String> {
+fn write_status(path: &Path, status: &impl serde::Serialize) -> Result<(), String> {
     let temporary = path.with_extension("tmp");
     let mut options = OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -325,6 +669,101 @@ mod tests {
                 .map(|area| (area.into(), serde_json::json!({"cleared":true,"count":0})))
                 .collect();
         serde_json::json!({"success":true,"results":results,"warnings":[]})
+    }
+
+    #[tokio::test]
+    async fn restore_recovery_preserves_content_epoch_and_historical_receipts_use_current_epochs() {
+        let root =
+            std::env::temp_dir().join(format!("magi-restore-maintenance-{}", uuid::Uuid::new_v4()));
+        let security = Arc::new(magi_gateway::api::security::GatewaySecurity::new("owner"));
+        let open = || {
+            Coordinator::open(
+                &root,
+                "original",
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(EventHub::new("center".into())),
+                Arc::clone(&security),
+            )
+            .unwrap()
+        };
+        let coordinator = open();
+        let clear_id = "earlier-clear-operation";
+        coordinator.begin_clear(clear_id.into()).await.unwrap();
+        coordinator
+            .complete(clear_id, cleared_response())
+            .await
+            .unwrap();
+        let restore_id = uuid::Uuid::new_v4().to_string();
+        let marker = PendingRestore {
+            version: 1,
+            operation_id: restore_id.clone(),
+            stage: RestoreStage::Run,
+        };
+        write_status(&coordinator.restore_marker, &marker).unwrap();
+        drop(coordinator);
+        let coordinator = open();
+        assert_eq!(coordinator.status().kind.as_deref(), Some("restore"));
+        assert_eq!(coordinator.status().content_epoch, clear_id);
+        assert!(coordinator
+            .begin_clear("different-clear-operation".into())
+            .await
+            .is_err());
+        let operation = serde_json::json!({"operation_id":restore_id,"kind":"restore","status":"succeeded","private_path":"private"});
+        assert!(coordinator
+            .complete_restore(operation.clone())
+            .await
+            .is_err());
+        coordinator.verify_restore().await.unwrap();
+        drop(coordinator);
+        let coordinator = open();
+        assert!(matches!(
+            coordinator.pending_restore().unwrap().stage,
+            RestoreStage::Verify
+        ));
+        coordinator.complete_restore(operation).await.unwrap();
+        let old = coordinator
+            .operation_status(clear_id.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.operation_id.as_deref(), Some(clear_id));
+        assert_eq!(old.data_epoch, restore_id);
+        assert_eq!(old.content_epoch, clear_id);
+        assert_eq!(
+            coordinator
+                .begin_clear(clear_id.into())
+                .await
+                .unwrap()
+                .data_epoch,
+            restore_id
+        );
+        assert!(coordinator
+            .status()
+            .result
+            .unwrap()
+            .get("private_path")
+            .is_none());
+        assert!(!coordinator.has_pending());
+        // Reproduce interruption after durable completion and before marker unlink.
+        write_status(&coordinator.restore_marker, &marker).unwrap();
+        drop(coordinator);
+        let coordinator = open();
+        assert!(!coordinator.has_pending());
+        assert_eq!(coordinator.status().data_epoch, restore_id);
+        assert_eq!(
+            coordinator
+                .begin_restore(restore_id.clone())
+                .await
+                .unwrap()
+                .phase,
+            "completed"
+        );
+        assert!(coordinator
+            .operation_status("../../private".into())
+            .await
+            .is_err());
+        database_gate::global().reopen();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

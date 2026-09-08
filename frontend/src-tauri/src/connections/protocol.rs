@@ -34,6 +34,7 @@ pub struct ServerInfo {
 #[derive(Deserialize)]
 pub struct MaintenanceInfo {
     pub data_epoch: String,
+    pub content_epoch: String,
     pub phase: String,
 }
 

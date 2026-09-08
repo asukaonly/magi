@@ -11,12 +11,14 @@ export interface RuntimeConfig {
   profileId?: string;
   mode?: 'local' | 'remote';
   dataEpoch?: string;
+  contentEpoch?: string;
   expiresAtMs?: number;
 }
 
 const startSchema = z.object({
   ok: z.literal(true), baseUrl: z.string().url(), sessionToken: z.string().min(32).max(256),
   serverId: z.string().uuid(), profileId: z.string().min(1), mode: z.enum(['local', 'remote']),
+  contentEpoch: z.string().min(1).max(128),
   dataEpoch: z.string().min(1).max(128), expiresAtMs: z.number().int().nullable(),
   apiPid: z.number().int().nullable(), runtimeWorkerPid: z.number().int().nullable(),
 });
@@ -33,7 +35,7 @@ export interface BackendStartupDiagnostics {
   logExcerpt?: string;
   logReadError?: string;
 }
-export type StartupPhase = 'spawning' | 'waiting_for_worker' | 'connecting' | 'recovering_data_clear' | 'ready' | 'error';
+export type StartupPhase = 'spawning' | 'waiting_for_worker' | 'connecting' | 'recovering_maintenance' | 'ready' | 'error';
 export type StartupProgressCallback = (phase: StartupPhase) => void;
 
 let runtimeConfig: RuntimeConfig = { isDesktop: true, apiBaseUrl: 'http://127.0.0.1:8000/api' };
@@ -93,7 +95,7 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
     runtimeConfig = {
       isDesktop: true, apiBaseUrl: result.baseUrl, sessionToken: result.sessionToken,
       serverId: result.serverId, profileId: result.profileId, mode: result.mode,
-      dataEpoch: result.dataEpoch, expiresAtMs: result.expiresAtMs ?? undefined,
+      contentEpoch: result.contentEpoch, dataEpoch: result.dataEpoch, expiresAtMs: result.expiresAtMs ?? undefined,
       apiPid: result.apiPid ?? undefined, runtimeWorkerPid: result.runtimeWorkerPid ?? undefined,
     };
     progress('waiting_for_worker');
@@ -103,7 +105,7 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
       assertRuntimeGeneration(owner);
       if (poll.ready) {
         initialized = true;
-        progress(poll.phase === 'recovering_data_clear' ? 'recovering_data_clear' : 'ready');
+        progress(poll.phase === 'recovering_maintenance' ? 'recovering_maintenance' : 'ready');
         return runtimeConfig;
       }
       await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
@@ -145,4 +147,4 @@ export function resetRuntimeInitialization(): void {
 }
 export function getRuntimeConfig(): RuntimeConfig { return runtimeConfig; }
 
-export function setRuntimeDataEpoch(epoch: string): void { runtimeConfig = { ...runtimeConfig, dataEpoch: epoch }; }
+export function setRuntimeEpochs(dataEpoch: string, contentEpoch: string): void { runtimeConfig = { ...runtimeConfig, dataEpoch, contentEpoch }; }

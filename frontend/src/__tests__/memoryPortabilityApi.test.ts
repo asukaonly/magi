@@ -3,6 +3,9 @@ import { api, apiClient } from '@/api/client';
 import { memoryPortabilityApi, type MemoryPortabilityOperation } from '@/api/modules/memoryPortability';
 import examples from '../../../contracts/api/frontend-lifecycle-examples.json';
 
+const { confirmCenterRestoreMock } = vi.hoisted(() => ({ confirmCenterRestoreMock: vi.fn() }));
+vi.mock('@/hooks/clearAllMemory', () => ({ confirmCenterRestore: confirmCenterRestoreMock }));
+
 const operation: MemoryPortabilityOperation = { ...examples.operation, kind: 'backup', status: 'pending' };
 
 describe('memoryPortabilityApi contract', () => {
@@ -33,11 +36,13 @@ describe('memoryPortabilityApi contract', () => {
     const deleteSpy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ status: 204 });
     expect((await memoryPortabilityApi.inspectRestore({ resourceId: '/tmp/private.magibackup' })).kind).toBe('inspect');
     expect((await memoryPortabilityApi.inspectRestore({ resourceId: '/tmp/private.magibackup', password: 'secret' })).operation_id).toBe('inspection-2');
+    vi.spyOn(api, 'get').mockResolvedValueOnce({ ...operation, kind: 'restore', operation_id: 'candidate/with slash' } as never);
     await memoryPortabilityApi.confirmRestore('candidate/with slash');
     await memoryPortabilityApi.discardRestoreCandidate('candidate/with slash');
     expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/restores/inspect', { resource_id: '/tmp/private.magibackup' });
     expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/restores/inspect', { resource_id: '/tmp/private.magibackup', password: 'secret' });
-    expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/restores/candidate%2Fwith%20slash/confirm', {});
+    expect(confirmCenterRestoreMock).toHaveBeenCalledWith('candidate/with slash');
+    expect(api.get).toHaveBeenCalledWith('/memory/portability/operations/candidate%2Fwith%20slash');
     expect(deleteSpy).toHaveBeenCalledWith('/memory/portability/restores/candidate%2Fwith%20slash');
     deleteSpy.mockResolvedValue({ status: 200, data: { success: false } });
     await expect(memoryPortabilityApi.discardRestoreCandidate('candidate/with slash')).rejects.toThrow('not confirmed');

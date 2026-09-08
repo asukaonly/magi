@@ -256,6 +256,15 @@ class MemoryPortabilityOperationStore:
             )
             return operation.model_copy(deep=True)
 
+    def latest_committed_restore(self) -> MemoryPortabilityOperation | None:
+        """Return the latest committed replacement, independently of newer exports."""
+        self._ensure_loaded()
+        with self._state_lock:
+            candidates = [operation for operation in self._operations.values() if operation.kind == "restore" and operation.status == "succeeded"]
+            if not candidates:
+                return None
+            return max(candidates, key=lambda item: (item.created_at, item.operation_id)).model_copy(deep=True)
+
     def resolve_restore_after_startup(
         self,
         operation_id: str,
@@ -306,6 +315,20 @@ class MemoryPortabilityOperationStore:
                 )
             self._operations[operation.operation_id] = updated
             self._prune_locked()
+
+    def update_restore_index_status(self, operation_id: str, status: str) -> None:
+        """Track indexing without reopening a committed restore transaction."""
+        if status not in {"pending", "running", "succeeded", "failed", "deferred"}:
+            raise ValueError("Restore index status is invalid")
+        self._ensure_loaded()
+        with self._state_lock:
+            operation = self._require_locked(operation_id)
+            if operation.kind != "restore" or operation.status != "succeeded":
+                raise ValueError("Restore indexing requires a committed operation")
+            updated = operation.model_copy(deep=True)
+            updated.index_rebuild_status = status
+            self._persist_locked(updated)
+            self._operations[operation_id] = updated
 
     def update(
         self,

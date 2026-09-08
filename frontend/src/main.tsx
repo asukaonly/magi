@@ -1,8 +1,9 @@
+import { CenterMaintenanceBoundary } from './components/connections/CenterMaintenanceBoundary';
 import { CenterPathPickerHost } from './components/files/CenterPathPickerHost';
 import { readDevicePreferences } from './runtime/device-preferences';
 import { APP_EVENTS } from './constants/events';
 import { setCenterStorageScope } from './runtime/center-storage';
-import { recoverPendingFullDataClear } from './hooks/clearAllMemory';
+import { recoverPendingCenterMaintenance } from './hooks/clearAllMemory';
 import { ConnectionPicker } from './components/connections/ConnectionPicker';
 import { listConnectionProfiles } from './runtime/connections';
 /**
@@ -30,7 +31,7 @@ import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
 import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
 import { shouldApplyConfigLanguagePreference } from './utils/language';
-import { finishPendingFullDataClearBeforeAppReady } from './runtime/fullDataClearBootstrap';
+import { finishPendingCenterMaintenanceBeforeAppReady } from './runtime/fullDataClearBootstrap';
 import { useFullDataClearInteractionGate } from './hooks/useFullDataClearInteractionGate';
 import DesktopQuitPrompt from './components/layout/DesktopQuitPrompt';
 import { PreAppWindowFrame } from './components/layout/PreAppWindowFrame';
@@ -100,13 +101,13 @@ const RuntimeBootstrap: React.FC = () => {
       if (!profiles.state.active_profile_id) { setChoosingConnection(true); return; }
       const runtime = await initializeRuntime((p) => { if (current()) setPhase(p); });
       if (!current()) return;
-      if (!runtime.serverId || !runtime.dataEpoch) throw new Error('Center identity is missing');
-      setCenterStorageScope(runtime.serverId, runtime.dataEpoch);
+      if (!runtime.serverId || !runtime.contentEpoch) throw new Error('Center identity is missing');
+      setCenterStorageScope(runtime.serverId, runtime.contentEpoch);
       configureApiClient({
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
-      await finishPendingFullDataClearBeforeAppReady(setPhase, {
+      await finishPendingCenterMaintenanceBeforeAppReady(setPhase, {
         releaseInteractionGateWhenNotPending,
       });
       if (!current()) return;
@@ -181,7 +182,7 @@ const RuntimeBootstrap: React.FC = () => {
     const inspect = async () => {
       if (!current || pending) return;
       pending = true;
-      try { await recoverPendingFullDataClear(); }
+      try { await recoverPendingCenterMaintenance(); }
       catch { /* Connection failures remain visible through health and event status. */ }
       finally { pending = false; }
     };
@@ -200,54 +201,16 @@ const RuntimeBootstrap: React.FC = () => {
 
   if (choosingConnection) return <PreAppWindowFrame><section className="mx-auto my-10 w-full max-w-xl rounded-md border border-border bg-card p-6"><h1 className="mb-4 text-xl font-semibold">{t('connections.choose')}</h1><ConnectionPicker /></section></PreAppWindowFrame>;
 
-  if (ready && fullDataClearGate.status !== 'idle') {
-    const failed = fullDataClearGate.status === 'failed';
-    return (
-      <PreAppWindowFrame>
-        <div className="flex min-h-full items-center justify-center px-4 py-8 text-foreground">
-          <section className="w-full max-w-xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
-            <div className="space-y-2">
-              <h1 className="text-xl font-semibold">
-                {t(failed ? 'bootstrap.dataClearRecoveryFailed' : 'bootstrap.dataClearInProgress')}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {t(failed ? 'bootstrap.dataClearRecoveryHint' : 'bootstrap.dataClearInProgressHint')}
-              </p>
-            </div>
-            {failed ? (
-              <>
-                <pre className="mt-5 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
-                  {fullDataClearGate.message}
-                </pre>
-                <Button
-                  className="mt-5"
-                  type="button"
-                  onClick={() => {
-                    markFullDataClearRetrying();
-                    resetRuntimeInitialization();
-                    void bootstrap(true);
-                  }}
-                >
-                  <RotateCw className="h-4 w-4" />
-                  {t('bootstrap.retry')}
-                </Button>
-              </>
-            ) : (
-              <div className="mt-5 h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-            )}
-          </section>
-        </div>
-      </PreAppWindowFrame>
-    );
-  }
-
   if (ready) {
-    return <App />;
+    return <CenterMaintenanceBoundary gate={fullDataClearGate} onRetry={() => {
+      markFullDataClearRetrying();
+      void recoverPendingCenterMaintenance(true).catch(() => { /* The maintenance owner exposes the retry result. */ });
+    }}><App /></CenterMaintenanceBoundary>;
   }
 
   if (error) {
     const hasLogExcerpt = Boolean(diagnostics?.logExcerpt?.trim());
-    const recoveringDataClear = phase === 'recovering_data_clear';
+    const recoveringMaintenance = phase === 'recovering_maintenance';
 
     return (
       <PreAppWindowFrame>
@@ -257,10 +220,10 @@ const RuntimeBootstrap: React.FC = () => {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-2">
                 <h1 className="text-xl font-semibold">
-                  {t(recoveringDataClear ? 'bootstrap.dataClearRecoveryFailed' : 'bootstrap.startupFailed')}
+                  {t(recoveringMaintenance ? 'bootstrap.maintenanceRecoveryFailed' : 'bootstrap.startupFailed')}
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  {t(recoveringDataClear ? 'bootstrap.dataClearRecoveryHint' : 'bootstrap.diagnosticsHint')}
+                  {t(recoveringMaintenance ? 'bootstrap.maintenanceRecoveryHint' : 'bootstrap.diagnosticsHint')}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">

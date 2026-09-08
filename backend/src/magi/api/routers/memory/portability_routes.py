@@ -156,6 +156,10 @@ async def inspect_memory_restore(
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def confirm_memory_restore(candidate_id: str) -> MemoryPortabilityOperation:
+    from ....bootstrap.maintenance_worker import owns_restore_operation
+
+    if not owns_restore_operation(candidate_id):
+        raise HTTPException(409, detail={"error_code": "service_restore_owner_required"})
     service = get_memory_portability_service()
     try:
         return await service.start_restore(candidate_id=candidate_id)

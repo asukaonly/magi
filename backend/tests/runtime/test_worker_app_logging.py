@@ -41,3 +41,31 @@ def test_ipc_worker_fails_closed_without_auth_token(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="MAGI_IPC_AUTH_TOKEN is required"):
         worker_app._consume_ipc_auth_token()
+
+
+@pytest.mark.asyncio
+async def test_restore_worker_recovers_before_transport_without_starting_agents(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+    from magi.bootstrap import maintenance_worker
+    from magi.memory.portability import recovery
+    from magi.transport import http_app
+
+    operation_id = '77777777-7777-4777-8777-777777777777'
+    monkeypatch.setenv('MAGI_MEMORY_RESTORE_OPERATION_ID', operation_id)
+    monkeypatch.setattr(maintenance_worker, '_restore_operation_id', None)
+    monkeypatch.setattr(worker_app, 'wire_container', Mock())
+    start = AsyncMock()
+    monkeypatch.setattr(worker_app, 'initialize_agent_runtime', start)
+    recovered = Mock(return_value='none')
+    monkeypatch.setattr(recovery, 'recover_pending_memory_restore', recovered)
+    paths = object()
+    monkeypatch.setattr(worker_app, 'get_runtime_paths', lambda: paths)
+    transport = object()
+    monkeypatch.setattr(http_app, 'create_transport_app', lambda **kwargs: transport)
+
+    assert await worker_app._initialize_worker_transport_app() is transport
+    recovered.assert_called_once_with(paths)
+    start.assert_not_awaited()
+    assert 'MAGI_MEMORY_RESTORE_OPERATION_ID' not in os.environ
+    assert maintenance_worker.owns_restore_operation(operation_id)
+    assert not maintenance_worker.owns_restore_operation('different')

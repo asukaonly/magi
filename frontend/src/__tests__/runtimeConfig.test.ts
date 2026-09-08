@@ -5,7 +5,7 @@ import { ensureRuntimeSession, getRuntimeConfig, initializeRuntime, normalizeApi
 
 const serverId = 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0';
 const clientId = 'a0c4c092-b043-4767-a2a7-041ad6194b8c';
-const started = (overrides = {}) => ({ ok: true, baseUrl: 'http://127.0.0.1:19080/api', sessionToken: 'a'.repeat(64), serverId, profileId: 'local', mode: 'local', dataEpoch: serverId, expiresAtMs: null, apiPid: 123, runtimeWorkerPid: null, ...overrides });
+const started = (overrides = {}) => ({ ok: true, baseUrl: 'http://127.0.0.1:19080/api', sessionToken: 'a'.repeat(64), serverId, profileId: 'local', mode: 'local', dataEpoch: serverId, contentEpoch: serverId, expiresAtMs: null, apiPid: 123, runtimeWorkerPid: null, ...overrides });
 
 describe('center runtime bootstrap', () => {
   beforeEach(() => {
@@ -53,9 +53,9 @@ describe('center runtime bootstrap', () => {
     expect(invokeMock.mock.calls.filter(([command]) => command === 'renew_center_session')).toHaveLength(1);
   });
   it('allows maintenance recovery to show without requiring ordinary runtime readiness', async () => {
-    invokeMock.mockImplementation(async (command) => command === 'start_backend' ? started() : { ready: true, phase: 'recovering_data_clear' });
+    invokeMock.mockImplementation(async (command) => command === 'start_backend' ? started() : { ready: true, phase: 'recovering_maintenance' });
     const phases: string[] = [];
     await initializeRuntime((phase) => phases.push(phase));
-    expect(phases.at(-1)).toBe('recovering_data_clear');
+    expect(phases.at(-1)).toBe('recovering_maintenance');
   });
 });

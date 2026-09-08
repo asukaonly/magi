@@ -70,6 +70,10 @@
     "submit": "Start backfill"
   },
   "bootstrap": {
+    "maintenanceRecoveryFailed": "Center maintenance needs attention",
+    "maintenanceInProgress": "The center is updating its data",
+    "maintenanceRecoveryHint": "The center retains this operation. Retry to resume or check its result.",
+    "maintenanceInProgressHint": "Wait for the center to finish safely. Closing this client does not cancel the operation.",
     "startupFailed": "Backend startup failed",
     "dataClearRecoveryFailed": "Data clearing is not finished",
     "dataClearRecoveryHint": "Magi will not open your workspace until every part of the previous clear finishes. Check the error below and retry.",
@@ -90,7 +94,7 @@
       "spawning": "Launching backend process...",
       "waiting_for_worker": "Initializing runtime...",
       "connecting": "Establishing connection...",
-      "recovering_data_clear": "Finishing the previous data clear...",
+      "recovering_maintenance": "Checking center maintenance...",
       "ready": "Almost ready..."
     }
   },
@@ -2034,6 +2038,7 @@
             "working": "Working on memory data"
           },
           "indexRebuild": {
+          "deferred": "Waiting for model configuration",
             "pending": "waiting",
             "running": "rebuilding",
             "succeeded": "ready",

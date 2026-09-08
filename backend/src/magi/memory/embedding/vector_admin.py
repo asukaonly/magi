@@ -226,7 +226,8 @@ class EmbeddingRebuildManager:
         self._pause_depth = 0
 
     async def start_rebuild(
-        self, *, unified_memory: Any, layers: Iterable[str] | None = None
+        self, *, unified_memory: Any, layers: Iterable[str] | None = None,
+        require_active_coverage: bool = False,
     ) -> dict[str, Any]:
         requested_layers = _normalize_layers(layers)
         await self._ensure_schema()
@@ -239,7 +240,7 @@ class EmbeddingRebuildManager:
             return await self._start_rebuild_locked(
                 unified_memory=unified_memory,
                 requested_layers=requested_layers,
-                require_active_coverage=False,
+                require_active_coverage=require_active_coverage,
             )
 
     async def resume_and_start_rebuild(

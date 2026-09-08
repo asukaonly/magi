@@ -286,3 +286,18 @@ def test_operation_read_error_uses_stable_code(monkeypatch: pytest.MonkeyPatch) 
         "error_code": "operation_state_write_failed",
         "message": "The memory data operation state is unavailable.",
     }
+
+
+def test_restore_confirmation_requires_the_supervisor_bound_worker(monkeypatch) -> None:
+    from magi.bootstrap import maintenance_worker
+
+    service = _FakeService()
+    client = _client(monkeypatch, service)
+    operation_id = service.operation.operation_id
+    monkeypatch.setattr(maintenance_worker, '_restore_operation_id', None)
+    assert client.post(f'/api/memory/portability/restores/{operation_id}/confirm').status_code == 409
+    assert service.calls == []
+    monkeypatch.setattr(maintenance_worker, '_restore_operation_id', operation_id)
+    assert client.post('/api/memory/portability/restores/different/confirm').status_code == 409
+    assert client.post(f'/api/memory/portability/restores/{operation_id}/confirm').status_code == 202
+    assert service.calls == [('restore', {'candidate_id': operation_id})]

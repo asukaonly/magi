@@ -227,6 +227,10 @@ export function MemoryRestoreDialog({
       return;
     }
 
+    // An uncertain admission still belongs to the service; closing this dialog must
+    // never delete a candidate that a disconnected request may have confirmed.
+    confirmedRef.current = true;
+    candidateIdRef.current = null;
     setConfirming(true);
     setError(null);
     try {

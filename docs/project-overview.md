@@ -177,6 +177,23 @@ continues when the requesting device disconnects. Startup resumes a pending
 marker, and a completed operation ID never starts another clear. Each client tracks its own cache/log cleanup separately; a local cleanup failure
 does not rerun center deletion or stop the center.
 
+Memory restore uses the same service maintenance boundary. The native
+`POST /api/memory/portability/restores/{candidate_id}/confirm` admits the inspected
+candidate UUID once. The service closes content request admission, drains current
+requests, rejects an active portability job, and publishes a durable marker before
+stopping the normal worker. A restricted worker recovers any journal and executes
+only its bound restore; a second restricted startup verifies the journal and receipt
+before normal access resumes. Device disconnects do not cancel admitted work.
+`GET /api/server/maintenance/{operation_id}` reads an exact receipt without replaying
+an action. Retrying a historical action reports current epochs, never an obsolete
+cache generation. Recovery failures remain blocked and can retry the same identity.
+
+Maintenance metadata separates `data_epoch` (any memory replacement or full clear)
+from `content_epoch` (full clear only). Memory restore invalidates memory reads and
+resource tickets while preserving mounted drafts and center-scoped conversation
+caches. A full clear retires those caches and device diagnostic logs. A device that
+missed a clear followed by a restore still sees the changed content epoch.
+
 The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
 in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
@@ -253,7 +270,7 @@ responses even for A → B → A. Requests reject foreign origins and redirects;
 short-lived access sessions renew once for concurrent callers, with no automatic
 mutation replay. Profile JSON and browser storage never hold device credentials.
 
-Browser content caches use both center identity and durable data epoch. Chat
+Browser content caches use center identity and the durable content epoch. Chat
 retry receipts, active session, read cursors, onboarding drafts, MRU entries,
 continuation selections, notification dedupe and portability tracking remain
 isolated. Reconnecting after a clear deletes obsolete epoch caches before the

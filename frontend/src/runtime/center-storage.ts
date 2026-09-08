@@ -1,4 +1,4 @@
-/** Browser content caches belong to a center and its current data epoch. */
+/** Browser content caches belong to a center and its current content epoch. */
 let prefix = 'magi.center.unbound.';
 const UNSCOPED_CONTENT_KEYS = new Set([
   'magi_onboarding_state', 'magi.chat.retryable-sends', 'magi.chat.inline-skill-retries',
@@ -29,10 +29,10 @@ export function centerStorageKey(key: string): string { return prefix + key; }
 export function centerLocalStorage(): Storage { return new CenterStorage(window.localStorage, prefix); }
 export function centerSessionStorage(): Storage { return new CenterStorage(window.sessionStorage, prefix); }
 
-export function setCenterStorageScope(serverId: string, dataEpoch: string): void {
-  if (!serverId || !dataEpoch) throw new Error('Center storage identity is missing');
+export function setCenterStorageScope(serverId: string, contentEpoch: string): void {
+  if (!serverId || !contentEpoch) throw new Error('Center storage identity is missing');
   const serverPrefix = `magi.center.${encodeURIComponent(serverId)}.`;
-  const nextPrefix = `${serverPrefix}${encodeURIComponent(dataEpoch)}.`;
+  const nextPrefix = `${serverPrefix}${encodeURIComponent(contentEpoch)}.`;
   let changed = false;
   // Offline devices learn about clears before loading any cached content.
   for (const storage of [window.localStorage, window.sessionStorage]) {

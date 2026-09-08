@@ -37,6 +37,8 @@ pub fn build_router(state: ApiState) -> Router {
 
     Router::new()
         .route("/api/server/maintenance", axum::routing::get(maintenance::status))
+        .route("/api/server/maintenance/{operation_id}", axum::routing::get(maintenance::operation))
+        .route("/api/memory/portability/restores/{candidate_id}/confirm", axum::routing::post(maintenance::restore))
         .route("/api/memory/clear", axum::routing::delete(maintenance::clear))
         .route("/api/events", axum::routing::get(events::subscribe))
         .route("/api/server/info", axum::routing::get(server::info))
@@ -233,14 +235,20 @@ pub fn build_router(state: ApiState) -> Router {
                 use axum::response::IntoResponse;
                 let path = request.uri().path();
                 if !storage_ready.load(std::sync::atomic::Ordering::Acquire)
-                    && !matches!(path, "/api/events" | "/api/health" | "/api/ready" | "/api/server/maintenance" | "/api/memory/clear" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
-                    && !path.starts_with("/api/server/clients/")
-                    && !path.starts_with("/static/avatars/") {
+                    && !maintenance::is_control_path(path) {
                     return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
                         "success": false, "error_code": "RUNTIME_NOT_READY", "message": "Runtime storage is not ready"
                     }))).into_response();
                 }
-                next.run(request).await
+                if maintenance::is_control_path(path) { return next.run(request).await; }
+                let Some(permit) = crate::database_gate::global().enter() else {
+                    return (axum::http::StatusCode::SERVICE_UNAVAILABLE, "Runtime maintenance is active").into_response();
+                };
+                // Keep the admission permit until work settles even when the caller disconnects.
+                match tokio::spawn(async move { let _permit = permit; next.run(request).await }).await {
+                    Ok(response) => response,
+                    Err(_) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "Request task failed").into_response(),
+                }
             }
         }))
         .layer(middleware::from_fn(move |request, next| {

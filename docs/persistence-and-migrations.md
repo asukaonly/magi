@@ -67,6 +67,23 @@ Repeated confirmations return the existing operation while it runs or after its
 receipt is reloaded; they do not launch a second replacement. A new restore
 requires a new inspection. Admission rejects non-canonical candidate identities.
 
+The service writes a separate content-free ownership marker at
+`service/memory-restore.pending.json` with a candidate/operation UUID and a
+`run` or `verify` stage. This marker fences native readers and HTTP work before
+Python replacement starts. Both restricted worker startups recover the Python
+journal before loading agents or plugins. Verification reads the existing operation;
+it never creates a missing job. Completed maintenance records use format 2 under
+`service/operations/`, retain no backup paths or private content, and publish
+`data_epoch` separately from the full-clear-only `content_epoch`.
+
+A configuration-only runtime is a valid post-restore state: missing model selection
+must not make a portable data restore fail. Its vector rebuild is explicitly deferred.
+On normal runtime startup, the latest committed restore with pending/running/deferred
+index work resumes a rebuild covering every layer, independently of newer backup or
+export jobs. Index completion updates only the indexing field of the committed receipt;
+it never reopens or reruns the replacement transaction. Restricted verification workers
+cannot start this post-restore work.
+
 Memory portability uses `runtime/memory-portability/` only for private,
 short-lived snapshot, inspection-candidate, and crash-recovery state. Automatic
 pre-restore safety backups are durable `.magibackup` files under

@@ -195,6 +195,16 @@ async def initialize_agent_runtime() -> None:
     _bind_runtime_bootstrap_state(orchestrator, context)
     set_runtime_startup_state("ready")
     logger.info("Agent runtime initialized successfully")
+    from .maintenance_worker import is_restore_worker
+
+    if not is_restore_worker():
+        from ..memory.portability.service import get_memory_portability_service
+
+        try:
+            await get_memory_portability_service().resume_restore_indexing()
+        except Exception:
+            logger.warning("Restore index rebuild remains pending", exc_info=True)
+
 
 
 async def shutdown_agent_runtime(*, strict: bool = False) -> None:

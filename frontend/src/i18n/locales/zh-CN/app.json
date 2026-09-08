@@ -70,6 +70,10 @@
     "submit": "开始补回"
   },
   "bootstrap": {
+    "maintenanceRecoveryFailed": "中心维护需要处理",
+    "maintenanceInProgress": "中心正在更新数据",
+    "maintenanceRecoveryHint": "中心保留了这次操作。重试可以继续处理或确认最终结果。",
+    "maintenanceInProgressHint": "请等待中心安全完成操作。关闭当前客户端不会取消这次操作。",
     "startupFailed": "后端启动失败",
     "dataClearRecoveryFailed": "数据还没有清干净",
     "dataClearRecoveryHint": "上一次清理全部完成前，Magi 不会进入正常界面。请查看下面的错误并重试。",
@@ -90,7 +94,7 @@
       "spawning": "正在启动后端进程...",
       "waiting_for_worker": "正在初始化运行时...",
       "connecting": "正在建立连接...",
-      "recovering_data_clear": "正在继续完成上一次数据清理...",
+      "recovering_maintenance": "正在确认中心维护状态…",
       "ready": "即将就绪..."
     }
   },
@@ -2033,6 +2037,7 @@
             "working": "正在处理记忆数据"
           },
           "indexRebuild": {
+          "deferred": "等待完成模型配置",
             "pending": "等待中",
             "running": "正在重建",
             "succeeded": "可用",

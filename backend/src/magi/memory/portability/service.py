@@ -48,6 +48,47 @@ class MemoryPortabilityService:
     def __init__(self, *, runtime_paths: RuntimePaths) -> None:
         self.runtime_paths = runtime_paths
         self.operations = MemoryPortabilityOperationStore(runtime_paths=runtime_paths)
+        self._restore_index_task: asyncio.Task[None] | None = None
+        self._restore_index_lock = asyncio.Lock()
+
+    async def resume_restore_indexing(self) -> None:
+        """Resume a committed restore's rebuild after the normal worker starts."""
+        from ..embedding.vector_admin import VECTOR_LAYERS, get_embedding_rebuild_manager
+
+        async with self._restore_index_lock:
+            if self._restore_index_task is not None and not self._restore_index_task.done():
+                return
+            operation = self.operations.latest_committed_restore()
+            if operation is None or operation.index_rebuild_status not in {"pending", "running", "deferred"}:
+                return
+            manager = get_embedding_rebuild_manager()
+            job = await manager.start_rebuild(
+                unified_memory=get_unified_memory(), layers=VECTOR_LAYERS,
+                require_active_coverage=True,
+            )
+            job_id = str(job["job_id"])
+            self.operations.update_restore_index_status(operation.operation_id, str(job["status"]))
+            self._restore_index_task = asyncio.create_task(
+                self._observe_restore_indexing(operation.operation_id, job_id, manager),
+                name="restore-index-rebuild-observer",
+            )
+
+    async def _observe_restore_indexing(self, operation_id: str, job_id: str, manager: Any) -> None:
+        try:
+            while True:
+                job = await manager.get_job(job_id)
+                if job is None:
+                    return
+                status = str(job["status"])
+                if status in {"succeeded", "failed", "cancelled"}:
+                    self.operations.update_restore_index_status(operation_id, "failed" if status == "cancelled" else status)
+                    return
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            # Pending/running receipts remain resumable on the next normal startup.
+            raise
+        except Exception:
+            logger.warning("Restore index observation was interrupted", exc_info=True)
 
     async def start_backup(
         self,
@@ -421,7 +462,7 @@ class MemoryPortabilityService:
         try:
             with state.transaction.activation_guard():
                 await initialize_agent_runtime()
-            replacement_memory = get_unified_memory()
+            replacement_memory = _validated_replacement_memory()
         except Exception as exc:
             raise MemoryPortabilityError(
                 "restore_runtime_start_failed",
@@ -431,10 +472,14 @@ class MemoryPortabilityService:
         state.runtime_offline = False
 
         try:
-            rebuild_job = await rebuild_manager.resume_and_start_rebuild(
-                unified_memory=replacement_memory,
-                layers=vector_layers,
-            )
+            if replacement_memory is None:
+                await rebuild_manager.resume_starts()
+                rebuild_job = {"status": "deferred"}
+            else:
+                rebuild_job = await rebuild_manager.resume_and_start_rebuild(
+                    unified_memory=replacement_memory,
+                    layers=vector_layers,
+                )
         except Exception as exc:
             raise MemoryPortabilityError(
                 "index_rebuild_queue_failed",
@@ -588,7 +633,7 @@ class MemoryPortabilityService:
                     await asyncio.to_thread(state.transaction.close)
             if state.runtime_offline:
                 await initialize_agent_runtime()
-                get_unified_memory()
+                _validated_replacement_memory()
                 state.runtime_offline = False
             return None
         except BaseException as recovery_error:
@@ -768,6 +813,18 @@ def _ready_inspection_payload(inspection: BackupInspection) -> dict[str, Any]:
 
 
 _SHARED_SERVICE: MemoryPortabilityService | None = None
+
+
+def _validated_replacement_memory() -> Any | None:
+    """Configuration-only startup is usable even before an LLM has been selected."""
+    from ...bootstrap.runtime_startup_state import get_runtime_startup_snapshot
+
+    try:
+        return get_unified_memory()
+    except RuntimeError:
+        if get_runtime_startup_snapshot().startup_state == "deferred":
+            return None
+        raise
 
 
 def get_memory_portability_service() -> MemoryPortabilityService:

@@ -82,13 +82,22 @@ async def _run_worker() -> None:
 
 
 async def _initialize_worker_transport_app() -> FastAPI:
+    from .maintenance_worker import consume_restore_operation
+
+    restore_operation = consume_restore_operation()
     t0 = time.monotonic()
     wire_container()
     logger.info("DI container wired", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
 
     t0 = time.monotonic()
-    await initialize_agent_runtime()
-    logger.info("Agent runtime initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
+    if restore_operation is None:
+        await initialize_agent_runtime()
+        logger.info("Agent runtime initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
+    else:
+        from ..memory.portability.recovery import recover_pending_memory_restore
+
+        await asyncio.to_thread(recover_pending_memory_restore, get_runtime_paths())
+        logger.info("Restricted restore worker initialized")
 
     from ..transport.http_app import create_transport_app
 
