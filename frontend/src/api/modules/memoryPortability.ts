@@ -24,7 +24,7 @@ export interface CreateMemoryExportInput {
 }
 
 export interface InspectMemoryRestoreInput {
-  sourcePath: string;
+  resourceId: string;
   password?: string;
 }
 
@@ -56,7 +56,7 @@ export const memoryPortabilityApi = {
     const response = await api.post<unknown>(
       '/memory/portability/restores/inspect',
       {
-        source_path: input.sourcePath,
+        resource_id: input.resourceId,
         ...(input.password === undefined ? {} : { password: input.password }),
       },
     );

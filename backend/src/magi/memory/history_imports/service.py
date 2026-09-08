@@ -219,16 +219,16 @@ class HistoryImportService:
             self._locks.clear()
             yield
 
-    async def preview_markdown_paths(self, paths: list[str]) -> HistoryImportJob:
+    async def preview_markdown_paths(self, paths: list[str], *, source_names: dict[str, str] | None = None) -> HistoryImportJob:
         """Parse selected files or folders and persist a safe preview."""
 
         async with self._operation():
-            return await self._preview_markdown_paths(paths)
+            return await self._preview_markdown_paths(paths, source_names=source_names)
 
-    async def _preview_markdown_paths(self, paths: list[str]) -> HistoryImportJob:
+    async def _preview_markdown_paths(self, paths: list[str], *, source_names: dict[str, str] | None = None) -> HistoryImportJob:
         """Persist one preview while the service operation boundary is held."""
 
-        parsed_files, file_fingerprints, fingerprint, warnings = _parse_markdown_selection(paths)
+        parsed_files, file_fingerprints, fingerprint, warnings = await asyncio.to_thread(_parse_markdown_selection, paths, source_names)
         existing = await self._store.find_active_by_fingerprint(fingerprint)
         if existing is not None:
             return existing
@@ -271,6 +271,7 @@ class HistoryImportService:
         *,
         job_id: str,
         paths: list[str],
+        source_names: dict[str, str] | None = None,
     ) -> HistoryImportAppendResult:
         """Extend an unconfirmed Markdown preview without replacing its selection."""
 
@@ -282,8 +283,8 @@ class HistoryImportService:
                     raise HistoryImportValidationError("history_import_append_type_mismatch")
                 if self._scope_confirmed(job) or job.quick_ready or job.imported_count > 0:
                     raise HistoryImportValidationError("history_import_selection_locked")
-                parsed_files, file_fingerprints, _fingerprint, warnings = _parse_markdown_selection(
-                    paths
+                parsed_files, file_fingerprints, _fingerprint, warnings = await asyncio.to_thread(
+                    _parse_markdown_selection, paths, source_names
                 )
                 incoming_source_ids = {source.source_id for source in parsed_files}
                 if len(set(job.source_ids).union(incoming_source_ids)) > MAX_MARKDOWN_FILES:
@@ -1355,10 +1356,16 @@ async def _await_history_importer_result(result: Any) -> Any:
 
 def _parse_markdown_selection(
     paths: list[str],
+    source_names: dict[str, str] | None = None,
 ) -> tuple[list[ParsedHistorySource], dict[str, str], str, list[str]]:
     """Read one bounded Markdown selection into deterministic preview inputs."""
 
     files = _expand_markdown_paths(paths)
+    if source_names is not None:
+        files = _unique_source_names(sorted(
+            [(path, source_names[str(path)]) for path, _ in files],
+            key=lambda item: item[1].casefold(),
+        ))
     parsed_files: list[ParsedHistorySource] = []
     file_fingerprints: dict[str, str] = {}
     fingerprint_parts: list[bytes] = []

@@ -981,3 +981,12 @@ creation. A connection reset cancels the selection. File input and download flow
 must transfer contents when the source or destination is on the client device.
 Center filesystem access has the paired owner's permissions, subject to the
 center operating system's file and privacy permissions.
+
+History imports and backup inspection upload selected device files first. Their
+API requests contain center resource IDs, never native client paths. Uploads use
+1 MiB chunks, acknowledge identical repeats, reject offset/content conflicts,
+and reserve a bounded private staging area (8 GiB / 1,000 resources, 24-hour TTL).
+History files are limited to 256 MiB each and backups to 2 GiB; domain-specific
+parser limits still apply. Original relative names and modification times survive
+staging. Full user-content clear removes staged uploads. Import progress remains
+owned by the center after preview/confirmation; closing a client does not stop it.

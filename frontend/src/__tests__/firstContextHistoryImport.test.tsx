@@ -46,11 +46,13 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
+vi.mock("@/runtime/file-transfers", () => ({
+  uploadMarkdownFolder: (...args: unknown[]) => pickDirectoryMock(...args),
+  uploadHistoryFiles: (...args: unknown[]) => pickHistoryImportFilesMock(...args),
+  uploadMarkdownFiles: (...args: unknown[]) => pickMarkdownFilesMock(...args),
+}));
 vi.mock("@/runtime/desktop", () => ({
   openExternalUrl: (...args: unknown[]) => openExternalUrlMock(...args),
-  pickDirectory: (...args: unknown[]) => pickDirectoryMock(...args),
-  pickHistoryImportFiles: (...args: unknown[]) => pickHistoryImportFilesMock(...args),
-  pickMarkdownFiles: (...args: unknown[]) => pickMarkdownFilesMock(...args),
 }));
 
 vi.mock("@/api/modules/historyImports", () => ({
@@ -239,7 +241,7 @@ describe("FirstContextHistoryImport", () => {
     vi.clearAllMocks();
     pickMarkdownFilesMock.mockResolvedValue(["/tmp/notes.md"]);
     pickHistoryImportFilesMock.mockResolvedValue([]);
-    pickDirectoryMock.mockResolvedValue(undefined);
+    pickDirectoryMock.mockResolvedValue([]);
     openExternalUrlMock.mockResolvedValue(undefined);
     listImportersMock.mockResolvedValue([]);
     getRegistryMock.mockResolvedValue({
@@ -380,13 +382,12 @@ describe("FirstContextHistoryImport", () => {
 
     expect(pickHistoryImportFilesMock).toHaveBeenCalledWith(
       ["zip", "json"],
-      "firstContext.history.platform.fileFilter",
     );
     expect(previewImporterMock).toHaveBeenCalledWith({
       pluginId: "chatgpt-history",
       connectionId: "archive-connection",
       importerId: "chatgpt_export",
-      paths: ["/tmp/chatgpt-export.zip"],
+      resourceIds: ["/tmp/chatgpt-export.zip"],
     });
     expect(
       await screen.findByText("firstContext.history.identity.title"),
@@ -953,7 +954,7 @@ describe("FirstContextHistoryImport", () => {
 
   it("can append another Markdown folder to the current preview", async () => {
     const user = userEvent.setup();
-    pickDirectoryMock.mockResolvedValueOnce("/tmp/more-notes");
+    pickDirectoryMock.mockResolvedValueOnce(["/tmp/more-notes"]);
     render(<HistoryImportFlow onJobUpdate={vi.fn()} />);
 
     await user.click(
@@ -1315,7 +1316,7 @@ it("previews the selected account when one package has two import connections", 
   await user.click(within(row).getByRole("button", { name: "firstContext.history.platform.choose" }));
   expect(previewImporterMock).toHaveBeenCalledWith({
     pluginId: "chatgpt-history", importerId: "chatgpt_export", connectionId: "work",
-    paths: ["/tmp/work-export.zip"],
+    resourceIds: ["/tmp/work-export.zip"],
   });
 });
 

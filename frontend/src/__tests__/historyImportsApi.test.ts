@@ -24,12 +24,12 @@ describe('historyImportsApi contract', () => {
       pluginId: 'platform-history',
       connectionId: "archive-connection",
       importerId: 'account-export',
-      paths: ['/tmp/export.zip'],
+      resourceIds: ['/tmp/export.zip'],
     });
 
     expect(postSpy).toHaveBeenCalledWith(
       '/memory/history-imports/importers/platform-history/account-export/preview',
-      { paths: ['/tmp/export.zip'], connection_id: 'archive-connection' },
+      { resource_ids: ['/tmp/export.zip'], connection_id: 'archive-connection' },
       { timeout: 75_000 },
     );
   });

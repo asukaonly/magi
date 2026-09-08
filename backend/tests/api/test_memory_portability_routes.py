@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -193,6 +195,7 @@ def test_plaintext_backup_rejects_password_without_starting_job(
 def test_routes_return_pollable_operations_and_password_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(portability_routes, "resolve_uploaded_files", AsyncMock(return_value=[Path("/tmp/source.magibackup")]))
     service = _FakeService()
     client = _client(monkeypatch, service)
 
@@ -206,7 +209,7 @@ def test_routes_return_pollable_operations_and_password_prompt(
     )
     inspect = client.post(
         "/api/memory/portability/restores/inspect",
-        json={"source_path": "/tmp/source.magibackup"},
+        json={"resource_id": "uploaded-backup"},
     )
     active = client.get("/api/memory/portability/operations/active")
     latest = client.get("/api/memory/portability/operations/latest")

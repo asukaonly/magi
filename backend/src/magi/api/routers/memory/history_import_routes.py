@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from fastapi import HTTPException, Response, status
 from magi_plugin_sdk.history_imports import MAX_HISTORY_IMPORT_SOURCES
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ....memory.history_imports.markdown_parser import DOCUMENT_AUTHOR
 from ....memory.history_imports.models import HistoryImportDetectedKind, HistoryImportStatus
@@ -16,11 +16,13 @@ from ....memory.history_imports.service import (
     HistoryImportValidationError,
 )
 from ....memory.provider import get_history_import_service
+from ...services.file_transfers import TransferError, resolve_uploaded_files, uploaded_source_names
 from .router import memory_router
 
 
 class MarkdownHistoryPreviewBody(BaseModel):
-    paths: list[str] = Field(min_length=1, max_length=50)
+    model_config = ConfigDict(extra="forbid")
+    resource_ids: list[str] = Field(min_length=1, max_length=50)
 
 
 class HistoryImportConfirmBody(BaseModel):
@@ -140,8 +142,9 @@ class HistoryImporterResponse(BaseModel):
 
 
 class HistoryImporterPreviewBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     connection_id: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
-    paths: list[str] = Field(min_length=1, max_length=10)
+    resource_ids: list[str] = Field(min_length=1, max_length=10)
 
 
 def _resolve_history_import_service() -> Any:
@@ -261,7 +264,13 @@ def _require_service() -> Any:
     return service
 
 
+async def _uploaded_paths(resource_ids: list[str]) -> list[str]:
+    return [str(path) for path in await resolve_uploaded_files(resource_ids, "history")]
+
+
 def _raise_service_error(exc: Exception) -> None:
+    if isinstance(exc, TransferError):
+        raise HTTPException(exc.status, detail={"error_code": exc.code}) from exc
     if isinstance(exc, HistoryImportNotFoundError):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -296,7 +305,7 @@ async def preview_markdown_history(
     body: MarkdownHistoryPreviewBody,
 ) -> HistoryImportJobResponse:
     try:
-        job = await _require_service().preview_markdown_paths(body.paths)
+        job = await _require_service().preview_markdown_paths(await _uploaded_paths(body.resource_ids), source_names=await uploaded_source_names(body.resource_ids))
     except Exception as exc:
         _raise_service_error(exc)
         raise
@@ -314,7 +323,8 @@ async def append_markdown_history(
     try:
         result = await _require_service().append_markdown_paths(
             job_id=job_id,
-            paths=body.paths,
+            paths=await _uploaded_paths(body.resource_ids),
+            source_names=await uploaded_source_names(body.resource_ids),
         )
     except Exception as exc:
         _raise_service_error(exc)
@@ -363,7 +373,7 @@ async def preview_importer_history(
             plugin_id=plugin_id,
             importer_id=importer_id,
             connection_id=body.connection_id,
-            paths=body.paths,
+            paths=await _uploaded_paths(body.resource_ids),
         )
     except Exception as exc:
         _raise_service_error(exc)

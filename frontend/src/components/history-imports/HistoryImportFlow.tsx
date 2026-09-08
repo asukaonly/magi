@@ -58,12 +58,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { uploadMarkdownFiles, uploadMarkdownFolder, uploadHistoryFiles } from '@/runtime/file-transfers';
 import {
   openExternalUrl,
-  pickDirectory,
-  pickHistoryImportFiles,
-  pickMarkdownFiles,
-} from "@/runtime/desktop";
+} from '@/runtime/desktop';
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 import { localizedPluginText } from "@/utils/plugin-display-groups";
 import {
@@ -386,7 +384,7 @@ export const HistoryImportFlow = forwardRef<
     setPreviewTarget("markdown");
     setError(null);
     try {
-      const paths = await pickMarkdownFiles();
+      const paths = await uploadMarkdownFiles();
       setCurrentAction(null);
       if (!mountedRef.current) {
         return;
@@ -414,7 +412,7 @@ export const HistoryImportFlow = forwardRef<
     setPreviewTarget("markdown");
     setError(null);
     try {
-      const folder = await pickDirectory();
+      const resources = await uploadMarkdownFolder();
       setCurrentAction(null);
       if (!mountedRef.current) {
         return;
@@ -422,8 +420,8 @@ export const HistoryImportFlow = forwardRef<
       if (mountedRef.current) {
         setPreviewTarget(null);
       }
-      if (folder) {
-        await previewPaths([folder], "markdown");
+      if (resources.length > 0) {
+        await previewPaths(resources, "markdown");
       }
     } catch {
       if (mountedRef.current) {
@@ -453,8 +451,8 @@ export const HistoryImportFlow = forwardRef<
     let paths: string[];
     try {
       paths = picker === "files"
-        ? await pickMarkdownFiles()
-        : await pickDirectory().then((folder) => (folder ? [folder] : []));
+        ? await uploadMarkdownFiles()
+        : await uploadMarkdownFolder();
     } catch {
       if (mountedRef.current) {
         setError(
@@ -501,9 +499,8 @@ export const HistoryImportFlow = forwardRef<
     setError(null);
     let paths: string[];
     try {
-      paths = await pickHistoryImportFiles(
+      paths = await uploadHistoryFiles(
         importer.accepted_extensions,
-        t("firstContext.history.platform.fileFilter"),
       );
     } catch {
       if (mountedRef.current) {
@@ -532,7 +529,7 @@ export const HistoryImportFlow = forwardRef<
           pluginId: importer.plugin_id,
           connectionId: importer.connection_id,
           importerId: importer.importer_id,
-          paths,
+          resourceIds: paths,
         }),
       );
     } catch (previewError) {

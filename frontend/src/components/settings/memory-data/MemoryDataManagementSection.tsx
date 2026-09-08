@@ -9,7 +9,7 @@ import { MemoryRestoreDialog } from '@/components/settings/memory-data/MemoryRes
 import { portabilityErrorMessage } from '@/components/settings/memory-data/presentation';
 import { Button } from '@/components/ui/button';
 import { useMemoryPortabilityOperation } from '@/hooks/useMemoryPortabilityOperation';
-import { pickMemoryBackupFile } from '@/runtime/desktop';
+import { uploadMemoryBackup, type UploadedResource } from '@/runtime/file-transfers';
 
 interface MemoryDataManagementSectionProps {
   onRestoreCompleted?: () => void;
@@ -64,7 +64,7 @@ export function MemoryDataManagementSection({
   };
   const [backupOpen, setBackupOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [restoreSourcePath, setRestoreSourcePath] = useState<string | null>(null);
+  const [restoreSource, setRestoreSource] = useState<UploadedResource | null>(null);
   const [pickingRestoreFile, setPickingRestoreFile] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const {
@@ -82,11 +82,9 @@ export function MemoryDataManagementSection({
     setPickingRestoreFile(true);
     setPickerError(null);
     try {
-      const sourcePath = await pickMemoryBackupFile(
-        t('settings.memory.dataManagement.restore.fileFilter'),
-      );
-      if (sourcePath) {
-        setRestoreSourcePath(sourcePath);
+      const resource = await uploadMemoryBackup();
+      if (resource) {
+        setRestoreSource(resource);
       }
     } catch (error) {
       setPickerError(portabilityErrorMessage(t, error));
@@ -156,7 +154,7 @@ export function MemoryDataManagementSection({
         </p>
       ) : null}
 
-      {operation && !(operation.kind === 'inspect' && restoreSourcePath !== null) ? (
+      {operation && !(operation.kind === 'inspect' && restoreSource !== null) ? (
         <div className="mt-4">
           <MemoryOperationProgress
             operation={operation}
@@ -182,13 +180,14 @@ export function MemoryDataManagementSection({
       />
       <MemoryRestoreDialog
         onCloseAutoFocus={restoreFocus}
-        open={restoreSourcePath !== null}
-        sourcePath={restoreSourcePath}
+        open={restoreSource !== null}
+        resourceId={restoreSource?.resource_id ?? null}
+        fileName={restoreSource?.name ?? null}
         operation={operation}
         pollingInterrupted={pollingInterrupted}
         onOpenChange={(open) => {
           if (!open) {
-            setRestoreSourcePath(null);
+            setRestoreSource(null);
           }
         }}
         onStarted={trackOperation}

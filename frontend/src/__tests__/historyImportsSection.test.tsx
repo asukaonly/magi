@@ -49,11 +49,13 @@ vi.mock("@/api/modules/plugins", () => ({
   },
 }));
 
+vi.mock("@/runtime/file-transfers", () => ({
+  uploadMarkdownFolder: vi.fn(),
+  uploadHistoryFiles: vi.fn(),
+  uploadMarkdownFiles: vi.fn(),
+}));
 vi.mock("@/runtime/desktop", () => ({
   openExternalUrl: vi.fn(),
-  pickDirectory: vi.fn(),
-  pickHistoryImportFiles: vi.fn(),
-  pickMarkdownFiles: vi.fn(),
 }));
 
 import type { HistoryImportJob } from "@/api/modules/historyImports";

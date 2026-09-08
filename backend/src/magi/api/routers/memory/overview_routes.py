@@ -12,6 +12,7 @@ from fastapi import Header, HTTPException, status
 from ....core.log_history import clear_diagnostic_log_history
 from ....memory.portability.errors import MemoryPortabilityError
 from ....memory.portability.service import get_memory_portability_service
+from ...services.file_transfers import clear_uploaded_files
 from ....memory.store_lifecycle import MemoryClearCompletedWithRecoveryError
 from ....plugins.user_content_clear import PluginUserContentClearRecoveryError
 from magi_plugin_sdk import UserContentClearRequest
@@ -504,6 +505,7 @@ async def _clear_memory_layers_with_portability_boundary(
                     if llm_usage_store is not None:
                         auxiliary_clearers.append(llm_usage_store.clear_user_content)
                     auxiliary_clearers.append(clear_portability_private_data)
+                    auxiliary_clearers.append(clear_uploaded_files)
                     plugin_clear_request = UserContentClearRequest(
                         clear_generation=generation,
                     )

@@ -34,7 +34,8 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 interface MemoryRestoreDialogProps {
   open: boolean;
   onCloseAutoFocus: (event: Event) => void;
-  sourcePath: string | null;
+  resourceId: string | null;
+  fileName: string | null;
   operation: MemoryPortabilityOperation | null;
   pollingInterrupted: boolean;
   onOpenChange: (open: boolean) => void;
@@ -57,7 +58,8 @@ function discardCandidate(candidateId: string | null): void {
 export function MemoryRestoreDialog({
   onCloseAutoFocus,
   open,
-  sourcePath,
+  resourceId,
+  fileName,
   operation,
   pollingInterrupted,
   onOpenChange,
@@ -77,15 +79,15 @@ export function MemoryRestoreDialog({
   const candidateIdRef = useRef<string | null>(null);
   const confirmedRef = useRef(false);
   const openRef = useRef(open);
-  const sourcePathRef = useRef(sourcePath);
+  const resourceIdRef = useRef(resourceId);
   const translateRef = useRef(t);
 
   openRef.current = open;
-  sourcePathRef.current = sourcePath;
+  resourceIdRef.current = resourceId;
   translateRef.current = t;
 
   const startInspection = useCallback(async (
-    inspectedSourcePath: string,
+    inspectedResourceId: string,
     submittedPassword: string | undefined,
     requestVersion: number,
   ): Promise<void> => {
@@ -95,7 +97,7 @@ export function MemoryRestoreDialog({
       let nextOperation: MemoryPortabilityOperation | null;
       try {
         nextOperation = await memoryPortabilityApi.inspectRestore({
-          sourcePath: inspectedSourcePath,
+          resourceId: inspectedResourceId,
           ...(submittedPassword === undefined ? {} : { password: submittedPassword }),
         });
         onStarted(nextOperation);
@@ -105,7 +107,7 @@ export function MemoryRestoreDialog({
           if (
             requestVersionRef.current === requestVersion
             && openRef.current
-            && sourcePathRef.current === inspectedSourcePath
+            && resourceIdRef.current === inspectedResourceId
           ) {
             setError(portabilityErrorMessage(translateRef.current, requestError));
           }
@@ -121,7 +123,7 @@ export function MemoryRestoreDialog({
   }, [onReconcileStarted, onStarted]);
 
   useEffect(() => {
-    if (!open || !sourcePath) {
+    if (!open || !resourceId) {
       return undefined;
     }
 
@@ -137,7 +139,7 @@ export function MemoryRestoreDialog({
     setConfirming(false);
     setError(null);
 
-    void startInspection(sourcePath, undefined, requestVersion);
+    void startInspection(resourceId, undefined, requestVersion);
 
     return () => {
       requestVersionRef.current += 1;
@@ -146,7 +148,7 @@ export function MemoryRestoreDialog({
       }
       candidateIdRef.current = null;
     };
-  }, [open, sourcePath, startInspection]);
+  }, [open, resourceId, startInspection]);
 
   const matchingInspectionOperation = operation?.kind === 'inspect'
     && operation.operation_id === inspectionOperationId
@@ -167,14 +169,14 @@ export function MemoryRestoreDialog({
     if (result) {
       const candidateId = result.state === 'ready' ? result.candidate_id : null;
       candidateIdRef.current = candidateId;
-      if (openRef.current && sourcePathRef.current) {
+      if (openRef.current && resourceIdRef.current) {
         setInspection(result);
         setError(null);
       } else {
         discardCandidate(candidateId);
         candidateIdRef.current = null;
       }
-    } else if (openRef.current && sourcePathRef.current) {
+    } else if (openRef.current && resourceIdRef.current) {
       setError(operationErrorMessage(
         t,
         matchingInspectionOperation.error_code,
@@ -198,7 +200,7 @@ export function MemoryRestoreDialog({
   };
 
   const handlePasswordSubmit = async () => {
-    if (!sourcePath || !password) {
+    if (!resourceId || !password) {
       setError(t('settings.memory.dataManagement.restore.errors.passwordRequired'));
       return;
     }
@@ -207,16 +209,16 @@ export function MemoryRestoreDialog({
     setPassword('');
     const requestVersion = requestVersionRef.current + 1;
     requestVersionRef.current = requestVersion;
-    await startInspection(sourcePath, submittedPassword, requestVersion);
+    await startInspection(resourceId, submittedPassword, requestVersion);
   };
 
   const handleRetryInspection = async () => {
-    if (!sourcePath) {
+    if (!resourceId) {
       return;
     }
     const requestVersion = requestVersionRef.current + 1;
     requestVersionRef.current = requestVersion;
-    await startInspection(sourcePath, undefined, requestVersion);
+    await startInspection(resourceId, undefined, requestVersion);
   };
 
   const handleConfirm = async (readyInspection: ReadyMemoryRestoreInspection) => {
@@ -276,7 +278,7 @@ export function MemoryRestoreDialog({
               {t('settings.memory.dataManagement.restore.selectedFile')}
             </div>
             <p className="mt-1 break-all text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
-              {sourcePath}
+              {fileName}
             </p>
           </div>
 

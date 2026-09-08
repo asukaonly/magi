@@ -64,7 +64,7 @@ vi.mock('@/api/modules/memoryPortability', () => ({
 
 vi.mock('@/runtime/center-files', () => ({  pickCenterDirectory: pickDirectoryMock,}));
 vi.mock('@/runtime/desktop', () => ({
-  pickMemoryBackupFile: pickMemoryBackupFileMock,}));
+}));
 
 function createOperation(
   overrides: Partial<MemoryPortabilityOperation> = {},
@@ -406,7 +406,7 @@ describe('MemoryDataManagementSection', () => {
       kind: 'inspect',
     });
     const restoreOperation = createOperation({ kind: 'restore', operation_id: 'restore-1' });
-    pickMemoryBackupFileMock.mockResolvedValue('/tmp/a very long/private.magibackup');
+    pickMemoryBackupFileMock.mockResolvedValue({ resource_id: 'restore-resource', name: 'private.magibackup', size: 100 });
     const responseLost = {
       message: 'No response from server',
       code: 'NETWORK_ERROR',
@@ -449,10 +449,8 @@ describe('MemoryDataManagementSection', () => {
     await user.click(screen.getByRole('button', {
       name: 'settings.memory.dataManagement.restore.action',
     }));
-    expect(pickMemoryBackupFileMock).toHaveBeenCalledWith(
-      'settings.memory.dataManagement.restore.fileFilter',
-    );
-    expect(screen.getByText('/tmp/a very long/private.magibackup')).toHaveClass('break-all');
+    expect(pickMemoryBackupFileMock).toHaveBeenCalledWith();
+    expect(screen.getByText('private.magibackup')).toHaveClass('break-all');
 
     expect(await screen.findByText(
       'settings.memory.dataManagement.restore.passwordRequiredTitle',
@@ -467,7 +465,7 @@ describe('MemoryDataManagementSection', () => {
     }));
     expect(password).toHaveValue('');
     expect(inspectRestoreMock).toHaveBeenNthCalledWith(2, {
-      sourcePath: '/tmp/a very long/private.magibackup',
+      resourceId: 'restore-resource',
       password: 'restore secret',
     });
 
@@ -494,7 +492,7 @@ describe('MemoryDataManagementSection', () => {
 
   it('deletes an inspected restore candidate when review closes without confirmation', async () => {
     const user = userEvent.setup();
-    pickMemoryBackupFileMock.mockResolvedValue('/tmp/discarded.magibackup');
+    pickMemoryBackupFileMock.mockResolvedValue({ resource_id: 'discard-resource', name: 'discarded.magibackup', size: 100 });
     inspectRestoreMock.mockResolvedValue(createOperation({
       operation_id: 'inspect-discard',
       kind: 'inspect',
@@ -715,3 +713,5 @@ describe('MemoryDataManagementSection', () => {
     expect(screen.getByText('/tmp/memory.magibackup')).toBeInTheDocument();
   });
 });
+
+vi.mock('@/runtime/file-transfers', () => ({ uploadMemoryBackup: pickMemoryBackupFileMock }));

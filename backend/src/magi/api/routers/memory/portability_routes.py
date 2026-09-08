@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from ....memory.portability.errors import MemoryPortabilityError
 from ....memory.portability.operations import MemoryPortabilityOperation
 from ....memory.portability.service import get_memory_portability_service
+from ...services.file_transfers import TransferError, resolve_uploaded_files
 from .router import memory_router
 
 _MAX_PASSWORD_BYTES = 1024
@@ -41,7 +42,7 @@ class CreateMemoryExportRequest(BaseModel):
 class InspectMemoryRestoreRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_path: str
+    resource_id: str
     password: object | None = Field(
         default=None,
         json_schema_extra={"type": "string", "format": "password"},
@@ -140,9 +141,11 @@ async def inspect_memory_restore(
     try:
         body = await _validated_request_body(request, InspectMemoryRestoreRequest)
         return await service.start_inspection(
-            source_path=_validated_local_path(body.source_path),
+            source_path=(await resolve_uploaded_files([body.resource_id], "restore"))[0],
             password=_validated_password(body.password, blank_as_none=True),
         )
+    except TransferError as exc:
+        raise HTTPException(exc.status, detail={"error_code": exc.code}) from exc
     except MemoryPortabilityError as exc:
         _raise_portability_error(exc)
 

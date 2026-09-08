@@ -1,3 +1,4 @@
+import * as fileTransfers from '@/runtime/file-transfers';
 import { centerStorageKey } from '@/runtime/center-storage';
 import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -40,7 +41,6 @@ import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
 import { FIRST_CONTEXT_QUESTION_IDS } from "@/domain/chat/first-context";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
-import * as desktopRuntime from "@/runtime/desktop";
 
 vi.mock("react-i18next", () => ({
   initReactI18next: {
@@ -831,7 +831,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("confirms a selected history import from the onboarding footer before continuing", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+    vi.spyOn(fileTransfers, "uploadMarkdownFiles").mockResolvedValue([
       "/tmp/journal.md",
     ]);
     const previewImport = vi
@@ -894,7 +894,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("requires an explicit discard before leaving an unconfirmed history import", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+    vi.spyOn(fileTransfers, "uploadMarkdownFiles").mockResolvedValue([
       "/tmp/journal.md",
     ]);
     vi.spyOn(historyImportsApi, "previewMarkdown").mockResolvedValue(
@@ -931,7 +931,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("resumes a failed pre-quick import from the footer instead of confirming it", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockResolvedValue([
+    vi.spyOn(fileTransfers, "uploadMarkdownFiles").mockResolvedValue([
       "/tmp/journal.md",
     ]);
     const failedJob = {
@@ -970,7 +970,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const picker = deferred<string[]>();
-    vi.spyOn(desktopRuntime, "pickMarkdownFiles").mockReturnValue(picker.promise);
+    vi.spyOn(fileTransfers, "uploadMarkdownFiles").mockReturnValue(picker.promise);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterFirstContextStep(user);

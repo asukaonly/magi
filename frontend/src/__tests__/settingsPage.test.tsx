@@ -174,7 +174,7 @@ vi.mock('@/runtime/desktop', () => ({
   syncAutoStartPreference: syncAutoStartPreferenceMock,
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   syncSkipQuitConfirmationPreference: vi.fn(),
-  pickMemoryBackupFile: pickMemoryBackupFileMock,
+
   openExternalUrl: openExternalUrlMock,}));
 
 vi.mock('@/runtime/desktop-notifications', () => ({
@@ -3301,3 +3301,5 @@ describe('settings page draft saving', () => {
   });
 
 });
+
+vi.mock('@/runtime/file-transfers', () => ({ uploadMemoryBackup: pickMemoryBackupFileMock }));

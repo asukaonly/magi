@@ -30,7 +30,6 @@ import {
   clearDesktopLogHistory,
   confirmExitApp,
   openExternalUrl,
-  pickMemoryBackupFile,
   registerDesktopOpenSettingsHandler,
   registerDesktopQuitHandler,
   syncCloseToTrayPreference,
@@ -137,27 +136,6 @@ describe('desktop runtime bridge', () => {
       failedEntries: 0,
     });
     expect(invokeMock).toHaveBeenCalledWith('clear_desktop_log_history');
-  });
-
-  it('opens the native picker with the Magi backup extension only', async () => {
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    dialogOpenMock.mockResolvedValue('/Users/example/Memory copy.magibackup');
-
-    await expect(
-      pickMemoryBackupFile('Magi memory backup', '/Users/example'),
-    ).resolves.toBe('/Users/example/Memory copy.magibackup');
-
-    expect(dialogOpenMock).toHaveBeenCalledWith({
-      directory: false,
-      multiple: false,
-      defaultPath: '/Users/example',
-      filters: [{ name: 'Magi memory backup', extensions: ['magibackup'] }],
-    });
-  });
-
-  it('does not open a backup file picker outside the desktop runtime', async () => {
-    await expect(pickMemoryBackupFile('Magi memory backup')).resolves.toBeUndefined();
-    expect(dialogOpenMock).not.toHaveBeenCalled();
   });
 
 

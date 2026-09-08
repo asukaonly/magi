@@ -19,22 +19,22 @@ export interface HistoryImporterPreviewInput {
   connectionId: string;
   pluginId: string;
   importerId: string;
-  paths: string[];
+  resourceIds: string[];
 }
 
 export const historyImportsApi = {
-  async previewMarkdown(paths: string[]): Promise<HistoryImportJob> {
+  async previewMarkdown(resourceIds: string[]): Promise<HistoryImportJob> {
     const response = await api.post<unknown>(
       '/memory/history-imports/markdown/preview',
-      { paths },
+      { resource_ids: resourceIds },
     );
     return parseHistoryImportJob(response);
   },
 
-  async appendMarkdown(jobId: string, paths: string[]): Promise<HistoryImportAppendResult> {
+  async appendMarkdown(jobId: string, resourceIds: string[]): Promise<HistoryImportAppendResult> {
     const response = await api.post<unknown>(
       `/memory/history-imports/${encodeURIComponent(jobId)}/markdown/append`,
-      { paths },
+      { resource_ids: resourceIds },
     );
     return parseHistoryImportAppend(response, jobId);
   },
@@ -49,7 +49,7 @@ export const historyImportsApi = {
   async previewWithImporter(input: HistoryImporterPreviewInput): Promise<HistoryImportJob> {
     const response = await api.post<unknown>(
       `/memory/history-imports/importers/${encodeURIComponent(input.pluginId)}/${encodeURIComponent(input.importerId)}/preview`,
-      { paths: input.paths, connection_id: input.connectionId },
+      { resource_ids: input.resourceIds, connection_id: input.connectionId },
       { timeout: HISTORY_IMPORTER_PREVIEW_TIMEOUT_MS },
     );
     return parseHistoryImportJob(response);

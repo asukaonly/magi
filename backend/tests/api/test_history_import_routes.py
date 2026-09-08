@@ -137,6 +137,7 @@ def test_public_preview_route_requires_and_forwards_connection_id(monkeypatch) -
     from fastapi.testclient import TestClient
     from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 
+    monkeypatch.setattr(history_import_routes, "_uploaded_paths", AsyncMock(return_value=["/tmp/export.zip"]))
     preview = AsyncMock(side_effect=HistoryImportValidationError("selected-connection"))
     monkeypatch.setattr(history_import_routes, "_require_service", lambda: SimpleNamespace(preview_importer_paths=preview))
     app = FastAPI()
@@ -146,7 +147,7 @@ def test_public_preview_route_requires_and_forwards_connection_id(monkeypatch) -
         missing = client.post(path, json={"paths": ["/tmp/export.zip"]})
         assert missing.status_code == 422
         preview.assert_not_called()
-        response = client.post(path, json={"connection_id": "second-account", "paths": ["/tmp/export.zip"]})
+        response = client.post(path, json={"connection_id": "second-account", "resource_ids": ["uploaded-export"]})
         assert response.status_code == 400
         assert response.json()["detail"] == "selected-connection"
         preview.assert_awaited_once_with(plugin_id="platform-history", importer_id="account-export", connection_id="second-account", paths=["/tmp/export.zip"])

@@ -31,12 +31,12 @@ describe('memoryPortabilityApi contract', () => {
       .mockResolvedValueOnce({ ...inspection, operation_id: 'inspection-2' } as never)
       .mockResolvedValueOnce({ ...operation, kind: 'restore' } as never);
     const deleteSpy = vi.spyOn(apiClient, 'delete').mockResolvedValue({ status: 204 });
-    expect((await memoryPortabilityApi.inspectRestore({ sourcePath: '/tmp/private.magibackup' })).kind).toBe('inspect');
-    expect((await memoryPortabilityApi.inspectRestore({ sourcePath: '/tmp/private.magibackup', password: 'secret' })).operation_id).toBe('inspection-2');
+    expect((await memoryPortabilityApi.inspectRestore({ resourceId: '/tmp/private.magibackup' })).kind).toBe('inspect');
+    expect((await memoryPortabilityApi.inspectRestore({ resourceId: '/tmp/private.magibackup', password: 'secret' })).operation_id).toBe('inspection-2');
     await memoryPortabilityApi.confirmRestore('candidate/with slash');
     await memoryPortabilityApi.discardRestoreCandidate('candidate/with slash');
-    expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/restores/inspect', { source_path: '/tmp/private.magibackup' });
-    expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/restores/inspect', { source_path: '/tmp/private.magibackup', password: 'secret' });
+    expect(postSpy).toHaveBeenNthCalledWith(1, '/memory/portability/restores/inspect', { resource_id: '/tmp/private.magibackup' });
+    expect(postSpy).toHaveBeenNthCalledWith(2, '/memory/portability/restores/inspect', { resource_id: '/tmp/private.magibackup', password: 'secret' });
     expect(postSpy).toHaveBeenNthCalledWith(3, '/memory/portability/restores/candidate%2Fwith%20slash/confirm', {});
     expect(deleteSpy).toHaveBeenCalledWith('/memory/portability/restores/candidate%2Fwith%20slash');
     deleteSpy.mockResolvedValue({ status: 200, data: { success: false } });
