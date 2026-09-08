@@ -1096,7 +1096,7 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
 
     app = FastAPI()
-    app.include_router(memory_router, prefix="/api/memory")
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
     asset_store = ManualEntryAssetStore(media_root=tmp_path)
     stored_ref: str | None = None
     l2 = MagicMock()
@@ -1104,12 +1104,13 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     async def _update_experience(**kwargs):
         nonlocal stored_ref
         stored_ref = kwargs["user_cover_asset_ref"]
-        return True
+        return await _get_experience(experience_id=kwargs["experience_id"])
 
     async def _get_experience(*, experience_id: str):
         return {
             "experience_id": experience_id,
             "status": "active",
+            "annotation_revision": "a" * 64,
             "title": "Japan trip",
             "time_start": 1.0,
             "time_end": 2.0,
@@ -1119,7 +1120,7 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
             "primary_topic_keys": [],
         }
 
-    l2.update_experience = AsyncMock(side_effect=_update_experience)
+    l2.annotate_experience = AsyncMock(side_effect=_update_experience)
     l2.get_experience = AsyncMock(side_effect=_get_experience)
     l2.list_experience_members = AsyncMock(return_value=[])
     l3 = MagicMock()
@@ -1142,6 +1143,7 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
         client = TestClient(app)
         response = client.post(
             "/api/memory/l2/experiences/exp-cover/cover",
+            data={"expected_revision": "a" * 64},
             files={"file": ("cover.png", b"\x89PNG\r\n\x1a\ncover", "image/png")},
         )
 
@@ -1150,9 +1152,9 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     asset_ref = body["user_cover_asset_ref"]
     assert asset_ref.startswith("manual-entry-asset://")
     assert asset_store.resolve(asset_ref) == (b"\x89PNG\r\n\x1a\ncover", "image/png")
-    l2.update_experience.assert_awaited_once_with(
+    l2.annotate_experience.assert_awaited_once_with(
         experience_id="exp-cover",
-        expected_status="active",
+        expected_revision="a" * 64,
         user_cover_asset_ref=asset_ref,
     )
 

@@ -15,4 +15,4 @@ def test_l4_strategy_revision_schema_is_available_at_release_head(tmp_path):
         trace_columns = {row[1] for row in db.execute("PRAGMA table_info(l4_execution_traces)")}
         assert "strategy_revision" in skill_columns
         assert "strategy_processed_at" in trace_columns
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("v51_portrait_prompt_contract",)
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone() == ("v53_gateway_read_indexes",)

@@ -75,7 +75,7 @@ async def test_maintenance_status_uses_runtime_config_jobs_and_history(tmp_path,
         assert read()["events"]["status"] == "paused"
         definition.enabled = False
         await scheduler.schedule(definition)
-        assert read()["events"]["status"] == "unavailable"
+        assert read()["events"]["status"] == "paused"
         assert read()["events"]["last_result"] == "failed"
         definition.enabled = True
         await scheduler.schedule(definition)

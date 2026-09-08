@@ -54,7 +54,7 @@ def test_portrait_prompt_contract_upgrade_invalidates_derived_caches_only(tmp_pa
     with sqlite3.connect(path) as db:
         db.row_factory = sqlite3.Row
         after = dict(db.execute("SELECT * FROM user_portrait_projection").fetchone())
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "v51_portrait_prompt_contract"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "v53_gateway_read_indexes"
         assert db.execute("SELECT COUNT(*) FROM user_profile_projection").fetchone()[0] == 0
         assert dict(db.execute("SELECT * FROM tom_trait_assertions").fetchone()) == assertion_before
     assert after == {**before, "prompt_contract_version": 0}
