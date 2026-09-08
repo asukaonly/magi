@@ -1095,6 +1095,13 @@ restored through notifications. Notification resolution payloads and suppression
 rules retain their existing ownership. The dismissed-suggestion read projection
 uses the localized review title for profile conflicts, including already stored
 dismissals, so the restore list does not expose an old internal trait name.
+L2 retrieval owns both the retained-reference lookup and maintenance scan for
+shadow conflicts. These operations share the same live-side and slot-pairing
+rules, including expiry and forgetting, and read both sides in one transaction.
+The notification projection consumes those pairs with an explicit
+`STRUCTURED_ONLY` summary policy; neither it nor notification creation owns a
+second SQL query or lifecycle exclusion list. Stored references are resolved
+exactly, while new scans select the latest live authority in the existing slot.
 Portrait wording and prompt selection are deterministic host logic. There is no
 optional portrait LLM post-processor in the runtime path. Product items and prompt
 inputs are separate projections of the same admitted facts. Prompt inputs carry

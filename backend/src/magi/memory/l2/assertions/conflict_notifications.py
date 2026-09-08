@@ -27,28 +27,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from magi.identity.defaults import CANONICAL_LOCAL_USER
+from magi.notifications.service import NotificationService
 
 from ....core.logger import get_logger
-from ....core.sqlite import sqlite_connection_async
-from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
-from .conflict_notification_display import render_profile_conflict_notification
+from ..retrieval.shadow_conflicts import ShadowConflictReader
+from .conflict_notification_display import render_profile_conflict_notifications
 
 logger = get_logger(__name__)
 _CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
-
-# Statuses that mean an authoritative row is no longer "live".
-# Extends RETRIEVAL_EXCLUDED_STATUSES with terminal non-governance statuses that
-# also indicate the row is gone from the active pool (superseded, expired,
-# contradicted).
-_AUTHORITATIVE_EXCLUDED = frozenset(RETRIEVAL_EXCLUDED_STATUSES) | {
-    "superseded",
-    "expired",
-    "contradicted",
-}
-
-# Notification kind — reuse the existing suggestion kind so the feed, badge
-# count, and store schema all work without schema changes.
-_KIND = "suggestion"
 
 
 @dataclass(frozen=True)
@@ -57,42 +43,11 @@ class _ShadowConflictFields:
     target_entity_id: str
     inferred_value: str
     shadow_id: str
-    entity_type: str
-
-
-async def _fetch_authoritative(
-    db_path: str,
-    *,
-    entity_id: str,
-    entity_type: str,
-    trait_name: str,
-    target_entity_id: str,
-) -> dict[str, Any] | None:
-    """Return the most-recent live authoritative row for this trait slot, or None."""
-    excluded = list(_AUTHORITATIVE_EXCLUDED)
-    placeholders = ", ".join("?" for _ in excluded)
-    query = (
-        "SELECT * FROM tom_trait_assertions "
-        "WHERE entity_id = ? AND entity_type = ? "
-        "  AND trait_name = ? AND target_entity_id = ? "
-        f" AND status NOT IN ({placeholders}) "
-        "ORDER BY updated_at DESC LIMIT 1"
-    )
-    args: list[Any] = [entity_id, entity_type, trait_name, target_entity_id, *excluded]
-    async with sqlite_connection_async(db_path) as db:
-        import aiosqlite as _aiosqlite
-
-        db.row_factory = _aiosqlite.Row
-        async with db.execute(query, tuple(args)) as cursor:
-            row = await cursor.fetchone()
-    if row is None:
-        return None
-    return {k: row[k] for k in row.keys()}
 
 
 async def materialize_shadow_conflict_notifications(
-    store: Any,
-    notification_service: Any,
+    store: ShadowConflictReader,
+    notification_service: NotificationService,
     *,
     user_id: str,
     entity_id: str = _CANONICAL_SELF_ENTITY_ID,
@@ -111,8 +66,7 @@ async def materialize_shadow_conflict_notifications(
       "profile_conflict:{trait_name}:{target_entity_id}"``.
 
     Args:
-        store: An ``L2CognitionStore`` instance (must expose
-            ``list_assertions_by_status`` and ``db_path``).
+        store: The L2 domain's conflict query boundary.
         notification_service: A ``NotificationService`` instance.
         user_id: The canonical self-user ID used as ``user_id`` for
             notification rows.
@@ -125,98 +79,52 @@ async def materialize_shadow_conflict_notifications(
             - ``shadows_seen``: total shadow rows found for *entity_id*
             - ``notifications_emitted``: dedupe-inserts + bumps performed
     """
-    shadows: list[dict[str, Any]] = await store.list_assertions_by_status(
-        "shadow", entity_id=entity_id
+    scan = await store.list_shadow_conflicts(entity_id=entity_id, entity_type=entity_type)
+    texts = await render_profile_conflict_notifications(
+        db_path=store.db_path,
+        pairs=scan.pairs,
+        language=locale,
     )
-    shadows_seen = len(shadows)
     notifications_emitted = 0
-
-    for shadow in shadows:
-        emitted = await _materialize_shadow_conflict_notification(
-            store=store,
-            notification_service=notification_service,
-            shadow=shadow,
-            user_id=user_id,
+    for pair, (title, body) in zip(scan.pairs, texts):
+        assert pair.shadow is not None and pair.authoritative is not None
+        fields = _shadow_conflict_fields(pair.shadow)
+        authoritative_id = str(pair.authoritative["assertion_id"])
+        authoritative_value = str(pair.authoritative["trait_value"])
+        dedupe_key = _shadow_conflict_dedupe_key(fields)
+        payload_json = _shadow_conflict_payload_json(
+            fields=fields,
+            authoritative_id=authoritative_id,
+            authoritative_value=authoritative_value,
             entity_id=entity_id,
-            entity_type=entity_type,
-            locale=locale,
         )
-        if emitted:
-            notifications_emitted += 1
+        notification_service._materialize_one(user_id, dedupe_key, title, body, payload_json)
+        notifications_emitted += 1
+        logger.info(
+            "shadow_conflict_notifications: notification emitted/bumped",
+            shadow_id=fields.shadow_id,
+            authoritative_id=authoritative_id,
+            trait_name=fields.trait_name,
+            dedupe_key=dedupe_key,
+        )
 
     logger.info(
         "shadow_conflict_notifications: scan complete",
         entity_id=entity_id,
-        shadows_seen=shadows_seen,
+        shadows_seen=scan.shadows_seen,
         notifications_emitted=notifications_emitted,
     )
-    return {"shadows_seen": shadows_seen, "notifications_emitted": notifications_emitted}
-
-
-async def _materialize_shadow_conflict_notification(
-    *,
-    store: Any,
-    notification_service: Any,
-    shadow: dict[str, Any],
-    user_id: str,
-    entity_id: str,
-    entity_type: str,
-    locale: str,
-) -> bool:
-    fields = _shadow_conflict_fields(shadow, default_entity_type=entity_type)
-    authoritative = await _fetch_authoritative(
-        store.db_path,
-        entity_id=entity_id,
-        entity_type=fields.entity_type,
-        trait_name=fields.trait_name,
-        target_entity_id=fields.target_entity_id,
-    )
-    if authoritative is None:
-        logger.debug(
-            "shadow_conflict_notifications: no surviving authoritative; skipping",
-            shadow_id=fields.shadow_id,
-            trait_name=fields.trait_name,
-        )
-        return False
-
-    authoritative_id = str(authoritative.get("assertion_id") or "")
-    authoritative_value = str(authoritative.get("trait_value") or "")
-    dedupe_key = _shadow_conflict_dedupe_key(fields)
-    title, body = await render_profile_conflict_notification(
-        db_path=store.db_path,
-        shadow=shadow,
-        authoritative=authoritative,
-        language=locale,
-    )
-    payload_json = _shadow_conflict_payload_json(
-        fields=fields,
-        authoritative_id=authoritative_id,
-        authoritative_value=authoritative_value,
-        entity_id=entity_id,
-    )
-
-    notification_service._materialize_one(user_id, dedupe_key, title, body, payload_json)
-    logger.info(
-        "shadow_conflict_notifications: notification emitted/bumped",
-        shadow_id=fields.shadow_id,
-        authoritative_id=authoritative_id,
-        trait_name=fields.trait_name,
-        dedupe_key=dedupe_key,
-    )
-    return True
+    return {"shadows_seen": scan.shadows_seen, "notifications_emitted": notifications_emitted}
 
 
 def _shadow_conflict_fields(
     shadow: dict[str, Any],
-    *,
-    default_entity_type: str,
 ) -> _ShadowConflictFields:
     return _ShadowConflictFields(
         trait_name=str(shadow.get("trait_name") or ""),
         target_entity_id=str(shadow.get("target_entity_id") or ""),
         inferred_value=str(shadow.get("trait_value") or ""),
         shadow_id=str(shadow.get("assertion_id") or ""),
-        entity_type=str(shadow.get("entity_type") or default_entity_type),
     )
 
 
