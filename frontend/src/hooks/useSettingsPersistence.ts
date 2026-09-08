@@ -1,8 +1,9 @@
+import { writeDevicePreferences } from '@/runtime/device-preferences';
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
-import { configApi, type SystemConfig } from '@/api/modules/config';
+import { configApi, toCenterConfig, type SystemConfig } from '@/api/modules/config';
 import { requireConfiguration } from '@/api/config-contract';
 import { type ControlSettingsDTO, updateControlSettings } from '@/api/modules/control';
 import { toolsApi, type ToolConfig } from '@/api/modules/tools';
@@ -175,6 +176,7 @@ export function useSettingsPersistence({
     setSaving(true);
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
+      const centerConfigDirty = serialize(toCenterConfig(savedConfig)) !== serialize(toCenterConfig(draftConfig));
       const languageChanged = savedConfig.preferences.language !== draftConfig.preferences.language;
       const controlDirty = serialize(savedControlSettings) !== serialize(draftControlSettings);
       const toolsDirty = serialize(savedToolDrafts) !== serialize(draftToolDrafts);
@@ -182,7 +184,7 @@ export function useSettingsPersistence({
       let autoStartApplied = true;
       let persistedConfig = structuredClone(draftConfig);
 
-      if (configDirty) {
+      if (centerConfigDirty) {
         const preflight = await configApi.embeddingPreflight(draftConfig);
         const warningLayers = preflight.warnings.map((warning) =>
           t(`settings.memory.vector.layers.${warning.layer}`)
@@ -204,6 +206,16 @@ export function useSettingsPersistence({
         }
         const response = await configApi.update(draftConfig);
         persistedConfig = structuredClone(requireConfiguration(response));
+      }
+
+      if (configDirty) {
+        writeDevicePreferences(draftConfig.preferences);
+        // The response contains current device values; apply the submitted snapshot.
+        for (const key of [
+          'close_to_tray_enabled', 'desktop_notifications_enabled',
+          'desktop_notification_previews_enabled', 'auto_start_enabled',
+          'start_minimized', 'skip_quit_confirmation',
+        ] as const) persistedConfig.preferences[key] = draftConfig.preferences[key];
         setSavedConfig(structuredClone(persistedConfig));
         setDraftConfig(current => acceptSavedDraft(current, draftConfig, persistedConfig));
         await syncCloseToTrayPreference(persistedConfig.preferences.close_to_tray_enabled);

@@ -954,3 +954,13 @@ be forgotten. The title bar shows the active center, and a failed startup still
 allows selecting another connection. Switching reloads the interface, so users
 must save unsent content before choosing another center. Remote plugins execute
 on the center computer; connecting a desktop does not enroll it as a collector.
+
+### Device preferences and center settings
+
+Desktop close-to-tray, notification delivery/previews, autostart, minimized startup,
+and quit confirmation belong to the client device. They persist in the device
+preference store and are excluded from the center configuration API. Switching
+centers or clearing center memory preserves these preferences. Changing only a
+device preference does not update the center or restart its model runtime.
+The settings editor composes center settings and device preferences for display;
+its persistence boundary writes each to its owning store.

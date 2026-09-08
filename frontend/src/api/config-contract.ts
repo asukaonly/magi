@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { readDevicePreferences } from '@/runtime/device-preferences';
 import type { ApiResponse } from './client';
 import type { components } from './generated/config-types';
 import {
@@ -80,6 +81,7 @@ export function toSystemConfig(value: Wire['SystemConfigModel']): SystemConfig {
     },
     preferences: {
       ...value.preferences,
+      ...readDevicePreferences(),
       user_mode: z.enum(['quick', 'expert']).nullable().parse(value.preferences.user_mode),
       language: z.enum(['zh', 'en']).parse(value.preferences.language),
       conversation_rhythm_mode: z.enum(['off', 'natural', 'expressive']).parse(value.preferences.conversation_rhythm_mode),

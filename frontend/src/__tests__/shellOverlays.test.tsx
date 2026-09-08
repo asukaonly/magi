@@ -1,3 +1,4 @@
+import { readDevicePreferences } from '@/runtime/device-preferences';
 import { act } from 'react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { render, screen } from '@testing-library/react';
@@ -182,9 +183,8 @@ describe('shell overlays', () => {
     await user.click(screen.getByRole('button', { name: 'desktop.quitConfirm.confirm' }));
 
     expect(syncSkipQuitConfirmationPreferenceMock).toHaveBeenCalledWith(true);
-    expect(configApiUpdateMock).toHaveBeenCalledTimes(1);
-    const updateArg = configApiUpdateMock.mock.calls[0][0];
-    expect(updateArg.preferences.skip_quit_confirmation).toBe(true);
+    expect(configApiUpdateMock).not.toHaveBeenCalled();
+    expect(readDevicePreferences().skip_quit_confirmation).toBe(true);
     expect(confirmExitAppMock).toHaveBeenCalledTimes(1);
   });
 

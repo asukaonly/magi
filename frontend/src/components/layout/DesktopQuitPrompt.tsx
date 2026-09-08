@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Power, X } from 'lucide-react';
 
-import { configApi } from '@/api/modules/config';
+import { readDevicePreferences, writeDevicePreferences } from '@/runtime/device-preferences';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -62,20 +62,8 @@ const DesktopQuitPrompt = () => {
 
   const handleConfirm = useCallback(async () => {
     if (skipFutureConfirm) {
-      // Update the in-process Rust state first so we always honor the choice,
-      // then best-effort persist to backend config so it survives restart.
       await syncSkipQuitConfirmationPreference(true);
-      try {
-        const response = await configApi.get();
-        const current = response.data;
-        if (current) {
-          const next = structuredClone(current);
-          next.preferences.skip_quit_confirmation = true;
-          await configApi.update(next);
-        }
-      } catch {
-        // Startup may have failed; the in-process state still applies.
-      }
+      writeDevicePreferences({ ...readDevicePreferences(), skip_quit_confirmation: true });
     }
     await confirmExitApp();
     setOpen(false);

@@ -3062,7 +3062,8 @@
         "reloadFailed": "Failed to reload action plugin: {{message}}"
       }
     },
-    "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again."
+    "defaultChatWorkspaceRestoreFailed": "Unable to read the default workspace. Please try again.",
+    "deviceOnly": "These settings apply to this device."
   },
   "memory": {
     "facts": {

@@ -2847,16 +2847,6 @@
             "title": "Allow Media Grounding For Conversation",
             "type": "boolean"
           },
-          "auto_start_enabled": {
-            "default": false,
-            "title": "Auto Start Enabled",
-            "type": "boolean"
-          },
-          "close_to_tray_enabled": {
-            "default": true,
-            "title": "Close To Tray Enabled",
-            "type": "boolean"
-          },
           "conversation_rhythm_enabled": {
             "default": true,
             "title": "Conversation Rhythm Enabled",
@@ -2877,16 +2867,6 @@
               }
             ],
             "title": "Default Chat Workspace Path"
-          },
-          "desktop_notification_previews_enabled": {
-            "default": true,
-            "title": "Desktop Notification Previews Enabled",
-            "type": "boolean"
-          },
-          "desktop_notifications_enabled": {
-            "default": true,
-            "title": "Desktop Notifications Enabled",
-            "type": "boolean"
           },
           "first_conversation_completed": {
             "default": false,
@@ -2922,16 +2902,6 @@
             "default": null,
             "title": "Scenario"
           },
-          "skip_quit_confirmation": {
-            "default": false,
-            "title": "Skip Quit Confirmation",
-            "type": "boolean"
-          },
-          "start_minimized": {
-            "default": false,
-            "title": "Start Minimized",
-            "type": "boolean"
-          },
           "streaming_chat_enabled": {
             "default": false,
             "title": "Streaming Chat Enabled",
@@ -2966,12 +2936,6 @@
           "user_mode",
           "scenario",
           "language",
-          "close_to_tray_enabled",
-          "desktop_notifications_enabled",
-          "desktop_notification_previews_enabled",
-          "auto_start_enabled",
-          "start_minimized",
-          "skip_quit_confirmation",
           "default_chat_workspace_path",
           "streaming_chat_enabled",
           "conversation_rhythm_enabled",

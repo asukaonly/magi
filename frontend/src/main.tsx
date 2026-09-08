@@ -1,3 +1,4 @@
+import { readDevicePreferences } from './runtime/device-preferences';
 import { APP_EVENTS } from './constants/events';
 import { setCenterStorageScope } from './runtime/center-storage';
 import { recoverPendingFullDataClear } from './hooks/clearAllMemory';
@@ -123,16 +124,17 @@ const RuntimeBootstrap: React.FC = () => {
           persistLanguageSelection(lang);
           await previewLanguageSelection(lang);
         }
-        await syncCloseToTrayPreference(prefs?.close_to_tray_enabled ?? true);
+        const devicePrefs = readDevicePreferences();
+        await syncCloseToTrayPreference(devicePrefs.close_to_tray_enabled);
         await syncOnboardingCompleted(prefs?.onboarding_completed ?? false);
         try {
-          await syncAutoStartPreference(prefs?.auto_start_enabled ?? false);
+          await syncAutoStartPreference(devicePrefs.auto_start_enabled);
         } catch {
           toast.error(i18n.t('settings.autoStartSyncFailed', { ns: 'app' }));
         }
-        await syncStartMinimizedPreference(prefs?.start_minimized ?? false);
-        await syncSkipQuitConfirmationPreference(prefs?.skip_quit_confirmation ?? false);
-        syncDesktopNotificationPreferences(prefs);
+        await syncStartMinimizedPreference(devicePrefs.start_minimized);
+        await syncSkipQuitConfirmationPreference(devicePrefs.skip_quit_confirmation);
+        syncDesktopNotificationPreferences(devicePrefs);
         await applyStartMinimized();
         void scheduleStartupUpdateCheck({
           network: response.data?.network,

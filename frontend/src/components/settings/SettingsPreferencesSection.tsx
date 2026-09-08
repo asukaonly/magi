@@ -118,7 +118,7 @@ export function SettingsPreferencesSection({
         />
       </SettingsGroup>
 
-      <SettingsGroup title={t('settings.fields.windowSettings')}>
+      <SettingsGroup title={t('settings.fields.windowSettings')} description={t('settings.deviceOnly')}>
         <div className="space-y-1.5">
           <PreferenceToggleRow
             label={t('settings.closeToTrayLabel')}
@@ -149,7 +149,7 @@ export function SettingsPreferencesSection({
         </div>
       </SettingsGroup>
 
-      <SettingsGroup title={t('settings.startupSettings')}>
+      <SettingsGroup title={t('settings.startupSettings')} description={t('settings.deviceOnly')}>
         <div className="space-y-1.5">
           <PreferenceToggleRow
             label={t('settings.autoStartLabel')}

@@ -1402,16 +1402,6 @@ export interface components {
              */
             allow_media_grounding_for_conversation: boolean;
             /**
-             * Auto Start Enabled
-             * @default false
-             */
-            auto_start_enabled: boolean;
-            /**
-             * Close To Tray Enabled
-             * @default true
-             */
-            close_to_tray_enabled: boolean;
-            /**
              * Conversation Rhythm Enabled
              * @default true
              */
@@ -1423,16 +1413,6 @@ export interface components {
             conversation_rhythm_mode: string;
             /** Default Chat Workspace Path */
             default_chat_workspace_path: string | null;
-            /**
-             * Desktop Notification Previews Enabled
-             * @default true
-             */
-            desktop_notification_previews_enabled: boolean;
-            /**
-             * Desktop Notifications Enabled
-             * @default true
-             */
-            desktop_notifications_enabled: boolean;
             /**
              * First Conversation Completed
              * @description Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.
@@ -1460,16 +1440,6 @@ export interface components {
              * @default null
              */
             scenario: string | null;
-            /**
-             * Skip Quit Confirmation
-             * @default false
-             */
-            skip_quit_confirmation: boolean;
-            /**
-             * Start Minimized
-             * @default false
-             */
-            start_minimized: boolean;
             /**
              * Streaming Chat Enabled
              * @default false

@@ -311,13 +311,13 @@ def test_memory_l0_api_response_round_trips_attention_update_settings():
     assert response.attention_update_max_delay_seconds == 240
 
 
-def test_system_config_defaults_include_close_to_tray_enabled_preference(tmp_path, monkeypatch):
+def test_system_config_does_not_own_device_preferences(tmp_path, monkeypatch):
     monkeypatch.setenv("MAGI_HOME", str(tmp_path))
     config = SystemConfigModel()
 
-    assert config.preferences.close_to_tray_enabled is True
-    assert config.preferences.desktop_notifications_enabled is True
-    assert config.preferences.desktop_notification_previews_enabled is True
+    assert "close_to_tray_enabled" not in config.preferences.model_dump()
+    assert "desktop_notifications_enabled" not in config.preferences.model_dump()
+    assert "desktop_notification_previews_enabled" not in config.preferences.model_dump()
     assert config.preferences.allow_media_grounding_for_conversation is True
     assert config.preferences.default_chat_workspace_path == str(tmp_path / "chat-workspace")
     assert config.diagnostics.full_content_logging_enabled is True
@@ -357,7 +357,7 @@ def test_build_update_paths_keeps_preferences_yaml_safe_with_dismissals(
     assert dumped["kind"] == "explicit"
 
 
-def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yaml(
+def test_build_system_config_excludes_device_preferences_from_raw_yaml(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(
@@ -367,7 +367,7 @@ def test_build_system_config_loads_close_to_tray_enabled_preference_from_raw_yam
 
     config = _build_system_config()
 
-    assert config.preferences.close_to_tray_enabled is False
+    assert "close_to_tray_enabled" not in config.preferences.model_dump()
 
 
 def test_build_system_config_loads_default_chat_workspace_path_from_raw_yaml(
@@ -1916,7 +1916,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     client = TestClient(app)
     current = _remote_embedding_config()
     proposed = current.model_copy(deep=True)
-    proposed.preferences.close_to_tray_enabled = not current.preferences.close_to_tray_enabled
+    proposed.preferences.allow_interjection = not current.preferences.allow_interjection
 
     def unexpected_manager():
         raise AssertionError("Unrelated settings must not pause embedding rebuilds")
@@ -2135,7 +2135,7 @@ def test_update_config_initializes_runtime_when_runtime_is_deferred(
     assert calls == ["initialize", "enqueue"]
 
 
-def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences_payload(
+def test_update_config_never_persists_device_preferences(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
@@ -2167,9 +2167,9 @@ def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences
     response = client.put("/config/", json=payload)
 
     assert response.status_code == 200
-    assert captured_updates["preferences"]["close_to_tray_enabled"] is False
-    assert captured_updates["preferences"]["desktop_notifications_enabled"] is True
-    assert captured_updates["preferences"]["desktop_notification_previews_enabled"] is False
+    for key in ("close_to_tray_enabled", "desktop_notifications_enabled", "desktop_notification_previews_enabled"):
+        assert key not in captured_updates.get("preferences", {})
+        assert key not in response.json()["data"]["preferences"]
 
 
 def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
@@ -2180,10 +2180,10 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     client = TestClient(app)
 
     payload = SystemConfigModel()
-    payload.preferences.close_to_tray_enabled = False
+    payload.preferences.conversation_rhythm_enabled = False
     expected_updates = {
         "agent.memory.l0.enabled": False,
-        "preferences": {"close_to_tray_enabled": False},
+        "preferences": {"conversation_rhythm_enabled": False},
     }
     captured_updates: dict[str, object] = {}
 
@@ -2194,7 +2194,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     refreshed_config = object()
     returned_config = SystemConfigModel()
     returned_config.memory.l0.enabled = False
-    returned_config.preferences.close_to_tray_enabled = False
+    returned_config.preferences.conversation_rhythm_enabled = False
 
     monkeypatch.setattr(
         "magi.api.routers.config._build_update_paths", lambda config: expected_updates
@@ -2219,7 +2219,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     assert response.status_code == 200
     assert captured_updates == expected_updates
     assert response.json()["data"]["memory"]["l0"]["enabled"] is False
-    assert response.json()["data"]["preferences"]["close_to_tray_enabled"] is False
+    assert response.json()["data"]["preferences"]["conversation_rhythm_enabled"] is False
 
 
 def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(

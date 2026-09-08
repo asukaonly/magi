@@ -15,6 +15,7 @@ import { sourcesApi } from '@/api/modules/sources';
 import { skillsApi } from '@/api/modules/skills';
 import { toolsApi } from '@/api/modules/tools';
 import { useDesktopPreferencesStore } from '@/stores/desktop-preferences';
+import { readDevicePreferences } from '@/runtime/device-preferences';
 import { planFor } from './fixtures/pluginInstallPlan';
 
 const {
@@ -983,13 +984,8 @@ describe('settings page draft saving', () => {
 
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
-    await waitFor(() =>
-      expect(configApi.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          preferences: expect.objectContaining({ close_to_tray_enabled: false }),
-        })
-      )
-    );
+    await waitFor(() => expect(readDevicePreferences().close_to_tray_enabled).toBe(false));
+    expect(configApi.update).not.toHaveBeenCalled();
     expect(syncCloseToTrayPreferenceMock).toHaveBeenCalledWith(false);
   });
 
@@ -1007,16 +1003,11 @@ describe('settings page draft saving', () => {
     await user.click(previewsSwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
-    await waitFor(() =>
-      expect(configApi.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          preferences: expect.objectContaining({
-            desktop_notifications_enabled: false,
-            desktop_notification_previews_enabled: false,
-          }),
-        })
-      )
-    );
+    await waitFor(() => expect(readDevicePreferences()).toMatchObject({
+      desktop_notifications_enabled: false,
+      desktop_notification_previews_enabled: false,
+    }));
+    expect(configApi.update).not.toHaveBeenCalled();
     expect(requestDesktopNotificationPermissionMock).not.toHaveBeenCalled();
   });
 
@@ -1147,7 +1138,7 @@ describe('settings page draft saving', () => {
     await waitFor(() => expect(screen.queryByText('settings.pendingChanges')).not.toBeInTheDocument());
     expect(configApi.update).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('switch', { name: 'settings.closeToTrayLabel' }));
+    await user.click(screen.getByRole('switch', { name: 'settings.diagnostics.fullContentLoggingLabel' }));
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
     await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
     expect(vi.mocked(configApi.update).mock.calls[0][0]).not.toHaveProperty('tools');

@@ -61,11 +61,11 @@ def test_tool_save_survives_later_general_settings_save(client: TestClient) -> N
         assert response.status_code == 200
         assert response.json()["success"] is True
 
-    stale_general_config["preferences"]["close_to_tray_enabled"] = False
+    stale_general_config["preferences"]["conversation_rhythm_enabled"] = False
     stale_general_config["skills"] = ["selected-skill"]
     saved = client.put("/api/config/", json=stale_general_config)
     assert saved.status_code == 200
-    assert saved.json()["data"]["preferences"]["close_to_tray_enabled"] is False
+    assert saved.json()["data"]["preferences"]["conversation_rhythm_enabled"] is False
     assert "tools" not in saved.json()["data"]
 
     listed = client.get("/api/tools/config")

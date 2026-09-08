@@ -1,3 +1,4 @@
+import { withoutDevicePreferences, type DevicePreferences } from '@/runtime/device-preferences';
 /**
  * Config management API and type definitions.
  */
@@ -34,19 +35,13 @@ export type LLMProvider =
 export type ApiFormat = 'openai' | 'anthropic';
 export type LLMScenario = 'auxiliary' | 'core' | 'memory_summarizer' | 'embedding' | 'image_generation';
 
-export interface UserPreferences {
+export interface UserPreferences extends DevicePreferences {
   onboarding_completed: boolean;
   first_conversation_completed: boolean;
   product_tour_completed: boolean;
   user_mode: UserMode;
   scenario?: string | null;
   language: LanguageCode;
-  close_to_tray_enabled: boolean;
-  desktop_notifications_enabled: boolean;
-  desktop_notification_previews_enabled: boolean;
-  auto_start_enabled: boolean;
-  start_minimized: boolean;
-  skip_quit_confirmation: boolean;
   default_chat_workspace_path: string | null;
   streaming_chat_enabled: boolean;
   conversation_rhythm_enabled: boolean;
@@ -766,15 +761,19 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   },
 };
 
+export function toCenterConfig(config: Partial<SystemConfig>) {
+  return { ...config, ...(config.preferences ? { preferences: withoutDevicePreferences(config.preferences) } : {}) };
+}
+
 export const configApi = {
   get: () => api.get<unknown>('/config').then(parseConfigResponse),
-  update: (config: Partial<SystemConfig>) => api.put<unknown>('/config', config).then(parseConfigResponse),
+  update: (config: Partial<SystemConfig>) => api.put<unknown>('/config', toCenterConfig(config)).then(parseConfigResponse),
   updateLanguagePreference: (language: LanguageCode) =>
     api.put<unknown>('/config/preferences/language', { language }).then(parseConfigResponse),
   embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
-    unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', config)),
+    unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', toCenterConfig(config))),
   getTemplate: () => api.get<unknown>('/config/template').then(parseConfigResponse),
-  test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', config),
+  test: (config: Partial<SystemConfig>) => api.post<SystemConfig>('/config/test', toCenterConfig(config)),
   getLLMProviderCatalog: async (): Promise<LLMProviderCatalog> =>
     unwrapConfigResponse(await api.get<LLMProviderCatalog>('/llm/providers/catalog')),
   resolveLLMProviderCatalog: async (payload: LLMProviderCatalogResolveRequest): Promise<LLMProviderCatalog> =>

@@ -19,9 +19,11 @@ import { useSettings } from '@/hooks/useSettings';
 import fixtures from '../../../contracts/api/frontend-config-examples.json';
 import { useThemeStore } from '@/stores/theme';
 import { DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
+import { readDevicePreferences } from '@/runtime/device-preferences';
 
 beforeEach(() => {
   vi.resetAllMocks();
+  localStorage.clear();
   useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
   useThemeStore.getState().setMode('light');
   mocks.toolList.mockResolvedValue({ tools: [] });
@@ -143,12 +145,14 @@ it('keeps native application failure visible and retries without rewriting confi
   expect(toast.success).not.toHaveBeenCalled();
   expect(toast.error).toHaveBeenCalledWith('settings.autoStartSyncFailed');
   unmount();
-  mocks.get.mockResolvedValue({ success: true, data: mocks.update.mock.calls[0][0] });
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect(mocks.preflight).not.toHaveBeenCalled();
+  mocks.get.mockResolvedValue({ success: true, data: { ...DEFAULT_SYSTEM_CONFIG, preferences: { ...DEFAULT_SYSTEM_CONFIG.preferences, ...readDevicePreferences() } } });
   const reopened = renderHook(useSettings);
   await waitFor(() => expect(reopened.result.current.loading).toBe(false));
   expect(reopened.result.current.autoStartSyncFailed).toBe(true);
   await act(() => reopened.result.current.handleSaveChanges());
-  expect(mocks.update).toHaveBeenCalledOnce();
+  expect(mocks.update).not.toHaveBeenCalled();
   expect(mocks.autoStart).toHaveBeenCalledTimes(2);
   expect(reopened.result.current.autoStartSyncFailed).toBe(false);
   expect(toast.success).toHaveBeenCalledWith('settings.saveSuccess');

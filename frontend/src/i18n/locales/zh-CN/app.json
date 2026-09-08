@@ -3061,7 +3061,8 @@
         "reloadFailed": "执行器重载失败：{{message}}"
       }
     },
-    "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。"
+    "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。",
+    "deviceOnly": "这些设置只影响当前设备。"
   },
   "memory": {
     "facts": {

@@ -7286,7 +7286,7 @@ return errors === 0;
 }
 validate136.evaluated = {"props":{"deep_persona_enabled":true,"state_memory_enabled":true,"state_transition_enabled":true},"dynamicProps":false,"dynamicItems":false};
 
-const schema63 = {"properties":{"allow_ask_in_background":{"default":false,"title":"Allow Ask In Background","type":"boolean"},"allow_interjection":{"default":false,"title":"Allow Interjection","type":"boolean"},"allow_media_grounding_for_conversation":{"default":true,"title":"Allow Media Grounding For Conversation","type":"boolean"},"auto_start_enabled":{"default":false,"title":"Auto Start Enabled","type":"boolean"},"close_to_tray_enabled":{"default":true,"title":"Close To Tray Enabled","type":"boolean"},"conversation_rhythm_enabled":{"default":true,"title":"Conversation Rhythm Enabled","type":"boolean"},"conversation_rhythm_mode":{"default":"natural","title":"Conversation Rhythm Mode","type":"string"},"default_chat_workspace_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Default Chat Workspace Path"},"desktop_notification_previews_enabled":{"default":true,"title":"Desktop Notification Previews Enabled","type":"boolean"},"desktop_notifications_enabled":{"default":true,"title":"Desktop Notifications Enabled","type":"boolean"},"first_conversation_completed":{"default":false,"description":"Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.","title":"First Conversation Completed","type":"boolean"},"language":{"default":"zh","title":"Language","type":"string"},"onboarding_completed":{"default":false,"title":"Onboarding Completed","type":"boolean"},"product_tour_completed":{"default":false,"description":"True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.","title":"Product Tour Completed","type":"boolean"},"scenario":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Scenario"},"skip_quit_confirmation":{"default":false,"title":"Skip Quit Confirmation","type":"boolean"},"start_minimized":{"default":false,"title":"Start Minimized","type":"boolean"},"streaming_chat_enabled":{"default":false,"title":"Streaming Chat Enabled","type":"boolean"},"suggestion_dismissals":{"additionalProperties":{"$ref":"#/components/schemas/DismissalRecord"},"description":"Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.","title":"Suggestion Dismissals","type":"object"},"user_mode":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"User Mode"}},"required":["onboarding_completed","first_conversation_completed","product_tour_completed","suggestion_dismissals","user_mode","scenario","language","close_to_tray_enabled","desktop_notifications_enabled","desktop_notification_previews_enabled","auto_start_enabled","start_minimized","skip_quit_confirmation","default_chat_workspace_path","streaming_chat_enabled","conversation_rhythm_enabled","conversation_rhythm_mode","allow_media_grounding_for_conversation","allow_interjection","allow_ask_in_background"],"title":"UserPreferencesModel","type":"object"};
+const schema63 = {"properties":{"allow_ask_in_background":{"default":false,"title":"Allow Ask In Background","type":"boolean"},"allow_interjection":{"default":false,"title":"Allow Interjection","type":"boolean"},"allow_media_grounding_for_conversation":{"default":true,"title":"Allow Media Grounding For Conversation","type":"boolean"},"conversation_rhythm_enabled":{"default":true,"title":"Conversation Rhythm Enabled","type":"boolean"},"conversation_rhythm_mode":{"default":"natural","title":"Conversation Rhythm Mode","type":"string"},"default_chat_workspace_path":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Default Chat Workspace Path"},"first_conversation_completed":{"default":false,"description":"Legacy onboarding state retained for existing saved preferences. The chat UI no longer uses it to show starter prompts.","title":"First Conversation Completed","type":"boolean"},"language":{"default":"zh","title":"Language","type":"string"},"onboarding_completed":{"default":false,"title":"Onboarding Completed","type":"boolean"},"product_tour_completed":{"default":false,"description":"True once the user has completed (or skipped) the one-time main-page product tour shown on first visit after onboarding.","title":"Product Tour Completed","type":"boolean"},"scenario":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Scenario"},"streaming_chat_enabled":{"default":false,"title":"Streaming Chat Enabled","type":"boolean"},"suggestion_dismissals":{"additionalProperties":{"$ref":"#/components/schemas/DismissalRecord"},"description":"Map of dedupe_key → DismissalRecord. The signal matcher filters out any candidate whose dedupe_key appears here and whose TTL (based on kind) has not yet expired.","title":"Suggestion Dismissals","type":"object"},"user_mode":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"User Mode"}},"required":["onboarding_completed","first_conversation_completed","product_tour_completed","suggestion_dismissals","user_mode","scenario","language","default_chat_workspace_path","streaming_chat_enabled","conversation_rhythm_enabled","conversation_rhythm_mode","allow_media_grounding_for_conversation","allow_interjection","allow_ask_in_background"],"title":"UserPreferencesModel","type":"object"};
 const schema64 = {"properties":{"dedupe_key":{"title":"Dedupe Key","type":"string"},"dismissed_at":{"format":"date-time","title":"Dismissed At","type":"string"},"kind":{"$ref":"#/components/schemas/DismissalKind"},"title":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"title":"Title"}},"required":["dedupe_key","dismissed_at","kind","title"],"title":"DismissalRecord","type":"object"};
 const schema65 = {"description":"How the user dismissed a suggestion. Determines the TTL applied.","enum":["transient","explicit","never"],"title":"DismissalKind","type":"string"};
 
@@ -7460,7 +7460,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((((((((((((((((((data.onboarding_completed === undefined) && (missing0 = "onboarding_completed")) || ((data.first_conversation_completed === undefined) && (missing0 = "first_conversation_completed"))) || ((data.product_tour_completed === undefined) && (missing0 = "product_tour_completed"))) || ((data.suggestion_dismissals === undefined) && (missing0 = "suggestion_dismissals"))) || ((data.user_mode === undefined) && (missing0 = "user_mode"))) || ((data.scenario === undefined) && (missing0 = "scenario"))) || ((data.language === undefined) && (missing0 = "language"))) || ((data.close_to_tray_enabled === undefined) && (missing0 = "close_to_tray_enabled"))) || ((data.desktop_notifications_enabled === undefined) && (missing0 = "desktop_notifications_enabled"))) || ((data.desktop_notification_previews_enabled === undefined) && (missing0 = "desktop_notification_previews_enabled"))) || ((data.auto_start_enabled === undefined) && (missing0 = "auto_start_enabled"))) || ((data.start_minimized === undefined) && (missing0 = "start_minimized"))) || ((data.skip_quit_confirmation === undefined) && (missing0 = "skip_quit_confirmation"))) || ((data.default_chat_workspace_path === undefined) && (missing0 = "default_chat_workspace_path"))) || ((data.streaming_chat_enabled === undefined) && (missing0 = "streaming_chat_enabled"))) || ((data.conversation_rhythm_enabled === undefined) && (missing0 = "conversation_rhythm_enabled"))) || ((data.conversation_rhythm_mode === undefined) && (missing0 = "conversation_rhythm_mode"))) || ((data.allow_media_grounding_for_conversation === undefined) && (missing0 = "allow_media_grounding_for_conversation"))) || ((data.allow_interjection === undefined) && (missing0 = "allow_interjection"))) || ((data.allow_ask_in_background === undefined) && (missing0 = "allow_ask_in_background"))){
+if(((((((((((((((data.onboarding_completed === undefined) && (missing0 = "onboarding_completed")) || ((data.first_conversation_completed === undefined) && (missing0 = "first_conversation_completed"))) || ((data.product_tour_completed === undefined) && (missing0 = "product_tour_completed"))) || ((data.suggestion_dismissals === undefined) && (missing0 = "suggestion_dismissals"))) || ((data.user_mode === undefined) && (missing0 = "user_mode"))) || ((data.scenario === undefined) && (missing0 = "scenario"))) || ((data.language === undefined) && (missing0 = "language"))) || ((data.default_chat_workspace_path === undefined) && (missing0 = "default_chat_workspace_path"))) || ((data.streaming_chat_enabled === undefined) && (missing0 = "streaming_chat_enabled"))) || ((data.conversation_rhythm_enabled === undefined) && (missing0 = "conversation_rhythm_enabled"))) || ((data.conversation_rhythm_mode === undefined) && (missing0 = "conversation_rhythm_mode"))) || ((data.allow_media_grounding_for_conversation === undefined) && (missing0 = "allow_media_grounding_for_conversation"))) || ((data.allow_interjection === undefined) && (missing0 = "allow_interjection"))) || ((data.allow_ask_in_background === undefined) && (missing0 = "allow_ask_in_background"))){
 validate138.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -7501,10 +7501,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.auto_start_enabled !== undefined){
+if(data.conversation_rhythm_enabled !== undefined){
 const _errs7 = errors;
-if(typeof data.auto_start_enabled !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/auto_start_enabled",schemaPath:"#/properties/auto_start_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.conversation_rhythm_enabled !== "boolean"){
+validate138.errors = [{instancePath:instancePath+"/conversation_rhythm_enabled",schemaPath:"#/properties/conversation_rhythm_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs7 === errors;
@@ -7513,10 +7513,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.close_to_tray_enabled !== undefined){
+if(data.conversation_rhythm_mode !== undefined){
 const _errs9 = errors;
-if(typeof data.close_to_tray_enabled !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/close_to_tray_enabled",schemaPath:"#/properties/close_to_tray_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.conversation_rhythm_mode !== "string"){
+validate138.errors = [{instancePath:instancePath+"/conversation_rhythm_mode",schemaPath:"#/properties/conversation_rhythm_mode/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs9 === errors;
@@ -7525,37 +7525,13 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.conversation_rhythm_enabled !== undefined){
-const _errs11 = errors;
-if(typeof data.conversation_rhythm_enabled !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/conversation_rhythm_enabled",schemaPath:"#/properties/conversation_rhythm_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs11 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.conversation_rhythm_mode !== undefined){
-const _errs13 = errors;
-if(typeof data.conversation_rhythm_mode !== "string"){
-validate138.errors = [{instancePath:instancePath+"/conversation_rhythm_mode",schemaPath:"#/properties/conversation_rhythm_mode/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-var valid0 = _errs13 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
 if(data.default_chat_workspace_path !== undefined){
-let data7 = data.default_chat_workspace_path;
-const _errs15 = errors;
-const _errs16 = errors;
+let data5 = data.default_chat_workspace_path;
+const _errs11 = errors;
+const _errs12 = errors;
 let valid1 = false;
-const _errs17 = errors;
-if(typeof data7 !== "string"){
+const _errs13 = errors;
+if(typeof data5 !== "string"){
 const err0 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err0];
@@ -7565,10 +7541,10 @@ vErrors.push(err0);
 }
 errors++;
 }
-var _valid0 = _errs17 === errors;
+var _valid0 = _errs13 === errors;
 valid1 = valid1 || _valid0;
-const _errs19 = errors;
-if(data7 !== null){
+const _errs15 = errors;
+if(data5 !== null){
 const err1 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err1];
@@ -7578,7 +7554,7 @@ vErrors.push(err1);
 }
 errors++;
 }
-var _valid0 = _errs19 === errors;
+var _valid0 = _errs15 === errors;
 valid1 = valid1 || _valid0;
 if(!valid1){
 const err2 = {instancePath:instancePath+"/default_chat_workspace_path",schemaPath:"#/properties/default_chat_workspace_path/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -7593,26 +7569,50 @@ validate138.errors = vErrors;
 return false;
 }
 else {
-errors = _errs16;
+errors = _errs12;
 if(vErrors !== null){
-if(_errs16){
-vErrors.length = _errs16;
+if(_errs12){
+vErrors.length = _errs12;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs15 === errors;
+var valid0 = _errs11 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
-if(data.desktop_notification_previews_enabled !== undefined){
+if(data.first_conversation_completed !== undefined){
+const _errs17 = errors;
+if(typeof data.first_conversation_completed !== "boolean"){
+validate138.errors = [{instancePath:instancePath+"/first_conversation_completed",schemaPath:"#/properties/first_conversation_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+return false;
+}
+var valid0 = _errs17 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.language !== undefined){
+const _errs19 = errors;
+if(typeof data.language !== "string"){
+validate138.errors = [{instancePath:instancePath+"/language",schemaPath:"#/properties/language/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs19 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.onboarding_completed !== undefined){
 const _errs21 = errors;
-if(typeof data.desktop_notification_previews_enabled !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/desktop_notification_previews_enabled",schemaPath:"#/properties/desktop_notification_previews_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.onboarding_completed !== "boolean"){
+validate138.errors = [{instancePath:instancePath+"/onboarding_completed",schemaPath:"#/properties/onboarding_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs21 === errors;
@@ -7621,10 +7621,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.desktop_notifications_enabled !== undefined){
+if(data.product_tour_completed !== undefined){
 const _errs23 = errors;
-if(typeof data.desktop_notifications_enabled !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/desktop_notifications_enabled",schemaPath:"#/properties/desktop_notifications_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.product_tour_completed !== "boolean"){
+validate138.errors = [{instancePath:instancePath+"/product_tour_completed",schemaPath:"#/properties/product_tour_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs23 === errors;
@@ -7633,61 +7633,13 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.first_conversation_completed !== undefined){
-const _errs25 = errors;
-if(typeof data.first_conversation_completed !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/first_conversation_completed",schemaPath:"#/properties/first_conversation_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs25 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.language !== undefined){
-const _errs27 = errors;
-if(typeof data.language !== "string"){
-validate138.errors = [{instancePath:instancePath+"/language",schemaPath:"#/properties/language/type",keyword:"type",params:{type: "string"},message:"must be string"}];
-return false;
-}
-var valid0 = _errs27 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.onboarding_completed !== undefined){
-const _errs29 = errors;
-if(typeof data.onboarding_completed !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/onboarding_completed",schemaPath:"#/properties/onboarding_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs29 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.product_tour_completed !== undefined){
-const _errs31 = errors;
-if(typeof data.product_tour_completed !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/product_tour_completed",schemaPath:"#/properties/product_tour_completed/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs31 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
 if(data.scenario !== undefined){
-let data14 = data.scenario;
-const _errs33 = errors;
-const _errs34 = errors;
+let data10 = data.scenario;
+const _errs25 = errors;
+const _errs26 = errors;
 let valid2 = false;
-const _errs35 = errors;
-if(typeof data14 !== "string"){
+const _errs27 = errors;
+if(typeof data10 !== "string"){
 const err3 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err3];
@@ -7697,10 +7649,10 @@ vErrors.push(err3);
 }
 errors++;
 }
-var _valid1 = _errs35 === errors;
+var _valid1 = _errs27 === errors;
 valid2 = valid2 || _valid1;
-const _errs37 = errors;
-if(data14 !== null){
+const _errs29 = errors;
+if(data10 !== null){
 const err4 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err4];
@@ -7710,7 +7662,7 @@ vErrors.push(err4);
 }
 errors++;
 }
-var _valid1 = _errs37 === errors;
+var _valid1 = _errs29 === errors;
 valid2 = valid2 || _valid1;
 if(!valid2){
 const err5 = {instancePath:instancePath+"/scenario",schemaPath:"#/properties/scenario/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -7725,70 +7677,46 @@ validate138.errors = vErrors;
 return false;
 }
 else {
-errors = _errs34;
+errors = _errs26;
 if(vErrors !== null){
-if(_errs34){
-vErrors.length = _errs34;
+if(_errs26){
+vErrors.length = _errs26;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs33 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.skip_quit_confirmation !== undefined){
-const _errs39 = errors;
-if(typeof data.skip_quit_confirmation !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/skip_quit_confirmation",schemaPath:"#/properties/skip_quit_confirmation/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs39 === errors;
-}
-else {
-var valid0 = true;
-}
-if(valid0){
-if(data.start_minimized !== undefined){
-const _errs41 = errors;
-if(typeof data.start_minimized !== "boolean"){
-validate138.errors = [{instancePath:instancePath+"/start_minimized",schemaPath:"#/properties/start_minimized/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
-return false;
-}
-var valid0 = _errs41 === errors;
+var valid0 = _errs25 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.streaming_chat_enabled !== undefined){
-const _errs43 = errors;
+const _errs31 = errors;
 if(typeof data.streaming_chat_enabled !== "boolean"){
 validate138.errors = [{instancePath:instancePath+"/streaming_chat_enabled",schemaPath:"#/properties/streaming_chat_enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
-var valid0 = _errs43 === errors;
+var valid0 = _errs31 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.suggestion_dismissals !== undefined){
-let data18 = data.suggestion_dismissals;
-const _errs45 = errors;
-if(errors === _errs45){
-if(data18 && typeof data18 == "object" && !Array.isArray(data18)){
-for(const key0 in data18){
-const _errs48 = errors;
-if(!(validate139(data18[key0], {instancePath:instancePath+"/suggestion_dismissals/" + key0.replace(/~/g, "~0").replace(/\//g, "~1"),parentData:data18,parentDataProperty:key0,rootData,dynamicAnchors}))){
+let data12 = data.suggestion_dismissals;
+const _errs33 = errors;
+if(errors === _errs33){
+if(data12 && typeof data12 == "object" && !Array.isArray(data12)){
+for(const key0 in data12){
+const _errs36 = errors;
+if(!(validate139(data12[key0], {instancePath:instancePath+"/suggestion_dismissals/" + key0.replace(/~/g, "~0").replace(/\//g, "~1"),parentData:data12,parentDataProperty:key0,rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate139.errors : vErrors.concat(validate139.errors);
 errors = vErrors.length;
 }
-var valid3 = _errs48 === errors;
+var valid3 = _errs36 === errors;
 if(!valid3){
 break;
 }
@@ -7799,19 +7727,19 @@ validate138.errors = [{instancePath:instancePath+"/suggestion_dismissals",schema
 return false;
 }
 }
-var valid0 = _errs45 === errors;
+var valid0 = _errs33 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.user_mode !== undefined){
-let data20 = data.user_mode;
-const _errs49 = errors;
-const _errs50 = errors;
+let data14 = data.user_mode;
+const _errs37 = errors;
+const _errs38 = errors;
 let valid4 = false;
-const _errs51 = errors;
-if(typeof data20 !== "string"){
+const _errs39 = errors;
+if(typeof data14 !== "string"){
 const err6 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err6];
@@ -7821,10 +7749,10 @@ vErrors.push(err6);
 }
 errors++;
 }
-var _valid2 = _errs51 === errors;
+var _valid2 = _errs39 === errors;
 valid4 = valid4 || _valid2;
-const _errs53 = errors;
-if(data20 !== null){
+const _errs41 = errors;
+if(data14 !== null){
 const err7 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf/1/type",keyword:"type",params:{type: "null"},message:"must be null"};
 if(vErrors === null){
 vErrors = [err7];
@@ -7834,7 +7762,7 @@ vErrors.push(err7);
 }
 errors++;
 }
-var _valid2 = _errs53 === errors;
+var _valid2 = _errs41 === errors;
 valid4 = valid4 || _valid2;
 if(!valid4){
 const err8 = {instancePath:instancePath+"/user_mode",schemaPath:"#/properties/user_mode/anyOf",keyword:"anyOf",params:{},message:"must match a schema in anyOf"};
@@ -7849,26 +7777,20 @@ validate138.errors = vErrors;
 return false;
 }
 else {
-errors = _errs50;
+errors = _errs38;
 if(vErrors !== null){
-if(_errs50){
-vErrors.length = _errs50;
+if(_errs38){
+vErrors.length = _errs38;
 }
 else {
 vErrors = null;
 }
 }
 }
-var valid0 = _errs49 === errors;
+var valid0 = _errs37 === errors;
 }
 else {
 var valid0 = true;
-}
-}
-}
-}
-}
-}
 }
 }
 }
@@ -7893,7 +7815,7 @@ return false;
 validate138.errors = vErrors;
 return errors === 0;
 }
-validate138.evaluated = {"props":{"allow_ask_in_background":true,"allow_interjection":true,"allow_media_grounding_for_conversation":true,"auto_start_enabled":true,"close_to_tray_enabled":true,"conversation_rhythm_enabled":true,"conversation_rhythm_mode":true,"default_chat_workspace_path":true,"desktop_notification_previews_enabled":true,"desktop_notifications_enabled":true,"first_conversation_completed":true,"language":true,"onboarding_completed":true,"product_tour_completed":true,"scenario":true,"skip_quit_confirmation":true,"start_minimized":true,"streaming_chat_enabled":true,"suggestion_dismissals":true,"user_mode":true},"dynamicProps":false,"dynamicItems":false};
+validate138.evaluated = {"props":{"allow_ask_in_background":true,"allow_interjection":true,"allow_media_grounding_for_conversation":true,"conversation_rhythm_enabled":true,"conversation_rhythm_mode":true,"default_chat_workspace_path":true,"first_conversation_completed":true,"language":true,"onboarding_completed":true,"product_tour_completed":true,"scenario":true,"streaming_chat_enabled":true,"suggestion_dismissals":true,"user_mode":true},"dynamicProps":false,"dynamicItems":false};
 
 const schema66 = {"properties":{"sources":{"$ref":"#/components/schemas/TimelineSourcesConfigModel"}},"required":["sources"],"title":"TimelineConfigModel","type":"object"};
 const schema67 = {"properties":{"calendar":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null},"chrome_history":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null},"git_activity":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null},"netease_music":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null},"photo_library":{"$ref":"#/components/schemas/TimelineSourceConfigModel"},"screen_time":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null},"terminal_history":{"anyOf":[{"$ref":"#/components/schemas/TimelineSourceConfigModel"},{"type":"null"}],"default":null}},"required":["photo_library","calendar","chrome_history","git_activity","screen_time","terminal_history","netease_music"],"title":"TimelineSourcesConfigModel","type":"object"};
