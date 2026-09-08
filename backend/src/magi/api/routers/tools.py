@@ -53,6 +53,7 @@ class ToolConfigResponse(BaseModel):
     """Tool configuration response"""
     name: str = Field(..., description="Tool name")
     revision: str = Field(..., pattern=r"^[a-f0-9]{64}$", description="Opaque settings snapshot revision")
+    configurable: bool = Field(..., description="Whether the center persists independent settings for this tool")
     display_name: str = Field(..., description="Human-readable tool name")
     description: str = Field(..., description="Tool description")
     category: str = Field(..., description="Tool category")
@@ -203,6 +204,7 @@ def _build_tool_config_response(tool_name: str, tool) -> ToolConfigResponse:
 
     return ToolConfigResponse(
         name=tool_name,
+        configurable=isinstance(getattr(config.tools, tool_name.replace("-", "_"), None), BaseModel),
         revision=_tool_config_revision(tool_name, config),
         display_name=_get_tool_display_name(tool_name),
         description=schema.description if schema else "",

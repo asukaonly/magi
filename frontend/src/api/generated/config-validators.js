@@ -9128,7 +9128,7 @@ return errors === 0;
 validate160.evaluated = {"props":{"data":true,"message":true,"success":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateToolConfigResponse = validate164;
-const schema73 = {"description":"Tool configuration response","properties":{"category":{"description":"Tool category","title":"Category","type":"string"},"config_specs":{"description":"Config specifications","items":{"$ref":"#/components/schemas/ToolConfigSpecResponse"},"title":"Config Specs","type":"array"},"current_values":{"additionalProperties":true,"description":"Current config values (non-sensitive)","title":"Current Values","type":"object"},"description":{"description":"Tool description","title":"Description","type":"string"},"display_name":{"description":"Human-readable tool name","title":"Display Name","type":"string"},"enabled":{"default":true,"description":"Whether tool is enabled","title":"Enabled","type":"boolean"},"is_multi_provider":{"default":false,"description":"Whether this is a multi-provider tool","title":"Is Multi Provider","type":"boolean"},"is_ready":{"default":true,"description":"Whether tool is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Tool name","title":"Name","type":"string"},"providers":{"description":"Available providers","items":{"$ref":"#/components/schemas/ToolProviderInfo"},"title":"Providers","type":"array"},"revision":{"description":"Opaque settings snapshot revision","pattern":"^[a-f0-9]{64}$","title":"Revision","type":"string"},"version":{"default":"1.0.0","description":"Tool version","title":"Version","type":"string"}},"required":["name","revision","display_name","description","category","version","enabled","is_ready","is_multi_provider","providers","config_specs","current_values"],"title":"ToolConfigResponse","type":"object"};
+const schema73 = {"description":"Tool configuration response","properties":{"category":{"description":"Tool category","title":"Category","type":"string"},"config_specs":{"description":"Config specifications","items":{"$ref":"#/components/schemas/ToolConfigSpecResponse"},"title":"Config Specs","type":"array"},"configurable":{"description":"Whether the center persists independent settings for this tool","title":"Configurable","type":"boolean"},"current_values":{"additionalProperties":true,"description":"Current config values (non-sensitive)","title":"Current Values","type":"object"},"description":{"description":"Tool description","title":"Description","type":"string"},"display_name":{"description":"Human-readable tool name","title":"Display Name","type":"string"},"enabled":{"default":true,"description":"Whether tool is enabled","title":"Enabled","type":"boolean"},"is_multi_provider":{"default":false,"description":"Whether this is a multi-provider tool","title":"Is Multi Provider","type":"boolean"},"is_ready":{"default":true,"description":"Whether tool is configured and ready","title":"Is Ready","type":"boolean"},"name":{"description":"Tool name","title":"Name","type":"string"},"providers":{"description":"Available providers","items":{"$ref":"#/components/schemas/ToolProviderInfo"},"title":"Providers","type":"array"},"revision":{"description":"Opaque settings snapshot revision","pattern":"^[a-f0-9]{64}$","title":"Revision","type":"string"},"version":{"default":"1.0.0","description":"Tool version","title":"Version","type":"string"}},"required":["name","revision","configurable","display_name","description","category","version","enabled","is_ready","is_multi_provider","providers","config_specs","current_values"],"title":"ToolConfigResponse","type":"object"};
 const schema74 = {"description":"Tool config spec for API response","properties":{"default":{"anyOf":[{},{"type":"null"}],"default":null,"description":"Default value","title":"Default"},"description":{"default":"","description":"Config item description","title":"Description","type":"string"},"enum":{"anyOf":[{"items":{},"type":"array"},{"type":"null"}],"default":null,"description":"Enum values for selection","title":"Enum"},"is_template":{"default":false,"description":"Whether this is a template path (e.g., providers.{provider}.api_key)","title":"Is Template","type":"boolean"},"path":{"description":"Config path (relative to tool namespace)","title":"Path","type":"string"},"placeholder":{"anyOf":[{"type":"string"},{"type":"null"}],"default":null,"description":"Input placeholder hint","title":"Placeholder"},"providers":{"anyOf":[{"items":{"type":"string"},"type":"array"},{"type":"null"}],"default":null,"description":"Providers that this spec applies to","title":"Providers"},"read_only":{"default":false,"description":"Cannot be changed","title":"Read Only","type":"boolean"},"required":{"default":false,"description":"Whether this config is required","title":"Required","type":"boolean"},"sensitive":{"default":false,"description":"Can be set but not read","title":"Sensitive","type":"boolean"},"type":{"default":"string","description":"Config value type","enum":["string","integer","float","boolean","array","object"],"title":"Type","type":"string"}},"required":["path","type","description","sensitive","read_only","required","default","enum","placeholder","is_template","providers"],"title":"ToolConfigSpecResponse","type":"object"};
 
 function validate165(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
@@ -9627,7 +9627,7 @@ evaluated0.items = undefined;
 if(errors === 0){
 if(data && typeof data == "object" && !Array.isArray(data)){
 let missing0;
-if(((((((((((((data.name === undefined) && (missing0 = "name")) || ((data.revision === undefined) && (missing0 = "revision"))) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.category === undefined) && (missing0 = "category"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.enabled === undefined) && (missing0 = "enabled"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.is_multi_provider === undefined) && (missing0 = "is_multi_provider"))) || ((data.providers === undefined) && (missing0 = "providers"))) || ((data.config_specs === undefined) && (missing0 = "config_specs"))) || ((data.current_values === undefined) && (missing0 = "current_values"))){
+if((((((((((((((data.name === undefined) && (missing0 = "name")) || ((data.revision === undefined) && (missing0 = "revision"))) || ((data.configurable === undefined) && (missing0 = "configurable"))) || ((data.display_name === undefined) && (missing0 = "display_name"))) || ((data.description === undefined) && (missing0 = "description"))) || ((data.category === undefined) && (missing0 = "category"))) || ((data.version === undefined) && (missing0 = "version"))) || ((data.enabled === undefined) && (missing0 = "enabled"))) || ((data.is_ready === undefined) && (missing0 = "is_ready"))) || ((data.is_multi_provider === undefined) && (missing0 = "is_multi_provider"))) || ((data.providers === undefined) && (missing0 = "providers"))) || ((data.config_specs === undefined) && (missing0 = "config_specs"))) || ((data.current_values === undefined) && (missing0 = "current_values"))){
 validate164.errors = [{instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: missing0},message:"must have required property '"+missing0+"'"}];
 return false;
 }
@@ -9674,16 +9674,11 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.current_values !== undefined){
-let data3 = data.current_values;
+if(data.configurable !== undefined){
 const _errs6 = errors;
-if(errors === _errs6){
-if(data3 && typeof data3 == "object" && !Array.isArray(data3)){
-}
-else {
-validate164.errors = [{instancePath:instancePath+"/current_values",schemaPath:"#/properties/current_values/type",keyword:"type",params:{type: "object"},message:"must be object"}];
+if(typeof data.configurable !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/configurable",schemaPath:"#/properties/configurable/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
-}
 }
 var valid0 = _errs6 === errors;
 }
@@ -9691,22 +9686,27 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.description !== undefined){
-const _errs9 = errors;
-if(typeof data.description !== "string"){
-validate164.errors = [{instancePath:instancePath+"/description",schemaPath:"#/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(data.current_values !== undefined){
+let data4 = data.current_values;
+const _errs8 = errors;
+if(errors === _errs8){
+if(data4 && typeof data4 == "object" && !Array.isArray(data4)){
+}
+else {
+validate164.errors = [{instancePath:instancePath+"/current_values",schemaPath:"#/properties/current_values/type",keyword:"type",params:{type: "object"},message:"must be object"}];
 return false;
 }
-var valid0 = _errs9 === errors;
+}
+var valid0 = _errs8 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
-if(data.display_name !== undefined){
+if(data.description !== undefined){
 const _errs11 = errors;
-if(typeof data.display_name !== "string"){
-validate164.errors = [{instancePath:instancePath+"/display_name",schemaPath:"#/properties/display_name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(typeof data.description !== "string"){
+validate164.errors = [{instancePath:instancePath+"/description",schemaPath:"#/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs11 === errors;
@@ -9715,10 +9715,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.enabled !== undefined){
+if(data.display_name !== undefined){
 const _errs13 = errors;
-if(typeof data.enabled !== "boolean"){
-validate164.errors = [{instancePath:instancePath+"/enabled",schemaPath:"#/properties/enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.display_name !== "string"){
+validate164.errors = [{instancePath:instancePath+"/display_name",schemaPath:"#/properties/display_name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
 var valid0 = _errs13 === errors;
@@ -9727,10 +9727,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.is_multi_provider !== undefined){
+if(data.enabled !== undefined){
 const _errs15 = errors;
-if(typeof data.is_multi_provider !== "boolean"){
-validate164.errors = [{instancePath:instancePath+"/is_multi_provider",schemaPath:"#/properties/is_multi_provider/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.enabled !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/enabled",schemaPath:"#/properties/enabled/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs15 === errors;
@@ -9739,10 +9739,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.is_ready !== undefined){
+if(data.is_multi_provider !== undefined){
 const _errs17 = errors;
-if(typeof data.is_ready !== "boolean"){
-validate164.errors = [{instancePath:instancePath+"/is_ready",schemaPath:"#/properties/is_ready/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
+if(typeof data.is_multi_provider !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/is_multi_provider",schemaPath:"#/properties/is_multi_provider/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs17 === errors;
@@ -9751,10 +9751,10 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.name !== undefined){
+if(data.is_ready !== undefined){
 const _errs19 = errors;
-if(typeof data.name !== "string"){
-validate164.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+if(typeof data.is_ready !== "boolean"){
+validate164.errors = [{instancePath:instancePath+"/is_ready",schemaPath:"#/properties/is_ready/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"}];
 return false;
 }
 var valid0 = _errs19 === errors;
@@ -9763,20 +9763,32 @@ else {
 var valid0 = true;
 }
 if(valid0){
-if(data.providers !== undefined){
-let data10 = data.providers;
+if(data.name !== undefined){
 const _errs21 = errors;
-if(errors === _errs21){
-if(Array.isArray(data10)){
-var valid2 = true;
-const len1 = data10.length;
-for(let i1=0; i1<len1; i1++){
+if(typeof data.name !== "string"){
+validate164.errors = [{instancePath:instancePath+"/name",schemaPath:"#/properties/name/type",keyword:"type",params:{type: "string"},message:"must be string"}];
+return false;
+}
+var valid0 = _errs21 === errors;
+}
+else {
+var valid0 = true;
+}
+if(valid0){
+if(data.providers !== undefined){
+let data11 = data.providers;
 const _errs23 = errors;
-if(!(validate167(data10[i1], {instancePath:instancePath+"/providers/" + i1,parentData:data10,parentDataProperty:i1,rootData,dynamicAnchors}))){
+if(errors === _errs23){
+if(Array.isArray(data11)){
+var valid2 = true;
+const len1 = data11.length;
+for(let i1=0; i1<len1; i1++){
+const _errs25 = errors;
+if(!(validate167(data11[i1], {instancePath:instancePath+"/providers/" + i1,parentData:data11,parentDataProperty:i1,rootData,dynamicAnchors}))){
 vErrors = vErrors === null ? validate167.errors : vErrors.concat(validate167.errors);
 errors = vErrors.length;
 }
-var valid2 = _errs23 === errors;
+var valid2 = _errs25 === errors;
 if(!valid2){
 break;
 }
@@ -9787,18 +9799,18 @@ validate164.errors = [{instancePath:instancePath+"/providers",schemaPath:"#/prop
 return false;
 }
 }
-var valid0 = _errs21 === errors;
+var valid0 = _errs23 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.revision !== undefined){
-let data12 = data.revision;
-const _errs24 = errors;
-if(errors === _errs24){
-if(typeof data12 === "string"){
-if(!pattern3.test(data12)){
+let data13 = data.revision;
+const _errs26 = errors;
+if(errors === _errs26){
+if(typeof data13 === "string"){
+if(!pattern3.test(data13)){
 validate164.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{64}$"},message:"must match pattern \""+"^[a-f0-9]{64}$"+"\""}];
 return false;
 }
@@ -9808,22 +9820,23 @@ validate164.errors = [{instancePath:instancePath+"/revision",schemaPath:"#/prope
 return false;
 }
 }
-var valid0 = _errs24 === errors;
+var valid0 = _errs26 === errors;
 }
 else {
 var valid0 = true;
 }
 if(valid0){
 if(data.version !== undefined){
-const _errs26 = errors;
+const _errs28 = errors;
 if(typeof data.version !== "string"){
 validate164.errors = [{instancePath:instancePath+"/version",schemaPath:"#/properties/version/type",keyword:"type",params:{type: "string"},message:"must be string"}];
 return false;
 }
-var valid0 = _errs26 === errors;
+var valid0 = _errs28 === errors;
 }
 else {
 var valid0 = true;
+}
 }
 }
 }
@@ -9846,7 +9859,7 @@ return false;
 validate164.errors = vErrors;
 return errors === 0;
 }
-validate164.evaluated = {"props":{"category":true,"config_specs":true,"current_values":true,"description":true,"display_name":true,"enabled":true,"is_multi_provider":true,"is_ready":true,"name":true,"providers":true,"revision":true,"version":true},"dynamicProps":false,"dynamicItems":false};
+validate164.evaluated = {"props":{"category":true,"config_specs":true,"configurable":true,"current_values":true,"description":true,"display_name":true,"enabled":true,"is_multi_provider":true,"is_ready":true,"name":true,"providers":true,"revision":true,"version":true},"dynamicProps":false,"dynamicItems":false};
 
 export const validateToolsListResponse = validate169;
 const schema76 = {"description":"Tools list response with config info","properties":{"tools":{"description":"List of tools with config info","items":{"$ref":"#/components/schemas/ToolConfigResponse"},"title":"Tools","type":"array"},"total":{"description":"Total number of tools","title":"Total","type":"integer"}},"required":["tools","total"],"title":"ToolsListResponse","type":"object"};

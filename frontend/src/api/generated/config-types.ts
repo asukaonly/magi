@@ -1225,6 +1225,11 @@ export interface components {
              */
             config_specs: components["schemas"]["ToolConfigSpecResponse"][];
             /**
+             * Configurable
+             * @description Whether the center persists independent settings for this tool
+             */
+            configurable: boolean;
+            /**
              * Current Values
              * @description Current config values (non-sensitive)
              */

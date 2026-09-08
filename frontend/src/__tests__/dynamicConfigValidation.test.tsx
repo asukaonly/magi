@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ToolConfigSpec } from '@/api/modules/tools';
+import type { ToolConfig, ToolConfigSpec } from '@/api/modules/tools';
 import type { ExtensionFieldSpec } from '@/api/modules/plugins';
 import { readConnectionSetting } from '@/utils/plugin-connection-settings';
 import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField';
+import { ToolConfigCard } from '@/components/config-forms/DynamicToolConfig';
+import configFixtures from '../../../contracts/api/frontend-config-examples.json';
 import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 const { pickDirectory } = vi.hoisted(() => ({ pickDirectory: vi.fn() }));
@@ -27,6 +29,13 @@ function Editor({ initial = {}, type = 'object' }: { initial?: unknown; type?: T
 }
 
 describe('dynamic configuration values', () => {
+  it('does not offer editable controls without center-owned tool settings', () => {
+    const tool: ToolConfig = { ...configFixtures.tool, configurable: false, config_specs: [{ ...spec, type: 'integer' }] };
+    render(<ToolConfigCard tool={tool} values={{}} enabled onUpdateConfig={vi.fn()} onUpdateEnabled={vi.fn()} />);
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.getByText('settings.toolStatus.noIndependentSettings')).toBeInTheDocument();
+  });
   it.each([
     ['integer', 1.5, 'integer'], ['integer', 2, null], ['float', '', 'number'],
     ['float', Infinity, 'number'], ['float', NaN, 'number'], ['float', 1.5, null],

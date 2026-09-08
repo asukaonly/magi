@@ -705,6 +705,7 @@
         "type": "integer"
       }
     ],
+    "configurable": true,
     "current_values": {
       "limit": 5
     },

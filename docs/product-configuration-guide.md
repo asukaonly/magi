@@ -1096,3 +1096,6 @@ other tool drafts are preserved. Confirmed receipts advance the baseline for
 newer local edits, and reads started before a receipt cannot roll it back. Tools
 without a center configuration namespace reject configuration writes; plugin
 connection configuration remains owned by the plugin connection APIs.
+The response's required `configurable` flag controls whether the tool card offers
+an enable switch and editable fields. Tools without independent settings show
+their status and description without controls that cannot persist.

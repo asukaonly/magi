@@ -118,6 +118,17 @@ def test_failed_tool_save_is_an_http_error(client: TestClient, monkeypatch: pyte
     assert response.status_code == 500
 
 
+def test_tools_only_offer_settings_with_a_persisted_namespace(client: TestClient) -> None:
+    supported = client.get("/api/tools/weather/config").json()
+    assert supported["configurable"] is True
+    unsupported = client.get("/api/tools/file_read/config").json()
+    assert unsupported["configurable"] is False
+    rejected = client.put("/api/tools/file_read/config", json={
+        "revision": unsupported["revision"], "updates": {}, "enabled": False,
+    })
+    assert rejected.status_code == 422
+
+
 def test_tool_revision_covers_secrets_and_is_scoped_to_one_tool(client: TestClient) -> None:
     search = client.get("/api/tools/web-search/config").json()
     weather = client.get("/api/tools/weather/config").json()

@@ -2591,6 +2591,11 @@
             "title": "Config Specs",
             "type": "array"
           },
+          "configurable": {
+            "description": "Whether the center persists independent settings for this tool",
+            "title": "Configurable",
+            "type": "boolean"
+          },
           "current_values": {
             "additionalProperties": true,
             "description": "Current config values (non-sensitive)",
@@ -2654,6 +2659,7 @@
         "required": [
           "name",
           "revision",
+          "configurable",
           "display_name",
           "description",
           "category",

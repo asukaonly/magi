@@ -80,16 +80,17 @@ export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
               {tool.description}
             </CardDescription>
           </div>
-          <Switch
+          {tool.configurable ? <Switch
             checked={enabled}
             onCheckedChange={(checked) => onUpdateEnabled(tool.name, checked)}
             disabled={disabled}
-          />
+          /> : null}
         </div>
       </CardHeader>
 
       <CardContent className="pt-0">
-        {regularSpecs.length > 0 ? (
+        {!tool.configurable ? <p className="text-sm text-muted-foreground">{t('settings.toolStatus.noIndependentSettings')}</p> : null}
+        {tool.configurable && regularSpecs.length > 0 ? (
           <div className="mb-4 space-y-3">
             {regularSpecs.map((spec) => (
               <DynamicConfigField
@@ -117,7 +118,7 @@ export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
           </div>
         ) : null}
 
-        {tool.is_multi_provider && templateSpecs.length > 0 ? (
+        {tool.configurable && tool.is_multi_provider && templateSpecs.length > 0 ? (
           <div className="mt-4 border-t pt-4">
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-sm font-medium">{t('settings.toolProviders')}</h4>

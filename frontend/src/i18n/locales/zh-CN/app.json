@@ -2391,6 +2391,7 @@
       "off": "关闭"
     },
     "toolStatus": {
+      "noIndependentSettings": "此工具不提供独立配置。",
       "ready": "已就绪",
       "notConfigured": "未配置"
     },

@@ -963,13 +963,13 @@ describe('PersonaPreviewChat', () => {
         stages: [],
       } as any);
     const updateToolSpy = vi.spyOn(toolsApi, 'updateToolConfig').mockResolvedValue({
-      revision: 'b'.repeat(64),
+      revision: 'b'.repeat(64), configurable: true,
       name: 'web-fetch', display_name: 'Web Fetch', description: '', category: 'web', version: '1',
       enabled: true, is_ready: true, is_multi_provider: false, providers: [], config_specs: [],
       current_values: { allow_rfc2544_benchmark_range: true },
     });
     vi.spyOn(toolsApi, 'getToolConfig').mockResolvedValue({
-      revision: 'a'.repeat(64), name: 'web-fetch', display_name: 'Web Fetch', description: '', category: 'web', version: '1',
+      revision: 'a'.repeat(64), configurable: true, name: 'web-fetch', display_name: 'Web Fetch', description: '', category: 'web', version: '1',
       enabled: true, is_ready: true, is_multi_provider: false, providers: [], config_specs: [], current_values: {},
     });
 
@@ -986,7 +986,7 @@ describe('PersonaPreviewChat', () => {
     }));
 
     await waitFor(() => expect(updateToolSpy).toHaveBeenCalledWith('web-fetch', {
-      revision: 'a'.repeat(64),
+      revision: 'a'.repeat(64), configurable: true,
       updates: { allow_rfc2544_benchmark_range: true },
     }));
     await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(2));

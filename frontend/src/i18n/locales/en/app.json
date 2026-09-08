@@ -2392,6 +2392,7 @@
       "off": "Off"
     },
     "toolStatus": {
+      "noIndependentSettings": "This tool has no independent settings.",
       "ready": "Ready",
       "notConfigured": "Not Configured"
     },

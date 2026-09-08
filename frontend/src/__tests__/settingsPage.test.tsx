@@ -607,6 +607,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
   tools: [
     {
       revision: 'a'.repeat(64),
+      configurable: true,
       name: 'weather',
       display_name: 'Weather',
       description: 'Weather tool',
@@ -634,6 +635,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
     },
     {
       revision: 'a'.repeat(64),
+      configurable: true,
       name: 'web-search',
       display_name: 'Web Search',
       description: 'Web search tool',
@@ -650,6 +652,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
     },
     {
       revision: 'a'.repeat(64),
+      configurable: true,
       name: 'web-fetch',
       display_name: 'Web Fetch',
       description: 'Web fetch tool',
@@ -668,6 +671,7 @@ const toolsFixture: import('@/api/modules/tools').ToolsListResponse = {
     },
     {
       revision: 'a'.repeat(64),
+      configurable: true,
       name: 'browser-automation',
       display_name: 'Browser Automation',
       description: 'Plugin-provided browser automation tool',
