@@ -98,7 +98,7 @@ from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessLimits, ProcessPluginProxy
 from magi.plugins.providers import PluginProviderRegistry
 from magi.plugins.sources import SourceRegistry
-from magi.plugins.skills import PluginSkillRegistry
+from magi.skills.plugin_registry import PluginSkillRegistry
 from magi.hooks.registry import HookRegistry
 from magi.skills.indexer import SkillIndexer
 from magi.skills.loader import SkillLoader
