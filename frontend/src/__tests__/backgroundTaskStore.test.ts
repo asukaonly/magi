@@ -39,6 +39,11 @@ const buildTask = (overrides: Partial<BackgroundTaskDTO> = {}): BackgroundTaskDT
   updated_at: overrides.updated_at ?? 1,
 });
 
+const hydrate = (tasks: BackgroundTaskDTO[], activeCount: number) => {
+  const state = useBackgroundTaskStore.getState();
+  return state.hydrate(tasks, activeCount, state.mutationVersion);
+};
+
 describe('useBackgroundTaskStore', () => {
   beforeEach(() => {
     useBackgroundTaskStore.getState().reset();
@@ -48,7 +53,7 @@ describe('useBackgroundTaskStore', () => {
     const running = buildTask({ task_id: 'a', status: 'running' });
     const done = buildTask({ task_id: 'b', status: 'succeeded' });
 
-    useBackgroundTaskStore.getState().hydrate([running, done], 1);
+    hydrate([running, done], 1);
 
     const state = useBackgroundTaskStore.getState();
     expect(state.activeCount).toBe(1);
@@ -56,9 +61,36 @@ describe('useBackgroundTaskStore', () => {
     expect(selectOrderedBackgroundTasks(state).map((t) => t.task_id)).toEqual(['a', 'b']);
   });
 
+  it('rejects snapshots started before a live update and ignores older task events', () => {
+    const running = buildTask({ task_id: 'a', status: 'running', updated_at: 1 });
+    hydrate([running], 1);
+    const snapshotVersion = useBackgroundTaskStore.getState().mutationVersion;
+    const finished = { ...running, status: 'succeeded' as const, updated_at: 2 };
+    useBackgroundTaskStore.getState().upsert(finished);
+    expect(useBackgroundTaskStore.getState().hydrate([running], 1, snapshotVersion)).toBe(false);
+    expect(useBackgroundTaskStore.getState().upsert(running)).toBe(false);
+    expect(useBackgroundTaskStore.getState().tasksById.a).toEqual(finished);
+    expect(useBackgroundTaskStore.getState().activeCount).toBe(0);
+    hydrate([running], 1);
+    expect(useBackgroundTaskStore.getState().tasksById.a).toEqual(finished);
+    expect(useBackgroundTaskStore.getState().activeCount).toBe(0);
+  });
+
+  it('does not resurrect dismissed tasks from late events or snapshots', () => {
+    const task = buildTask({ task_id: 'dismissed', status: 'succeeded' });
+    hydrate([task], 0);
+    useBackgroundTaskStore.getState().remove(task.task_id);
+    expect(useBackgroundTaskStore.getState().upsert(task)).toBe(false);
+    hydrate([task], 0);
+    expect(useBackgroundTaskStore.getState().orderedIds).toEqual([]);
+    const beforeReset = useBackgroundTaskStore.getState().mutationVersion;
+    useBackgroundTaskStore.getState().reset();
+    expect(useBackgroundTaskStore.getState().hydrate([task], 0, beforeReset)).toBe(false);
+  });
+
   it('upserts a new task to the front and recomputes active count', () => {
     const existing = buildTask({ task_id: 'a', status: 'running' });
-    useBackgroundTaskStore.getState().hydrate([existing], 1);
+    hydrate([existing], 1);
 
     const incoming = buildTask({ task_id: 'b', status: 'pending' });
     useBackgroundTaskStore.getState().upsert(incoming);
@@ -70,7 +102,7 @@ describe('useBackgroundTaskStore', () => {
 
   it('decrements active count when an existing task moves to a terminal status', () => {
     const running = buildTask({ task_id: 'a', status: 'running' });
-    useBackgroundTaskStore.getState().hydrate([running], 1);
+    hydrate([running], 1);
 
     useBackgroundTaskStore.getState().upsert({ ...running, status: 'succeeded' });
 
@@ -79,7 +111,7 @@ describe('useBackgroundTaskStore', () => {
 
   it('keeps waiting tasks active until they reach a terminal state', () => {
     const running = buildTask();
-    useBackgroundTaskStore.getState().hydrate([running], 1);
+    hydrate([running], 1);
     useBackgroundTaskStore.getState().upsert({ ...running, status: 'suspended_waiting_user' });
     expect(useBackgroundTaskStore.getState().activeCount).toBe(1);
     useBackgroundTaskStore.getState().upsert({ ...running, status: 'cancelled' });
@@ -88,7 +120,7 @@ describe('useBackgroundTaskStore', () => {
 
   it('remove drops the task from the cache and updates active count', () => {
     const running = buildTask({ task_id: 'a', status: 'running' });
-    useBackgroundTaskStore.getState().hydrate([running], 1);
+    hydrate([running], 1);
 
     useBackgroundTaskStore.getState().remove('a');
 
@@ -104,7 +136,7 @@ describe('useBackgroundTaskStore', () => {
       created_at: 100,
       updated_at: 100,
     });
-    useBackgroundTaskStore.getState().hydrate([oldTask], 1);
+    hydrate([oldTask], 1);
 
     useBackgroundTaskStore.getState().retireForMemoryClear(200);
 
@@ -137,10 +169,10 @@ describe('useBackgroundTaskStore', () => {
 
   it('does not resurrect cleared tasks through a later hydration response', () => {
     const oldTask = buildTask({ task_id: 'old-task', created_at: 100 });
-    useBackgroundTaskStore.getState().hydrate([oldTask], 1);
+    hydrate([oldTask], 1);
     useBackgroundTaskStore.getState().retireForMemoryClear(200);
 
-    useBackgroundTaskStore.getState().hydrate([
+    hydrate([
       oldTask,
       buildTask({ task_id: 'new-task', created_at: 201, updated_at: 201 }),
     ], 2);

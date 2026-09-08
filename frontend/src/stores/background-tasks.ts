@@ -13,9 +13,10 @@ interface BackgroundTaskState {
   lastRefreshedAt: number;
   clearBoundaryAt: number | null;
   retiredTaskIds: Record<string, true>;
+  mutationVersion: number;
 
   /** Replace the entire cache with a fresh snapshot from the list endpoint. */
-  hydrate: (tasks: BackgroundTaskDTO[], activeCount: number) => void;
+  hydrate: (tasks: BackgroundTaskDTO[], activeCount: number, expectedMutationVersion: number) => boolean;
   /** Apply a realtime state update (always the authoritative task record). */
   upsert: (task: BackgroundTaskDTO) => boolean;
   /** Drop a task after a successful dismiss. */
@@ -37,11 +38,9 @@ const isTaskAllowedAfterClear = (
   state: Pick<BackgroundTaskState, 'clearBoundaryAt' | 'retiredTaskIds'>,
   task: BackgroundTaskDTO,
 ): boolean => {
+  if (state.retiredTaskIds[task.task_id]) return false;
   if (state.clearBoundaryAt === null) {
     return true;
-  }
-  if (state.retiredTaskIds[task.task_id]) {
-    return false;
   }
   const createdAt = Number(task.created_at);
   return Number.isFinite(createdAt) && createdAt > state.clearBoundaryAt;
@@ -54,25 +53,35 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
   lastRefreshedAt: 0,
   clearBoundaryAt: null,
   retiredTaskIds: {},
+  mutationVersion: 0,
 
-  hydrate: (tasks, activeCount) =>
+  hydrate: (tasks, activeCount, expectedMutationVersion) => {
+    let accepted = false;
     set((state) => {
+      if (state.mutationVersion !== expectedMutationVersion) return state;
+      accepted = true;
       const acceptedTasks = tasks.filter((task) => isTaskAllowedAfterClear(state, task));
       const tasksById: Record<string, BackgroundTaskDTO> = {};
       const orderedIds: string[] = [];
+      let activeAdjustment = 0;
       for (const task of acceptedTasks) {
-        tasksById[task.task_id] = task;
+        const previous = state.tasksById[task.task_id];
+        const latest = previous && previous.updated_at > task.updated_at ? previous : task;
+        tasksById[task.task_id] = latest;
+        activeAdjustment += Number(ACTIVE_STATUSES.includes(latest.status)) - Number(ACTIVE_STATUSES.includes(task.status));
         orderedIds.push(task.task_id);
       }
       return {
         tasksById,
         orderedIds,
         activeCount: state.clearBoundaryAt === null
-          ? activeCount
+          ? Math.max(0, activeCount + activeAdjustment)
           : acceptedTasks.filter((task) => ACTIVE_STATUSES.includes(task.status)).length,
         lastRefreshedAt: Date.now(),
       };
-    }),
+    });
+    return accepted;
+  },
 
   upsert: (task) => {
     let accepted = false;
@@ -80,8 +89,9 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
       if (!isTaskAllowedAfterClear(state, task)) {
         return state;
       }
-      accepted = true;
       const previous = state.tasksById[task.task_id];
+      if (previous && task.updated_at < previous.updated_at) return state;
+      accepted = true;
       const wasActive = previous ? ACTIVE_STATUSES.includes(previous.status) : false;
       const isActive = ACTIVE_STATUSES.includes(task.status);
       const tasksById = { ...state.tasksById, [task.task_id]: task };
@@ -99,6 +109,7 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
         tasksById,
         orderedIds,
         activeCount,
+        mutationVersion: state.mutationVersion + 1,
       };
     });
     return accepted;
@@ -107,27 +118,27 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
   remove: (taskId) =>
     set((state) => {
       const existing = state.tasksById[taskId];
-      if (!existing) {
-        return state;
-      }
       const { [taskId]: _removed, ...rest } = state.tasksById;
       return {
         tasksById: rest,
         orderedIds: state.orderedIds.filter((id) => id !== taskId),
-        activeCount: ACTIVE_STATUSES.includes(existing.status)
+        activeCount: existing && ACTIVE_STATUSES.includes(existing.status)
           ? Math.max(0, state.activeCount - 1)
           : state.activeCount,
+        retiredTaskIds: { ...state.retiredTaskIds, [taskId]: true },
+        mutationVersion: state.mutationVersion + 1,
       };
     }),
 
-  reset: () => set({
+  reset: () => set((state) => ({
     tasksById: {},
     orderedIds: [],
     activeCount: 0,
     lastRefreshedAt: 0,
     clearBoundaryAt: null,
     retiredTaskIds: {},
-  }),
+    mutationVersion: state.mutationVersion + 1,
+  })),
 
   retireForMemoryClear: (clearBoundaryAt) => set((state) => {
     const normalizedBoundary = Number.isFinite(clearBoundaryAt)
@@ -138,6 +149,7 @@ export const useBackgroundTaskStore = create<BackgroundTaskState>((set) => ({
       retiredTaskIds[taskId] = true;
     }
     return {
+      mutationVersion: state.mutationVersion + 1,
       tasksById: {},
       orderedIds: [],
       activeCount: 0,

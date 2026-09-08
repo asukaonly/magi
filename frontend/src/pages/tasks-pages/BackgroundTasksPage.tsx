@@ -14,6 +14,7 @@ import {
 } from '@/api';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { DEFAULT_USER_ID } from '@/constants';
+import { APP_EVENTS } from '@/constants/events';
 import { TasksPageFrame } from './TasksPageFrame';
 import { BackgroundTaskRow } from './components/BackgroundTaskRow';
 import { BackgroundTaskDetailDrawer } from './components/BackgroundTaskDetailDrawer';
@@ -82,6 +83,7 @@ export const BackgroundTasksPage: React.FC = () => {
   const beginRead = useRequestOwner(String(offset));
   const refresh = useCallback(async (silent = false) => {
     const isCurrent = beginRead('list');
+    const snapshotVersion = useBackgroundTaskStore.getState().mutationVersion;
     if (!silent) setLoading(true);
     try {
       const response = await backgroundTasksApi.list({
@@ -100,7 +102,10 @@ export const BackgroundTasksPage: React.FC = () => {
           return;
         }
       }
-      hydrate(response.tasks, response.active_count);
+      if (!hydrate(response.tasks, response.active_count, snapshotVersion)) {
+        window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
+        return;
+      }
       setTotal(response.total);
     } catch {
       if (isCurrent() && !silent) toast.error(t('tasks.feedback.loadFailed'));

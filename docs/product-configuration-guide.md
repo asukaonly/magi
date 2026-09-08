@@ -1080,6 +1080,10 @@ timeline views reconcile their current filters and pages in place. Background
 reads retain confirmed data on failure and never submit actions or replace an
 open schedule editor. Request ownership rejects responses from an earlier page
 or selection, including navigating away and back to the same scope.
+Background-task snapshots also carry a client cache version captured before the
+read. A realtime update or dismissal invalidates that read and schedules a bounded
+refresh; older task timestamps cannot undo newer status. Dismissed task IDs remain
+retired until the connection cache resets, so late events cannot resurrect them.
 
 Memory overview, pending review lists, portraits, experience lists/details,
 summaries, and loaded memory-layer resources reconcile visible read snapshots.

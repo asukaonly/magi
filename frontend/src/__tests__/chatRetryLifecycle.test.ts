@@ -282,7 +282,7 @@ describe('chat retry lifecycle', () => {
       started_at: 1,
       finished_at: null,
       updated_at: 1,
-    }], 1);
+    }], 1, useBackgroundTaskStore.getState().mutationVersion);
     useChatShellStore.getState().setTimelinePanel({
       draftQuery: 'private timeline draft',
       moodDays: [{
