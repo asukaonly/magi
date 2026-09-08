@@ -94,7 +94,10 @@ async fn start_backend(
                 Some(service) => service.running()?,
                 None => true,
             };
-            if running && active.response.profile_id == profile_id {
+            if running
+                && active.response.mode == "local"
+                && active.response.profile_id == profile_id
+            {
                 return Ok(active.response.clone());
             }
         }

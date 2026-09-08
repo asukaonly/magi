@@ -26,16 +26,13 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({
 }));
 
 import {
-  beginFullDataClear,
   cancelExitRequest,
   clearDesktopLogHistory,
-  completeFullDataClear,
   confirmExitApp,
   openExternalUrl,
   pickMemoryBackupFile,
   registerDesktopOpenSettingsHandler,
   registerDesktopQuitHandler,
-  readPendingFullDataClear,
   syncCloseToTrayPreference,
   syncAutoStartPreference,
   syncOnboardingCompleted,
@@ -142,25 +139,6 @@ describe('desktop runtime bridge', () => {
     expect(invokeMock).toHaveBeenCalledWith('clear_desktop_log_history');
   });
 
-  it('persists, reads, and completes the desktop-owned full clear marker', async () => {
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    const marker = { version: 1, transactionId: 'clear-transaction-1234' };
-    invokeMock
-      .mockResolvedValueOnce(marker)
-      .mockResolvedValueOnce(marker)
-      .mockResolvedValueOnce(undefined);
-
-    await expect(beginFullDataClear()).resolves.toEqual(marker);
-    await expect(readPendingFullDataClear()).resolves.toEqual(marker);
-    await expect(completeFullDataClear(marker.transactionId)).resolves.toBeUndefined();
-
-    expect(invokeMock).toHaveBeenNthCalledWith(1, 'begin_full_data_clear');
-    expect(invokeMock).toHaveBeenNthCalledWith(2, 'read_pending_full_data_clear');
-    expect(invokeMock).toHaveBeenNthCalledWith(3, 'complete_full_data_clear', {
-      transactionId: marker.transactionId,
-    });
-  });
-
   it('opens the native picker with the Magi backup extension only', async () => {
     (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
     dialogOpenMock.mockResolvedValue('/Users/example/Memory copy.magibackup');
@@ -182,10 +160,5 @@ describe('desktop runtime bridge', () => {
     expect(dialogOpenMock).not.toHaveBeenCalled();
   });
 
-  it('refuses to acknowledge a full clear without the desktop owner', async () => {
-    await expect(completeFullDataClear('clear-transaction-1234')).rejects.toThrow(
-      'Desktop full data clear owner is unavailable',
-    );
-    expect(invokeMock).not.toHaveBeenCalled();
-  });
+
 });

@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import { STORAGE_KEYS } from "../../constants/app";
 import { isPersonaPreviewRoute } from "./persona-preview/personaPreviewRoute";
 
@@ -96,12 +97,12 @@ export function sanitizeStoredOnboardingProgress(
 export function sanitizeOnboardingProgressStorage(
   storageKey: string,
 ): string | null {
-  const serialized = localStorage.getItem(storageKey);
+  const serialized = centerLocalStorage().getItem(storageKey);
   const sanitized = sanitizeStoredOnboardingProgress(serialized);
   if (sanitized) {
-    localStorage.setItem(storageKey, sanitized);
+    centerLocalStorage().setItem(storageKey, sanitized);
   } else if (serialized) {
-    localStorage.removeItem(storageKey);
+    centerLocalStorage().removeItem(storageKey);
   }
   return sanitized;
 }
@@ -114,14 +115,14 @@ export function clearOnboardingContentState(
     return true;
   }
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = centerLocalStorage().getItem(storageKey);
     if (raw === null) {
       return true;
     }
     const sanitized = sanitizeStoredOnboardingProgress(raw);
     if (!sanitized) {
-      window.localStorage.removeItem(storageKey);
-      return window.localStorage.getItem(storageKey) === null;
+      centerLocalStorage().removeItem(storageKey);
+      return centerLocalStorage().getItem(storageKey) === null;
     }
     const snapshot = JSON.parse(sanitized) as Record<string, unknown>;
     const rawFirstContext = snapshot.firstContextProgress;
@@ -146,10 +147,10 @@ export function clearOnboardingContentState(
       submitted: false,
       sendUncertain: false,
     };
-    window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+    centerLocalStorage().setItem(storageKey, JSON.stringify(snapshot));
 
     const persisted = JSON.parse(
-      window.localStorage.getItem(storageKey) || "null",
+      centerLocalStorage().getItem(storageKey) || "null",
     ) as Record<string, unknown> | null;
     const persistedFirstContext = persisted?.firstContextProgress;
     if (

@@ -1,214 +1,61 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+import { ensureRuntimeSession, getRuntimeConfig, initializeRuntime, normalizeApiBaseUrl, readBackendStartupDiagnostics, resetRuntimeInitialization } from '@/runtime/config';
 
-// vi.hoisted because vi.mock factories are hoisted above the const
-// declaration; runtime/config now statically imports @tauri-apps/api/core,
-// so the mock factory runs during this file's module-evaluation and would
-// otherwise hit a TDZ on invokeMock.
-const { invokeMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn(),
-}));
+const serverId = 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0';
+const clientId = 'a0c4c092-b043-4767-a2a7-041ad6194b8c';
+const started = (overrides = {}) => ({ ok: true, baseUrl: 'http://127.0.0.1:19080/api', sessionToken: 'a'.repeat(64), serverId, profileId: 'local', mode: 'local', dataEpoch: serverId, expiresAtMs: null, apiPid: 123, runtimeWorkerPid: null, ...overrides });
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: invokeMock,
-}));
-
-import {
-  initializeRuntime,
-  normalizeApiBaseUrl,
-  normalizeConnectableUrl,
-  readBackendStartupDiagnostics,
-  resetRuntimeInitialization,
-  restartRuntimeAfterFullDataClear,
-} from '@/runtime/config';
-
-describe('runtime config URL normalization', () => {
+describe('center runtime bootstrap', () => {
   beforeEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    invokeMock.mockReset();
-    resetRuntimeInitialization();
-    delete (window as Window & { __TAURI__?: object }).__TAURI__;
+    vi.useRealTimers(); invokeMock.mockReset(); resetRuntimeInitialization();
+    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
+  });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__; });
+
+  it('normalizes explicit bind addresses', () => {
+    expect(normalizeApiBaseUrl('http://0.0.0.0:8000', '127.0.0.1')).toBe('http://127.0.0.1:8000/api');
+  });
+  it('rejects use outside the desktop host', async () => {
     delete (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__;
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('replaces restricted bind hosts with a connectable host for API URLs', () => {
-    expect(normalizeApiBaseUrl('http://0.0.0.0:8000/api', '127.0.0.1')).toBe('http://127.0.0.1:8000/api');
-  });
-
-  it('preserves explicit connectable hosts', () => {
-    expect(normalizeConnectableUrl('http://localhost:8000/api', '127.0.0.1')).toBe('http://localhost:8000/api');
-  });
-
-  it('returns no startup diagnostics outside the Tauri desktop runtime', async () => {
+    await expect(initializeRuntime()).rejects.toThrow('requires Tauri');
     await expect(readBackendStartupDiagnostics()).resolves.toBeNull();
-    expect(invokeMock).not.toHaveBeenCalled();
   });
-
-  it('reads backend startup diagnostics from the desktop shell', async () => {
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockResolvedValue({
-      logPath: 'C:\\Users\\asuka\\.magi\\logs\\backend-dev-hot.log',
-      logExcerpt: 'Traceback: demo failure',
-    });
-
-    await expect(readBackendStartupDiagnostics()).resolves.toEqual({
-      logPath: 'C:\\Users\\asuka\\.magi\\logs\\backend-dev-hot.log',
-      logExcerpt: 'Traceback: demo failure',
-    });
-    expect(invokeMock).toHaveBeenCalledWith('read_backend_startup_diagnostics');
+  it('deduplicates bootstrap and accepts readiness from the authenticated native probe', async () => {
+    invokeMock.mockImplementation(async (command) => command === 'start_backend' ? started() : { ready: true, phase: 'ready' });
+    const first = initializeRuntime(); const second = initializeRuntime();
+    expect(second).toBe(first);
+    await expect(first).resolves.toMatchObject({ serverId, mode: 'local', apiPid: 123 });
+    expect(invokeMock).toHaveBeenCalledTimes(2);
   });
-
-  it('rejects initialization outside the Tauri desktop runtime', async () => {
-    await expect(initializeRuntime()).rejects.toThrow('Desktop runtime requires Tauri');
-    expect(invokeMock).not.toHaveBeenCalled();
+  it('rejects a remote address without HTTPS', async () => {
+    invokeMock.mockResolvedValue(started({ mode: 'remote' }));
+    await expect(initializeRuntime()).rejects.toThrow('invalid API address');
   });
-
-  it('waits for the backend ready probe after starting the desktop sidecar', async () => {
-    vi.useFakeTimers();
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'start_backend') {
-        return {
-          ok: true,
-          baseUrl: 'http://127.0.0.1:8000/api',
-          sessionToken: 'token-1',
-          apiPid: 4321,
-          runtimeWorkerPid: 5678,
-        };
-      }
-
-      if (command === 'poll_backend_startup') {
-        return {
-          ready: true,
-          phase: 'ready',
-        };
-      }
-
-      throw new Error(`Unexpected invoke command: ${command}`);
-    });
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        success: true,
-        data: { ok: true },
-      }), { status: 200 })
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const runtimePromise = initializeRuntime();
-    await vi.runAllTimersAsync();
-    const runtime = await runtimePromise;
-
-    expect(invokeMock).toHaveBeenCalledWith('start_backend');
-    expect(invokeMock).toHaveBeenCalledWith('poll_backend_startup');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      'http://127.0.0.1:8000/api/health',
-      expect.objectContaining({ method: 'GET' })
-    );
-    expect(runtime.isDesktop).toBe(true);
-    expect(runtime.apiPid).toBe(4321);
-    expect(runtime.runtimeWorkerPid).toBe(5678);
-    expect('__MAGI_RUNTIME__' in window).toBe(false);
+  it('rejects a late startup after the connection generation changed', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    invokeMock.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = initializeRuntime();
+    const rejected = expect(pending).rejects.toThrow('Connection changed');
+    resetRuntimeInitialization(); finish(started()); await rejected;
+    expect(getRuntimeConfig().serverId).toBeUndefined();
   });
-
-  it('surfaces an exited backend before probing gateway health', async () => {
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'start_backend') {
-        return {
-          ok: true,
-          baseUrl: 'http://127.0.0.1:8000/api',
-          sessionToken: 'token-1',
-        };
-      }
-      if (command === 'poll_backend_startup') {
-        return {
-          ready: false,
-          phase: 'error',
-          error: 'Backend process exited before startup completed (exit code: 1)',
-        };
-      }
-      throw new Error(`Unexpected invoke command: ${command}`);
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(initializeRuntime()).rejects.toThrow(
-      'Backend process exited before startup completed (exit code: 1)',
-    );
-    expect(fetchMock).not.toHaveBeenCalled();
+  it('deduplicates expiring remote session renewal and validates center identity', async () => {
+    invokeMock.mockImplementation(async (command) => command === 'start_backend'
+      ? started({ mode: 'remote', profileId: clientId, baseUrl: 'https://center.example/api', expiresAtMs: 1 })
+      : { ready: true, phase: 'ready' });
+    await initializeRuntime();
+    invokeMock.mockResolvedValue({ server_id: serverId, client_id: clientId, access_token: 'b'.repeat(64), expires_at_ms: Date.now() + 900_000 });
+    const first = ensureRuntimeSession(); const second = ensureRuntimeSession(); expect(second).toBe(first);
+    await expect(first).resolves.toBe('b'.repeat(64));
+    expect(getRuntimeConfig().sessionToken).toBe('b'.repeat(64));
+    expect(invokeMock.mock.calls.filter(([command]) => command === 'renew_center_session')).toHaveLength(1);
   });
-
-  it('does not add a second readiness wait after the startup poll times out', async () => {
-    vi.useFakeTimers();
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'start_backend') {
-        return {
-          ok: true,
-          baseUrl: 'http://127.0.0.1:8000/api',
-          sessionToken: 'token-1',
-        };
-      }
-      if (command === 'poll_backend_startup') {
-        return { ready: false, phase: 'waiting_for_worker' };
-      }
-      throw new Error(`Unexpected invoke command: ${command}`);
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    const runtimePromise = initializeRuntime();
-    const rejection = expect(runtimePromise).rejects.toThrow(
-      'Backend startup timed out while waiting for the worker',
-    );
-    await vi.runAllTimersAsync();
-    await rejection;
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('stops and starts the backend exactly once after a recovered clear', async () => {
-    vi.useFakeTimers();
-    (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
-    let startCount = 0;
-    invokeMock.mockImplementation(async (command: string) => {
-      if (command === 'stop_backend') {
-        return { ok: true };
-      }
-      if (command === 'start_backend') {
-        startCount += 1;
-        return {
-          ok: true,
-          baseUrl: `http://127.0.0.1:${8000 + startCount}/api`,
-          sessionToken: `token-${startCount}`,
-          apiPid: 4000 + startCount,
-          runtimeWorkerPid: 5000 + startCount,
-        };
-      }
-      if (command === 'poll_backend_startup') {
-        return { ready: true, phase: 'ready' };
-      }
-      throw new Error(`Unexpected invoke command: ${command}`);
-    });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 200 })));
-
-    const firstStart = initializeRuntime();
-    await vi.runAllTimersAsync();
-    await firstStart;
-
-    const restart = restartRuntimeAfterFullDataClear();
-    await vi.runAllTimersAsync();
-    const runtime = await restart;
-
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'stop_backend')).toHaveLength(1);
-    expect(invokeMock.mock.calls.filter(([command]) => command === 'start_backend')).toHaveLength(2);
-    expect(runtime.apiBaseUrl).toBe('http://127.0.0.1:8002/api');
-    expect(runtime.sessionToken).toBe('token-2');
+  it('allows maintenance recovery to show without requiring ordinary runtime readiness', async () => {
+    invokeMock.mockImplementation(async (command) => command === 'start_backend' ? started() : { ready: true, phase: 'recovering_data_clear' });
+    const phases: string[] = [];
+    await initializeRuntime((phase) => phases.push(phase));
+    expect(phases.at(-1)).toBe('recovering_data_clear');
   });
 });

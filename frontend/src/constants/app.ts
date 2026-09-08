@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 /**
  * Application-level constants.
  */
@@ -16,7 +17,7 @@ export const DEFAULT_RUNTIME_NAMESPACE = 'desktop';
 export const DEFAULT_USER_CHANNEL = `user_${DEFAULT_USER_ID}`;
 
 /** Local storage key for current chat session */
-export const CHAT_SESSION_KEY = (userId: string) => `chat_session_${userId}`;
+export const CHAT_SESSION_KEY = (userId: string) => centerStorageKey(`chat_session_${userId}`);
 
 // ============================================================================
 // API Configuration

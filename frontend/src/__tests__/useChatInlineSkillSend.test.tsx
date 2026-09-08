@@ -1,3 +1,4 @@
+import { centerSessionStorage } from '@/runtime/center-storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -121,7 +122,7 @@ describe('useChatInlineSkillSend', () => {
       kind: 'not_sent',
       message: 'chat.skills.sendUnconfirmed',
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).not.toBeNull();
   });
@@ -217,7 +218,7 @@ describe('useChatInlineSkillSend', () => {
     });
 
     await waitFor(() => {
-      expect(window.sessionStorage.getItem(
+      expect(centerSessionStorage().getItem(
         INLINE_SKILL_RETRY_STORAGE_KEY,
       )).not.toBeNull();
     });
@@ -227,7 +228,7 @@ describe('useChatInlineSkillSend', () => {
     act(() => {
       clear(hook, operation.confirmation.turnId);
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).toBeNull();
 
@@ -236,7 +237,7 @@ describe('useChatInlineSkillSend', () => {
       await sendPromise;
     });
 
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).toBeNull();
     expect(toastWarningMock).not.toHaveBeenCalledWith(

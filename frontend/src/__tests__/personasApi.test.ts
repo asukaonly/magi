@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { personasApi, type PersonalityConfig } from '../api/modules/personas';
 
-vi.mock('@/runtime/config', () => ({
+vi.mock('@/runtime/config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/runtime/config')>(),
   getRuntimeConfig: () => ({ apiBaseUrl: 'http://localhost/api' }),
 }));
 

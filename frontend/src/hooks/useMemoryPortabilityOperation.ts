@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -32,7 +33,7 @@ function readPersistedTracking(): PersistedOperationTracking {
     dismissedOperationId: null,
   };
   try {
-    const raw = window.localStorage.getItem(OPERATION_TRACKING_KEY);
+    const raw = centerLocalStorage().getItem(OPERATION_TRACKING_KEY);
     if (!raw) {
       return empty;
     }
@@ -56,7 +57,7 @@ function readPersistedTracking(): PersistedOperationTracking {
 
 function persistTracking(tracking: PersistedOperationTracking): void {
   try {
-    window.localStorage.setItem(OPERATION_TRACKING_KEY, JSON.stringify(tracking));
+    centerLocalStorage().setItem(OPERATION_TRACKING_KEY, JSON.stringify(tracking));
   } catch {
     // Tracking is a convenience; the backend remains the operation authority.
   }

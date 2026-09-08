@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -36,7 +37,7 @@ const OnboardingPage: React.FC = () => {
     try {
       const response = await configApi.getOnboardingStatus();
       if (response.data?.completed === true) {
-        localStorage.removeItem(STORAGE_KEY);
+        centerLocalStorage().removeItem(STORAGE_KEY);
         navigate('/', { replace: true });
         return true;
       }

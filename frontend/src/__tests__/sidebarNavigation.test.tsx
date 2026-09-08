@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 import { MemoryRouter, useLocation } from 'react-router';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -364,7 +365,7 @@ describe('sidebar navigation', () => {
     await waitFor(() => {
       expect(useConversationStore.getState().currentSessionId).toBe('session-new');
     });
-    expect(storage.get('chat_session_local_user')).toBe('session-new');
+    expect(storage.get(centerStorageKey('chat_session_local_user'))).toBe('session-new');
   });
 
   it('does not restore a session whose create response arrives after a full clear starts', async () => {
@@ -417,7 +418,7 @@ describe('sidebar navigation', () => {
     });
 
     expect(useConversationStore.getState().currentSessionId).not.toBe('session-before-clear');
-    expect(storage.get('chat_session_local_user')).not.toBe('session-before-clear');
+    expect(storage.get(centerStorageKey('chat_session_local_user'))).not.toBe('session-before-clear');
     expect(messagesApi.listSessions).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('location')).toHaveTextContent('/');
   });
@@ -696,7 +697,7 @@ describe('sidebar navigation', () => {
       (operation) => operation.request.session_id === 'session-b',
     )).toBe(true);
     expect(useConversationStore.getState().currentSessionId).toBe('session-b');
-    expect(window.localStorage.getItem('chat_session_local_user')).toBe('session-b');
+    expect(window.localStorage.getItem(centerStorageKey('chat_session_local_user'))).toBe('session-b');
     expect(toast.warning).toHaveBeenCalledWith(
       'shell.deleteSessionCleanupPending',
     );
@@ -765,7 +766,7 @@ describe('sidebar navigation', () => {
     });
 
     expect(useConversationStore.getState().currentSessionId).toBe('session-a');
-    expect(storage.get('chat_session_local_user')).toBe('session-a');
+    expect(storage.get(centerStorageKey('chat_session_local_user'))).toBe('session-a');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.confirmDeleteSession' })).toBeEnabled();
     expect(screen.getByTestId('location')).toHaveTextContent('/');

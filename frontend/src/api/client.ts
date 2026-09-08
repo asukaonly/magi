@@ -3,7 +3,7 @@
  */
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { getRuntimeConfig } from '@/runtime/config';
+import { getRuntimeConfig, getRuntimeGeneration, ensureRuntimeSession, subscribeRuntimeReset } from '@/runtime/config';
 import { registerKnownLogSecrets } from '@/runtime/log-redaction';
 import { useBackendHealthStore } from '@/stores/backend-health';
 import { resolveInitialLanguage } from '@/utils/language';
@@ -48,7 +48,30 @@ export interface PaginatedResponse<T> {
 }
 
 // Create axios instance
-let desktopSessionToken: string | undefined;
+type ApiScope = { baseUrl: string; token?: string; owner: number; abort: AbortController };
+let apiScope: ApiScope = {
+  baseUrl: getRuntimeConfig().apiBaseUrl, owner: getRuntimeGeneration(), abort: new AbortController(),
+};
+const requestScopes = new WeakMap<InternalAxiosRequestConfig, ApiScope>();
+function assertScope(scope: ApiScope): void {
+  if (scope !== apiScope || scope.abort.signal.aborted || scope.owner !== getRuntimeGeneration()) {
+    throw new axios.CanceledError('Connection changed');
+  }
+}
+function requireOwnedUrl(input: string, scope: ApiScope): void {
+  const url = new URL(input, `${scope.baseUrl}/`);
+  const base = new URL(scope.baseUrl);
+  if (url.origin !== base.origin || url.username || url.password || url.hash) {
+    throw new Error('Authenticated requests must stay on the active center');
+  }
+}
+async function sessionForScope(scope: ApiScope): Promise<string | undefined> {
+  assertScope(scope);
+  const token = await ensureRuntimeSession(scope.owner);
+  assertScope(scope);
+  return token ?? scope.token;
+}
+subscribeRuntimeReset(() => { apiScope.abort.abort(); });
 
 const AXIOS_CONFIG_KEYS = new Set([
   'adapter',
@@ -256,6 +279,8 @@ const createApiClient = (): AxiosInstance => {
   const client = axios.create({
     baseURL: runtime.apiBaseUrl,
     timeout: 30000,
+    adapter: 'fetch',
+    fetchOptions: { redirect: 'error', credentials: 'omit' },
     headers: {
       'Content-Type': 'application/json',
     },
@@ -264,11 +289,37 @@ const createApiClient = (): AxiosInstance => {
   // Request interceptor
   client.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-      const runtime = getRuntimeConfig();
-      const sessionToken = desktopSessionToken || runtime.sessionToken;
-      if (sessionToken && config.headers) {
-        config.headers['X-Magi-Session-Token'] = sessionToken;
-      }
+      const scope = apiScope;
+      assertScope(scope);
+      const base = config.baseURL ?? scope.baseUrl;
+      requireOwnedUrl(base, scope);
+      requireOwnedUrl(new URL(config.url ?? '', `${base.replace(/\/+$/, '')}/`).toString(), scope);
+      requestScopes.set(config, scope);
+      // Capture ownership synchronously, before session renewal or adapter work yields.
+      const adapter = axios.getAdapter(config.adapter ?? 'fetch');
+      const originalSignal = config.signal;
+      const abort = new AbortController();
+      const cancel = () => abort.abort();
+      originalSignal?.addEventListener?.('abort', cancel);
+      scope.abort.signal.addEventListener('abort', cancel);
+      if (originalSignal?.aborted || scope.abort.signal.aborted) cancel();
+      config.signal = abort.signal;
+      config.fetchOptions = { ...config.fetchOptions, redirect: 'error', credentials: 'omit' };
+      config.adapter = async (request) => {
+        try {
+          const token = await sessionForScope(scope);
+          if (abort.signal.aborted) throw new axios.CanceledError('Request cancelled');
+          request.headers.delete('X-Magi-Session-Token');
+          if (token) request.headers.set('X-Magi-Session-Token', token);
+          registerKnownLogSecrets({ headers: request.headers });
+          const response = await adapter(request);
+          assertScope(scope);
+          return response;
+        } finally {
+          originalSignal?.removeEventListener?.('abort', cancel);
+          scope.abort.signal.removeEventListener('abort', cancel);
+        }
+      };
       // Add language header
       const language = resolveInitialLanguage();
       if (config.headers) {
@@ -282,19 +333,23 @@ const createApiClient = (): AxiosInstance => {
       });
       return config;
     },
-    (error) => {
-      registerKnownLogSecrets(error);
-      return Promise.reject(error);
-    }
+    (error: unknown) => { throw error; },
+    { synchronous: true },
   );
 
   // Response interceptor
   client.interceptors.response.use(
     (response) => {
+      const scope = requestScopes.get(response.config);
+      if (scope) assertScope(scope);
       registerKnownLogSecrets(response.data);
       return response;
     },
     (error: AxiosError<ApiError>) => {
+      const scope = error.config ? requestScopes.get(error.config) : undefined;
+      if (scope && (scope !== apiScope || scope.abort.signal.aborted)) {
+        return Promise.reject(toApiClientError(new axios.CanceledError('Connection changed')));
+      }
       registerKnownLogSecrets({
         config: error.config,
         response: error.response?.data,
@@ -323,24 +378,27 @@ export function resolveApiBaseUrl(): string {
 }
 
 export function getDesktopSessionToken(): string | undefined {
-  return desktopSessionToken || getRuntimeConfig().sessionToken;
+  return getRuntimeConfig().sessionToken ?? apiScope.token;
 }
 
-export function authenticatedFetch(
+export async function authenticatedFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const sessionToken = getDesktopSessionToken();
-  if (sessionToken) {
-    headers.set('X-Magi-Session-Token', sessionToken);
-  }
+  const scope = apiScope;
+  const target = input instanceof Request ? input.url : String(input);
+  requireOwnedUrl(target, scope);
+  const token = await sessionForScope(scope);
+  const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));
+  headers.delete('X-Magi-Session-Token');
+  if (token) headers.set('X-Magi-Session-Token', token);
   headers.set('Accept-Language', resolveInitialLanguage());
+  const sourceSignal = init.signal ?? (input instanceof Request ? input.signal : undefined);
+  const signal = sourceSignal ? AbortSignal.any([scope.abort.signal, sourceSignal]) : scope.abort.signal;
   registerKnownLogSecrets({ body: init.body, headers: Object.fromEntries(headers.entries()) });
-  return fetch(input, {
-    ...init,
-    headers,
-  });
+  const response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
+  assertScope(scope);
+  return response;
 }
 
 export const configureApiClient = (options: {
@@ -348,15 +406,12 @@ export const configureApiClient = (options: {
   sessionToken?: string;
 } = {}): void => {
   registerKnownLogSecrets(options);
-  if (options.baseUrl) {
-    apiClient.defaults.baseURL = options.baseUrl.replace(/\/+$/, '');
-  }
-  desktopSessionToken = options.sessionToken;
-  if (desktopSessionToken) {
-    apiClient.defaults.headers.common['X-Magi-Session-Token'] = desktopSessionToken;
-  } else {
-    delete apiClient.defaults.headers.common['X-Magi-Session-Token'];
-  }
+  apiScope.abort.abort();
+  const baseUrl = (options.baseUrl ?? getRuntimeConfig().apiBaseUrl).replace(/\/+$/, '');
+  apiScope = { baseUrl, token: options.sessionToken, owner: getRuntimeGeneration(), abort: new AbortController() };
+  apiClient.defaults.baseURL = baseUrl;
+  // Credentials belong to the dispatch scope, never to shared Axios defaults.
+  delete apiClient.defaults.headers.common['X-Magi-Session-Token'];
 };
 
 // Generic API helpers.

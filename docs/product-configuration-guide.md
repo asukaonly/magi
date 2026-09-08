@@ -599,29 +599,24 @@ The destructive **Clear All Memory** action is broader than L0-L4:
   working/orchestration state, all memory layers, manual-entry assets, external
   channel conversation mappings and receipts, notification cursors, and queued
   proactive notifications plus their delivery history
-- it erases existing local diagnostic log contents, including rotated log files
-  and the desktop backend output log; active log files remain usable and may
-  contain new operational entries produced after the clear boundary
-- the backend clears its own files while its writers are paused; the desktop
-  host then clears the host-owned log through the same synchronized writer and
-  makes a final pass over the sidecar output before the product reports the
-  action complete
+- it erases existing center diagnostic log contents while center writers are
+  paused; new operational entries can appear after the boundary
+- each connected desktop clears its own caches and logs separately; offline
+  devices must reconcile the durable data epoch before displaying cached content
 - it preserves product configuration: installed/enabled channels, external
   account authentication, channel binding preferences, LLM settings, persona
   settings, and unrelated runtime notifications are not remembered
   conversation content
 - the confirmation and completion copy must describe this real scope rather
   than saying only “L0-L4”
-- before deletion starts, the desktop records a durable pending operation. If
-  the app or backend exits, the next launch enters a restricted recovery screen
-  and repeats the same safe clear before ordinary product interaction is
-  available
-- partial cleanup is never presented as success. Any remaining store, plugin,
-  browser state, or diagnostic-log failure keeps the operation pending and the
-  product blocked until retry succeeds
-- success is shown only after backend data, browser-owned retry/session state,
-  backend logs, and the desktop-owned log are all clean. The pending marker is
-  then removed and crash recovery performs one clean runtime restart
+- before deletion starts, the center records a durable operation ID. Closing
+  the requesting client does not stop it. Center restart resumes restricted
+  recovery before ordinary storage access; a completed ID never deletes twice
+- partial center cleanup keeps center maintenance pending. A device cache/log
+  cleanup failure blocks that device and retains its own retry marker, without
+  making the completed center job pending again
+- the client retains an operation ID before sending so an uncertain network
+  response can be inspected or retried without inventing a second operation
 - a clear action is exclusive with turn submission: it waits for an admitted
   send to settle, blocks new sends during the boundary, and releases the
   composer only after success or failure is known
@@ -947,3 +942,15 @@ For unified plugin loading and plugin-backed sources, read:
 For a high-level repository and architecture introduction, read:
 
 - [Project Overview](./project-overview.md)
+
+### Center connections
+
+First launch offers this computer or a paired remote center. A remote connection
+requires an HTTPS address and a one-time pairing code generated on the center.
+Pairing grants full single-owner management access; the form states this scope.
+The desktop stores the reusable device credential in the OS vault. Saved
+connections can be selected from the sidebar and inactive remote profiles can
+be forgotten. The title bar shows the active center, and a failed startup still
+allows selecting another connection. Switching reloads the interface, so users
+must save unsent content before choosing another center. Remote plugins execute
+on the center computer; connecting a desktop does not enroll it as a collector.

@@ -5625,5 +5625,27 @@
         "failed": "失败"
       }
     }
+  },
+  "connections": {
+    "title": "连接管理",
+    "description": "在这台电脑运行，或连接一个统一保存对话、记忆和任务的中心。",
+    "local": "这台电脑",
+    "localDescription": "应用运行期间，在本机运行 Magi。",
+    "forget": "忘记",
+    "connect": "连接",
+    "addRemote": "连接其他中心",
+    "pairingHint": "在中心电脑生成一次性配对码，再粘贴到这里。",
+    "name": "连接名称",
+    "address": "中心 HTTPS 地址",
+    "pairingCode": "配对码",
+    "ownerAccess": "配对后，这台设备可管理中心的全部数据、设置和工具。仅连接你信任的中心。",
+    "pair": "配对并连接",
+    "connecting": "正在连接…",
+    "failed": "连接失败。",
+    "loadFailed": "无法读取已保存的连接。",
+    "switchHint": "切换会重新载入界面，请先保存未发送的内容。断开连接不会停止远程中心。",
+    "choose": "选择连接方式",
+    "change": "选择其他连接",
+    "serverPlugins": "插件在中心电脑采集数据和执行工具。"
   }
 }

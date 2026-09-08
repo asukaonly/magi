@@ -8,6 +8,7 @@ import { ChatPage } from "@/pages/Chat";
 import { useConversationStore } from "@/stores/conversation-store";
 import { normalizeHistoryMessages } from "@/domain/chat/state";
 import { messagesApi } from "@/api";
+import { centerStorageKey } from "@/runtime/center-storage";
 
 const seedFirstContextConversation = () => {
   useConversationStore.getState().receiveHistory(
@@ -129,7 +130,7 @@ defineChatPageSuite("ChatPage first-context continuation", () => {
     });
     expect(
       Object.keys(window.localStorage).some((key) =>
-        key.startsWith("magi.first-context-continuation:session-1"),
+        key.startsWith(centerStorageKey("magi.first-context-continuation:session-1")),
       ),
     ).toBe(true);
   });

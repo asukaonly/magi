@@ -1,3 +1,4 @@
+import { centerSessionStorage } from '@/runtime/center-storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -234,7 +235,7 @@ describe('useChatSendMessage', () => {
       'current-identity',
       'normal',
     );
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
   });
@@ -326,7 +327,7 @@ describe('useChatSendMessage', () => {
       requestId: 'ask-new',
       answer: 'New answer',
     }));
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
   });
@@ -346,7 +347,7 @@ describe('useChatSendMessage', () => {
     expect(toastWarningMock).toHaveBeenCalledWith(
       'chat.previousSendUnconfirmed',
     );
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).not.toBeNull();
   });
@@ -395,7 +396,7 @@ describe('useChatSendMessage', () => {
       SESSION_ID,
     );
     expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
     expect(toastWarningMock).toHaveBeenCalledWith(
@@ -415,7 +416,7 @@ describe('useChatSendMessage', () => {
         'different-turn',
       );
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).not.toBeNull();
 
@@ -425,7 +426,7 @@ describe('useChatSendMessage', () => {
         OLD_TURN_ID,
       );
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
   });
@@ -462,7 +463,7 @@ describe('useChatSendMessage', () => {
     });
 
     await waitFor(() => {
-      expect(window.sessionStorage.getItem(
+      expect(centerSessionStorage().getItem(
         CHAT_RETRYABLE_SEND_STORAGE_KEY,
       )).not.toBeNull();
     });
@@ -472,7 +473,7 @@ describe('useChatSendMessage', () => {
     act(() => {
       clear(hook, operation!.turnId);
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
 
@@ -481,7 +482,7 @@ describe('useChatSendMessage', () => {
       await sendPromise;
     });
 
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
     expect(toastWarningMock).not.toHaveBeenCalledWith(

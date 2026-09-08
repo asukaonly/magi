@@ -1,5 +1,5 @@
 import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateMemorySearchDisplay, validateReviewDisplay } from '../memory-fact-contract';
-import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode, parseClearMemory } from '../lifecycle-contract';
+import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
 import type { EmbeddingVectorIdentity, VectorLayerId } from './config';
@@ -1233,13 +1233,7 @@ export const memoryApi = {
     return result;
   },
 
-  // Clear
-  clearAll: async (transactionId: string): Promise<ClearMemoryResponse> =>
-    parseClearMemory(await api.delete<unknown>('/memory/clear', {
-      headers: {
-        'X-Magi-Full-Clear-Transaction': transactionId,
-      },
-    })),
+
 };
 
 export default memoryApi;

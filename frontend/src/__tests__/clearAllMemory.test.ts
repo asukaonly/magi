@@ -1,344 +1,63 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { memoryApi } from '@/api/modules/memory';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+const { runtime, server, cleanup, logs, configure } = vi.hoisted(() => ({
+  runtime: { serverId: 'center-a', dataEpoch: 'original', apiBaseUrl: 'https://center.example/api', sessionToken: 'token' },
+  server: { clear: vi.fn(), maintenance: vi.fn() }, cleanup: vi.fn(), logs: vi.fn(), configure: vi.fn(),
+}));
+vi.mock('@/api/modules/server', () => ({ serverApi: server }));
+vi.mock('@/api/client', () => ({ configureApiClient: configure }));
+vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => runtime, getRuntimeGeneration: () => 1, assertRuntimeGeneration: vi.fn(), setRuntimeDataEpoch: (epoch: string) => { runtime.dataEpoch = epoch; } }));
+vi.mock('@/runtime/desktop', () => ({ clearDesktopLogHistory: logs }));
+vi.mock('@/hooks/chatRetryLifecycle', () => ({ completeMemoryClear: cleanup }));
 import { clearAllMemory, recoverPendingFullDataClear } from '@/hooks/clearAllMemory';
-import { completeMemoryClear } from '@/hooks/chatRetryLifecycle';
-import {
-  beginFullDataClear,
-  clearDesktopLogHistory,
-  completeFullDataClear,
-  readPendingFullDataClear,
-} from '@/runtime/desktop';
+import { centerLocalStorage, setCenterStorageScope } from '@/runtime/center-storage';
 import { APP_EVENTS } from '@/constants/events';
-import { stopRuntimeForFullDataClearRecovery } from '@/runtime/config';
+const results = Object.fromEntries(['l0', 'l1', 'l2', 'l3', 'l4', 'chat_context'].map((area) => [area, { cleared: true, count: 2 }]));
+const receipt = { success: true, results, warnings: [] };
+const status = (operationId: string, phase = 'completed') => ({ version: 1, operation_id: operationId, phase, data_epoch: phase === 'completed' ? operationId : 'original', result: phase === 'completed' ? receipt : null, error: phase === 'failed' ? 'Worker failed' : null });
 
-vi.mock('@/api/modules/memory', () => ({
-  memoryApi: {
-    clearAll: vi.fn(),
-  },
-}));
-
-vi.mock('@/hooks/chatRetryLifecycle', () => ({
-  completeMemoryClear: vi.fn(),
-}));
-
-vi.mock('@/runtime/desktop', () => ({
-  beginFullDataClear: vi.fn(),
-  clearDesktopLogHistory: vi.fn(),
-  completeFullDataClear: vi.fn(),
-  readPendingFullDataClear: vi.fn(),
-}));
-
-vi.mock('@/runtime/config', () => ({
-  stopRuntimeForFullDataClearRecovery: vi.fn(),
-}));
-
-describe('clearAllMemory', () => {
+describe('center-owned full clear', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(completeMemoryClear).mockReturnValue({
-      browserStateCleared: true,
-      failedScopes: [],
-    });
-    vi.mocked(clearDesktopLogHistory).mockResolvedValue({
-      clearedEntries: 4,
-      failedEntries: 0,
-    });
-    vi.mocked(beginFullDataClear).mockResolvedValue({
-      version: 1,
-      transactionId: 'clear-transaction-1234',
-    });
-    vi.mocked(readPendingFullDataClear).mockResolvedValue(null);
-    vi.mocked(completeFullDataClear).mockResolvedValue(undefined);
-    vi.mocked(stopRuntimeForFullDataClearRecovery).mockResolvedValue(undefined);
+    vi.clearAllMocks(); window.localStorage.clear(); window.sessionStorage.clear(); runtime.dataEpoch = 'original';
+    setCenterStorageScope(runtime.serverId, 'original');
+    cleanup.mockReturnValue({ browserStateCleared: true, failedScopes: [] });
+    logs.mockResolvedValue({ clearedEntries: 1, failedEntries: 0 });
+    server.clear.mockImplementation(async (id: string) => status(id));
   });
-
-  it('acknowledges the desktop marker only after every clear step succeeds', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 1 },
-        l1: { cleared: true, count: 2 },
-        l2: { cleared: true, count: 3 },
-        l3: { cleared: true, count: 4 },
-        l4: { cleared: true, count: 5 },
-        chat_context: { cleared: true, count: 6 },
-      },
-    });
-
-    const result = await clearAllMemory();
-
-    expect(result.warnings).toEqual([]);
-    expect(memoryApi.clearAll).toHaveBeenCalledWith('clear-transaction-1234');
-    expect(clearDesktopLogHistory).toHaveBeenCalledOnce();
-    expect(completeMemoryClear).toHaveBeenCalledOnce();
-    expect(completeMemoryClear).toHaveBeenCalledWith(expect.objectContaining({
-      announce: false,
-    }));
-    expect(completeFullDataClear).toHaveBeenCalledWith('clear-transaction-1234');
+  afterEach(() => vi.useRealTimers());
+  it('deduplicates concurrent clear actions and cleans this device after center completion', async () => {
+    const first = clearAllMemory(); const second = clearAllMemory(); expect(second).toBe(first);
+    await expect(first).resolves.toEqual(receipt);
+    expect(server.clear).toHaveBeenCalledOnce(); expect(cleanup).toHaveBeenCalledOnce(); expect(logs).toHaveBeenCalledOnce();
+    expect(centerLocalStorage().getItem('maintenance.pending-clear')).toBeNull();
   });
-
-  it('blocks the product when the desktop marker response is lost', async () => {
-    const started = vi.fn();
-    const failed = vi.fn();
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, started);
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
-    vi.mocked(beginFullDataClear).mockRejectedValue(new Error('IPC response lost'));
-
-    await expect(clearAllMemory()).rejects.toThrow('IPC response lost');
-
-    expect(started).toHaveBeenCalledOnce();
-    expect(stopRuntimeForFullDataClearRecovery).toHaveBeenCalledOnce();
-    expect(failed).toHaveBeenCalledOnce();
-    expect(memoryApi.clearAll).not.toHaveBeenCalled();
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, started);
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
+  it('retains the operation ID when the network reply is uncertain and reuses it on retry', async () => {
+    server.clear.mockRejectedValueOnce(new Error('Connection lost'));
+    await expect(clearAllMemory()).rejects.toThrow('Connection lost');
+    const id = centerLocalStorage().getItem('maintenance.pending-clear'); expect(id).toBeTruthy();
+    await clearAllMemory(); expect(server.clear).toHaveBeenLastCalledWith(id);
   });
-
-  it('blocks the product when the desktop marker owner returns no result', async () => {
-    const started = vi.fn();
-    const failed = vi.fn();
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, started);
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
-    vi.mocked(beginFullDataClear).mockResolvedValue(undefined);
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Desktop full data clear owner is unavailable',
-    );
-
-    expect(started).toHaveBeenCalledOnce();
-    expect(stopRuntimeForFullDataClearRecovery).toHaveBeenCalledOnce();
-    expect(failed).toHaveBeenCalledOnce();
-    expect(memoryApi.clearAll).not.toHaveBeenCalled();
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, started);
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
+  it('observes an operation started by another device through completion', async () => {
+    vi.useFakeTimers(); server.maintenance.mockResolvedValueOnce(status('remote-operation', 'clearing')).mockResolvedValue(status('remote-operation'));
+    const pending = recoverPendingFullDataClear(); await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBe(true); expect(server.clear).not.toHaveBeenCalled();
   });
-
-  it('keeps local retries when the clear boundary did not complete', async () => {
-    const clearStarted = vi.fn();
-    const clearCompleted = vi.fn();
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, clearStarted);
-    window.addEventListener(APP_EVENTS.MEMORY_CLEARED, clearCompleted);
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: false,
-      warnings: [],
-      results: {
-        l0: { cleared: false, count: 0 },
-        l1: { cleared: false, count: 0 },
-        l2: { cleared: false, count: 0 },
-        l3: { cleared: false, count: 0 },
-        l4: { cleared: false, count: 0 },
-        chat_context: { cleared: false, count: 0 },
-      },
-    });
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Backend full data clear was not completed',
-    );
-    expect(completeMemoryClear).not.toHaveBeenCalled();
-    expect(completeFullDataClear).not.toHaveBeenCalled();
-    expect(stopRuntimeForFullDataClearRecovery).toHaveBeenCalledOnce();
-    expect(clearStarted).toHaveBeenCalledTimes(1);
-    expect(clearCompleted).not.toHaveBeenCalled();
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_STARTED, clearStarted);
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, clearCompleted);
+  it('does not resubmit a failed center operation without an explicit retry', async () => {
+    server.maintenance.mockResolvedValue(status('remote-operation', 'failed'));
+    await expect(recoverPendingFullDataClear()).rejects.toThrow('Worker failed'); expect(server.clear).not.toHaveBeenCalled();
+    await expect(recoverPendingFullDataClear(true)).resolves.toBe(true); expect(server.clear).toHaveBeenCalledWith('remote-operation');
   });
-
-  it('keeps the transaction pending when desktop logs remain', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-    vi.mocked(clearDesktopLogHistory).mockResolvedValue({
-      clearedEntries: 3,
-      failedEntries: 1,
-    });
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Desktop diagnostic log clear was not completed',
-    );
-
-    expect(completeMemoryClear).toHaveBeenCalledOnce();
-    expect(completeFullDataClear).not.toHaveBeenCalled();
+  it('keeps device cleanup pending if diagnostic log cleanup fails, without rerunning center deletion', async () => {
+    logs.mockResolvedValueOnce({ clearedEntries: 0, failedEntries: 1 });
+    await expect(clearAllMemory()).rejects.toThrow('diagnostic logs');
+    expect(centerLocalStorage().getItem('maintenance.device-cleanup')).toBe('pending');
+    server.maintenance.mockResolvedValue(status(runtime.dataEpoch));
+    await recoverPendingFullDataClear(); expect(server.clear).toHaveBeenCalledOnce(); expect(logs).toHaveBeenCalledTimes(2);
+    expect(centerLocalStorage().getItem('maintenance.device-cleanup')).toBeNull();
   });
-
-  it('replays the same clear after backend success when desktop log cleanup failed', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-    vi.mocked(clearDesktopLogHistory)
-      .mockResolvedValueOnce({ clearedEntries: 3, failedEntries: 1 })
-      .mockResolvedValueOnce({ clearedEntries: 1, failedEntries: 0 });
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Desktop diagnostic log clear was not completed',
-    );
-    vi.mocked(readPendingFullDataClear).mockResolvedValue({
-      version: 1,
-      transactionId: 'clear-transaction-1234',
-    });
-
-    await expect(recoverPendingFullDataClear()).resolves.toBe(true);
-
-    expect(memoryApi.clearAll).toHaveBeenCalledTimes(2);
-    expect(memoryApi.clearAll).toHaveBeenNthCalledWith(1, 'clear-transaction-1234');
-    expect(memoryApi.clearAll).toHaveBeenNthCalledWith(2, 'clear-transaction-1234');
-    expect(completeFullDataClear).toHaveBeenCalledOnce();
-    expect(completeFullDataClear).toHaveBeenCalledWith('clear-transaction-1234');
-  });
-
-  it('keeps the transaction pending when no desktop owner confirms log erasure', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-    vi.mocked(clearDesktopLogHistory).mockResolvedValue(undefined);
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Desktop diagnostic log clear was not completed',
-    );
-
-    expect(completeMemoryClear).toHaveBeenCalledOnce();
-    expect(completeFullDataClear).not.toHaveBeenCalled();
-  });
-
-  it('keeps the transaction pending when browser content remains', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-    vi.mocked(completeMemoryClear).mockReturnValue({
-      browserStateCleared: false,
-      failedScopes: ['onboarding'],
-    });
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Browser full data clear was not completed: onboarding',
-    );
-
-    expect(clearDesktopLogHistory).not.toHaveBeenCalled();
-    expect(completeFullDataClear).not.toHaveBeenCalled();
-  });
-
-  it('treats backend residue warnings as an incomplete transaction', async () => {
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: ['orchestration_cleanup_failed'],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-
-    await expect(clearAllMemory()).rejects.toThrow(
-      'Backend full data clear was not completed',
-    );
-    expect(completeMemoryClear).not.toHaveBeenCalled();
-    expect(completeFullDataClear).not.toHaveBeenCalled();
-  });
-
-  it('replays an existing desktop marker after restart and finally acknowledges it', async () => {
-    vi.mocked(readPendingFullDataClear).mockResolvedValue({
-      version: 1,
-      transactionId: 'clear-recovered-transaction',
-    });
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-
-    await expect(recoverPendingFullDataClear()).resolves.toBe(true);
-
-    expect(beginFullDataClear).not.toHaveBeenCalled();
-    expect(memoryApi.clearAll).toHaveBeenCalledWith('clear-recovered-transaction');
-    expect(completeFullDataClear).toHaveBeenCalledWith('clear-recovered-transaction');
-  });
-
-  it('does nothing during startup when there is no pending marker', async () => {
-    await expect(recoverPendingFullDataClear()).resolves.toBe(false);
-    expect(memoryApi.clearAll).not.toHaveBeenCalled();
-    expect(completeMemoryClear).not.toHaveBeenCalled();
-  });
-
-  it('treats a non-desktop startup as having no pending marker', async () => {
-    vi.mocked(readPendingFullDataClear).mockResolvedValue(undefined);
-
-    await expect(recoverPendingFullDataClear()).resolves.toBe(false);
-
-    expect(memoryApi.clearAll).not.toHaveBeenCalled();
-    expect(stopRuntimeForFullDataClearRecovery).not.toHaveBeenCalled();
-  });
-
-  it('does not announce success when the final desktop acknowledgement fails', async () => {
-    const completed = vi.fn();
-    const failed = vi.fn();
-    window.addEventListener(APP_EVENTS.MEMORY_CLEARED, completed);
-    window.addEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
-    vi.mocked(memoryApi.clearAll).mockResolvedValue({
-      success: true,
-      warnings: [],
-      results: {
-        l0: { cleared: true, count: 0 },
-        l1: { cleared: true, count: 0 },
-        l2: { cleared: true, count: 0 },
-        l3: { cleared: true, count: 0 },
-        l4: { cleared: true, count: 0 },
-        chat_context: { cleared: true, count: 0 },
-      },
-    });
-    vi.mocked(completeFullDataClear).mockRejectedValue(new Error('disk unavailable'));
-
-    await expect(clearAllMemory()).rejects.toThrow('disk unavailable');
-    expect(completed).not.toHaveBeenCalled();
-    expect(stopRuntimeForFullDataClearRecovery).toHaveBeenCalledOnce();
-    expect(failed).toHaveBeenCalledOnce();
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, completed);
-    window.removeEventListener(APP_EVENTS.MEMORY_CLEAR_FAILED, failed);
+  it('rejects incomplete center receipts before releasing the product gate', async () => {
+    const released = vi.fn(); window.addEventListener(APP_EVENTS.MEMORY_CLEARED, released);
+    server.clear.mockImplementation(async (id: string) => ({ ...status(id), result: { ...receipt, results: { ...results, l0: { cleared: false, count: 0 } } } }));
+    await expect(clearAllMemory()).rejects.toThrow(); expect(cleanup).not.toHaveBeenCalled(); expect(released).not.toHaveBeenCalled();
+    window.removeEventListener(APP_EVENTS.MEMORY_CLEARED, released);
   });
 });

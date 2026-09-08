@@ -1,8 +1,7 @@
 /**
- * Realtime event provider — Tauri event bridge only.
+ * Realtime event provider — authenticated HTTP event stream.
  *
- * Listens to server-push notifications via Tauri events emitted from the
- * Rust notification bridge and dispatches them to subscribers.  All
+ * Listens to server-push notifications over SSE from the center and dispatches them to subscribers.  All
  * client→server communication goes through the HTTP API layer.
  */
 import {
@@ -28,7 +27,7 @@ import type { RealtimeStreamEvent } from './stream-events';
 import { normalizeRealtimeStreamEvent } from './stream-events';
 import { isRealtimeChatContentEvent } from './chat-projection-retirement';
 import { applyRealtimeStoreProjection } from './store-projection';
-import { TauriBridgeClient } from './tauri-bridge';
+import { SseClient } from './sse-client';
 
 export interface RealtimeMessage {
   type?: string;
@@ -85,7 +84,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   const [connectionState, setConnectionState] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const translationRef = useRef(t);
   useEffect(() => { translationRef.current = t; }, [t]);
-  const bridgeRef = useRef<TauriBridgeClient>();
+  const bridgeRef = useRef<SseClient>();
   const dispatcherRef = useRef<RealtimeDispatcher>();
 
   if (!dispatcherRef.current) {
@@ -95,11 +94,15 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     const dispatcher = dispatcherRef.current!;
 
-    // Start Tauri event bridge
-    const bridge = new TauriBridgeClient();
+    // One center event connection serves all page subscribers.
+    const bridge = new SseClient();
     bridgeRef.current = bridge;
     let lastRejectedProjectionSyncAt = 0;
     const unsubscribeBridge = bridge.subscribe((message) => {
+      if (message.event === 'state.changed' || message.event === 'resync_required') {
+        window.dispatchEvent(new CustomEvent(APP_EVENTS.CENTER_STATE_CHANGED, { detail: message.data }));
+        if (message.event === 'resync_required') window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+      }
       const normalizedData = message.data && typeof message.data === 'object'
         ? message.data as Record<string, unknown>
         : null;
@@ -159,7 +162,7 @@ export const RealtimeProvider = ({ children }: PropsWithChildren) => {
     let cancelled = false;
     setConnectionState('connecting');
     const unsubscribeStatus = bridge.subscribeStatus((status) => {
-      if (!cancelled && status.lastError) setConnectionState('error');
+      if (!cancelled) setConnectionState(status.connected ? 'ready' : status.lastError ? 'error' : 'connecting');
     });
     bridge.connect().then(() => {
       if (cancelled) return;

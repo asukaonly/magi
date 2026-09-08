@@ -1,3 +1,4 @@
+import { centerSessionStorage } from '@/runtime/center-storage';
 import { dispatchAppEvent } from '@/constants/events';
 import { CHAT_SESSION_KEY, DEFAULT_USER_ID } from '@/constants';
 import {
@@ -78,8 +79,8 @@ export const clearAllPersistedChatRetries = (): boolean => {
     return true;
   }
   try {
-    return window.sessionStorage.getItem(CHAT_RETRYABLE_SEND_STORAGE_KEY) === null
-      && window.sessionStorage.getItem(INLINE_SKILL_RETRY_STORAGE_KEY) === null;
+    return centerSessionStorage().getItem(CHAT_RETRYABLE_SEND_STORAGE_KEY) === null
+      && centerSessionStorage().getItem(INLINE_SKILL_RETRY_STORAGE_KEY) === null;
   } catch {
     return false;
   }

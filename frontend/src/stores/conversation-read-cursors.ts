@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import type { ChatSessionListItem } from '@/api';
 import type { ChatTimelineMessage } from '@/domain/chat/state';
 
@@ -10,7 +11,7 @@ const READ_CURSOR_STORAGE_KEY = 'magi.chat.readCursors.v1';
 const READ_CURSOR_INITIALIZED_KEY = 'magi.chat.readCursors.initialized.v1';
 
 const canUseLocalStorage = (): boolean => (
-  typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+  typeof window !== 'undefined' && typeof centerLocalStorage() !== 'undefined'
 );
 
 const normalizeNonNegativeInteger = (value: unknown): number => {
@@ -26,7 +27,7 @@ export const loadReadCursors = (): Record<string, ReadCursor> => {
     return {};
   }
   try {
-    const raw = window.localStorage.getItem(READ_CURSOR_STORAGE_KEY);
+    const raw = centerLocalStorage().getItem(READ_CURSOR_STORAGE_KEY);
     if (!raw) {
       return {};
     }
@@ -56,8 +57,8 @@ export const saveReadCursors = (cursors: Record<string, ReadCursor>) => {
     return;
   }
   try {
-    window.localStorage.setItem(READ_CURSOR_STORAGE_KEY, JSON.stringify(cursors));
-    window.localStorage.setItem(READ_CURSOR_INITIALIZED_KEY, 'true');
+    centerLocalStorage().setItem(READ_CURSOR_STORAGE_KEY, JSON.stringify(cursors));
+    centerLocalStorage().setItem(READ_CURSOR_INITIALIZED_KEY, 'true');
   } catch {
     // Read cursors are a UX cache; failures should not break chat.
   }
@@ -68,7 +69,7 @@ export const readCursorsInitialized = (): boolean => {
     return false;
   }
   try {
-    return window.localStorage.getItem(READ_CURSOR_INITIALIZED_KEY) === 'true';
+    return centerLocalStorage().getItem(READ_CURSOR_INITIALIZED_KEY) === 'true';
   } catch {
     return false;
   }
@@ -79,10 +80,10 @@ export const clearConversationReadCursors = (): boolean => {
     return typeof window === 'undefined';
   }
   try {
-    window.localStorage.removeItem(READ_CURSOR_STORAGE_KEY);
-    window.localStorage.removeItem(READ_CURSOR_INITIALIZED_KEY);
-    return window.localStorage.getItem(READ_CURSOR_STORAGE_KEY) === null
-      && window.localStorage.getItem(READ_CURSOR_INITIALIZED_KEY) === null;
+    centerLocalStorage().removeItem(READ_CURSOR_STORAGE_KEY);
+    centerLocalStorage().removeItem(READ_CURSOR_INITIALIZED_KEY);
+    return centerLocalStorage().getItem(READ_CURSOR_STORAGE_KEY) === null
+      && centerLocalStorage().getItem(READ_CURSOR_INITIALIZED_KEY) === null;
   } catch {
     return false;
   }

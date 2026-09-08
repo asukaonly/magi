@@ -169,3 +169,26 @@ describe('api client helpers', () => {
     expect(useBackendHealthStore.getState().status).toBe('offline');
   });
 });
+
+describe('center request ownership', () => {
+  it('rejects a response from an earlier A connection after switching A to B to A', async () => {
+    configureApiClient({ baseUrl: 'https://a.example/api', sessionToken: 'old-a' });
+    let finish: (() => void) | undefined;
+    const old = apiClient.get('/state', { adapter: async (config) => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { config, data: { old: true }, status: 200, statusText: 'OK', headers: {} };
+    } });
+    const rejected = expect(old).rejects.toMatchObject({ kind: 'cancelled' });
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    configureApiClient({ baseUrl: 'https://b.example/api', sessionToken: 'b' });
+    configureApiClient({ baseUrl: 'https://a.example/api', sessionToken: 'new-a' });
+    finish?.(); await rejected;
+  });
+  it('does not dispatch credentials to a caller-supplied foreign origin', async () => {
+    configureApiClient({ baseUrl: 'https://a.example/api', sessionToken: 'a-secret' });
+    const adapter = vi.fn();
+    await expect(apiClient.get('https://other.example/collect', { adapter })).rejects.toThrow('active center');
+    expect(adapter).not.toHaveBeenCalled();
+    expect(apiClient.defaults.headers.common['X-Magi-Session-Token']).toBeUndefined();
+  });
+});

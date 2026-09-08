@@ -99,18 +99,11 @@ fn parse_payload(json_str: &str) -> Option<serde_json::Value> {
     }
 }
 
-/// Map notification channel to the Tauri event name that matches the frontend's
-/// existing event handler expectations.
-///
-/// Tauri's `listen` rejects event names with `.`, so control-plane channels
-/// (which carry dotted names by convention, e.g. ``control.permission.requested``)
-/// are translated to colon-separated form for the IPC hop. The frontend bridge
-/// is expected to translate them back when constructing the in-app event name.
+/// Map persisted channel names to transport-independent product event names.
 fn event_name_for_channel(channel: &str) -> String {
     match channel {
         "execution_control" => "turn_execution_control".to_string(),
         "trace_update" => "execution_trace_update".to_string(),
-        other if other.starts_with("control.") => other.replace('.', ":"),
         other => other.to_string(),
     }
 }
@@ -194,7 +187,7 @@ pub async fn run_notification_bridge(
                 data: data.clone(),
             };
 
-            // Emit to host runtime (e.g. Tauri events)
+            // Emit once to the service event hub.
             if let Some(ref emitter) = event_emitter {
                 emitter(&event, &payload);
             }
@@ -265,7 +258,7 @@ mod frontend_contract_tests {
         );
         assert_eq!(
             event_name_for_channel("control.ask.requested"),
-            "control:ask:requested"
+            "control.ask.requested"
         );
     }
 }

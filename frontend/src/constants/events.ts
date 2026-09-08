@@ -12,6 +12,8 @@ import { advanceBrowserContentGeneration } from '@/lib/browserContentGeneration'
 // ============================================================================
 
 export const APP_EVENTS = {
+  /** Center snapshots may have changed; subscribers reconcile their own reads. */
+  CENTER_STATE_CHANGED: 'magi-center-state-changed',
   /** Dispatched before the durable clear request to retire in-flight writes. */
   MEMORY_CLEAR_STARTED: 'magi-memory-clear-started',
   /** Dispatched when a durable clear remains pending and the product must stay blocked. */

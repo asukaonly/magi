@@ -1,3 +1,4 @@
+import { ConnectionsButton } from '@/components/connections/ConnectionsButton';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
@@ -827,6 +828,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
         </div>
 
         <div className="flex shrink-0 flex-col items-center gap-1">
+          <ConnectionsButton />
           {renderActivityButton(
             'tasks',
             t('shell.tasks.label'),

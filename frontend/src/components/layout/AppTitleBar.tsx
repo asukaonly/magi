@@ -13,6 +13,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MonthGridPicker } from '@/components/timeline/immersive/picker/MonthGridPicker';
 import { WeekListPicker } from '@/components/timeline/immersive/picker/WeekListPicker';
+import { getRuntimeConfig } from '@/runtime/config';
 
 const SCALE_OPTIONS = ['month', 'week', 'day', 'hour'] as const;
 
@@ -199,9 +200,12 @@ export const AppTitleBar = () => {
   const currentSessionId = useConversationStore((s) => s.currentSessionId);
   const chatChromeVisible = shouldRenderChatWorkspace(location.pathname) && Boolean(currentSessionId);
   const isTimelineRoute = location.pathname === '/timeline';
+  const runtime = getRuntimeConfig();
+  const centerLabel = runtime.mode === 'remote' ? new URL(runtime.apiBaseUrl).host : t('connections.local');
 
   return (
     <DesktopTitleBar>
+      <span className="max-w-52 truncate px-2 text-xs text-muted-foreground" title={centerLabel}>{centerLabel}</span>
       {/* Center / left content: route-specific chrome. */}
       {isTimelineRoute ? (
         <TimelineTitleBarSlot />

@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 /**
  * Most-recently-used cache backed by `localStorage`.
  *
@@ -15,7 +16,7 @@ let cacheGeneration = 0;
 const safeStorage = (): Storage | null => {
   try {
     if (typeof window === 'undefined') return null;
-    const ls = window.localStorage;
+    const ls = centerLocalStorage();
     // Probe — Safari private mode throws on writes.
     ls.setItem(`${PREFIX}__probe`, '1');
     ls.removeItem(`${PREFIX}__probe`);

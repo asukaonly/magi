@@ -1,3 +1,4 @@
+import { centerLocalStorage } from './center-storage';
 import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import {
   isPermissionGranted,
@@ -48,7 +49,7 @@ const readJsonObject = (key: string): Record<string, unknown> => {
     return {};
   }
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = (key === DEDUPE_STORAGE_KEY ? centerLocalStorage() : window.localStorage).getItem(key);
     if (!raw) {
       return {};
     }
@@ -115,7 +116,7 @@ const rememberNotificationSent = (dedupeId: string | null | undefined): void => 
   const ids = loadDedupeIds().filter((id) => id !== normalized);
   ids.unshift(normalized);
   try {
-    window.localStorage.setItem(
+    centerLocalStorage().setItem(
       DEDUPE_STORAGE_KEY,
       JSON.stringify({ ids: ids.slice(0, MAX_DEDUPE_IDS) }),
     );
@@ -129,8 +130,8 @@ export function clearDesktopNotificationContentState(): boolean {
     return typeof window === 'undefined';
   }
   try {
-    window.localStorage.removeItem(DEDUPE_STORAGE_KEY);
-    return window.localStorage.getItem(DEDUPE_STORAGE_KEY) === null;
+    centerLocalStorage().removeItem(DEDUPE_STORAGE_KEY);
+    return centerLocalStorage().getItem(DEDUPE_STORAGE_KEY) === null;
   } catch {
     return false;
   }

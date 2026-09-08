@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import { useCallback, useReducer, useRef } from "react";
 import type { SystemConfig } from "../../api/modules/config";
 import {
@@ -331,7 +332,7 @@ export function useOnboardingProgress({
         localStorage.getItem("magi_language"),
       );
       if (sanitized) {
-        localStorage.setItem(storageKey, serializeOnboardingProgress(restored));
+        centerLocalStorage().setItem(storageKey, serializeOnboardingProgress(restored));
       }
       return restored;
     },
@@ -345,14 +346,14 @@ export function useOnboardingProgress({
       const nextState = onboardingProgressReducer(stateRef.current, action);
       stateRef.current = nextState;
       dispatch(action);
-      localStorage.setItem(storageKey, serializeOnboardingProgress(nextState));
+      centerLocalStorage().setItem(storageKey, serializeOnboardingProgress(nextState));
       return nextState;
     },
     [storageKey],
   );
 
   const clear = useCallback(() => {
-    localStorage.removeItem(storageKey);
+    centerLocalStorage().removeItem(storageKey);
   }, [storageKey]);
 
   return { state, stateRef, save, clear };

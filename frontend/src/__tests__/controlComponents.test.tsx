@@ -54,8 +54,8 @@ vi.mock('@/api/modules/control', async () => {
   };
 });
 
-vi.mock('@/realtime/tauri-bridge', () => ({
-  TauriBridgeClient: class {
+vi.mock('@/realtime/sse-client', () => ({
+  SseClient: class {
     subscribe(listener: (message: Record<string, unknown>) => void) {
       bridgeListener = listener;
       return () => {

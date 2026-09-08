@@ -14,6 +14,7 @@ import { ChatPage } from '@/pages/Chat';
 import { useConversationStore } from '@/stores/conversation-store';
 import { normalizeHistoryMessages } from '@/domain/chat/state';
 import { messagesApi } from '@/api';
+import { centerSessionStorage } from '@/runtime/center-storage';
 import { configApi } from '@/api/modules/config';
 import {
   CHAT_RETRYABLE_SEND_STORAGE_KEY,
@@ -480,7 +481,7 @@ defineChatPageSuite('ChatPage send recovery', () => {
       expect(screen.getByRole('button', { name: 'chat.send' })).toBeInTheDocument();
     });
     expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('Keep this safe');
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).not.toBeNull();
     expect(
@@ -501,7 +502,7 @@ defineChatPageSuite('ChatPage send recovery', () => {
       useConversationStore.getState().messagesBySession['session-1']
         ?.filter((message) => message.turnId === turnIds[0] && message.role === 'user'),
     ).toHaveLength(1);
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
   });

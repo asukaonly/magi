@@ -1,3 +1,4 @@
+import { centerSessionStorage } from '@/runtime/center-storage';
 import { z } from 'zod';
 import type { ChatAttachment, UserMessageRequest } from '@/api';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
@@ -450,7 +451,7 @@ const inlineSkillEnvelopeSchema = z.object({
 
 const getSessionStorage = (): StorageLike | null => {
   try {
-    return typeof window === 'undefined' ? null : window.sessionStorage;
+    return typeof window === 'undefined' ? null : centerSessionStorage();
   } catch {
     return null;
   }

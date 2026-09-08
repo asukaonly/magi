@@ -1,3 +1,4 @@
+import { centerLocalStorage } from '@/runtime/center-storage';
 import type { ChatTimelineMessage } from "@/domain/chat/state";
 
 export const FIRST_CONTEXT_QUESTION_IDS = [
@@ -210,17 +211,17 @@ export function clearFirstContextContinuationSelections(): boolean {
   }
   try {
     const keys: string[] = [];
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
+    for (let index = 0; index < centerLocalStorage().length; index += 1) {
+      const key = centerLocalStorage().key(index);
       if (key?.startsWith(`${CONTINUATION_STORAGE_PREFIX}:`)) {
         keys.push(key);
       }
     }
     for (const key of keys) {
-      window.localStorage.removeItem(key);
+      centerLocalStorage().removeItem(key);
     }
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      if (window.localStorage.key(index)?.startsWith(`${CONTINUATION_STORAGE_PREFIX}:`)) {
+    for (let index = 0; index < centerLocalStorage().length; index += 1) {
+      if (centerLocalStorage().key(index)?.startsWith(`${CONTINUATION_STORAGE_PREFIX}:`)) {
         return false;
       }
     }
@@ -238,7 +239,7 @@ export function loadFirstContextContinuationSelection(
     return null;
   }
   try {
-    const raw = window.localStorage.getItem(
+    const raw = centerLocalStorage().getItem(
       continuationStorageKey(normalizedSessionId),
     );
     if (!raw) {
@@ -280,10 +281,10 @@ export function saveFirstContextContinuationSelection(
   try {
     const key = continuationStorageKey(normalizedSessionId);
     if (!selection) {
-      window.localStorage.removeItem(key);
+      centerLocalStorage().removeItem(key);
       return;
     }
-    window.localStorage.setItem(
+    centerLocalStorage().setItem(
       key,
       JSON.stringify({ version: 1, ...selection }),
     );

@@ -1,6 +1,6 @@
 import nativeSessions from '../../../contracts/api/frontend-native-sessions.json';
 import nativeNotification from '../../../contracts/api/frontend-native-notification.json';
-import { bridgePayloadSchema } from '@/realtime/tauri-bridge';
+import { bridgePayloadSchema } from '@/realtime/sse-client';
 import { messagesApi } from '@/api/modules/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import examples from '../../../contracts/api/frontend-events-examples.json';

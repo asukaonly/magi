@@ -164,8 +164,9 @@ bounded blocking reads. Successful product HTTP mutations also emit resource
 invalidation hints. These hints do not provide an atomic outbox across domain
 stores: client reconnection and periodic snapshot reconciliation are still
 required to cover a commit followed by a process failure before notification.
-Desktop connection UI, client reconciliation and standalone distribution remain
-separate integration work.
+The desktop consumes the stream with bounded parsing, resumable IDs, epoch/gap
+reconciliation hints and reconnect backoff. Domain-wide snapshot reconciliation
+and standalone distribution are tracked separately from transport delivery.
 
 The independent service owns full-clear jobs: `DELETE /api/memory/clear` with
 `X-Magi-Full-Clear-Transaction` accepts an idempotent operation and returns 202.
@@ -173,16 +174,18 @@ The independent service owns full-clear jobs: `DELETE /api/memory/clear` with
 The service drains native database users, stops normal Python execution, runs
 restricted recovery, clears server logs and restarts normal runtime. Its job
 continues when the requesting device disconnects. Startup resumes a pending
-marker, and a completed operation ID never starts another clear. Client-local
-cleanup is part of the connection UI integration rather than server completion.
+marker, and a completed operation ID never starts another clear. Each client tracks its own cache/log cleanup separately; a local cleanup failure
+does not rerun center deletion or stop the center.
 
 The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
 in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
 pairing and renewal accept normalized HTTPS origins, reject redirects and
 validate center/device identity and protocol version before returning an access
-session. Linux remote credential persistence is not yet supported. Connection
-selection UI and frontend event reconciliation remain integration work. The native
+session. Linux remote credential persistence is not yet supported. First startup
+offers local or remote connection; the sidebar opens saved connection management.
+The title bar identifies the active center. Switching selects one profile and
+reloads the interface; unsent content must be saved first. The native
 host now launches the shared service executable for a selected local profile; a
 remote profile renews its paired credential and launches no local business services.
 
@@ -241,6 +244,21 @@ public service.
 On confirmed desktop quit, the Tauri shell hides the main window first and then closes its owned service pipe and waits for service shutdown before exiting. Remote centers remain running. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
 
 External links are opened only after the desktop host validates their protocol. Web and email links are allowed on every platform; macOS and Windows additionally allow only their own system-settings protocol. Empty, malformed, credential-bearing, control-character, and all other protocol forms are rejected. Windows sends approved links directly to the native system handler and must never route them through a command interpreter.
+
+### Client state ownership
+
+Authenticated HTTP calls capture the active connection synchronously, before
+credential renewal. A connection switch aborts old calls and rejects late
+responses even for A → B → A. Requests reject foreign origins and redirects;
+short-lived access sessions renew once for concurrent callers, with no automatic
+mutation replay. Profile JSON and browser storage never hold device credentials.
+
+Browser content caches use both center identity and durable data epoch. Chat
+retry receipts, active session, read cursors, onboarding drafts, MRU entries,
+continuation selections, notification dedupe and portability tracking remain
+isolated. Reconnecting after a clear deletes obsolete epoch caches before the
+app renders. Unscoped content caches are discarded rather than assigned to an
+unknown center. Language, theme and device notification preferences are separate.
 
 ### Process data directory
 
@@ -331,7 +349,7 @@ run state or the live trace summary, never error-text matching, and the same tur
 does not retain an additional running placeholder or trigger reply suggestions.
 
 Desktop event connection failures remain visible without replacing the current page;
-the reconnect action reattaches native listeners and refreshes session state. Each
+the reconnect action opens authenticated SSE and refreshes session state. Each
 subscription/request lifetime discards stale completions. Background history
 reconciliation retries transport failures without inventing a terminal task outcome.
 Settings capture their initial loaders per mount and restart them when an effect
@@ -673,7 +691,7 @@ not a substitute for durable-memory confirmation.
 Important rules:
 
 - Rust native writes must stay narrow, product-facing, and table-scoped. If a write requires runtime services, LLM calls, memory cognition, plugin execution, or scheduler execution semantics, it belongs in Python behind IPC.
-- Desktop event subscriptions are owned by a connection generation: disconnect releases pending registrations when they resolve, partial connection failures clean up, and late callbacks cannot mutate a newer connection. Incoming Tauri envelopes are validated before dispatch.
+- Desktop event subscriptions are owned by a connection generation: disconnect releases pending registrations when they resolve, partial connection failures clean up, and late callbacks cannot mutate a newer connection. Incoming SSE envelopes and nested notification payloads are validated before dispatch.
 - Runtime notifications are not transcript truth. They are live fan-out of already committed state and may be replayed or compacted independently.
 - Startup index creation from Rust is allowed only for idempotent performance indexes documented above. It must not create or migrate Python-owned source-of-truth table schemas. The isolated service identity database is Rust-owned.
 - Memory writes, vector writes, persona registry writes, plugin state writes, and runtime command claiming remain Python-owned unless this document is updated with a new explicit owner.

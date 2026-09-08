@@ -5627,5 +5627,27 @@
         "failed": "Failed"
       }
     }
+  },
+  "connections": {
+    "title": "Connections",
+    "description": "Use this computer, or connect to a center where your conversations, memory and tasks live.",
+    "local": "This computer",
+    "localDescription": "Run Magi locally when this app is open.",
+    "forget": "Forget",
+    "connect": "Connect",
+    "addRemote": "Connect another center",
+    "pairingHint": "Generate a one-time pairing code on the center computer and paste it here.",
+    "name": "Connection name",
+    "address": "Center HTTPS address",
+    "pairingCode": "Pairing code",
+    "ownerAccess": "Pairing gives this device full access to center data, settings and tools. Only connect to a center you trust.",
+    "pair": "Pair and connect",
+    "connecting": "Connecting…",
+    "failed": "Connection failed.",
+    "loadFailed": "Saved connections could not be loaded.",
+    "switchHint": "Switching reloads the interface. Save unsent content first. Remote centers keep running when you disconnect.",
+    "choose": "Choose a connection",
+    "change": "Choose another connection",
+    "serverPlugins": "Plugins collect data and run tools on the center computer."
   }
 }

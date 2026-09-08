@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
@@ -568,7 +569,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
   it("returns recovered progress to model setup before later steps", async () => {
     localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key !== "magi_onboarding_state") {
+      if (key !== centerStorageKey("magi_onboarding_state")) {
         return null;
       }
       return JSON.stringify({
@@ -647,7 +648,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await waitFor(() => expect(nextBtn).toBeEnabled());
 
     const localProgressWrites = localStorageMock.setItem.mock.calls.filter(
-      ([key]) => key === "magi_onboarding_state",
+      ([key]) => key === centerStorageKey("magi_onboarding_state"),
     );
     expect(localProgressWrites.length).toBeGreaterThan(0);
     for (const [, serialized] of localProgressWrites) {
@@ -813,7 +814,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeInTheDocument();
 
     const progressWrites = localStorageMock.setItem.mock.calls.filter(
-      ([key]) => key === "magi_onboarding_state",
+      ([key]) => key === centerStorageKey("magi_onboarding_state"),
     );
     const persisted = JSON.parse(
       progressWrites[progressWrites.length - 1]?.[1] || "{}",
@@ -1136,11 +1137,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
       vi.mocked(messagesApi.sendMessage).mock.invocationCallOrder[0],
     ).toBeLessThan(completeOnboarding.mock.invocationCallOrder[0]);
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
-      "chat_session_local_user",
+      centerStorageKey("chat_session_local_user"),
       request.session_id,
     );
     expect(localStorageMock.removeItem).toHaveBeenCalledWith(
-      "magi_onboarding_state",
+      centerStorageKey("magi_onboarding_state"),
     );
     expect(
       screen.queryByRole("button", { name: "actions.enterApp" }),
@@ -1391,7 +1392,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("restores the selected question and draft after model revalidation", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key !== "magi_onboarding_state") {
+      if (key !== centerStorageKey("magi_onboarding_state")) {
         return null;
       }
       return JSON.stringify({
@@ -1997,7 +1998,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
     expect(localStorageMock.removeItem).toHaveBeenCalledWith(
-      "magi_onboarding_state",
+      centerStorageKey("magi_onboarding_state"),
     );
   });
 
@@ -2491,7 +2492,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const persistedDraftCall = localStorageMock.setItem.mock.calls.findIndex(
       ([key, value]) =>
-        key === "magi_onboarding_state" && value.includes(CUSTOM_PERSONA_ID),
+        key === centerStorageKey("magi_onboarding_state") && value.includes(CUSTOM_PERSONA_ID),
     );
     expect(persistedDraftCall).toBeGreaterThanOrEqual(0);
     expect(
@@ -2522,7 +2523,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
 
     const progressWrites = localStorageMock.setItem.mock.calls.filter(
-      ([key]) => key === "magi_onboarding_state",
+      ([key]) => key === centerStorageKey("magi_onboarding_state"),
     );
     const persisted = JSON.parse(
       progressWrites[progressWrites.length - 1]?.[1] || "{}",
@@ -2664,7 +2665,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const slug = `onboarding-custom-${CUSTOM_PERSONA_ID}`;
     const restoredConfig = generatedPersonaConfig();
     localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key !== "magi_onboarding_state") return null;
+      if (key !== centerStorageKey("magi_onboarding_state")) return null;
       return JSON.stringify({
         version: 1,
         current: 2,

@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -78,7 +79,7 @@ describe('OnboardingPage', () => {
   });
 
   it('removes credentials from an older browser snapshot before loading the backend draft', async () => {
-    localStorage.setItem('magi_onboarding_state', JSON.stringify({
+    localStorage.setItem(centerStorageKey('magi_onboarding_state'), JSON.stringify({
       version: 1,
       current: 2,
       values: {
@@ -97,7 +98,7 @@ describe('OnboardingPage', () => {
     render(<OnboardingPage />);
 
     expect(await screen.findByText('page.loadConfigFailed')).toBeInTheDocument();
-    const stored = localStorage.getItem('magi_onboarding_state') || '';
+    const stored = localStorage.getItem(centerStorageKey('magi_onboarding_state')) || '';
     expect(stored).not.toContain('sk-stale-browser-secret');
     expect(stored).not.toContain('sk-stale-root-secret');
     expect(stored).not.toContain('api_key');

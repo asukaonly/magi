@@ -1,3 +1,8 @@
+import { APP_EVENTS } from './constants/events';
+import { setCenterStorageScope } from './runtime/center-storage';
+import { recoverPendingFullDataClear } from './hooks/clearAllMemory';
+import { ConnectionPicker } from './components/connections/ConnectionPicker';
+import { listConnectionProfiles } from './runtime/connections';
 /**
  * Application entry point.
  */
@@ -34,10 +39,12 @@ initializeTheme();
 const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
   const [ready, setReady] = useState(false);
+  const [choosingConnection, setChoosingConnection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('spawning');
+  const bootstrapGeneration = useRef(0);
   const logExcerptRef = useRef<HTMLPreElement>(null);
   const { gate: fullDataClearGate, markRetrying: markFullDataClearRetrying } = (
     useFullDataClearInteractionGate()
@@ -78,30 +85,33 @@ const RuntimeBootstrap: React.FC = () => {
   const bootstrap = useCallback(async (
     releaseInteractionGateWhenNotPending = false,
   ) => {
+    const owner = ++bootstrapGeneration.current;
+    const current = () => owner === bootstrapGeneration.current;
     setError(null);
     setDiagnostics(null);
     setDiagnosticsCopied(false);
     setReady(false);
     setPhase('spawning');
     try {
-      let runtime = await initializeRuntime((p) => setPhase(p));
+      const profiles = await listConnectionProfiles();
+      if (!current()) return;
+      if (!profiles.state.active_profile_id) { setChoosingConnection(true); return; }
+      const runtime = await initializeRuntime((p) => { if (current()) setPhase(p); });
+      if (!current()) return;
+      if (!runtime.serverId || !runtime.dataEpoch) throw new Error('Center identity is missing');
+      setCenterStorageScope(runtime.serverId, runtime.dataEpoch);
       configureApiClient({
         baseUrl: runtime.apiBaseUrl,
         sessionToken: runtime.sessionToken,
       });
-      const restartedRuntime = await finishPendingFullDataClearBeforeAppReady(setPhase, {
+      await finishPendingFullDataClearBeforeAppReady(setPhase, {
         releaseInteractionGateWhenNotPending,
       });
-      if (restartedRuntime) {
-        runtime = restartedRuntime;
-        configureApiClient({
-          baseUrl: runtime.apiBaseUrl,
-          sessionToken: runtime.sessionToken,
-        });
-      }
+      if (!current()) return;
       setPhase('connecting');
       try {
         const response = await configApi.get();
+        if (!current()) return;
         const prefs = response.data?.preferences;
         if (
           prefs?.language
@@ -144,25 +154,48 @@ const RuntimeBootstrap: React.FC = () => {
         await syncCloseToTrayPreference(true);
         syncDesktopNotificationPreferences(null);
       }
-      setReady(true);
+      if (current()) setReady(true);
     } catch (err) {
+      if (!current()) return;
       const message = err instanceof Error
         ? err.message
         : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' });
       setError(message);
-      setDiagnostics(await readBackendStartupDiagnostics());
+      const detail = await readBackendStartupDiagnostics();
+      if (current()) setDiagnostics(detail);
     }
   }, []);
 
   useEffect(() => {
     void bootstrap();
+    return () => { bootstrapGeneration.current += 1; };
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (!ready || fullDataClearGate.status !== 'idle') return;
+    let current = true;
+    let pending = false;
+    const inspect = async () => {
+      if (!current || pending) return;
+      pending = true;
+      try { await recoverPendingFullDataClear(); }
+      catch { /* Connection failures remain visible through health and event status. */ }
+      finally { pending = false; }
+    };
+    const timer = window.setInterval(() => { void inspect(); }, 10_000);
+    const wake = () => { void inspect(); };
+    window.addEventListener(APP_EVENTS.CENTER_STATE_CHANGED, wake);
+    window.addEventListener('focus', wake);
+    return () => { current = false; window.clearInterval(timer); window.removeEventListener(APP_EVENTS.CENTER_STATE_CHANGED, wake); window.removeEventListener('focus', wake); };
+  }, [ready, fullDataClearGate.status]);
 
   useEffect(() => {
     if (error && diagnostics?.logExcerpt && logExcerptRef.current) {
       logExcerptRef.current.scrollTop = logExcerptRef.current.scrollHeight;
     }
   }, [diagnostics?.logExcerpt, error]);
+
+  if (choosingConnection) return <PreAppWindowFrame><section className="mx-auto my-10 w-full max-w-xl rounded-md border border-border bg-card p-6"><h1 className="mb-4 text-xl font-semibold">{t('connections.choose')}</h1><ConnectionPicker /></section></PreAppWindowFrame>;
 
   if (ready && fullDataClearGate.status !== 'idle') {
     const failed = fullDataClearGate.status === 'failed';
@@ -217,6 +250,7 @@ const RuntimeBootstrap: React.FC = () => {
       <PreAppWindowFrame>
         <div className="flex min-h-full items-center justify-center px-4 py-8 text-foreground">
           <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
+            <Button className="mb-4" variant="outline" onClick={() => setChoosingConnection(true)}>{t('connections.change')}</Button>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-2">
                 <h1 className="text-xl font-semibold">

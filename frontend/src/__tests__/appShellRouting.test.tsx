@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 import { Outlet, useNavigate } from 'react-router';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -173,7 +174,7 @@ describe('app shell routing', () => {
   });
 
   it('removes legacy onboarding credentials before opening a completed installation', async () => {
-    localStorage.setItem('magi_onboarding_state', JSON.stringify({
+    localStorage.setItem(centerStorageKey('magi_onboarding_state'), JSON.stringify({
       version: 1,
       current: 3,
       values: {
@@ -194,7 +195,7 @@ describe('app shell routing', () => {
     });
 
     expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
-    const stored = localStorage.getItem('magi_onboarding_state') || '';
+    const stored = localStorage.getItem(centerStorageKey('magi_onboarding_state')) || '';
     expect(stored).not.toContain('sk-legacy-secret');
     expect(stored).not.toContain('sk-root-secret');
     expect(stored).not.toContain('api_key');

@@ -95,7 +95,8 @@ vi.mock('@/realtime/provider', async () => {
   };
 });
 
-vi.mock('@/runtime/config', () => ({
+vi.mock('@/runtime/config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@/runtime/config')>(),
   getRuntimeConfig: () => ({
     apiBaseUrl: 'http://127.0.0.1:8000/api',
   }),

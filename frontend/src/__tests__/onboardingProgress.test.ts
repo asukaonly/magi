@@ -1,3 +1,4 @@
+import { centerStorageKey } from '@/runtime/center-storage';
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SYSTEM_CONFIG } from "../api/modules/config";
 import {
@@ -12,7 +13,7 @@ import {
 
 describe("onboarding progress restoration", () => {
   it("removes onboarding-authored content while preserving setup progress", () => {
-    window.localStorage.setItem("magi_onboarding_state", JSON.stringify({
+    window.localStorage.setItem(centerStorageKey("magi_onboarding_state"), JSON.stringify({
       version: 1,
       current: 3,
       values: { preferences: { language: "zh" } },
@@ -41,7 +42,7 @@ describe("onboarding progress restoration", () => {
     expect(clearOnboardingContentState()).toBe(true);
 
     const stored = JSON.parse(
-      window.localStorage.getItem("magi_onboarding_state") || "{}",
+      window.localStorage.getItem(centerStorageKey("magi_onboarding_state")) || "{}",
     );
     expect(stored).toMatchObject({
       version: 1,

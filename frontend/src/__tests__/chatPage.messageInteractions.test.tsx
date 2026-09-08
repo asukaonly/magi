@@ -1,3 +1,4 @@
+import { centerSessionStorage } from '@/runtime/center-storage';
 import eventExamples from '../../../contracts/api/frontend-events-examples.json';
 import {
   defineChatPageSuite,
@@ -406,14 +407,14 @@ defineChatPageSuite('ChatPage message interactions', () => {
     await user.click(screen.getByRole('button', { name: 'chat.send' }));
     await waitFor(() => {
       expect(toastWarningMock).toHaveBeenCalledWith('chat.sendUnconfirmed');
-      expect(window.sessionStorage.getItem(
+      expect(centerSessionStorage().getItem(
         CHAT_RETRYABLE_SEND_STORAGE_KEY,
       )).not.toBeNull();
     });
     const oldRequest = vi.mocked(messagesApi.sendMessage).mock.calls[0]?.[0];
     expect(oldRequest?.attachments).toEqual([uploadedAttachment]);
     const storedEnvelope = JSON.parse(
-      window.sessionStorage.getItem(CHAT_RETRYABLE_SEND_STORAGE_KEY) || '{}',
+      centerSessionStorage().getItem(CHAT_RETRYABLE_SEND_STORAGE_KEY) || '{}',
     );
     expect(storedEnvelope.operations?.[0]?.request?.attachments).toEqual([
       uploadedAttachment,
@@ -453,7 +454,7 @@ defineChatPageSuite('ChatPage message interactions', () => {
     expect(recoveredRequest?.attachments).toEqual(oldRequest?.attachments);
     expect(messagesApi.uploadAttachment).not.toHaveBeenCalled();
     expect(screen.getByRole('textbox')).toHaveValue('After refresh');
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
 
@@ -1291,10 +1292,10 @@ defineChatPageSuite('ChatPage message interactions', () => {
       );
       expect(screen.getByRole('button', { name: 'chat.send' })).toBeInTheDocument();
     });
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).toBeNull();
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).toBeNull();
 
@@ -1376,10 +1377,10 @@ defineChatPageSuite('ChatPage message interactions', () => {
       expect(screen.getByRole('button', { name: 'chat.send' })).toBeInTheDocument();
     });
     expect(screen.getByText('Keep the user row')).toBeInTheDocument();
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       CHAT_RETRYABLE_SEND_STORAGE_KEY,
     )).not.toBeNull();
-    expect(window.sessionStorage.getItem(
+    expect(centerSessionStorage().getItem(
       INLINE_SKILL_RETRY_STORAGE_KEY,
     )).not.toBeNull();
   });
