@@ -54,17 +54,19 @@ export function ExperienceDetail({
   onChangeCover,
   onRegenerate,
   onHide,
+  onReload,
   toolbarStart,
   variant = 'sheet',
 }: {
   experience: ExperienceReviewLike;
   title: string;
   detailLoading: boolean;
-  onRenameTitle: (title: string) => Promise<void>;
-  onEditDescription: (description: string) => Promise<void>;
-  onChangeCover?: (file: File) => Promise<void>;
+  onRenameTitle: (title: string, revision: string) => Promise<void>;
+  onEditDescription: (description: string, revision: string) => Promise<void>;
+  onChangeCover?: (file: File, revision: string) => Promise<void>;
   onRegenerate: () => Promise<void>;
   onHide: () => Promise<void>;
+  onReload: () => Promise<void>;
   toolbarStart?: ReactNode;
   variant?: 'sheet' | 'inline';
 }) {
@@ -104,6 +106,19 @@ export function ExperienceDetail({
   const [titleDraft, setTitleDraft] = useState(title);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
   const [saving, setSaving] = useState(false);
+  const editRevision = useRef(experience.annotation_revision);
+  const coverRevision = useRef(experience.annotation_revision);
+  const [actionError, setActionError] = useState<'conflict' | 'failed' | null>(null);
+  const captureError = (error: unknown) => {
+    setActionError(typeof error === 'object' && error !== null && 'status' in error
+      && (error.status === 409 || error.status === 428) ? 'conflict' : 'failed');
+  };
+  const errorPanel = actionError ? <div role="alert" className="px-6 py-2 text-sm text-destructive">
+    <p>{t(`memory.episodes.editError.${actionError}`)}</p>
+    <Button variant="outline" className="mt-2" disabled={saving || coverSaving} onClick={() => { void onReload().catch(captureError); }}>
+      {t('memory.episodes.editError.reload')}
+    </Button>
+  </div> : null;
 
   useEffect(() => {
     if (localCoverUrlRef.current) {
@@ -129,11 +144,15 @@ export function ExperienceDetail({
   };
 
   const openRename = () => {
+    editRevision.current = experience.annotation_revision;
+    setActionError(null);
     setTitleDraft(title);
     setRenameOpen(true);
   };
 
   const openDescription = () => {
+    editRevision.current = experience.annotation_revision;
+    setActionError(null);
     setDescriptionDraft(description);
     setDescriptionOpen(true);
   };
@@ -141,8 +160,11 @@ export function ExperienceDetail({
   const saveTitle = async () => {
     setSaving(true);
     try {
-      await onRenameTitle(titleDraft.trim());
+      await onRenameTitle(titleDraft.trim(), editRevision.current);
       setRenameOpen(false);
+      setActionError(null);
+    } catch (error) {
+      captureError(error);
     } finally {
       setSaving(false);
     }
@@ -151,8 +173,11 @@ export function ExperienceDetail({
   const saveDescription = async () => {
     setSaving(true);
     try {
-      await onEditDescription(descriptionDraft.trim());
+      await onEditDescription(descriptionDraft.trim(), editRevision.current);
       setDescriptionOpen(false);
+      setActionError(null);
+    } catch (error) {
+      captureError(error);
     } finally {
       setSaving(false);
     }
@@ -163,6 +188,9 @@ export function ExperienceDetail({
     try {
       await onRegenerate();
       setRegenerateOpen(false);
+      setActionError(null);
+    } catch (error) {
+      captureError(error);
     } finally {
       setSaving(false);
     }
@@ -181,12 +209,17 @@ export function ExperienceDetail({
     try {
       await onHide();
       setHideOpen(false);
+      setActionError(null);
+    } catch (error) {
+      captureError(error);
     } finally {
       setSaving(false);
     }
   };
 
   const chooseCover = () => {
+    coverRevision.current = experience.annotation_revision;
+    setActionError(null);
     fileInputRef.current?.click();
   };
 
@@ -201,9 +234,10 @@ export function ExperienceDetail({
     }
     setCoverSaving(true);
     try {
-      await onChangeCover(file);
+      await onChangeCover(file, coverRevision.current);
       replaceLocalCoverUrl(null);
-    } catch {
+    } catch (error) {
+      captureError(error);
       replaceLocalCoverUrl(null);
     } finally {
       setCoverSaving(false);
@@ -236,26 +270,28 @@ export function ExperienceDetail({
         }}
       />
 
+      {!renameOpen && !descriptionOpen && !regenerateOpen && !hideOpen ? errorPanel : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">{toolbarStart}</div>
         <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={chooseCover} disabled={coverSaving}>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={chooseCover} disabled={coverSaving || saving}>
             <ImageIcon className="h-4 w-4" aria-hidden="true" />
             {coverSaving ? t('common.saving') : t('memory.episodes.actions.changeCover')}
           </Button>
-          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openRename}>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openRename} disabled={saving || coverSaving}>
             <Pencil className="h-4 w-4" aria-hidden="true" />
             {t('memory.episodes.actions.rename')}
           </Button>
-          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openDescription}>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={openDescription} disabled={saving || coverSaving}>
             <Pencil className="h-4 w-4" aria-hidden="true" />
             {t('memory.episodes.actions.editDescription')}
           </Button>
-          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={requestRegenerate}>
+          <Button variant="outline" size="sm" className={toolbarButtonClass} onClick={requestRegenerate} disabled={saving || coverSaving}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
             {t('memory.episodes.actions.regenerateDescription')}
           </Button>
-          <Button variant="outline" size="sm" className={hideButtonClass} onClick={() => setHideOpen(true)}>
+          <Button variant="outline" size="sm" className={hideButtonClass} onClick={() => { setActionError(null); setHideOpen(true); }} disabled={saving || coverSaving}>
             <EyeOff className="h-4 w-4" aria-hidden="true" />
             {t('memory.episodes.actions.hide')}
           </Button>
@@ -314,8 +350,9 @@ export function ExperienceDetail({
         <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} chapters={chapters} />
       </main>
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+      <Dialog open={renameOpen} onOpenChange={(open) => { if (!saving) setRenameOpen(open); }}>
         <DialogContent>
+          {errorPanel}
           <DialogHeader>
             <DialogTitle>{t('memory.episodes.dialogs.renameTitle')}</DialogTitle>
             <DialogDescription>{t('memory.episodes.dialogs.renameDescription')}</DialogDescription>
@@ -326,6 +363,7 @@ export function ExperienceDetail({
               <Input
                 aria-label={t('memory.episodes.fields.title')}
                 value={titleDraft}
+                disabled={saving}
                 onChange={(event) => setTitleDraft(event.target.value)}
                 className="border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))]"
               />
@@ -335,15 +373,16 @@ export function ExperienceDetail({
             <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={saving}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void saveTitle()} disabled={saving}>
+            <Button onClick={() => void saveTitle()} disabled={saving || actionError === 'conflict'}>
               {saving ? t('common.saving') : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={descriptionOpen} onOpenChange={setDescriptionOpen}>
+      <Dialog open={descriptionOpen} onOpenChange={(open) => { if (!saving) setDescriptionOpen(open); }}>
         <DialogContent>
+          {errorPanel}
           <DialogHeader>
             <DialogTitle>{t('memory.episodes.dialogs.editDescriptionTitle')}</DialogTitle>
             <DialogDescription>{t('memory.episodes.dialogs.editDescriptionDescription')}</DialogDescription>
@@ -354,6 +393,7 @@ export function ExperienceDetail({
               <Textarea
                 aria-label={t('memory.episodes.fields.description')}
                 value={descriptionDraft}
+                disabled={saving}
                 onChange={(event) => setDescriptionDraft(event.target.value)}
                 className="min-h-[160px] border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))]"
               />
@@ -363,15 +403,16 @@ export function ExperienceDetail({
             <Button variant="ghost" onClick={() => setDescriptionOpen(false)} disabled={saving}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={() => void saveDescription()} disabled={saving}>
+            <Button onClick={() => void saveDescription()} disabled={saving || actionError === 'conflict'}>
               {saving ? t('common.saving') : t('common.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={regenerateOpen} onOpenChange={setRegenerateOpen}>
+      <Dialog open={regenerateOpen} onOpenChange={(open) => { if (!saving) setRegenerateOpen(open); }}>
         <DialogContent>
+          {errorPanel}
           <DialogHeader>
             <DialogTitle>{t('memory.episodes.dialogs.regenerateTitle')}</DialogTitle>
             <DialogDescription>{t('memory.episodes.dialogs.regenerateDescription')}</DialogDescription>
@@ -387,8 +428,9 @@ export function ExperienceDetail({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={hideOpen} onOpenChange={setHideOpen}>
+      <Dialog open={hideOpen} onOpenChange={(open) => { if (!saving) setHideOpen(open); }}>
         <DialogContent>
+          {errorPanel}
           <DialogHeader>
             <DialogTitle>{t('memory.episodes.dialogs.hideTitle')}</DialogTitle>
             <DialogDescription>{t('memory.episodes.dialogs.hideDescription')}</DialogDescription>

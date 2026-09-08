@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Any
 
 import aiosqlite
+
+
+def experience_annotation_revision(experience: dict[str, Any]) -> str:
+    """Version user-owned fields without conflicting with generated recaps."""
+    fields = {key: experience.get(key) for key in (
+        "experience_id", "status", "user_label", "user_note", "user_cover_asset_ref", "user_pinned",
+    )}
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _row_has(row: aiosqlite.Row, key: str) -> bool:
@@ -21,7 +30,7 @@ class L2ExperienceStoreBaseMixin:
         raise NotImplementedError
 
     def _experience_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
-        return {
+        experience = {
             "experience_id": str(row["experience_id"]),
             "status": str(row["status"]),
             "title": str(row["title"]) if row["title"] else None,
@@ -66,6 +75,8 @@ class L2ExperienceStoreBaseMixin:
                 float(row["last_recomputed_at"]) if row["last_recomputed_at"] else None
             ),
         }
+        experience["annotation_revision"] = experience_annotation_revision(experience)
+        return experience
 
     def _experience_member_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
         return {

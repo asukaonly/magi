@@ -1296,10 +1296,10 @@ def test_experience_detail_uses_l3_labels_for_source_episodes(public_app_with_mo
 def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
-    l2.update_experience = AsyncMock(return_value=True)
     l2.get_experience = AsyncMock(
         return_value={
             "experience_id": "exp1",
+            "annotation_revision": "a" * 64,
             "status": "active",
             "title": "Generated",
             "time_start": 1,
@@ -1309,6 +1309,7 @@ def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
             "user_note": None,
         }
     )
+    l2.annotate_experience = AsyncMock(return_value={**l2.get_experience.return_value, "annotation_revision": "b" * 64})
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
@@ -1317,17 +1318,43 @@ def test_annotate_experience_updates_user_fields(public_app_with_mock_memory):
         client = TestClient(app)
         response = client.patch(
             "/api/memory/l2/experiences/exp1",
-            json={"user_label": "My title", "user_pinned": True},
+            json={"expected_revision": "a" * 64, "user_label": "My title", "user_pinned": True},
         )
 
     assert response.status_code == 200
-    l2.update_experience.assert_awaited_once_with(
+    l2.annotate_experience.assert_awaited_once_with(
         experience_id="exp1",
-        expected_status="active",
+        expected_revision="a" * 64,
         user_label="My title",
         user_pinned=True,
     )
     assert response.json()["display_title"] == "My title"
+
+
+    assert response.json()["annotation_revision"] == "b" * 64
+    l2.get_experience.assert_awaited_once()
+    with build_patcher(unified):
+        assert TestClient(app).patch("/api/memory/l2/experiences/exp1", json={"user_label": "No version"}).status_code == 428
+        assert TestClient(app).patch("/api/memory/l2/experiences/exp1", json={"user_label": "Stale", "expected_revision": "old"}).status_code == 409
+    l2.annotate_experience.assert_awaited_once()
+
+
+def test_experience_cover_checks_the_original_revision_before_and_after_upload(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    current = {"experience_id": "exp1", "status": "active", "annotation_revision": "a" * 64}
+    l2 = MagicMock()
+    l2.get_experience = AsyncMock(return_value=current)
+    l2.annotate_experience = AsyncMock(return_value=None)
+    unified = MagicMock(l2=l2)
+    upload = AsyncMock(return_value={"asset_ref": "new-cover"})
+    with build_patcher(unified), patch("magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store", return_value=object()), patch("magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset", upload):
+        client = TestClient(app)
+        assert client.post("/api/memory/l2/experiences/exp1/cover", files={"file": ("cover.png", b"image")}).status_code == 428
+        assert client.post("/api/memory/l2/experiences/exp1/cover", data={"expected_revision": "old"}, files={"file": ("cover.png", b"image")}).status_code == 409
+        upload.assert_not_awaited()
+        assert client.post("/api/memory/l2/experiences/exp1/cover", data={"expected_revision": "a" * 64}, files={"file": ("cover.png", b"image")}).status_code == 409
+        upload.assert_awaited_once()
+        l2.annotate_experience.assert_awaited_once_with(experience_id="exp1", expected_revision="a" * 64, user_cover_asset_ref="new-cover")
 
 
 def test_hide_experience_sets_hidden_status(public_app_with_mock_memory):

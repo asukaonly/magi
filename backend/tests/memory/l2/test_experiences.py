@@ -3,9 +3,33 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import time
 
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_annotation_versions_ignore_generated_updates_and_arbitrate_concurrent_edits(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_experience(experience_id="annotation-test", status="active", title="Generated", time_start=1, time_end=2)
+    original = await store.get_experience(experience_id="annotation-test")
+    revision = original["annotation_revision"]
+    await store.update_experience(experience_id="annotation-test", title="New generated recap", source_event_count=10)
+    assert (await store.get_experience(experience_id="annotation-test"))["annotation_revision"] == revision
+    receipts = await asyncio.gather(*[
+        store.annotate_experience(experience_id="annotation-test", expected_revision=revision, user_label=title)
+        for title in ("First device", "Second device")
+    ])
+    saved = [receipt for receipt in receipts if receipt is not None]
+    assert len(saved) == 1
+    assert saved[0]["annotation_revision"] != revision
+    current = await store.get_experience(experience_id="annotation-test")
+    assert current["user_label"] == saved[0]["user_label"]
+    assert current["title"] == "New generated recap"
+    assert await store.annotate_experience(experience_id="annotation-test", expected_revision=revision, user_cover_asset_ref="stale-cover") is None
+    await store.update_experience(experience_id="annotation-test", status="invalidated")
+    assert await store.annotate_experience(experience_id="annotation-test", expected_revision=saved[0]["annotation_revision"], user_note="stale") is None
 
 
 async def _insert_episodic_summary(

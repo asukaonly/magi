@@ -35,6 +35,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.sections.detail': 'Experience review',
     'memory.episodes.sections.recap': 'A short recap',
     'memory.episodes.sections.whatHappened': 'Event trail',
+    'memory.episodes.editError.reload': 'Discard draft and reload',
     'memory.episodes.sections.sourceEpisodes': 'Source chapters',
     'memory.episodes.sections.featured': 'Worth revisiting',
     'memory.episodes.sections.entities': 'Entities',
@@ -220,6 +221,7 @@ vi.mock('@/components/media/ProtectedImage', () => {
 const activeExperiences: L2ExperienceWithReview[] = [
   {
     experience_id: 'exp-1',
+    annotation_revision: 'a'.repeat(64),
     experience_type: 'activity',
     status: 'active',
     user_pinned: true,
@@ -250,6 +252,7 @@ const activeExperiences: L2ExperienceWithReview[] = [
   },
   {
     experience_id: 'exp-2',
+    annotation_revision: 'a'.repeat(64),
     experience_type: 'activity',
     status: 'active',
     user_pinned: false,
@@ -278,6 +281,7 @@ const activeExperiences: L2ExperienceWithReview[] = [
   },
   {
     experience_id: 'exp-3',
+    annotation_revision: 'a'.repeat(64),
     experience_type: 'activity',
     status: 'active',
     user_pinned: false,
@@ -776,7 +780,7 @@ describe('MemoryEpisodesPage', () => {
 
     expect(URL.createObjectURL).toHaveBeenCalledWith(coverFile);
     await waitFor(() => {
-      expect(memoryApi.uploadExperienceCover).toHaveBeenCalledWith('exp-1', coverFile);
+      expect(memoryApi.uploadExperienceCover).toHaveBeenCalledWith('exp-1', coverFile, 'a'.repeat(64));
     });
     expect(getExperienceCoverImage().getAttribute('src')).toContain(
       encodeURIComponent('manual-entry-asset://uploaded-cover.jpg')
@@ -1957,6 +1961,28 @@ describe('MemoryEpisodesPage', () => {
     });
   });
 
+  it('preserves an open annotation baseline across center refresh and a conflict', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.annotateExperience).mockRejectedValue({ status: 409 });
+    renderDetailPage();
+    await screen.findByText('Generated Japan recap');
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.clear(screen.getByLabelText('Title'));
+    await user.type(screen.getByLabelText('Title'), 'My local title');
+    vi.mocked(memoryApi.getExperience).mockResolvedValue({ ...experienceDetail, annotation_revision: 'b'.repeat(64), user_label: 'Other device', display_title: 'Other device' });
+    await refreshCenter();
+    expect(screen.getByLabelText('Title')).toHaveValue('My local title');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(memoryApi.annotateExperience).toHaveBeenCalledWith('exp-1', { expected_revision: 'a'.repeat(64), user_label: 'My local title' }));
+    expect(screen.getByLabelText('Title')).toHaveValue('My local title');
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Discard draft and reload' }));
+    await waitFor(() => expect(screen.queryByLabelText('Title')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Rename' }));
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(memoryApi.annotateExperience).toHaveBeenLastCalledWith('exp-1', { expected_revision: 'b'.repeat(64), user_label: 'Other device' }));
+  });
+
   it('renames the selected experience through the annotation API', async () => {
     const user = userEvent.setup();
     vi.mocked(memoryApi.annotateExperience).mockResolvedValue({
@@ -1974,6 +2000,7 @@ describe('MemoryEpisodesPage', () => {
 
     await waitFor(() => {
       expect(memoryApi.annotateExperience).toHaveBeenCalledWith('exp-1', {
+        expected_revision: 'a'.repeat(64),
         user_label: 'Launch sprint',
       });
     });
@@ -1996,6 +2023,7 @@ describe('MemoryEpisodesPage', () => {
 
     await waitFor(() => {
       expect(memoryApi.annotateExperience).toHaveBeenCalledWith('exp-1', {
+        expected_revision: 'a'.repeat(64),
         user_note: 'This was more about launch prep than execution.',
       });
     });

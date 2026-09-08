@@ -3782,7 +3782,12 @@
         "rejected": "Rejected",
         "pending": "Needs review"
       },
-      "awaitingLabel": "Waiting for Magi to draft a title..."
+      "awaitingLabel": "Waiting for Magi to draft a title...",
+      "editError": {
+        "conflict": "This experience changed on another device. Your draft is preserved; reload before saving.",
+        "failed": "The change could not be confirmed. Your draft is preserved.",
+        "reload": "Discard draft and reload"
+      }
     },
     "portrait": {
       "title": "About you",

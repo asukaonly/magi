@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 
-from fastapi import HTTPException, Query, UploadFile, status
+from fastapi import Form, HTTPException, Query, UploadFile, status
 
 from magi.core.logger import get_logger
 from magi.api.services.l2_episode_review_helpers import (
@@ -979,7 +979,7 @@ async def get_l2_experience(experience_id: str):
 
 
 @memory_router.post("/l2/experiences/{experience_id}/cover")
-async def upload_l2_experience_cover(experience_id: str, file: UploadFile):
+async def upload_l2_experience_cover(experience_id: str, file: UploadFile, expected_revision: str | None = Form(None)):
     """Upload and persist a user-selected cover image for an experience."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
@@ -997,22 +997,26 @@ async def upload_l2_experience_cover(experience_id: str, file: UploadFile):
         )
 
     current = await _get_experience_or_404(unified_memory, experience_id)
+    _require_annotation_revision(expected_revision, current)
     upload = await store_uploaded_image_asset(file, asset_store)
-    ok = await unified_memory.l2.update_experience(
+    experience = await unified_memory.l2.annotate_experience(
         experience_id=experience_id,
-        expected_status=str(current.get("status") or ""),
+        expected_revision=expected_revision,
         user_cover_asset_ref=upload["asset_ref"],
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
-        )
-    experience = await _get_experience_or_404(unified_memory, experience_id)
+    if experience is None:
+        raise HTTPException(status_code=409, detail="Experience changed; reload before saving")
     return await _build_experience_review_response(
         unified_memory,
         experience=experience,
     )
+
+
+def _require_annotation_revision(revision: str | None, current: dict[str, Any]) -> None:
+    if not revision:
+        raise HTTPException(status_code=428, detail="Experience annotation revision is required")
+    if revision != current["annotation_revision"]:
+        raise HTTPException(status_code=409, detail="Experience changed; reload before saving")
 
 
 @memory_router.patch("/l2/experiences/{experience_id}")
@@ -1037,17 +1041,14 @@ async def annotate_l2_experience(experience_id: str, body: ExperienceAnnotationR
             detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"),
         )
     current = await _get_experience_or_404(unified_memory, experience_id)
-    ok = await unified_memory.l2.update_experience(
+    _require_annotation_revision(body.expected_revision, current)
+    experience = await unified_memory.l2.annotate_experience(
         experience_id=experience_id,
-        expected_status=str(current.get("status") or ""),
+        expected_revision=body.expected_revision,
         **updates,
     )
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
-        )
-    experience = await _get_experience_or_404(unified_memory, experience_id)
+    if experience is None:
+        raise HTTPException(status_code=409, detail="Experience changed; reload before saving")
     return await _build_experience_review_response(unified_memory, experience=experience)
 
 

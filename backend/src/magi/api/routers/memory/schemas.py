@@ -367,6 +367,7 @@ class EpisodeAnnotationRequest(BaseModel):
 
 
 class ExperienceAnnotationRequest(BaseModel):
+    expected_revision: str | None = None
     user_label: Optional[str] = Field(default=None, max_length=500)
     user_note: Optional[str] = Field(default=None, max_length=2000)
     user_pinned: Optional[bool] = None

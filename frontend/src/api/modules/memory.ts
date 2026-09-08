@@ -510,6 +510,7 @@ export interface L2EpisodeWithSummary extends L2Episode {
 
 export interface L2Experience {
   experience_id: string;
+  annotation_revision: string;
   status?: string;
   title?: string | null;
   experience_type?: string | null;
@@ -730,7 +731,7 @@ export interface EpisodeAnnotationPayload {
   user_pinned?: boolean;
 }
 
-export type ExperienceAnnotationPayload = EpisodeAnnotationPayload;
+export type ExperienceAnnotationPayload = EpisodeAnnotationPayload & { expected_revision: string };
 
 export type ForgetEpisodeResponse = LifecycleWire<'ForgetEpisodeResponse'>;
 
@@ -1003,6 +1004,12 @@ const requireExperienceDraft = (draft: ExperienceDraft, draftId: string): Experi
   return draft;
 };
 
+const requireExperience = (experience: L2ExperienceReviewDetail, experienceId: string): L2ExperienceReviewDetail => {
+  if (experience.experience_id !== experienceId || typeof experience.annotation_revision !== 'string'
+    || !/^[a-f0-9]{64}$/.test(experience.annotation_revision)) throw new Error('Invalid experience annotation snapshot');
+  return experience;
+};
+
 // Memory API client
 export interface MemoryMaintenanceTask {
   id: 'events' | 'structure' | 'chapter' | 'summary' | 'skills';
@@ -1163,22 +1170,23 @@ export const memoryApi = {
   rejectExperienceSeed: async (seedId: string): Promise<{ seed_id: string; seed?: L2ExperienceSeed | null }> =>
     unwrapMemoryResponse(await api.post<{ seed_id: string; seed?: L2ExperienceSeed | null }>(`/memory/l2/experience-seeds/${seedId}/reject`)),
   getExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
-    unwrapMemoryResponse(await api.get<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`)),
+    requireExperience(unwrapMemoryResponse(await api.get<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`)), experienceId),
   annotateExperience: async (experienceId: string, payload: ExperienceAnnotationPayload): Promise<L2ExperienceReviewDetail> =>
-    unwrapMemoryResponse(await api.patch<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`, payload)),
-  uploadExperienceCover: async (experienceId: string, file: File): Promise<L2ExperienceReviewDetail> => {
+    requireExperience(unwrapMemoryResponse(await api.patch<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}`, payload)), experienceId),
+  uploadExperienceCover: async (experienceId: string, file: File, expectedRevision: string): Promise<L2ExperienceReviewDetail> => {
     const formData = new FormData();
     formData.append('file', file);
-    return unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(
+    formData.append('expected_revision', expectedRevision);
+    return requireExperience(unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(
       `/memory/l2/experiences/${experienceId}/cover`,
       formData,
       { headers: { 'Content-Type': 'multipart/form-data' } },
-    ));
+    )), experienceId);
   },
   regenerateExperienceReview: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
-    unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/regenerate`)),
+    requireExperience(unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/regenerate`)), experienceId),
   hideExperience: async (experienceId: string): Promise<L2ExperienceReviewDetail> =>
-    unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/hide`)),
+    requireExperience(unwrapMemoryResponse(await api.post<L2ExperienceReviewDetail>(`/memory/l2/experiences/${experienceId}/hide`)), experienceId),
   getEpisode: async (episodeId: string): Promise<L2EpisodeReviewDetail> =>
     unwrapMemoryResponse(await api.get<L2EpisodeReviewDetail>(`/memory/l2/episodes/${episodeId}`)),
   reconsolidateEpisodes: async (): Promise<EpisodeReconsolidateResult> =>

@@ -1603,6 +1603,15 @@ commits the approved draft, experience, memberships, chapters, distinct counts,
 and completion receipt in one SQLite transaction. Failure rolls all of them
 back; concurrent or delayed retries return the deterministic existing experience
 without changing later annotations or recreating a forgotten experience.
+Active experience annotation and cover writes use `annotation_revision`, a
+snapshot of the user label, note, cover, pin, identity and status. Generated recap
+and count updates do not invalidate a user's edit. SQLite checks the original
+revision and returns the saved annotation snapshot in one transaction; missing
+versions return 428 and concurrent changes return 409. Editors capture this
+version when opened, preserve rejected drafts, and require explicit discard and
+reload after a conflict. Background reads started before a successful edit
+cannot replace its receipt. Hide and regenerate remain explicit domain commands;
+regeneration changes generated fields without replacing user overrides.
 
 **Semantic Memory** stores durable entities, relations, and preferences:
 

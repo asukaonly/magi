@@ -3780,7 +3780,12 @@
         "rejected": "已拒绝",
         "pending": "待审阅"
       },
-      "awaitingLabel": "等 Magi 起草标题..."
+      "awaitingLabel": "等 Magi 起草标题...",
+      "editError": {
+        "conflict": "其他设备已修改这段经历。草稿已保留，请重新载入后编辑。",
+        "failed": "未能确认修改结果，草稿已保留。",
+        "reload": "放弃草稿并重新载入"
+      }
     },
     "portrait": {
       "title": "关于你",

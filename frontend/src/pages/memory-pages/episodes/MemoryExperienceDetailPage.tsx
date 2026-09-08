@@ -1,7 +1,7 @@
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
@@ -23,8 +23,11 @@ export const MemoryExperienceDetailPage = () => {
   const [notFound, setNotFound] = useState(false);
 
   const beginRead = useRequestOwner(experienceId ?? '');
+  const beginWrite = useRequestOwner(experienceId ?? '');
+  const savedGeneration = useRef(0);
   const loadExperience = useCallback(async (silent = false) => {
     const isCurrent = beginRead('experience');
+    const generation = savedGeneration.current;
     if (!experienceId) {
       setExperience(null);
       setNotFound(true);
@@ -34,7 +37,7 @@ export const MemoryExperienceDetailPage = () => {
     if (!silent) { setLoading(true); setNotFound(false); }
     try {
       const payload = await memoryApi.getExperience(experienceId);
-      if (!isCurrent()) return;
+      if (!isCurrent() || generation !== savedGeneration.current) return;
       setExperience(payload);
       setNotFound(false);
     } catch {
@@ -51,44 +54,48 @@ export const MemoryExperienceDetailPage = () => {
   useCenterRefresh(() => loadExperience(true));
 
   const applyExperienceUpdate = useCallback((updated: L2ExperienceReviewDetail) => {
+    savedGeneration.current += 1;
+    beginRead('experience');
     setExperience((current) => (
       current && current.experience_id === updated.experience_id
         ? { ...current, ...updated }
         : updated
     ));
-  }, []);
+  }, [beginRead]);
 
-  const renameExperience = async (title: string) => {
+  const renameExperience = async (title: string, revision: string) => {
     if (!experience) {
       return;
     }
+    const current = beginWrite('mutation');
     const updated = await memoryApi.annotateExperience(experience.experience_id, {
+      expected_revision: revision,
       user_label: title,
     });
-    applyExperienceUpdate({
-      ...updated,
-      display_title: updated.user_label || title,
-    });
+    if (!current()) return;
+    applyExperienceUpdate(updated);
   };
 
-  const editDescription = async (description: string) => {
+  const editDescription = async (description: string, revision: string) => {
     if (!experience) {
       return;
     }
+    const current = beginWrite('mutation');
     const updated = await memoryApi.annotateExperience(experience.experience_id, {
+      expected_revision: revision,
       user_note: description,
     });
-    applyExperienceUpdate({
-      ...updated,
-      display_description: updated.user_note || description,
-    });
+    if (!current()) return;
+    applyExperienceUpdate(updated);
   };
 
-  const changeCover = async (file: File) => {
+  const changeCover = async (file: File, revision: string) => {
     if (!experience) {
       return;
     }
-    const updated = await memoryApi.uploadExperienceCover(experience.experience_id, file);
+    const current = beginWrite('mutation');
+    const updated = await memoryApi.uploadExperienceCover(experience.experience_id, file, revision);
+    if (!current()) return;
     applyExperienceUpdate(updated);
   };
 
@@ -96,7 +103,9 @@ export const MemoryExperienceDetailPage = () => {
     if (!experience) {
       return;
     }
+    const current = beginWrite('mutation');
     const updated = await memoryApi.regenerateExperienceReview(experience.experience_id);
+    if (!current()) return;
     applyExperienceUpdate(updated);
   };
 
@@ -104,7 +113,9 @@ export const MemoryExperienceDetailPage = () => {
     if (!experience) {
       return;
     }
+    const current = beginWrite('mutation');
     await memoryApi.hideExperience(experience.experience_id);
+    if (!current()) return;
     navigate('/memory/episodes');
   };
 
@@ -143,6 +154,7 @@ export const MemoryExperienceDetailPage = () => {
         </>
       ) : (
         <ExperienceDetail
+          key={experience.experience_id}
           experience={experience}
           title={title}
           detailLoading={false}
@@ -151,6 +163,7 @@ export const MemoryExperienceDetailPage = () => {
           onChangeCover={changeCover}
           onRegenerate={regenerateDescription}
           onHide={hideExperience}
+          onReload={loadExperience}
           toolbarStart={backButton}
           variant="sheet"
         />

@@ -1527,6 +1527,43 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         page = active_rows[max(0, int(offset)) : max(0, int(offset)) + max(1, int(limit))]
         return [self._experience_row_to_dict(row) for row in page]
 
+    async def annotate_experience(
+        self, *, experience_id: str, expected_revision: str, **fields: Any,
+    ) -> dict[str, Any] | None:
+        """Conditionally edit user annotations and return the committed snapshot."""
+        allowed = {"user_label", "user_note", "user_cover_asset_ref", "user_pinned"}
+        if not fields or not set(fields).issubset(allowed):
+            raise ValueError("Unsupported experience annotation fields")
+        updates = dict(fields)
+        if "user_pinned" in updates:
+            updates["user_pinned"] = int(bool(updates["user_pinned"]))
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                if not await _experience_row_is_active(db, experience_id=experience_id):
+                    await db.rollback()
+                    return None
+                async with db.execute("SELECT * FROM experiences WHERE experience_id = ?", (experience_id,)) as cursor:
+                    row = await cursor.fetchone()
+                current = self._experience_row_to_dict(row)
+                if current["annotation_revision"] != expected_revision:
+                    await db.rollback()
+                    return None
+                updates["updated_at"] = max(time.time(), math.nextafter(current["updated_at"], math.inf))
+                assignments = ", ".join(f"{key} = ?" for key in updates)
+                await db.execute(f"UPDATE experiences SET {assignments} WHERE experience_id = ?", (*updates.values(), experience_id))
+                async with db.execute("SELECT * FROM experiences WHERE experience_id = ?", (experience_id,)) as cursor:
+                    saved = self._experience_row_to_dict(await cursor.fetchone())
+                async with db.execute("SELECT * FROM experience_chapters WHERE experience_id = ? ORDER BY position ASC", (experience_id,)) as cursor:
+                    saved["chapters"] = [self._experience_chapter_row_to_dict(row) for row in await cursor.fetchall()]
+                await db.commit()
+                return saved
+            except BaseException:
+                await db.rollback()
+                raise
+
     async def update_experience(
         self,
         *,

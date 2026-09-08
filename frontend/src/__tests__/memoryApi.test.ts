@@ -12,6 +12,24 @@ import {
 const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
 describe('memoryApi endpoints', () => {
+  it('rejects experience snapshots without a valid annotation version', async () => {
+    const get = vi.spyOn(api, 'get');
+    for (const annotation_revision of [undefined, 'invalid', 123]) {
+      get.mockResolvedValue({ success: true, message: 'ok', data: { experience_id: 'exp-1', annotation_revision } });
+      await expect(memoryApi.getExperience('exp-1')).rejects.toThrow();
+    }
+    get.mockResolvedValue({ success: true, message: 'ok', data: { experience_id: 'other', annotation_revision: 'a'.repeat(64) } });
+    await expect(memoryApi.getExperience('exp-1')).rejects.toThrow();
+  });
+
+  it('sends the captured annotation revision with a cover and uses its receipt', async () => {
+    const saved = { experience_id: 'exp-1', annotation_revision: 'b'.repeat(64) };
+    const post = vi.spyOn(api, 'post').mockResolvedValue({ success: true, message: 'ok', data: saved });
+    const get = vi.spyOn(api, 'get');
+    await expect(memoryApi.uploadExperienceCover('exp-1', new File(['image'], 'cover.png'), 'a'.repeat(64))).resolves.toEqual(saved);
+    expect((post.mock.calls[0][1] as FormData).get('expected_revision')).toBe('a'.repeat(64));
+    expect(get).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
