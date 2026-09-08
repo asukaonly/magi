@@ -46,7 +46,7 @@ class _QualityAdapter:
                 prompt = str(messages[0].get("content") or "")
         self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
         if len(self.calls) == 1:
-            event_ids = re.findall(r"\bhi_[0-9a-f]{32}\b", prompt)
+            event_ids = re.findall(r"\bE[0-9]+\b", prompt)
             assert len(set(event_ids)) == 1
             payload = json.loads(json.dumps(self._phase1_payload, ensure_ascii=False))
             for claim in payload["fact_claims"]:
