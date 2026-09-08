@@ -1038,3 +1038,10 @@ timeline views reconcile their current filters and pages in place. Background
 reads retain confirmed data on failure and never submit actions or replace an
 open schedule editor. Request ownership rejects responses from an earlier page
 or selection, including navigating away and back to the same scope.
+
+Memory overview, pending review lists, portraits, experience lists/details,
+summaries, and loaded memory-layer resources reconcile visible read snapshots.
+Layer reads retain their last submitted filters and page; summary and pending
+feeds retain the loaded depth. A failed background read keeps the confirmed
+snapshot. Corrections and open editors stay mounted. Explicit recall queries,
+content generation, and draft saves are not replayed by read reconciliation.

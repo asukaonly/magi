@@ -155,8 +155,7 @@ vi.mock('react-i18next', async () => {
     'common.loading': 'Loading...',
     'common.saving': 'Saving...',
   };
-  return {
-    useTranslation: () => ({
+  const translation = {
       t: (key: string, opts?: Record<string, unknown>) => {
         let result = labels[key] ?? String(opts?.defaultValue ?? key);
         if (opts) {
@@ -167,8 +166,8 @@ vi.mock('react-i18next', async () => {
         return result;
       },
       i18n: { language: 'en' },
-    }),
   };
+  return { useTranslation: () => translation };
 });
 
 vi.mock('@/api/modules/memory', () => ({

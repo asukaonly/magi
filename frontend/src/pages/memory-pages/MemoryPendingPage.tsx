@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
 import { EntityTypeReviewCards } from '@/components/memory/identity/EntityTypeReviewCards';
 import { entityIdentityApi, type EntityTypeReview } from '@/api/modules/entityIdentity';
@@ -61,10 +62,10 @@ export const MemoryPendingPage = () => {
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [selectedPlanReviewIds, setSelectedPlanReviewIds] = useState<Set<string>>(new Set());
 
-  const load = useCallback(async (onlySection?: PendingSection, more = false) => {
+  const load = useCallback(async (onlySection?: PendingSection, more = false, silent = false) => {
     const version = onlySection ? loadVersion.current : ++loadVersion.current;
     if (onlySection) setRetryingSection(onlySection);
-    else setLoading(true);
+    else if (!silent) setLoading(true);
     const loadSection = async <T,>(section: PendingSection, request: (offset: number) => Promise<{ items: T[]; total: number }>, apply: (items: T[]) => void) => {
       if (onlySection && onlySection !== section) return;
       const version = (requestVersions.current[section] ?? 0) + 1;
@@ -109,6 +110,8 @@ export const MemoryPendingPage = () => {
       for (const section of Object.keys(versions) as PendingSection[]) versions[section] = (versions[section] ?? 0) + 1;
     };
   }, [load]);
+
+  useCenterRefresh(() => load(undefined, false, true));
 
   const totalCount = Object.values(totals).reduce((sum, count) => sum + count, 0);
   const memoryCount = (totals.entities ?? 0) + (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);

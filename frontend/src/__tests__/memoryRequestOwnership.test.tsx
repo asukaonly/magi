@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { useMemory } from '@/hooks/useMemory';
+import { APP_EVENTS } from '@/constants/events';
 
 const api = vi.hoisted(() => ({
   getStatistics: vi.fn(), getL0Sessions: vi.fn(), getL0Workbench: vi.fn(), getL1Events: vi.fn(),
@@ -110,4 +111,17 @@ it('does not load a departed session after an older refresh finishes its list st
   expect(result.current.selectedSessionId).toBe('new');
   expect(result.current.l0Workbench).toEqual({ session_id: 'new' });
   expect(api.getL0Workbench).toHaveBeenCalledTimes(2);
+});
+
+it('refreshes only loaded resource snapshots and retains the latest query and page', async () => {
+  const { result } = renderHook(() => useMemory({ initialLoadScope: 'overview' }));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  await act(() => result.current.loadL2Entities({ query: 'latest filter', offset: 50, limit: 25 }));
+  api.getL2Entities.mockResolvedValue({ items: [{ entity_id: 'remote-change' }], total: 78 });
+  act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+  await waitFor(() => expect(result.current.l2EntitiesTotal).toBe(78), { timeout: 3000 });
+  expect(api.getL2Entities).toHaveBeenLastCalledWith({ query: 'latest filter', offset: 50, limit: 25 });
+  expect(api.getL3Summaries).not.toHaveBeenCalled();
+  expect(api.getL0Sessions).not.toHaveBeenCalled();
+  expect(result.current.loading).toBe(false);
 });

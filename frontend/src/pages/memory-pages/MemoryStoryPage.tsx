@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { toast } from 'sonner';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight } from 'lucide-react';
 import {
@@ -93,26 +96,39 @@ export const MemoryStoryPage = () => {
   const [detailStory, setDetailStory] = useState<StoryItem | null>(null);
   const [activeFilter, setActiveFilter] = useState<StoryFilter>('all');
 
-  const fetchFeed = useCallback(async () => {
-    setLoading(true);
+  const beginRead = useRequestOwner(activeFilter);
+  const loadedCount = useRef(PAGE_SIZE);
+  const fetchFeed = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('feed');
+    if (!silent) setLoading(true);
+    const targetSize = silent ? Math.max(PAGE_SIZE, loadedCount.current) : PAGE_SIZE;
     try {
-      const payload = await memoryStoriesApi.list({
-        limit: PAGE_SIZE,
-        offset: 0,
-        surface: 'summary',
-        group: groupForFilter(activeFilter),
-      });
-      setItems(payload.items);
-      setStats(payload.stats || EMPTY_STATS);
-      setHasMore(payload.items.length === PAGE_SIZE);
+      const nextItems: StoryItem[] = [];
+      let lastPageSize = 0;
+      let nextStats = EMPTY_STATS;
+      do {
+        const payload = await memoryStoriesApi.list({
+          limit: PAGE_SIZE, offset: nextItems.length, surface: 'summary', group: groupForFilter(activeFilter),
+        });
+        if (!isCurrent()) return;
+        nextItems.push(...payload.items);
+        nextStats = payload.stats || EMPTY_STATS;
+        lastPageSize = payload.items.length;
+      } while (lastPageSize === PAGE_SIZE && nextItems.length < targetSize);
+      setItems(nextItems);
+      loadedCount.current = nextItems.length;
+      setStats(nextStats);
+      setHasMore(lastPageSize === PAGE_SIZE);
+      setDetailStory((current) => current ? nextItems.find((item) => item.summary_id === current.summary_id) ?? current : null);
+    } catch (error) {
+      if (isCurrent() && !silent) toast.error(t('memory.loadFailed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
-      setLoading(false);
+      if (isCurrent()) { setLoading(false); setLoadingMore(false); }
     }
-  }, [activeFilter]);
+  }, [activeFilter, beginRead, t]);
 
-  useEffect(() => {
-    void fetchFeed();
-  }, [fetchFeed]);
+  useEffect(() => { loadedCount.current = PAGE_SIZE; void fetchFeed(); }, [fetchFeed]);
+  useCenterRefresh(() => fetchFeed(true));
 
   const handleArchive = useCallback(async (story: StoryItem) => {
     await memoryStoriesApi.review(story.summary_id, { review_state: 'archived' });
@@ -127,6 +143,7 @@ export const MemoryStoryPage = () => {
 
   const handleLoadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
+    const isCurrent = beginRead('feed');
     setLoadingMore(true);
     try {
       const payload = await memoryStoriesApi.list({
@@ -135,13 +152,17 @@ export const MemoryStoryPage = () => {
         surface: 'summary',
         group: groupForFilter(activeFilter),
       });
+      if (!isCurrent()) return;
       setItems((prev) => [...prev, ...payload.items]);
+      loadedCount.current = items.length + payload.items.length;
       setStats(payload.stats || EMPTY_STATS);
       setHasMore(payload.items.length === PAGE_SIZE);
+    } catch (error) {
+      if (isCurrent()) toast.error(t('memory.loadFailed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
-      setLoadingMore(false);
+      if (isCurrent()) { setLoadingMore(false); setLoading(false); }
     }
-  }, [activeFilter, hasMore, items.length, loadingMore]);
+  }, [activeFilter, hasMore, items.length, loadingMore, beginRead, t]);
 
   const summaryItems = useMemo(
     () => items.filter((story) => story.summary_feed_visible),

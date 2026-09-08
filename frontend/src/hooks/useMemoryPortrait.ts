@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   memoryPortraitApi,
@@ -26,6 +28,7 @@ export function useMemoryPortrait({
   userId,
   personaId,
 }: UseMemoryPortraitArgs): UseMemoryPortraitResult {
+  const beginRead = useRequestOwner(JSON.stringify([sessionId, userId, personaId]));
   const [payload, setPayload] = useState<ChatPortraitPayload | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,26 +45,28 @@ export function useMemoryPortrait({
   }, []);
 
   const fetchPayload = useCallback(
-    async (force: boolean): Promise<ChatPortraitPayload | null> => {
+    async (force: boolean, silent = false): Promise<ChatPortraitPayload | null> => {
+      const isCurrent = beginRead('portrait');
       if (!sessionId || !userId || !personaId) {
         setPayload(null);
         return null;
       }
-      setIsLoading(true);
-      setError(null);
+      if (!silent) { setIsLoading(true); setError(null); }
       try {
         const result = await memoryPortraitApi.get(sessionId, userId, { force });
+        if (!isCurrent()) return null;
+        setError(null);
         setPayload(result);
         lastFetchAt.current = Date.now();
         return result;
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        if (isCurrent() && !silent) setError(e instanceof Error ? e.message : String(e));
         return null;
       } finally {
-        setIsLoading(false);
+        if (isCurrent()) setIsLoading(false);
       }
     },
-    [sessionId, userId, personaId],
+    [sessionId, userId, personaId, beginRead],
   );
 
   const schedulePollIfComputing = useCallback(
@@ -127,6 +132,8 @@ export function useMemoryPortrait({
       schedulePollIfComputing(next);
     })();
   }, [fetchPayload, schedulePollIfComputing]);
+
+  useCenterRefresh(() => fetchPayload(false, true), Boolean(sessionId && userId && personaId));
 
   return { payload, isLoading, error, refresh };
 }

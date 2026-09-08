@@ -58,7 +58,7 @@ describe('useMemoryPortrait', () => {
     });
     expect(memoryPortraitApi.get).toHaveBeenCalledTimes(1);
     act(() => {
-      vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+      vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1);
     });
     act(() => {
       result.current.refresh();

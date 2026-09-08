@@ -1,3 +1,5 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,29 +22,33 @@ export const MemoryExperienceDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  const loadExperience = useCallback(async () => {
+  const beginRead = useRequestOwner(experienceId ?? '');
+  const loadExperience = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('experience');
     if (!experienceId) {
       setExperience(null);
       setNotFound(true);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setNotFound(false);
+    if (!silent) { setLoading(true); setNotFound(false); }
     try {
       const payload = await memoryApi.getExperience(experienceId);
+      if (!isCurrent()) return;
       setExperience(payload);
+      setNotFound(false);
     } catch {
-      setExperience(null);
-      setNotFound(true);
+      if (isCurrent() && !silent) { setExperience(null); setNotFound(true); }
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [experienceId]);
+  }, [experienceId, beginRead]);
 
   useEffect(() => {
     void loadExperience();
   }, [loadExperience]);
+
+  useCenterRefresh(() => loadExperience(true));
 
   const applyExperienceUpdate = useCallback((updated: L2ExperienceReviewDetail) => {
     setExperience((current) => (

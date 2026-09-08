@@ -1,3 +1,4 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 /**
  * useMemory hook - Manages memory system state and operations.
  *
@@ -175,6 +176,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const { initialLoadScope = 'all' } = options;
   const { t } = useTranslation('app');
   const beginRequest = useRequestOwner(initialLoadScope);
+  const readSnapshots = useRef({ scope: initialLoadScope, reads: new Map<string, () => Promise<unknown>>() });
+  if (readSnapshots.current.scope !== initialLoadScope) {
+    readSnapshots.current = { scope: initialLoadScope, reads: new Map() };
+  }
+
 
   // Loading state
   const [loading, setLoading] = useState(false);
@@ -245,6 +251,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadStatistics = useCallback(async () => {
     const isCurrent = beginRequest('loadStatistics');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadStatistics', () => loadStatistics());
     try {
       const data = await memoryApi.getStatistics();
       if (!isCurrent()) return;
@@ -260,6 +267,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL0Sessions = useCallback(async (params?: PaginationParams & { status?: string; query?: string }) => {
     const isCurrent = beginRequest('loadL0Sessions');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL0Sessions', () => loadL0Sessions(params));
     try {
       const data = await memoryApi.getL0Sessions({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -284,7 +292,6 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     } catch (error) {
       if (!isCurrent()) return;
       console.error('Failed to load L0 workbench:', error);
-      setL0Workbench(null);
       return false;
     }
   }, [beginWorkbenchRequest]);
@@ -292,6 +299,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL1Events = useCallback(async (params?: L1EventQueryParams) => {
     const isCurrent = beginRequest('loadL1Events');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL1Events', () => loadL1Events(params));
     try {
       const data = await memoryApi.getL1Events({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -324,6 +332,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Relations = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL2Relations');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Relations', () => loadL2Relations(params));
     try {
       const data = await memoryApi.getL2Relations({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -340,6 +349,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Assertions = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL2Assertions');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Assertions', () => loadL2Assertions(params));
     try {
       const data = await memoryApi.getL2Assertions({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -356,6 +366,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Entities = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL2Entities');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Entities', () => loadL2Entities(params));
     try {
       const data = await memoryApi.getL2Entities({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -372,6 +383,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Mentions = useCallback(async (params?: PaginationParams) => {
     const isCurrent = beginRequest('loadL2Mentions');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Mentions', () => loadL2Mentions(params));
     try {
       const data = await memoryApi.getL2Mentions({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -388,6 +400,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Snapshots = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL2Snapshots');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Snapshots', () => loadL2Snapshots(params));
     try {
       const data = await memoryApi.getL2Snapshots({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -404,6 +417,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL2Metadata = useCallback(async () => {
     const isCurrent = beginRequest('loadL2Metadata');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL2Metadata', () => loadL2Metadata());
     try {
       const [statistics, links, rules] = await Promise.all([
         memoryApi.getL2Statistics(), memoryApi.getIdentityLinks(), memoryApi.getL2ConflictRules(),
@@ -564,6 +578,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL3Summaries = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL3Summaries');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL3Summaries', () => loadL3Summaries(params));
     try {
       const data = await memoryApi.getL3Summaries({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -580,6 +595,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   const loadL4Skills = useCallback(async (params?: MemoryListQueryParams) => {
     const isCurrent = beginRequest('loadL4Skills');
     if (!isCurrent()) return;
+    readSnapshots.current.reads.set('loadL4Skills', () => loadL4Skills(params));
     try {
       const data = await memoryApi.getL4Skills({ limit: 50, ...params });
       if (!isCurrent()) return;
@@ -628,6 +644,11 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
 
     await Promise.all(jobs);
   }, [initialLoadScope, loadStatistics, loadL0Sessions, loadL1Events, loadL2Data, loadL3Summaries, loadL4Skills]);
+
+  useCenterRefresh(async () => {
+    await Promise.all([...readSnapshots.current.reads.values()].map((read) => read()));
+    if (selectedSessionId) await loadL0Workbench(selectedSessionId);
+  });
 
   // ============================================================================
   // Initial Load

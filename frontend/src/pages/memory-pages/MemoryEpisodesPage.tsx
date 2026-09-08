@@ -1,3 +1,6 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { toast } from 'sonner';
 import { useAppNavigate as useNavigate } from '@/hooks/useAppNavigate';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Loader2, Plus, SearchX, X } from 'lucide-react';
@@ -52,25 +55,32 @@ export const MemoryEpisodesPage = () => {
   const [createNotice, setCreateNotice] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const beginRead = useRequestOwner();
+  const refresh = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('experiences');
+    if (!silent) setLoading(true);
     try {
       const [experiencePayload, seedPayload, draftPayload] = await Promise.all([
         memoryApi.listExperiences({ status: 'active', limit: 100, offset: 0 }),
         memoryApi.listExperienceSeeds({ status: 'candidate', limit: 6, offset: 0 }),
         memoryApi.listExperienceDrafts({ status: 'editing', limit: 20, offset: 0 }),
       ]);
+      if (!isCurrent()) return;
       setExperiences(experiencePayload.items);
       setExperienceSeeds(seedPayload.items);
       setExperienceDrafts(draftPayload.items);
+    } catch (error) {
+      if (isCurrent() && !silent) toast.error(t('memory.loadFailed', { message: error instanceof Error ? error.message : String(error) }));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [beginRead, t]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useCenterRefresh(() => refresh(true));
 
   const sortedExperiences = useMemo(() => sortExperiencesForReview(experiences), [experiences]);
   const groupedExperiences = useMemo(

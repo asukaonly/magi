@@ -7,8 +7,8 @@ import { MemoryStoryPage } from '@/pages/memory-pages/MemoryStoryPage';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import type { StoryFeedPayload, StoryItem } from '@/api/modules/memoryStories';
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
+vi.mock('react-i18next', () => {
+  const translation = {
     t: (key: string, opts?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
         'memory.stories.title': '总结',
@@ -60,9 +60,12 @@ vi.mock('react-i18next', () => ({
       return result;
     },
     i18n: { language: 'zh-CN' },
-  }),
-  I18nextProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
+  };
+  return {
+    useTranslation: () => translation,
+    I18nextProvider: ({ children }: { children: React.ReactNode }) => children,
+  };
+});
 
 vi.mock('@/api/modules/memoryStories', () => ({
   memoryStoriesApi: {

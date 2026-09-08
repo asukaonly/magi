@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
@@ -72,43 +74,39 @@ export const MemoryPortraitPage = () => {
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const portraitLoadRequestRef = useRef(0);
+  const beginRead = useRequestOwner();
 
-  const loadPortrait = useCallback(async () => {
-    const requestId = portraitLoadRequestRef.current + 1;
-    portraitLoadRequestRef.current = requestId;
-    setLoading(true);
+  const loadPortrait = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('portrait');
+    if (!silent) setLoading(true);
     try {
       const nextPayload = await memoryPortraitSelfApi.get(DEFAULT_USER_ID);
-      if (requestId !== portraitLoadRequestRef.current) return true;
+      if (!isCurrent()) return true;
       setPayload(nextPayload);
       setLoadError(false);
       return true;
     } catch {
-      if (requestId !== portraitLoadRequestRef.current) return true;
-      setLoadError(true);
+      if (!isCurrent()) return true;
+      if (!silent) setLoadError(true);
       return false;
     } finally {
-      if (requestId === portraitLoadRequestRef.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, []);
+  }, [beginRead]);
 
   useEffect(() => {
     void loadPortrait();
   }, [loadPortrait]);
 
-  useEffect(() => {
-    let cancelled = false;
-    profileApi.getMe()
-      .then((profile) => {
-        if (cancelled) return;
-        setDisplayName(profile.display_name || profile.preferred_form_of_address || null);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const loadProfile = useCallback(async () => {
+    const isCurrent = beginRead('profile');
+    try {
+      const profile = await profileApi.getMe();
+      if (isCurrent()) setDisplayName(profile.display_name || profile.preferred_form_of_address || null);
+    } catch { /* Retain the confirmed display name while disconnected. */ }
+  }, [beginRead]);
+  useEffect(() => { void loadProfile(); }, [loadProfile]);
+  useCenterRefresh(() => Promise.all([loadPortrait(true), loadProfile()]));
 
   const viewModel = useMemo(
     () => (payload ? buildPortraitViewModel(payload.self_view) : null),

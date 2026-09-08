@@ -1,5 +1,7 @@
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { asEventHandler } from '@/utils/as-event-handler';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
@@ -39,11 +41,10 @@ export const MemoryOverviewPage = () => {
   const [editingReview, setEditingReview] = useState<L2PendingReview | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+  const beginRead = useRequestOwner();
+  const load = useCallback(async (silent = false) => {
+      const isCurrent = beginRead('overview');
+      if (!silent) { setLoading(true); setError(null); }
       try {
         const [reviewPayload, dashboardPayload, sourcePayload, storyPayload] = await Promise.all([
           memoryApi.listPendingReviews(8),
@@ -51,28 +52,26 @@ export const MemoryOverviewPage = () => {
           sourcesApi.getStatus(),
           memoryStoriesApi.list({ limit: 12, offset: 0, surface: 'all' }),
         ]);
-        if (cancelled) {
+        if (!isCurrent()) {
           return;
         }
+        setError(null);
         setReviews(reviewPayload.items || []);
         setDashboard(dashboardPayload);
         setSourceStatus(sourcePayload);
         setStories(storyPayload.items || []);
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+        if (isCurrent()) {
+          if (!silent) setError(err instanceof Error ? err.message : String(err));
         }
       } finally {
-        if (!cancelled) {
+        if (isCurrent()) {
           setLoading(false);
         }
       }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [reloadToken]);
+  }, [beginRead]);
+  useEffect(() => { void load(); }, [load, reloadToken]);
+  useCenterRefresh(() => load(true));
 
   const sourceRows = useMemo(
     () => buildSourceRows(dashboard?.source_counts || [], sourceStatus, t),
