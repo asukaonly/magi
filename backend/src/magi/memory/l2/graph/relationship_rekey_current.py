@@ -103,6 +103,15 @@ async def _write_current_edge(
             "claim_fingerprint": claim_fingerprint,
         }
     )
+    for column, entity_id in (("subject_type", subject_id), ("object_type", object_id)):
+        async with db.execute(
+            "SELECT entity_type FROM entity_catalog WHERE entity_id = ?", (entity_id,)
+        ) as cursor:
+            catalog = await cursor.fetchone()
+        if catalog is not None:
+            if final[column] != catalog[0]:
+                content_identity_changed = True
+            final[column] = catalog[0]
     if content_identity_changed:
         final.update(
             {

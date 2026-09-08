@@ -13,8 +13,11 @@ from .context_scope.catalog import clear_user_contexts
 from .embedding.sqlite_vec_index import SqliteVecIndex
 from .l2.store import L2_USER_CONTENT_TABLES
 
-
 _L2_ENTITY_USER_TABLES = (
+    "entity_identity_reviews",
+    "entity_source_bindings",
+    "entity_identity_redirects",
+    "entity_identity_operations",
     "entity_name_evidence",
     "entity_mentions",
     "entity_aliases",

@@ -99,11 +99,16 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                     ],
                     source=event.source,
                 )
-                if llm_resolution.decision == "match" and llm_resolution.matched_entity_id in {item["entity_id"] for item in candidate_entities}:
+                if llm_resolution.decision == "match" and llm_resolution.matched_entity_id in {
+                    item["entity_id"] for item in candidate_entities
+                }:
                     return (
                         str(llm_resolution.matched_entity_id),
                         float(llm_resolution.confidence or mention_confidence),
                     )
+                if llm_resolution.decision != "create_new_candidate":
+                    return None, llm_resolution.confidence
+                mention = {**mention, "is_new": True}
 
         return await self._finalize_unresolved_entity(
             mention=mention,
@@ -141,7 +146,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         source_event_ids: Iterable[str],
         projection_leases: Iterable[L2ProjectionLease] = (),
     ) -> tuple[Optional[str], Optional[float]]:
-        """Deduplicate by canonical name or create a new high-confidence entity."""
+        """Create an evidence-scoped identity only after a concrete new-entity decision."""
         assert self._entity_catalog is not None
 
         canonical_name = self._non_empty_text(mention.get("canonical_name_hint")) or mention_text  # type: ignore[attr-defined]
@@ -151,8 +156,12 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
         if existing_by_name and mention.get("is_new") is False:
             return None, mention_confidence
-        entity_id = scoped_entity_id(entity_type, "unresolved_mention", ":".join(sorted(source_event_ids)) + ":" + normalized_entity_name(canonical_name))
-        await self._entity_catalog.upsert_entity(
+        entity_id = scoped_entity_id(
+            entity_type,
+            "unresolved_mention",
+            ":".join(sorted(source_event_ids)) + ":" + normalized_entity_name(canonical_name),
+        )
+        entity_id = await self._entity_catalog.upsert_entity(
             entity_id=entity_id,
             canonical_name=canonical_name,
             entity_type=entity_type,
@@ -181,11 +190,19 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                 continue
             existing_names = await self._entity_catalog.find_by_canonical_name(alias_text)
             existing_alias = await self._entity_catalog.resolve_alias(alias_text, entity_type=None)
-            if any(row["entity_id"] != entity_id for row in existing_names) or (
-                existing_alias.get("decision") == "match"
-                and existing_alias.get("entity_id") != entity_id
-            ) or existing_alias.get("decision") == "ambiguous":
-                logger.debug("L2 alias conflicts with catalog identity", alias_text=alias_text, entity_id=entity_id)
+            if (
+                any(row["entity_id"] != entity_id for row in existing_names)
+                or (
+                    existing_alias.get("decision") == "match"
+                    and existing_alias.get("entity_id") != entity_id
+                )
+                or existing_alias.get("decision") == "ambiguous"
+            ):
+                logger.debug(
+                    "L2 alias conflicts with catalog identity",
+                    alias_text=alias_text,
+                    entity_id=entity_id,
+                )
                 continue
             await self._entity_catalog.add_alias(
                 entity_id=entity_id,

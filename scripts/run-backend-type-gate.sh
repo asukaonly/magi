@@ -20,8 +20,7 @@ TYPE_GATE_DIRS=(
   magi/memory/l1/retrieval
   magi/memory/l1/storage
   magi/memory/l2/assertions
-  magi/memory/l2/entities/catalog
-  magi/memory/l2/entities/maintenance
+  magi/memory/l2/entities
   magi/memory/l2/extraction
   magi/memory/l2/governance
   magi/memory/l2/graph
@@ -55,7 +54,6 @@ TYPE_GATE_FILES=(
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
   magi/memory/l2/assertion_family_policy.py
-  magi/memory/l2/entities/models.py
   magi/memory/l2/episode_models.py
   magi/memory/evidence/policy.py
   magi/memory/l2/graph_conflicts.py

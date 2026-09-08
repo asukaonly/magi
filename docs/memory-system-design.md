@@ -3317,3 +3317,45 @@ The name/type mergeability whitelist and automatic alias shortcut are removed.
 Maintenance reports same-name identity-review candidates instead of merging
 them by popularity or category. The governed merge primitive retains its
 transactional graph/assertion/correction/forget rekey responsibilities.
+
+
+### Explicit entity classification and identity changes (2026-09-08)
+
+`EntityIdentityService` owns type reviews, identity previews and explicit merge
+commands. Ordinary extraction preserves the catalog type and records a versioned,
+evidence-backed proposal when its observed type differs. Rejecting a proposal is
+a retained user decision; replaying model output does not reopen it. Forgotten
+source events are removed from proposal support, and unsupported reviews disappear.
+
+A type correction retains the entity ID. A merge retains the selected survivor,
+flattens durable redirects, and moves source bindings and replay barriers. Source
+keys are hashed and scoped by producer; new source identities do not include the
+type. The v52 upgrade recovers existing source-key bindings from exact retained L1
+source hints without renaming entities or inferring identity from display labels.
+It does not rewrite immutable Claims or automatically merge old duplicate rows.
+Missing/forgotten redirect targets and source bindings cannot recreate catalog rows.
+
+Previews are read-only and fingerprint the affected rows, correction history and
+forgetting barriers. Apply recomputes that fingerprint under one write transaction;
+stale previews fail with 409. A request ID identifies exactly one immutable command.
+Catalog changes, graph/assertion governance rekeys, versioned Claim references,
+source-link outbox revisions, audit and derivation jobs commit together. Existing
+correction-lineage revert blocks remain effective; entity merges do not promise a
+blind inverse operation. The audit retains IDs, type transitions and counts, not
+source quotes or display names.
+
+Identity operations also own derivation jobs alongside assertion/relationship
+corrections. Every job has exactly one owner. Snapshot, profile, portrait and L3
+rebuilds retain subject revisions and profile-before-portrait ordering. All current
+extraction batches are fenced and requeued after a user identity decision because
+an in-flight candidate set may predate its first recorded mention. This conservative
+retry is limited to explicit identity changes; it does not reset unrelated completed
+projections. L1 entity links are republished through the existing versioned outbox,
+including unrelated members of superseded atomic batches. Full memory clear removes
+identity governance and source bindings; exports retain them for inspection.
+
+The authenticated memory API exposes `/l2/entities/changes/preview`,
+`/l2/entities/changes/apply`, `/l2/entities/reviews`, review rejection and
+`/l2/entities/identity-audit`. Historical homonyms are review candidates, not confirmed
+duplicates. Misinterpreted historical Claim bodies still require explicit source
+re-extraction through the existing lease, correction and forgetting protections.

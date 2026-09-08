@@ -43,12 +43,13 @@ class AssertionEntityRekeyCoordinator:
         source_entity_id: str,
         target_entity_id: str,
         now: float,
+        refresh_type: bool = False,
     ) -> None:
         """Rewrite assertion identities, history, corrections, and durable governance."""
         db = self._db
         if not db.in_transaction:
             raise RuntimeError("Assertion identity rekey requires an active transaction")
-        if not source_entity_id or source_entity_id == target_entity_id:
+        if not source_entity_id or (source_entity_id == target_entity_id and not refresh_type):
             return
         db.row_factory = aiosqlite.Row
         resolved_entity_type = await _load_catalog_entity_type(db, target_entity_id)

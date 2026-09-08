@@ -172,7 +172,9 @@ class L2EntityCatalogQueryMixin:
         selected = candidates[:normalized_limit]
         return await self.describe_resolution_candidates(selected)
 
-    async def describe_resolution_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    async def describe_resolution_candidates(
+        self, candidates: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Attach source references and aliases without fabricating descriptions."""
         if not candidates:
             return []
@@ -193,7 +195,9 @@ class L2EntityCatalogQueryMixin:
                         if event_id not in event_ids:
                             event_ids.append(event_id)
                 item["evidence_event_ids"] = event_ids[:3]
-        return [by_id[str(item["entity_id"])] for item in candidates if str(item["entity_id"]) in by_id]
+        return [
+            by_id[str(item["entity_id"])] for item in candidates if str(item["entity_id"]) in by_id
+        ]
 
     async def find_by_canonical_name(
         self,
@@ -386,8 +390,8 @@ class L2EntityCatalogQueryMixin:
             args.append(entity_type)
         if entity_ids is not None:
             placeholders = ", ".join("?" for _ in entity_ids)
-            sql += f" AND ec.entity_id IN ({placeholders})"
-            args.extend(entity_ids)
+            sql += f" AND (ec.entity_id IN ({placeholders}) OR ec.entity_id IN (SELECT target_entity_id FROM entity_identity_redirects WHERE source_entity_id IN ({placeholders})))"
+            args.extend([*entity_ids, *entity_ids])
         search_sql, search_args = self._entity_search_clause(query)
         sql += search_sql
         args.extend(search_args)
@@ -406,13 +410,11 @@ class L2EntityCatalogQueryMixin:
             ) as cursor:
                 entities = await cursor.fetchall()
 
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT entity_id, alias_text
                 FROM entity_aliases
                 ORDER BY normalized_alias ASC
-                """
-            ) as cursor:
+                """) as cursor:
                 alias_rows = await cursor.fetchall()
 
         aliases_by_entity: dict[str, list[str]] = {}
@@ -426,9 +428,9 @@ class L2EntityCatalogQueryMixin:
                 "entity_type": str(row["entity_type"]),
                 "embedding_status": str(row["embedding_status"] or EMBEDDING_STATUS_DISABLED),
                 "embedding_profile_id": row["embedding_profile_id"],
-                "last_embedded_at": float(row["last_embedded_at"])
-                if row["last_embedded_at"] is not None
-                else None,
+                "last_embedded_at": (
+                    float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None
+                ),
                 "created_at": float(row["created_at"]),
                 "updated_at": float(row["updated_at"]),
                 "aliases": aliases_by_entity.get(str(row["entity_id"]), []),

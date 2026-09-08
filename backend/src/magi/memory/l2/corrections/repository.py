@@ -857,7 +857,8 @@ class MemoryCorrectionRepository:
                       AND EXISTS (
                           SELECT 1
                           FROM memory_derivation_jobs AS prerequisite
-                          WHERE prerequisite.correction_id = dependent.correction_id
+                          WHERE ((prerequisite.correction_id = dependent.correction_id)
+                            OR (prerequisite.entity_operation_id = dependent.entity_operation_id))
                             AND prerequisite.target_key = dependent.target_key
                             AND prerequisite.target_revision = dependent.target_revision
                             AND prerequisite.job_kind = 'profile'
@@ -890,7 +891,8 @@ class MemoryCorrectionRepository:
                           OR NOT EXISTS (
                               SELECT 1
                               FROM memory_derivation_jobs AS prerequisite
-                              WHERE prerequisite.correction_id = candidate.correction_id
+                              WHERE ((prerequisite.correction_id = candidate.correction_id)
+                                OR (prerequisite.entity_operation_id = candidate.entity_operation_id))
                                 AND prerequisite.target_key = candidate.target_key
                                 AND prerequisite.target_revision = candidate.target_revision
                                 AND prerequisite.job_kind = 'profile'

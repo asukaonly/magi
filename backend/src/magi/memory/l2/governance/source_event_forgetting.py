@@ -311,12 +311,12 @@ class L2StoreSourceEventForgettingMixin:
                         now=now,
                         explicit_subject_keys=correction_subjects,
                     )
-                    result[
-                        "event_entity_links"
-                    ] = await host._stage_source_event_link_forget_on_connection(
-                        db,
-                        event_ids=normalized,
-                        reason=reason,
+                    result["event_entity_links"] = (
+                        await host._stage_source_event_link_forget_on_connection(
+                            db,
+                            event_ids=normalized,
+                            reason=reason,
+                        )
                     )
                     await db.commit()
                 except Exception:
@@ -1076,6 +1076,24 @@ async def _forget_entity_evidence(
     event_ids: tuple[str, ...],
     now: float,
 ) -> dict[str, int]:
+    async with db.execute(
+        "SELECT review_id, evidence_event_ids FROM entity_identity_reviews"
+    ) as cursor:
+        reviews = await cursor.fetchall()
+    for review in reviews:
+        prior = _safe_json_id_list(review["evidence_event_ids"])
+        retained = [event_id for event_id in prior if event_id not in event_ids]
+        if retained == prior:
+            continue
+        if not retained:
+            await db.execute(
+                "DELETE FROM entity_identity_reviews WHERE review_id = ?", (review["review_id"],)
+            )
+        else:
+            await db.execute(
+                "UPDATE entity_identity_reviews SET evidence_event_ids = ?, version = version + 1, updated_at = ? WHERE review_id = ?",
+                (json.dumps(retained), now, review["review_id"]),
+            )
     target_ids = set(event_ids)
     event_json = _event_json(event_ids)
     async with db.execute(

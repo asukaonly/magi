@@ -36,6 +36,11 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/corrections/{correction_id}/revert": {"POST"},
         "/l2/context-options": {"GET"},
         "/l2/entities": {"GET"},
+        "/l2/entities/changes/preview": {"POST"},
+        "/l2/entities/changes/apply": {"POST"},
+        "/l2/entities/reviews": {"GET"},
+        "/l2/entities/reviews/{review_id}/reject": {"POST"},
+        "/l2/entities/identity-audit": {"GET"},
         "/l2/mentions": {"GET"},
         "/l2/snapshots": {"GET"},
         "/l2/conflict-rules": {"GET"},
@@ -193,8 +198,12 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/{plugin_id}/reload": {"POST"},
         "/connections/{connection_id}/settings/resources/{resource_name}": {"GET"},
         "/connections/{connection_id}/settings/actions/{action_id}/start": {"POST"},
-        "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll": {"POST"},
-        "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel": {"POST"},
+        "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/poll": {
+            "POST"
+        },
+        "/connections/{connection_id}/settings/actions/{action_id}/sessions/{session_id}/cancel": {
+            "POST"
+        },
     },
     "local_embedding": {
         "/models": {"GET"},

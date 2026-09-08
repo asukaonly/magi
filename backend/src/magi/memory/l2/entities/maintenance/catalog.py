@@ -17,7 +17,6 @@ from .ghosts import (
     _canonical_entity_id,
     _merge_evidence_json,
 )
-from .ghosts_tom import _refresh_tom_snapshot_after_rekey
 
 logger = get_logger("magi.memory.l2.entities.maintenance")
 
@@ -26,7 +25,8 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
     """Maintain fragmented entities and low-mention orphans."""
 
     async def _merge_fragmented_entities(
-        self, stats: _CatalogMaintenanceStatsProtocol,
+        self,
+        stats: _CatalogMaintenanceStatsProtocol,
     ) -> None:
         """Report same-name candidates for review; names never authorize a merge."""
         host = self._catalog_maintenance_host()
@@ -37,6 +37,7 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
             ) as cursor:
                 groups = await cursor.fetchall()
         import json
+
         for name, ids in groups:
             stats.identity_review_candidates.append({"name": name, "entity_ids": json.loads(ids)})
         stats.fragment_groups_processed += len(groups)
@@ -47,150 +48,186 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
         loser_id: str,
     ) -> None:
         host = self._catalog_maintenance_host()
-        if winner_id == loser_id:
-            return
-        now = time.time()
-        invalidated_vector_ids: set[str] = set()
         async with sqlite_connection_async(host._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
-            try:
-                await db.execute(
-                    "UPDATE entity_mentions SET resolved_entity_id = ? WHERE resolved_entity_id = ?",
-                    (winner_id, loser_id),
-                )
-                async with db.execute(
-                    """
-                    SELECT canonical_name, canonical_name_is_independent
-                    FROM entity_catalog WHERE entity_id = ?
-                    """,
-                    (loser_id,),
-                ) as cur:
-                    loser_catalog = await cur.fetchone()
-                async with db.execute(
-                    """
-                    SELECT alias_text, normalized_alias, confidence, is_independent
-                    FROM entity_aliases WHERE entity_id = ?
-                    """,
-                    (loser_id,),
-                ) as cur:
-                    aliases = await cur.fetchall()
-                for al in aliases:
-                    alias_text, norm, conf, independent = (
-                        str(al[0]),
-                        str(al[1]),
-                        float(al[2]),
-                        int(al[3]),
-                    )
-                    await db.execute(
-                        """
-                        INSERT INTO entity_aliases(
-                            entity_id, alias_text, normalized_alias, confidence,
-                            is_independent, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
-                            confidence = MAX(entity_aliases.confidence, excluded.confidence),
-                            is_independent = MAX(
-                                entity_aliases.is_independent,
-                                excluded.is_independent
-                            ),
-                            updated_at = excluded.updated_at
-                        """,
-                        (winner_id, alias_text, norm, conf, independent, now, now),
-                    )
-                if loser_catalog is not None and bool(loser_catalog[1]):
-                    loser_name = str(loser_catalog[0]).strip()
-                    if loser_name:
-                        await db.execute(
-                            """
-                            INSERT INTO entity_aliases(
-                                entity_id, alias_text, normalized_alias, confidence,
-                                is_independent, created_at, updated_at
-                            ) VALUES (?, ?, ?, 1.0, 1, ?, ?)
-                            ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
-                                is_independent = 1,
-                                confidence = MAX(entity_aliases.confidence, 1.0),
-                                updated_at = excluded.updated_at
-                            """,
-                            (winner_id, loser_name, loser_name.casefold(), now, now),
-                        )
-                async with db.execute(
-                    """
-                    SELECT name_kind, normalized_name, display_name, event_id,
-                           confidence, created_at, updated_at
-                    FROM entity_name_evidence
-                    WHERE entity_id = ?
-                    """,
-                    (loser_id,),
-                ) as cur:
-                    name_evidence = await cur.fetchall()
-                for evidence in name_evidence:
-                    await db.execute(
-                        """
-                        INSERT INTO entity_name_evidence(
-                            entity_id, name_kind, normalized_name, display_name,
-                            event_id, confidence, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(
-                            entity_id, name_kind, normalized_name, event_id
-                        ) DO UPDATE SET
-                            confidence = MAX(
-                                entity_name_evidence.confidence,
-                                excluded.confidence
-                            ),
-                            updated_at = MAX(
-                                entity_name_evidence.updated_at,
-                                excluded.updated_at
-                            )
-                        """,
-                        (winner_id, *tuple(evidence)),
-                    )
-                await db.execute(
-                    "DELETE FROM entity_name_evidence WHERE entity_id = ?",
-                    (loser_id,),
-                )
-                await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (loser_id,))
+            invalidated = await self._merge_entity_into_locked(
+                db,
+                winner_id=winner_id,
+                loser_id=loser_id,
+                now=time.time(),
+                operation_id="explicit_maintenance",
+            )
+            await db.commit()
+        await self._delete_invalidated_edge_vectors(invalidated)
 
-                invalidated_vector_ids.update(
-                    await self._merge_kg_ids_locked(db, "subject_id", loser_id, winner_id, now)
-                )
-                invalidated_vector_ids.update(
-                    await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
-                )
-
-                await AssertionEntityRekeyCoordinator(db).rekey(
-                    source_entity_id=loser_id,
-                    target_entity_id=winner_id,
-                    now=now,
-                )
-                affected_claim_ids = await self._rekey_claim_entity_refs_locked(
-                    db,
-                    source_entity_id=loser_id,
-                    target_entity_id=winner_id,
-                    now=now,
-                )
-                if affected_claim_ids:
-                    placeholders = ", ".join("?" for _ in affected_claim_ids)
-                    await db.execute(
-                        f"""
-                        UPDATE l2_claim_projection_outcomes
-                        SET invalidated_at = ?, invalidated_reason = 'entity_merged'
-                        WHERE claim_id IN ({placeholders})
-                          AND target_kind = 'route'
-                          AND invalidated_at IS NULL
-                        """,
-                        (now, *sorted(affected_claim_ids)),
-                    )
+    async def _merge_entity_into_locked(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        winner_id: str,
+        loser_id: str,
+        now: float,
+        operation_id: str,
+    ) -> set[str]:
+        """Move identity and governed dependants within the caller's transaction."""
+        if not db.in_transaction:
+            raise RuntimeError("Entity merge requires an active transaction")
+        if winner_id == loser_id:
+            return set()
+        invalidated_vector_ids: set[str] = set()
+        await db.execute(
+            "UPDATE entity_mentions SET resolved_entity_id = ? WHERE resolved_entity_id = ?",
+            (winner_id, loser_id),
+        )
+        async with db.execute(
+            """
+            SELECT canonical_name, canonical_name_is_independent
+            FROM entity_catalog WHERE entity_id = ?
+            """,
+            (loser_id,),
+        ) as cur:
+            loser_catalog = await cur.fetchone()
+        async with db.execute(
+            """
+            SELECT alias_text, normalized_alias, confidence, is_independent
+            FROM entity_aliases WHERE entity_id = ?
+            """,
+            (loser_id,),
+        ) as cur:
+            aliases = await cur.fetchall()
+        for al in aliases:
+            alias_text, norm, conf, independent = (
+                str(al[0]),
+                str(al[1]),
+                float(al[2]),
+                int(al[3]),
+            )
+            await db.execute(
+                """
+                INSERT INTO entity_aliases(
+                    entity_id, alias_text, normalized_alias, confidence,
+                    is_independent, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
+                    confidence = MAX(entity_aliases.confidence, excluded.confidence),
+                    is_independent = MAX(
+                        entity_aliases.is_independent,
+                        excluded.is_independent
+                    ),
+                    updated_at = excluded.updated_at
+                """,
+                (winner_id, alias_text, norm, conf, independent, now, now),
+            )
+        if loser_catalog is not None and bool(loser_catalog[1]):
+            loser_name = str(loser_catalog[0]).strip()
+            if loser_name:
                 await db.execute(
-                    "UPDATE OR IGNORE entity_facets SET entity_id = ? WHERE entity_id = ?",
-                    (winner_id, loser_id),
+                    """
+                    INSERT INTO entity_aliases(
+                        entity_id, alias_text, normalized_alias, confidence,
+                        is_independent, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1.0, 1, ?, ?)
+                    ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
+                        is_independent = 1,
+                        confidence = MAX(entity_aliases.confidence, 1.0),
+                        updated_at = excluded.updated_at
+                    """,
+                    (winner_id, loser_name, loser_name.casefold(), now, now),
                 )
-                await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (loser_id,))
-                await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (loser_id,))
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
-        await self._delete_invalidated_edge_vectors(invalidated_vector_ids)
+        async with db.execute(
+            """
+            SELECT name_kind, normalized_name, display_name, event_id,
+                   confidence, created_at, updated_at
+            FROM entity_name_evidence
+            WHERE entity_id = ?
+            """,
+            (loser_id,),
+        ) as cur:
+            name_evidence = await cur.fetchall()
+        for evidence in name_evidence:
+            await db.execute(
+                """
+                INSERT INTO entity_name_evidence(
+                    entity_id, name_kind, normalized_name, display_name,
+                    event_id, confidence, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    entity_id, name_kind, normalized_name, event_id
+                ) DO UPDATE SET
+                    confidence = MAX(
+                        entity_name_evidence.confidence,
+                        excluded.confidence
+                    ),
+                    updated_at = MAX(
+                        entity_name_evidence.updated_at,
+                        excluded.updated_at
+                    )
+                """,
+                (winner_id, *tuple(evidence)),
+            )
+        await db.execute(
+            "DELETE FROM entity_name_evidence WHERE entity_id = ?",
+            (loser_id,),
+        )
+        await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (loser_id,))
+
+        invalidated_vector_ids.update(
+            await self._merge_kg_ids_locked(db, "subject_id", loser_id, winner_id, now)
+        )
+        invalidated_vector_ids.update(
+            await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
+        )
+
+        await AssertionEntityRekeyCoordinator(db).rekey(
+            source_entity_id=loser_id,
+            target_entity_id=winner_id,
+            now=now,
+        )
+        affected_claim_ids = await self._rekey_claim_entity_refs_locked(
+            db,
+            source_entity_id=loser_id,
+            target_entity_id=winner_id,
+            now=now,
+        )
+        if affected_claim_ids:
+            placeholders = ", ".join("?" for _ in affected_claim_ids)
+            await db.execute(
+                f"""
+                UPDATE l2_claim_projection_outcomes
+                SET invalidated_at = ?, invalidated_reason = 'entity_merged'
+                WHERE claim_id IN ({placeholders})
+                  AND target_kind = 'route'
+                  AND invalidated_at IS NULL
+                """,
+                (now, *sorted(affected_claim_ids)),
+            )
+        await db.execute(
+            "UPDATE OR IGNORE entity_facets SET entity_id = ? WHERE entity_id = ?",
+            (winner_id, loser_id),
+        )
+        await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (loser_id,))
+        await db.execute(
+            "UPDATE OR IGNORE memory_projection_blocks SET target_id = ? WHERE target_id = ? AND block_kind IN ('entity_projection','entity_projection_candidate')",
+            (winner_id, loser_id),
+        )
+        await db.execute(
+            "UPDATE OR IGNORE memory_entity_projection_identity_blocks SET target_id = ? WHERE target_id = ?",
+            (winner_id, loser_id),
+        )
+        await db.execute(
+            "UPDATE entity_source_bindings SET entity_id = ? WHERE entity_id = ?",
+            (winner_id, loser_id),
+        )
+        await db.execute(
+            "UPDATE entity_identity_redirects SET target_entity_id = ? WHERE target_entity_id = ?",
+            (winner_id, loser_id),
+        )
+        await db.execute(
+            "INSERT INTO entity_identity_redirects(source_entity_id, target_entity_id, operation_id) VALUES (?, ?, ?)",
+            (loser_id, winner_id, operation_id),
+        )
+        await db.execute("DELETE FROM entity_catalog WHERE entity_id = ?", (loser_id,))
+        return invalidated_vector_ids
 
     async def _rekey_claim_entity_refs_locked(
         self,

@@ -914,3 +914,49 @@ __all__ = [
     "clear_event_entity_link_projection_recovery",
     "projection_entity_link_batch_key",
 ]
+
+
+async def stage_entity_identity_link_change(
+    db: aiosqlite.Connection,
+    *,
+    source_entity_id: str,
+    target_entity_id: str,
+    target_entity_type: str,
+    operation_id: str,
+) -> int:
+    """Publish revised L1 links without breaking atomic batches or forgetting barriers."""
+    if not db.in_transaction:
+        raise RuntimeError("Entity-link identity change requires an active transaction")
+    clear_generation = await memory_clear_generation_on_connection(db)
+    latest = await _latest_authoritative_link_revisions(db, clear_generation=clear_generation)
+    desired: dict[str, tuple[DesiredEntityLink, ...]] = {}
+    for event_id, authoritative in latest.items():
+        rewritten = normalize_desired_entity_links(
+            tuple(
+                (
+                    (target_entity_id, target_entity_type, confidence)
+                    if entity_id == source_entity_id
+                    else (entity_id, entity_type, confidence)
+                )
+                for entity_id, entity_type, confidence in authoritative.desired_links
+            )
+        )
+        if rewritten != authoritative.desired_links:
+            desired[event_id] = rewritten
+    ready_keys = await _batch_keys_containing_entity(
+        db, source_entity_id, state="ready", clear_generation=clear_generation
+    )
+    pending_keys = await _batch_keys_containing_entity(
+        db, source_entity_id, state="pending", clear_generation=clear_generation
+    )
+    _add_ready_batch_compensations(desired, latest=latest, discarded_batch_keys=ready_keys)
+    appended = await _append_ready_governance_batch(
+        db,
+        batch_key=_governance_batch_key("identity", operation_id, desired),
+        desired_links_by_event=desired,
+    )
+    await _discard_ready_batches(db, ready_keys, clear_generation=clear_generation)
+    await _discard_batches_by_state(
+        db, pending_keys, state="pending", clear_generation=clear_generation
+    )
+    return appended

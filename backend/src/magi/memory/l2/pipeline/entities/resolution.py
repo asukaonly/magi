@@ -325,10 +325,22 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
         for hint in (event.metadata_json or {}).get("structured_entity_hints", []):
-            if isinstance(hint, dict) and hint.get("source_entity_key") and normalized_entity_name(str(hint.get("mention_text") or "")) == normalized_entity_name(pending_item.mention_text) and hint.get("entity_type") == pending_item.entity_type:
-                pending_item.resolved_entity_id = entity_hint_id(hint, source=event.source, event_id=event.event_id)
-                pending_item.resolved_confidence = pending_item.mention_confidence
-                return
+            if (
+                isinstance(hint, dict)
+                and hint.get("source_entity_key")
+                and normalized_entity_name(str(hint.get("mention_text") or ""))
+                == normalized_entity_name(pending_item.mention_text)
+                and hint.get("entity_type") == pending_item.entity_type
+            ):
+                rows = await self._entity_catalog.list_entities(
+                    entity_ids=[entity_hint_id(hint, source=event.source, event_id=event.event_id)],
+                    limit=1,
+                )
+                if rows:
+                    pending_item.resolved_entity_id = str(rows[0]["entity_id"])
+                    pending_item.entity_type = str(rows[0]["entity_type"])
+                    pending_item.resolved_confidence = pending_item.mention_confidence
+                    return
         if pending_item.entity.resolved_id:
             pending_item.resolved_entity_id = await self._prefer_existing_same_name_entity(
                 proposed_entity_id=pending_item.entity.resolved_id,
@@ -340,7 +352,9 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 projection_leases=projection_leases,
             )
             if pending_item.resolved_entity_id:
-                rows = await self._entity_catalog.list_entities(entity_ids=[pending_item.resolved_entity_id], limit=1)
+                rows = await self._entity_catalog.list_entities(
+                    entity_ids=[pending_item.resolved_entity_id], limit=1
+                )
                 pending_item.entity_type = str(rows[0]["entity_type"])
                 pending_item.resolved_confidence = pending_item.entity.confidence
                 return
@@ -465,7 +479,9 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             and llm_resolution.matched_entity_id in pending_item.candidate_ids
         ):
             pending_item.resolved_entity_id = str(llm_resolution.matched_entity_id)
-            rows = await self._entity_catalog.list_entities(entity_ids=[pending_item.resolved_entity_id], limit=1)
+            rows = await self._entity_catalog.list_entities(
+                entity_ids=[pending_item.resolved_entity_id], limit=1
+            )
             if not rows:
                 pending_item.resolved_confidence = 0.0
                 pending_item.resolved_entity_id = None
@@ -481,7 +497,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             return
         pending_item.entity.is_new = True
         await self._finalize_unresolved_phase1_entity(
-            pending_item, projection_leases=projection_leases,
+            pending_item,
+            projection_leases=projection_leases,
         )
 
     async def _finalize_unresolved_phase1_entity(
@@ -553,7 +570,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         await self._entity_catalog.record_mention(
             mention_text=pending_item.mention_text,
             normalized_surface=pending_item.normalized_surface,
-            entity_type=pending_item.entity_type,
+            entity_type=pending_item.entity.entity_type,
             evidence_event_ids=mention_event_ids,
             evidence_text=pending_item.mention_text,
             resolved_entity_id=pending_item.resolved_entity_id,

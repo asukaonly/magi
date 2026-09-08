@@ -54,7 +54,9 @@ async def _rewrite_versions(
             """
             UPDATE knowledge_graph_versions
             SET triple_id = ?, subject_id = ?, predicate = ?, object_id = ?,
-                slot_key = ?, claim_fingerprint = ?
+                slot_key = ?, claim_fingerprint = ?,
+                subject_type = COALESCE((SELECT entity_type FROM entity_catalog WHERE entity_id = ?), subject_type),
+                object_type = COALESCE((SELECT entity_type FROM entity_catalog WHERE entity_id = ?), object_type)
             WHERE version_id = ?
             """,
             (
@@ -64,6 +66,8 @@ async def _rewrite_versions(
                 object_id,
                 slot_key,
                 fingerprint,
+                subject_id,
+                object_id,
                 version["version_id"],
             ),
         )

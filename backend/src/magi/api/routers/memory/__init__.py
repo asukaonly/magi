@@ -42,6 +42,7 @@ from .l2 import context_routes as _l2_context_routes  # noqa: F401
 from .l2 import experiences_routes as _l2_experiences_routes  # noqa: F401
 from .l2 import forget_routes as _l2_forget_routes  # noqa: F401
 from .l2 import knowledge_routes as _l2_knowledge_routes  # noqa: F401
+from .l2 import entity_identity_routes as _l2_entity_identity_routes  # noqa: F401
 from .l2 import operations_routes as _l2_operations_routes  # noqa: F401
 from .l2 import review_routes as _l2_review_routes  # noqa: F401
 from .l2 import consolidation_routes as _l2_consolidation_routes  # noqa: F401

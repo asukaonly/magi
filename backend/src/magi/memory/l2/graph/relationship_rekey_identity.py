@@ -72,6 +72,13 @@ async def _set_payload_identity(
         predicate=predicate,
         object_id=object_id,
     )
+    for column, entity_id in (("subject_type", subject_id), ("object_type", object_id)):
+        async with db.execute(
+            "SELECT entity_type FROM entity_catalog WHERE entity_id = ?", (entity_id,)
+        ) as cursor:
+            catalog = await cursor.fetchone()
+        if catalog is not None:
+            payload[column] = str(catalog[0])
     payload.update(
         {
             "triple_id": triple_id,

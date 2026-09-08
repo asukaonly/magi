@@ -1390,6 +1390,79 @@ _CURRENT_EXPORT_SPECS += (
     ),
 )
 
+_CURRENT_EXPORT_SPECS += (
+    _ExportSpec(
+        database="memory",
+        archive_path="l2/entity_identity_reviews.jsonl",
+        table="entity_identity_reviews",
+        record_type="l2_entity_identity_reviews",
+        layer="L2",
+        description="Durable entity identity governance.",
+        fields=(
+            _field("review_id", "string"),
+            _field("entity_id", "string"),
+            _field("proposed_type", "string"),
+            _field("evidence_event_ids", "string"),
+            _field("status", "string"),
+            _field("version", "number"),
+            _field("created_at", "number"),
+            _field("updated_at", "number"),
+        ),
+        order_by=("review_id",),
+    ),
+    _ExportSpec(
+        database="memory",
+        archive_path="l2/entity_identity_operations.jsonl",
+        table="entity_identity_operations",
+        record_type="l2_entity_identity_operations",
+        layer="L2",
+        description="Durable entity identity governance.",
+        fields=(
+            _field("operation_id", "string"),
+            _field("request_id", "string"),
+            _field("request_fingerprint", "string"),
+            _field("operation_kind", "string"),
+            _field("source_entity_id", "string"),
+            _field("target_entity_id", "string"),
+            _field("previous_type", "string"),
+            _field("current_type", "string"),
+            _field("actor_id", "string"),
+            _field("result_json", "string"),
+            _field("created_at", "number"),
+        ),
+        order_by=("operation_id",),
+    ),
+    _ExportSpec(
+        database="memory",
+        archive_path="l2/entity_identity_redirects.jsonl",
+        table="entity_identity_redirects",
+        record_type="l2_entity_identity_redirects",
+        layer="L2",
+        description="Durable entity identity governance.",
+        fields=(
+            _field("source_entity_id", "string"),
+            _field("target_entity_id", "string"),
+            _field("operation_id", "string"),
+        ),
+        order_by=("source_entity_id",),
+    ),
+    _ExportSpec(
+        database="memory",
+        archive_path="l2/entity_source_bindings.jsonl",
+        table="entity_source_bindings",
+        record_type="l2_entity_source_bindings",
+        layer="L2",
+        description="Durable entity identity governance.",
+        fields=(
+            _field("namespace", "string"),
+            _field("source_key_hash", "string"),
+            _field("entity_id", "string"),
+        ),
+        order_by=("namespace",),
+    ),
+)
+
+
 _L0_EXPORT_SPECS: tuple[_ExportSpec, ...] = (
     _ExportSpec(
         database="memory",
@@ -1683,7 +1756,7 @@ def _write_spec_jsonl(
         order_by = ", ".join(f'"{column}"' for column in spec.order_by)
         cursor = connection.execute(
             f'SELECT {select_list} FROM "{spec.table}" '
-            f'WHERE {spec.visibility_sql} ORDER BY {order_by}'
+            f"WHERE {spec.visibility_sql} ORDER BY {order_by}"
         )
         info = zipfile.ZipInfo(archive_path)
         info.compress_type = zipfile.ZIP_DEFLATED
@@ -1707,7 +1780,11 @@ def _write_spec_jsonl(
                 handle.write(
                     (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
                 )
-                for name in ("asset_references", "user_cover_asset_ref", "representative_asset_ref"):
+                for name in (
+                    "asset_references",
+                    "user_cover_asset_ref",
+                    "representative_asset_ref",
+                ):
                     value = payload.get(name)
                     for reference in value if isinstance(value, list) else [value]:
                         if not isinstance(reference, str):
@@ -1718,7 +1795,9 @@ def _write_spec_jsonl(
                         )
                         if match is not None:
                             filename = match.group(1)
-                            referenced_assets.add(f"assets/manual_entries/{filename[:2]}/{filename}")
+                            referenced_assets.add(
+                                f"assets/manual_entries/{filename[:2]}/{filename}"
+                            )
                 count += 1
     return _file_contract(spec, record_count=count)
 

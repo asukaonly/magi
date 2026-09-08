@@ -85,6 +85,26 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 candidate = self._structured_entity_hint_candidate(hint, state=state)
                 if candidate is None:
                     continue
+                if isinstance(hint, dict) and hint.get("source_entity_key"):
+                    resolved_id = await state.catalog.upsert_entity(
+                        entity_id=candidate.entity_id,
+                        canonical_name=candidate.canonical_name,
+                        entity_type=candidate.entity_type,
+                        source_event_ids=state.source_event_ids,
+                        projection_leases=state.projection_leases,
+                        source_namespace=state.source,
+                        source_key=str(hint["source_entity_key"]),
+                    )
+                    hint["resolved_entity_id"] = resolved_id
+                    await state.catalog.add_alias(
+                        entity_id=resolved_id,
+                        alias_text=candidate.alias_text or candidate.canonical_name,
+                        source_event_ids=state.source_event_ids,
+                        projection_leases=state.projection_leases,
+                    )
+                    state.seen_ids.add(resolved_id)
+                    state.upserted_count += 1
+                    continue
                 existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
                     catalog=state.catalog,
                     entity_ref=candidate.entity_id,
@@ -250,7 +270,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
     ) -> str | None:
         """Resolve exact IDs only; names are candidate labels, never foreign keys."""
         matches = await catalog.list_entities(entity_ids=[entity_ref], limit=1)
-        return entity_ref if matches else None
+        return str(matches[0]["entity_id"]) if matches else None
 
     def _structured_ref_lookup_candidates(
         self,

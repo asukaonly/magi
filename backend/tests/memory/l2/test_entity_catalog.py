@@ -253,38 +253,13 @@ async def test_record_mention_preserves_surface_form_and_evidence_event_ids():
 
 @pytest.mark.asyncio
 async def test_list_entities_returns_canonical_names_and_aliases():
-    from magi.core.sqlite import sqlite_connection_async
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
-        async with sqlite_connection_async(db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE entity_catalog (
-                    entity_id TEXT PRIMARY KEY,
-                    canonical_name TEXT NOT NULL,
-                    entity_type TEXT NOT NULL,
-                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-                    embedding_profile_id TEXT,
-                        last_embedded_at REAL,
-                        canonical_name_is_independent INTEGER NOT NULL DEFAULT 1,
-                        created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE entity_aliases (
-                    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_id TEXT NOT NULL,
-                    alias_text TEXT NOT NULL,
-                    normalized_alias TEXT NOT NULL,
-                        confidence REAL NOT NULL DEFAULT 1.0,
-                        is_independent INTEGER NOT NULL DEFAULT 1,
-                        created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, normalized_alias)
-                );
-                """
-            )
+        from tests._shared.memory_schema import apply_memory_shared_schema
+
+        await apply_memory_shared_schema(db_path)
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
@@ -343,12 +318,12 @@ async def test_find_by_canonical_name_matches_case_insensitively_and_filters_typ
 
 @pytest.mark.asyncio
 async def test_find_resolution_candidates_prefers_semantic_hits_before_recent_fallback():
-    from magi.core.sqlite import sqlite_connection_async
     from magi.memory.l2.entities.catalog import L2EntityCatalog
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
         from _shared.memory_schema import apply_memory_shared_schema
+
         await apply_memory_shared_schema(db_path)
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
@@ -553,13 +528,11 @@ async def test_entity_rebuild_does_not_chase_rows_inserted_after_its_high_water(
             if processed != 1:
                 return
             with sqlite3.connect(db_path) as db:
-                db.execute(
-                    """
+                db.execute("""
                     INSERT INTO entity_catalog(
                         entity_id, canonical_name, entity_type, created_at, updated_at
                     ) VALUES ('organization:b', 'Inserted During Rebuild', 'organization', 10, 10)
-                    """
-                )
+                    """)
                 db.commit()
 
         try:

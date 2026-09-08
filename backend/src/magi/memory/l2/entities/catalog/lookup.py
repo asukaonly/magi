@@ -11,6 +11,7 @@ dropped from the user-facing envelope rather than rendered with the id).
 from __future__ import annotations
 
 import sqlite3
+import json
 from typing import Iterable
 
 import aiosqlite
@@ -37,15 +38,16 @@ async def get_canonical_names(
     ids = [str(eid) for eid in entity_ids if eid]
     if not ids:
         return {}
-    placeholders = ",".join("?" for _ in ids)
     query = (
-        "SELECT entity_id, canonical_name FROM entity_catalog "
-        f"WHERE entity_id IN ({placeholders}) "
-        "AND canonical_name IS NOT NULL AND canonical_name != ''"
+        "WITH requested AS (SELECT value AS entity_id FROM json_each(?)) "
+        "SELECT requested.entity_id, catalog.canonical_name FROM requested "
+        "LEFT JOIN entity_identity_redirects AS redirects ON redirects.source_entity_id = requested.entity_id "
+        "JOIN entity_catalog AS catalog ON catalog.entity_id = COALESCE(redirects.target_entity_id, requested.entity_id) "
+        "WHERE catalog.canonical_name IS NOT NULL AND catalog.canonical_name != ''"
     )
     try:
         async with aiosqlite.connect(db_path) as db:
-            async with db.execute(query, ids) as cursor:
+            async with db.execute(query, (json.dumps(ids),)) as cursor:
                 rows = await cursor.fetchall()
         return {row[0]: row[1] for row in rows}
     except sqlite3.OperationalError:

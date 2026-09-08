@@ -30,6 +30,7 @@ from .queries import L2EntityCatalogQueryMixin
 from .source_event_governance import L2EntitySourceEventGovernanceMixin
 from ...ontology import coerce_unknown_entity_type
 from ..identity import normalized_entity_name
+from ..identity_repository import current_catalog_entity, propose_entity_type, source_key_hash
 from ...batch_models import L2ProjectionLease
 from ...projection.fencing import (
     assert_current_projection_attempt,
@@ -128,17 +129,46 @@ class L2EntityCatalog(
         source_event_ids: Iterable[str] | None = None,
         projection_leases: Iterable[L2ProjectionLease] = (),
         allow_rename: bool = False,
+        source_namespace: str | None = None,
+        source_key: str | None = None,
     ) -> str:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
         normalized_name = _normalize_alias(canonical_name)
+        if bool(source_namespace) != bool(source_key):
+            raise ValueError("Source namespace and key must be provided together")
         now = time.time()
         lease_items = normalize_projection_leases(projection_leases, required=False)
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             if lease_items:
                 await assert_current_projection_attempt(db, lease_items)
+            binding_exists = False
+            if source_namespace and source_key:
+                async with db.execute(
+                    "SELECT entity_id FROM entity_source_bindings WHERE namespace = ? AND source_key_hash = ?",
+                    (source_namespace, source_key_hash(source_key)),
+                ) as cursor:
+                    binding = await cursor.fetchone()
+                if binding is not None:
+                    normalized_entity_id = str(binding[0])
+                    binding_exists = True
+            existing = await current_catalog_entity(db, normalized_entity_id)
+            async with db.execute(
+                "SELECT 1 FROM entity_identity_redirects WHERE source_entity_id = ?",
+                (normalized_entity_id,),
+            ) as cursor:
+                redirected = await cursor.fetchone() is not None
+            if existing is None and (binding_exists or redirected):
+                raise ValueError("Entity identity is no longer available")
+            proposed_type = normalized_entity_type
+            if existing is not None:
+                normalized_entity_id = str(existing["entity_id"])
+                normalized_entity_type = str(existing["entity_type"])
+                if binding_exists or redirected:
+                    canonical_name = str(existing["canonical_name"])
+                    normalized_name = _normalize_alias(canonical_name)
             active_event_ids = await _active_source_event_ids(
                 db,
                 source_event_ids,
@@ -149,17 +179,10 @@ class L2EntityCatalog(
             if source_event_ids is not None and not active_event_ids:
                 await db.commit()
                 return normalized_entity_id
-            async with db.execute(
-                "SELECT canonical_name, entity_type FROM entity_catalog WHERE entity_id = ?",
-                (normalized_entity_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
             if existing is not None and (
-                existing[1] != normalized_entity_type
-                or (
-                    normalized_entity_name(existing[0]) != normalized_entity_name(canonical_name)
-                    and not allow_rename
-                )
+                normalized_entity_name(str(existing["canonical_name"]))
+                != normalized_entity_name(canonical_name)
+                and not allow_rename
             ):
                 raise ValueError("Entity identity already belongs to a different canonical name")
             if source_event_ids is None:
@@ -205,6 +228,19 @@ class L2EntityCatalog(
                     event_ids=active_event_ids,
                     now=now,
                 )
+            if source_namespace and source_key:
+                await db.execute(
+                    "INSERT OR IGNORE INTO entity_source_bindings(namespace, source_key_hash, entity_id) VALUES (?, ?, ?)",
+                    (source_namespace, source_key_hash(source_key), normalized_entity_id),
+                )
+            if proposed_type:
+                await propose_entity_type(
+                    db,
+                    entity_id=normalized_entity_id,
+                    proposed_type=proposed_type,
+                    evidence_event_ids=active_event_ids,
+                    now=now,
+                )
             await db.commit()
         await self._maybe_embed_entity(normalized_entity_id)
         return normalized_entity_id
@@ -226,6 +262,11 @@ class L2EntityCatalog(
             await db.execute("BEGIN IMMEDIATE")
             if lease_items:
                 await assert_current_projection_attempt(db, lease_items)
+            current = await current_catalog_entity(db, entity_id)
+            if current is None:
+                await db.commit()
+                return
+            entity_id = str(current["entity_id"])
             async with db.execute(
                 "SELECT canonical_name, entity_type FROM entity_catalog WHERE entity_id = ?",
                 (entity_id,),
@@ -407,6 +448,12 @@ class L2EntityCatalog(
             await db.execute("BEGIN IMMEDIATE")
             if lease_items:
                 await assert_current_projection_attempt(db, lease_items)
+            if normalized_resolved_entity_id:
+                current = await current_catalog_entity(db, normalized_resolved_entity_id)
+                if current is None:
+                    await db.commit()
+                    return 0
+                normalized_resolved_entity_id = str(current["entity_id"])
             active_event_ids = await _active_source_event_ids(
                 db,
                 evidence_event_ids,
@@ -417,6 +464,14 @@ class L2EntityCatalog(
             if not active_event_ids:
                 await db.commit()
                 return 0
+            if normalized_resolved_entity_id and normalized_entity_type:
+                await propose_entity_type(
+                    db,
+                    entity_id=normalized_resolved_entity_id,
+                    proposed_type=normalized_entity_type,
+                    evidence_event_ids=active_event_ids,
+                    now=now,
+                )
             evidence_event_ids_json = json.dumps(
                 sorted(active_event_ids),
                 ensure_ascii=False,
@@ -539,6 +594,11 @@ class L2EntityCatalog(
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
             await db.executescript("""
+                DELETE FROM memory_derivation_jobs WHERE entity_operation_id IS NOT NULL;
+                DELETE FROM entity_identity_reviews;
+                DELETE FROM entity_identity_operations;
+                DELETE FROM entity_identity_redirects;
+                DELETE FROM entity_source_bindings;
                 DELETE FROM entity_name_evidence;
                 DELETE FROM entity_mentions;
                 DELETE FROM entity_aliases;
@@ -581,6 +641,7 @@ async def _active_source_event_ids(
     target_entity_id: str | None = None,
     normalized_surface: str | None = None,
     entity_type: str | None = None,
+    promote_candidates: bool = True,
 ) -> tuple[str, ...]:
     if event_ids is None:
         return ()
@@ -603,11 +664,12 @@ async def _active_source_event_ids(
         blocked.update(str(row[0]) for row in await cursor.fetchall())
     normalized_target = str(target_entity_id or "").strip()
     if normalized_target:
-        await promote_source_event_entity_projection_candidates(
-            db,
-            normalized,
-            entity_ids=[normalized_target],
-        )
+        if promote_candidates:
+            await promote_source_event_entity_projection_candidates(
+                db,
+                normalized,
+                entity_ids=[normalized_target],
+            )
         async with db.execute(
             f"""
             SELECT event_id
@@ -624,36 +686,37 @@ async def _active_source_event_ids(
     normalized_identity = str(normalized_surface or "").strip().casefold()
     if normalized_identity:
         normalized_entity_type = str(entity_type or "").strip()
-        await db.execute(
-            f"""
-            INSERT OR IGNORE INTO memory_projection_blocks(
-                block_kind, target_id, event_id, operation_id, created_at
+        if promote_candidates:
+            await db.execute(
+                f"""
+                INSERT OR IGNORE INTO memory_projection_blocks(
+                    block_kind, target_id, event_id, operation_id, created_at
+                )
+                SELECT 'entity_projection',
+                       candidate.target_id,
+                       candidate.event_id,
+                       candidate.operation_id,
+                       candidate.created_at
+                FROM memory_projection_blocks AS candidate
+                JOIN memory_entity_projection_identity_blocks AS identity
+                  ON identity.target_id = candidate.target_id
+                 AND identity.event_id = candidate.event_id
+                WHERE candidate.block_kind = 'entity_projection_candidate'
+                  AND identity.normalized_surface = ?
+                  AND (
+                      identity.entity_type = ''
+                      OR identity.entity_type = ?
+                      OR ? = ''
+                  )
+                  AND candidate.event_id IN ({placeholders})
+                """,
+                (
+                    normalized_identity,
+                    normalized_entity_type,
+                    normalized_entity_type,
+                    *normalized,
+                ),
             )
-            SELECT 'entity_projection',
-                   candidate.target_id,
-                   candidate.event_id,
-                   candidate.operation_id,
-                   candidate.created_at
-            FROM memory_projection_blocks AS candidate
-            JOIN memory_entity_projection_identity_blocks AS identity
-              ON identity.target_id = candidate.target_id
-             AND identity.event_id = candidate.event_id
-            WHERE candidate.block_kind = 'entity_projection_candidate'
-              AND identity.normalized_surface = ?
-              AND (
-                  identity.entity_type = ''
-                  OR identity.entity_type = ?
-                  OR ? = ''
-              )
-              AND candidate.event_id IN ({placeholders})
-            """,
-            (
-                normalized_identity,
-                normalized_entity_type,
-                normalized_entity_type,
-                *normalized,
-            ),
-        )
         async with db.execute(
             f"""
             SELECT event_id

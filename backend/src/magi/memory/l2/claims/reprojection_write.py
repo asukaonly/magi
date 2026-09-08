@@ -184,11 +184,11 @@ async def _load_route_candidate(
         SELECT
             claims.claim_id,
             COALESCE(subject_refs.entity_id, claims.subject_ref) AS subject_ref,
-            claims.subject_type,
+            COALESCE(subject_catalog.entity_type, claims.subject_type) AS subject_type,
             claims.canonical_predicate,
             claims.fact_kind,
             claims.polarity,
-            claims.object_type,
+            COALESCE(object_catalog.entity_type, claims.object_type) AS object_type,
             claims.object_value_json,
             claims.temporal_cue,
             claims.specificity,
@@ -210,6 +210,10 @@ async def _load_route_candidate(
           ON object_refs.claim_id = claims.claim_id
          AND object_refs.ref_role = 'object'
          AND object_refs.row_number = 1
+        LEFT JOIN entity_catalog AS subject_catalog
+          ON subject_catalog.entity_id = COALESCE(subject_refs.entity_id, claims.subject_ref)
+        LEFT JOIN entity_catalog AS object_catalog
+          ON object_catalog.entity_id = object_refs.entity_id
         WHERE claims.claim_id = ?
           AND claims.availability = 'active'
         """,

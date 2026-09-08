@@ -2595,7 +2595,7 @@ async def test_future_relationship_conflict_preserves_waiting_evidence_and_rever
             effective_at=effective_at + 20,
         )
         assert {(item["predicate"], item["object_id"]) for item in after_due} == {
-            ("LIKES", "place:ramen")
+            ("LIKES", "food:ramen")
         }
         await store.revert_relationship_correction(
             correction_id=corrected["correction"]["correction_id"],
@@ -2651,8 +2651,8 @@ async def test_future_relationship_conflict_keeps_old_facts_visible_until_effect
         effective_at=now,
     )
     assert {(item["predicate"], item["object_id"]) for item in before} == {
-        ("DISLIKES", "place:ramen"),
-        ("LIKES", "place:udon"),
+        ("DISLIKES", "food:ramen"),
+        ("LIKES", "food:udon"),
     }
     pending_opposite = await store.get_relationship(triple_id=opposite_id)
     assert pending_opposite["status"] == "active"
@@ -2666,8 +2666,8 @@ async def test_future_relationship_conflict_keeps_old_facts_visible_until_effect
             correction=corrected["correction"],
         )
         assert {(item["predicate"], item["object_id"]) for item in committed_before_runner} == {
-            ("DISLIKES", "place:ramen"),
-            ("LIKES", "place:udon"),
+            ("DISLIKES", "food:ramen"),
+            ("LIKES", "food:udon"),
         }
         assert current_claim_before_runner is not None
         assert current_claim_before_runner["triple_id"] == target_id
@@ -2680,7 +2680,7 @@ async def test_future_relationship_conflict_keeps_old_facts_visible_until_effect
             effective_at=effective_at + 1,
         )
         assert {(item["predicate"], item["object_id"]) for item in after} == {
-            ("LIKES", "place:ramen")
+            ("LIKES", "food:ramen")
         }
         await store.revert_relationship_correction(
             correction_id=corrected["correction"]["correction_id"],
