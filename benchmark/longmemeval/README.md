@@ -113,7 +113,7 @@ This mode reuses the memory runtime already initialized by the backend service, 
 The `--backend-url` value should point at the Magi gateway HTTP address. In the current architecture `backend/run_server.py`
 starts an IPC worker only; it is not the benchmark HTTP entrypoint.
 Set `MAGI_DESKTOP_SESSION_TOKEN` to the same temporary value used when starting
-`gateway-cli`; all benchmark GET and POST requests send it in the gateway
+`benchmark/run_service.py`; all benchmark GET and POST requests send it in the gateway
 authentication header.
 
 Official QA scoring wrapper:

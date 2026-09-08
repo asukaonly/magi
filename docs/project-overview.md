@@ -109,6 +109,38 @@ invalidate the affected results and require a new candidate validation.
 
 ## Product Shape
 
+### Independent service development entry
+
+The repository also builds the Tauri-independent `magi-server` executable from
+`server/`. It replaces the former gateway-only CLI and owns both the Axum
+listener and a supervised Python worker through `crates/magi-server-runtime`.
+It listens on loopback, acquires an OS instance lease, binds before the worker
+is ready, gates business storage access during startup, and reconnects after
+bounded worker restarts. `crates/magi-platform` supplies shared OS data protection.
+
+For a source checkout with its Python environment installed:
+
+```text
+cargo build -p magi-server
+magi-server init --config <new-json-file> --data-dir <absolute-private-directory> --development-root <absolute-repository>
+magi-server run --config <json-file>
+```
+
+The build output is `target/debug/magi-server` (with `.exe` on Windows); use that
+path when it is not installed on PATH. Configuration paths are absolute and the
+runtime root is explicit. Python and plugin Python executable locations are part
+of the configuration, not inferred from the launching terminal.
+
+The private `--bootstrap-stdin` owner protocol accepts a session credential over
+an inherited input pipe and stops when that owner closes the pipe. It is for a
+desktop host or benchmark launcher, not a remote pairing mechanism. Without
+that handoff, the development entry exposes liveness but does not issue a
+remote client credential. Remote pairing, desktop integration, network events
+and standalone distribution are not yet delivered by this entry alone.
+
+The shipped desktop lifecycle described below still applies until its service
+host migration is complete.
+
 Magi is a desktop-only application:
 
 - Desktop mode

@@ -3,9 +3,10 @@ resolver = "2"
 exclude = ["vendor/glib"]
 members = [
     "crates/magi-platform",
+    "crates/magi-server-runtime",
     "crates/magi-gateway",
     "frontend/src-tauri",
-    "gateway-cli",
+    "server",
 ]
 
 [patch.crates-io]

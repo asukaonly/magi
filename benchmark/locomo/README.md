@@ -12,7 +12,7 @@ The scripts default to `~/code/locomo/data/locomo10.json`. You can also set
 `LOCOMO_ROOT` or pass `--dataset`.
 
 LoCoMo uses the same authenticated Magi gateway client as LongMemEval. Before
-running it, start the Python IPC worker and headless `gateway-cli` by following
+running it, start the independent service through `benchmark/run_service.py` by following
 the [LongMemEval runbook](../longmemeval/RUNBOOK.md), then set
 `MAGI_DESKTOP_SESSION_TOKEN` to the same non-empty temporary value used by the
 gateway. The desktop app's port file alone is not sufficient because its

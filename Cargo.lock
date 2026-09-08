@@ -2361,18 +2361,34 @@ dependencies = [
 ]
 
 [[package]]
-name = "magi-gateway-cli"
-version = "0.1.0"
-dependencies = [
- "magi-gateway",
- "tokio",
-]
-
-[[package]]
 name = "magi-platform"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "magi-server"
+version = "0.1.0"
+dependencies = [
+ "magi-gateway",
+ "magi-server-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "magi-server-runtime"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "magi-gateway",
+ "magi-platform",
+ "serde",
+ "serde_json",
+ "tokio",
  "windows-sys 0.61.2",
 ]
 

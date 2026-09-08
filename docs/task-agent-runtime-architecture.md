@@ -61,6 +61,15 @@ connection returns `IPC_UNAVAILABLE` for Python-backed routes; readiness can
 still report the unavailable runtime. Worker process restart policy belongs to
 the lifecycle owner, not to individual HTTP requests.
 
+The independent `magi-server` entry implements bounded restart/backoff while
+keeping its listener alive. It gates native and proxied business routes until
+the worker publishes readiness after storage initialization. The worker launcher
+holds `runtime/worker.lock` before importing runtime modules, preventing a second
+worker from opening the same instance. A supervised worker observes its parent's
+lifetime; normal teardown releases the lease after runtime/plugin shutdown.
+The server separately holds `runtime/server.lock`. Neither lock file is deleted
+on exit, so another process cannot lock a newly created inode beside a live owner.
+
 The message bus is process-local. SQLite queues and domain stores, not the bus,
 own restart recovery.
 

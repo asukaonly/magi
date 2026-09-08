@@ -249,8 +249,8 @@ jobs:
       - name: Run gateway tests
         run: cargo test --locked -p magi-gateway
 
-      - name: Check headless gateway
-        run: cargo check --locked -p magi-gateway-cli
+      - name: Test independent server runtime
+        run: cargo test --locked -p magi-server-runtime -p magi-server
 
   desktop-shell:
     name: Desktop shell validation (${{ matrix.name }})
@@ -302,3 +302,6 @@ jobs:
 
       - name: Test native storage protection
         run: cargo test --locked -p magi-platform
+
+      - name: Check independent service
+        run: cargo check --locked -p magi-server

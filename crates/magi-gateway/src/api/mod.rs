@@ -29,6 +29,7 @@ pub fn build_router(state: ApiState) -> Router {
 
     let cors = state.security.cors_layer();
     let security = Arc::clone(&state.security);
+    let storage_ready = Arc::clone(&state.storage_ready);
 
     Router::new()
         // Health / readiness
@@ -202,6 +203,21 @@ pub fn build_router(state: ApiState) -> Router {
         )
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
+        .layer(middleware::from_fn(move |request: axum::extract::Request, next: middleware::Next| {
+            let storage_ready = Arc::clone(&storage_ready);
+            async move {
+                use axum::response::IntoResponse;
+                let path = request.uri().path();
+                if !storage_ready.load(std::sync::atomic::Ordering::Acquire)
+                    && !matches!(path, "/api/health" | "/api/ready")
+                    && !path.starts_with("/static/avatars/") {
+                    return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
+                        "success": false, "error_code": "RUNTIME_NOT_READY", "message": "Runtime storage is not ready"
+                    }))).into_response();
+                }
+                next.run(request).await
+            }
+        }))
         .layer(middleware::from_fn(move |request, next| {
             let security = Arc::clone(&security);
             async move { security::enforce_gateway_access(security, request, next).await }

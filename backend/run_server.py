@@ -20,11 +20,18 @@ def main() -> None:
 
     install_redacting_standard_streams()
 
-    from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
-    from magi.bootstrap.worker_app import main as run_ipc_worker
+    from magi_plugin_sdk.runtime_paths import get_magi_home
+    from magi.utils.worker_instance import WorkerInstance
 
-    os.environ[PROCESS_ROLE_ENV_VAR] = PROCESS_ROLE_VALUE
-    run_ipc_worker()
+    parent_value = os.environ.pop("MAGI_SERVER_PARENT_PID", None)
+    parent_pid = int(parent_value) if parent_value is not None else None
+    # Acquire ownership before importing modules that open runtime logs or stores.
+    with WorkerInstance(get_magi_home(), parent_pid):
+        from magi.bootstrap.process_roles import PROCESS_ROLE_ENV_VAR, PROCESS_ROLE_VALUE
+        from magi.bootstrap.worker_app import main as run_ipc_worker
+
+        os.environ[PROCESS_ROLE_ENV_VAR] = PROCESS_ROLE_VALUE
+        run_ipc_worker()
 
 
 def run() -> int:

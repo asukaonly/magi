@@ -15,8 +15,8 @@ def resolve_backend_url() -> str:
     """Return the URL of a running Magi gateway.
 
     Discovery order:
-      1. ``~/.magi/runtime/gateway.port`` — written by the Tauri desktop app
-         or ``gateway-cli`` on startup.
+      1. ``~/.magi/runtime/gateway.port`` — written by the Tauri desktop app.
+         Independent service runs should pass their explicit backend URL.
       2. ``~/.magi/config/agent.yaml``  ``server.host`` / ``server.port``
          (legacy).
       3. Fallback to ``http://127.0.0.1:8000``.

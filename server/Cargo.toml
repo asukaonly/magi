@@ -1,0 +1,12 @@
+[package]
+name = "magi-server"
+version = "0.1.0"
+description = "Standalone Magi service"
+edition = "2021"
+
+[dependencies]
+magi-server-runtime = { path = "../crates/magi-server-runtime" }
+magi-gateway = { path = "../crates/magi-gateway" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }

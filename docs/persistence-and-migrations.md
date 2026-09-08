@@ -26,6 +26,12 @@ The native protection implementation lives in the Tauri-independent
 `crates/magi-platform` leaf crate. Hosts share these OS checks without depending
 on each other's UI or lifecycle implementation.
 
+The independent server uses the explicit `data_dir` in its configuration and
+passes it to Python as `MAGI_HOME`. The server and Python worker hold separate OS
+leases in `runtime/server.lock` and `runtime/worker.lock`; these files carry no
+credentials and may remain after a normal or abnormal exit. File existence is
+not evidence of a running instance; ownership is determined by the OS lock.
+
 Startup rejects a runtime root or descendant that is a symbolic link, Windows
 reparse point, externally hard-linked file, or an entry owned by another
 account. It fails before normal runtime startup instead of following the entry

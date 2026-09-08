@@ -4,60 +4,32 @@ This runbook is the shortest path for running LongMemEval against a real Magi ba
 
 ## 1. Start a Headless Magi Runtime
 
-Benchmark requests go through the authenticated Rust gateway. Use one non-empty,
-temporary value for `MAGI_DESKTOP_SESSION_TOKEN` in the gateway shell and every
-benchmark shell. Do not set this credential in the Python worker shell.
+Build the independent server and create a configuration with dedicated test data:
 
-The desktop app creates its own private session credential and does not export it
-to benchmark processes. For headless evaluation, run the Python IPC worker and
-`gateway-cli` directly.
-
-### macOS and Linux
-
-Start the Python worker from the repository root:
-
-```bash
-mkdir -p "$HOME/.magi/runtime"
-export MAGI_IPC_SOCKET="$HOME/.magi/runtime/ipc.sock"
-cd backend
-pip install -e ".[dev]"
-python run_server.py
+```text
+cargo build -p magi-server
+target/debug/magi-server init --config /absolute/path/benchmark-server.json --data-dir /absolute/path/benchmark-data --development-root /absolute/path/magi
 ```
 
-In another terminal, use the same IPC socket and start the gateway. Replace the
-placeholder with a newly generated random value:
+On Windows use `target/debug/magi-server.exe` and Windows absolute paths. The
+repository Python environment must already contain the backend and plugin SDK
+dependencies. Configure providers inside this isolated runtime before ingesting.
 
-```bash
-export MAGI_IPC_SOCKET="$HOME/.magi/runtime/ipc.sock"
-export MAGI_DESKTOP_SESSION_TOKEN="<same-random-token>"
-cargo run -p magi-gateway-cli
+Generate a fresh random credential of at least 32 characters and set
+`MAGI_DESKTOP_SESSION_TOKEN` to that value in both the service-launcher shell and
+the benchmark shell. Do not place it in configuration files, URLs or reports.
+The helper passes it over the private owner pipe and keeps that pipe open:
+
+```text
+python benchmark/run_service.py --config /absolute/path/benchmark-server.json
 ```
 
-### Windows
-
-Choose an unused loopback port for IPC and use the same address in both shells.
-Start the Python worker from the repository root:
-
-```powershell
-$env:MAGI_IPC_SOCKET = "127.0.0.1:19081"
-cd backend
-pip install -e ".[dev]"
-python run_server.py
-```
-
-In another PowerShell window:
-
-```powershell
-$env:MAGI_IPC_SOCKET = "127.0.0.1:19081"
-$env:MAGI_DESKTOP_SESSION_TOKEN = "<same-random-token>"
-cargo run -p magi-gateway-cli
-```
-
-`gateway-cli` listens on `127.0.0.1:19080` by default and writes that port to
-`~/.magi/runtime/gateway.port`, which the benchmark scripts can auto-discover.
-Set `MAGI_GATEWAY_PORT` before starting it if you need another HTTP port.
-`backend/run_server.py` exposes IPC only, so `--backend-url` must target the
-gateway rather than the Python worker.
+The helper owns the service until it exits. The service starts its own Python
+worker, uses loopback HTTP, and prints its `baseUrl`. Set the configuration's
+`port` field if the default 19080 is unavailable; 0 requests an ephemeral port.
+Pass the printed address without `/api` explicitly as `--backend-url`.
+The desktop app's session credential remains private and is not exported to
+benchmark processes. Do not separately start a Python worker for this workflow.
 
 ## 2. Confirm the Backend Is Reachable
 
@@ -67,12 +39,11 @@ In a new terminal:
 curl http://127.0.0.1:<gateway-port>/api/health
 ```
 
-Use the port printed by `gateway-cli`, or read
-`~/.magi/runtime/gateway.port`. You should get a JSON response instead of a
+Use the port printed by `magi-server`. You should get a JSON response instead of a
 connection error.
 
 To verify an authenticated endpoint, export the same temporary credential used
-by `gateway-cli` and run:
+by the benchmark service launcher and run:
 
 ```bash
 curl \

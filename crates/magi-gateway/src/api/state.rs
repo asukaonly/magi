@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::ipc::{IpcClient, RuntimeConnection};
@@ -9,6 +10,7 @@ use super::security::GatewaySecurity;
 pub struct ApiState {
     pub ipc_client: Arc<RuntimeConnection>,
     pub security: Arc<GatewaySecurity>,
+    pub storage_ready: Arc<AtomicBool>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
     /// Directory for user-uploaded avatar images (~/.magi/personalities/avatar).
@@ -17,7 +19,12 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(ipc_client: Arc<IpcClient>, security: Arc<GatewaySecurity>) -> Self {
-        Self::with_runtime(Arc::new(RuntimeConnection::connected(ipc_client)), security)
+        let state =
+            Self::with_runtime(Arc::new(RuntimeConnection::connected(ipc_client)), security);
+        state
+            .storage_ready
+            .store(true, std::sync::atomic::Ordering::Release);
+        state
     }
 
     pub fn with_runtime(
@@ -27,6 +34,7 @@ impl ApiState {
         Self {
             ipc_client,
             security,
+            storage_ready: Arc::new(AtomicBool::new(false)),
             builtin_avatar_dir: None,
             user_avatar_dir: None,
         }
