@@ -156,6 +156,8 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         existing_by_name = await self._entity_catalog.find_by_canonical_name(canonical_name)
         if existing_by_name and mention.get("is_new") is False:
             return None, mention_confidence
+        raw_allocation_key = mention.get("allocation_key")
+        allocation_key = raw_allocation_key.strip() if isinstance(raw_allocation_key, str) else None
         entity_id = allocate_entity_id()
         entity_id = await self._entity_catalog.upsert_entity(
             entity_id=entity_id,
@@ -163,6 +165,8 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             entity_type=entity_type,
             source_event_ids=source_event_ids,
             projection_leases=projection_leases,
+            source_namespace="l2:allocation" if allocation_key else None,
+            source_key=allocation_key,
         )
         await self._entity_catalog.add_alias(
             entity_id=entity_id,

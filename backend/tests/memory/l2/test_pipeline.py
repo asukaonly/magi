@@ -4298,6 +4298,8 @@ class TestEntityTypeFiltering:
                 entity_type,
                 source_event_ids,
                 projection_leases=(),
+                source_namespace=None,
+                source_key=None,
             ):
                 _ = projection_leases
                 self.entities[entity_id] = {
@@ -4306,6 +4308,7 @@ class TestEntityTypeFiltering:
                     "entity_type": entity_type,
                 }
                 self.entity_sources[entity_id] = tuple(source_event_ids)
+                return entity_id
 
             async def add_alias(self, **_kwargs):
                 return None
@@ -4391,6 +4394,8 @@ class TestEntityTypeFiltering:
                 entity_type,
                 source_event_ids,
                 projection_leases=(),
+                source_namespace=None,
+                source_key=None,
             ):
                 _ = projection_leases
                 self.entities[entity_id] = {
@@ -4398,6 +4403,7 @@ class TestEntityTypeFiltering:
                     "canonical_name": canonical_name,
                     "entity_type": entity_type,
                 }
+                return entity_id
 
             async def add_alias(self, **_kwargs):
                 return None

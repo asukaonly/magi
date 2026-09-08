@@ -77,9 +77,18 @@ async def test_unresolved_homonyms_do_not_share_identity_or_replay_count(tmp_pat
 
     pipeline = L2Pipeline.__new__(L2Pipeline)
     pipeline._entity_catalog = L2EntityCatalog(db_path=str(tmp_path / "entities.db"))
-    args = dict(mention={}, entity_type="person", mention_text="王伟", mention_confidence=0.95)
-    first = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event1"])
-    second = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event2"])
-    replay = await pipeline._finalize_unresolved_entity(**args, source_event_ids=["event1"])
+    args = dict(entity_type="person", mention_text="王伟", mention_confidence=0.95)
+    first = await pipeline._finalize_unresolved_entity(
+        **args, mention={"allocation_key": "decision1"}, source_event_ids=["event1"]
+    )
+    second = await pipeline._finalize_unresolved_entity(
+        **args, mention={"allocation_key": "decision2"}, source_event_ids=["event2"]
+    )
+    # A host operation identity survives a restart without using names as keys.
+    pipeline._entity_catalog = L2EntityCatalog(db_path=str(tmp_path / "entities.db"))
+    replay = await pipeline._finalize_unresolved_entity(
+        **args, mention={"allocation_key": "decision1"}, source_event_ids=["event1"]
+    )
     assert first == replay
     assert first[0] != second[0]
+    assert len(await pipeline._entity_catalog.list_entities()) == 2

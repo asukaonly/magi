@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import unicodedata
+import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
@@ -48,6 +49,7 @@ class _PendingPhase1EntityResolution:
     source_event_ids: tuple[str, ...] = ()
     candidate_ids: tuple[str, ...] = ()
     local_mention_key: str = ""
+    allocation_key: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     @property
     def cache_key(self) -> tuple[str, str | None]:
@@ -65,6 +67,7 @@ class _PendingPhase1EntityResolution:
             "canonical_name_hint": self.normalized_surface,
             "alias_signals": self.entity.alias_signals,
             "is_new": self.entity.is_new,
+            "allocation_key": self.allocation_key,
         }
 
 
@@ -170,6 +173,12 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             if pending_item is None:
                 continue
             pending_item.local_mention_key = str(entity_index)
+            if projection_leases:
+                from ...batch_models import derive_projection_attempt_key
+
+                pending_item.allocation_key = (
+                    f"{derive_projection_attempt_key(projection_leases)}:{entity_index}"
+                )
             pending_item.source_event_ids = tuple(
                 self._resolve_entity_mention_event_ids(
                     mention_text=pending_item.mention_text,

@@ -3355,7 +3355,10 @@ allocate independent opaque identities; unresolved ambiguity does not. Display
 names and categories are not allocation keys, even for two homonyms in the same
 event. Resolution memoization is scoped to evidence and the individual local
 mention, never a global name-to-object binding. Subsequent extraction resolves
-against catalog evidence instead of reproducing an ID from text.
+against catalog evidence instead of reproducing an ID from text. Host allocation
+keys bind each projection attempt and local mention to its allocated ID, so retries
+reuse the allocation without merging a different same-named decision. These
+bindings share the durable source-binding ledger and its forgetting barriers.
 
 The name/type mergeability whitelist and automatic alias shortcut are removed.
 Maintenance reports same-name identity-review candidates instead of merging

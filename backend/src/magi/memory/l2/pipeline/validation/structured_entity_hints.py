@@ -207,7 +207,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         if candidate.entity_id in state.seen_ids:
             return candidate.entity_id
         state.seen_ids.add(candidate.entity_id)
-        normalized_entity_id = await state.catalog.upsert_entity(
+        normalized_entity_id: str = await state.catalog.upsert_entity(
             entity_id=candidate.entity_id,
             canonical_name=candidate.canonical_name,
             entity_type=candidate.entity_type,
