@@ -158,7 +158,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   });
 
   useEffect(() => {
-    if (editor && !editor.isDestroyed) editor.setEditable(!disabled);
+    if (editor && !editor.isDestroyed) editor.setEditable(!disabled, false);
   }, [editor, disabled]);
 
   // Reinitialize only the cached placeholder decorations. Keep the document,
