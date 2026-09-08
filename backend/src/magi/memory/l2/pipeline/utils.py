@@ -7,8 +7,7 @@ import uuid
 from typing import Any, Optional, cast
 
 from ..models import L2BatchEvent, L2Phase1FactClaim, L2Phase1Result
-from ..entities.identity import canonical_entity_id
-from ..ontology import PROFILE_SIGNAL_PREDICATES, coerce_unknown_entity_type
+from ..ontology import PROFILE_SIGNAL_PREDICATES
 from ..ontology_aliases import canonicalize_predicate
 
 _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
@@ -20,7 +19,9 @@ _GENERIC_PREFERENCE_OBJECT_SUFFIXES = {
 }
 
 _ADDRESS_PREFERENCE_PATTERNS = (
-    re.compile(r"(?:请|麻烦|以后|之后|往后|可以|就|直接)?(?:叫我|称呼我)(?:为|作|做|成)?[\s:：'\"“”‘’「」『』]*([^\s，。,.!?！？\n]+)"),
+    re.compile(
+        r"(?:请|麻烦|以后|之后|往后|可以|就|直接)?(?:叫我|称呼我)(?:为|作|做|成)?[\s:：'\"“”‘’「」『』]*([^\s，。,.!?！？\n]+)"
+    ),
     re.compile(r"(?:call me|refer to me as|address me as)\s+['\"]?([^,.;!?\n]+)", re.IGNORECASE),
 )
 _ADDRESS_VALUE_STRIP_CHARS = " \t\r\n'\"“”‘’「」『』（）()[]{}<>《》：:，,。.!！?？"
@@ -43,6 +44,7 @@ class L2PipelineUtilityMixin:
         if text is None:
             return None
         from ..ontology import normalize_entity_type, ENTITY_TYPE_REGISTRY
+
         normalized = normalize_entity_type(text)
         return normalized if normalized in ENTITY_TYPE_REGISTRY else None
 
@@ -235,23 +237,7 @@ class L2PipelineUtilityMixin:
     def _is_self_like_preference_object(
         self, *, subject_id: str, object_id: str, object_type: str
     ) -> bool:
-        if object_id == subject_id:
-            return True
-        if object_type != "person":
-            return False
-        subject_prefix, _, subject_suffix = subject_id.partition(":")
-        object_prefix, _, object_suffix = object_id.partition(":")
-        if (
-            subject_prefix != "user"
-            or object_prefix != "person"
-            or not subject_suffix
-            or not object_suffix
-        ):
-            return False
-        return self._slugify(subject_suffix) == object_suffix
-
-    def _build_canonical_entity_id(self, *, entity_type: str, canonical_name: str) -> str:
-        return canonical_entity_id(entity_type, canonical_name)
+        return object_id == subject_id
 
     def _slugify(self, value: str) -> str:
         normalized = value.strip().casefold()
@@ -275,7 +261,6 @@ class L2PipelineUtilityMixin:
             if rows:
                 return str(rows[0]["entity_type"])
         return "other"
-
 
 
 __all__ = ["L2PipelineUtilityMixin"]

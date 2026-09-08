@@ -3,16 +3,14 @@
 import pytest
 
 from magi.memory.l2.entities.catalog import L2EntityCatalog
-from magi.memory.l2.entities.identity import canonical_entity_id
-from magi.memory.l2.pipeline.utils import L2PipelineUtilityMixin
+from magi.memory.l2.entities.identity import scoped_entity_id, normalized_entity_name
 
 
 @pytest.mark.asyncio
 async def test_unicode_names_with_the_same_ascii_suffix_remain_separate(tmp_path):
     catalog = L2EntityCatalog(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
-    pipeline = L2PipelineUtilityMixin()
     names = ["动态 (2)", "垃圾邮件 (2)", "星际争霸2", "流浪地球2"]
-    ids = [pipeline._build_canonical_entity_id(entity_type="media", canonical_name=n) for n in names]
+    ids = [scoped_entity_id("media", "source", normalized_entity_name(n)) for n in names]
     assert len(set(ids)) == len(names)
     for _ in range(2):
         for name, entity_id in zip(names, ids):
@@ -24,20 +22,24 @@ async def test_unicode_names_with_the_same_ascii_suffix_remain_separate(tmp_path
     assert len(rows) == 4
 
 
-def test_identity_normalization_preserves_type_and_name_distinctions():
-    assert canonical_entity_id("media", "  ＡＢＣ  ２ ") == canonical_entity_id("media", "abc 2")
-    assert canonical_entity_id("media", "星际2") != canonical_entity_id("media", "星际3")
-    assert canonical_entity_id("media", "a-b") != canonical_entity_id("media", "a b")
-    assert canonical_entity_id("media", "Apple") != canonical_entity_id("organization", "Apple")
+def test_source_identity_is_independent_of_classification():
+    assert scoped_entity_id("media", "source", "42") == scoped_entity_id(
+        "organization", "source", "42"
+    )
+    assert scoped_entity_id("media", "source", "42") != scoped_entity_id("media", "source", "43")
 
 
 @pytest.mark.asyncio
 async def test_name_change_requires_explicit_identity_authority(tmp_path):
     catalog = L2EntityCatalog(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
-    entity_id = canonical_entity_id("media", "星际争霸2")
-    await catalog.upsert_entity(entity_id=entity_id, entity_type="media", canonical_name="星际争霸2")
+    entity_id = scoped_entity_id("media", "source", "game-42")
+    await catalog.upsert_entity(
+        entity_id=entity_id, entity_type="media", canonical_name="星际争霸2"
+    )
     with pytest.raises(ValueError, match="different canonical name"):
-        await catalog.upsert_entity(entity_id=entity_id, entity_type="media", canonical_name="流浪地球2")
+        await catalog.upsert_entity(
+            entity_id=entity_id, entity_type="media", canonical_name="流浪地球2"
+        )
     await catalog.upsert_entity(
         entity_id=entity_id, entity_type="media", canonical_name="StarCraft II", allow_rename=True
     )
@@ -50,6 +52,7 @@ async def test_namespaced_source_keys_and_homonyms_are_distinct(tmp_path):
     from magi.memory.l2.entities.identity import entity_hint_id
     from magi.memory.l2.pipeline import L2Pipeline
     from magi.memory.l2.entities.catalog import L2EntityCatalog
+
     hint = {"mention_text": "张伟", "entity_type": "person", "source_entity_key": "42"}
     a = entity_hint_id(hint, source="contacts", event_id="one")
     assert a == entity_hint_id(hint, source="contacts", event_id="two")
@@ -71,6 +74,7 @@ async def test_namespaced_source_keys_and_homonyms_are_distinct(tmp_path):
 async def test_unresolved_homonyms_do_not_share_identity_or_replay_count(tmp_path):
     from magi.memory.l2.pipeline import L2Pipeline
     from magi.memory.l2.entities.catalog import L2EntityCatalog
+
     pipeline = L2Pipeline.__new__(L2Pipeline)
     pipeline._entity_catalog = L2EntityCatalog(db_path=str(tmp_path / "entities.db"))
     args = dict(mention={}, entity_type="person", mention_text="王伟", mention_confidence=0.95)

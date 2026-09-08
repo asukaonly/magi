@@ -6,11 +6,6 @@ import json
 from typing import Any, Protocol
 
 from ...storage.utils import MAX_EVIDENCE_EVENT_IDS, max_evidence_event_ids
-from ..identity import canonical_entity_id
-
-
-def _canonical_entity_id(entity_type: str, canonical_name: str) -> str:
-    return canonical_entity_id(entity_type, canonical_name)
 
 
 def _merge_evidence_json(a: str, b: str, *, max_items: int | None = None) -> str:
@@ -65,6 +60,5 @@ __all__ = [
     "L2EntityGhostHostMixin",
     "_CatalogMaintenanceHostProtocol",
     "_CatalogMaintenanceStatsProtocol",
-    "_canonical_entity_id",
     "_merge_evidence_json",
 ]

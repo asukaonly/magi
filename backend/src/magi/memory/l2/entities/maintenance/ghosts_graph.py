@@ -16,7 +16,6 @@ from ...graph.relationship_rekey_references import (
 from .ghosts_common import (
     L2EntityGhostHostMixin,
     _CatalogMaintenanceStatsProtocol,
-    _canonical_entity_id,
 )
 
 logger = get_logger("magi.memory.l2.entities.maintenance")
@@ -36,13 +35,11 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
             async with db.execute("""
                 SELECT DISTINCT object_id FROM knowledge_graph
                 WHERE object_id NOT IN (SELECT entity_id FROM entity_catalog)
-                  AND object_id NOT LIKE 'other:%'
                 """) as cur:
                 ghost_objects = [str(r[0]) for r in await cur.fetchall()]
             async with db.execute("""
                 SELECT DISTINCT subject_id FROM knowledge_graph
                 WHERE subject_id NOT IN (SELECT entity_id FROM entity_catalog)
-                  AND subject_id NOT LIKE 'other:%'
                   AND subject_id NOT LIKE 'user:%'
                 """) as cur:
                 ghost_subjects = [str(r[0]) for r in await cur.fetchall()]
@@ -68,112 +65,17 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
         await cast(Any, self)._rewrite_tom_entity_refs(stats)
 
     async def _resolve_ghost_to_catalog_id(self, ghost_id: str) -> str | None:
-        host = self._catalog_maintenance_host()
-        if ":" not in ghost_id:
-            return None
-        prefix, suffix = ghost_id.split(":", 1)
-        entity_type = prefix.strip().lower()
-        if not entity_type or not suffix:
-            return None
-        async with sqlite_connection_async(host._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT entity_id, canonical_name FROM entity_catalog WHERE entity_type = ?",
-                (entity_type,),
-            ) as cur:
-                rows = await cur.fetchall()
-        matches: list[str] = []
-        for row in rows:
-            cid = str(row["entity_id"])
-            cname = str(row["canonical_name"])
-            if _canonical_entity_id(entity_type, cname) == ghost_id:
-                matches.append(cid)
-        if len(matches) == 1:
-            return matches[0]
-        evidence_match = await self._resolve_ghost_by_evidence_text(
-            ghost_id=ghost_id,
-            entity_type=entity_type,
-        )
-        if evidence_match:
-            return evidence_match
-        if not matches:
-            return None
-        return None
-
-    async def _resolve_ghost_by_evidence_text(
-        self,
-        *,
-        ghost_id: str,
-        entity_type: str,
-    ) -> str | None:
+        """Repair only identities already established by a durable user decision."""
         host = self._catalog_maintenance_host()
         async with sqlite_connection_async(host._db_path) as db:
-            db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
-                SELECT evidence_text, natural_summary
-                FROM knowledge_graph
-                WHERE object_id = ? OR subject_id = ?
-                """,
-                (ghost_id, ghost_id),
-            ) as cur:
-                evidence_rows = await cur.fetchall()
-            async with db.execute(
-                """
-                SELECT c.entity_id, c.canonical_name, a.alias_text
-                FROM entity_catalog c
-                LEFT JOIN entity_aliases a ON a.entity_id = c.entity_id
-                WHERE c.entity_type = ?
-                """,
-                (entity_type,),
-            ) as cur:
-                catalog_rows = await cur.fetchall()
-
-        evidence_blob = "\n".join(
-            f"{row['evidence_text'] or ''}\n{row['natural_summary'] or ''}" for row in evidence_rows
-        ).casefold()
-        if not evidence_blob.strip():
-            return None
-
-        scored_matches: dict[str, int] = {}
-        for row in catalog_rows:
-            entity_id = str(row["entity_id"])
-            for raw_name in (row["canonical_name"], row["alias_text"]):
-                name = str(raw_name or "").strip()
-                if len(name) < 2:
-                    continue
-                if name.casefold() in evidence_blob:
-                    scored_matches[entity_id] = max(scored_matches.get(entity_id, 0), len(name))
-
-        if not scored_matches:
-            return None
-        best_score = max(scored_matches.values())
-        best_matches = [
-            entity_id for entity_id, score in scored_matches.items() if score == best_score
-        ]
-        if len(best_matches) == 1:
-            return best_matches[0]
-        return None
-
-    async def _pick_entity_by_mention_count(self, entity_ids: list[str]) -> str:
-        host = self._catalog_maintenance_host()
-        if len(entity_ids) == 1:
-            return entity_ids[0]
-        counts: dict[str, int] = {eid: 0 for eid in entity_ids}
-        placeholders = ", ".join("?" for _ in entity_ids)
-        async with sqlite_connection_async(host._db_path) as db:
-            async with db.execute(
-                f"""
-                SELECT resolved_entity_id, COUNT(*) AS c
-                FROM entity_mentions
-                WHERE resolved_entity_id IN ({placeholders})
-                GROUP BY resolved_entity_id
-                """,
-                tuple(entity_ids),
-            ) as cur:
-                for row in await cur.fetchall():
-                    counts[str(row[0])] = int(row[1])
-        return max(entity_ids, key=lambda eid: counts.get(eid, 0))
+                "SELECT catalog.entity_id FROM entity_identity_redirects AS redirect "
+                "JOIN entity_catalog AS catalog ON catalog.entity_id = redirect.target_entity_id "
+                "WHERE redirect.source_entity_id = ?",
+                (ghost_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return str(row[0]) if row is not None else None
 
     async def _rewrite_graph_column(
         self,

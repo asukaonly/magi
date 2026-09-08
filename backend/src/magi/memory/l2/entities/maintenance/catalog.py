@@ -14,7 +14,6 @@ from .ghosts import (
     L2EntityGhostMaintenanceMixin,
     _CatalogMaintenanceHostProtocol,
     _CatalogMaintenanceStatsProtocol,
-    _canonical_entity_id,
     _merge_evidence_json,
 )
 
@@ -425,6 +424,5 @@ __all__ = [
     "L2EntityCatalogMaintenanceMixin",
     "_CatalogMaintenanceHostProtocol",
     "_CatalogMaintenanceStatsProtocol",
-    "_canonical_entity_id",
     "_merge_evidence_json",
 ]

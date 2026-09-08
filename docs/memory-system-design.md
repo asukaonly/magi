@@ -3327,7 +3327,8 @@ are only reused from source-owned identities during free-form extraction.
 
 Names and type compatibility are candidate signals, never identity proof.
 Ambiguous existing referents must not be arbitrarily assigned or silently
-reclassified. Extractor contract 7 records the revised semantic instructions.
+reclassified. Extractor contract 8 combines the revised entity instructions with
+the source-name extraction contract.
 
 The system prefix contains stable instructions only. JSON format-retry feedback
 is appended to the dynamic request, leaving the cacheable system unchanged.
@@ -3399,3 +3400,12 @@ The authenticated memory API exposes `/l2/entities/changes/preview`,
 `/l2/entities/identity-audit`. Historical homonyms are review candidates, not confirmed
 duplicates. Misinterpreted historical Claim bodies still require explicit source
 re-extraction through the existing lease, correction and forgetting protections.
+
+
+Maintenance resolves dangling references only through confirmed durable identity
+redirects. ID prefix, name spelling, mention count, and substring hits in evidence
+never authorize a repair. Source hints without a producer key receive event-local,
+ordinal identities; replay bindings retain their original ID even when a later
+classification differs. The source adapter should provide a stable object key
+when it can establish identity across events. The retired global name/type hash
+and concept-specific identity shortcut are no longer runtime paths.

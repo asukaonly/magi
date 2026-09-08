@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -25,7 +26,7 @@ from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
 from magi.memory.l2.entities.catalog import L2EntityCatalog
-from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_entity_id
+from magi.memory.l2.entities.maintenance import L2EntityMaintenance
 from magi.memory.l2.graph.relationship_rekey_coordinator import (
     RelationshipIdentityRekeyCoordinator,
 )
@@ -33,6 +34,20 @@ from magi.memory.l2.graph.relationship_rekey_identity import (
     relationship_slot_key_on_connection,
 )
 from magi.memory.l2.store import L2CognitionStore
+
+
+def _canonical_entity_id(entity_type: str, name: str) -> str:
+    """Create a historical persisted-ID fixture without giving it identity authority."""
+    return f"{entity_type}:" + uuid.uuid5(uuid.NAMESPACE_URL, name).hex
+
+
+async def _authorize_identity_redirect(db_path: str, source: str, target: str) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            "INSERT INTO entity_identity_redirects VALUES (?, ?, 'fixture-user-decision')",
+            (source, target),
+        )
+        await db.commit()
 
 
 def _migrate_memory_shared_schema(db_path: str) -> None:
@@ -59,9 +74,7 @@ async def _correction_revert_block_reason(
     *,
     correction_id: str,
 ) -> str | None:
-    reasons = await MemoryCorrectionRepository(
-        db_path
-    ).correction_revert_block_reasons(
+    reasons = await MemoryCorrectionRepository(db_path).correction_revert_block_reasons(
         [correction_id],
     )
     return reasons.get(correction_id)
@@ -178,9 +191,7 @@ async def _seed_shared_same_slot_relationship_replacement(
 def _assert_shared_relationships_survive(
     relationships: list[dict[str, object]],
 ) -> None:
-    assert {
-        (item["predicate"], item["object_id"]) for item in relationships
-    } == {
+    assert {(item["predicate"], item["object_id"]) for item in relationships} == {
         ("HEARD_OF", "place:winner"),
         ("VISITED", "place:winner"),
     }
@@ -437,15 +448,11 @@ async def test_entity_merge_rekeys_name_evidence_and_preserves_independent_alias
     await maintenance._merge_entity_into("person:winner", "person:loser")
 
     async with sqlite_connection_async(db_path) as db:
-        evidence_rows = await (
-            await db.execute(
-                """
+        evidence_rows = await (await db.execute("""
                 SELECT entity_id, event_id
                 FROM entity_name_evidence
                 ORDER BY name_kind, normalized_name
-                """
-            )
-        ).fetchall()
+                """)).fetchall()
         assert [tuple(row) for row in evidence_rows] == [
             ("person:winner", "event-source"),
             ("person:winner", "event-source"),
@@ -575,15 +582,11 @@ async def test_entity_merge_blocks_ambiguous_assertion_branch_reverts(
             replacement_value="Different value",
         )
     async with sqlite_connection_async(db_path) as db:
-        blocked = await (
-            await db.execute(
-                """
+        blocked = await (await db.execute("""
                 SELECT correction_id, block_reason
                 FROM memory_correction_revert_blocks
                 ORDER BY correction_id
-                """
-            )
-        ).fetchall()
+                """)).fetchall()
     assert {tuple(row) for row in blocked} == {
         (correction_ids[0], "identity_merge"),
         (correction_ids[1], "identity_merge"),
@@ -1889,6 +1892,7 @@ async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
             entity_type="software",
         )
         ghost_object = _canonical_entity_id("software", "X")
+        await _authorize_identity_redirect(db_path, ghost_object, "software:twitter-handle")
         assert ghost_object != "software:twitter-handle"
         now = time.time()
         async with sqlite_connection_async(db_path) as db:
@@ -1950,6 +1954,7 @@ async def test_ghost_rewrite_rekeys_relationship_governance_references() -> None
             entity_type="food",
         )
         ghost_id = _canonical_entity_id("food", "Ramen")
+        await _authorize_identity_redirect(db_path, ghost_id, "food:ramen-canonical")
         project_scope = {
             "all_of": [
                 {
@@ -2126,6 +2131,7 @@ async def test_ghost_rewrite_collision_keeps_independent_claim_through_revert() 
             entity_type="food",
         )
         ghost_id = _canonical_entity_id("food", "Ramen")
+        await _authorize_identity_redirect(db_path, ghost_id, "food:ramen-canonical")
         store = L2CognitionStore(db_path=db_path)
         original_id = await store.upsert_knowledge_edge(
             subject_id="user:self",
@@ -2176,13 +2182,11 @@ async def test_ghost_rewrite_collision_keeps_independent_claim_through_revert() 
                     (canonical_triple_id,),
                 )
             ).fetchone()
-            duplicates = await (
-                await db.execute("""
+            duplicates = await (await db.execute("""
                     SELECT COUNT(*) FROM knowledge_graph
                     WHERE subject_id = 'user:self' AND predicate = 'LIKES'
                       AND object_id = 'food:ramen-canonical' AND scope_key = 'global'
-                    """)
-            ).fetchone()
+                    """)).fetchone()
             correction = await (
                 await db.execute(
                     "SELECT * FROM memory_corrections WHERE correction_id = ?",
@@ -2246,6 +2250,7 @@ async def test_forgotten_relationship_stays_forgotten_after_identity_merge() -> 
             entity_type="food",
         )
         ghost_id = _canonical_entity_id("food", "Ramen")
+        await _authorize_identity_redirect(db_path, ghost_id, "food:ramen-canonical")
         store = L2CognitionStore(db_path=db_path)
         observed_at = time.time() - 60
         ghost_triple_id = await store.upsert_knowledge_edge(
@@ -2410,6 +2415,7 @@ async def test_relationship_merge_does_not_copy_forgotten_evidence_to_active_win
             entity_type="food",
         )
         ghost_id = _canonical_entity_id("food", "Ramen")
+        await _authorize_identity_redirect(db_path, ghost_id, "food:ramen-canonical")
         store = L2CognitionStore(db_path=db_path)
         ghost_triple_id = await store.upsert_knowledge_edge(
             subject_id="user:self",
@@ -2479,6 +2485,7 @@ async def test_forgotten_relationship_correction_rekeys_to_canonical_history() -
             entity_type="food",
         )
         ghost_id = _canonical_entity_id("food", "Ramen")
+        await _authorize_identity_redirect(db_path, ghost_id, "food:ramen-canonical")
         store = L2CognitionStore(db_path=db_path)
         original_id = await store.upsert_knowledge_edge(
             subject_id="user:self",
@@ -2736,7 +2743,7 @@ async def test_predicate_consolidation_rekeys_correction_replacement() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ghost_object_id_rewrites_by_evidence_text() -> None:
+async def test_ghost_object_id_is_not_guessed_from_evidence_text() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -2780,21 +2787,15 @@ async def test_ghost_object_id_rewrites_by_evidence_text() -> None:
 
         maint = L2EntityMaintenance(db_path=db_path)
         stats = await maint.run(min_mentions_to_keep=99, merge_fragments=False, prune_orphans=False)
-        assert stats.ghost_edges_rewritten >= 1
-
+        assert stats.ghost_edges_rewritten == 0
+        assert stats.ghost_skipped_no_target == 1
         async with sqlite_connection_async(db_path) as db:
-            rewritten_triple_id = relationship_triple_id(
-                subject_id="user:self",
-                predicate="LISTENED",
-                object_id="media:1ee3b9131dd8",
-            )
-            async with db.execute(
-                "SELECT object_id FROM knowledge_graph WHERE triple_id = ?",
-                (rewritten_triple_id,),
-            ) as cur:
-                row = await cur.fetchone()
-        assert row is not None
-        assert row[0] == "media:1ee3b9131dd8"
+            row = await (
+                await db.execute(
+                    "SELECT object_id FROM knowledge_graph WHERE triple_id = 'triple_guichao_ghost'"
+                )
+            ).fetchone()
+        assert row[0] == "media:guichao-caimingxi"
 
 
 @pytest.mark.asyncio
@@ -2904,14 +2905,14 @@ async def test_same_name_does_not_merge_scoped_identity() -> None:
                 ("claude",),
             ) as cur:
                 entities = await cur.fetchall()
-            snapshot = await (
-                await db.execute("""
+            snapshot = await (await db.execute("""
                     SELECT entity_id, current_mood, update_source_assertion_ids
                     FROM tom_snapshots
                     WHERE entity_id IN ('software:claude-app', 'technology:claude-ai')
-                    """)
-            ).fetchone()
-        assert {"software:claude-app", "technology:claude-ai"}.issubset({row["entity_id"] for row in entities})
+                    """)).fetchone()
+        assert {"software:claude-app", "technology:claude-ai"}.issubset(
+            {row["entity_id"] for row in entities}
+        )
         assert snapshot is not None
         assert snapshot["entity_id"] == "technology:claude-ai"
         assert snapshot["current_mood"] == "focused"
@@ -3743,6 +3744,7 @@ async def test_tom_ghost_rewrite_handles_unique_conflict():
         )
 
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, "person:alice-canon")
         assert ghost_id != "person:alice-canon"
 
         store = L2CognitionStore(db_path=db_path)
@@ -3929,6 +3931,7 @@ async def test_tom_ghost_rewrite_keeps_snapshots_hidden_when_rebuild_fails(
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, canonical_id)
         store = L2CognitionStore(db_path=db_path)
         now = time.time()
         for entity_id, trait_name, trait_value, event_id in (
@@ -4014,6 +4017,7 @@ async def test_tom_ghost_rewrite_keeps_distinct_project_scopes_current() -> None
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, "person:alice-canon")
         store = L2CognitionStore(db_path=db_path)
         now = time.time()
         project_a = {
@@ -4069,8 +4073,7 @@ async def test_tom_ghost_rewrite_keeps_distinct_project_scopes_current() -> None
 
         async with sqlite_connection_async(db_path) as db:
             db.row_factory = aiosqlite.Row
-            rows = await (
-                await db.execute("""
+            rows = await (await db.execute("""
                     SELECT entity_id, trait_value, scope_key, status
                     FROM tom_trait_assertions
                     WHERE entity_id = 'person:alice-canon'
@@ -4079,8 +4082,7 @@ async def test_tom_ghost_rewrite_keeps_distinct_project_scopes_current() -> None
                           'user_rejected', 'shadow'
                       )
                     ORDER BY scope_key
-                    """)
-            ).fetchall()
+                    """)).fetchall()
         assert len(rows) == 2
         assert {row["trait_value"] for row in rows} == {"happy", "focused"}
         assert {row["scope_key"] for row in rows} == {
@@ -4102,6 +4104,7 @@ async def test_tom_ghost_rewrite_accumulates_evidence_from_all_collisions() -> N
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, canonical_id)
         store = L2CognitionStore(db_path=db_path)
         now = time.time()
         candidates = (
@@ -4177,6 +4180,7 @@ async def test_tom_ghost_rewrite_handles_invalidated_unique_collision() -> None:
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, canonical_id)
         store = L2CognitionStore(db_path=db_path)
         now = time.time()
         invalidated_id = await store.upsert_assertion_candidate(
@@ -4265,6 +4269,7 @@ async def test_forgotten_assertion_history_stays_governed_after_ghost_rekey() ->
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, "person:alice-canonical")
         store = L2CognitionStore(db_path=db_path)
         observed_at = time.time() - 120
         assertion_id = await store.upsert_assertion_candidate(
@@ -4359,14 +4364,12 @@ async def test_forgotten_assertion_history_stays_governed_after_ghost_rekey() ->
                     (correction_id,),
                 )
             ).fetchone()
-            rules = await (
-                await db.execute("""
+            rules = await (await db.execute("""
                     SELECT claim_fingerprint, semantic_fingerprint
                     FROM memory_forget_claim_rules
                     WHERE target_kind = 'assertion'
                     ORDER BY claim_fingerprint
-                    """)
-            ).fetchall()
+                    """)).fetchall()
             stale_governance = await (
                 await db.execute(
                     """
@@ -4434,6 +4437,7 @@ async def test_target_only_ghost_rekeys_forgotten_assertion_governance() -> None
             entity_type="person",
         )
         ghost_id = _canonical_entity_id("person", "Alice")
+        await _authorize_identity_redirect(db_path, ghost_id, "person:alice-canonical")
         store = L2CognitionStore(db_path=db_path)
         observed_at = time.time() - 60
         assertion_id = await store.upsert_assertion_candidate(

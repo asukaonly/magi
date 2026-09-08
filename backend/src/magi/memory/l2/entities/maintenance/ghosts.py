@@ -6,7 +6,6 @@ from .ghosts_common import (
     MAX_EVIDENCE_EVENT_IDS,
     _CatalogMaintenanceHostProtocol,
     _CatalogMaintenanceStatsProtocol,
-    _canonical_entity_id,
     _merge_evidence_json,
 )
 from .ghosts_graph import L2EntityGhostGraphMaintenanceMixin
@@ -25,6 +24,5 @@ __all__ = [
     "L2EntityGhostMaintenanceMixin",
     "_CatalogMaintenanceHostProtocol",
     "_CatalogMaintenanceStatsProtocol",
-    "_canonical_entity_id",
     "_merge_evidence_json",
 ]

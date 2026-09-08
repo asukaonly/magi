@@ -7,6 +7,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+import unicodedata
 from pathlib import Path
 
 from sqlalchemy.engine import Connection
@@ -146,16 +147,39 @@ def _backfill_source_bindings(connection: Connection, l1_path: Path) -> None:
             hints = payload.get("structured_entity_hints") if isinstance(payload, dict) else None
             if not isinstance(hints, list):
                 continue
-            for hint in hints:
+            for ordinal, hint in enumerate(hints):
                 if not isinstance(hint, dict):
                     continue
                 key = str(hint.get("source_entity_key") or "").strip()
                 kind = str(hint.get("entity_type") or "").strip().casefold()
-                if not key or not kind:
+                if not kind:
                     continue
                 # Frozen pre-v52 source identity serialization, used only for data migration.
-                encoded = json.dumps([kind, source, key], ensure_ascii=False)
-                entity_id = f"{kind}:source:{uuid.uuid5(uuid.NAMESPACE_URL, encoded).hex}"
+                if key:
+                    namespace = source
+                    encoded = json.dumps([kind, source, key], ensure_ascii=False)
+                    entity_id = f"{kind}:source:{uuid.uuid5(uuid.NAMESPACE_URL, encoded).hex}"
+                else:
+                    name = str(hint.get("canonical_name_hint") or hint.get("mention_text") or "")
+                    normalized = " ".join(unicodedata.normalize("NFKC", name).casefold().split())
+                    namespace = f"{source}:event:{event_id}"
+                    key = str(ordinal)
+                    if kind in {
+                        "topic",
+                        "concept",
+                        "technology",
+                        "software",
+                        "food",
+                        "language",
+                        "skill",
+                    }:
+                        encoded = json.dumps(
+                            [kind, normalized], ensure_ascii=False, separators=(",", ":")
+                        )
+                        entity_id = f"{kind}:{uuid.uuid5(uuid.NAMESPACE_URL, encoded).hex}"
+                    else:
+                        encoded = json.dumps([kind, namespace, normalized], ensure_ascii=False)
+                        entity_id = f"{kind}:source:{uuid.uuid5(uuid.NAMESPACE_URL, encoded).hex}"
                 resolved = str(hint.get("resolved_entity_id") or entity_id)
                 exists = connection.exec_driver_sql(
                     "SELECT entity_id FROM entity_catalog WHERE entity_id = ?",
@@ -165,5 +189,5 @@ def _backfill_source_bindings(connection: Connection, l1_path: Path) -> None:
                     continue
                 connection.exec_driver_sql(
                     "INSERT OR IGNORE INTO entity_source_bindings(namespace, source_key_hash, entity_id) VALUES (?, ?, ?)",
-                    (source, hashlib.sha256(key.encode()).hexdigest(), resolved),
+                    (namespace, hashlib.sha256(key.encode()).hexdigest(), resolved),
                 )

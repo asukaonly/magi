@@ -81,47 +81,36 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
     ) -> None:
         raw_entity_hints = metadata_json.get("structured_entity_hints")
         if isinstance(raw_entity_hints, list):
-            for hint in raw_entity_hints:
-                candidate = self._structured_entity_hint_candidate(hint, state=state)
+            for source_ordinal, hint in enumerate(raw_entity_hints):
+                candidate = self._structured_entity_hint_candidate(
+                    hint, state=state, source_ordinal=source_ordinal
+                )
                 if candidate is None:
                     continue
-                if isinstance(hint, dict) and hint.get("source_entity_key"):
-                    resolved_id = await state.catalog.upsert_entity(
-                        entity_id=candidate.entity_id,
-                        canonical_name=candidate.canonical_name,
-                        entity_type=candidate.entity_type,
-                        source_event_ids=state.source_event_ids,
-                        projection_leases=state.projection_leases,
-                        source_namespace=state.source,
-                        source_key=str(hint["source_entity_key"]),
-                    )
-                    hint["resolved_entity_id"] = resolved_id
-                    await state.catalog.add_alias(
-                        entity_id=resolved_id,
-                        alias_text=candidate.alias_text or candidate.canonical_name,
-                        source_event_ids=state.source_event_ids,
-                        projection_leases=state.projection_leases,
-                    )
-                    state.seen_ids.add(resolved_id)
-                    state.upserted_count += 1
-                    continue
-                existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
-                    catalog=state.catalog,
-                    entity_ref=candidate.entity_id,
-                    entity_type=candidate.entity_type,
-                    canonical_name=candidate.canonical_name,
+                source_key = str(hint.get("source_entity_key") or "").strip()
+                namespace = (
+                    state.source
+                    if source_key
+                    else f"{state.source}:event:{state.source_event_ids[0]}"
                 )
-                if existing_entity_id:
-                    await state.catalog.add_alias(
-                        entity_id=existing_entity_id,
-                        alias_text=candidate.alias_text,
-                        confidence=0.98,
-                        source_event_ids=state.source_event_ids,
-                        projection_leases=state.projection_leases,
-                    )
-                    state.seen_ids.add(existing_entity_id)
-                    continue
-                await self._upsert_structured_hint_entity(state, candidate)
+                resolved_id = await state.catalog.upsert_entity(
+                    entity_id=candidate.entity_id,
+                    canonical_name=candidate.canonical_name,
+                    entity_type=candidate.entity_type,
+                    source_event_ids=state.source_event_ids,
+                    projection_leases=state.projection_leases,
+                    source_namespace=namespace,
+                    source_key=source_key or str(source_ordinal),
+                )
+                hint["resolved_entity_id"] = resolved_id
+                await state.catalog.add_alias(
+                    entity_id=resolved_id,
+                    alias_text=candidate.alias_text or candidate.canonical_name,
+                    source_event_ids=state.source_event_ids,
+                    projection_leases=state.projection_leases,
+                )
+                state.seen_ids.add(resolved_id)
+                state.upserted_count += 1
 
     async def _upsert_structured_graph_ref_entities(
         self,
@@ -154,6 +143,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         hint: Any,
         *,
         state: _StructuredEntityHintUpsertState,
+        source_ordinal: int = 0,
     ) -> _StructuredEntityHintCandidate | None:
         if not isinstance(hint, dict):
             return None
@@ -162,7 +152,12 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         if not mention_text or not entity_type:
             return None
         canonical_name = state.host._non_empty_text(hint.get("canonical_name_hint")) or mention_text
-        entity_id = entity_hint_id(hint, source=state.source, event_id=state.source_event_ids[0])
+        entity_id = entity_hint_id(
+            hint,
+            source=state.source,
+            event_id=state.source_event_ids[0],
+            source_ordinal=source_ordinal,
+        )
         return _StructuredEntityHintCandidate(
             entity_id=entity_id,
             entity_type=entity_type,
@@ -208,9 +203,9 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         self,
         state: _StructuredEntityHintUpsertState,
         candidate: _StructuredEntityHintCandidate,
-    ) -> None:
+    ) -> str:
         if candidate.entity_id in state.seen_ids:
-            return
+            return candidate.entity_id
         state.seen_ids.add(candidate.entity_id)
         normalized_entity_id = await state.catalog.upsert_entity(
             entity_id=candidate.entity_id,
@@ -230,6 +225,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 projection_leases=state.projection_leases,
             )
         state.upserted_count += 1
+        return normalized_entity_id
 
     async def _add_existing_structured_entity_alias(
         self,
@@ -272,33 +268,6 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         matches = await catalog.list_entities(entity_ids=[entity_ref], limit=1)
         return str(matches[0]["entity_id"]) if matches else None
 
-    def _structured_ref_lookup_candidates(
-        self,
-        *,
-        entity_ref: str,
-        entity_type: str,
-        canonical_name: str,
-    ) -> list[str]:
-        candidates: list[str] = []
-
-        def add(value: str | None) -> None:
-            text = str(value or "").strip()
-            if text and text.casefold() not in {item.casefold() for item in candidates}:
-                candidates.append(text)
-
-        if ":" in entity_ref:
-            prefix, _, suffix = entity_ref.partition(":")
-            stripped_suffix = self._strip_structured_ref_type_prefix(
-                value=suffix,
-                entity_type=entity_type or prefix,
-            )
-            add(suffix)
-            add(stripped_suffix)
-        else:
-            add(entity_ref)
-        add(canonical_name)
-        return candidates
-
     def _strip_structured_ref_type_prefix(self, *, value: str, entity_type: str) -> str:
         text = str(value or "").strip()
         normalized_type = str(entity_type or "").strip().casefold()
@@ -326,7 +295,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         host = self._structured_hint_host()
         existing_ids = {str(e.get("entity_id", "")) for e in existing_entities}
         injected_count = 0
-        for hint in hints:
+        for source_ordinal, hint in enumerate(hints):
             if not isinstance(hint, dict):
                 continue
             mention_text = str(hint.get("mention_text", "")).strip()
@@ -335,7 +304,9 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 continue
 
             canonical_name = str(hint.get("canonical_name_hint") or mention_text).strip()
-            entity_id = entity_hint_id(hint, source=event.source, event_id=event.event_id)
+            entity_id = entity_hint_id(
+                hint, source=event.source, event_id=event.event_id, source_ordinal=source_ordinal
+            )
 
             if entity_id in existing_ids:
                 continue

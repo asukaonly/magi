@@ -19,7 +19,6 @@ from ...claims.reprojection import (
 from .assertions import L2EntityAssertionMaintenanceMixin
 from .catalog import (
     L2EntityCatalogMaintenanceMixin,
-    _canonical_entity_id,
 )
 from .edges import L2EntityEdgeMaintenanceMixin
 from .embeddings import L2EntityEmbeddingMaintenanceMixin
@@ -37,7 +36,6 @@ __all__ = [
     "L2EntityMaintenance",
     "L2EntityMaintenanceStats",
     "L2MaintenanceLifecycle",
-    "_canonical_entity_id",
     "get_predicate_synonym_group",
 ]
 

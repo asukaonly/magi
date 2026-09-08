@@ -175,3 +175,39 @@ def test_v52_migration_recovers_exact_source_binding_without_renaming(tmp_path):
     command.upgrade(config, "head")
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT COUNT(*) FROM entity_source_bindings").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_unkeyed_source_homonyms_use_distinct_ordinals_and_stable_replay(catalog):
+    from magi.memory.l2.pipeline import L2Pipeline
+    from magi.memory.event_contracts import normalize_runtime_event
+    from magi.events.events import Event, EventTypes
+
+    pipeline = L2Pipeline.__new__(L2Pipeline)
+    pipeline._entity_catalog = catalog
+    event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            source="calendar",
+            event_id="e-source",
+            timestamp=1,
+            data={"content": "Apple", "author_type": "user"},
+        )
+    )
+    event.metadata_json = {
+        "structured_entity_hints": [
+            {"mention_text": "Apple", "entity_type": "organization"},
+            {"mention_text": "Apple", "entity_type": "group"},
+        ]
+    }
+    await pipeline._upsert_structured_hint_entities(event)
+    rows = await catalog.list_entities()
+    assert len(rows) == 2
+    ids = {row["entity_id"] for row in rows}
+    # Re-extraction can change classification but not the occurrence's durable identity.
+    event.metadata_json["structured_entity_hints"][0] = {
+        "mention_text": "Apple",
+        "entity_type": "brand",
+    }
+    await pipeline._upsert_structured_hint_entities(event)
+    assert {row["entity_id"] for row in await catalog.list_entities()} == ids
