@@ -22,6 +22,10 @@ tree uses a protected access policy for the current account and the operating
 system. The Python worker repeats the Unix protection when it starts outside
 the desktop host.
 
+The native protection implementation lives in the Tauri-independent
+`crates/magi-platform` leaf crate. Hosts share these OS checks without depending
+on each other's UI or lifecycle implementation.
+
 Startup rejects a runtime root or descendant that is a symbolic link, Windows
 reparse point, externally hard-linked file, or an entry owned by another
 account. It fails before normal runtime startup instead of following the entry

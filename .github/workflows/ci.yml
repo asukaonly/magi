@@ -299,3 +299,6 @@ jobs:
 
       - name: Check desktop shell
         run: cargo check --locked -p magi-desktop
+
+      - name: Test native storage protection
+        run: cargo test --locked -p magi-platform

@@ -9,6 +9,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+magi-platform = { path = "../../crates/magi-platform" }
 magi-gateway = { path = "../../crates/magi-gateway" }
 libc = "0.2"
 rusqlite = { version = "0.39", features = ["bundled"] }

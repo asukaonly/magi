@@ -2314,6 +2314,7 @@ dependencies = [
  "libc",
  "log",
  "magi-gateway",
+ "magi-platform",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -2365,6 +2366,14 @@ version = "0.1.0"
 dependencies = [
  "magi-gateway",
  "tokio",
+]
+
+[[package]]
+name = "magi-platform"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

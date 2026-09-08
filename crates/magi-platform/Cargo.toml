@@ -1,0 +1,14 @@
+[package]
+name = "magi-platform"
+version = "0.1.0"
+description = "Native filesystem protection shared by Magi hosts"
+edition = "2021"
+
+[dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem", "Win32_System_Threading",
+] }
