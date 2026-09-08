@@ -2183,10 +2183,17 @@ async fn schedule_mutations_reach_the_runtime_owner() {
     let (state, forwarded) = test_state_with_api_forward_response(serde_json::json!({
         "status": 409, "headers": {"content-type": "application/json"},
         "body": {"detail": "Schedule changed on the center"}
-    })).await;
+    }))
+    .await;
     let router = api::build_router(state);
-    for (method, path) in [("POST", "/api/schedules"), ("PATCH", "/api/schedules/shared"), ("DELETE", "/api/schedules/shared?revision=12.5"), ("POST", "/api/schedules/activity/source_job:1/cancel")] {
-        let (status, _) = request_json(router.clone(), method, path, Some(r#"{"revision":12.5}"#)).await;
+    for (method, path) in [
+        ("POST", "/api/schedules"),
+        ("PATCH", "/api/schedules/shared"),
+        ("DELETE", "/api/schedules/shared?revision=12.5"),
+        ("POST", "/api/schedules/activity/source_job:1/cancel"),
+    ] {
+        let (status, _) =
+            request_json(router.clone(), method, path, Some(r#"{"revision":12.5}"#)).await;
         assert_eq!(status, 409);
     }
     let requests = forwarded.lock().unwrap();
@@ -2211,7 +2218,10 @@ async fn schedule_reads_preserve_definition_revisions_and_envelope() {
     assert_eq!(status, 200);
     let (status, detail) = request_json(router, "GET", "/api/schedules/shared", None).await;
     assert_eq!(status, 200);
-    assert_eq!(detail["schedule"]["revision"], list["schedules"][0]["revision"]);
+    assert_eq!(
+        detail["schedule"]["revision"],
+        list["schedules"][0]["revision"]
+    );
     assert_eq!(detail["schedule"]["revision"], 1770000000.123456);
     assert!(detail["schedule"]["target_state"].is_object());
 }
