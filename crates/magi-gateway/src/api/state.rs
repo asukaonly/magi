@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::ipc::IpcClient;
+use crate::ipc::{IpcClient, RuntimeConnection};
 
 use super::security::GatewaySecurity;
 
 #[derive(Clone)]
 pub struct ApiState {
-    pub ipc_client: Arc<IpcClient>,
+    pub ipc_client: Arc<RuntimeConnection>,
     pub security: Arc<GatewaySecurity>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
@@ -17,6 +17,13 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(ipc_client: Arc<IpcClient>, security: Arc<GatewaySecurity>) -> Self {
+        Self::with_runtime(Arc::new(RuntimeConnection::connected(ipc_client)), security)
+    }
+
+    pub fn with_runtime(
+        ipc_client: Arc<RuntimeConnection>,
+        security: Arc<GatewaySecurity>,
+    ) -> Self {
         Self {
             ipc_client,
             security,

@@ -48,13 +48,18 @@ Last reviewed against the implementation: 2026-08-25.
 
 ## System Topology
 
-The desktop runtime is split across two Python roles behind the Rust gateway:
+The desktop runtime has one Python `ipc_worker` process behind the Rust gateway.
+Its in-memory ASGI app accepts product requests and enqueues durable commands;
+the same process consumes commands, runs task agents, owns the message bus,
+executes model/tool loops, and writes outcomes. These are logical responsibilities,
+not two independently deployed Python processes.
 
-- **API process** — accepts product requests, owns chat ingress transactions,
-  enqueues durable runtime commands, and serves chat/control/trace read APIs;
-- **runtime worker** — consumes commands, runs task agents, owns the in-process
-  message bus, executes model/tool loops, and writes runtime events and chat
-  outcomes.
+Gateway routes use a replaceable `RuntimeConnection`. Replacing the worker
+connection closes the previous socket and fails outstanding requests without
+replaying them. New requests use the new connection generation. A missing
+connection returns `IPC_UNAVAILABLE` for Python-backed routes; readiness can
+still report the unavailable runtime. Worker process restart policy belongs to
+the lifecycle owner, not to individual HTTP requests.
 
 The message bus is process-local. SQLite queues and domain stores, not the bus,
 own restart recovery.

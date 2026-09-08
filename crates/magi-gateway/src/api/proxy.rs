@@ -74,19 +74,32 @@ impl Drop for StagedBodyGuard {
 }
 
 pub async fn proxy_handler(State(state): State<ApiState>, req: Request) -> impl IntoResponse {
-    ipc_proxy(&state.ipc_client, req, MAX_PROXY_BODY_BYTES).await
+    match state.ipc_client.current() {
+        Ok(client) => ipc_proxy(&client, req, MAX_PROXY_BODY_BYTES).await,
+        Err(_) => runtime_unavailable(),
+    }
 }
 
 pub async fn attachment_upload_proxy_handler(
     State(state): State<ApiState>,
     req: Request,
 ) -> impl IntoResponse {
+    let client = match state.ipc_client.current() {
+        Ok(client) => client,
+        Err(_) => return runtime_unavailable(),
+    };
     attachment_upload_ipc_proxy(
-        &state.ipc_client,
+        &client,
         req,
         super::messages::MAX_ATTACHMENT_UPLOAD_BODY_BYTES,
     )
     .await
+}
+
+fn runtime_unavailable() -> Response {
+    (StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
+        "success": false, "error_code": "IPC_UNAVAILABLE", "message": "Python runtime is unavailable"
+    }))).into_response()
 }
 
 async fn attachment_upload_ipc_proxy(

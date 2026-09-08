@@ -4,12 +4,12 @@
 //! by UUID. Stream and event messages are dispatched to registered receivers.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::protocol::{self, InboundMessage, IpcError, IpcNotify, IpcRequest};
 
@@ -45,6 +45,20 @@ struct PendingRequest {
 
 type PendingMap = HashMap<String, PendingRequest>;
 
+struct PendingGuard {
+    id: String,
+    pending: Arc<Mutex<PendingMap>>,
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
+    }
+}
+
 /// IPC client connected to the Python worker.
 #[derive(Clone)]
 pub struct IpcClient {
@@ -52,6 +66,7 @@ pub struct IpcClient {
     write_tx: mpsc::Sender<String>,
     /// In-flight request map (shared with the read loop).
     pending: Arc<Mutex<PendingMap>>,
+    closed: watch::Sender<bool>,
 }
 
 impl IpcClient {
@@ -155,15 +170,39 @@ impl IpcClient {
         let (write_tx, write_rx) = mpsc::channel::<String>(256);
         let (event_tx, event_rx) = mpsc::channel::<(String, Value)>(256);
 
-        // Spawn write loop
-        tokio::spawn(Self::write_loop(writer, write_rx));
-
-        // Spawn read loop
+        let (closed, mut shutdown) = watch::channel(false);
+        let connection_closed = closed.clone();
         let read_pending = Arc::clone(&pending);
-        let read_event_tx = event_tx.clone();
-        tokio::spawn(Self::read_loop(reader, read_pending, read_event_tx));
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = shutdown.changed() => {},
+                _ = Self::write_loop(writer, write_rx) => {},
+                _ = Self::read_loop(reader, Arc::clone(&read_pending), event_tx) => {},
+            }
+            connection_closed.send_replace(true);
+            read_pending
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        });
 
-        Ok((Self { write_tx, pending }, event_rx))
+        Ok((
+            Self {
+                write_tx,
+                pending,
+                closed,
+            },
+            event_rx,
+        ))
+    }
+
+    /// Close both socket halves and fail pending requests without replaying them.
+    pub fn disconnect(&self) {
+        self.closed.send_replace(true);
+    }
+
+    pub fn is_connected(&self) -> bool {
+        !*self.closed.borrow()
     }
 
     /// Send a fire-and-forget notification.
@@ -197,13 +236,20 @@ impl IpcClient {
         params: Option<Value>,
         timeout: Duration,
     ) -> Result<Value, IpcError> {
+        let mut closed = self.closed.subscribe();
+        if *closed.borrow() {
+            return Err(connection_closed_error());
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
-
-        {
-            let mut map = self.pending.lock().await;
-            map.insert(id.clone(), PendingRequest { tx });
-        }
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), PendingRequest { tx });
+        let _pending_guard = PendingGuard {
+            id: id.clone(),
+            pending: Arc::clone(&self.pending),
+        };
 
         let msg = IpcRequest {
             id: id.clone(),
@@ -213,8 +259,6 @@ impl IpcClient {
         let mut line = match serde_json::to_string(&msg) {
             Ok(s) => s,
             Err(e) => {
-                let mut map = self.pending.lock().await;
-                map.remove(&id);
                 return Err(IpcError {
                     code: -1,
                     message: format!("Failed to serialise IPC request: {e}"),
@@ -223,16 +267,16 @@ impl IpcClient {
         };
         line.push('\n');
 
-        if self.write_tx.send(line).await.is_err() {
-            let mut map = self.pending.lock().await;
-            map.remove(&id);
-            return Err(IpcError {
-                code: -2,
-                message: "IPC write channel closed".to_string(),
-            });
-        }
-
-        match tokio::time::timeout(timeout, rx).await {
+        let response = async {
+            self.write_tx.send(line).await.map_err(|_| ())?;
+            rx.await.map_err(|_| ())
+        };
+        let result = tokio::select! {
+            biased;
+            result = tokio::time::timeout(timeout, response) => result,
+            _ = closed.changed() => return Err(connection_closed_error()),
+        };
+        match result {
             Ok(Ok(ResponseEnvelope::Result(v))) => Ok(v),
             Ok(Ok(ResponseEnvelope::Error(e))) => Err(e),
             Ok(Err(_)) => Err(IpcError {
@@ -242,8 +286,6 @@ impl IpcClient {
             Err(_) => {
                 // Timed out: reclaim the pending slot. A late response will be
                 // dropped by the read loop because the slot is gone.
-                let mut map = self.pending.lock().await;
-                map.remove(&id);
                 Err(IpcError {
                     code: -5,
                     message: format!("IPC request timed out after {}s", timeout.as_secs()),
@@ -285,13 +327,13 @@ impl IpcClient {
             };
             match msg {
                 InboundMessage::Response { id, result } => {
-                    let mut map = pending.lock().await;
+                    let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(req) = map.remove(&id) {
                         let _ = req.tx.send(ResponseEnvelope::Result(result));
                     }
                 }
                 InboundMessage::Error { id, error } => {
-                    let mut map = pending.lock().await;
+                    let mut map = pending.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(req) = map.remove(&id) {
                         let _ = req.tx.send(ResponseEnvelope::Error(error));
                     }
@@ -304,15 +346,13 @@ impl IpcClient {
                 }
             }
         }
+    }
+}
 
-        // Connection closed — fail all pending requests
-        let mut map = pending.lock().await;
-        for (_, req) in map.drain() {
-            let _ = req.tx.send(ResponseEnvelope::Error(IpcError {
-                code: -4,
-                message: "IPC connection closed".to_string(),
-            }));
-        }
+fn connection_closed_error() -> IpcError {
+    IpcError {
+        code: -4,
+        message: "IPC connection closed; operation outcome may be unknown".to_string(),
     }
 }
 
@@ -320,6 +360,110 @@ impl IpcClient {
 mod tests {
     use super::*;
     use tokio::io::{duplex, split};
+
+    #[tokio::test]
+    async fn completed_response_survives_worker_eof() {
+        let (stream, worker) = duplex(4096);
+        let (reader, writer) = split(stream);
+        let (client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        let worker_task = tokio::spawn(async move {
+            let (reader, mut writer) = split(worker);
+            let line = BufReader::new(reader)
+                .lines()
+                .next_line()
+                .await
+                .unwrap()
+                .unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            let response = serde_json::json!({"id": request["id"], "result": "committed"});
+            writer
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+        });
+        assert_eq!(client.request("commit", None).await.unwrap(), "committed");
+        worker_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn replacing_worker_fails_old_request_without_replaying_it() {
+        let (old_stream, old_worker) = duplex(4096);
+        let (reader, writer) = split(old_stream);
+        let (old_client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        let connection = Arc::new(crate::ipc::RuntimeConnection::connected(Arc::new(
+            old_client,
+        )));
+        let (received_tx, received_rx) = oneshot::channel();
+        let old_worker_task = tokio::spawn(async move {
+            let mut reader = BufReader::new(old_worker);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            received_tx.send(()).unwrap();
+            line.clear();
+            assert_eq!(reader.read_line(&mut line).await.unwrap(), 0);
+        });
+        let old_request = {
+            let connection = Arc::clone(&connection);
+            tokio::spawn(async move {
+                connection
+                    .request_with_timeout("task.create", None, Duration::from_secs(30))
+                    .await
+            })
+        };
+        received_rx.await.unwrap();
+
+        let (new_stream, new_worker) = duplex(4096);
+        let (reader, writer) = split(new_stream);
+        let (new_client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        assert_eq!(connection.replace(Some(Arc::new(new_client))), 2);
+        assert!(tokio::time::timeout(Duration::from_secs(1), old_request)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        old_worker_task.await.unwrap();
+
+        let new_worker_task = tokio::spawn(async move {
+            let (reader, mut writer) = split(new_worker);
+            let mut lines = BufReader::new(reader).lines();
+            let request: Value =
+                serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(request["method"], "runtime.ready");
+            let response = serde_json::json!({"id": request["id"], "result": {"ready": true}});
+            writer
+                .write_all(format!("{response}\n").as_bytes())
+                .await
+                .unwrap();
+            // Keep the new worker connected until the owner explicitly disconnects.
+            assert!(lines.next_line().await.unwrap().is_none());
+        });
+        let result = connection
+            .request_with_timeout("runtime.ready", None, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(result["ready"], true);
+        connection.replace(None);
+        assert!(connection.current().is_err());
+        new_worker_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_request_releases_its_pending_slot() {
+        let (stream, worker) = duplex(4096);
+        let (reader, writer) = split(stream);
+        let (client, _events) = IpcClient::start(BufReader::new(reader), writer).unwrap();
+        let request = {
+            let client = client.clone();
+            tokio::spawn(async move { client.request("wait", None).await })
+        };
+        let mut reader = BufReader::new(worker);
+        reader.read_line(&mut String::new()).await.unwrap();
+        request.abort();
+        let _ = request.await;
+        assert!(client.pending.lock().unwrap().is_empty());
+        client.disconnect();
+        assert!(client.request("later", None).await.is_err());
+    }
 
     #[tokio::test]
     async fn authentication_sends_the_credential_as_the_first_frame() {
