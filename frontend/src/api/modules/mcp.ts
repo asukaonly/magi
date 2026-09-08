@@ -1,6 +1,8 @@
 import { api } from '../client';
 import type { ApiResponse } from '../client';
 import { isSensitiveLogField, registerKnownLogSecrets } from '@/runtime/log-redaction';
+import { z } from 'zod';
+import { ApiContractError } from '../config-contract';
 
 export type MCPTransportKind = 'stdio' | 'http';
 
@@ -53,6 +55,7 @@ export type MCPServerState =
 
 export interface MCPServerStatus {
   id: string;
+  revision: string;
   name: string;
   description: string;
   enabled: boolean;
@@ -81,6 +84,32 @@ export interface MCPServerCreatePayload {
   tools?: MCPToolSelection;
   tool_overrides?: Record<string, MCPToolOverride>;
 }
+
+export type MCPServerUpdatePayload = MCPServerCreatePayload & { expected_revision: string };
+
+const serverSchema: z.ZodType<MCPServerStatus> = z.object({
+  id: z.string().min(1), revision: z.string().regex(/^[a-f0-9]{64}$/),
+  name: z.string(), description: z.string(), enabled: z.boolean(), autostart: z.boolean(),
+  transport: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('stdio'), command: z.string(), args: z.array(z.string()), cwd: z.string(), env: z.record(z.string(), z.string()) }),
+    z.object({ kind: z.literal('http'), url: z.string(), headers: z.record(z.string(), z.string()) }),
+  ]),
+  runtime: z.object({ call_timeout_ms: z.number(), init_timeout_ms: z.number(), max_restart_attempts: z.number() }),
+  tools: z.object({ include: z.array(z.string()).nullable() }),
+  available_tools: z.array(z.object({ name: z.string(), description: z.string(), enabled: z.boolean(), available: z.boolean() })),
+  tool_overrides: z.record(z.string(), z.object({ dangerous: z.boolean().nullish(), risk: z.enum(['low', 'medium', 'high', 'destructive']).nullish() })),
+  state: z.enum(['connecting', 'connected', 'disconnected', 'disabled', 'error']),
+  tool_count: z.number(), resource_count: z.number(), last_error: z.string().nullable(),
+});
+
+const readServer = (value: unknown, expectedId?: string): MCPServerStatus => {
+  const parsed = serverSchema.safeParse(unwrap(value));
+  if (!parsed.success || (expectedId && parsed.data.id !== expectedId)) {
+    throw new ApiContractError('MCP server');
+  }
+  registerMcpLogSecrets(parsed.data.transport);
+  return parsed.data;
+};
 
 export interface MCPResource {
   server_id: string;
@@ -183,26 +212,25 @@ const registerMcpLogSecrets = (transport: MCPTransport): void => {
 
 export const mcpApi = {
   listServers: async (): Promise<MCPServerStatus[]> => {
-    const response = await api.get<{ data: MCPServerStatus[] }>('/mcp/servers');
-    const body = unwrap(response as { data: MCPServerStatus[] } | ApiResponse<{ data: MCPServerStatus[] }>);
-    const servers = body?.data ?? [];
-    servers.forEach((server) => registerMcpLogSecrets(server.transport));
-    return servers;
+    const response = await api.get<unknown>('/mcp/servers');
+    const body = z.object({ data: z.array(z.unknown()) }).safeParse(unwrap(response));
+    if (!body.success) throw new ApiContractError('MCP server list');
+    return body.data.data.map((value) => readServer(value));
   },
 
   createServer: async (payload: MCPServerCreatePayload): Promise<MCPServerStatus> => {
     registerMcpLogSecrets(payload.transport);
     const response = await api.post<MCPServerStatus>('/mcp/servers', payload);
-    return unwrap(response as MCPServerStatus | ApiResponse<MCPServerStatus>);
+    return readServer(response, payload.server.id);
   },
 
   updateServer: async (
     serverId: string,
-    payload: MCPServerCreatePayload,
+    payload: MCPServerUpdatePayload,
   ): Promise<MCPServerStatus> => {
     registerMcpLogSecrets(payload.transport);
     const response = await api.patch<MCPServerStatus>(`/mcp/servers/${serverId}`, payload);
-    return unwrap(response as MCPServerStatus | ApiResponse<MCPServerStatus>);
+    return readServer(response, serverId);
   },
 
   deleteServer: async (serverId: string): Promise<void> => {
@@ -211,12 +239,12 @@ export const mcpApi = {
 
   startServer: async (serverId: string): Promise<MCPServerStatus> => {
     const response = await api.post<MCPServerStatus>(`/mcp/servers/${serverId}/start`, {});
-    return unwrap(response as MCPServerStatus | ApiResponse<MCPServerStatus>);
+    return readServer(response, serverId);
   },
 
   stopServer: async (serverId: string): Promise<MCPServerStatus> => {
     const response = await api.post<MCPServerStatus>(`/mcp/servers/${serverId}/stop`, {});
-    return unwrap(response as MCPServerStatus | ApiResponse<MCPServerStatus>);
+    return readServer(response, serverId);
   },
 
   serverLogs: async (serverId: string): Promise<MCPServerLogs> => {

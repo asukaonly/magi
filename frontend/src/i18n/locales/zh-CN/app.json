@@ -1582,7 +1582,8 @@
         "errors": {
           "command": "stdio 传输需要填写命令。",
           "url": "HTTP 传输需要填写 URL。",
-          "tool_overrides": "工具覆盖必须是合法的 JSON。"
+          "tool_overrides": "工具覆盖必须是合法的 JSON。",
+          "missingServer": "此 MCP 服务已从中心删除。"
         }
       },
       "logs": {

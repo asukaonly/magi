@@ -66,6 +66,15 @@ explicit empty value deletes them. If the command, arguments, or HTTP origin
 changes, masked credentials are rejected and must be entered again so an old
 secret cannot be transferred silently to a new process or server.
 
+MCP processes and files belong to the connected center. Server-list reads include
+an opaque `revision` derived from the complete configuration, including masked
+credentials. PATCH requires the editor's original `expected_revision` (428 when
+missing, 409 when stale). Configuration changes and manual lifecycle operations
+are serialized per server through stop, atomic TOML replacement, and restart.
+Runtime status changes do not invalidate configuration revisions. The settings
+list refreshes on center changes and reconnects without replacing open drafts;
+after a conflict the user explicitly discards the draft and reloads.
+
 The `[runtime]` section accepts `call_timeout_ms`, `init_timeout_ms`, and `max_restart_attempts`; defaults are 60s/15s/5.
 
 `[tools].include` controls which discovered tools are registered and exposed to

@@ -46,8 +46,11 @@ import {
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 
 type DraftState = {
+  revision: string;
   id: string;
   name: string;
   description: string;
@@ -68,6 +71,7 @@ type DraftState = {
 };
 
 const EMPTY_DRAFT: DraftState = {
+  revision: '',
   id: '',
   name: '',
   description: '',
@@ -99,6 +103,7 @@ const draftFromServer = (server: MCPServerStatus): DraftState => {
   const base: DraftState = {
     ...EMPTY_DRAFT,
     id: server.id,
+    revision: server.revision,
     name: server.name,
     description: server.description ?? '',
     enabled: server.enabled,
@@ -249,7 +254,8 @@ interface ServerEditorDrawerProps {
   initialDraft: DraftState | null;
   isEdit: boolean;
   onClose: () => void;
-  onSave: (payload: MCPServerCreatePayload, isEdit: boolean) => Promise<void>;
+  onSave: (payload: MCPServerCreatePayload, isEdit: boolean, revision: string) => Promise<void>;
+  onReload: (id: string) => Promise<DraftState>;
 }
 
 const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
@@ -258,22 +264,28 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
   isEdit,
   onClose,
   onSave,
+  onReload,
 }) => {
   const { t } = useTranslation('app');
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState(false);
+  const pending = useRef(false);
+  const requestOwner = useRequestOwner(String(open));
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(initialDraft ?? EMPTY_DRAFT);
       setError(null);
+      setConflict(false);
       setAdvancedOpen(false);
     }
   }, [open, initialDraft]);
 
   const handleSave = useCallback(async () => {
+    if (pending.current || conflict) return;
     setError(null);
     const { payload, error: buildError } = buildPayload(draft);
     if (buildError) {
@@ -281,15 +293,38 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
       return;
     }
     setSaving(true);
+    pending.current = true;
+    const owns = requestOwner('mutation');
     try {
-      await onSave(payload, isEdit);
-      onClose();
+      await onSave(payload, isEdit, draft.revision);
+      if (owns()) onClose();
     } catch (exc) {
-      setError(getErrorMessage(exc) ?? String(exc));
+      if (owns()) {
+        const stale = exc != null && typeof exc === 'object' && 'status' in exc && exc.status === 409;
+        setConflict(stale);
+        setError(stale ? t('settings.centerConflict') : getErrorMessage(exc) ?? String(exc));
+      }
     } finally {
-      setSaving(false);
+      pending.current = false;
+      if (owns()) setSaving(false);
     }
-  }, [draft, isEdit, onClose, onSave, t]);
+  }, [conflict, draft, isEdit, onClose, onSave, requestOwner, t]);
+
+  const reload = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setSaving(true);
+    const owns = requestOwner('mutation');
+    try {
+      const next = await onReload(draft.id);
+      if (owns()) { setDraft(next); setConflict(false); setError(null); }
+    } catch (exc) {
+      if (owns()) setError(getErrorMessage(exc) ?? String(exc));
+    } finally {
+      pending.current = false;
+      if (owns()) setSaving(false);
+    }
+  };
 
   const setToolEnabled = useCallback((name: string, enabled: boolean) => {
     setDraft((current) => {
@@ -302,7 +337,7 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
   }, []);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? null : onClose())}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !pending.current) onClose(); }}>
       <DialogContent className="settings-theme-surface flex max-h-[85vh] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b px-6 py-4">
           <DialogTitle>
@@ -312,7 +347,7 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          <div className="space-y-4">
+          <fieldset disabled={saving} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm">
                 <span className="mb-1 block text-muted-foreground">
@@ -609,7 +644,8 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
             ) : null}
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          </div>
+            {isEdit && error ? <Button type="button" variant="outline" onClick={() => { void reload(); }}>{t('settings.reloadCenterConfig')}</Button> : null}
+          </fieldset>
         </div>
 
         <DialogFooter className="border-t px-6 py-4">
@@ -622,7 +658,7 @@ const ServerEditorDrawer: React.FC<ServerEditorDrawerProps> = ({
             type="button"
             size="sm"
             onClick={() => void handleSave()}
-            disabled={saving || !draft.id.trim()}
+            disabled={saving || conflict || !draft.id.trim()}
           >
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {t('settings.mcp.editor.save')}
@@ -840,33 +876,46 @@ export const MCPServersSection: React.FC = () => {
   const [importDrafts, setImportDrafts] = useState<DraftState[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const importFileInput = useRef<HTMLInputElement>(null);
+  const requestOwner = useRequestOwner();
+  const mutationCount = useRef(0);
 
   const refresh = useCallback(async () => {
+    if (mutationCount.current > 0) return;
+    const owns = requestOwner('servers');
     setLoading(true);
     setRefreshError(null);
     try {
-      setServers(await mcpApi.listServers());
+      const next = await mcpApi.listServers();
+      if (owns()) setServers(next);
     } catch (exc) {
-      setRefreshError(getErrorMessage(exc) ?? String(exc));
+      if (owns()) setRefreshError(getErrorMessage(exc) ?? String(exc));
     } finally {
-      setLoading(false);
+      if (owns()) setLoading(false);
     }
-  }, []);
+  }, [requestOwner]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useCenterRefresh(refresh);
+
+  const runOperation = useCallback(async (operation: () => Promise<unknown>) => {
+    requestOwner('servers');
+    mutationCount.current += 1;
+    try { await operation(); }
+    finally {
+      mutationCount.current -= 1;
+      await refresh();
+    }
+  }, [refresh, requestOwner]);
 
   const handleSave = useCallback(
-    async (payload: MCPServerCreatePayload, isEdit: boolean) => {
-      if (isEdit) {
-        await mcpApi.updateServer(payload.server.id, payload);
-      } else {
-        await mcpApi.createServer(payload);
-      }
-      await refresh();
+    async (payload: MCPServerCreatePayload, isEdit: boolean, revision: string) => {
+      await runOperation(() => isEdit
+        ? mcpApi.updateServer(payload.server.id, { ...payload, expected_revision: revision })
+        : mcpApi.createServer(payload));
     },
-    [refresh],
+    [runOperation],
   );
 
   const onCreate = () => {
@@ -884,8 +933,9 @@ export const MCPServersSection: React.FC = () => {
   const onStart = async (server: MCPServerStatus) => {
     setBusyId(server.id);
     try {
-      await mcpApi.startServer(server.id);
-      await refresh();
+      await runOperation(() => mcpApi.startServer(server.id));
+    } catch (exc) {
+      setRefreshError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setBusyId(null);
     }
@@ -894,8 +944,9 @@ export const MCPServersSection: React.FC = () => {
   const onStop = async (server: MCPServerStatus) => {
     setBusyId(server.id);
     try {
-      await mcpApi.stopServer(server.id);
-      await refresh();
+      await runOperation(() => mcpApi.stopServer(server.id));
+    } catch (exc) {
+      setRefreshError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setBusyId(null);
     }
@@ -905,8 +956,9 @@ export const MCPServersSection: React.FC = () => {
     if (!confirm(t('settings.mcp.confirmDelete', { id: server.id }))) return;
     setBusyId(server.id);
     try {
-      await mcpApi.deleteServer(server.id);
-      await refresh();
+      await runOperation(() => mcpApi.deleteServer(server.id));
+    } catch (exc) {
+      setRefreshError(getErrorMessage(exc) ?? String(exc));
     } finally {
       setBusyId(null);
     }
@@ -938,7 +990,7 @@ export const MCPServersSection: React.FC = () => {
       const { payload, error } = buildPayload(d);
       if (error) continue;
       try {
-        await mcpApi.createServer(payload);
+        await runOperation(() => mcpApi.createServer(payload));
       } catch (exc) {
         // Continue importing the rest; user will see what landed via refresh.
         console.warn('[mcp] import skipped', d.id, exc);
@@ -1025,7 +1077,7 @@ export const MCPServersSection: React.FC = () => {
           {servers.map((server) => {
             const isRunning =
               server.state === 'connected' || server.state === 'connecting';
-            const busy = busyId === server.id;
+            const busy = busyId !== null;
             return (
               <li
                 key={server.id}
@@ -1117,6 +1169,11 @@ export const MCPServersSection: React.FC = () => {
         isEdit={editingIsEdit}
         onClose={() => setEditorOpen(false)}
         onSave={handleSave}
+        onReload={async (id) => {
+          const latest = (await mcpApi.listServers()).find((server) => server.id === id);
+          if (!latest) throw new Error(t('settings.mcp.editor.errors.missingServer'));
+          return draftFromServer(latest);
+        }}
       />
 
       <LogsDialog

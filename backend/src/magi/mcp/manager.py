@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, Callable
 
 from .config import HttpTransport, MCPServerConfig, StdioTransport
@@ -49,6 +50,7 @@ class MCPManager:
         self._factory = connection_factory
         self._configs: dict[str, MCPServerConfig] = {}
         self._runtimes: dict[str, _ServerRuntime] = {}
+        self._operation_locks: dict[str, asyncio.Lock] = {}
         self._reconnect_backoff = list(reconnect_backoff or _DEFAULT_RECONNECT_BACKOFF)
 
     def add_config(self, cfg: MCPServerConfig) -> None:
@@ -61,6 +63,12 @@ class MCPManager:
     def is_running(self, server_id: str) -> bool:
         return server_id in self._runtimes
 
+    @asynccontextmanager
+    async def server_operation(self, server_id: str):
+        """Serialize configuration and lifecycle changes for one server."""
+        async with self._operation_locks.setdefault(server_id, asyncio.Lock()):
+            yield
+
     async def start_all_autostart(self) -> None:
         await asyncio.gather(
             *(
@@ -72,33 +80,44 @@ class MCPManager:
         )
 
     async def start_server(self, server_id: str) -> None:
+        async with self.server_operation(server_id):
+            await self.start_server_in_operation(server_id)
+
+    async def start_server_in_operation(self, server_id: str) -> None:
+        """Start while the caller owns this server's operation guard."""
         if server_id in self._runtimes:
             return
         cfg = self._configs[server_id]
         if not cfg.server.enabled:
             raise RuntimeError(f"server {server_id!r} disabled")
         conn = self._factory(cfg)
-        await conn.start()
         rt = _ServerRuntime(cfg, conn)
         self._runtimes[server_id] = rt
         try:
+            await conn.start()
             await self._handshake(rt)
             await self._reconcile_tools(rt)
             await self._reconcile_resources(rt)
             await self._reconcile_resource_templates(rt)
             await self._reconcile_prompts(rt)
             self._wire_change_notifications(rt)
-        except Exception:
-            await self.stop_server(server_id)
+        except BaseException:
+            await self.stop_server_in_operation(server_id)
             raise
         rt.watchdog = asyncio.create_task(self._watchdog_loop(server_id))
 
     async def stop_server(self, server_id: str) -> None:
+        async with self.server_operation(server_id):
+            await self.stop_server_in_operation(server_id)
+
+    async def stop_server_in_operation(self, server_id: str) -> None:
+        """Stop while the caller owns this server's operation guard."""
         rt = self._runtimes.pop(server_id, None)
         if rt is None:
             return
         if rt.watchdog is not None:
             rt.watchdog.cancel()
+            await asyncio.gather(rt.watchdog, return_exceptions=True)
         for name in rt.registered_tool_names:
             self._registry.unregister(name)
         await rt.conn.stop()
@@ -116,10 +135,8 @@ class MCPManager:
         args: dict,
         timeout_ms: int,
     ) -> Any:
-        rt = self._runtimes.get(server_id)
-        if rt is None:
-            await self.start_server(server_id)
-            rt = self._runtimes[server_id]
+        await self.start_server(server_id)
+        rt = self._runtimes[server_id]
         return await rt.conn.request(
             "tools/call",
             {"name": tool_name, "arguments": args},
@@ -181,9 +198,8 @@ class MCPManager:
         await rt.conn.notify("notifications/initialized")
 
     async def _reconcile_tools(self, rt: _ServerRuntime) -> None:
-        for name in rt.registered_tool_names:
-            self._registry.unregister(name)
-        rt.registered_tool_names.clear()
+        if self._runtimes.get(rt.cfg.server.id) is not rt:
+            return
         try:
             tools = await self._list_paginated(rt, "tools/list", "tools")
         except Exception as exc:
@@ -194,6 +210,9 @@ class MCPManager:
             )
             rt.tools = []
             return
+        if self._runtimes.get(rt.cfg.server.id) is not rt:
+            return
+        self._unregister_runtime_tools(rt)
         rt.tools = tools
         for remote in tools:
             if not rt.cfg.tools.allows(remote["name"]):

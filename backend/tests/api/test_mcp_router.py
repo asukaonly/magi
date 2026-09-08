@@ -110,6 +110,57 @@ def test_list_servers_empty(client):
     assert r.json() == {"data": []}
 
 
+def test_updates_require_original_unmasked_configuration_revision(client):
+    c, _ = client
+    original = {"server": {"id": "cas", "name": "Original"},
+                "transport": {"kind": "http", "url": "https://example.test/mcp",
+                              "headers": {"Authorization": "first-secret"}}}
+    created = c.post("/api/mcp/servers", json=original).json()
+    assert "first-secret" not in str(created)
+    assert c.patch("/api/mcp/servers/cas", json=original).status_code == 428
+    replacement = {**original, "expected_revision": created["revision"],
+                   "transport": {**original["transport"], "headers": {"Authorization": "second-secret"}}}
+    accepted = c.patch("/api/mcp/servers/cas", json=replacement)
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["revision"] != created["revision"]
+    assert c.patch("/api/mcp/servers/cas", json={**original, "expected_revision": created["revision"]}).status_code == 409
+    assert c.get("/api/mcp/servers").json()["data"][0]["revision"] == accepted.json()["revision"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_updates_hold_revision_across_process_restart(client, monkeypatch):
+    import asyncio
+    import httpx
+
+    c, mgr = client
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=c.app), base_url="http://test") as http:
+        body = {"server": {"id": "race", "name": "Original", "autostart": True},
+                "transport": {"kind": "stdio", "command": "x"}}
+        first = (await http.post("/api/mcp/servers", json=body)).json()
+        entered, release = asyncio.Event(), asyncio.Event()
+        original_stop = mgr.stop_server_in_operation
+
+        async def delayed_stop(server_id):
+            entered.set()
+            await release.wait()
+            await original_stop(server_id)
+
+        monkeypatch.setattr(mgr, "stop_server_in_operation", delayed_stop)
+        update = {**body, "expected_revision": first["revision"],
+                  "server": {**body["server"], "name": "Winner"}}
+        winner = asyncio.create_task(http.patch("/api/mcp/servers/race", json=update))
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        loser = asyncio.create_task(http.patch("/api/mcp/servers/race", json={**update, "server": {**body["server"], "name": "Stale"}}))
+        await asyncio.sleep(0)
+        assert not loser.done()
+        release.set()
+        accepted, conflict = await asyncio.wait_for(asyncio.gather(winner, loser), timeout=2)
+        assert accepted.status_code == 200, accepted.text
+        assert conflict.status_code == 409, conflict.text
+        assert mgr.list_configs()[0].server.name == "Winner"
+        await mgr.stop_all()
+
+
 def test_create_then_list_then_delete_server(client, tmp_path):
     c, mgr = client
     body = {
@@ -220,16 +271,17 @@ def test_create_and_update_preserve_toml_keys_and_risk_overrides(client, tmp_pat
 
     assert created.status_code == 201, created.text
     [loaded] = loader.load_all()
-    assert loaded == MCPServerConfig.model_validate(body)
+    assert loaded == MCPServerConfig.model_validate({k: v for k, v in body.items() if k != "expected_revision"})
 
     body["server"]["name"] = "Updated server"
     body["tool_overrides"]["search.web"]["risk"] = "destructive"
     body["tools"]["include"] = ["search.web"]
+    body["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "quoted-keys")
     updated = c.patch("/api/mcp/servers/quoted-keys", json=body)
 
     assert updated.status_code == 200, updated.text
     [loaded] = loader.load_all()
-    assert loaded == MCPServerConfig.model_validate(body)
+    assert loaded == MCPServerConfig.model_validate({k: v for k, v in body.items() if k != "expected_revision"})
 
 
 def test_create_rejects_duplicate_id(client):
@@ -354,6 +406,7 @@ def test_patch_updates_and_restarts(client):
         "server": {"id": "demo", "name": "Demo Renamed"},
         "transport": {"kind": "stdio", "command": "y", "args": ["--flag"]},
     }
+    update["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "demo")
     r = c.patch("/api/mcp/servers/demo", json=update)
     assert r.status_code == 200
     body = r.json()
@@ -418,6 +471,7 @@ def test_patch_preserves_masked_http_header_values(client, tmp_path):
         "runtime": created["runtime"],
         "tools": {"include": []},
     }
+    update["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "httpsrv")
     response = c.patch("/api/mcp/servers/httpsrv", json=update)
 
     assert response.status_code == 200, response.text
@@ -473,6 +527,7 @@ def test_stdio_transport_credentials_are_write_only(client, tmp_path):
         "transport": transport,
         "runtime": response.json()["runtime"],
     }
+    round_trip["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "stdio-secrets")
     updated = c.patch("/api/mcp/servers/stdio-secrets", json=round_trip)
     assert updated.status_code == 200, updated.text
     config = next(item for item in mgr.list_configs() if item.server.id == "stdio-secrets")
@@ -486,6 +541,7 @@ def test_stdio_transport_credentials_are_write_only(client, tmp_path):
         **round_trip,
         "transport": {**transport, "command": "different-mcp"},
     }
+    changed_target["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "stdio-secrets")
     rejected = c.patch("/api/mcp/servers/stdio-secrets", json=changed_target)
     assert rejected.status_code == 400
     assert "must be re-entered" in rejected.text
@@ -500,6 +556,7 @@ def test_stdio_transport_credentials_are_write_only(client, tmp_path):
             "env": {"ACCESS_TOKEN": "new-env-secret", "MODE": "new-mode"},
         },
     }
+    replacement["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "stdio-secrets")
     replaced = c.patch("/api/mcp/servers/stdio-secrets", json=replacement)
     assert replaced.status_code == 200, replaced.text
     assert "new-arg-secret" not in replaced.text
@@ -536,6 +593,7 @@ def test_http_url_credentials_are_write_only_and_origin_bound(client, tmp_path):
         "transport": transport,
         "runtime": response.json()["runtime"],
     }
+    round_trip["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "http-url-secrets")
     updated = c.patch("/api/mcp/servers/http-url-secrets", json=round_trip)
     assert updated.status_code == 200, updated.text
     config = next(item for item in mgr.list_configs() if item.server.id == "http-url-secrets")
@@ -553,6 +611,7 @@ def test_http_url_credentials_are_write_only_and_origin_bound(client, tmp_path):
             "headers": {"Authorization": "***"},
         },
     }
+    changed_origin["expected_revision"] = next(row["revision"] for row in c.get("/api/mcp/servers").json()["data"] if row["id"] == "http-url-secrets")
     rejected = c.patch("/api/mcp/servers/http-url-secrets", json=changed_origin)
     assert rejected.status_code == 400
     assert "must be re-entered" in rejected.text

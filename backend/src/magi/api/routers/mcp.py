@@ -17,12 +17,15 @@ Endpoints (under `/api/mcp`):
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 import tomli_w
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, model_validator
+from magi_plugin_sdk.fs import atomic_write_text
 
 from ... import i18n as core_i18n
 from ...core.logger import get_logger
@@ -63,6 +66,19 @@ def _config_path(server_id: str):
 def _mask_transport(transport_data: dict[str, Any]) -> dict[str, Any]:
     """Return a write-only transport projection for outbound API responses."""
     return mask_mcp_transport(transport_data)
+
+
+def _revision(cfg: MCPServerConfig) -> str:
+    return hashlib.sha256(json.dumps(
+        cfg.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+    ).encode()).hexdigest()
+
+
+def _require_revision(cfg: MCPServerConfig, expected: str | None) -> None:
+    if not expected:
+        raise HTTPException(status_code=428, detail="MCP configuration revision is required")
+    if expected != _revision(cfg):
+        raise HTTPException(status_code=409, detail="MCP configuration changed; reload before saving")
 
 
 def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
@@ -124,6 +140,7 @@ def _serialize_status(mgr: MCPManager, cfg: MCPServerConfig) -> dict[str, Any]:
         last_error = redact_mcp_log_text(rt.last_error)
     return {
         "id": cfg.server.id,
+        "revision": _revision(cfg),
         "name": cfg.server.name,
         "description": cfg.server.description,
         "enabled": cfg.server.enabled,
@@ -167,10 +184,11 @@ def _config_to_toml_dict(cfg: MCPServerConfig) -> dict[str, Any]:
 def _persist(cfg: MCPServerConfig) -> None:
     path = _config_path(cfg.server.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(tomli_w.dumps(_config_to_toml_dict(cfg)), encoding="utf-8")
+    atomic_write_text(path, tomli_w.dumps(_config_to_toml_dict(cfg)))
 
 
 class CreateOrUpdatePayload(BaseModel):
+    expected_revision: str | None = Field(default=None, exclude=True)
     server: dict
     transport: dict
     runtime: dict | None = None
@@ -200,108 +218,114 @@ async def create_server(payload: CreateOrUpdatePayload) -> dict[str, Any]:
         cfg = MCPServerConfig.model_validate(raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
-    if cfg.server.id in {c.server.id for c in mgr.list_configs()}:
-        raise HTTPException(
-            status_code=409,
-            detail=core_i18n.t("mcp.errors.server_id_exists", fallback="server id already exists"),
-        )
-    _persist(cfg)
-    mgr.add_config(cfg)
-    if cfg.server.enabled and cfg.server.autostart:
-        try:
-            await mgr.start_server(cfg.server.id)
-        except Exception as exc:
-            logger.warning(
-                "MCP autostart on create failed",
-                server_id=cfg.server.id,
-                error=redact_mcp_log_text(exc),
+    async with mgr.server_operation(cfg.server.id):
+        if cfg.server.id in {c.server.id for c in mgr.list_configs()}:
+            raise HTTPException(
+                status_code=409,
+                detail=core_i18n.t("mcp.errors.server_id_exists", fallback="server id already exists"),
             )
-    return _serialize_status(mgr, cfg)
+        _persist(cfg)
+        mgr.add_config(cfg)
+        if cfg.server.enabled and cfg.server.autostart:
+            try:
+                await mgr.start_server_in_operation(cfg.server.id)
+            except Exception as exc:
+                logger.warning(
+                    "MCP autostart on create failed",
+                    server_id=cfg.server.id,
+                    error=redact_mcp_log_text(exc),
+                )
+        return _serialize_status(mgr, cfg)
 
 
 @mcp_router.patch("/servers/{server_id}")
 async def update_server(server_id: str, payload: CreateOrUpdatePayload) -> dict[str, Any]:
     mgr = _manager()
-    existing = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
-    if existing is None:
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
-        )
-
-    raw = payload.model_dump(exclude_none=True)
-    raw.setdefault("server", {})["id"] = server_id  # id is path-locked
-    try:
-        raw["transport"] = restore_masked_mcp_transport(
-            raw["transport"],
-            existing.transport.model_dump(),
-        )
-        register_mcp_transport_secrets(raw)
-        cfg = MCPServerConfig.model_validate(raw)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
-
-    was_running = mgr.is_running(server_id)
-    if was_running:
-        await mgr.stop_server(server_id)
-    _persist(cfg)
-    mgr.add_config(cfg)
-    if cfg.server.enabled and (was_running or cfg.server.autostart):
-        try:
-            await mgr.start_server(server_id)
-        except Exception as exc:
-            logger.warning(
-                "MCP restart after update failed",
-                server_id=server_id,
-                error=redact_mcp_log_text(exc),
+    async with mgr.server_operation(server_id):
+        existing = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
+        if existing is None:
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
             )
-    return _serialize_status(mgr, cfg)
+
+        _require_revision(existing, payload.expected_revision)
+        raw = payload.model_dump(exclude_none=True)
+        raw.setdefault("server", {})["id"] = server_id  # id is path-locked
+        try:
+            raw["transport"] = restore_masked_mcp_transport(
+                raw["transport"],
+                existing.transport.model_dump(),
+            )
+            register_mcp_transport_secrets(raw)
+            cfg = MCPServerConfig.model_validate(raw)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
+
+        was_running = mgr.is_running(server_id)
+        if was_running:
+            await mgr.stop_server_in_operation(server_id)
+        _persist(cfg)
+        mgr.add_config(cfg)
+        if cfg.server.enabled and (was_running or cfg.server.autostart):
+            try:
+                await mgr.start_server_in_operation(server_id)
+            except Exception as exc:
+                logger.warning(
+                    "MCP restart after update failed",
+                    server_id=server_id,
+                    error=redact_mcp_log_text(exc),
+                )
+        return _serialize_status(mgr, cfg)
 
 
 @mcp_router.delete("/servers/{server_id}", status_code=204, response_class=Response)
 async def delete_server(server_id: str) -> Response:
     mgr = _manager()
-    if not any(c.server.id == server_id for c in mgr.list_configs()):
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
-        )
-    if mgr.is_running(server_id):
-        await mgr.stop_server(server_id)
-    mgr._configs.pop(server_id, None)  # type: ignore[attr-defined]
-    path = _config_path(server_id)
-    if path.exists():
-        path.unlink()
-    return Response(status_code=204)
+    async with mgr.server_operation(server_id):
+        if not any(c.server.id == server_id for c in mgr.list_configs()):
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+            )
+        if mgr.is_running(server_id):
+            await mgr.stop_server_in_operation(server_id)
+        path = _config_path(server_id)
+        if path.exists():
+            path.unlink()
+        mgr._configs.pop(server_id, None)  # type: ignore[attr-defined]
+        return Response(status_code=204)
 
 
 @mcp_router.post("/servers/{server_id}/start")
 async def start_server(server_id: str) -> dict[str, Any]:
     mgr = _manager()
-    cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
-    if cfg is None:
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
-        )
-    try:
-        await mgr.start_server(server_id)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
-    return _serialize_status(mgr, cfg)
+    async with mgr.server_operation(server_id):
+        cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
+        if cfg is None:
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+            )
+        try:
+            await mgr.start_server_in_operation(server_id)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=redact_mcp_log_text(exc))
+        return _serialize_status(mgr, cfg)
 
 
 @mcp_router.post("/servers/{server_id}/stop")
 async def stop_server(server_id: str) -> dict[str, Any]:
     mgr = _manager()
-    cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
-    if cfg is None:
-        raise HTTPException(
-            status_code=404,
-            detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
-        )
-    await mgr.stop_server(server_id)
-    return _serialize_status(mgr, cfg)
+    async with mgr.server_operation(server_id):
+        cfg = next((c for c in mgr.list_configs() if c.server.id == server_id), None)
+        if cfg is None:
+            raise HTTPException(
+                status_code=404,
+                detail=core_i18n.t("mcp.errors.server_not_found", fallback="server not found"),
+            )
+        await mgr.stop_server_in_operation(server_id)
+        return _serialize_status(mgr, cfg)
 
 
 @mcp_router.get("/servers/{server_id}/logs")

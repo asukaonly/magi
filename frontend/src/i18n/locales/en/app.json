@@ -1583,7 +1583,8 @@
         "errors": {
           "command": "Command is required for stdio transport.",
           "url": "URL is required for HTTP transport.",
-          "tool_overrides": "Tool overrides must be valid JSON."
+          "tool_overrides": "Tool overrides must be valid JSON.",
+          "missingServer": "This MCP server no longer exists on the center."
         }
       },
       "logs": {

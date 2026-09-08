@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('@/api/client', () => ({
@@ -31,6 +31,15 @@ import { mcpApi } from '@/api/modules/mcp';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import { redactLogText } from '@/runtime/log-redaction';
 
+const envelope = <T,>(data: T) => ({ data, success: true, message: '' });
+const serverRow = (overrides = {}) => ({
+  id: 'demo', revision: 'a'.repeat(64), name: 'Demo', description: '', enabled: true,
+  autostart: false, transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
+  runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
+  tools: { include: null }, available_tools: [], tool_overrides: {},
+  state: 'disconnected', tool_count: 0, resource_count: 0, last_error: null, ...overrides,
+});
+
 afterEach(() => {
   vi.mocked(api.get).mockReset();
   vi.mocked(api.post).mockReset();
@@ -39,9 +48,43 @@ afterEach(() => {
 });
 
 describe('MCPServersSection', () => {
+  it('rejects malformed configuration receipts', async () => {
+    vi.mocked(api.get).mockResolvedValue(envelope({ data: [serverRow({ revision: undefined })] }));
+    await expect(mcpApi.listServers()).rejects.toThrow();
+  });
+
+  it('preserves an open draft across center refresh and requires explicit conflict reload', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue(envelope({ data: [serverRow()] }));
+    render(<MCPServersSection />);
+    await screen.findByText('Demo');
+    await user.click(screen.getByRole('button', { name: /settings\.mcp\.actions\.more/ }));
+    await user.click(await screen.findByText('settings.mcp.actions.edit'));
+    const name = screen.getByRole('textbox', { name: 'settings.mcp.editor.name' });
+    await user.clear(name);
+    await user.type(name, 'My draft');
+    vi.mocked(api.get).mockResolvedValue(envelope({ data: [serverRow({ name: 'Other device', revision: 'b'.repeat(64) })] }));
+    act(() => { window.dispatchEvent(new Event('focus')); });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(name).toHaveValue('My draft');
+    vi.mocked(api.patch).mockRejectedValue({ status: 409, message: 'conflict' });
+    await user.click(screen.getByText('settings.mcp.editor.save'));
+    await screen.findByText('settings.centerConflict');
+    expect(api.patch).toHaveBeenCalledWith('/mcp/servers/demo', expect.objectContaining({
+      expected_revision: 'a'.repeat(64), server: expect.objectContaining({ name: 'My draft' }),
+    }));
+    expect(name).toHaveValue('My draft');
+    expect(screen.getByText('settings.mcp.editor.save')).toBeDisabled();
+    await user.click(screen.getByText('settings.reloadCenterConfig'));
+    await waitFor(() => expect(name).toHaveValue('Other device'));
+    vi.mocked(api.patch).mockResolvedValue(envelope(serverRow({ name: 'Other device', revision: 'b'.repeat(64) })));
+    await user.click(screen.getByText('settings.mcp.editor.save'));
+    await waitFor(() => expect(api.patch).toHaveBeenLastCalledWith('/mcp/servers/demo', expect.objectContaining({ expected_revision: 'b'.repeat(64) })));
+  });
+
   it('registers arbitrary MCP header and environment values for log redaction', async () => {
-    vi.mocked(api.post).mockResolvedValue({} as any);
-    vi.mocked(api.patch).mockResolvedValue({} as any);
+    vi.mocked(api.post).mockResolvedValue(envelope(serverRow({ id: 'http-demo' })));
+    vi.mocked(api.patch).mockResolvedValue(envelope(serverRow({ id: 'stdio-demo' })));
 
     await mcpApi.createServer({
       server: { id: 'http-demo', name: 'HTTP Demo' },
@@ -52,6 +95,7 @@ describe('MCPServersSection', () => {
       },
     });
     await mcpApi.updateServer('stdio-demo', {
+      expected_revision: 'a'.repeat(64),
       server: { id: 'stdio-demo', name: 'Stdio Demo' },
       transport: {
         kind: 'stdio',
@@ -72,6 +116,7 @@ describe('MCPServersSection', () => {
   it('ignores masked placeholders returned by the server list', async () => {
     vi.mocked(api.get).mockResolvedValueOnce({
       data: [{
+        revision: 'a'.repeat(64),
         id: 'http-demo',
         name: 'HTTP Demo',
         description: '',
@@ -83,6 +128,7 @@ describe('MCPServersSection', () => {
           headers: { Authorization: '***' },
         },
         runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
+        tools: { include: null }, available_tools: [], tool_overrides: {},
         state: 'disconnected',
         tool_count: 0,
         resource_count: 0,
@@ -110,14 +156,16 @@ describe('MCPServersSection', () => {
     vi.mocked(api.get).mockResolvedValueOnce({
       data: [
         {
-          id: 'demo',
+          revision: 'a'.repeat(64),
+      id: 'demo',
           name: 'Demo',
           description: '',
           enabled: true,
           autostart: true,
           transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
           runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
-          state: 'connected',
+          tools: { include: null }, available_tools: [], tool_overrides: {},
+        state: 'connected',
           tool_count: 3,
           resource_count: 2,
           last_error: null,
@@ -135,21 +183,23 @@ describe('MCPServersSection', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: [
         {
-          id: 'demo',
+          revision: 'a'.repeat(64),
+      id: 'demo',
           name: 'Demo',
           description: '',
           enabled: true,
           autostart: false,
           transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
           runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
-          state: 'disconnected',
+          tools: { include: null }, available_tools: [], tool_overrides: {},
+        state: 'disconnected',
           tool_count: 0,
           resource_count: 0,
           last_error: null,
         },
       ],
     } as any);
-    vi.mocked(api.post).mockResolvedValueOnce({} as any);
+    vi.mocked(api.post).mockResolvedValueOnce(envelope(serverRow({ state: 'connected' })));
     render(<MCPServersSection />);
     const startButton = await screen.findByRole('button', { name: /settings\.mcp\.actions\.start/ });
     fireEvent.click(startButton);
@@ -162,14 +212,16 @@ describe('MCPServersSection', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: [
         {
-          id: 'demo',
+          revision: 'a'.repeat(64),
+      id: 'demo',
           name: 'Demo',
           description: '',
           enabled: true,
           autostart: false,
           transport: { kind: 'stdio', command: 'npx', args: [], cwd: '', env: {} },
           runtime: { call_timeout_ms: 60000, init_timeout_ms: 15000, max_restart_attempts: 5 },
-          state: 'connected',
+          tools: { include: null }, available_tools: [], tool_overrides: {},
+        state: 'connected',
           tool_count: 0,
           resource_count: 0,
           last_error: null,
@@ -185,6 +237,7 @@ describe('MCPServersSection', () => {
   it('pins selected MCP tools and preserves risk overrides when editing', async () => {
     const user = userEvent.setup();
     const server = {
+      revision: 'a'.repeat(64),
       id: 'demo',
       name: 'Demo',
       description: '',
