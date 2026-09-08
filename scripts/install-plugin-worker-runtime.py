@@ -4,8 +4,25 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import subprocess
 from pathlib import Path
+
+
+def expected_sdk_identity(sdk_directory: Path) -> tuple[str, int]:
+    """Read literal identities from the source being packaged, without importing it."""
+    def constant(module: str, name: str) -> object:
+        path = sdk_directory / "src" / "magi_plugin_sdk" / module
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+                return ast.literal_eval(node.value)
+        raise ValueError(f"SDK identity is missing: {name}")
+
+    version = constant("runtime.py", "SDK_VERSION")
+    protocol = constant("versioning.py", "PLUGIN_PROTOCOL_VERSION")
+    if not isinstance(version, str) or type(protocol) is not int or protocol < 1:
+        raise ValueError("SDK identity has an invalid type")
+    return version, protocol
 
 
 def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
@@ -14,6 +31,7 @@ def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
     sdk_directory = sdk_directory.resolve(strict=True)
     if not (sdk_directory / "pyproject.toml").is_file():
         raise ValueError("Worker SDK directory must contain pyproject.toml")
+    sdk_version, protocol_version = expected_sdk_identity(sdk_directory)
     subprocess.run(
         [
             str(executable),
@@ -38,10 +56,12 @@ def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
         "from magi_plugin_sdk.runtime import SDK_VERSION,PLUGIN_PROTOCOL_VERSION;"
         "from magi_plugin_sdk.worker import main;"
         "from magi_plugin_sdk.transport import pack,read_frame;"
-        "assert SDK_VERSION=='0.2.0' and PLUGIN_PROTOCOL_VERSION==2;"
-        "print('Standalone plugin worker protocol 2 is ready')"
+        "from importlib.metadata import version;"
+        "assert SDK_VERSION==sys.argv[1] and PLUGIN_PROTOCOL_VERSION==int(sys.argv[2]);"
+        "assert version('magi-plugin-sdk')==SDK_VERSION;"
+        "print('Standalone plugin worker identity is verified')"
     )
-    subprocess.run([str(executable), "-I", "-S", "-c", probe], check=True)
+    subprocess.run([str(executable), "-I", "-S", "-c", probe, sdk_version, str(protocol_version)], check=True)
 
 
 def main() -> None:
