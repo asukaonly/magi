@@ -114,14 +114,14 @@ fn managed_output_captures_startup_failures_without_changing_console_output() {
     assert!(!console.status.success());
     assert!(!console.stderr.is_empty());
 
-    let incompatible = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+    let desktop = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .args(["run", "--bootstrap-stdin", "--config"])
         .arg(&config)
         .arg("--log-file")
         .arg(fixture.0.join("desktop.log"))
         .output()
         .unwrap();
-    assert!(!incompatible.status.success());
-    assert!(!fixture.0.join("desktop.log").exists());
-    assert!(String::from_utf8_lossy(&incompatible.stderr).contains("Desktop"));
+    assert!(!desktop.status.success());
+    assert!(desktop.stderr.is_empty());
+    assert!(!fs::read(fixture.0.join("desktop.log")).unwrap().is_empty());
 }

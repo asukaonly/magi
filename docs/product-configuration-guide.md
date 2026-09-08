@@ -274,7 +274,10 @@ Current log ownership:
   Each native output log keeps an 8 MiB current file and two 8 MiB backups.
   The service drains Python output even if the log cannot be written, and stops
   its worker output readers before clearing logs during maintenance.
-- Desktop: OS app log directory, with `desktop.log` (50 MB rotation) and local-service supervisor output in `service.log`.
+- Desktop: OS app log directory, with `desktop.log` (50 MB rotation) and
+  local-service supervisor output in `service.log`. On Mac, the service owns the
+  same 8 MiB/two-backup rotation for this file; only stderr is captured so the
+  desktop listener handshake remains on stdout.
 - Desktop log clearing cannot truncate center Python logs or another connection's data.
 
 The excerpt remains bounded to 64 KiB and does not replace retry or connection

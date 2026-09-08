@@ -54,6 +54,11 @@ impl Server {
         command.args(["run", "--config"]).arg(&config_path);
         if owned {
             command.arg("--bootstrap-stdin");
+            #[cfg(unix)]
+            {
+                fs::create_dir_all(&root).unwrap();
+                command.arg("--log-file").arg(root.join("service.log"));
+            }
         }
         let mut child = command
             .stdin(Stdio::piped())

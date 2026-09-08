@@ -32,19 +32,27 @@ impl LocalService {
     ) -> Result<Self, String> {
         config.validate()?;
         write_config(config_path, config)?;
-        let log = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .map_err(|e| e.to_string())?;
         let mut command = Command::new(binary);
         command
             .args(["run", "--config"])
             .arg(config_path)
             .arg("--bootstrap-stdin")
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::from(log));
+            .stdout(Stdio::piped());
+        #[cfg(unix)]
+        command
+            .arg("--log-file")
+            .arg(&log_path)
+            .stderr(Stdio::inherit());
+        #[cfg(not(unix))]
+        {
+            let log = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+                .map_err(|e| e.to_string())?;
+            command.stderr(Stdio::from(log));
+        }
         for name in [
             "MAGI_DESKTOP_SESSION_TOKEN",
             "MAGI_IPC_AUTH_TOKEN",

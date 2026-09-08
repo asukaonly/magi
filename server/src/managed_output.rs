@@ -32,7 +32,7 @@ mod unix {
     }
 
     impl ManagedOutput {
-        pub fn start(path: &Path) -> io::Result<Self> {
+        pub fn start(path: &Path, capture_stdout: bool) -> io::Result<Self> {
             if !path.is_absolute() {
                 return Err(io::Error::other("Output log path must be absolute"));
             }
@@ -99,6 +99,9 @@ mod unix {
                 reader: Some(reader),
             };
             for target in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+                if target == libc::STDOUT_FILENO && !capture_stdout {
+                    continue;
+                }
                 if unsafe { libc::dup2(write.as_raw_fd(), target) } < 0 {
                     return Err(io::Error::last_os_error());
                 }
@@ -131,7 +134,7 @@ pub struct ManagedOutput;
 
 #[cfg(not(unix))]
 impl ManagedOutput {
-    pub fn start(_path: &Path) -> std::io::Result<Self> {
+    pub fn start(_path: &Path, _capture_stdout: bool) -> std::io::Result<Self> {
         Err(std::io::Error::other(
             "Managed service output requires a Unix host",
         ))

@@ -154,11 +154,8 @@ fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), Str
             )?;
             let desktop = args.iter().any(|a| a == "--bootstrap-stdin");
             if let Some(path) = optional_option(&args[1..], "--log-file")? {
-                if desktop {
-                    return Err("Desktop bootstrap cannot redirect its output log".into());
-                }
                 *output = Some(
-                    managed_output::ManagedOutput::start(std::path::Path::new(&path))
+                    managed_output::ManagedOutput::start(std::path::Path::new(&path), !desktop)
                         .map_err(|e| e.to_string())?,
                 );
             }

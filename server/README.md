@@ -41,7 +41,10 @@ roots and ports. The data-root lock prevents two processes opening the same root
 
 `start`, `stop`, and `restart` manage this specific LaunchAgent. `status` reports
 runtime readiness through a private local management socket. Logs are under
-`<data-dir>/logs`, including `service.stderr.log` and `service.stdout.log`.
+`<data-dir>/logs`: `service.log` for the managed service and `backend.log` for
+Python. Each native output log retains an 8 MiB current file and two backups.
+Foreground runs keep service diagnostics in the terminal unless `run --log-file
+<absolute-path>` is supplied.
 
 ## Connect another device
 
