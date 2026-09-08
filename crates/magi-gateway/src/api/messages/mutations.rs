@@ -1,7 +1,9 @@
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::Json;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{OptionalExtension, TransactionBehavior};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -12,7 +14,7 @@ use super::common::DEFAULT_USER_ID;
 
 const RECENT_WORKSPACES_LIMIT: usize = 5;
 
-fn open_chat_db_rw() -> Option<Connection> {
+fn open_chat_db_rw() -> Option<db::GuardedConnection> {
     db::open_readwrite(&db::chat_db_path())
 }
 

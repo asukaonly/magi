@@ -167,6 +167,15 @@ required to cover a commit followed by a process failure before notification.
 Desktop connection UI, client reconciliation and standalone distribution remain
 separate integration work.
 
+The independent service owns full-clear jobs: `DELETE /api/memory/clear` with
+`X-Magi-Full-Clear-Transaction` accepts an idempotent operation and returns 202.
+`GET /api/server/maintenance` reports its phase, result and durable data epoch.
+The service drains native database users, stops normal Python execution, runs
+restricted recovery, clears server logs and restarts normal runtime. Its job
+continues when the requesting device disconnects. Startup resumes a pending
+marker, and a completed operation ID never starts another clear. Client-local
+cleanup is part of the connection UI integration rather than server completion.
+
 The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
 in macOS Keychain or Windows Credential Manager, never in profile JSON. Native

@@ -33,14 +33,20 @@ impl FullDataClearRuntime {
     }
 
     pub fn begin(&self) -> Result<PendingFullDataClear, String> {
+        self.begin_with_id(&new_transaction_id())
+    }
+
+    pub fn begin_with_id(&self, transaction_id: &str) -> Result<PendingFullDataClear, String> {
+        if !is_valid_transaction_id(transaction_id) {
+            return Err("Full data clear transaction identifier is invalid".into());
+        }
         let _guard = lock_unpoisoned(&self.gate);
         if let Some(existing) = read_marker(&self.marker_path)? {
             return Ok(existing);
         }
-
         let marker = PendingFullDataClear {
             version: MARKER_VERSION,
-            transaction_id: new_transaction_id(),
+            transaction_id: transaction_id.into(),
         };
         write_marker_atomically(&self.marker_path, &marker)?;
         Ok(marker)

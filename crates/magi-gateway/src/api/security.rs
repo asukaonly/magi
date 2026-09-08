@@ -133,8 +133,17 @@ impl GatewaySecurity {
                 RANGE,
                 HeaderName::from_static(SESSION_TOKEN_HEADER),
                 HeaderName::from_static("last-event-id"),
+                HeaderName::from_static("x-magi-full-clear-transaction"),
             ])
             .max_age(Duration::from_secs(600))
+    }
+
+    pub fn invalidate_resource_tickets(&self) {
+        self.resource_tickets
+            .entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     pub fn issue_resource_ticket(&self, path: String, client_id: String) -> ResourceTicketGrant {

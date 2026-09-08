@@ -124,26 +124,57 @@ pub fn memory_db_path() -> PathBuf {
 // SQLite query helpers
 // ---------------------------------------------------------------------------
 
-/// Open a database in read-only mode. Returns None if the file does not exist.
-pub fn open_readonly(path: &std::path::Path) -> Option<Connection> {
+pub struct GuardedConnection {
+    connection: Connection,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl std::ops::Deref for GuardedConnection {
+    type Target = Connection;
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl std::ops::DerefMut for GuardedConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.connection
+    }
+}
+
+/// The database handle owns its maintenance permit, including inside blocking tasks.
+pub fn open_readonly(path: &std::path::Path) -> Option<GuardedConnection> {
     open_readonly_result(path).ok()
 }
 
-/// Open a database in read-only mode while preserving the SQLite error.
-pub fn open_readonly_result(path: &std::path::Path) -> rusqlite::Result<Connection> {
-    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+pub fn open_readonly_result(path: &std::path::Path) -> rusqlite::Result<GuardedConnection> {
+    let permit = crate::database_gate::global().enter().ok_or_else(|| {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            Some("Center maintenance is active".into()),
+        )
+    })?;
+    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    Ok(GuardedConnection {
+        connection,
+        _permit: permit,
+    })
 }
 
-/// Open a database in read-write mode. Returns None if the file does not exist.
-pub fn open_readwrite(path: &std::path::Path) -> Option<Connection> {
+pub fn open_readwrite(path: &std::path::Path) -> Option<GuardedConnection> {
+    let permit = crate::database_gate::global().enter()?;
     if !path.exists() {
         return None;
     }
-    Connection::open_with_flags(
+    let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
-    .ok()
+    .ok()?;
+    Some(GuardedConnection {
+        connection,
+        _permit: permit,
+    })
 }
 
 /// Convert a rusqlite ValueRef to a serde_json Value.

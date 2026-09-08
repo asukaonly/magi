@@ -6,7 +6,7 @@ mod desktop_log_history;
 mod desktop_presence;
 mod dmg_cleanup;
 mod external_url;
-mod full_data_clear;
+use magi_platform::full_data_clear;
 use magi_platform::private_data;
 
 use magi_gateway::{api, ipc, notification_bridge};

@@ -54,13 +54,22 @@ pub async fn run(
     let socket = ipc_address(&config)?;
 
     let connection = Arc::new(RuntimeConnection::default());
-    let state = api::state::ApiState::with_runtime(Arc::clone(&connection), security)
-        .with_avatar_dirs(
-            config.builtin_avatar_dir.clone(),
-            Some(config.data_dir.join("personalities/avatar")),
-        );
+    let mut state =
+        api::state::ApiState::with_runtime(Arc::clone(&connection), Arc::clone(&security))
+            .with_avatar_dirs(
+                config.builtin_avatar_dir.clone(),
+                Some(config.data_dir.join("personalities/avatar")),
+            );
     let storage_ready = Arc::clone(&state.storage_ready);
     let events = Arc::clone(&state.events);
+    let maintenance = Arc::new(crate::maintenance::Coordinator::open(
+        &config.data_dir,
+        &auth.server_id,
+        Arc::clone(&storage_ready),
+        Arc::clone(&events),
+        Arc::clone(&security),
+    )?);
+    state.maintenance = Some(maintenance.clone());
     let router = api::build_router(state);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port))
         .await
@@ -105,54 +114,143 @@ pub async fn run(
     });
     let mut attempts = 0;
     let result = loop {
+        use magi_gateway::maintenance::MaintenanceControl;
         if *shutdown.borrow() {
             break Ok(());
         }
         if http_task.is_finished() {
             break Err("Server listener stopped unexpectedly".into());
         }
+        if maintenance.status().phase == "failed" {
+            tokio::select! {
+                _ = shutdown.changed() => break Ok(()),
+                _ = maintenance.changed.notified() => {},
+            }
+            continue;
+        }
+        let recovery = maintenance.pending();
+        if recovery.is_none() && maintenance.is_active() {
+            tokio::select! { _ = shutdown.changed() => break Ok(()), _ = maintenance.changed.notified() => {} }
+            continue;
+        }
+        let database_drain = if recovery.is_some() {
+            maintenance.set_phase("draining", None);
+            match tokio::time::timeout(
+                Duration::from_secs(30),
+                magi_gateway::database_gate::global().drain(),
+            )
+            .await
+            {
+                Ok(Ok(guard)) => Some(guard),
+                _ => {
+                    maintenance
+                        .set_phase("failed", Some("Native database work did not drain".into()));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
         let token = api::security::generate_session_token();
         let _ = fs::remove_file(runtime_dir.join("worker.ready"));
         #[cfg(unix)]
         let _ = fs::remove_file(&socket);
         eprintln!("Starting Python runtime (attempt {})", attempts + 1);
-        match WorkerProcess::spawn(&config, &socket, &token) {
+        let mut planned_restart = false;
+        match WorkerProcess::spawn(
+            &config,
+            &socket,
+            &token,
+            recovery
+                .as_ref()
+                .map(|marker| marker.transaction_id.as_str()),
+        ) {
             Ok(mut worker) => {
-                let outcome = run_worker(
-                    &config,
-                    &mut worker,
-                    &socket,
-                    &token,
-                    &connection,
-                    &storage_ready,
-                    &events,
-                    &mut shutdown,
-                )
-                .await;
+                let mut context = WorkerContext {
+                    config: &config,
+                    socket: &socket,
+                    connection: &connection,
+                    storage_ready: &storage_ready,
+                    events: &events,
+                    maintenance: &maintenance,
+                    shutdown: &mut shutdown,
+                };
+                let outcome =
+                    run_worker(&mut context, &mut worker, &token, recovery.as_ref()).await;
                 storage_ready.store(false, Ordering::Release);
                 events.reset("runtime_unavailable");
                 connection.replace(None);
                 worker
                     .stop(Duration::from_secs(config.shutdown_timeout_secs))
                     .await;
-                if let Err(error) = outcome {
-                    eprintln!("Python runtime unavailable: {error}");
+                match outcome {
+                    Ok(WorkerExit::Maintenance) => {
+                        planned_restart = true;
+                    }
+                    Ok(WorkerExit::Cleared(result)) => {
+                        let id = &recovery
+                            .as_ref()
+                            .expect("clear recovery owner")
+                            .transaction_id;
+                        let logs = config.data_dir.join("logs");
+                        let completed = async {
+                            tokio::task::spawn_blocking(move || clear_server_logs(&logs))
+                                .await
+                                .map_err(|e| e.to_string())??;
+                            maintenance.complete(id, result).await
+                        }
+                        .await;
+                        match completed {
+                            Ok(()) => {
+                                planned_restart = true;
+                            }
+                            Err(error) => maintenance.set_phase("failed", Some(error)),
+                        }
+                    }
+                    Ok(WorkerExit::Stopped) => {}
+                    Err(error) => {
+                        if recovery.is_some() {
+                            maintenance.set_phase("failed", Some(error));
+                        } else {
+                            eprintln!("Python runtime unavailable: {error}");
+                        }
+                    }
                 }
             }
-            Err(error) => eprintln!("Python runtime could not start: {error}"),
+            Err(error) => {
+                if recovery.is_some() {
+                    maintenance.set_phase("failed", Some(error));
+                } else {
+                    eprintln!("Python runtime could not start: {error}");
+                }
+            }
+        }
+        drop(database_drain);
+        if !maintenance.is_active() {
+            magi_gateway::database_gate::global().reopen();
         }
         if *shutdown.borrow() {
             break Ok(());
         }
+        if planned_restart {
+            attempts = 0;
+            continue;
+        }
+        if maintenance.pending().is_some() {
+            continue;
+        }
         if attempts >= config.max_restarts {
             eprintln!("Python restart limit reached; gateway remains available for diagnostics");
-            let _ = shutdown.changed().await;
-            break Ok(());
+            tokio::select! {
+                _ = shutdown.changed() => break Ok(()),
+                _ = maintenance.changed.notified() => { attempts = 0; continue; },
+            }
         }
         attempts += 1;
         tokio::select! {
             _ = shutdown.changed() => break Ok(()),
             _ = tokio::time::sleep(Duration::from_secs(1u64 << attempts.min(4))) => {},
+            _ = maintenance.changed.notified() => {},
         }
     };
     storage_ready.store(false, Ordering::Release);
@@ -176,49 +274,115 @@ pub async fn run(
     result
 }
 
+enum WorkerExit {
+    Stopped,
+    Maintenance,
+    Cleared(serde_json::Value),
+}
+
+struct WorkerContext<'a> {
+    config: &'a ServerConfig,
+    socket: &'a str,
+    connection: &'a Arc<RuntimeConnection>,
+    storage_ready: &'a std::sync::atomic::AtomicBool,
+    events: &'a magi_gateway::events::EventHub,
+    maintenance: &'a crate::maintenance::Coordinator,
+    shutdown: &'a mut watch::Receiver<bool>,
+}
+
 async fn run_worker(
-    config: &ServerConfig,
+    context: &mut WorkerContext<'_>,
     worker: &mut WorkerProcess,
-    socket: &str,
     token: &str,
-    connection: &Arc<RuntimeConnection>,
-    storage_ready: &std::sync::atomic::AtomicBool,
-    events: &magi_gateway::events::EventHub,
-    shutdown: &mut watch::Receiver<bool>,
-) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(config.startup_timeout_secs);
+    recovery: Option<&magi_platform::full_data_clear::PendingFullDataClear>,
+) -> Result<WorkerExit, String> {
+    let deadline = Instant::now() + Duration::from_secs(context.config.startup_timeout_secs);
     let mut connected = false;
     loop {
-        if *shutdown.borrow() {
-            return Ok(());
+        if *context.shutdown.borrow() {
+            return Ok(WorkerExit::Stopped);
+        }
+        if recovery.is_none() && context.maintenance.is_active() {
+            return Ok(WorkerExit::Maintenance);
         }
         if let Some(status) = worker.child.try_wait().map_err(|e| e.to_string())? {
             return Err(format!("Python runtime exited ({status})"));
         }
         if !connected {
-            let ready = fs::read_to_string(config.data_dir.join("runtime/worker.ready")).ok();
-            if ready.as_deref().and_then(|s| s.trim().parse::<u32>().ok()) == Some(worker.pid) {
-                let (client, mut ipc_events) = IpcClient::connect(socket, token).await?;
-                connection.replace(Some(Arc::new(client)));
+            let ready =
+                fs::read_to_string(context.config.data_dir.join("runtime/worker.ready")).ok();
+            if ready
+                .as_deref()
+                .and_then(|value| value.trim().parse::<u32>().ok())
+                == Some(worker.pid)
+            {
+                let (client, mut ipc_events) = IpcClient::connect(context.socket, token).await?;
+                let client = Arc::new(client);
+                context.connection.replace(Some(Arc::clone(&client)));
+                if let Some(recovery) = recovery {
+                    context.maintenance.set_phase("clearing", None);
+                    let result = tokio::select! {
+                        _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
+                        result = client.request_with_timeout("api.forward", Some(serde_json::json!({
+                            "method":"DELETE", "path":"/api/memory/clear", "query":{},
+                            "headers":{"x-magi-full-clear-transaction":recovery.transaction_id}, "body":null
+                        })), Duration::from_secs(600)) => result.map_err(|e| e.to_string())?,
+                    };
+                    if result["status"] != 200 || result["body"]["success"] != true {
+                        return Err(
+                            "Python full clear remains incomplete; retry this operation".into()
+                        );
+                    }
+                    return Ok(WorkerExit::Cleared(result["body"].clone()));
+                }
+                if context.maintenance.is_active() {
+                    return Ok(WorkerExit::Maintenance);
+                }
                 tokio::task::spawn_blocking(magi_gateway::db::ensure_indexes)
                     .await
                     .map_err(|e| e.to_string())?;
-                storage_ready.store(true, Ordering::Release);
-                events.publish("state.changed", serde_json::json!({"resource":"runtime"}));
+                if context.maintenance.is_active() {
+                    return Ok(WorkerExit::Maintenance);
+                }
+                context.storage_ready.store(true, Ordering::Release);
+                context
+                    .events
+                    .publish("state.changed", serde_json::json!({"resource":"runtime"}));
                 tokio::spawn(async move { while ipc_events.recv().await.is_some() {} });
                 connected = true;
                 eprintln!("Python runtime connected (pid {})", worker.pid);
             } else if Instant::now() >= deadline {
                 return Err("Python runtime startup timed out".into());
             }
-        } else if connection.current().is_err() {
+        } else if context.connection.current().is_err() {
             return Err("Python IPC connection closed".into());
         }
         tokio::select! {
-            _ = shutdown.changed() => return Ok(()),
+            _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
             _ = tokio::time::sleep(Duration::from_millis(200)) => {},
+            _ = context.maintenance.changed.notified(), if recovery.is_none() => {},
         }
     }
+}
+
+fn clear_server_logs(directory: &std::path::Path) -> Result<(), String> {
+    for entry in fs::read_dir(directory).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let metadata = entry.file_type().map_err(|e| e.to_string())?;
+        if !metadata.is_file() {
+            return Err("Unexpected entry in server log directory".into());
+        }
+        let mut options = OpenOptions::new();
+        options.write(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options.open(entry.path()).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 fn ipc_address(config: &ServerConfig) -> Result<String, String> {
@@ -251,7 +415,12 @@ struct WorkerProcess {
 }
 
 impl WorkerProcess {
-    fn spawn(config: &ServerConfig, socket: &str, token: &str) -> Result<Self, String> {
+    fn spawn(
+        config: &ServerConfig,
+        socket: &str,
+        token: &str,
+        clear_id: Option<&str>,
+    ) -> Result<Self, String> {
         let log_path = config.data_dir.join("logs/backend.log");
         let log = OpenOptions::new()
             .create(true)
@@ -290,6 +459,9 @@ impl WorkerProcess {
         command.process_group(0);
         #[cfg(windows)]
         command.creation_flags(0x08000000);
+        if let Some(clear_id) = clear_id {
+            command.env("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID", clear_id);
+        }
         let child = command
             .spawn()
             .map_err(|e| format!("Failed to spawn Python: {e}"))?;

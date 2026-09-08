@@ -78,6 +78,13 @@ Notification payloads remain hints about committed domain state. Product API
 mutations also emit scoped invalidations; they do not make cross-database
 notifications atomic with the business write.
 
+Full-clear lifecycle belongs to the independent service. It closes and drains
+native SQLite access, stops the worker, then starts a restricted recovery worker
+with the durable clear transaction identity. No ordinary collector/agent starts
+while that recovery is pending. The supervisor performs the internal clear and
+persists completion before launching a normal worker. Business HTTP stays gated;
+identity, pairing, events and maintenance diagnostics remain available.
+
 The message bus is process-local. SQLite queues and domain stores, not the bus,
 own restart recovery.
 

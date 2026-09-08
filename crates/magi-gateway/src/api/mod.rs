@@ -2,6 +2,7 @@ mod events;
 mod health;
 mod llm;
 mod local_embedding;
+mod maintenance;
 mod memory;
 mod messages;
 mod metrics;
@@ -35,6 +36,8 @@ pub fn build_router(state: ApiState) -> Router {
     let events = Arc::clone(&state.events);
 
     Router::new()
+        .route("/api/server/maintenance", axum::routing::get(maintenance::status))
+        .route("/api/memory/clear", axum::routing::delete(maintenance::clear))
         .route("/api/events", axum::routing::get(events::subscribe))
         .route("/api/server/info", axum::routing::get(server::info))
         .route("/api/auth/pair", axum::routing::post(server::pair))
@@ -230,7 +233,7 @@ pub fn build_router(state: ApiState) -> Router {
                 use axum::response::IntoResponse;
                 let path = request.uri().path();
                 if !storage_ready.load(std::sync::atomic::Ordering::Acquire)
-                    && !matches!(path, "/api/events" | "/api/health" | "/api/ready" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
+                    && !matches!(path, "/api/events" | "/api/health" | "/api/ready" | "/api/server/maintenance" | "/api/memory/clear" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
                     && !path.starts_with("/api/server/clients/")
                     && !path.starts_with("/static/avatars/") {
                     return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({

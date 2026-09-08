@@ -181,7 +181,7 @@ async def test_pending_backend_state_without_host_owner_fails_startup(
     context.core.runtime_paths = runtime_paths_with_schema
     module = RuntimeCommandQueueModule(context)
 
-    with pytest.raises(RuntimeError, match="requires its desktop owner marker"):
+    with pytest.raises(RuntimeError, match="requires its service owner marker"):
         await module.init()
 
     assert context.runtime_commands.runtime_command_queue is None

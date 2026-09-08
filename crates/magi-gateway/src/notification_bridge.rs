@@ -42,6 +42,9 @@ fn read_batch(
     db_path: &std::path::Path,
     after_id: Option<i64>,
 ) -> Result<(i64, Vec<NotificationRow>, bool), String> {
+    let _permit = crate::database_gate::global()
+        .enter()
+        .ok_or("Center maintenance is active")?;
     let conn = open_db(db_path).ok_or("Notification store is unavailable")?;
     conn.busy_timeout(Duration::from_millis(100))
         .map_err(|e| e.to_string())?;

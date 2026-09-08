@@ -104,7 +104,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, source sync jobs |
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
-| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/source full-clear checkpoint, pending desktop full-clear transaction |
+| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/source full-clear checkpoint, pending service full-clear transaction |
 | `runtime/source_state.db` | sources | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task rows and event history, stable task-level execution budgets, privacy-minimized tool-effect intent/completion records, plus recoverable terminal-completion snapshots with frozen outreach intent/body |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
@@ -251,22 +251,37 @@ scheduler history, chat, the runtime command queue, and learned persona state.
 Configuration rows intentionally retained by the product remain live; deleted
 payload bytes must not remain in free database pages or SQLite sidecars.
 
-The desktop host coordinates crash recovery with
-`runtime/full-data-clear.pending.json`. This is not user content and contains no
-path, credential, prompt, or payload: only a marker version and an opaque,
-unique, content-free transaction ID. The file is atomically replaced and
-synced before destructive work begins. A single valid transaction-named
-temporary file is recoverable after an interrupted write even when its payload
-is incomplete; invalid names, multiple candidates, and filename/payload
-conflicts fail closed. `runtime_full_user_content_clear_state` in `message_queue.db`
-records that same ID only while the backend phase is pending. Startup adopts
-the host ID before recovering queue claims, restarting an already running
-backend when necessary. A pending backend row without the matching host marker
-fails startup. A successful backend phase securely returns the singleton row
-to `idle`, clears the ID and start time, and truncates the WAL; there is no
-retained backend completion journal. The host marker stays until browser-owned
-state and desktop logs are also clean, so a crash or ambiguous response replays
-the complete idempotent clear.
+The independent server coordinates crash recovery with
+`runtime/full-data-clear.pending.json`, using shared native marker primitives
+from `crates/magi-platform`. The marker contains only a version and opaque
+transaction ID. It is atomically published and synced before destructive work;
+one valid transaction-named temporary file can recover an interrupted write.
+Invalid names, multiple candidates and filename/payload conflicts fail closed.
+
+Native database handles own bounded maintenance permits. Closing the gate
+rejects new native reads/writes and waits for existing handles, even when their
+HTTP caller has disconnected but a blocking task is still running. The server
+then stops its normal worker and launches a recovery worker with the pending
+transaction ID. Python adopts that ID before queue recovery and suppresses
+ordinary agents, collectors and background work. Only the supervisor invokes
+the internal full-clear implementation. A failed clear keeps the marker and
+business gate closed; the same operation can be retried or recovered on restart.
+
+Python clears its pending queue row and truncates its WAL after its own phase
+succeeds. The server stops that recovery worker, clears server logs, persists
+content-free completion/count records in `service/operations/`, and removes the
+pending marker. A completion record survives an ambiguous HTTP response and
+makes the same operation ID idempotent. If the process exits after completion
+publication but before marker removal, startup finishes the marker removal
+without repeating the clear. The completed operation also becomes the durable
+business-data epoch. Center identity and paired devices remain unchanged;
+private resource tickets are invalidated. Normal workers restart only afterward.
+
+Client cache and desktop-log cleanup are device-owned. The connection integration
+must compare the center's data epoch and clear stale local state before allowing
+interaction; an offline device cannot hold the center's completion hostage.
+The previous desktop-coordinated UI flow is being replaced alongside the local
+service-host migration.
 
 Plugin- and source-owned user content uses the same full-clear generation stored
 by the runtime command queue. `runtime_plugin_user_content_clear_state` records
@@ -520,7 +535,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `background_tasks` | `v4` | tool-effect intent/completion ledger with explicit uncertain crash recovery |
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
-| `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
+| `message_queue` | `v7` | pending service full-clear transaction adopted before command recovery; success returns to an empty idle row |
 | `memory_shared` | `v51_portrait_prompt_contract` | version cached semantic portrait prompts and invalidate decoded profile caches; earlier revisions retain their strategy fencing and exact profile-diagnostic cleanup |
 
 `chat_task_execution_budgets` is owned by the accepted root turn. Its

@@ -106,6 +106,6 @@ fn now_seconds() -> Option<f64> {
         .map(|duration| duration.as_secs_f64())
 }
 
-fn open_tasks_db_rw() -> Option<rusqlite::Connection> {
+fn open_tasks_db_rw() -> Option<db::GuardedConnection> {
     db::open_readwrite(&db::tasks_db_path())
 }

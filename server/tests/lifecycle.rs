@@ -198,6 +198,55 @@ fn worker_crash_reconnects_without_restarting_gateway() {
     server.wait_ready();
 }
 
+#[test]
+fn full_clear_is_owned_by_the_server_and_completed_requests_do_not_repeat() {
+    let server = Server::start();
+    server.wait_ready();
+    let original_identity = server.get("/api/server/info", true);
+    let id = "clear-process-integration-0123456789";
+    let send = || {
+        let mut stream =
+            TcpStream::connect_timeout(&server.address, Duration::from_secs(1)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(4)))
+            .unwrap();
+        write!(stream, "DELETE /api/memory/clear HTTP/1.1\r\nHost: {}\r\nx-magi-session-token: {TOKEN}\r\nx-magi-full-clear-transaction: {id}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", server.address).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    };
+    assert!(send().starts_with("HTTP/1.1 202"));
+    assert!(server.get("/api/tasks", true).starts_with("HTTP/1.1 503"));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = server.get("/api/server/maintenance", true);
+        if status.contains("\"phase\":\"completed\"") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Clear did not complete: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    server.wait_ready();
+    assert!(send().contains("\"phase\":\"completed\""));
+    assert_eq!(
+        fs::read_to_string(server.root.join("service/fake-clears.txt")).unwrap(),
+        "1"
+    );
+    assert!(!server
+        .root
+        .join("runtime/full-data-clear.pending.json")
+        .exists());
+    let old: Value =
+        serde_json::from_str(original_identity.split_once("\r\n\r\n").unwrap().1).unwrap();
+    let new = server.get("/api/server/info", true);
+    let new: Value = serde_json::from_str(new.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(old["data"]["server_id"], new["data"]["server_id"]);
+    assert_eq!(new["data"]["maintenance"]["data_epoch"], id);
+}
+
 #[cfg(unix)]
 #[test]
 fn unowned_console_server_supports_private_operator_pairing() {
@@ -279,6 +328,25 @@ fn fake_worker() {
                 std::env::var("MAGI_IPC_AUTH_TOKEN").unwrap()
             );
             json!({"authenticated": true})
+        } else if request["method"] == "api.forward"
+            && request["params"]["path"] == "/api/memory/clear"
+        {
+            assert_eq!(
+                request["params"]["headers"]["x-magi-full-clear-transaction"],
+                std::env::var("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID").unwrap()
+            );
+            let path = root.join("service/fake-clears.txt");
+            let count = fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| text.parse::<u32>().ok())
+                .unwrap_or(0);
+            fs::write(path, (count + 1).to_string()).unwrap();
+            let results: serde_json::Map<String, serde_json::Value> =
+                ["l0", "l1", "l2", "l3", "l4", "chat_context"]
+                    .into_iter()
+                    .map(|area| (area.into(), json!({"cleared":true,"count":0})))
+                    .collect();
+            json!({"status":200,"body":{"success":true,"results":results,"warnings":[]}})
         } else {
             json!({"success": true, "data": {"ready": true, "runtime_ready": true}})
         };

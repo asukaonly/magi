@@ -11,6 +11,7 @@ pub struct ApiState {
     pub ipc_client: Arc<RuntimeConnection>,
     pub security: Arc<GatewaySecurity>,
     pub events: Arc<crate::events::EventHub>,
+    pub maintenance: Option<Arc<dyn crate::maintenance::MaintenanceControl>>,
     pub storage_ready: Arc<AtomicBool>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
@@ -34,6 +35,7 @@ impl ApiState {
     ) -> Self {
         Self {
             ipc_client,
+            maintenance: None,
             events: Arc::new(crate::events::EventHub::new(
                 security.auth.server_id.clone(),
             )),

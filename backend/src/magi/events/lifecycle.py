@@ -79,17 +79,17 @@ class RuntimeCommandQueueModule(LifecycleModule):
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths.message_queue_db_path))
         await queue.start(recover_claimed_commands=False)
-        desktop_transaction_id = os.environ.get(
+        owner_transaction_id = os.environ.get(
             _FULL_DATA_CLEAR_TRANSACTION_ENV,
             "",
         ).strip()
-        if desktop_transaction_id:
-            await queue.begin_full_user_content_clear(desktop_transaction_id)
+        if owner_transaction_id:
+            await queue.begin_full_user_content_clear(owner_transaction_id)
         transaction_state = await queue.read_full_user_content_clear_state()
         recovery_pending = transaction_state.status == "pending"
-        if recovery_pending and not desktop_transaction_id:
+        if recovery_pending and not owner_transaction_id:
             await queue.stop()
-            raise RuntimeError("Pending full user-content clear requires its desktop owner marker")
+            raise RuntimeError("Pending full user-content clear requires its service owner marker")
         self._context.runtime_commands.full_clear_recovery_pending = recovery_pending
         if not recovery_pending:
             await queue.recover_claimed_commands_after_restart()
