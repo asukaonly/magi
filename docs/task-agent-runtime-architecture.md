@@ -70,6 +70,14 @@ lifetime; normal teardown releases the lease after runtime/plugin shutdown.
 The server separately holds `runtime/server.lock`. Neither lock file is deleted
 on exit, so another process cannot lock a newly created inode beside a live owner.
 
+The standalone gateway owns a bounded SSE fan-out hub and a single reader of
+`runtime_notifications`. SQLite polling runs on blocking workers with bounded
+batches, and no read connection is retained across a database replacement.
+Stream replay is process-local; an epoch change explicitly requests a snapshot.
+Notification payloads remain hints about committed domain state. Product API
+mutations also emit scoped invalidations; they do not make cross-database
+notifications atomic with the business write.
+
 The message bus is process-local. SQLite queues and domain stores, not the bus,
 own restart recovery.
 

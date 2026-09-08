@@ -17,6 +17,7 @@ pub async fn info(State(state): State<ApiState>) -> Json<serde_json::Value> {
         "data": {
             "server_id": state.security.auth.server_id,
             "protocol_version": 1,
+            "events": state.events.status(),
             "runtime_ready": state.storage_ready.load(Ordering::Acquire),
             "plugin_execution": "server",
         }

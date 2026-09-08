@@ -1,3 +1,4 @@
+mod events;
 mod health;
 mod llm;
 mod local_embedding;
@@ -31,8 +32,10 @@ pub fn build_router(state: ApiState) -> Router {
     let cors = state.security.cors_layer();
     let security = Arc::clone(&state.security);
     let storage_ready = Arc::clone(&state.storage_ready);
+    let events = Arc::clone(&state.events);
 
     Router::new()
+        .route("/api/events", axum::routing::get(events::subscribe))
         .route("/api/server/info", axum::routing::get(server::info))
         .route("/api/auth/pair", axum::routing::post(server::pair))
         .route("/api/auth/session", axum::routing::post(server::session))
@@ -211,12 +214,23 @@ pub fn build_router(state: ApiState) -> Router {
         // Fallback: proxy to Python
         .fallback(proxy::proxy_handler)
         .layer(middleware::from_fn(move |request: axum::extract::Request, next: middleware::Next| {
+            let events = Arc::clone(&events);
+            async move {
+                let resource = request.uri().path().strip_prefix("/api/").and_then(|path| path.split('/').next()).unwrap_or("").to_owned();
+                let mutation = !matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS)
+                    && !matches!(resource.as_str(), "" | "auth" | "server" | "private-resource-tickets");
+                let response = next.run(request).await;
+                if mutation && response.status().is_success() { events.publish("state.changed", serde_json::json!({"resource":resource})); }
+                response
+            }
+        }))
+        .layer(middleware::from_fn(move |request: axum::extract::Request, next: middleware::Next| {
             let storage_ready = Arc::clone(&storage_ready);
             async move {
                 use axum::response::IntoResponse;
                 let path = request.uri().path();
                 if !storage_ready.load(std::sync::atomic::Ordering::Acquire)
-                    && !matches!(path, "/api/health" | "/api/ready" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
+                    && !matches!(path, "/api/events" | "/api/health" | "/api/ready" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
                     && !path.starts_with("/api/server/clients/")
                     && !path.starts_with("/static/avatars/") {
                     return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({

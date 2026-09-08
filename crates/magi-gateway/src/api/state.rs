@@ -10,6 +10,7 @@ use super::security::GatewaySecurity;
 pub struct ApiState {
     pub ipc_client: Arc<RuntimeConnection>,
     pub security: Arc<GatewaySecurity>,
+    pub events: Arc<crate::events::EventHub>,
     pub storage_ready: Arc<AtomicBool>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
@@ -33,6 +34,9 @@ impl ApiState {
     ) -> Self {
         Self {
             ipc_client,
+            events: Arc::new(crate::events::EventHub::new(
+                security.auth.server_id.clone(),
+            )),
             security,
             storage_ready: Arc::new(AtomicBool::new(false)),
             builtin_avatar_dir: None,

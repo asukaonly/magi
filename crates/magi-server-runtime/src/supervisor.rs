@@ -60,6 +60,7 @@ pub async fn run(
             Some(config.data_dir.join("personalities/avatar")),
         );
     let storage_ready = Arc::clone(&state.storage_ready);
+    let events = Arc::clone(&state.events);
     let router = api::build_router(state);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", config.port))
         .await
@@ -85,6 +86,23 @@ pub async fn run(
         base_url: format!("http://127.0.0.1:{port}/api"),
         server_pid: std::process::id(),
     });
+    let event_hub = Arc::clone(&events);
+    let emitter: magi_gateway::notification_bridge::EventEmitFn =
+        Arc::new(move |event, payload| {
+            if event == "server_resync_required" {
+                event_hub.reset("notification_source_changed");
+            } else {
+                event_hub.publish(
+                    "runtime.notification",
+                    serde_json::to_value(payload).unwrap_or_default(),
+                );
+            }
+        });
+    let bridge_shutdown = shutdown.clone();
+    let bridge = tokio::spawn(async move {
+        magi_gateway::notification_bridge::run_notification_bridge(Some(emitter), bridge_shutdown)
+            .await;
+    });
     let mut attempts = 0;
     let result = loop {
         if *shutdown.borrow() {
@@ -107,10 +125,12 @@ pub async fn run(
                     &token,
                     &connection,
                     &storage_ready,
+                    &events,
                     &mut shutdown,
                 )
                 .await;
                 storage_ready.store(false, Ordering::Release);
+                events.reset("runtime_unavailable");
                 connection.replace(None);
                 worker
                     .stop(Duration::from_secs(config.shutdown_timeout_secs))
@@ -137,6 +157,8 @@ pub async fn run(
     };
     storage_ready.store(false, Ordering::Release);
     connection.replace(None);
+    bridge.abort();
+    let _ = bridge.await;
     http_stop_tx.send_replace(true);
     if tokio::time::timeout(
         Duration::from_secs(config.shutdown_timeout_secs),
@@ -161,6 +183,7 @@ async fn run_worker(
     token: &str,
     connection: &Arc<RuntimeConnection>,
     storage_ready: &std::sync::atomic::AtomicBool,
+    events: &magi_gateway::events::EventHub,
     shutdown: &mut watch::Receiver<bool>,
 ) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(config.startup_timeout_secs);
@@ -175,13 +198,14 @@ async fn run_worker(
         if !connected {
             let ready = fs::read_to_string(config.data_dir.join("runtime/worker.ready")).ok();
             if ready.as_deref().and_then(|s| s.trim().parse::<u32>().ok()) == Some(worker.pid) {
-                let (client, mut events) = IpcClient::connect(socket, token).await?;
+                let (client, mut ipc_events) = IpcClient::connect(socket, token).await?;
                 connection.replace(Some(Arc::new(client)));
                 tokio::task::spawn_blocking(magi_gateway::db::ensure_indexes)
                     .await
                     .map_err(|e| e.to_string())?;
                 storage_ready.store(true, Ordering::Release);
-                tokio::spawn(async move { while events.recv().await.is_some() {} });
+                events.publish("state.changed", serde_json::json!({"resource":"runtime"}));
+                tokio::spawn(async move { while ipc_events.recv().await.is_some() {} });
                 connected = true;
                 eprintln!("Python runtime connected (pid {})", worker.pid);
             } else if Instant::now() >= deadline {

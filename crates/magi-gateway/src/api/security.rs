@@ -132,6 +132,7 @@ impl GatewaySecurity {
                 CONTENT_TYPE,
                 RANGE,
                 HeaderName::from_static(SESSION_TOKEN_HEADER),
+                HeaderName::from_static("last-event-id"),
             ])
             .max_age(Duration::from_secs(600))
     }

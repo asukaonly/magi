@@ -7,7 +7,7 @@ Magi is a local-first AI agent framework that runs as a desktop application with
 At a high level, Magi combines:
 
 - a backend runtime for bootstrap, agent execution, memory, tools, plugins, and scheduling
-- a Rust gateway (Axum) that owns HTTP/WebSocket transport, static reads, config I/O, and IPC dispatch to Python
+- a Rust gateway (Axum) that owns HTTP transport, static reads, config I/O, and IPC dispatch to Python
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
 - a Tauri desktop shell that hosts the frontend, starts the Rust gateway, and manages the Python sidecar process
 
@@ -150,7 +150,21 @@ The center keeps a durable identity and hashed device credentials in its own
 `service/server.db`; business data remains in existing domain stores. Only
 liveness and bundled avatars are public. HTTPS must terminate at a trusted
 same-machine proxy before remote access; loopback does not bypass Magi auth.
-Desktop connection UI, network events and standalone distribution are still
+`/api/events` provides SSE using an access-token header and optional
+`Last-Event-ID`. Envelopes include center identity, stream epoch, sequence,
+event id, type and domain payload. Replay is bounded to 256 events and 8 MiB;
+frames are capped at 64 KiB and oversized hints request a fresh snapshot.
+Slow subscribers are disconnected with `resync_required`, and device revocation
+or session expiry terminates subscriptions. A process restart or runtime reset
+changes the stream epoch; clients must reload authoritative state. Replay is
+within the running gateway's retained window, not a durable event-delivery SLA.
+
+The center polls persisted runtime notifications once for all clients using
+bounded blocking reads. Successful product HTTP mutations also emit resource
+invalidation hints. These hints do not provide an atomic outbox across domain
+stores: client reconnection and periodic snapshot reconciliation are still
+required to cover a commit followed by a process failure before notification.
+Desktop connection UI, client reconciliation and standalone distribution remain
 separate integration work.
 
 The shipped desktop lifecycle described below still applies until its service
@@ -161,7 +175,7 @@ Magi is a desktop-only application:
 - Desktop mode
   Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
 
-The Rust gateway serves all HTTP and WebSocket traffic on a single port. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
+The Rust gateway serves HTTP on a single port. The independent server also exposes authenticated SSE at `/api/events`. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
 The gateway-to-Python channel has its own random per-launch credential, separate
 from the WebView session credential. The Python worker accepts no business

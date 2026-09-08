@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::watch;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
-const BATCH_LIMIT: u32 = 50;
+const BATCH_LIMIT: u32 = 200;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct NotificationPayload {
@@ -17,7 +17,7 @@ pub struct NotificationPayload {
     pub data: serde_json::Value,
 }
 
-/// Callback type for emitting events to the host runtime (e.g. Tauri events).
+/// Callback for transport-independent notification delivery.
 /// Receives (event_name, payload). Called once per notification.
 pub type EventEmitFn = Arc<dyn Fn(&str, &NotificationPayload) + Send + Sync>;
 
@@ -27,7 +27,7 @@ struct NotificationRow {
     user_id: String,
     session_id: String,
     turn_id: Option<String>,
-    payload_json: String,
+    payload_json: Option<String>,
 }
 
 fn open_db(db_path: &std::path::Path) -> Option<Connection> {
@@ -38,28 +38,29 @@ fn open_db(db_path: &std::path::Path) -> Option<Connection> {
     .ok()
 }
 
-fn get_latest_notification_id(conn: &Connection) -> i64 {
-    conn.query_row(
-        "SELECT COALESCE(MAX(notification_id), 0) FROM runtime_notifications",
-        [],
-        |row| row.get(0),
-    )
-    .unwrap_or(0)
-}
-
-fn fetch_notifications(conn: &Connection, after_id: i64) -> Vec<NotificationRow> {
-    let mut stmt = match conn.prepare(
-        "SELECT notification_id, channel, user_id, session_id, turn_id, payload_json
-         FROM runtime_notifications
-         WHERE notification_id > ?1
-         ORDER BY notification_id ASC
-         LIMIT ?2",
-    ) {
-        Ok(s) => s,
-        Err(_) => return Vec::new(),
+fn read_batch(
+    db_path: &std::path::Path,
+    after_id: Option<i64>,
+) -> Result<(i64, Vec<NotificationRow>, bool), String> {
+    let conn = open_db(db_path).ok_or("Notification store is unavailable")?;
+    conn.busy_timeout(Duration::from_millis(100))
+        .map_err(|e| e.to_string())?;
+    let latest: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(notification_id), 0) FROM runtime_notifications",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let Some(after_id) = after_id.filter(|id| *id <= latest) else {
+        return Ok((latest, vec![], true));
     };
-
-    let rows = stmt
+    let mut statement = conn.prepare(
+        "SELECT notification_id, channel, user_id, session_id, turn_id,
+         CASE WHEN length(CAST(payload_json AS BLOB)) <= 65536 THEN payload_json ELSE NULL END
+         FROM runtime_notifications WHERE notification_id > ?1 ORDER BY notification_id ASC LIMIT ?2"
+    ).map_err(|e| e.to_string())?;
+    let rows = statement
         .query_map(rusqlite::params![after_id, BATCH_LIMIT], |row| {
             Ok(NotificationRow {
                 notification_id: row.get(0)?,
@@ -70,17 +71,19 @@ fn fetch_notifications(conn: &Connection, after_id: i64) -> Vec<NotificationRow>
                 payload_json: row.get(5)?,
             })
         })
-        .ok();
-
-    match rows {
-        Some(iter) => iter.filter_map(|r| r.ok()).collect(),
-        None => Vec::new(),
-    }
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    let next_id = rows
+        .last()
+        .map(|row| row.notification_id)
+        .unwrap_or(after_id);
+    Ok((next_id, rows, false))
 }
 
-fn parse_payload(json_str: &str) -> serde_json::Value {
+fn parse_payload(json_str: &str) -> Option<serde_json::Value> {
     match serde_json::from_str(json_str) {
-        Ok(value) => value,
+        Ok(value) => Some(value),
         Err(err) => {
             // Notification bodies may contain conversation text or credentials.
             // Keep only structural diagnostics in the native host log.
@@ -88,7 +91,7 @@ fn parse_payload(json_str: &str) -> serde_json::Value {
                 "notification_bridge: failed to parse payload_json ({err}); chars={}",
                 json_str.chars().count()
             );
-            serde_json::Value::Object(serde_json::Map::new())
+            None
         }
     }
 }
@@ -114,39 +117,60 @@ pub async fn run_notification_bridge(
     mut shutdown: watch::Receiver<bool>,
 ) {
     let db_path = db::runtime_trace_db_path();
-
-    // Wait for DB file to exist
-    loop {
-        if db_path.exists() {
-            break;
-        }
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-            _ = shutdown.changed() => { return; }
-        }
-    }
-
-    let conn = match open_db(&db_path) {
-        Some(c) => c,
-        None => return,
-    };
-
-    let mut last_id = get_latest_notification_id(&conn);
-
+    let mut last_id = None;
+    let mut interval = POLL_INTERVAL;
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(POLL_INTERVAL) => {}
-            _ = shutdown.changed() => { break; }
+            _ = tokio::time::sleep(interval) => {},
+            _ = shutdown.changed() => return,
         }
-
         if *shutdown.borrow() {
-            break;
+            return;
         }
-
-        let notifications = fetch_notifications(&conn, last_id);
+        let path = db_path.clone();
+        // One bounded read task serves every subscriber. No SQLite handle survives a restore.
+        let Ok(Ok((next_id, notifications, reset))) =
+            tokio::task::spawn_blocking(move || read_batch(&path, last_id)).await
+        else {
+            continue;
+        };
+        interval = if notifications.len() == BATCH_LIMIT as usize {
+            Duration::from_millis(5)
+        } else {
+            POLL_INTERVAL
+        };
+        last_id = Some(next_id);
+        if reset {
+            if let Some(ref emitter) = event_emitter {
+                emitter(
+                    "server_resync_required",
+                    &NotificationPayload {
+                        channel: "server_resync_required".into(),
+                        user_id: String::new(),
+                        session_id: String::new(),
+                        turn_id: None,
+                        data: serde_json::json!({"reason":"notification_source_changed"}),
+                    },
+                );
+            }
+        }
         for row in notifications {
-            let mut data = parse_payload(&row.payload_json);
-            // Inject top-level fields into data for frontend compatibility
+            let Some(mut data) = row.payload_json.as_deref().and_then(parse_payload) else {
+                if let Some(ref emitter) = event_emitter {
+                    emitter(
+                        "server_resync_required",
+                        &NotificationPayload {
+                            channel: "server_resync_required".into(),
+                            user_id: row.user_id,
+                            session_id: row.session_id,
+                            turn_id: row.turn_id,
+                            data: serde_json::json!({"reason":"notification_snapshot_required"}),
+                        },
+                    );
+                }
+                continue;
+            };
+            // Preserve authoritative routing fields in the domain event payload.
             if let Some(obj) = data.as_object_mut() {
                 obj.entry("user_id")
                     .or_insert_with(|| serde_json::Value::String(row.user_id.clone()));
@@ -171,8 +195,6 @@ pub async fn run_notification_bridge(
             if let Some(ref emitter) = event_emitter {
                 emitter(&event, &payload);
             }
-
-            last_id = row.notification_id;
         }
     }
 }
@@ -180,6 +202,33 @@ pub async fn run_notification_bridge(
 #[cfg(test)]
 mod frontend_contract_tests {
     use super::*;
+
+    #[test]
+    fn reader_bounds_rows_and_detects_store_rewind() {
+        let path = std::env::temp_dir().join(format!("magi-events-{}.db", uuid::Uuid::new_v4()));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE runtime_notifications (notification_id INTEGER PRIMARY KEY,
+            channel TEXT, user_id TEXT, session_id TEXT, turn_id TEXT, payload_json TEXT)",
+        )
+        .unwrap();
+        assert_eq!(read_batch(&path, None).unwrap().0, 0);
+        for id in 1..=201 {
+            conn.execute("INSERT INTO runtime_notifications VALUES (?1, 'chat_message_upserted', 'user', 'session', NULL, ?2)",
+                rusqlite::params![id, if id == 1 { "x".repeat(70_000) } else { "{}".into() }]).unwrap();
+        }
+        let (next, rows, reset) = read_batch(&path, Some(0)).unwrap();
+        assert_eq!(next, 200);
+        assert_eq!(rows.len(), 200);
+        assert!(rows[0].payload_json.is_none());
+        assert!(!reset);
+        assert_eq!(read_batch(&path, Some(next)).unwrap().1.len(), 1);
+        conn.execute("DELETE FROM runtime_notifications", [])
+            .unwrap();
+        assert!(read_batch(&path, Some(next)).unwrap().2);
+        drop(conn);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn native_notification_matches_frontend_fixture() {

@@ -29,6 +29,13 @@
   },
   "native_routes": [
     {
+      "path": "/api/events",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/events.rs",
+      "response_envelope": "server-sent-events"
+    },
+    {
       "path": "/api/server/info",
       "methods": ["GET"],
       "owner": "rust-native",
