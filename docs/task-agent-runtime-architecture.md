@@ -1172,3 +1172,11 @@ artifact used by console deployment and closes a private stdin pipe on stop.
 Remote connection activation starts no worker. Native lifecycle operations are
 serialized with profile switches and session renewal; process-name scans and
 installer-wide worker termination have been removed.
+
+### Maintenance admission ownership
+
+The service owns maintenance admission independently of the HTTP request. Once
+dispatched, an admission task finishes publishing its durable marker even if the
+requesting client disconnects. Closing the database gate and recording the
+operation must not be left halfway through by request cancellation. The same
+operation ID remains retryable and its completed receipt prevents repeated work.

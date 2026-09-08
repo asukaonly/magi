@@ -17,16 +17,17 @@ use magi_platform::full_data_clear::{FullDataClearRuntime, PendingFullDataClear}
 use serde_json::Value;
 use tokio::sync::Notify;
 
+#[derive(Clone)]
 pub struct Coordinator {
     marker: Arc<FullDataClearRuntime>,
     operations: PathBuf,
-    state: Mutex<MaintenanceStatus>,
-    pending: Mutex<Option<PendingFullDataClear>>,
-    command: tokio::sync::Mutex<()>,
+    state: Arc<Mutex<MaintenanceStatus>>,
+    pending: Arc<Mutex<Option<PendingFullDataClear>>>,
+    command: Arc<tokio::sync::Mutex<()>>,
     ready: Arc<AtomicBool>,
     events: Arc<EventHub>,
     security: Arc<magi_gateway::api::security::GatewaySecurity>,
-    pub changed: Notify,
+    pub changed: Arc<Notify>,
 }
 
 impl Coordinator {
@@ -71,13 +72,13 @@ impl Coordinator {
         Ok(Self {
             marker,
             operations,
-            state: Mutex::new(state),
-            pending: Mutex::new(pending),
-            command: tokio::sync::Mutex::new(()),
+            state: Arc::new(Mutex::new(state)),
+            pending: Arc::new(Mutex::new(pending)),
+            command: Arc::new(tokio::sync::Mutex::new(())),
             ready,
             events,
             security,
-            changed: Notify::new(),
+            changed: Arc::new(Notify::new()),
         })
     }
 
@@ -135,6 +136,94 @@ impl Coordinator {
     }
 }
 
+impl Coordinator {
+    async fn admit_clear(&self, operation_id: String) -> Result<MaintenanceStatus, String> {
+        if !(16..=128).contains(&operation_id.len())
+            || !operation_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err("Clear operation identifier is invalid".into());
+        }
+        let _command = self.command.lock().await;
+        let saved_path = self.operations.join(format!("{operation_id}.json"));
+        if let Some(completed) = tokio::task::spawn_blocking(move || read_status(&saved_path))
+            .await
+            .map_err(|e| e.to_string())??
+        {
+            return Ok(completed);
+        }
+        if let Some(pending) = self.pending() {
+            if pending.transaction_id != operation_id {
+                return Err("Another maintenance operation is pending".into());
+            }
+            if self.status().phase == "failed" {
+                self.set_phase("pending", None);
+                self.changed.notify_one();
+            }
+            return Ok(self.status());
+        }
+        let previous = self.status();
+        database_gate::global().close();
+        let was_ready = self.ready.swap(false, Ordering::AcqRel);
+        self.security.invalidate_resource_tickets();
+        {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.operation_id = Some(operation_id.clone());
+            state.phase = "pending".into();
+            state.result = None;
+            state.error = None;
+        }
+        let marker = Arc::clone(&self.marker);
+        let saved_id = operation_id.clone();
+        let result = tokio::task::spawn_blocking(move || marker.begin_with_id(&saved_id))
+            .await
+            .map_err(|_| "Clear marker publication failed".to_owned())
+            .and_then(|result| result);
+        match result {
+            Ok(marker) => {
+                let matches = marker.transaction_id == operation_id;
+                *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(marker.clone());
+                if !matches {
+                    self.state
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .operation_id = Some(marker.transaction_id);
+                    self.set_phase(
+                        "failed",
+                        Some("Another clear recovery marker exists".into()),
+                    );
+                    self.changed.notify_one();
+                    return Err("Another clear recovery marker exists".into());
+                }
+            }
+            Err(error) => {
+                self.set_phase("failed", Some(error.clone()));
+                match self.marker.read() {
+                    Ok(Some(marker)) => {
+                        self.state
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .operation_id = Some(marker.transaction_id.clone());
+                        *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(marker);
+                    }
+                    Ok(None) => {
+                        *self.state.lock().unwrap_or_else(|e| e.into_inner()) = previous;
+                        database_gate::global().reopen();
+                        self.ready.store(was_ready, Ordering::Release);
+                    }
+                    Err(_) => {}
+                }
+                self.changed.notify_one();
+                return Err(error);
+            }
+        }
+        self.events.reset("maintenance_started");
+        self.changed.notify_one();
+        Ok(self.status())
+    }
+}
+
 impl MaintenanceControl for Coordinator {
     fn status(&self) -> MaintenanceStatus {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).clone()
@@ -146,90 +235,12 @@ impl MaintenanceControl for Coordinator {
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<MaintenanceStatus, String>> + Send + '_>,
     > {
+        let owner = self.clone();
         Box::pin(async move {
-            if !(16..=128).contains(&operation_id.len())
-                || !operation_id
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-            {
-                return Err("Clear operation identifier is invalid".into());
-            }
-            let _command = self.command.lock().await;
-            let saved_path = self.operations.join(format!("{operation_id}.json"));
-            if let Some(completed) = tokio::task::spawn_blocking(move || read_status(&saved_path))
+            // The admission task owns publication even if its HTTP caller disconnects.
+            tokio::spawn(async move { owner.admit_clear(operation_id).await })
                 .await
-                .map_err(|e| e.to_string())??
-            {
-                return Ok(completed);
-            }
-            if let Some(pending) = self.pending() {
-                if pending.transaction_id != operation_id {
-                    return Err("Another maintenance operation is pending".into());
-                }
-                if self.status().phase == "failed" {
-                    self.set_phase("pending", None);
-                    self.changed.notify_one();
-                }
-                return Ok(self.status());
-            }
-            let previous = self.status();
-            database_gate::global().close();
-            let was_ready = self.ready.swap(false, Ordering::AcqRel);
-            self.security.invalidate_resource_tickets();
-            {
-                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-                state.operation_id = Some(operation_id.clone());
-                state.phase = "pending".into();
-                state.result = None;
-                state.error = None;
-            }
-            let marker = Arc::clone(&self.marker);
-            let saved_id = operation_id.clone();
-            let result = tokio::task::spawn_blocking(move || marker.begin_with_id(&saved_id))
-                .await
-                .map_err(|_| "Clear marker publication failed".to_owned())
-                .and_then(|result| result);
-            match result {
-                Ok(marker) => {
-                    let matches = marker.transaction_id == operation_id;
-                    *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(marker.clone());
-                    if !matches {
-                        self.state
-                            .lock()
-                            .unwrap_or_else(|e| e.into_inner())
-                            .operation_id = Some(marker.transaction_id);
-                        self.set_phase(
-                            "failed",
-                            Some("Another clear recovery marker exists".into()),
-                        );
-                        self.changed.notify_one();
-                        return Err("Another clear recovery marker exists".into());
-                    }
-                }
-                Err(error) => {
-                    self.set_phase("failed", Some(error.clone()));
-                    match self.marker.read() {
-                        Ok(Some(marker)) => {
-                            self.state
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .operation_id = Some(marker.transaction_id.clone());
-                            *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = Some(marker);
-                        }
-                        Ok(None) => {
-                            *self.state.lock().unwrap_or_else(|e| e.into_inner()) = previous;
-                            database_gate::global().reopen();
-                            self.ready.store(was_ready, Ordering::Release);
-                        }
-                        Err(_) => {}
-                    }
-                    self.changed.notify_one();
-                    return Err(error);
-                }
-            }
-            self.events.reset("maintenance_started");
-            self.changed.notify_one();
-            Ok(self.status())
+                .map_err(|_| "Maintenance admission task failed".to_owned())?
         })
     }
 }
@@ -326,6 +337,64 @@ mod tests {
             .is_none());
         response["results"]["l0"]["cleared"] = serde_json::json!(false);
         assert!(clear_receipt(&response).is_err());
+    }
+
+    #[tokio::test]
+    async fn admission_survives_cancellation_of_the_requesting_client() {
+        let root = std::env::temp_dir().join(format!(
+            "magi-admission-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let security = Arc::new(magi_gateway::api::security::GatewaySecurity::new("owner"));
+        let coordinator = Coordinator::open(
+            &root,
+            "initial",
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(EventHub::new("server".into())),
+            security,
+        )
+        .unwrap();
+        let lock = coordinator.command.lock().await;
+        let request_owner = coordinator.clone();
+        let request = tokio::spawn(async move {
+            request_owner
+                .begin_clear("cancelled-client-operation".into())
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while Arc::strong_count(&coordinator.command) < 3 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        request.abort();
+        let _ = request.await;
+        drop(lock);
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while coordinator.pending().is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            coordinator.pending().unwrap().transaction_id,
+            "cancelled-client-operation"
+        );
+        assert_eq!(
+            coordinator.marker.read().unwrap().unwrap().transaction_id,
+            "cancelled-client-operation"
+        );
+        coordinator
+            .complete("cancelled-client-operation", cleared_response())
+            .await
+            .unwrap();
+        database_gate::global().reopen();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
