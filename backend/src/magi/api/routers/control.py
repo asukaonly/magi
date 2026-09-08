@@ -42,7 +42,6 @@ from ...control.permission.contracts import (
 from ...control.settings import (
     PermissionMode,
     SessionControlOverride,
-    resolve_effective_settings,
 )
 from ...control.provider import (
     resolve_control_interaction_broker,
@@ -52,6 +51,7 @@ from ...control.provider import (
     resolve_permission_rule_store,
 )
 from ...runtime_trace.provider import resolve_runtime_trace_store
+from ..services.revisions import require_snapshot_revision, snapshot_revision
 
 control_router = APIRouter()
 
@@ -152,13 +152,18 @@ async def _load_latest_control_notification(
 
 
 class _SettingsUpdate(BaseModel):
+    revision: Optional[str] = None
     permission_mode: Optional[PermissionMode] = None
     plan_approval_required: Optional[bool] = None
 
 
 @control_router.get("/settings")
 async def get_settings() -> dict[str, Any]:
-    return _settings_manager().get().to_dict()
+    return _revisioned(_settings_manager().get().to_dict())
+
+
+def _revisioned(snapshot: dict[str, Any]) -> dict[str, Any]:
+    return {**snapshot, "revision": snapshot_revision(snapshot)}
 
 
 @control_router.put("/settings")
@@ -167,11 +172,13 @@ async def put_settings(payload: _SettingsUpdate) -> dict[str, Any]:
     new = manager.update(
         permission_mode=payload.permission_mode,
         plan_approval_required=payload.plan_approval_required,
+        before_commit=lambda current: require_snapshot_revision(payload.revision, snapshot_revision(current.to_dict())),
     )
-    return new.to_dict()
+    return _revisioned(new.to_dict())
 
 
 class _SessionSettingsUpdate(BaseModel):
+    revision: Optional[str] = None
     permission_mode: Optional[PermissionMode] = None
     plan_approval_required: Optional[bool] = None
     clear: bool = False
@@ -180,35 +187,21 @@ class _SessionSettingsUpdate(BaseModel):
 @control_router.get("/sessions/{session_id}/settings")
 async def get_session_settings(session_id: str) -> dict[str, Any]:
     manager = _settings_manager()
-    base = manager.get()
-    override = manager.get_session_override(session_id)
-    effective = resolve_effective_settings(base=base, override=override)
-    return {
-        "base": base.to_dict(),
-        "override": override.to_dict() if override else None,
-        "effective": effective.to_dict(),
-    }
+    return _revisioned(manager.session_snapshot(session_id))
 
 
 @control_router.put("/sessions/{session_id}/settings")
 async def put_session_settings(session_id: str, payload: _SessionSettingsUpdate) -> dict[str, Any]:
     manager = _settings_manager()
-    if payload.clear:
-        manager.set_session_override(session_id, None)
-    else:
-        override = SessionControlOverride(
-            permission_mode=payload.permission_mode,
-            plan_approval_required=payload.plan_approval_required,
-        )
-        manager.set_session_override(session_id, override)
-    base = manager.get()
-    active = manager.get_session_override(session_id)
-    effective = resolve_effective_settings(base=base, override=active)
-    return {
-        "base": base.to_dict(),
-        "override": active.to_dict() if active else None,
-        "effective": effective.to_dict(),
-    }
+    override = None if payload.clear else SessionControlOverride(
+        permission_mode=payload.permission_mode,
+        plan_approval_required=payload.plan_approval_required,
+    )
+    snapshot = manager.set_session_override(
+        session_id, override,
+        before_commit=lambda current: require_snapshot_revision(payload.revision, snapshot_revision(current)),
+    )
+    return _revisioned(snapshot)
 
 
 # ---------------------------------------------------------------------------

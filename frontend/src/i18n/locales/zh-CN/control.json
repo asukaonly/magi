@@ -105,7 +105,8 @@
     "rules_title": "已保存的权限规则",
     "rules_empty": "暂无规则。",
     "delete_rule": "删除",
-    "clear_session_rules": "清空会话规则"
+    "clear_session_rules": "清空会话规则",
+    "changed_on_center": "中心的安全设置已变化，请查看最新设置后再操作。"
   },
   "background": {
     "suspended_title": "后台任务已暂停",

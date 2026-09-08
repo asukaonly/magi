@@ -30,6 +30,7 @@ describe('control API routes', () => {
   it('uses baseURL-relative control paths for polling endpoints', async () => {
     vi.mocked(api.get).mockResolvedValue({ data: { items: [], ask: null, active: false, plan_text: null, entered_at_ms: null, exited_at_ms: null } } as any);
 
+    vi.mocked(api.get).mockResolvedValueOnce({ success: true, message: 'OK', data: { revision: 'a'.repeat(64), permission_mode: 'high_only', plan_approval_required: false } });
     await getControlSettings();
     await listPendingPermissions('session-1');
     await getAskState('session-1');
@@ -97,4 +98,11 @@ describe('control API routes', () => {
       expires_at_ms: 7000,
     }));
   });
+});
+
+it('rejects an unversioned or malformed control settings snapshot', async () => {
+  vi.mocked(api.get).mockResolvedValueOnce({ success: true, message: 'OK', data: { permission_mode: 'off', plan_approval_required: false } });
+  await expect(getControlSettings()).rejects.toThrow();
+  vi.mocked(api.get).mockResolvedValueOnce({ success: true, message: 'OK', data: { revision: 'a'.repeat(64), permission_mode: 'unknown', plan_approval_required: false } });
+  await expect(getControlSettings()).rejects.toThrow();
 });

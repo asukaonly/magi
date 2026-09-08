@@ -36,7 +36,8 @@ export interface UseSettingsReturn {
   configError: string | null;
   fetchConfig: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
   saving: boolean;
-  configConflict: boolean;
+  configConflict: 'config' | 'control' | null;
+  reloadConflictedSettings: () => Promise<void>;
   autoStartSyncFailed: boolean;
 
   // Navigation
@@ -308,6 +309,11 @@ export function useSettings(): UseSettingsReturn {
   // Return
   // ========================================
 
+  const reloadConflictedSettings = useCallback(async () => {
+    if (configConflict === 'control') await loadControlSettings({ silent: true, discardDraft: true });
+    else if (configConflict === 'config') await fetchConfig({ silent: true, discardDraft: true });
+  }, [configConflict, loadControlSettings, fetchConfig]);
+
   return {
     // Loading states
     loading,
@@ -315,6 +321,7 @@ export function useSettings(): UseSettingsReturn {
     fetchConfig,
     saving,
     configConflict,
+    reloadConflictedSettings,
     autoStartSyncFailed,
 
     // Navigation

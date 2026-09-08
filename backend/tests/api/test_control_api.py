@@ -19,6 +19,7 @@ from magi.control.settings import ControlSettings, PermissionMode
 from magi.control.settings_manager import ControlSettingsManager
 from magi.api.routers import control as control_module
 from magi.api.routers.control import control_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.runtime_trace import RuntimeNotificationRecord
 
 
@@ -62,7 +63,7 @@ async def wiring(monkeypatch):
 @pytest.fixture()
 def client(wiring):
     app = FastAPI()
-    app.include_router(control_router, prefix="/api/control")
+    app.include_router(_build_public_router(control_router, _PUBLIC_ROUTE_METHODS["control"]), prefix="/api/control")
     return TestClient(app)
 
 
@@ -81,7 +82,7 @@ def test_get_settings_defaults(client):
 
 def test_put_settings_updates_mode(client):
     resp = client.put(
-        "/api/control/settings", json={"permission_mode": "off"}
+        "/api/control/settings", json={"permission_mode": "off", "revision": client.get("/api/control/settings").json()["revision"]}
     )
     assert resp.status_code == 200
     assert resp.json()["permission_mode"] == "off"
@@ -101,7 +102,7 @@ def test_put_settings_rejects_unknown_mode(client):
 def test_session_override_roundtrip(client):
     resp = client.put(
         "/api/control/sessions/sid-1/settings",
-        json={"permission_mode": "all"},
+        json={"permission_mode": "all", "revision": client.get("/api/control/sessions/sid-1/settings").json()["revision"]},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -110,7 +111,7 @@ def test_session_override_roundtrip(client):
 
     # Clearing drops the override.
     cleared = client.put(
-        "/api/control/sessions/sid-1/settings", json={"clear": True}
+        "/api/control/sessions/sid-1/settings", json={"clear": True, "revision": body["revision"]}
     )
     assert cleared.status_code == 200
     assert cleared.json()["override"] is None
@@ -416,3 +417,26 @@ def test_get_pending_permissions_without_registry_returns_empty(
     resp = client.get("/api/control/sessions/sid-x/permissions")
     assert resp.status_code == 200
     assert resp.json() == {"items": []}
+
+
+def test_global_settings_reject_stale_or_missing_revision(client):
+    snapshot = client.get("/api/control/settings").json()
+    assert client.put("/api/control/settings", json={"permission_mode": "off"}).status_code == 428
+    accepted = client.put("/api/control/settings", json={**snapshot, "permission_mode": "all"})
+    assert accepted.status_code == 200
+    stale = client.put("/api/control/settings", json={**snapshot, "permission_mode": "off"})
+    assert stale.status_code == 409
+    assert client.get("/api/control/settings").json()["permission_mode"] == "all"
+
+
+def test_session_revision_includes_global_policy_and_other_client_override(client):
+    path = "/api/control/sessions/shared/settings"
+    snapshot = client.get(path).json()
+    base = client.get("/api/control/settings").json()
+    assert client.put("/api/control/settings", json={**base, "permission_mode": "all"}).status_code == 200
+    assert client.put(path, json={"revision": snapshot["revision"], "permission_mode": "off"}).status_code == 409
+    current = client.get(path).json()
+    accepted = client.put(path, json={"revision": current["revision"], "permission_mode": "high_only"})
+    assert accepted.status_code == 200
+    assert client.put(path, json={"revision": current["revision"], "clear": True}).status_code == 409
+    assert client.get(path).json()["effective"]["permission_mode"] == "high_only"

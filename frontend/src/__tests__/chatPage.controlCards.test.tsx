@@ -12,6 +12,7 @@ import { useConversationStore } from '@/stores/conversation-store';
 import { messagesApi } from '@/api';
 import {
   getAskState,
+  getSessionSettings,
   respondAsk,
   respondPermission,
   updateSessionSettings,
@@ -57,10 +58,33 @@ defineChatPageSuite('ChatPage control cards', () => {
 
     await waitFor(() => {
       expect(updateSessionSettings).toHaveBeenCalledWith('session-1', {
+        revision: 'a'.repeat(64),
         permission_mode: 'off',
         plan_approval_required: null,
       });
     });
+  });
+
+  it('reads current safety policy after a conflict without replaying the rejected change', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await user.click(await screen.findByRole('button', { name: 'settings.session_trigger' }));
+    await screen.findByTestId('chat-session-settings-popover');
+    const initialReads = vi.mocked(getSessionSettings).mock.calls.length;
+    vi.mocked(updateSessionSettings).mockRejectedValueOnce({ status: 409 });
+    vi.mocked(getSessionSettings).mockResolvedValueOnce({
+      revision: 'b'.repeat(64),
+      base: { permission_mode: 'all', plan_approval_required: true },
+      override: null,
+      effective: { permission_mode: 'all', plan_approval_required: true },
+    });
+    await user.click(screen.getByRole('button', { name: 'settings.mode.off' }));
+    await screen.findByText('settings.changed_on_center');
+    await waitFor(() => expect(getSessionSettings).toHaveBeenCalledTimes(initialReads + 1));
+    expect(updateSessionSettings).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('chat-session-settings-popover')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'settings.mode.high_only' }));
+    await waitFor(() => expect(updateSessionSettings).toHaveBeenLastCalledWith('session-1', expect.objectContaining({ revision: 'b'.repeat(64) })));
   });
 
   it('renders a permission request as a chat status card', async () => {

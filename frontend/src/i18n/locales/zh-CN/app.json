@@ -3068,8 +3068,8 @@
     },
     "defaultChatWorkspaceRestoreFailed": "无法读取默认工作目录，请重试。",
     "deviceOnly": "这些设置只影响当前设备。",
-    "centerConflict": "中心配置已被修改，当前草稿已保留。请先复制需要保留的改动，再读取最新配置。",
-    "reloadCenterConfig": "放弃配置草稿并重新读取"
+    "centerConflict": "中心设置已被修改，当前草稿已保留。请先复制需要保留的改动，再读取最新设置。",
+    "reloadCenterConfig": "放弃当前设置草稿并重新读取"
   },
   "memory": {
     "facts": {

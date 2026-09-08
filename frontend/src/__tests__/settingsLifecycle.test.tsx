@@ -2,11 +2,11 @@ import { StrictMode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preflight: vi.fn(), autoStart: vi.fn(), controlUpdate: vi.fn(), toolList: vi.fn(), toolUpdate: vi.fn(), t: (key: string) => key }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), preflight: vi.fn(), autoStart: vi.fn(), controlGet: vi.fn(), controlUpdate: vi.fn(), toolList: vi.fn(), toolUpdate: vi.fn(), t: (key: string) => key }));
 vi.mock('react-i18next', async original => ({ ...await original<typeof import('react-i18next')>(), useTranslation: () => ({ t: mocks.t }) }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() } }));
 vi.mock('@/api/modules/config', async original => ({ ...await original<typeof import('@/api/modules/config')>(), configApi: { get: mocks.get, update: mocks.update, embeddingPreflight: mocks.preflight } }));
-vi.mock('@/api/modules/control', () => ({ getControlSettings: async () => ({ permission_mode: 'default', plan_approval_required: true }), updateControlSettings: mocks.controlUpdate }));
+vi.mock('@/api/modules/control', () => ({ getControlSettings: mocks.controlGet, updateControlSettings: mocks.controlUpdate }));
 vi.mock('@/api/modules/plugins', () => ({ pluginsApi: { list: async () => ({ plugins: [] }), getRegistry: async () => ({ plugins: [], install_fingerprint: 'audit' }) } }));
 vi.mock('@/api/modules/sources', () => ({ sourcesApi: { getStatus: async () => ({ sources: [] }) } }));
 vi.mock('@/api/modules/tools', () => ({ toolsApi: { listWithConfig: mocks.toolList, updateToolConfig: mocks.toolUpdate } }));
@@ -26,6 +26,7 @@ beforeEach(() => {
   localStorage.clear();
   useDesktopPreferencesStore.setState({ autoStartSyncFailed: false });
   useThemeStore.getState().setMode('light');
+  mocks.controlGet.mockResolvedValue({ revision: 'a'.repeat(64), permission_mode: 'high_only', plan_approval_required: true });
   mocks.toolList.mockResolvedValue({ tools: [] });
   mocks.get.mockResolvedValue({ success: true, data: structuredClone(DEFAULT_SYSTEM_CONFIG) });
   mocks.preflight.mockResolvedValue({ severity: 'none', warnings: [] });
@@ -47,7 +48,7 @@ it('keeps control and tool edits while advancing their confirmed baselines', asy
   act(() => { pending = result.current.handleSaveChanges(); });
   await waitFor(() => expect(mocks.controlUpdate).toHaveBeenCalledTimes(1));
   act(() => result.current.patchDraftControlSettings(draft => { draft.plan_approval_required = true; }));
-  await act(async () => { finishControl({ permission_mode: 'default', plan_approval_required: false }); });
+  await act(async () => { finishControl({ revision: 'b'.repeat(64), permission_mode: 'high_only', plan_approval_required: false }); });
   await waitFor(() => expect(mocks.toolUpdate).toHaveBeenCalledTimes(1));
   act(() => result.current.handleToolDraftChange('fixture-tool', 'limit', 12));
   const confirmedTool = { ...fixtures.tool, current_values: { limit: 8 } };
@@ -165,13 +166,13 @@ it('preserves the stale draft on conflict and requires an explicit latest snapsh
   await waitFor(() => expect(result.current.loading).toBe(false));
   act(() => result.current.patchDraftConfig(draft => { draft.agent.name = 'My unsaved changes'; }));
   await act(() => result.current.handleSaveChanges());
-  expect(result.current.configConflict).toBe(true);
+  expect(result.current.configConflict).toBe('config');
   expect(result.current.draftConfig.agent.name).toBe('My unsaved changes');
   expect(mocks.update).toHaveBeenCalledTimes(1);
   expect(mocks.update.mock.calls[0][0].revision).toBe('base');
   mocks.get.mockResolvedValue({ success: true, data: { ...structuredClone(DEFAULT_SYSTEM_CONFIG), revision: 'new', agent: { name: 'Other device' } } });
   await act(() => result.current.fetchConfig({ silent: true, discardDraft: true }));
-  expect(result.current.configConflict).toBe(false);
+  expect(result.current.configConflict).toBeNull();
   expect(result.current.draftConfig.agent.name).toBe('Other device');
   expect(result.current.draftConfig.revision).toBe('new');
 });
@@ -191,4 +192,22 @@ it('advances the write baseline while preserving edits made during a successful 
   expect(result.current.draftConfig.agent.name).toBe('New edit');
   expect(result.current.draftConfig.revision).toBe('confirmed');
   expect(result.current.dirty).toBe(true);
+});
+
+it('retains a rejected control draft and reloads only that resource on request', async () => {
+  const { result } = renderHook(useSettings);
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  act(() => result.current.patchDraftControlSettings(draft => { draft.plan_approval_required = false; }));
+  mocks.controlUpdate.mockRejectedValue({ status: 409, message: 'Changed on center' });
+  await act(() => result.current.handleSaveChanges());
+  expect(result.current.configConflict).toBe('control');
+  expect(result.current.draftControlSettings?.plan_approval_required).toBe(false);
+  expect(mocks.controlUpdate).toHaveBeenCalledWith(expect.objectContaining({ revision: 'a'.repeat(64) }));
+  act(() => result.current.patchDraftConfig(draft => { draft.agent.name = 'Unrelated local draft'; }));
+  mocks.controlGet.mockResolvedValue({ revision: 'b'.repeat(64), permission_mode: 'all', plan_approval_required: true });
+  await act(() => result.current.reloadConflictedSettings());
+  expect(result.current.configConflict).toBeNull();
+  expect(result.current.draftControlSettings?.permission_mode).toBe('all');
+  expect(result.current.draftConfig.agent.name).toBe('Unrelated local draft');
+  expect(mocks.controlUpdate).toHaveBeenCalledTimes(1);
 });

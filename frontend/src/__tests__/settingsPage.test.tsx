@@ -721,10 +721,12 @@ describe('settings page draft saving', () => {
       data: structuredClone(nextConfig),
     }) as any);
     vi.mocked(getControlSettings).mockResolvedValue({
+      revision: 'a'.repeat(64),
       permission_mode: 'high_only',
       plan_approval_required: false,
     });
     vi.mocked(updateControlSettings).mockImplementation(async (nextSettings) => ({
+      revision: 'b'.repeat(64),
       permission_mode: nextSettings.permission_mode ?? 'high_only',
       plan_approval_required: nextSettings.plan_approval_required ?? false,
     }));
@@ -1292,6 +1294,7 @@ describe('settings page draft saving', () => {
       )
     );
     expect(updateControlSettings).toHaveBeenCalledWith({
+      revision: 'a'.repeat(64),
       permission_mode: 'high_only',
       plan_approval_required: true,
     });

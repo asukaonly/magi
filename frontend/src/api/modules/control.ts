@@ -7,6 +7,7 @@
  * See ``backend/src/magi/api/routers/control.py`` for the source of truth.
  */
 import { api } from '../client';
+import { z } from 'zod';
 
 function unwrapControlResponse<T>(response: T | { success?: boolean; data?: T }): T {
   if (
@@ -100,10 +101,12 @@ export type PermissionOutcome = 'allowed' | 'denied';
 // Settings
 // ---------------------------------------------------------------------------
 
-export interface ControlSettingsDTO {
+export interface ControlSettingsValues {
   permission_mode: PermissionMode;
   plan_approval_required: boolean;
 }
+
+export interface ControlSettingsDTO extends ControlSettingsValues { revision: string; }
 
 export interface SessionControlOverrideDTO {
   permission_mode: PermissionMode | null;
@@ -111,36 +114,46 @@ export interface SessionControlOverrideDTO {
 }
 
 export interface SessionSettingsBundleDTO {
-  base: ControlSettingsDTO;
+  base: ControlSettingsValues;
   override: SessionControlOverrideDTO | null;
-  effective: ControlSettingsDTO;
+  effective: ControlSettingsValues;
+  revision: string;
 }
 
+const controlValuesSchema = z.object({ permission_mode: z.enum(['all', 'high_only', 'off']), plan_approval_required: z.boolean() });
+const controlRevisionSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const controlSettingsSchema = controlValuesSchema.extend({ revision: controlRevisionSchema });
+const sessionSettingsSchema = z.object({
+  base: controlValuesSchema, effective: controlValuesSchema, revision: controlRevisionSchema,
+  override: z.object({ permission_mode: controlValuesSchema.shape.permission_mode.nullable(), plan_approval_required: z.boolean().nullable() }).nullable(),
+});
+
 export async function getControlSettings(): Promise<ControlSettingsDTO> {
-  const res = await api.get<ControlSettingsDTO>('/control/settings');
-  return unwrapControlResponse<ControlSettingsDTO>(res);
+  const res = await api.get<unknown>('/control/settings');
+  return controlSettingsSchema.parse(unwrapControlResponse<unknown>(res));
 }
 
 export async function updateControlSettings(
-  payload: Partial<ControlSettingsDTO>,
+  payload: Partial<ControlSettingsValues> & { revision: string },
 ): Promise<ControlSettingsDTO> {
-  const res = await api.put<ControlSettingsDTO>(
+  const res = await api.put<unknown>(
     '/control/settings',
     payload,
   );
-  return unwrapControlResponse<ControlSettingsDTO>(res);
+  return controlSettingsSchema.parse(unwrapControlResponse<unknown>(res));
 }
 
 export async function getSessionSettings(
   sessionId: string,
 ): Promise<SessionSettingsBundleDTO> {
-  const res = await api.get<SessionSettingsBundleDTO>(
+  const res = await api.get<unknown>(
     `/control/sessions/${encodeURIComponent(sessionId)}/settings`,
   );
-  return unwrapControlResponse<SessionSettingsBundleDTO>(res);
+  return sessionSettingsSchema.parse(unwrapControlResponse<unknown>(res));
 }
 
 export interface SessionSettingsUpdateInput {
+  revision: string;
   permission_mode?: PermissionMode | null;
   plan_approval_required?: boolean | null;
   clear?: boolean;
@@ -150,11 +163,11 @@ export async function updateSessionSettings(
   sessionId: string,
   payload: SessionSettingsUpdateInput,
 ): Promise<SessionSettingsBundleDTO> {
-  const res = await api.put<SessionSettingsBundleDTO>(
+  const res = await api.put<unknown>(
     `/control/sessions/${encodeURIComponent(sessionId)}/settings`,
     payload,
   );
-  return unwrapControlResponse<SessionSettingsBundleDTO>(res);
+  return sessionSettingsSchema.parse(unwrapControlResponse<unknown>(res));
 }
 
 // ---------------------------------------------------------------------------

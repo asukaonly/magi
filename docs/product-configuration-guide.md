@@ -1019,6 +1019,13 @@ place; dirty configuration, control, and tool drafts retain their original
 baseline. Background refresh does not reset theme previews or remount editors.
 
 General configuration writes must echo the revision from their read snapshot.
+Global and per-session execution safety settings use the same conditional-write
+rule. A session revision includes its global policy and local override; changing
+either invalidates an older session editor. The check and mutation share the
+settings manager lock. Rejected global edits remain available until explicitly
+discarded; the session safety popover reads the current policy on conflict and
+stays open without replaying the rejected action. These safety policies retain
+their existing runtime lifetime and are not persisted across service restarts.
 The center checks it again under the persistence lock after asynchronous
 maintenance admission. A stale revision returns 409; an absent revision returns
 428. The desktop preserves the rejected draft and offers an explicit action to

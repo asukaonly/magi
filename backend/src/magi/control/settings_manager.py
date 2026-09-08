@@ -7,9 +7,10 @@ so that the pure types stay import-safe and allocation-free.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
-from .settings import ControlSettings, PermissionMode, SessionControlOverride
+from .settings import ControlSettings, PermissionMode, SessionControlOverride, resolve_effective_settings
 
 __all__ = ["ControlSettingsManager"]
 
@@ -41,9 +42,12 @@ class ControlSettingsManager:
         *,
         permission_mode: PermissionMode | None = None,
         plan_approval_required: bool | None = None,
+        before_commit: Callable[[ControlSettings], None] | None = None,
     ) -> ControlSettings:
         with self._lock:
             current = self._base
+            if before_commit is not None:
+                before_commit(current)
             self._base = ControlSettings(
                 permission_mode=permission_mode
                 if permission_mode is not None
@@ -59,13 +63,30 @@ class ControlSettingsManager:
     # ------------------------------------------------------------------
 
     def set_session_override(
-        self, session_id: str, override: SessionControlOverride | None
-    ) -> None:
+        self, session_id: str, override: SessionControlOverride | None,
+        *, before_commit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
+            if before_commit is not None:
+                before_commit(self._session_snapshot(session_id))
             if override is None:
                 self._overrides.pop(session_id, None)
             else:
                 self._overrides[session_id] = override
+            return self._session_snapshot(session_id)
+
+    def _session_snapshot(self, session_id: str) -> dict[str, Any]:
+        override = self._overrides.get(session_id)
+        return {
+            "base": self._base.to_dict(),
+            "override": override.to_dict() if override else None,
+            "effective": resolve_effective_settings(base=self._base, override=override).to_dict(),
+        }
+
+    def session_snapshot(self, session_id: str) -> dict[str, Any]:
+        """Read global policy and the session override under one lock."""
+        with self._lock:
+            return self._session_snapshot(session_id)
 
     def get_session_override(
         self, session_id: str | None

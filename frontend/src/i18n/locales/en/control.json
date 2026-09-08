@@ -105,7 +105,8 @@
     "rules_title": "Saved permission rules",
     "rules_empty": "No saved rules.",
     "delete_rule": "Delete",
-    "clear_session_rules": "Clear session rules"
+    "clear_session_rules": "Clear session rules",
+    "changed_on_center": "Safety settings changed on the center. Review the current settings before trying again."
   },
   "background": {
     "suspended_title": "Background task paused",

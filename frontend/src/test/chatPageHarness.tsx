@@ -128,6 +128,7 @@ vi.mock('@/api/modules/control', () => ({
     plan_approval_required: false,
   }),
   getSessionSettings: vi.fn().mockResolvedValue({
+    revision: 'a'.repeat(64),
     base: { permission_mode: 'high_only', plan_approval_required: false },
     override: null,
     effective: { permission_mode: 'high_only', plan_approval_required: false },
@@ -135,6 +136,7 @@ vi.mock('@/api/modules/control', () => ({
   listPermissionRules: vi.fn().mockResolvedValue([]),
   updateControlSettings: vi.fn(),
   updateSessionSettings: vi.fn().mockResolvedValue({
+    revision: 'b'.repeat(64),
     base: { permission_mode: 'high_only', plan_approval_required: false },
     override: { permission_mode: 'off', plan_approval_required: null },
     effective: { permission_mode: 'off', plan_approval_required: false },

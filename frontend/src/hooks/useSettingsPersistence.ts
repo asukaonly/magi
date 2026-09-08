@@ -50,7 +50,7 @@ interface UseSettingsPersistenceParams {
 
 interface UseSettingsPersistenceReturn {
   saving: boolean;
-  configConflict: boolean;
+  configConflict: 'config' | 'control' | null;
   handleSaveChanges: () => Promise<void>;
   handleDiscardChanges: () => Promise<void>;
   embeddingPreflightPrompt: EmbeddingPreflightPrompt | null;
@@ -89,8 +89,9 @@ export function useSettingsPersistence({
   const { t } = useTranslation('app');
   const autoStartSyncFailed = useDesktopPreferencesStore(state => state.autoStartSyncFailed);
   const [saving, setSaving] = useState(false);
-  const [configConflict, setConfigConflict] = useState(false);
-  useEffect(() => { setConfigConflict(false); }, [savedConfig.revision]);
+  const [configConflict, setConfigConflict] = useState<'config' | 'control' | null>(null);
+  useEffect(() => { setConfigConflict(current => current === 'config' ? null : current); }, [savedConfig.revision]);
+  useEffect(() => { setConfigConflict(current => current === 'control' ? null : current); }, [savedControlSettings?.revision]);
   const savingRef = useRef(false);
   const currentThemeRef = useRef(draftThemeMode);
   currentThemeRef.current = draftThemeMode;
@@ -178,7 +179,7 @@ export function useSettingsPersistence({
 
     savingRef.current = true;
     setSaving(true);
-    let configWritePending = false;
+    let configWritePending: 'config' | 'control' | null = null;
     try {
       const configDirty = serialize(savedConfig) !== serialize(draftConfig);
       const centerConfigDirty = serialize(toCenterConfig(savedConfig)) !== serialize(toCenterConfig(draftConfig));
@@ -209,10 +210,10 @@ export function useSettingsPersistence({
             layers: uniqueWarningLayers,
           }));
         }
-        configWritePending = true;
+        configWritePending = 'config';
         const response = await configApi.update({ ...draftConfig, revision: savedConfig.revision });
         persistedConfig = structuredClone(requireConfiguration(response));
-        configWritePending = false;
+        configWritePending = null;
       }
 
       if (configDirty) {
@@ -242,9 +243,11 @@ export function useSettingsPersistence({
       }
 
       if (controlDirty && draftControlSettings) {
-        const persistedControlSettings = await updateControlSettings(draftControlSettings);
+        configWritePending = 'control';
+        const persistedControlSettings = await updateControlSettings({ ...draftControlSettings, revision: savedControlSettings?.revision ?? '' });
+        configWritePending = null;
         setSavedControlSettings(structuredClone(persistedControlSettings));
-        setDraftControlSettings(current => acceptSavedDraft(current, draftControlSettings, persistedControlSettings));
+        setDraftControlSettings(current => current ? ({ ...acceptSavedDraft(current, draftControlSettings, persistedControlSettings), revision: persistedControlSettings.revision }) : current);
       }
 
       if (toolsDirty) {
@@ -291,7 +294,7 @@ export function useSettingsPersistence({
     } catch (error: unknown) {
       const conflict = configWritePending && typeof error === 'object' && error !== null
         && 'status' in error && (error.status === 409 || error.status === 428);
-      if (conflict) setConfigConflict(true);
+      if (conflict && configWritePending) setConfigConflict(configWritePending);
       const message = conflict ? t('settings.centerConflict') : getErrorMessage(error) || 'unknown';
       toast.error(t('settings.saveFailed', { message }));
     } finally {

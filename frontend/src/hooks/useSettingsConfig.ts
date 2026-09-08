@@ -35,7 +35,7 @@ interface UseSettingsConfigReturn {
   syncNormalizedLlmConfig: (nextLlmConfig: SystemConfig['llm']) => void;
   patchDraftControlSettings: (updater: (draft: ControlSettingsDTO) => void) => void;
   fetchConfig: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
-  loadControlSettings: (options?: { silent?: boolean }) => Promise<void>;
+  loadControlSettings: (options?: { silent?: boolean; discardDraft?: boolean }) => Promise<void>;
   handleLanguageDraftChange: (value: string) => void;
   updateMemoryToggle: (field: MemoryToggleFieldId, checked: boolean) => void;
 }
@@ -99,12 +99,14 @@ export function useSettingsConfig({
 
   const fetchConfig = useCallback(async ({ silent = false, discardDraft = false }: { silent?: boolean; discardDraft?: boolean } = {}) => {
     const requestId = ++configRequestId.current;
+    const draftAtStart = serialize(currentDrafts.current.draftConfig);
     if (!silent) { setLoading(true); setConfigError(null); }
     try {
       const response = await configApi.get();
       const nextConfig = requireConfiguration(response);
       if (requestId !== configRequestId.current) return;
       const current = currentDrafts.current;
+      if (discardDraft && serialize(current.draftConfig) !== draftAtStart) return;
       if (silent && !discardDraft && serialize(current.savedConfig) !== serialize(current.draftConfig)) return;
       setSavedConfig(nextConfig);
       setDraftConfig(structuredClone(nextConfig));
@@ -118,13 +120,15 @@ export function useSettingsConfig({
     }
   }, [setDraftThemeMode, setSavedThemeMode, t, themeMode]);
 
-  const loadControlSettings = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+  const loadControlSettings = useCallback(async ({ silent = false, discardDraft = false }: { silent?: boolean; discardDraft?: boolean } = {}) => {
     const requestId = ++controlRequestId.current;
+    const draftAtStart = serialize(currentDrafts.current.draftControlSettings);
     try {
       const nextSettings = await getControlSettings();
       if (requestId !== controlRequestId.current) return;
       const current = currentDrafts.current;
-      if (silent && serialize(current.savedControlSettings) !== serialize(current.draftControlSettings)) return;
+      if (discardDraft && serialize(current.draftControlSettings) !== draftAtStart) return;
+      if (silent && !discardDraft && serialize(current.savedControlSettings) !== serialize(current.draftControlSettings)) return;
       setSavedControlSettings(nextSettings);
       setDraftControlSettings(structuredClone(nextSettings));
     } catch (error: unknown) {

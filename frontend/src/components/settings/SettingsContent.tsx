@@ -79,6 +79,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     fetchConfig,
     saving,
     configConflict,
+    reloadConflictedSettings,
     autoStartSyncFailed,
     activeSection,
     getGroupExpanded,
@@ -498,7 +499,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
 
       {configConflict ? <div role="alert" className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-background px-5 py-3 text-sm">
         <p>{t('settings.centerConflict')}</p>
-        <Button variant="outline" disabled={saving} onClick={() => { void fetchConfig({ silent: true, discardDraft: true }); }}>{t('settings.reloadCenterConfig')}</Button>
+        <Button variant="outline" disabled={saving} onClick={() => { void reloadConflictedSettings(); }}>{t('settings.reloadCenterConfig')}</Button>
       </div> : null}
 
       {showSettingsFooter ? (

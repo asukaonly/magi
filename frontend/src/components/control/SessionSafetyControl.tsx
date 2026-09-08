@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronUp, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -48,34 +50,19 @@ export function SessionSafetyControl({
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      if (!sessionId) {
-        setBundle(null);
-        return;
-      }
-      try {
-        const nextBundle = await getSessionSettings(sessionId);
-        if (!cancelled) {
-          setBundle(nextBundle);
-          setError(null);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      }
-    };
-
-    void load();
-    setOpen(false);
-
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId]);
+  const beginRead = useRequestOwner(sessionId ?? '');
+  const load = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('settings');
+    if (!sessionId) { setBundle(null); return; }
+    try {
+      const nextBundle = await getSessionSettings(sessionId);
+      if (isCurrent()) { setBundle(nextBundle); if (!silent) setError(null); }
+    } catch (err) {
+      if (isCurrent() && !silent) setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [sessionId, beginRead]);
+  useEffect(() => { setOpen(false); setSaving(false); setBundle(null); void load(); }, [load]);
+  useCenterRefresh(() => load(true), !saving && Boolean(sessionId));
 
   useEffect(() => {
     if (!open) {
@@ -114,18 +101,29 @@ export function SessionSafetyControl({
     permission_mode?: PermissionMode | null;
     plan_approval_required?: boolean | null;
   }) => {
-    if (!sessionId) {
-      return;
-    }
+    if (!sessionId || !bundle || saving) return false;
+    const isCurrent = beginRead('settings');
     setSaving(true);
     setError(null);
     try {
-      const nextBundle = await updateSessionSettings(sessionId, payload);
+      const nextBundle = await updateSessionSettings(sessionId, { ...payload, revision: bundle.revision });
+      if (!isCurrent()) return false;
       setBundle(nextBundle);
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) {
+        const conflict = err != null && typeof err === 'object' && 'status' in err && (err.status === 409 || err.status === 428);
+        setError(conflict ? t('settings.changed_on_center') : err instanceof Error ? err.message : String(err));
+        if (conflict) {
+          try {
+            const current = await getSessionSettings(sessionId);
+            if (isCurrent()) setBundle(current);
+          } catch { /* Keep the rejected snapshot visible until a read succeeds. */ }
+        }
+      }
+      return false;
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
@@ -133,11 +131,11 @@ export function SessionSafetyControl({
     if (!bundle) {
       return;
     }
-    await applyOverride({
+    const saved = await applyOverride({
       permission_mode: resolvePermissionOverride(bundle, mode),
       plan_approval_required: bundle.override?.plan_approval_required ?? null,
     });
-    setOpen(false);
+    if (saved) setOpen(false);
   };
 
   const handlePlanApprovalChange = async (checked: boolean) => {
