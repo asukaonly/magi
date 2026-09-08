@@ -12,6 +12,8 @@ import pytest
 from magi.config.models import AppConfig, PluginSettings
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.manager import PluginManager
+from magi.plugins.operations import PluginOperationRegistry
+from magi.agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
 from magi.plugins.operation_authorization import InstalledOperationAuthorizer, build_host_invocation
 from magi.plugins.process_runtime import ProcessPluginProxy
 from magi.plugins.sources import SourceRegistry
@@ -134,6 +136,9 @@ def setup_runtime(tmp_path, monkeypatch, runtime_paths_with_schema):
         tool_registry=tools, source_registry=sources, search_paths=[package],
         request_source_schedule_refresh=lambda: None,
         connection_store=store, configure_instance=configure_instance,
+        operation_registrar=PluginOperationRegistry(
+            tools, get_connection=store.get, invoke_tool=build_plugin_operation_invoker(tools),
+        ),
         connection_disconnector=lambda _: None, content_clearer=lambda *_: None,
     )
     manager.scan(persist_discovery=False)

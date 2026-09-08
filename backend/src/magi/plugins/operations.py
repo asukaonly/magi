@@ -25,16 +25,11 @@ from magi_plugin_sdk.runtime import (
 from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
 from magi_plugin_sdk.capabilities import HOST_METHODS, HostMethod
 
-from ..agent.execution.tool_invocation_service import (
-    InvocationContext,
-    ToolCall,
-    ToolInvocationService,
-)
-from ..events.domain_payloads import TaskContext
 from .operation_progress import publish_operation_progress
 from .host_services import HostServiceAuthorizer
 from ..core.tool_context import ToolExecutionContext
 
+OperationInvoker = Callable[[str, dict[str, Any], InvocationIdentity, ToolExecutionContext], Awaitable[ToolResult]]
 OperationHandler = Callable[[dict[str, Any], ToolExecutionContext], Awaitable[OperationResult]]
 
 
@@ -102,6 +97,7 @@ class PluginOperationRegistry:
         tool_registry: Any,
         *,
         get_connection: Callable[[str], PluginConnection | None],
+        invoke_tool: OperationInvoker | None = None,
         authorize: Callable[..., Any] | None = None,
         publish_progress: (
             Callable[[InvocationIdentity, dict[str, Any]], Awaitable[None]] | None
@@ -109,6 +105,7 @@ class PluginOperationRegistry:
         validate_resource: Callable[[InvocationIdentity, ResourceRef], Any] | None = None,
     ) -> None:
         self._tools = tool_registry
+        self._invoke_tool = invoke_tool
         self._get_connection = get_connection
         self._authorize = authorize
         self._publish_progress = publish_progress or publish_operation_progress
@@ -262,21 +259,11 @@ class PluginOperationRegistry:
                 },
             }
         )
-        task_context = TaskContext(
-            session_id=identity.session_id,
-            task_id=identity.task_id,
-            user_id=identity.principal_id,
-            turn_id=execution.env_vars.get("turn_id"),
-        )
+        if self._invoke_tool is None:
+            return _failure("OPERATION_RUNTIME_UNAVAILABLE", "Operation execution is not bound")
         try:
-            result = await ToolInvocationService(self._tools, require_effect_ledger=True).invoke(
-                ToolCall(binding.registered_name, parameters),
-                InvocationContext(
-                    "plugin_operation",
-                    task_context,
-                    execution,
-                    trigger=identity.trigger,
-                ),
+            result = await self._invoke_tool(
+                binding.registered_name, parameters, identity, execution,
             )
         except asyncio.CancelledError:
             return OperationResult(

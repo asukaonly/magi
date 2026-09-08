@@ -36,10 +36,13 @@ One practical rule follows from that:
 ## Enforcement & debt status
 
 These rules are **CI-enforced**, not conventional. `backend/.importlinter` defines
-two contracts. The 2026-09-08 central-service baseline check reports one kept and
-one broken: seven existing imports from `plugins` into `agent` (one),
-`awareness` (two), and `skills` (four) violate the layers contract. They are
-not exemptions; the existing two-entry ignore list must not be expanded.
+two contracts, both passing. Plugin system assembly lives in
+`bootstrap/plugin_system.py`; skill registration belongs to `skills`, and source
+content coordination belongs to `awareness`. The plugin operation registry
+receives an invocation callback from the composition root, backed by the agent
+tool invocation service and its required effect ledger. Registration-only hosts
+without that callback reject execution; they never bypass governance. The
+existing two-entry ignore list must not be expanded.
 
 - **`layers`** — the L1–L15 ordering above. Adopted as a **baseline + ratchet**: a frozen snapshot of pre-existing cross-layer imports that may only *shrink*; any *new* lower→upper import fails CI.
 - **`plugin-isolation`** — `tools/builtin` + `tools/code_agent` (capability-tool code) may import the SDK only, never host layers.

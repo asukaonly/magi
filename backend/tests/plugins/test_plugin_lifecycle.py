@@ -12,7 +12,7 @@ from typing import Any, Callable
 import pytest
 
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.plugins.lifecycle import PluginSystemModule
+from magi.bootstrap.plugin_system import PluginSystemModule
 
 
 def _patch_plugin_runtime(
@@ -42,7 +42,7 @@ def _patch_plugin_runtime(
         )
 
     monkeypatch.setattr(
-        "magi.plugins.lifecycle.build_plugin_runtime",
+        "magi.bootstrap.plugin_system.build_plugin_runtime",
         build_plugin_runtime,
     )
 
@@ -58,7 +58,7 @@ def _patch_plugin_runtime(
             return bool(captured.get("clear_pending", False))
 
     monkeypatch.setattr(
-        "magi.plugins.lifecycle.PluginUserContentClearCoordinator",
+        "magi.bootstrap.plugin_system.PluginUserContentClearCoordinator",
         _ClearCoordinator,
     )
     return captured

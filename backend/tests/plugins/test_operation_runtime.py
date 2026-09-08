@@ -20,6 +20,7 @@ from magi.agent.execution.tool_invocation_service import (
     ToolInvocationService,
 )
 from magi.events.domain_payloads import TaskContext
+from magi.agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.operation_authorization import (
     InstalledOperationAuthorizer,
@@ -66,7 +67,7 @@ def setup(runtime_paths_with_schema):
     ledger = BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     tools.bind_tool_effect_ledger(ledger)
     registry = PluginOperationRegistry(
-        tools,
+        tools, invoke_tool=build_plugin_operation_invoker(tools),
         get_connection=connections.get,
         authorize=lambda *_: True,
         publish_progress=AsyncMock(),
@@ -499,3 +500,15 @@ async def test_model_text_survives_execution_without_bypassing_output_schema(set
         assert result.success is False
         assert result.model_text is None
         assert message["content"] != model_text
+
+
+@pytest.mark.asyncio
+async def test_registration_only_host_cannot_bypass_the_governed_invoker(setup):
+    _registry, tools, _ledger, connections = setup
+    registry = PluginOperationRegistry(tools, get_connection=connections.get, authorize=lambda *_: True)
+    handler = AsyncMock(return_value=OperationResult(status="succeeded"))
+    registry.register(plugin_id="test", connection_id="conn_a", spec=spec(), handler=handler)
+    identity = build_host_invocation(connections["conn_a"], trigger="user", task_id="task")
+    result = await registry.invoke("conn_a", spec().operation_id, {}, identity=identity)
+    assert result.error_code == "OPERATION_RUNTIME_UNAVAILABLE"
+    handler.assert_not_called()

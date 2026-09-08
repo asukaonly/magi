@@ -17,6 +17,7 @@ from magi.plugins.operation_authorization import (
     InstalledOperationAuthorizer,
     build_host_invocation,
 )
+from magi.agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.settings_service import PluginSettingsService
 from magi.tools.registry import ToolRegistry
@@ -83,7 +84,7 @@ def settings_runtime(runtime_paths_with_schema):
         )
     )
     operations = PluginOperationRegistry(
-        tools, get_connection=connections.__getitem__, authorize=authorizer
+        tools, invoke_tool=build_plugin_operation_invoker(tools), get_connection=connections.__getitem__, authorize=authorizer
     )
     service = PluginSettingsService(
         get_connection=connections.__getitem__,

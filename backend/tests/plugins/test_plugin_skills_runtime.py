@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from magi.plugins.skills import PluginSkillRegistry
+from magi.skills.plugin_registry import PluginSkillRegistry
 from magi.skills.indexer import SkillIndexer
 from magi.skills.loader import SkillLoader
 from magi.tools.registry import ToolRegistry

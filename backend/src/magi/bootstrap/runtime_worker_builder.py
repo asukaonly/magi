@@ -70,7 +70,7 @@ from ..memory.history_imports.lifecycle import HistoryImportsModule
 from ..memory.portability.recovery import MemoryRestoreRecoveryModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
-from ..plugins.lifecycle import PluginSystemModule
+from .plugin_system import PluginSystemModule
 from ..runtime_trace import RuntimeTraceStore
 from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerActivationModule, SchedulerModule

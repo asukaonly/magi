@@ -17,7 +17,7 @@ from magi.hooks.lifecycle import HooksModule
 from magi.hooks.registry import HookRegistry
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.discovery import load_plugin_manifest
-from magi.plugins.lifecycle import PluginSystemModule
+from magi.bootstrap.plugin_system import PluginSystemModule
 from magi.plugins.operation_authorization import build_host_invocation
 from magi.plugins.process_runtime import ProcessPluginProxy
 from magi.skills.indexer import SkillIndexer

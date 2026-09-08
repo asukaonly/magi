@@ -9,9 +9,9 @@ from typing import Any
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
-from .manager import build_plugin_runtime
-from .user_content_clear import PluginUserContentClearCoordinator
-from .user_content_clear_checkpoint import PluginUserContentClearCheckpointStore
+from ..plugins.manager import build_plugin_runtime
+from ..plugins.user_content_clear import PluginUserContentClearCoordinator
+from ..plugins.user_content_clear_checkpoint import PluginUserContentClearCheckpointStore
 
 logger = get_logger(__name__)
 
@@ -63,14 +63,14 @@ class PluginSystemModule(LifecycleModule):
         from ..skills.indexer import SkillIndexer
         from ..skills.loader import SkillLoader
         from ..hooks.registry import HookRegistry
-        from .connection_content import ConnectionContentCoordinator
-        from .operations import PluginOperationRegistry
-        from .operation_authorization import InstalledOperationAuthorizer
-        from .providers import PluginProviderRegistry
-        from .skills import PluginSkillRegistry
-        from .operation_execution import run_plugin_lifecycle_operation
-        from .process_broker import bind_source_services
-        from .process_runtime import ProcessPluginProxy
+        from ..awareness.connection_content import ConnectionContentCoordinator
+        from ..plugins.operations import PluginOperationRegistry
+        from ..plugins.operation_authorization import InstalledOperationAuthorizer
+        from ..plugins.providers import PluginProviderRegistry
+        from ..skills.plugin_registry import PluginSkillRegistry
+        from ..plugins.operation_execution import run_plugin_lifecycle_operation
+        from ..plugins.process_broker import bind_source_services
+        from ..plugins.process_runtime import ProcessPluginProxy
         from magi_plugin_sdk.runtime import CapabilityGrant
         from ..config import get_config
 
@@ -144,9 +144,12 @@ class PluginSystemModule(LifecycleModule):
             def authorize_host_service(self, *args: Any) -> bool:
                 return operation_authorizer().authorize_host_service(*args)
 
+        from ..agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
+
         operations = PluginOperationRegistry(
             self._tool_registry, get_connection=get_connection, authorize=ConnectionAuthorizer(),
             validate_resource=source_store.validate_operation_resource,
+            invoke_tool=build_plugin_operation_invoker(self._tool_registry),
         )
         providers = PluginProviderRegistry(get_connection=get_connection)
 

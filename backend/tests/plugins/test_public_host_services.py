@@ -426,6 +426,7 @@ async def test_operation_registry_mints_only_consented_tool_lease_and_revokes_it
 ):
     from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
     from magi.agent.background import BackgroundTaskStore
+    from magi.agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
     from magi.plugins.operations import PluginOperationRegistry
     from magi.tools.registry import ToolRegistry
 
@@ -458,7 +459,7 @@ async def test_operation_registry_mints_only_consented_tool_lease_and_revokes_it
         BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path))
     )
     registry = PluginOperationRegistry(
-        tools, get_connection=lambda _: ctx.connection, authorize=auth
+        tools, invoke_tool=build_plugin_operation_invoker(tools), get_connection=lambda _: ctx.connection, authorize=auth
     )
     registry.register_tool(plugin_id="example", connection_id="conn", tool_class=Probe)
     result = await registry.invoke("conn", "probe", {}, identity=ctx.invocation, context=ctx)

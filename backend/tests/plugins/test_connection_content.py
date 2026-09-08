@@ -15,7 +15,7 @@ from magi.config.models import AppConfig
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.source_ingestion import SourceEventCommitter
 from magi.memory.unified_store import UnifiedMemoryStore
-from magi.plugins.connection_content import ConnectionContentCoordinator
+from magi.awareness.connection_content import ConnectionContentCoordinator
 from magi.plugins.connection_settings import validate_connection_settings
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.manager import PluginManager

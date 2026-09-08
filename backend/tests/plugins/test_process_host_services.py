@@ -11,6 +11,7 @@ import pytest
 from magi_plugin_sdk.contracts import PluginCapability
 
 from magi.core.tool_capabilities import AskOutcome, ToolCapabilities
+from magi.agent.execution.plugin_operation_invoker import build_plugin_operation_invoker
 from magi.plugins.operations import PluginOperationRegistry
 from magi.plugins.process_runtime import ProcessPluginProxy, ProcessLimits
 from magi.agent.background import BackgroundTaskStore
@@ -51,7 +52,7 @@ async def test_installed_consent_and_governed_recall_cross_real_worker(
     proxy = ProcessPluginProxy(manifest, ctx.connection, plugin_context)
     tools = ToolRegistry()
     tools.bind_tool_effect_ledger(BackgroundTaskStore(db_path=str(runtime_paths_with_schema.background_tasks_db_path)))
-    registry = PluginOperationRegistry(tools, get_connection=lambda _: ctx.connection, authorize=authority)
+    registry = PluginOperationRegistry(tools, invoke_tool=build_plugin_operation_invoker(tools), get_connection=lambda _: ctx.connection, authorize=authority)
     registry.register_tool(plugin_id=manifest.plugin_id, connection_id=ctx.connection.connection_id,
                            tool_class=proxy.get_tools()[0])
     try:
@@ -103,7 +104,7 @@ class EchoTool(Tool):
     ctx.capabilities = ToolCapabilities(interaction=SimpleNamespace(ask=ask))
     proxy = ProcessPluginProxy(manifest, ctx.connection, plugin_context)
     tools = ToolRegistry()
-    registry = PluginOperationRegistry(tools, get_connection=lambda _: ctx.connection, authorize=authority)
+    registry = PluginOperationRegistry(tools, invoke_tool=build_plugin_operation_invoker(tools), get_connection=lambda _: ctx.connection, authorize=authority)
     registry.register_tool(plugin_id=manifest.plugin_id, connection_id=ctx.connection.connection_id,
                            tool_class=proxy.get_tools()[0])
     binding = next(iter(registry._entries.values()))

@@ -388,7 +388,7 @@ def test_disk_manifest_cannot_claim_builtin_origin(tmp_path):
 
 
 def test_packaged_skill_loads_through_real_host_loader_and_disposes(tmp_path):
-    from magi.plugins.skills import PluginSkillRegistry
+    from magi.skills.plugin_registry import PluginSkillRegistry
     from magi.skills.indexer import SkillIndexer
     from magi.skills.loader import SkillLoader
 

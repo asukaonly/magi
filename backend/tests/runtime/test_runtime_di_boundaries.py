@@ -205,7 +205,7 @@ def test_shared_skills_runtime_uses_skill_runner_binding_name() -> None:
 
 def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> None:
     plugins_init = (BACKEND_SRC / "plugins/__init__.py").read_text(encoding="utf-8")
-    plugins_lifecycle = (BACKEND_SRC / "plugins/lifecycle.py").read_text(encoding="utf-8")
+    plugins_lifecycle = (BACKEND_SRC / "bootstrap/plugin_system.py").read_text(encoding="utf-8")
     awareness_lifecycle = (BACKEND_SRC / "awareness/lifecycle.py").read_text(encoding="utf-8")
     plugins_router = (BACKEND_SRC / "api/routers/plugins.py").read_text(encoding="utf-8")
     tools_router = (BACKEND_SRC / "api/routers/tools.py").read_text(encoding="utf-8")
