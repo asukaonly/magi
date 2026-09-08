@@ -37,12 +37,8 @@ def test_sqlite_ownership_contract_matches_gateway_writes() -> None:
         "chat_sessions",
         None,
     ) in discovered
-    assert (
-        "crates/magi-gateway/src/db.rs",
-        "create_index",
-        "fact_events",
-        "idx_fact_events_deleted_at",
-    ) in discovered
+    assert not any(operation == "create_index" for _, operation, _, _ in discovered)
+    assert not any("/schedules/" in file or "/tasks/" in file for file, _, _, _ in discovered)
 
 
 def test_sqlite_ownership_source_filter_keeps_cfg_test_items_before_production_sql() -> None:
