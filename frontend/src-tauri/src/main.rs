@@ -75,6 +75,29 @@ fn stop_backend_inner(state: &BackendState) -> Result<(), String> {
     Ok(())
 }
 
+async fn reuse_local_connection(state: &BackendState, profile_id: &str) -> Result<Option<StartBackendResponse>, String> {
+    let snapshot = {
+        let mut runtime = state.runtime.lock().map_err(|_| "Service state lock failed")?;
+        let Some(active) = runtime.as_mut() else { return Ok(None); };
+        if active.response.mode != "local" || active.response.profile_id != profile_id {
+            return Ok(None);
+        }
+        if let Some(service) = active.service.as_mut() {
+            if !service.running()? { return Ok(None); }
+        }
+        active.response.clone()
+    };
+    let info = CenterClient::local(&snapshot.base_url)?.info(&snapshot.session_token).await?;
+    if info.server_id != snapshot.server_id { return Err("Center identity changed".into()); }
+    let mut response = snapshot;
+    response.data_epoch = info.maintenance.data_epoch;
+    let mut runtime = state.runtime.lock().map_err(|_| "Service state lock failed")?;
+    let active = runtime.as_mut().ok_or("Local service disconnected")?;
+    if active.response.profile_id != profile_id { return Err("Connection changed".into()); }
+    active.response = response.clone();
+    Ok(Some(response))
+}
+
 #[tauri::command]
 async fn start_backend(
     app: AppHandle,
@@ -86,23 +109,8 @@ async fn start_backend(
         .list()
         .active_profile_id
         .ok_or("Select a connection first")?;
-    {
-        let mut runtime = state
-            .runtime
-            .lock()
-            .map_err(|_| "Service state lock failed")?;
-        if let Some(active) = runtime.as_mut() {
-            let running = match active.service.as_mut() {
-                Some(service) => service.running()?,
-                None => true,
-            };
-            if running
-                && active.response.mode == "local"
-                && active.response.profile_id == profile_id
-            {
-                return Ok(active.response.clone());
-            }
-        }
+    if let Some(response) = reuse_local_connection(&state, &profile_id).await? {
+        return Ok(response);
     }
     stop_backend_inner(&state)?;
     let profile = connections.profile(&profile_id)?;
@@ -661,4 +669,35 @@ fn main() {
         }
         _ => {}
     });
+}
+
+
+#[cfg(test)]
+mod connection_reuse_tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn local_reuse_refreshes_data_epoch_without_replacing_the_connection() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            let length = socket.read(&mut request).await.unwrap();
+            assert!(String::from_utf8_lossy(&request[..length]).starts_with("GET /api/server/info "));
+            let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":1,"runtime_ready":true,"maintenance":{"data_epoch":"new-epoch","phase":"completed"}}}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+        });
+        let state = BackendState::default();
+        *state.runtime.lock().unwrap() = Some(ActiveConnection { service: None, response: StartBackendResponse {
+            ok: true, base_url: format!("http://{address}/api"), session_token: "owner-access".into(), server_id: "center".into(), profile_id: "local".into(), mode: "local".into(), data_epoch: "old-epoch".into(), expires_at_ms: None, api_pid: Some(123), runtime_worker_pid: None,
+        }});
+        let response = reuse_local_connection(&state, "local").await.unwrap().unwrap();
+        assert_eq!(response.data_epoch, "new-epoch");
+        assert_eq!(response.api_pid, Some(123));
+        assert_eq!(state.runtime.lock().unwrap().as_ref().unwrap().response.data_epoch, "new-epoch");
+        assert_eq!(state.generation.load(std::sync::atomic::Ordering::Acquire), 0);
+        server.await.unwrap();
+    }
 }

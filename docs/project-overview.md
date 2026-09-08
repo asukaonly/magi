@@ -786,3 +786,7 @@ Both products share the release version and protocol, while protocol negotiation
 controls whether a client may connect. Candidates stay in draft until packaged
 center startup, proxy/SSE/file transfer, plugin permissions, upgrade, and recovery
 validation has been recorded; successful source tests do not establish that evidence.
+
+Reopening a local desktop window reuses its running `magi-server` process and
+refreshes the center identity and data epoch from the service before returning
+connection metadata. Reusing a process must not reuse a stale maintenance epoch.
