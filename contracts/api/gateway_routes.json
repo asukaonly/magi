@@ -256,26 +256,6 @@
       }
     },
     {
-      "path": "/api/memory/l2/relations",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "paginated-native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
-      "path": "/api/memory/l2/assertions",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "paginated-native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
       "path": "/api/memory/l2/entities",
       "methods": ["GET"],
       "owner": "rust-native",
@@ -287,16 +267,6 @@
     },
     {
       "path": "/api/memory/l2/mentions",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "paginated-native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
-      "path": "/api/memory/l2/snapshots",
       "methods": ["GET"],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
@@ -348,16 +318,6 @@
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/memory.rs",
       "response_envelope": "paginated-native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
-      "path": "/api/memory/tom/{entity_id}",
-      "methods": ["GET"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "native-json",
       "python_parity": {
         "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
       }

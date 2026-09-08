@@ -1052,6 +1052,11 @@ user-understanding caches.
 Assertion lists, dashboard candidates, pre-materialization review proposals,
 public recall results, correction results/history, and assertion-backed portraits
 share the host-owned fact display read model in `l2/assertion_display.py`.
+The desktop gateway forwards assertion and relationship lists, snapshot lists,
+and individual ToM snapshot reads to their Python read models over authenticated
+IPC. It has no native SQLite implementation for these paths: full fact projection,
+canonical endpoint names, visibility filtering, and snapshot revision/generation
+invalidation must reach the product through the same owner.
 `render_assertion_fact` returns a typed description and its completeness, without
 UI placeholders or a prompt-admission decision. The owning read boundary chooses
 `SummaryPolicy.RETAINED` or `STRUCTURED_ONLY`; correction history explicitly

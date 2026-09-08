@@ -81,3 +81,38 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
     assert search.json()["structured_results"][0]["display_status"] == "complete"
     assert search.json()["l2_assertions"][0]["trait_value"] == "like"
     assert "display_text" not in assertion
+
+
+@pytest.mark.parametrize("include_inactive", [False, True])
+def test_public_relation_list_keeps_canonical_names_and_visibility_query(tmp_path, monkeypatch, include_inactive):
+    db_path = str(tmp_path / "memory.db")
+    with sqlite3.connect(db_path) as db:
+        db.execute("CREATE TABLE entity_catalog (entity_id TEXT, canonical_name TEXT)")
+        db.executemany("INSERT INTO entity_catalog VALUES (?, ?)", [
+            ("user:local_user", "用户"), ("food:opaque", "草莓"),
+        ])
+    relation = {
+        "triple_id": "relation-strawberry", "subject_id": "user:local_user", "subject_type": "user",
+        "predicate": "LIKES", "object_id": "food:opaque", "object_type": "food", "status": "active",
+    }
+    store = SimpleNamespace(
+        db_path=db_path, get_relationships=AsyncMock(return_value=[relation]),
+        count_relationships=AsyncMock(return_value=1),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        lambda: SimpleNamespace(l2=store),
+    )
+    app = FastAPI()
+    app.include_router(_build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"]), prefix="/api/memory")
+    response = TestClient(app).get("/api/memory/l2/relations", params={
+        "limit": 20, "offset": 40, "query": "草莓", "include_inactive": include_inactive,
+    })
+    assert response.status_code == 200
+    assert response.json()["items"] == [{**relation, "subject_name": "用户", "object_name": "草莓"}]
+    assert response.json()["total"] == 1
+    store.get_relationships.assert_awaited_once_with(
+        limit=20, offset=40, query="草莓", include_inactive=include_inactive,
+    )
+    store.count_relationships.assert_awaited_once_with(query="草莓", include_inactive=include_inactive)
+    assert "object_name" not in relation

@@ -189,6 +189,14 @@ rules, and chat-owned context snapshot must be composed by one runtime owner.
 The gateway must not serve L0 sessions, workbenches, or aggregate memory
 statistics from a separate checkpoint-only view.
 
+L2 assertion and relationship lists, snapshot lists, and individual ToM snapshots
+are also Python-proxied. Their product responses require governed visibility,
+complete fact descriptions, canonical entity names, and snapshot revision and
+generation checks from the memory read model. A Rust-native `SELECT *` handler would
+bypass that contract even when the Python API and frontend independently pass
+their tests. Gateway integration tests must prove these paths reach the worker
+with their query parameters and preserve its response fields.
+
 The machine-readable route ownership manifest lives at `contracts/api/gateway_routes.json`. It records Rust-native route method/path ownership, static mounts, Python proxy prefixes, native routes that still have Python parity implementations, and the public/private resource exceptions to the default authenticated access policy. `scripts/check-api-contract.py` validates the manifest against the Rust Axum router and the Python FastAPI route table, and is part of CI/release validation.
 
 ### Frontend state and type boundaries

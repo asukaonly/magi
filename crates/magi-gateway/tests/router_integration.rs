@@ -721,79 +721,13 @@ async fn memory_l2_entities_searches_catalog_and_aliases() {
 }
 
 #[tokio::test]
-async fn memory_object_routes_apply_search_query_in_native_gateway() {
+async fn native_summary_and_procedure_lists_apply_search_query() {
     let home = isolated_home("memory-object-routes-search");
     let memory_dir = home.path().join(".magi").join("data").join("memory");
     std::fs::create_dir_all(&memory_dir).unwrap();
     let conn = rusqlite::Connection::open(memory_dir.join("memory.db")).unwrap();
     conn.execute_batch(
         r#"
-        CREATE TABLE knowledge_graph (
-            triple_id TEXT PRIMARY KEY,
-            subject_id TEXT,
-            subject_type TEXT,
-            predicate TEXT,
-            object_id TEXT,
-            object_type TEXT,
-            fact_kind TEXT,
-            evidence_event_ids TEXT,
-            evidence_text TEXT,
-            natural_summary TEXT,
-            source_type TEXT,
-            extraction_method TEXT,
-            evidence_class TEXT,
-            status TEXT,
-            updated_at REAL
-        );
-        CREATE TABLE tom_trait_assertions (
-            assertion_id TEXT PRIMARY KEY,
-            entity_id TEXT,
-            entity_type TEXT,
-            trait_family TEXT,
-            trait_name TEXT,
-            trait_value TEXT,
-            evidence_events TEXT,
-            source_domain TEXT,
-            inference_depth TEXT,
-            validation_state TEXT,
-            target_entity_id TEXT,
-            target_entity_type TEXT,
-            target_scope TEXT,
-            temporal_scope TEXT,
-            context_ref_id TEXT,
-            status TEXT,
-            superseded_by TEXT,
-            memory_subdomain TEXT,
-            natural_summary TEXT,
-            updated_at REAL
-        );
-        CREATE TABLE tom_snapshots (
-            snapshot_id TEXT PRIMARY KEY,
-            entity_id TEXT,
-            entity_type TEXT,
-            core_traits TEXT,
-            sensitive_triggers TEXT,
-            preferences TEXT,
-            public_sentiment_profile TEXT,
-            relationship_topology TEXT,
-            current_stress_level REAL,
-            current_mood TEXT,
-            current_engagement REAL,
-            current_context TEXT,
-            interaction_count INTEGER,
-            last_interaction_at REAL,
-            last_updated_at REAL,
-            snapshot_version INTEGER,
-            created_at REAL,
-            update_source_assertion_ids TEXT,
-            core_traits_history TEXT,
-            preferences_history TEXT,
-            relationship_history TEXT,
-            active_record_ids TEXT,
-            superseded_record_ids TEXT,
-            emerging_signals TEXT,
-            mood_trajectory TEXT
-        );
         CREATE TABLE summaries (
             summary_id TEXT PRIMARY KEY,
             summary_type TEXT,
@@ -834,15 +768,6 @@ async fn memory_object_routes_apply_search_query_in_native_gateway() {
             updated_at REAL
         );
 
-        INSERT INTO knowledge_graph VALUES
-            ('rel-apple', 'user:self', 'user', 'OWNS', 'hardware:iphone', 'hardware', 'fact', '[]', 'Apple phone', '', '', '', '', 'active', 1),
-            ('rel-melvor', 'user:self', 'user', 'PLAYS', 'product:melvor-idle', 'product', 'fact', '[]', '梅尔沃放置', '', '', '', '', 'active', 2);
-        INSERT INTO tom_trait_assertions VALUES
-            ('assert-apple', 'user:self', 'user', 'preference', 'tool', 'iPhone', '[]', 'chat', 'explicit', 'stable', '', '', 'global', 'session', '', 'active', '', 'state', '', 1),
-            ('assert-melvor', 'user:self', 'user', 'preference', 'game', '梅尔沃放置', '[]', 'chat', 'explicit', 'stable', '', '', 'global', 'session', '', 'active', '', 'state', '', 2);
-        INSERT INTO tom_snapshots VALUES
-            ('snap-apple', 'hardware:iphone', 'hardware', '{}', '', '{}', '', '{}', 0, 'neutral', 0, 'Apple context', 1, 1, 1, 1, 1, '[]', '', '', '', '', '', '', ''),
-            ('snap-melvor', 'product:melvor-idle', 'product', '{"name":"梅尔沃放置"}', '', '{}', '', '{}', 0, 'neutral', 0, 'game context', 1, 1, 2, 1, 2, '[]', '', '', '', '', '', '', '');
         INSERT INTO summaries VALUES
             ('sum-apple', 'thematic', 'topic', 1, 1, 'Apple summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 1, 1),
             ('sum-melvor', 'thematic', 'topic', 2, 2, '梅尔沃放置 summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 2, 2);
@@ -857,18 +782,6 @@ async fn memory_object_routes_apply_search_query_in_native_gateway() {
     let state = test_state().await;
     let router = api::build_router(state);
     let endpoints = [
-        (
-            "/api/memory/l2/relations?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-            "rel-melvor",
-        ),
-        (
-            "/api/memory/l2/assertions?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-            "assert-melvor",
-        ),
-        (
-            "/api/memory/l2/snapshots?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
-            "snap-melvor",
-        ),
         (
             "/api/memory/l3/summaries?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
             "sum-melvor",
@@ -887,6 +800,190 @@ async fn memory_object_routes_apply_search_query_in_native_gateway() {
             json["items"].to_string().contains(expected_id),
             "{endpoint} returned {json}"
         );
+    }
+    drop(home);
+}
+
+#[tokio::test]
+async fn assertion_list_preserves_python_fact_presentation_over_authenticated_ipc() {
+    let home = isolated_home("assertion-fact-proxy");
+    let expected = serde_json::json!({
+        "items": [{
+            "assertion_id": "assert-strawberry",
+            "entity_id": "user:self",
+            "entity_type": "user",
+            "entity_name": "用户",
+            "trait_name": "preference.affinity",
+            "trait_value": "like",
+            "target_entity_id": "food:strawberry",
+            "target_entity_name": "草莓",
+            "natural_summary": "用户最近喜欢草莓。",
+            "display_text": "用户最近喜欢草莓。",
+            "display_status": "complete",
+            "value_options": ["like", "dislike"],
+            "temporal_scope": "recent",
+            "source_domain": "user_authored",
+            "status": "tentative"
+        }, {
+            "assertion_id": "assert-unresolved",
+            "entity_id": "user:self",
+            "entity_type": "user",
+            "entity_name": "用户",
+            "trait_name": "preference.affinity",
+            "trait_value": "dislike",
+            "target_entity_id": "food:unresolved",
+            "target_entity_name": null,
+            "natural_summary": "",
+            "display_text": "用户不喜欢一个尚未解析的对象。",
+            "display_status": "partial",
+            "value_options": ["like", "dislike"],
+            "source_domain": "user_authored",
+            "status": "tentative"
+        }],
+        "total": 8,
+        "limit": 2,
+        "offset": 3
+    });
+    assert_python_fact_route(
+        "/api/memory/l2/assertions",
+        "limit=2&offset=3&query=%E8%8D%89%E8%8E%93&include_inactive=false",
+        expected,
+    )
+    .await;
+    drop(home);
+}
+
+#[tokio::test]
+async fn relation_list_preserves_python_entity_names_over_authenticated_ipc() {
+    let home = isolated_home("relation-fact-proxy");
+    let expected = serde_json::json!({
+        "items": [{
+            "triple_id": "relation-strawberry",
+            "subject_id": "user:self",
+            "subject_type": "user",
+            "subject_name": "用户",
+            "predicate": "LIKES",
+            "object_id": "food:strawberry",
+            "object_type": "food",
+            "object_name": "草莓",
+            "natural_summary": "用户喜欢草莓。",
+            "evidence_event_ids": ["event-strawberry"],
+            "status": "active"
+        }],
+        "total": 4,
+        "limit": 1,
+        "offset": 2
+    });
+    assert_python_fact_route(
+        "/api/memory/l2/relations",
+        "limit=1&offset=2&query=%E8%8D%89%E8%8E%93&include_inactive=true",
+        expected,
+    )
+    .await;
+    drop(home);
+}
+
+async fn assert_python_fact_route(path: &str, query: &str, expected: Value) {
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": expected.clone()
+    }))
+    .await;
+    let router = api::build_router(state);
+    let uri = format!("{path}?{query}");
+
+    for token in [None, Some("wrong-token")] {
+        let mut request = Request::builder().uri(&uri);
+        if let Some(token) = token {
+            request = request.header(api::security::SESSION_TOKEN_HEADER, token);
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401, "{path}");
+    }
+    assert!(forwarded_requests.lock().unwrap().is_empty());
+
+    let (status, actual) = request_json(router, "GET", &uri, None).await;
+    assert_eq!(status, 200, "{path}");
+    assert_eq!(actual, expected, "{path}");
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1, "{path}");
+    assert_eq!(requests[0]["method"], "api.forward");
+    assert_eq!(requests[0]["params"]["method"], "GET");
+    assert_eq!(requests[0]["params"]["path"], path);
+    assert_eq!(requests[0]["params"]["query"], query);
+    assert!(requests[0]["params"]["headers"]
+        .get(api::security::SESSION_TOKEN_HEADER)
+        .is_none());
+}
+
+#[tokio::test]
+async fn snapshot_reads_preserve_python_visibility_and_errors() {
+    let home = isolated_home("snapshot-visibility-proxy");
+    let retained_snapshot = serde_json::json!({
+        "snapshot_id": "snapshot-retained",
+        "entity_id": "user:self",
+        "entity_type": "user",
+        "core_traits": {"communication.address.preferred": "小林"},
+        "preferences": {"preference.affinity:food:strawberry": "like"},
+        "update_source_assertion_ids": ["assert-strawberry"],
+        "source_revision": 3,
+        "source_generation": 2
+    });
+    for (path, query, expected_status, expected) in [
+        (
+            "/api/memory/l2/snapshots",
+            "limit=1&offset=2&query=%E8%8D%89%E8%8E%93",
+            200,
+            serde_json::json!({
+                "items": [retained_snapshot.clone()], "total": 3, "limit": 1, "offset": 2
+            }),
+        ),
+        (
+            "/api/memory/l2/snapshots",
+            "limit=20&offset=0&query=invalidated",
+            200,
+            serde_json::json!({"items": [], "total": 0, "limit": 20, "offset": 0}),
+        ),
+        (
+            "/api/memory/tom/user:self",
+            "entity_type=user",
+            200,
+            retained_snapshot,
+        ),
+        (
+            "/api/memory/tom/user:invalidated",
+            "entity_type=user",
+            404,
+            serde_json::json!({"detail": "Snapshot not found"}),
+        ),
+        (
+            "/api/memory/tom/person:unavailable",
+            "entity_type=person",
+            503,
+            serde_json::json!({"detail": "Cognition store unavailable"}),
+        ),
+    ] {
+        let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+            "status": expected_status,
+            "headers": {"content-type": "application/json"},
+            "body": expected.clone()
+        }))
+        .await;
+        let router = api::build_router(state);
+        let (status, actual) = request_json(router, "GET", &format!("{path}?{query}"), None).await;
+        assert_eq!(status, expected_status, "{path}");
+        assert_eq!(actual, expected, "{path}");
+        let requests = forwarded_requests.lock().unwrap();
+        assert_eq!(requests.len(), 1, "{path}");
+        assert_eq!(requests[0]["method"], "api.forward");
+        assert_eq!(requests[0]["params"]["method"], "GET");
+        assert_eq!(requests[0]["params"]["path"], path);
+        assert_eq!(requests[0]["params"]["query"], query);
     }
     drop(home);
 }

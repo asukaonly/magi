@@ -142,24 +142,12 @@ pub fn build_router(state: ApiState) -> Router {
             axum::routing::get(memory::list_l1_events),
         )
         .route(
-            "/api/memory/l2/relations",
-            axum::routing::get(memory::list_l2_relations),
-        )
-        .route(
-            "/api/memory/l2/assertions",
-            axum::routing::get(memory::list_l2_assertions),
-        )
-        .route(
             "/api/memory/l2/entities",
             axum::routing::get(memory::list_l2_entities),
         )
         .route(
             "/api/memory/l2/mentions",
             axum::routing::get(memory::list_l2_mentions),
-        )
-        .route(
-            "/api/memory/l2/snapshots",
-            axum::routing::get(memory::list_l2_snapshots),
         )
         .route(
             "/api/memory/l2/conflict-rules",
@@ -180,10 +168,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/memory/procedures",
             axum::routing::get(memory::list_procedures),
-        )
-        .route(
-            "/api/memory/tom/{entity_id}",
-            axum::routing::get(memory::get_tom_snapshot),
         )
         // Personality config — proxied to Python backend (registry-based).
         // Personality presets — proxied to Python backend.
