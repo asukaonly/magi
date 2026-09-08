@@ -1,3 +1,4 @@
+import { CenterAccessPanel } from './CenterAccessPanel';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Server } from 'lucide-react';
@@ -12,7 +13,7 @@ export function ConnectionsButton() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
         <DialogHeader><DialogTitle>{t('connections.title')}</DialogTitle><DialogDescription>{t('connections.switchHint')}</DialogDescription></DialogHeader>
-        <div className="px-6 pb-6"><ConnectionPicker /></div>
+        <div className="space-y-6 px-6 pb-6"><ConnectionPicker /><CenterAccessPanel /></div>
       </DialogContent>
     </Dialog>
   </>;

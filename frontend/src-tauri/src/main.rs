@@ -353,8 +353,11 @@ async fn pair_center(
     address: String,
     pairing_token: String,
     name: String,
+    device_name: String,
 ) -> Result<Profile, String> {
-    connections.pair(address, pairing_token, name).await
+    connections
+        .pair(address, pairing_token, name, device_name)
+        .await
 }
 
 #[tauri::command]

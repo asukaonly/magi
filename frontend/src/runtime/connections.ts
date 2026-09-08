@@ -17,8 +17,8 @@ export type ConnectionProfile = z.infer<typeof profileSchema>;
 export async function listConnectionProfiles(): Promise<ConnectionProfiles> {
   return profilesSchema.parse(await invoke<unknown>('list_connection_profiles'));
 }
-export async function pairCenter(address: string, pairingToken: string, name: string): Promise<ConnectionProfile> {
-  return profileSchema.parse(await invoke<unknown>('pair_center', { address, pairingToken, name }));
+export async function pairCenter(address: string, pairingToken: string, name: string, deviceName: string): Promise<ConnectionProfile> {
+  return profileSchema.parse(await invoke<unknown>('pair_center', { address, pairingToken, name, deviceName }));
 }
 export async function activateConnection(profileId: string): Promise<void> {
   await invoke('select_connection_profile', { profileId });

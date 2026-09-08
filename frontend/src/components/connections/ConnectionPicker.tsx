@@ -10,6 +10,7 @@ export function ConnectionPicker() {
   const [profiles, setProfiles] = useState<ConnectionProfiles | null>(null);
   const [address, setAddress] = useState('');
   const [name, setName] = useState('');
+  const [deviceName, setDeviceName] = useState('');
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,15 +49,16 @@ export function ConnectionPicker() {
     </div>
     {profiles?.supports_remote ? <form className="space-y-3 border-t border-border pt-5" onSubmit={(event) => {
       event.preventDefault();
-      void run(async () => { const profile = await pairCenter(address, token, name); setToken(''); await activateConnection(profile.id); });
+      void run(async () => { const profile = await pairCenter(address, token, name, deviceName); setToken(''); await activateConnection(profile.id); });
     }}>
       <h2 className="text-sm font-semibold">{t('connections.addRemote')}</h2>
       <p className="text-xs leading-5 text-muted-foreground">{t('connections.pairingHint')}</p>
       <label className="block space-y-1 text-sm"><span>{t('connections.name')}</span><Input value={name} onChange={(event) => setName(event.target.value)} maxLength={64} required disabled={busy} autoComplete="off" /></label>
+      <label className="block space-y-1 text-sm"><span>{t('connections.deviceName')}</span><Input value={deviceName} onChange={(event) => setDeviceName(event.target.value)} maxLength={64} required disabled={busy} autoComplete="off" /></label>
       <label className="block space-y-1 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" value={address} onChange={(event) => setAddress(event.target.value)} required disabled={busy} autoComplete="off" /></label>
       <label className="block space-y-1 text-sm"><span>{t('connections.pairingCode')}</span><Input type="password" value={token} onChange={(event) => setToken(event.target.value)} required disabled={busy} autoComplete="off" /></label>
       <p className="text-xs leading-5 text-muted-foreground">{t('connections.ownerAccess')}</p>
-      <Button type="submit" disabled={busy || !name.trim() || !address.trim() || !token.trim()}>{t(busy ? 'connections.connecting' : 'connections.pair')}</Button>
+      <Button type="submit" disabled={busy || !name.trim() || !deviceName.trim() || !address.trim() || !token.trim()}>{t(busy ? 'connections.connecting' : 'connections.pair')}</Button>
     </form> : null}
     {error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={() => { setError(null); setRevision((value) => value + 1); }}>{t('common.retry')}</Button> : null}</div> : null}
   </div>;

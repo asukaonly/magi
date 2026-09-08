@@ -998,3 +998,16 @@ chosen destination and replaces that destination only after complete receipt and
 sync. Interrupted downloads leave the previous destination intact. At most two
 downloads run concurrently, each limited to 2 GiB and one hour. Switching centers
 invalidates a pending transfer; download access never uses a credential in a URL.
+
+### Connected center access
+
+The title-bar connection dialog separates saved connection profiles from the
+current center's device authorizations. The access panel lists paired devices,
+requires explicit confirmation before revocation, and can generate a one-use
+five-minute pairing code. Codes remain masked in component memory and are copied
+only on user action; they are never stored in browser persistence. Revoking the
+current device disconnects its profile without stopping the center. The remote
+quit prompt explicitly states that center tasks continue after closing the client.
+
+Pairing asks separately for the saved center connection name and the current
+device name. Only the device name identifies the authorization on the center.

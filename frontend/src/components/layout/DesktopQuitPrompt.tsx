@@ -1,3 +1,4 @@
+import { getRuntimeConfig } from '@/runtime/config';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Power, X } from 'lucide-react';
@@ -85,7 +86,7 @@ const DesktopQuitPrompt = () => {
               {t('desktop.quitConfirm.title')}
             </DialogTitle>
             <DialogDescription className="text-[13px] leading-5 text-muted-foreground">
-              {t('desktop.quitConfirm.description')}
+              {t(getRuntimeConfig().mode === 'remote' ? 'desktop.quitConfirm.remoteDescription' : 'desktop.quitConfirm.description')}
             </DialogDescription>
           </DialogHeader>
           <Button

@@ -2038,7 +2038,7 @@
             "working": "Working on memory data"
           },
           "indexRebuild": {
-          "deferred": "Waiting for model configuration",
+            "deferred": "Waiting for model configuration",
             "pending": "waiting",
             "running": "rebuilding",
             "succeeded": "ready",
@@ -5336,6 +5336,7 @@
   },
   "desktop": {
     "quitConfirm": {
+      "remoteDescription": "Closing this client leaves the center service and its background tasks running.",
       "title": "Quit Magi?",
       "description": "Quitting will stop running background tasks and shut down the local runtime.",
       "cancel": "Keep Running",
@@ -5595,6 +5596,22 @@
       "reinstall": "Reinstall this package before authorizing it."
     },
     "connections": {
+      "access": {
+        "title": "Devices allowed to connect",
+        "description": "Each paired device has full access to this center. Revoking access does not delete center data.",
+        "thisDevice": "This device",
+        "revoke": "Revoke access",
+        "revokeSelfHint": "This device will disconnect. Pair it again to regain access.",
+        "revokeHint": "This device will lose access immediately and must pair again to reconnect.",
+        "confirmRevoke": "Revoke now",
+        "empty": "No devices are currently paired.",
+        "createCode": "Create pairing code",
+        "codeHint": "This code works once and expires in five minutes. Share it only with a device you want to authorize.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "loadFailed": "Could not load device access.",
+        "actionFailed": "The operation could not be confirmed. Refresh the list and try again."
+      },
       "selectConnection": "Select {{name}}",
       "choose": "Choose a connection",
       "title": "Connections",
@@ -5654,7 +5671,8 @@
     "switchHint": "Switching reloads the interface. Save unsent content first. Remote centers keep running when you disconnect.",
     "choose": "Choose a connection",
     "change": "Choose another connection",
-    "serverPlugins": "Plugins collect data and run tools on the center computer."
+    "serverPlugins": "Plugins collect data and run tools on the center computer.",
+    "deviceName": "This device name"
   },
   "centerFiles": {
     "chooseDirectory": "Choose a folder on the center",

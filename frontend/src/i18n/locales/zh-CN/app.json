@@ -2037,7 +2037,7 @@
             "working": "正在处理记忆数据"
           },
           "indexRebuild": {
-          "deferred": "等待完成模型配置",
+            "deferred": "等待完成模型配置",
             "pending": "等待中",
             "running": "正在重建",
             "succeeded": "可用",
@@ -5334,6 +5334,7 @@
   },
   "desktop": {
     "quitConfirm": {
+      "remoteDescription": "关闭当前客户端后，中心服务和后台任务会继续运行。",
       "title": "退出 Magi？",
       "description": "退出后会终止正在运行的后台任务，并关闭本地运行时。",
       "cancel": "继续驻留",
@@ -5593,6 +5594,22 @@
       "reinstall": "请重新安装此插件，再授权运行。"
     },
     "connections": {
+      "access": {
+        "title": "允许接入的设备",
+        "description": "已配对设备拥有当前中心的完整权限。撤销接入不会删除中心的数据。",
+        "thisDevice": "当前设备",
+        "revoke": "撤销接入",
+        "revokeSelfHint": "当前设备将断开连接，需要重新配对才能再次接入。",
+        "revokeHint": "该设备将立即失去访问权限，需要重新配对才能再次接入。",
+        "confirmRevoke": "确认撤销",
+        "empty": "目前没有已配对的设备。",
+        "createCode": "生成配对码",
+        "codeHint": "配对码仅可使用一次，五分钟后失效。请只提供给你希望授权的设备。",
+        "copy": "复制",
+        "copied": "已复制",
+        "loadFailed": "暂时无法读取设备授权。",
+        "actionFailed": "暂时无法确认操作结果，请刷新列表后重试。"
+      },
       "selectConnection": "选择 {{name}}",
       "choose": "选择一个连接",
       "title": "连接实例",
@@ -5652,7 +5669,8 @@
     "switchHint": "切换会重新载入界面，请先保存未发送的内容。断开连接不会停止远程中心。",
     "choose": "选择连接方式",
     "change": "选择其他连接",
-    "serverPlugins": "插件在中心电脑采集数据和执行工具。"
+    "serverPlugins": "插件在中心电脑采集数据和执行工具。",
+    "deviceName": "这台设备的名称"
   },
   "centerFiles": {
     "chooseDirectory": "选择中心上的文件夹",

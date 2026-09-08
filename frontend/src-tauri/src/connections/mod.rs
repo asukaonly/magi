@@ -58,6 +58,7 @@ impl Connections {
         address: String,
         token: String,
         name: String,
+        device_name: String,
     ) -> Result<Profile, String> {
         let _guard = self.operation.lock().await;
         if !cfg!(any(target_os = "macos", windows)) {
@@ -67,12 +68,19 @@ impl Connections {
         if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
             return Err("Enter a connection name of 1 to 128 bytes".into());
         }
+        let device_name = device_name.trim();
+        if device_name.is_empty()
+            || device_name.len() > 128
+            || device_name.chars().any(char::is_control)
+        {
+            return Err("Enter a device name of 1 to 128 bytes".into());
+        }
         if self.list().profiles.len() >= 17 {
             return Err("Connection profile limit reached".into());
         }
         let address = protocol::normalize_remote_url(&address)?;
         let client = CenterClient::remote(&address)?;
-        let grant = client.pair(token.trim(), &name).await?;
+        let grant = client.pair(token.trim(), device_name).await?;
         validate_token(&grant.client_credential)?;
         let access = client.renew(&grant.client_credential).await?;
         validate_session(&access, &grant.server_id, &grant.client_id)?;

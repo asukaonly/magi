@@ -18,17 +18,19 @@ describe('connection selection', () => {
     pair.mockResolvedValue({ id: 'remote' }); render(<ConnectionPicker />);
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
+    fireEvent.change(screen.getByLabelText('connections.deviceName'), { target: { value: 'Work laptop' } });
     fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: 'https://center.example' } });
     fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'one-time-code' } });
     fireEvent.click(screen.getByText('connections.pair'));
     await waitFor(() => expect(activate).toHaveBeenCalledWith('remote'));
-    expect(pair).toHaveBeenCalledWith('https://center.example', 'one-time-code', 'Home');
+    expect(pair).toHaveBeenCalledWith('https://center.example', 'one-time-code', 'Home', 'Work laptop');
     expect(pair.mock.invocationCallOrder[0]).toBeLessThan(activate.mock.invocationCallOrder[0]);
   });
   it('keeps invalid pairings editable and never activates a rejected center', async () => {
     pair.mockRejectedValue(new Error('Pairing expired')); render(<ConnectionPicker />);
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
+    fireEvent.change(screen.getByLabelText('connections.deviceName'), { target: { value: 'Work laptop' } });
     fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: 'https://center.example' } });
     fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'expired-code' } });
     fireEvent.click(screen.getByText('connections.pair'));
