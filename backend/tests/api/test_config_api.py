@@ -2139,7 +2139,8 @@ def test_update_config_never_persists_device_preferences(
     monkeypatch: pytest.MonkeyPatch,
 ):
     app = FastAPI()
-    app.include_router(config_router, prefix="/config")
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    app.include_router(_build_public_router(config_router, _PUBLIC_ROUTE_METHODS["config"]), prefix="/config")
     client = TestClient(app)
 
     captured_updates: dict[str, object] = {}
@@ -2159,7 +2160,13 @@ def test_update_config_never_persists_device_preferences(
         _skip_runtime_refresh,
     )
 
+    current = _build_system_config()
+    current.preferences.language = "en"
+    monkeypatch.setattr(config_module, "_build_system_config", lambda mask_secrets=True: current)
+    monkeypatch.setattr(config_module, "get_user_preference", lambda key, default=None: "en")
     payload = SystemConfigModel().model_dump(mode="json")
+    payload["preferences"].pop("language")
+    payload["preferences"]["default_chat_workspace_path"] = "/center/workspace"
     payload["preferences"]["close_to_tray_enabled"] = False
     payload["preferences"]["desktop_notifications_enabled"] = True
     payload["preferences"]["desktop_notification_previews_enabled"] = False
@@ -2167,6 +2174,7 @@ def test_update_config_never_persists_device_preferences(
     response = client.put("/config/", json=payload)
 
     assert response.status_code == 200
+    assert captured_updates["preferences"]["language"] == "en"
     for key in ("close_to_tray_enabled", "desktop_notifications_enabled", "desktop_notification_previews_enabled"):
         assert key not in captured_updates.get("preferences", {})
         assert key not in response.json()["data"]["preferences"]

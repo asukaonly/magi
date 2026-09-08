@@ -11,7 +11,7 @@ import yaml
 from fastapi import APIRouter, HTTPException, Request
 
 from ... import i18n as core_i18n
-from ...config.loader import get_config, get_config_file_path, reload_config, save_config
+from ...config.loader import get_config, get_config_file_path, get_user_preference, reload_config, save_config
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
@@ -372,6 +372,8 @@ async def update_config(request: Request, config: SystemConfigModel):
 
         def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
             config.preferences.onboarding_completed = _get_onboarding_completed_or_error(request)
+            # General settings do not own the center's fallback locale.
+            config.preferences.language = core_i18n.app_language_code(get_user_preference("language", "zh"))
             with core_i18n.language_context(_request_language(request)):
                 updates = _build_update_paths(config)
                 proposed_config = _normalize_masked_secrets(config)
