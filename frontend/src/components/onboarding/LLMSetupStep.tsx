@@ -35,6 +35,7 @@ import {
 } from './onboardingStyles';
 
 export interface LLMSetupStepProps {
+  disabled?: boolean;
   value: LLMConfig;
   onChange: (next: LLMConfig) => void;
   onValid?: (valid: boolean) => void;
@@ -340,6 +341,7 @@ function getActiveProviderId(value: LLMConfig): string {
 }
 
 export function LLMSetupStep({
+  disabled = false,
   value,
   onChange,
   onValid,
@@ -669,8 +671,8 @@ export function LLMSetupStep({
 
   return (
     <fieldset
-      disabled={catalogResolutionPending}
-      aria-busy={catalogResolutionPending}
+      disabled={catalogResolutionPending || disabled}
+      aria-busy={catalogResolutionPending || disabled}
       className={cn(
         'm-0 min-w-0 border-0 p-0',
         catalogResolutionPending && 'pointer-events-none opacity-60',

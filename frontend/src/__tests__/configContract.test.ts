@@ -60,7 +60,7 @@ describe('production configuration contracts', () => {
     const config = parseConfigResponse(examples.config).data;
     if (!config) throw new Error('Production fixture is missing data');
     await expect(configApi.update(config)).rejects.toBeInstanceOf(ApiContractError);
-    await expect(configApi.completeOnboarding({ language: 'en', llm: config.llm })).rejects.toBeInstanceOf(ApiContractError);
+    await expect(configApi.completeOnboarding({ revision: 'a'.repeat(64), language: 'en', llm: config.llm })).rejects.toBeInstanceOf(ApiContractError);
   });
 
   it('rejects incomplete onboarding responses', () => {

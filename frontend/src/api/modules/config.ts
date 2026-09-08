@@ -534,6 +534,7 @@ export interface OnboardingState {
 }
 
 export interface OnboardingConfigUpdate {
+  revision: string;
   language: LanguageCode;
   llm: LLMConfig;
 }

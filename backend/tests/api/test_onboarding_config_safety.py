@@ -165,7 +165,7 @@ def test_onboarding_template_recovers_only_masked_backend_llm_draft(
     response = client.get("/config/onboarding-template")
 
     assert response.status_code == 200
-    assert calls == [True]
+    assert calls == [False]
     payload = response.json()["data"]["config"]
     assert payload["llm"]["providers"]["openai"]["api_key"] == "***"
     for service_name in ("chat", "embedding", "image_generation", "tts"):
@@ -206,7 +206,7 @@ def test_onboarding_draft_only_saves_language_and_llm(
 
     response = client.put(
         "/config/onboarding-draft",
-        json={"language": "en", "llm": payload.llm.model_dump(mode="json")},
+        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "en", "llm": payload.llm.model_dump(mode="json")},
     )
 
     assert response.status_code == 200
@@ -217,7 +217,7 @@ def test_onboarding_draft_only_saves_language_and_llm(
         "preferences.language",
     }
     assert captured["preferences.language"] == "en"
-    assert build_calls == [False, True]
+    assert build_calls and not any(build_calls)
     assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
         "***"
     )
@@ -259,7 +259,7 @@ def test_onboarding_completion_preserves_unrelated_settings(
 
     response = client.post(
         "/config/onboarding-complete",
-        json={"language": "en", "llm": payload.llm.model_dump(mode="json")},
+        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "en", "llm": payload.llm.model_dump(mode="json")},
     )
 
     assert response.status_code == 200
@@ -273,7 +273,7 @@ def test_onboarding_completion_preserves_unrelated_settings(
     }
     assert captured["preferences.onboarding_completed"] is True
     assert captured["preferences.product_tour_completed"] is True
-    assert build_calls == [False, True]
+    assert build_calls and not any(build_calls)
     assert response.json()["data"]["llm"]["providers"]["openai"]["api_key"] == (
         "***"
     )
@@ -315,7 +315,7 @@ def test_onboarding_explicitly_cleared_key_is_not_restored(
         updates, proposed = kwargs["prepare_update"]()
         captured["updates"] = updates
         captured["proposed"] = proposed
-        return object()
+        return kwargs["read_receipt"]()
 
     monkeypatch.setattr(config_module, "_persist_config_update", _capture_persist)
 
@@ -323,6 +323,7 @@ def test_onboarding_explicitly_cleared_key_is_not_restored(
         method,
         path,
         json={
+            "revision": config_module._build_onboarding_snapshot().revision,
             "language": "en",
             "llm": submitted.llm.model_dump(mode="json"),
         },

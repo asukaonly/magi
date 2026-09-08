@@ -182,6 +182,17 @@ def _build_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     }
 
 
+def _build_onboarding_snapshot(mask_secrets: bool = True) -> SystemConfigModel:
+    """Scope onboarding edits to the settings this flow actually owns."""
+    config = _build_system_config(mask_secrets=False)
+    config.revision = snapshot_revision({
+        "llm": config.llm.model_dump(mode="json"),
+        "language": config.preferences.language,
+        "completed": config.preferences.onboarding_completed,
+    })
+    return mask_system_config_secrets(config) if mask_secrets else config
+
+
 def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
     return _normalize_masked_config_secrets(config, get_config())
 
@@ -305,7 +316,8 @@ async def _persist_config_update(
     save_error_detail: str,
     before_save: Callable[[], None] | None = None,
     before_commit: Callable[[], None] | None = None,
-) -> Any:
+    read_receipt: Callable[[], SystemConfigModel] | None = None,
+) -> SystemConfigModel:
     """Serialize config persistence with any affected vector rebuild."""
 
     async with _ONBOARDING_WRITE_LOCK:
@@ -322,12 +334,13 @@ async def _persist_config_update(
                     before_commit()
                 if not save_config(updates):
                     raise HTTPException(status_code=500, detail=save_error_detail)
-            refreshed_config = reload_config()
+                refreshed_config = reload_config()
+                receipt = (read_receipt or _build_system_config)()
             await _refresh_or_initialize_runtime_after_config_update(
                 refreshed_config,
                 reason=reason,
             )
-            return refreshed_config
+            return receipt
 
 
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
@@ -387,7 +400,7 @@ async def update_config(request: Request, config: SystemConfigModel):
                 _build_full_update_paths(proposed_config)
             return updates, proposed_config
 
-        await _persist_config_update(
+        receipt = await _persist_config_update(
             prepare_update=prepare_update,
             reason="config_updated",
             before_commit=lambda: require_snapshot_revision(config.revision, _build_system_config().revision),
@@ -401,7 +414,7 @@ async def update_config(request: Request, config: SystemConfigModel):
         return ConfigResponse(
             success=True,
             message=_t(request, "config.messages.updated", "Configuration updated"),
-            data=_build_system_config(),
+            data=receipt,
         )
     except HTTPException:
         raise
@@ -500,7 +513,10 @@ async def test_config(request: Request, config: SystemConfigModel):
 async def get_onboarding_template(request: Request):
     _ensure_onboarding_incomplete(request)
     template = _build_onboarding_template()
-    template.llm = _build_system_config().llm
+    with config_write_guard():
+        snapshot = _build_onboarding_snapshot()
+    template.llm = snapshot.llm
+    template.revision = snapshot.revision
     return OnboardingTemplateResponse(
         success=True,
         message=_t(request, "config.onboarding.template_loaded", "Onboarding template loaded"),
@@ -528,6 +544,7 @@ async def update_onboarding_draft(
     try:
 
         def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
+            require_snapshot_revision(payload.revision, _build_onboarding_snapshot().revision)
             draft = SystemConfigModel(llm=payload.llm)
             draft.preferences.language = payload.language
             with core_i18n.language_context(_request_language(request)):
@@ -539,9 +556,11 @@ async def update_onboarding_draft(
             )
             return updates, proposed_config
 
-        await _persist_config_update(
+        receipt = await _persist_config_update(
             prepare_update=prepare_update,
             reason="onboarding_draft_updated",
+            before_commit=lambda: require_snapshot_revision(payload.revision, _build_onboarding_snapshot().revision),
+            read_receipt=_build_onboarding_snapshot,
             save_error_detail=_t(
                 request,
                 "config.onboarding.save_failed",
@@ -552,7 +571,7 @@ async def update_onboarding_draft(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.draft_saved", "Onboarding draft saved"),
-            data=_build_system_config(),
+            data=receipt,
         )
     except HTTPException:
         raise
@@ -628,6 +647,7 @@ async def complete_onboarding(
     try:
 
         def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
+            require_snapshot_revision(payload.revision, _build_onboarding_snapshot().revision)
             config = SystemConfigModel(llm=payload.llm)
             config.preferences.language = payload.language
             with core_i18n.language_context(_request_language(request)):
@@ -639,9 +659,11 @@ async def complete_onboarding(
             )
             return updates, proposed_config
 
-        await _persist_config_update(
+        receipt = await _persist_config_update(
             prepare_update=prepare_update,
             reason="onboarding_completed",
+            before_commit=lambda: require_snapshot_revision(payload.revision, _build_onboarding_snapshot().revision),
+            read_receipt=_build_onboarding_snapshot,
             save_error_detail=_t(
                 request,
                 "config.onboarding.save_failed",
@@ -657,7 +679,7 @@ async def complete_onboarding(
         return ConfigResponse(
             success=True,
             message=_t(request, "config.onboarding.saved", "Onboarding configuration saved"),
-            data=_build_system_config(),
+            data=receipt,
         )
     except HTTPException:
         raise

@@ -258,6 +258,7 @@ class LanguagePreferenceUpdateRequest(BaseModel):
 class OnboardingConfigUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    revision: str | None = None
     language: Literal["zh", "en"] = Field(description="Onboarding interface language.")
     llm: LLMConfigModel = Field(description="LLM configuration selected during onboarding.")
 

@@ -43,7 +43,10 @@
     "completedDesc": "Your chosen persona is ready. You can start chatting now.",
     "completedNoteWithSources": "Connected sources will keep organizing in the background, and Magi will gradually use that context. You can backfill full history later from Memory → Sources.",
     "completedNoteNoSources": "It's okay to start without history. Magi will get to know you from this conversation. You can connect history later from Memory → Sources.",
-    "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
+    "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background.",
+    "centerConflict": "Another device changed the center setup. Your draft is preserved; reload before continuing.",
+    "saveUnconfirmed": "The save result could not be confirmed. Reload the center before continuing.",
+    "reloadCenter": "Discard setup edits and reload"
   },
   "language": {
     "label": "Interface Language",

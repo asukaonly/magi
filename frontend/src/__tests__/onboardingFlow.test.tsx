@@ -346,12 +346,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
     (configApi as any).updateLanguagePreference = vi.fn().mockResolvedValue({
       success: true,
       message: "ok",
-      data: DEFAULT_SYSTEM_CONFIG,
+      data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
     });
     (configApi as any).updateOnboardingDraft = vi.fn().mockResolvedValue({
       success: true,
       message: "ok",
-      data: DEFAULT_SYSTEM_CONFIG,
+      data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
     });
     vi.spyOn(configApi, "resolveLLMProviderCatalog").mockResolvedValue(
       stubCatalog() as any,
@@ -362,7 +362,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     vi.spyOn(configApi, "update").mockResolvedValue({
       success: true,
       message: "ok",
-      data: DEFAULT_SYSTEM_CONFIG,
+      data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
     } as any);
     vi.spyOn(configApi, "getOnboardingStatus").mockResolvedValue({
       success: true,
@@ -525,7 +525,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
   it("renders the welcome entrypoint with no mode cards", () => {
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     expect(screen.getByText("welcome.brand")).toBeInTheDocument();
     expect(screen.getByText("welcome.title")).toBeInTheDocument();
@@ -547,7 +547,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -580,7 +580,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       });
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     expect(
       await screen.findByTestId("llm-setup-provider-openai"),
@@ -596,7 +596,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await waitFor(() =>
       expect(localStorageMock.setItem).toHaveBeenCalledWith("magi_language", "zh"),
@@ -619,6 +619,26 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
   });
 
+  it("keeps a conflicting model draft and stops automatic progress", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(configApi.updateOnboardingDraft).mockRejectedValueOnce({ status: 409 });
+    const initial = { ...DEFAULT_SYSTEM_CONFIG, revision: 'a'.repeat(64) };
+    const view = render(<OnboardingFlow initialConfig={initial} />);
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'private-draft');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
+    view.rerender(<OnboardingFlow initialConfig={{ ...initial, revision: 'c'.repeat(64) }} />);
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('messages.centerConflict');
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledWith(expect.objectContaining({ revision: 'a'.repeat(64) }));
+    expect(screen.getByTestId('llm-setup-api-key')).toHaveValue('private-draft');
+    expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'messages.reloadCenter' })).toBeEnabled();
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
+  });
+
   it("walks through welcome → LLM setup → persona preview → first context → completion and persists seed_slug on save", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
@@ -627,10 +647,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     // Step 0: Welcome → Get Started
     await user.click(
@@ -683,7 +703,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
     const earlyPayload = (configApi as any).updateOnboardingDraft.mock
       .calls[0][0] as any;
-    expect(Object.keys(earlyPayload).sort()).toEqual(["language", "llm"]);
+    expect(Object.keys(earlyPayload).sort()).toEqual(["language", "llm", "revision"]);
+    expect(earlyPayload.revision).toBe('a'.repeat(64));
     expect(earlyPayload.language).toBe("zh");
     expect(earlyPayload.llm.providers.openai.enabled).toBe(true);
     expect(configApi.update).not.toHaveBeenCalled();
@@ -739,7 +760,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     const payload = completeOnboarding.mock.calls[0][0] as any;
-    expect(Object.keys(payload).sort()).toEqual(["language", "llm"]);
+    expect(Object.keys(payload).sort()).toEqual(["language", "llm", "revision"]);
+    expect(payload.revision).toBe('b'.repeat(64));
     expect(payload.language).toBe("zh");
     expect(payload.llm.providers.openai.enabled).toBe(true);
     expect(payload.llm.providers.openai.api_key).toBe("sk-test");
@@ -755,7 +777,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
 
     const questionRoute = screen.getByTestId("first-context-route-question");
@@ -840,7 +862,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue(stubHistoryImportJob(true));
     vi.spyOn(historyImportsApi, "delete").mockResolvedValue(undefined);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await openFirstContextHistory(user);
 
@@ -903,7 +925,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue(undefined);
     const confirmImport = vi.spyOn(historyImportsApi, "confirm");
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await openFirstContextHistory(user);
     await user.click(
@@ -944,7 +966,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     });
     const confirmImport = vi.spyOn(historyImportsApi, "confirm");
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await openFirstContextHistory(user);
     await user.click(
@@ -970,7 +992,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const picker = deferred<string[]>();
     vi.spyOn(fileTransfers, "uploadMarkdownFiles").mockReturnValue(picker.promise);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await openFirstContextHistory(user);
     await user.click(
@@ -991,7 +1013,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await openFirstContextHistory(user);
 
@@ -1008,7 +1030,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     localStorageMock.getItem.mockReturnValue(null);
     vi.spyOn(Math, "random").mockReturnValue(0);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
 
@@ -1036,7 +1058,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.click(screen.getByTestId("first-context-story-submit"));
@@ -1057,10 +1079,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     vi.spyOn(configApi, "completeOnboarding").mockResolvedValue({
       success: true,
       message: "ok",
-      data: DEFAULT_SYSTEM_CONFIG,
+      data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1097,10 +1119,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(screen.getByTestId("first-context-story-input"), "明日香");
@@ -1174,10 +1196,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     vi.spyOn(configApi, "completeOnboarding").mockResolvedValue({
       success: true,
       message: "ok",
-      data: DEFAULT_SYSTEM_CONFIG,
+      data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1229,7 +1251,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       },
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1261,10 +1283,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1299,7 +1321,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       },
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1328,10 +1350,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValueOnce({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1362,7 +1384,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
     await user.type(
@@ -1411,7 +1433,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       });
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -1430,7 +1452,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1468,10 +1490,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await waitFor(() =>
       expect(personasApi.seedPreviews).toHaveBeenCalledWith("zh"),
@@ -1521,7 +1543,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1557,7 +1579,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1588,7 +1610,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1664,7 +1686,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1723,7 +1745,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1755,7 +1777,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1791,7 +1813,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1847,7 +1869,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       new Error("invalid credentials"),
     );
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -1972,7 +1994,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       data: { completed: true },
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2008,7 +2030,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       "openPanel",
     );
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2095,7 +2117,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(
       <StrictMode>
-        <OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />
+        <OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />
       </StrictMode>,
     );
 
@@ -2133,7 +2155,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       catalog_mode: "installed_only",
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2160,7 +2182,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2177,7 +2199,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2226,10 +2248,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2265,13 +2287,13 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
     vi.mocked(personasApi.setActive)
       .mockRejectedValueOnce(new Error("activation unavailable"))
       .mockResolvedValueOnce({ success: true, persona_id: "uuid-ember" });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2313,7 +2335,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       ],
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2333,7 +2355,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       persona_id: "uuid-nova",
     });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2356,7 +2378,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
         }),
     );
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2396,7 +2418,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
         data: { created_ids: [] },
       } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2429,7 +2451,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValue({
         success: true,
         message: "ok",
-        data: DEFAULT_SYSTEM_CONFIG,
+        data: { ...DEFAULT_SYSTEM_CONFIG, revision: "b".repeat(64) },
       } as any);
     const generated = generatedPersonaConfig();
     vi.spyOn(personasApi, "generateWithProgress").mockResolvedValue({
@@ -2447,7 +2469,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       },
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),
@@ -2512,7 +2534,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByTestId("persona-create-custom"));
     await user.type(
@@ -2544,7 +2566,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByTestId("persona-create-custom"));
     await user.type(
@@ -2571,7 +2593,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByTestId("persona-create-custom"));
     await user.type(
@@ -2625,7 +2647,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockRejectedValueOnce(new Error("activation unavailable"))
       .mockResolvedValueOnce({ success: true, persona_id: CUSTOM_PERSONA_ID });
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await enterPersonaStep(user);
     await user.click(screen.getByTestId("persona-create-custom"));
     await user.type(
@@ -2685,7 +2707,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       data: { persona_id: CUSTOM_PERSONA_ID, name: "Sage", slug },
     } as any);
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2713,7 +2735,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
         }),
     );
 
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
     await user.click(
       screen.getByRole("button", { name: /welcome\.getStarted/ }),

@@ -99,6 +99,14 @@ Safety and configuration ownership rules:
 - the browser-owned progress snapshot contains UI progress, language, and user-authored onboarding drafts, but never LLM configuration or credential fields; the backend owns the complete LLM draft and credentials, persists it when model setup is verified, and returns only masked credentials when an unfinished setup is resumed
 - changing the welcome-screen language is device-local; an explicit onboarding save sets the center default language alongside LLM configuration and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
 - onboarding completion is server-owned state; ordinary settings saves must preserve it and cannot move a completed installation back into onboarding
+- onboarding template and save responses carry a revision scoped to LLM
+  configuration, center fallback language, and completion state. Draft and
+  completion writes require the original revision, returning 428 when missing
+  and 409 after another device changes the same settings. Installing a plugin or
+  selecting a persona does not invalidate this revision. Only a confirmed save
+  receipt advances the editor baseline; conflicts and save timeouts preserve the
+  draft and offer explicit reload without resubmitting it. All configuration
+  save receipts are captured under the persistence lock before runtime refresh.
 
 The current first-run path is intentionally single-lane and progressive. It should
 reduce friction for first-time users while leaving the full configuration surface

@@ -135,6 +135,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     firstContextProgress,
   } = onboardingProgress;
   const [saving, setSaving] = useState(false);
+  const onboardingRevisionRef = useRef(initialConfig.revision);
+  const draftWriteInFlightRef = useRef(false);
+  const [writeIssue, setWriteIssue] = useState<'conflict' | 'unconfirmed' | null>(null);
+  const recordWriteIssue = (error: unknown) => {
+    if (typeof error === 'object' && error !== null && 'status' in error && (error.status === 409 || error.status === 428)) {
+      setWriteIssue('conflict');
+    } else if (error instanceof OnboardingTimeoutError) {
+      setWriteIssue('unconfirmed');
+    }
+  };
   const [finishingRuntime, setFinishingRuntime] = useState(false);
   const [firstContextHistoryJob, setFirstContextHistoryJob] =
     useState<HistoryImportJob | null>(null);
@@ -480,6 +490,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   const persistOnboardingDraft = async (): Promise<boolean> => {
+    if (writeIssue || draftWriteInFlightRef.current) return false;
     const values = readConfig();
     if (!values.preferences) {
       values.preferences = { ...initialConfig.preferences };
@@ -495,20 +506,29 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
 
     setSaving(true);
+    draftWriteInFlightRef.current = true;
     try {
-      await withTimeout(
-        configApi.updateOnboardingDraft(payload),
+      const response = await withTimeout(
+        configApi.updateOnboardingDraft({ ...payload, revision: onboardingRevisionRef.current ?? '' }),
         ONBOARDING_SAVE_TIMEOUT_MS,
         t("messages.saveTimedOut"),
       );
+      const revision = response.data?.revision;
+      if (typeof revision !== 'string' || !/^[a-f0-9]{64}$/.test(revision)) throw new Error('Onboarding save response is missing its revision');
+      if (!mountedRef.current) return false;
+      onboardingRevisionRef.current = revision;
+      values.revision = revision;
       lastPersistedDraftFingerprintRef.current = fingerprint;
       saveProgress(values);
       return true;
     } catch (error) {
+      if (!mountedRef.current) return false;
+      recordWriteIssue(error);
       toast.error(getErrorMessage(error) || t("messages.saveFailed"));
       return false;
     } finally {
-      setSaving(false);
+      draftWriteInFlightRef.current = false;
+      if (mountedRef.current) setSaving(false);
     }
   };
 
@@ -571,7 +591,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFinish = async (
     options: FinishOnboardingOptions = {},
   ): Promise<boolean> => {
-    if (finishInFlightRef.current) {
+    if (finishInFlightRef.current || draftWriteInFlightRef.current || writeIssue) {
       return false;
     }
     finishInFlightRef.current = true;
@@ -585,6 +605,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       values.llm = llmValue;
       await withTimeout(
         configApi.completeOnboarding({
+          revision: onboardingRevisionRef.current ?? '',
           language: values.preferences.language,
           llm: values.llm,
         }),
@@ -610,6 +631,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       if (await recoverCompletedOnboarding(options)) {
         return true;
       }
+      recordWriteIssue(error);
       const message = options.onError
         ? t("firstContext.story.errors.finishFailed")
         : error instanceof OnboardingTimeoutError
@@ -650,6 +672,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   const handleNext = async () => {
+    if (writeIssue || saving) return;
     if (current === LLM_SETUP_STEP) {
       if (!llmValid) {
         toast.warning(t("llm.completeSelections"));
@@ -795,6 +818,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       // from OnboardingFlow.
       return (
         <LLMSetupStep
+          disabled={saving}
           value={llmValue}
           onChange={handleLlmChange}
           onValid={setLlmValid}
@@ -1023,7 +1047,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                     }
                     className={ONBOARDING_PRIMARY_ACTION_CLASS}
                     onClick={asEventHandler(handleNext)}
-                    disabled={nextDisabled}
+                    disabled={nextDisabled || writeIssue !== null}
                   >
                     {current === LLM_SETUP_STEP && llmConnectionTestState.loading
                       ? t("llm.actions.testingConnection")
@@ -1042,6 +1066,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           }
         >
           <>
+            {writeIssue ? <div role="alert" className="m-4 rounded-md border border-amber-500/40 p-3 text-sm">
+              <p>{t(`messages.${writeIssue === 'conflict' ? 'centerConflict' : 'saveUnconfirmed'}`)}</p>
+              <Button className="mt-2" variant="outline" disabled={saving} onClick={() => window.location.reload()}>{t('messages.reloadCenter')}</Button>
+            </div> : null}
             <AnimatePresence mode="wait">
               <motion.div
                 className="flex h-full min-h-0 flex-1 flex-col"

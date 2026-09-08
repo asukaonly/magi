@@ -43,7 +43,10 @@
     "completedDesc": "你选择的人格已经准备好，现在可以开始聊天。",
     "completedNoteWithSources": "刚接入的来源会继续在后台整理，Magi 会逐步使用这些内容。完整历史可稍后在「记忆 → 来源」里补回。",
     "completedNoteNoSources": "没有接入历史也没关系，Magi 会从这次对话开始了解你。之后可以随时在「记忆 → 来源」接入历史记录。",
-    "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
+    "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。",
+    "centerConflict": "其他设备已修改中心配置。草稿已保留，请重新载入后继续。",
+    "saveUnconfirmed": "尚未确认保存结果，请重新载入中心状态后继续。",
+    "reloadCenter": "放弃配置修改并重新载入"
   },
   "language": {
     "label": "界面语言",

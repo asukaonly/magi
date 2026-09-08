@@ -2284,7 +2284,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
 
     response = client.post(
         "/config/onboarding-complete",
-        json={"language": "zh", "llm": payload.llm.model_dump(mode="json")},
+        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "zh", "llm": payload.llm.model_dump(mode="json")},
     )
 
     assert response.status_code == 200
@@ -2359,7 +2359,7 @@ def test_onboarding_embedding_change_uses_rebuild_coordination(
     response = client.request(
         method,
         path,
-        json={"language": "zh", "llm": proposed.llm.model_dump(mode="json")},
+        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "zh", "llm": proposed.llm.model_dump(mode="json")},
     )
 
     assert response.status_code == 200
@@ -2410,7 +2410,7 @@ def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
 
     response = client.post(
         "/config/onboarding-complete",
-        json={"language": "zh", "llm": payload.llm.model_dump(mode="json")},
+        json={"revision": config_module._build_onboarding_snapshot().revision, "language": "zh", "llm": payload.llm.model_dump(mode="json")},
     )
 
     assert response.status_code == 200
