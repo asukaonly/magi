@@ -1,10 +1,12 @@
 [package]
 name = "magi-server"
-version = "0.1.0"
+version = "0.1.29"
 description = "Standalone Magi service"
 edition = "2021"
 
 [dependencies]
+magi-platform = { path = "../crates/magi-platform" }
+libc = "0.2"
 magi-server-runtime = { path = "../crates/magi-server-runtime" }
 magi-gateway = { path = "../crates/magi-gateway" }
 serde = { version = "1", features = ["derive"] }

@@ -2376,9 +2376,11 @@ dependencies = [
 
 [[package]]
 name = "magi-server"
-version = "0.1.0"
+version = "0.1.29"
 dependencies = [
+ "libc",
  "magi-gateway",
+ "magi-platform",
  "magi-server-runtime",
  "serde",
  "serde_json",

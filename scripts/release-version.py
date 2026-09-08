@@ -21,6 +21,7 @@ FRONTEND_PACKAGE_JSON = REPO_ROOT / "frontend" / "package.json"
 FRONTEND_PACKAGE_LOCK = REPO_ROOT / "frontend" / "package-lock.json"
 TAURI_CONFIG = REPO_ROOT / "frontend" / "src-tauri" / "tauri.conf.json"
 TAURI_CARGO = REPO_ROOT / "frontend" / "src-tauri" / "Cargo.toml"
+SERVER_CARGO = REPO_ROOT / "server" / "Cargo.toml"
 BACKEND_PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
 
@@ -79,6 +80,7 @@ def _replace_cargo_lock_package_version(path: Path, package_name: str, version: 
 def sync_versions(version: str) -> None:
     _write_version_file(version)
     _replace_cargo_lock_package_version(CARGO_LOCK, "magi-desktop", version)
+    _replace_cargo_lock_package_version(CARGO_LOCK, "magi-server", version)
 
     package_json = _load_json(FRONTEND_PACKAGE_JSON)
     package_json["version"] = version
@@ -96,6 +98,7 @@ def sync_versions(version: str) -> None:
     _write_json(TAURI_CONFIG, tauri_config)
 
     _replace_first_version(TAURI_CARGO, version)
+    _replace_first_version(SERVER_CARGO, version)
     _replace_first_version(BACKEND_PYPROJECT, version)
 
 
@@ -105,6 +108,10 @@ def collect_versions() -> dict[str, str]:
     package_lock = _load_json(FRONTEND_PACKAGE_LOCK)
     tauri_config = _load_json(TAURI_CONFIG)
     tauri_cargo = tomllib.loads(TAURI_CARGO.read_text(encoding="utf-8"))
+    server_cargo = tomllib.loads(SERVER_CARGO.read_text(encoding="utf-8"))
+    server_lock_version = next((str(package["version"]) for package in cargo_lock.get("package", []) if package.get("name") == "magi-server"), None)
+    if server_lock_version is None:
+        raise SystemExit("Could not find magi-server in Cargo.lock")
     backend_pyproject = tomllib.loads(BACKEND_PYPROJECT.read_text(encoding="utf-8"))
 
     cargo_lock_version = next(
@@ -121,6 +128,8 @@ def collect_versions() -> dict[str, str]:
     return {
         "VERSION": _read_version_file(),
         "Cargo.lock magi-desktop": cargo_lock_version,
+        "Cargo.lock magi-server": server_lock_version,
+        "server/Cargo.toml": str(server_cargo["package"]["version"]),
         "frontend/package.json": str(package_json["version"]),
         "frontend/package-lock.json": str(package_lock["version"]),
         "frontend/package-lock.json packages['']": str(package_lock["packages"][""]["version"]),

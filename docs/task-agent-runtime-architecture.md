@@ -48,7 +48,9 @@ Last reviewed against the implementation: 2026-08-25.
 
 ## System Topology
 
-The desktop runtime has one Python `ipc_worker` process behind the Rust gateway.
+Each center has one Python `ipc_worker` process behind the Rust gateway.
+`magi-server` owns both lifetimes. The local desktop starts that same service
+executable; a remote desktop connects over HTTPS and runs neither process.
 Its in-memory ASGI app accepts product requests and enqueues durable commands;
 the same process consumes commands, runs task agents, owns the message bus,
 executes model/tool loops, and writes outcomes. These are logical responsibilities,

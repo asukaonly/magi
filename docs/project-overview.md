@@ -763,3 +763,26 @@ so.
 - Product and settings contributors should read [Product Configuration Guide](./product-configuration-guide.md).
 - Plugin contributors should read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 - Memory contributors should read [Memory System Design](./memory-system-design.md).
+
+### Standalone Mac service distribution
+
+`server/` builds the `magi-server` command. `scripts/prepare-service-bundle.mjs`
+stages the server, frozen backend, plugin Python, version, and operator guide as
+one component in `build/service`. Desktop bundling consumes that component.
+The separate Mac disk image contains the complete `MagiServer` folder and does
+not require Tauri or a development Python installation on the host.
+
+The [operator guide](../server/README.md) covers foreground `run`, initial
+configuration, private pairing, and the current-user LaunchAgent commands.
+The managed service runs after GUI login; it is not a system daemon. Installation
+uses a fixed executable/configuration path and rejects replacement of another
+installation's launch agent. `uninstall` removes the owned startup registration
+and preserves business data and configuration. Desktop removal is independent.
+
+Mac release CI builds the standalone disk image from the same signed service
+component inside the desktop candidate. The standalone image requires an accepted
+notarization result, stapled ticket, SHA-256 checksum, and status manifest.
+Both products share the release version and protocol, while protocol negotiation
+controls whether a client may connect. Candidates stay in draft until packaged
+center startup, proxy/SSE/file transfer, plugin permissions, upgrade, and recovery
+validation has been recorded; successful source tests do not establish that evidence.

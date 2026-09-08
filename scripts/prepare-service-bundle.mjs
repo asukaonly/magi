@@ -27,6 +27,7 @@ export function prepareServiceBundle() {
   const binary = target.includes('windows') ? 'magi-server.exe' : 'magi-server';
   copyFileSync(path.join(root, 'target', target, 'release', binary), path.join(serviceBundle, binary));
   copyFileSync(path.join(root, 'VERSION'), path.join(serviceBundle, 'VERSION'));
+  copyFileSync(path.join(root, 'server/README.md'), path.join(serviceBundle, 'README.md'));
   return { target, directory: serviceBundle };
 }
 

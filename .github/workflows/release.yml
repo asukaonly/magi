@@ -281,3 +281,34 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      - name: Validate relocated standalone service
+        if: matrix.os_family == 'macos'
+        shell: bash
+        run: |
+          python scripts/smoke-service-bundle.py \
+            --bundle "${GITHUB_WORKSPACE}/target/${{ matrix.target }}/release/bundle/macos/Magi.app/Contents/Resources/server-dist" \
+            --deny-checkout "${GITHUB_WORKSPACE}"
+
+      - name: Package standalone Mac service candidate
+        if: matrix.os_family == 'macos'
+        shell: bash
+        env:
+          MAGI_REQUIRE_SERVICE_NOTARIZATION: "1"
+        run: |
+          node scripts/package-service-macos.mjs \
+            --target "${{ matrix.target }}" \
+            --source "${GITHUB_WORKSPACE}/target/${{ matrix.target }}/release/bundle/macos/Magi.app/Contents/Resources/server-dist" \
+            --signed-source
+
+      - name: Upload standalone Mac service candidate
+        if: matrix.os_family == 'macos'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            build/packages/MagiServer_*_${{ matrix.target }}.dmg \
+            build/packages/MagiServer_*_${{ matrix.target }}.dmg.sha256 \
+            build/packages/MagiServer_*_${{ matrix.target }}.dmg.json \
+            --clobber

@@ -62,13 +62,20 @@ def test_release_matrix_only_runs_packaging_work() -> None:
     assert '.[dev]' not in install_script
 
 
-def test_tauri_hook_remains_the_single_sidecar_build_owner() -> None:
+def test_desktop_and_standalone_share_one_service_build_owner() -> None:
     tauri_config = json.loads(TAURI_CONFIG.read_text(encoding="utf-8"))
     prepare_script = PREPARE_TAURI_BUILD.read_text(encoding="utf-8")
 
     assert tauri_config["build"]["beforeBuildCommand"] == "node ../scripts/prepare-tauri-build.mjs"
-    assert prepare_script.count("build-sidecar.sh") == 1
-    assert prepare_script.count("build-sidecar.ps1") == 1
+    assert "prepareServiceBundle" in prepare_script
+    service_script = (REPO_ROOT / "scripts/prepare-service-bundle.mjs").read_text(encoding="utf-8")
+    assert service_script.count("build-sidecar.sh") == 1
+    assert service_script.count("build-sidecar.ps1") == 1
+    steps = _workflow_jobs()["publish-tauri"]["steps"]
+    package = next(step for step in steps if step["name"] == "Package standalone Mac service candidate")
+    assert "Magi.app/Contents/Resources/server-dist" in package["run"]
+    assert "--signed-source" in package["run"]
+    assert package["env"]["MAGI_REQUIRE_SERVICE_NOTARIZATION"] == "1"
 
 
 def test_packaged_candidates_remain_drafts_until_platform_validation() -> None:

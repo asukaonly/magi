@@ -463,22 +463,23 @@ Responsibilities:
 
 - IPC server and command dispatch for the Python sidecar
 - IPC transport app assembly and middleware
-- HTTP and WebSocket serving (owned by the Rust gateway, not Python)
+- HTTP and resumable SSE serving (owned by the Rust gateway)
 
 Primary packages:
 
 - `ipc/` (Python-side IPC server, dispatcher, protocol, handlers)
 - `transport/` (Python-side in-memory ASGI app wiring and middleware)
-- `crates/magi-gateway/src/api/` (Rust-side HTTP/WebSocket handling)
+- `crates/magi-gateway/src/api/` (Rust-side authenticated HTTP and SSE handling)
 - `crates/magi-gateway/src/ipc/` (Rust-side IPC client and protocol)
 
 Notes:
 
 - the Python process runs no public HTTP server; external traffic arrives through the Rust gateway and crosses into Python over IPC (Unix Domain Socket on Unix-like systems, loopback TCP on Windows)
-- the Rust gateway owns desktop request authentication, exact WebView-origin checks, and short-lived access tickets for DOM-loaded private resources
-- the desktop session credential is host-owned, memory-only connection state; Python, plugins, and business layers must not receive, persist, log, or place it in resource URLs
+- `server/` is the CLI composition root; `crates/magi-server-runtime/` owns the gateway and worker lifetimes, instance leases, restarts, and center maintenance. Tauri starts this same service executable in local mode and starts no business runtime in remote mode
+- the Rust gateway owns pairing, revocable device authentication, exact WebView-origin checks, and short-lived access tickets for DOM-loaded private resources. The service stores credential hashes; the desktop keeps reusable credentials in its OS vault and short-lived sessions in memory
+- Python, plugins, and business layers must not receive, persist, log, or place gateway credentials in resource URLs
 - resource tickets are transport grants only; chat, timeline, and personality owners still decide whether the referenced resource exists, is active, and may be read
-- future browser or collector ingress must use a separate paired capability with explicit route scope rather than sharing the WebView credential
+- every remote owner device pairs independently. Future restricted collectors require separately scoped capabilities; they must not inherit a desktop owner credential
 - `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
 - `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 
