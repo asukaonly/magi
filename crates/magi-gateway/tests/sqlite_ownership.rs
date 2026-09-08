@@ -14,6 +14,7 @@ const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &[
     "src/api/schedules/write.rs",
     "src/api/tasks/write.rs",
     "src/db.rs",
+    "src/auth/storage.rs",
 ];
 
 const WRITE_MARKERS: &[&str] = &[

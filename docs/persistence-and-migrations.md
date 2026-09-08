@@ -39,10 +39,22 @@ or weakening an external target. This policy applies only to the Magi-owned
 runtime root. User-selected workspaces, repositories, photo libraries, and
 other external source directories are never traversed or modified by it.
 
-Desktop gateway session credentials and private-resource tickets are deliberately
-absent from this layout. They exist only in process memory, expire with the
-gateway process, and must not enter SQLite, YAML configuration, logs, backups,
-chat payloads, memory records, or plugin state.
+Center authorization lives in `service/server.db`, owned exclusively by
+`crates/magi-gateway/src/auth/storage.rs`. Schema version 1 contains the stable
+server identity and client names, creation/revocation times and SHA-256 hashes
+of high-entropy device credentials. Raw credentials are returned only at
+pairing. A newer `user_version` fails closed. The CLI uses a same-account,
+permission-protected Unix management socket rather than modifying an active
+service database directly.
+
+Pairing grants, access sessions, desktop OS-owner sessions and resource tickets
+exist only in process memory. Pairing grants expire after five minutes; access
+sessions after fifteen minutes; owner sessions end with the host process.
+Service restart preserves client authorization but requires fresh access
+sessions. Revocation persists and also invalidates existing resource tickets.
+Raw credentials and ephemeral tokens must not enter SQLite, YAML, logs,
+backups, chat payloads, memory records, or plugin state. `service/server.db` is
+outside memory portability and business-data restore ownership.
 
 Memory portability uses `runtime/memory-portability/` only for private,
 short-lived snapshot, inspection-candidate, and crash-recovery state. Automatic

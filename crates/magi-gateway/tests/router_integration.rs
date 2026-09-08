@@ -425,7 +425,7 @@ async fn business_routes_require_the_desktop_session_token() {
         assert_eq!(response.status(), 401);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["error_code"], "desktop_auth_required");
+        assert_eq!(json["error_code"], "client_auth_required");
     }
 
     assert!(forwarded_requests.lock().unwrap().is_empty());

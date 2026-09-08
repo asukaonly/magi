@@ -21,6 +21,10 @@ struct Server {
 
 impl Server {
     fn start() -> Self {
+        Self::start_mode(true)
+    }
+
+    fn start_mode(owned: bool) -> Self {
         let suffix = magi_gateway::api::security::generate_session_token();
         let root = std::env::temp_dir().join(format!("ms-{}", &suffix[..8]));
         let config_path = root.with_extension("json");
@@ -46,18 +50,22 @@ impl Server {
             },
         };
         fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
-        let mut child = Command::new(env!("CARGO_BIN_EXE_magi-server"))
-            .args(["run", "--config"])
-            .arg(&config_path)
-            .arg("--bootstrap-stdin")
+        let mut command = Command::new(env!("CARGO_BIN_EXE_magi-server"));
+        command.args(["run", "--config"]).arg(&config_path);
+        if owned {
+            command.arg("--bootstrap-stdin");
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
         let mut owner = child.stdin.take().unwrap();
-        writeln!(owner, "{}", json!({"session_token": TOKEN})).unwrap();
-        owner.flush().unwrap();
+        if owned {
+            writeln!(owner, "{}", json!({"session_token": TOKEN})).unwrap();
+            owner.flush().unwrap();
+        }
         let stdout = child.stdout.take().unwrap();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
@@ -188,6 +196,50 @@ fn worker_crash_reconnects_without_restarting_gateway() {
         std::thread::sleep(Duration::from_millis(50));
     }
     server.wait_ready();
+}
+
+#[cfg(unix)]
+#[test]
+fn unowned_console_server_supports_private_operator_pairing() {
+    let server = Server::start_mode(false);
+    assert!(server
+        .get("/api/server/info", true)
+        .starts_with("HTTP/1.1 401"));
+    let operator = |command: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .arg(command)
+            .arg("--config")
+            .arg(&server.config_path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let status = operator("status");
+    let pairing = operator("pair");
+    assert_eq!(status["server_id"], pairing["server_id"]);
+    assert_eq!(pairing["pairing_token"].as_str().unwrap().len(), 64);
+    assert_eq!(operator("clients"), json!([]));
+    let database = fs::read(server.root.join("service/server.db")).unwrap();
+    assert!(!database
+        .windows(64)
+        .any(|part| part == pairing["pairing_token"].as_str().unwrap().as_bytes()));
+    // SIGTERM requests graceful exit of the child owned by this test.
+    signal_terminate(server.child.id());
+}
+
+#[cfg(unix)]
+fn signal_terminate(pid: u32) {
+    // Avoid a test-only libc dependency; the platform kill command targets only this child.
+    let status = Command::new("/bin/kill")
+        .args(["-TERM", &pid.to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
 }
 
 // This test executable acts as the child fixture; it is never part of the product.

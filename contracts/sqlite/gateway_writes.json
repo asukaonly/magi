@@ -107,6 +107,36 @@
       "table": "fact_events",
       "index": "idx_fact_events_deleted_at",
       "purpose": "Create documented idempotent L1 read-performance index."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "insert",
+      "table": "server_identity",
+      "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "insert",
+      "table": "clients",
+      "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "update",
+      "table": "clients",
+      "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_table",
+      "table": "server_identity",
+      "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_table",
+      "table": "clients",
+      "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
     }
   ]
 }

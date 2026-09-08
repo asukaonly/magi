@@ -4,7 +4,7 @@
   "router_source": "crates/magi-gateway/src/api/mod.rs",
   "python_app_source": "backend/src/magi/transport/http_app.py",
   "access_policy": {
-    "default": "desktop-session",
+    "default": "client-session",
     "public_native_routes": [
       "/api/health"
     ],
@@ -19,9 +19,57 @@
     ],
     "ticket_static_mounts": [
       "/static/user-avatars"
+    ],
+    "pairing_exchange_routes": [
+      "/api/auth/pair"
+    ],
+    "credential_exchange_routes": [
+      "/api/auth/session"
     ]
   },
   "native_routes": [
+    {
+      "path": "/api/server/info",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/auth/pair",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/auth/session",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/server/pairing-grants",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/server/clients",
+      "methods": ["GET"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/server/clients/{client_id}",
+      "methods": ["DELETE"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
     {
       "path": "/api/health",
       "methods": ["GET"],
@@ -101,7 +149,10 @@
     },
     {
       "path": "/api/messages/workspaces/recent",
-      "methods": ["GET", "POST"],
+      "methods": [
+        "GET",
+        "POST"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/messages.rs",
       "response_envelope": "native-json"
@@ -128,7 +179,10 @@
     },
     {
       "path": "/api/messages/session/{session_id}",
-      "methods": ["DELETE", "PATCH"],
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/sessions.rs",
       "response_envelope": "native-json",
@@ -138,14 +192,21 @@
     },
     {
       "path": "/api/tasks/{task_id}",
-      "methods": ["DELETE", "GET", "PATCH"],
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/tasks.rs",
       "response_envelope": "native-json"
     },
     {
       "path": "/api/tasks",
-      "methods": ["GET", "POST"],
+      "methods": [
+        "GET",
+        "POST"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/tasks.rs",
       "response_envelope": "native-json"
@@ -186,7 +247,11 @@
     },
     {
       "path": "/api/schedules/{schedule_id}",
-      "methods": ["DELETE", "GET", "PATCH"],
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
       "response_envelope": "native-json",
@@ -196,7 +261,10 @@
     },
     {
       "path": "/api/schedules",
-      "methods": ["GET", "POST"],
+      "methods": [
+        "GET",
+        "POST"
+      ],
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
       "response_envelope": "native-json",

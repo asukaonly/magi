@@ -5,3 +5,6 @@ pub mod instance;
 pub mod supervisor;
 #[cfg(windows)]
 mod windows_job;
+
+#[cfg(unix)]
+pub mod management;

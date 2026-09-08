@@ -23,7 +23,7 @@ pub struct StartedServer {
 /// Run one gateway and supervised worker for a private data root.
 pub async fn run(
     config: ServerConfig,
-    security: Arc<api::security::GatewaySecurity>,
+    owner_token: Option<String>,
     mut shutdown: watch::Receiver<bool>,
     started: oneshot::Sender<StartedServer>,
 ) -> Result<(), String> {
@@ -41,6 +41,16 @@ pub async fn run(
     let _lease = InstanceLease::acquire(&runtime_dir.join("server.lock"))?;
     // A previous supervisor can disappear before its worker releases the data root.
     drop(InstanceLease::acquire(&runtime_dir.join("worker.lock"))?);
+    let service_dir = config.data_dir.join("service");
+    fs::create_dir_all(&service_dir).map_err(|e| e.to_string())?;
+    let auth = Arc::new(magi_gateway::auth::AuthStore::open(
+        &service_dir.join("server.db"),
+    )?);
+    if let Some(token) = owner_token {
+        auth.bootstrap_local_owner(&token);
+    }
+    magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+    let security = Arc::new(api::security::GatewaySecurity::with_auth(Arc::clone(&auth)));
     let socket = ipc_address(&config)?;
 
     let connection = Arc::new(RuntimeConnection::default());
@@ -55,6 +65,14 @@ pub async fn run(
         .await
         .map_err(|e| format!("Failed to bind server listener: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    #[cfg(unix)]
+    let _management = crate::management::ManagementServer::bind(
+        &config.data_dir,
+        auth,
+        Arc::clone(&storage_ready),
+        format!("http://127.0.0.1:{port}/api"),
+        shutdown.clone(),
+    )?;
     let (http_stop_tx, mut http_stop_rx) = watch::channel(false);
     let mut http_task = tokio::spawn(async move {
         magi_gateway::axum::serve(listener, router)

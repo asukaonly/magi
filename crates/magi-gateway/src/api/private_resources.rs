@@ -1,7 +1,8 @@
+use super::security::AuthenticatedClient;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Extension, Json};
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -34,6 +35,7 @@ struct PrivateResourceGrant {
 
 pub async fn issue_private_resource_ticket(
     State(state): State<ApiState>,
+    Extension(client): Extension<AuthenticatedClient>,
     Json(payload): Json<PrivateResourceRequest>,
 ) -> Response {
     let path = match protected_path(payload) {
@@ -50,7 +52,7 @@ pub async fn issue_private_resource_ticket(
                 .into_response();
         }
     };
-    let grant = state.security.issue_resource_ticket(path);
+    let grant = state.security.issue_resource_ticket(path, client.client_id);
     (
         StatusCode::CREATED,
         Json(serde_json::json!({

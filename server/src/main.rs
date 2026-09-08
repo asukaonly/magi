@@ -1,8 +1,6 @@
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use magi_gateway::api::security::GatewaySecurity;
 use magi_server_runtime::{config::ServerConfig, supervisor};
 use serde::Deserialize;
 
@@ -22,7 +20,7 @@ fn main() {
 fn execute() -> Result<(), String> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("Magi Server\n\n  run --config <file> [--bootstrap-stdin]\n  init --config <file> --data-dir <directory> --development-root <repository>\n\nServer HTTP listens on loopback. Remote HTTPS is provided by a same-machine proxy.");
+        println!("Magi Server\n\n  run --config <file> [--bootstrap-stdin]\n  status|pair|clients|revoke --config <file> [--client-id <id>]\n  init --config <file> --data-dir <directory> --development-root <repository>\n\nServer HTTP listens on loopback. Remote HTTPS is provided by a same-machine proxy.");
         return Ok(());
     }
     let command = &args[0];
@@ -48,6 +46,38 @@ fn execute() -> Result<(), String> {
             println!("Created server configuration: {config_path}");
             Ok(())
         }
+        #[cfg(unix)]
+        "status" | "pair" | "clients" | "revoke" => {
+            reject_unknown_options(
+                &args[1..],
+                if command == "revoke" {
+                    &["--config", "--client-id"]
+                } else {
+                    &["--config"]
+                },
+                &[],
+            )?;
+            let config = ServerConfig::load(&PathBuf::from(config_path))?;
+            use magi_server_runtime::management::{request, Request};
+            let request_kind = match command.as_str() {
+                "pair" => Request::Pair,
+                "clients" => Request::Clients,
+                "revoke" => Request::Revoke {
+                    client_id: required_option(&args[1..], "--client-id")?,
+                },
+                _ => Request::Status,
+            };
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())?;
+            let result = runtime.block_on(request(&config.data_dir, request_kind))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+            );
+            Ok(())
+        }
         "run" => {
             reject_unknown_options(&args[1..], &["--config"], &["--bootstrap-stdin"])?;
             let config = ServerConfig::load(&PathBuf::from(config_path))?;
@@ -69,10 +99,9 @@ fn execute() -> Result<(), String> {
                 if bootstrap.session_token.len() < 32 {
                     return Err("Desktop bootstrap credential is too short".into());
                 }
-                bootstrap.session_token
+                Some(bootstrap.session_token)
             } else {
-                // Remote authorization is owned by the service authentication layer.
-                magi_gateway::api::security::generate_session_token()
+                None
             };
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -120,13 +149,7 @@ fn execute() -> Result<(), String> {
                         }
                     }
                 });
-                supervisor::run(
-                    config,
-                    Arc::new(GatewaySecurity::new(token)),
-                    shutdown_rx,
-                    started_tx,
-                )
-                .await
+                supervisor::run(config, token, shutdown_rx, started_tx).await
             })
         }
         _ => Err("Unknown server command; use --help".into()),

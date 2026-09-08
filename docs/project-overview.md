@@ -133,10 +133,25 @@ of the configuration, not inferred from the launching terminal.
 
 The private `--bootstrap-stdin` owner protocol accepts a session credential over
 an inherited input pipe and stops when that owner closes the pipe. It is for a
-desktop host or benchmark launcher, not a remote pairing mechanism. Without
-that handoff, the development entry exposes liveness but does not issue a
-remote client credential. Remote pairing, desktop integration, network events
-and standalone distribution are not yet delivered by this entry alone.
+desktop host or benchmark launcher, not a remote pairing mechanism.
+
+On macOS and Unix hosts, the same OS account can run `magi-server status`,
+`pair`, `clients`, or `revoke`, each with `--config <json-file>`; revocation also
+requires `--client-id <id>`. These commands use the private `runtime/manage.sock`
+channel to the running instance. `pair` outputs a single-use, five-minute
+pairing token; transfer it through a trusted channel. HTTP pairing exchanges
+it for one device credential, and session renewal exchanges that credential
+for a fifteen-minute access token. All three use `x-magi-session-token` only
+at their specific purpose boundary. Credentials and tokens never appear in URLs.
+Each paired device has full access to the single owner's center and can be
+individually revoked. Revocation invalidates its sessions and resource tickets.
+
+The center keeps a durable identity and hashed device credentials in its own
+`service/server.db`; business data remains in existing domain stores. Only
+liveness and bundled avatars are public. HTTPS must terminate at a trusted
+same-machine proxy before remote access; loopback does not bypass Magi auth.
+Desktop connection UI, network events and standalone distribution are still
+separate integration work.
 
 The shipped desktop lifecycle described below still applies until its service
 host migration is complete.
@@ -602,6 +617,7 @@ not a substitute for durable-memory confirmation.
 
 | Database | Tables / state | Source of truth | Rust gateway access | Python access | Migration owner |
 |---|---|---|---|---|---|
+| `service/server.db` | server identity, device credential hashes and revocation | Center authorization | Sole reader, writer and schema owner in `auth/storage.rs` | No access | Rust `user_version`; newer schemas rejected |
 | `chat.db` | sessions, session-creation idempotency mappings, turns, messages, attachment metadata, asset/code-delegation ownership, private cleanup registries, delivery attempts, assistant-memory projection intents, clear intents, cleared-session scopes, cleared-message scopes | Chat transcript, server-owned session identity, presentation state, delivery convergence, and deletion barriers | Reads history/session/attachment views; atomically writes server-generated lightweight sessions and their client idempotency mappings; writes presentation fields such as title and workspace | Writes runtime turns and messages; owns stop, message/session/history deletion, permanent session and message tombstones, attachment/code-delegation cleanup, projection handoff, and recovery invariants. Governed deletion is forwarded to Python and is never a native Rust soft-delete | Python chat store schema; Rust route tests must track response/write expectations |
 | `data/resources/chat/` | attachment files and derived artifacts | Managed chat attachment content | Streams bounded upload request bodies into temporary staging outside managed storage and streams downloads only from an exact active message owner after file-identity validation | Streams staged uploads into the in-memory API; owns final upload writes, derived artifacts, tool/channel imports, message ownership validation, safe internal reads, and serialized garbage collection | Python chat attachment services own every managed mutation and internal safe-read rules; Rust gateway owns request staging and native validated downloads |
 | `runtime_trace.db` | run manifests, ordered run events, versioned plans, trace turns, spans, tool calls, LLM calls, runtime notifications, plugin ingress events | Durable agent-run facts, execution observability, and best-effort live fan-out | Reads trace snapshots and readiness metrics; inserts `runtime_notifications` only for gateway-owned mutations that need frontend fan-out | Writes run journals, trace projections, notifications, and plugin ingress records produced by runtime services | Python runtime trace store schema; Rust notification bridge contract tests |
@@ -622,7 +638,7 @@ Important rules:
 - Rust native writes must stay narrow, product-facing, and table-scoped. If a write requires runtime services, LLM calls, memory cognition, plugin execution, or scheduler execution semantics, it belongs in Python behind IPC.
 - Desktop event subscriptions are owned by a connection generation: disconnect releases pending registrations when they resolve, partial connection failures clean up, and late callbacks cannot mutate a newer connection. Incoming Tauri envelopes are validated before dispatch.
 - Runtime notifications are not transcript truth. They are live fan-out of already committed state and may be replayed or compacted independently.
-- Startup index creation from Rust is allowed only for idempotent performance indexes documented above. It must not create or migrate source-of-truth table schemas.
+- Startup index creation from Rust is allowed only for idempotent performance indexes documented above. It must not create or migrate Python-owned source-of-truth table schemas. The isolated service identity database is Rust-owned.
 - Memory writes, vector writes, persona registry writes, plugin state writes, and runtime command claiming remain Python-owned unless this document is updated with a new explicit owner.
 
 ## Repository Structure

@@ -15,7 +15,8 @@ PRODUCTION_SQL_RE = re.compile(
     r"\b(?:(INSERT)\s+INTO\s+([A-Za-z_][A-Za-z0-9_]*)|"
     r"(UPDATE)\s+([A-Za-z_][A-Za-z0-9_]*)|"
     r"(DELETE)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)|"
-    r"(CREATE)\s+INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+([A-Za-z_][A-Za-z0-9_]*))\b",
+    r"(CREATE)\s+INDEX(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s+ON\s+([A-Za-z_][A-Za-z0-9_]*)|"
+    r"(CREATE)\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*))\b",
     re.IGNORECASE,
 )
 TEST_MODULE_RE = re.compile(
@@ -103,6 +104,8 @@ def discover_gateway_sql(root: Path) -> set[SqlOperation]:
                         index=match.group(8),
                     )
                 )
+            elif match.group(10):
+                operations.add(SqlOperation(relative_path, "create_table", match.group(11)))
     return operations
 
 

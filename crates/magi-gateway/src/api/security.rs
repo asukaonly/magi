@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::auth::AuthStore;
 use axum::extract::Request;
 use axum::http::header::{
     ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, ORIGIN, RANGE, REFERRER_POLICY,
@@ -10,7 +11,7 @@ use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use form_urlencoded;
-use subtle::ConstantTimeEq;
+use tokio::sync::Semaphore;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use uuid::Uuid;
 
@@ -28,7 +29,8 @@ const ALLOWED_DESKTOP_ORIGINS: [&str; 4] = [
 
 #[derive(Clone)]
 pub struct GatewaySecurity {
-    session_token: Arc<str>,
+    pub auth: Arc<AuthStore>,
+    pub auth_operations: Arc<Semaphore>,
     allowed_origins: Arc<[HeaderValue]>,
     resource_tickets: ResourceTicketStore,
 }
@@ -43,6 +45,7 @@ struct ResourceTicketStore {
 #[derive(Clone)]
 struct ResourceTicketRecord {
     path: String,
+    client_id: String,
     expires_at: Instant,
 }
 
@@ -70,6 +73,20 @@ impl GatewaySecurity {
         let token = session_token.into();
         let token = token.trim();
         assert!(!token.is_empty(), "desktop session token must not be empty");
+        Self::from_parts(
+            Arc::new(AuthStore::local(token)),
+            allowed_origins,
+            resource_ticket_ttl,
+            resource_ticket_capacity,
+        )
+    }
+
+    fn from_parts<const N: usize>(
+        auth: Arc<AuthStore>,
+        allowed_origins: [&str; N],
+        resource_ticket_ttl: Duration,
+        resource_ticket_capacity: usize,
+    ) -> Self {
         let origins = allowed_origins
             .into_iter()
             .map(|origin| {
@@ -77,7 +94,8 @@ impl GatewaySecurity {
             })
             .collect::<Vec<_>>();
         Self {
-            session_token: Arc::from(token.to_owned()),
+            auth,
+            auth_operations: Arc::new(Semaphore::new(8)),
             allowed_origins: Arc::from(origins),
             resource_tickets: ResourceTicketStore {
                 entries: Arc::new(Mutex::new(HashMap::new())),
@@ -85,6 +103,15 @@ impl GatewaySecurity {
                 capacity: resource_ticket_capacity.max(1),
             },
         }
+    }
+
+    pub fn with_auth(auth: Arc<AuthStore>) -> Self {
+        Self::from_parts(
+            auth,
+            ALLOWED_DESKTOP_ORIGINS,
+            DEFAULT_RESOURCE_TICKET_TTL,
+            DEFAULT_RESOURCE_TICKET_CAPACITY,
+        )
     }
 
     pub fn cors_layer(&self) -> CorsLayer {
@@ -109,8 +136,8 @@ impl GatewaySecurity {
             .max_age(Duration::from_secs(600))
     }
 
-    pub fn issue_resource_ticket(&self, path: String) -> ResourceTicketGrant {
-        self.resource_tickets.issue(path)
+    pub fn issue_resource_ticket(&self, path: String, client_id: String) -> ResourceTicketGrant {
+        self.resource_tickets.issue(path, client_id)
     }
 
     fn origin_is_allowed(&self, request: &Request) -> bool {
@@ -120,16 +147,6 @@ impl GatewaySecurity {
         self.allowed_origins
             .iter()
             .any(|allowed| allowed.as_bytes() == origin.as_bytes())
-    }
-
-    fn has_valid_session_token(&self, request: &Request) -> bool {
-        let Some(value) = request.headers().get(SESSION_TOKEN_HEADER) else {
-            return false;
-        };
-        let Ok(candidate) = value.to_str() else {
-            return false;
-        };
-        bool::from(self.session_token.as_bytes().ct_eq(candidate.as_bytes()))
     }
 
     fn has_valid_resource_ticket(&self, request: &Request) -> bool {
@@ -144,12 +161,14 @@ impl GatewaySecurity {
         else {
             return false;
         };
-        self.resource_tickets.authorizes(&ticket, &target)
+        self.resource_tickets
+            .client(&ticket, &target)
+            .is_some_and(|id| self.auth.client_is_active(&id))
     }
 }
 
 impl ResourceTicketStore {
-    fn issue(&self, target: String) -> ResourceTicketGrant {
+    fn issue(&self, target: String, client_id: String) -> ResourceTicketGrant {
         let now = Instant::now();
         let expires_at = now + self.ttl;
         let ticket = Uuid::new_v4().simple().to_string();
@@ -172,6 +191,7 @@ impl ResourceTicketStore {
             ticket.clone(),
             ResourceTicketRecord {
                 path: target.clone(),
+                client_id,
                 expires_at,
             },
         );
@@ -190,7 +210,7 @@ impl ResourceTicketStore {
         }
     }
 
-    fn authorizes(&self, ticket: &str, request_path: &str) -> bool {
+    fn client(&self, ticket: &str, request_path: &str) -> Option<String> {
         let now = Instant::now();
         let mut entries = self
             .entries
@@ -199,9 +219,18 @@ impl ResourceTicketStore {
         entries.retain(|_, record| record.expires_at > now);
         entries
             .get(ticket)
-            .is_some_and(|record| record.path == request_path)
+            .filter(|record| record.path == request_path)
+            .map(|record| record.client_id.clone())
     }
 }
+
+#[derive(Clone)]
+pub struct AuthenticatedClient {
+    pub client_id: String,
+}
+
+#[derive(Clone)]
+pub struct PairingCredential(pub String);
 
 pub fn generate_session_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
@@ -209,7 +238,7 @@ pub fn generate_session_token() -> String {
 
 pub async fn enforce_gateway_access(
     security: Arc<GatewaySecurity>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if !security.origin_is_allowed(&request) {
@@ -228,15 +257,67 @@ pub async fn enforce_gateway_access(
     let public = is_public_request(request.method(), path);
     let private_resource = is_private_resource_path(path);
     let resource_ticket = private_resource && security.has_valid_resource_ticket(&request);
-    if !public && !resource_ticket && !security.has_valid_session_token(&request) {
-        return error_response(
-            StatusCode::UNAUTHORIZED,
-            "Desktop session authentication is required",
-            "desktop_auth_required",
-        );
+    if !public && !resource_ticket {
+        let token = request
+            .headers()
+            .get(SESSION_TOKEN_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        if request.method() == Method::POST && path == "/api/auth/pair" {
+            if !security.auth.validates_pairing_grant(&token) {
+                return error_response(
+                    StatusCode::UNAUTHORIZED,
+                    "Pairing grant is invalid or expired",
+                    "invalid_pairing_grant",
+                );
+            }
+            request.extensions_mut().insert(PairingCredential(token));
+        } else if request.method() == Method::POST && path == "/api/auth/session" {
+            let Ok(permit) = Arc::clone(&security.auth_operations).try_acquire_owned() else {
+                return error_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Authentication is busy",
+                    "auth_busy",
+                );
+            };
+            let auth = Arc::clone(&security.auth);
+            let result = tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                auth.renew(&token)
+            })
+            .await;
+            match result {
+                Ok(Ok(session)) => {
+                    request.extensions_mut().insert(session);
+                }
+                _ => {
+                    return error_response(
+                        StatusCode::UNAUTHORIZED,
+                        "Client credential is invalid or revoked",
+                        "invalid_client_credential",
+                    )
+                }
+            }
+        } else if let Some(client_id) = security.auth.authenticate(&token) {
+            request
+                .extensions_mut()
+                .insert(AuthenticatedClient { client_id });
+        } else {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Client authentication is required",
+                "client_auth_required",
+            );
+        }
     }
 
     let mut response = next.run(request).await;
+    if !public {
+        response
+            .headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    }
     if private_resource {
         let headers = response.headers_mut();
         headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
@@ -316,7 +397,8 @@ mod tests {
             Duration::from_millis(15),
             4,
         );
-        let grant = security.issue_resource_ticket("/private/a".to_string());
+        let grant = security
+            .issue_resource_ticket("/private/a".to_string(), crate::auth::LOCAL_OWNER.into());
         let (ticket, target) = resource_ticket_and_target(
             "/private/a",
             grant.access_path.split_once('?').map(|value| value.1),
@@ -324,11 +406,14 @@ mod tests {
         .expect("ticket");
 
         assert_eq!(target, "/private/a");
-        assert!(security.resource_tickets.authorizes(&ticket, &target));
-        assert!(security.resource_tickets.authorizes(&ticket, &target));
-        assert!(!security.resource_tickets.authorizes(&ticket, "/private/b"));
+        assert!(security.resource_tickets.client(&ticket, &target).is_some());
+        assert!(security.resource_tickets.client(&ticket, &target).is_some());
+        assert!(!security
+            .resource_tickets
+            .client(&ticket, "/private/b")
+            .is_some());
         std::thread::sleep(Duration::from_millis(20));
-        assert!(!security.resource_tickets.authorizes(&ticket, &target));
+        assert!(!security.resource_tickets.client(&ticket, &target).is_some());
     }
 
     #[test]

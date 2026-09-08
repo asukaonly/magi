@@ -249,8 +249,8 @@ def validate_access_policy(manifest: dict[str, Any]) -> list[str]:
         return ["Manifest access_policy must be an object"]
 
     errors: list[str] = []
-    if policy.get("default") != "desktop-session":
-        errors.append("Access policy default must be desktop-session")
+    if policy.get("default") != "client-session":
+        errors.append("Access policy default must be client-session")
 
     expected_keys = {
         "default",
@@ -259,6 +259,8 @@ def validate_access_policy(manifest: dict[str, Any]) -> list[str]:
         "ticket_native_routes",
         "ticket_proxied_prefixes",
         "ticket_static_mounts",
+        "pairing_exchange_routes",
+        "credential_exchange_routes",
     }
     unknown_keys = sorted(set(policy) - expected_keys)
     missing_keys = sorted(expected_keys - set(policy))
@@ -315,6 +317,12 @@ def validate_access_policy(manifest: dict[str, Any]) -> list[str]:
     if public_routes != {"/api/health"}:
         errors.append("Only /api/health may be a public native route")
 
+    for key, path in (("pairing_exchange_routes", "/api/auth/pair"), ("credential_exchange_routes", "/api/auth/session")):
+        if parsed.get(key, set()) != {path}:
+            errors.append(f"Access policy {key} must contain only {path}")
+        entry = next((route for route in manifest["native_routes"] if route.get("path") == path), {})
+        if entry.get("methods") != ["POST"]:
+            errors.append(f"Credential exchange must be POST only: {path}")
     return errors
 
 

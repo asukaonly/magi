@@ -9,6 +9,7 @@ mod proxy;
 mod ready;
 mod schedules;
 pub mod security;
+mod server;
 mod sessions;
 pub mod state;
 mod tasks;
@@ -32,6 +33,12 @@ pub fn build_router(state: ApiState) -> Router {
     let storage_ready = Arc::clone(&state.storage_ready);
 
     Router::new()
+        .route("/api/server/info", axum::routing::get(server::info))
+        .route("/api/auth/pair", axum::routing::post(server::pair))
+        .route("/api/auth/session", axum::routing::post(server::session))
+        .route("/api/server/pairing-grants", axum::routing::post(server::create_pairing))
+        .route("/api/server/clients", axum::routing::get(server::clients))
+        .route("/api/server/clients/{client_id}", axum::routing::delete(server::revoke))
         // Health / readiness
         .route("/api/health", axum::routing::get(health::health))
         .route("/api/ready", axum::routing::get(ready::ready))
@@ -209,7 +216,8 @@ pub fn build_router(state: ApiState) -> Router {
                 use axum::response::IntoResponse;
                 let path = request.uri().path();
                 if !storage_ready.load(std::sync::atomic::Ordering::Acquire)
-                    && !matches!(path, "/api/health" | "/api/ready")
+                    && !matches!(path, "/api/health" | "/api/ready" | "/api/server/info" | "/api/auth/pair" | "/api/auth/session" | "/api/server/pairing-grants" | "/api/server/clients")
+                    && !path.starts_with("/api/server/clients/")
                     && !path.starts_with("/static/avatars/") {
                     return (axum::http::StatusCode::SERVICE_UNAVAILABLE, axum::Json(serde_json::json!({
                         "success": false, "error_code": "RUNTIME_NOT_READY", "message": "Runtime storage is not ready"
