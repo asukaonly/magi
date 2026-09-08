@@ -167,8 +167,14 @@ required to cover a commit followed by a process failure before notification.
 Desktop connection UI, client reconciliation and standalone distribution remain
 separate integration work.
 
-The shipped desktop lifecycle described below still applies until its service
-host migration is complete.
+The desktop native connection component stores versioned profile metadata in
+its app configuration `connections/` directory. Device credentials are stored
+in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
+pairing and renewal accept normalized HTTPS origins, reject redirects and
+validate center/device identity and protocol version before returning an access
+session. Linux remote credential persistence is not yet supported. Connection
+selection UI and local service-host migration remain separate integration work;
+the shipped desktop lifecycle below still applies until that migration lands.
 
 Magi is a desktop-only application:
 

@@ -2318,7 +2318,9 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "reqwest",
  "rusqlite",
+ "security-framework",
  "serde",
  "serde_json",
  "tauri",
@@ -2332,6 +2334,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "url",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 

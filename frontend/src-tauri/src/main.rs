@@ -1,6 +1,7 @@
 // Hide the console window in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod connections;
 mod desktop_log_history;
 mod desktop_presence;
 mod dmg_cleanup;
@@ -1441,6 +1442,59 @@ fn read_backend_startup_diagnostics() -> Result<BackendStartupDiagnosticsRespons
 }
 
 #[tauri::command]
+fn list_connection_profiles(connections: State<'_, connections::Connections>) -> serde_json::Value {
+    serde_json::json!({ "state": connections.list(), "supports_remote": cfg!(any(target_os = "macos", windows)) })
+}
+
+#[tauri::command]
+async fn pair_center(
+    connections: State<'_, connections::Connections>,
+    address: String,
+    pairing_token: String,
+    name: String,
+) -> Result<connections::Profile, String> {
+    connections.pair(address, pairing_token, name).await
+}
+
+#[tauri::command]
+async fn select_connection_profile(
+    connections: State<'_, connections::Connections>,
+    backend: State<'_, BackendState>,
+    profile_id: String,
+) -> Result<(), String> {
+    connections.profile(&profile_id)?;
+    stop_backend_inner(&backend)?;
+    connections.activate(profile_id).await
+}
+
+#[tauri::command]
+async fn forget_connection_profile(
+    connections: State<'_, connections::Connections>,
+    backend: State<'_, BackendState>,
+    profile_id: String,
+) -> Result<(), String> {
+    if connections.list().active_profile_id.as_deref() == Some(&profile_id) {
+        stop_backend_inner(&backend)?;
+    }
+    connections.forget(profile_id).await
+}
+
+#[tauri::command]
+async fn renew_center_session(
+    connections: State<'_, connections::Connections>,
+    profile_id: String,
+) -> Result<connections::AccessSession, String> {
+    if connections.list().active_profile_id.as_deref() != Some(&profile_id) {
+        return Err("Connection is no longer active".into());
+    }
+    let session = connections.renew(profile_id.clone()).await?;
+    if connections.list().active_profile_id.as_deref() != Some(&profile_id) {
+        return Err("Connection changed during session renewal".into());
+    }
+    Ok(session)
+}
+
+#[tauri::command]
 fn set_close_to_tray_enabled(
     state: State<'_, desktop_presence::DesktopPresenceState>,
     enabled: bool,
@@ -1682,6 +1736,8 @@ fn main() {
         .manage(full_data_clear_runtime)
         .manage(desktop_presence::DesktopPresenceState::default())
         .setup(move |app| {
+            let connection_directory = app.path().app_config_dir()?.join("connections");
+            app.manage(connections::Connections::open(&connection_directory).map_err(std::io::Error::other)?);
             let current_version = app.package_info().version.to_string();
             log::info!(
                 "Magi desktop setup starting (version={current_version}, log_level={log_level:?})"
@@ -1728,6 +1784,11 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            list_connection_profiles,
+            pair_center,
+            select_connection_profile,
+            forget_connection_profile,
+            renew_center_session,
             start_backend,
             poll_backend_startup,
             stop_backend,
