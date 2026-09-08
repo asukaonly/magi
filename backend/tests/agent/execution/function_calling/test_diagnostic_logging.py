@@ -38,6 +38,7 @@ def test_tool_logs_omit_arguments_and_errors_when_content_logging_is_off(
     result = SimpleNamespace(
         success=False,
         data=None,
+        model_text=None,
         error=secret_error,
         error_code="REMOTE_ERROR",
     )
