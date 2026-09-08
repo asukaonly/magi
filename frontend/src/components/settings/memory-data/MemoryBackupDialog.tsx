@@ -20,7 +20,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Switch } from '@/components/ui/switch';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 
 interface MemoryBackupDialogProps {
   open: boolean;
@@ -78,7 +78,7 @@ export function MemoryBackupDialog({
     setPickingDirectory(true);
     setError(null);
     try {
-      const selected = await pickDirectory(destinationDirectory || undefined);
+      const selected = await pickCenterDirectory(destinationDirectory || undefined);
       if (selected) {
         setDestinationDirectory(selected);
       }

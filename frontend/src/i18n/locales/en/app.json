@@ -5650,5 +5650,23 @@
     "choose": "Choose a connection",
     "change": "Choose another connection",
     "serverPlugins": "Plugins collect data and run tools on the center computer."
+  },
+  "centerFiles": {
+    "chooseDirectory": "Choose a folder on the center",
+    "chooseFile": "Choose a file on the center",
+    "description": "These paths belong to the connected center computer. To import a file from this device, use an upload action.",
+    "home": "Center home folder",
+    "parent": "Parent folder",
+    "path": "Center folder path",
+    "go": "Open",
+    "filter": "File name starts with…",
+    "filterAction": "Filter",
+    "hidden": "Show hidden",
+    "loadFailed": "Could not read or create this path. Check the path and permissions on the center.",
+    "empty": "This folder has no matching items.",
+    "more": "Load more",
+    "newFolder": "New folder name",
+    "create": "Create folder",
+    "select": "Select"
   }
 }

@@ -10,7 +10,7 @@ import { ControlSettingsPanel } from '@/components/control';
 import { SettingsGroup, SettingsSectionShell, SettingsSwitchRow } from '@/components/settings/SettingsSectionPrimitives';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 
 interface SettingsConversationSectionProps {
   draftConfig: SystemConfig;
@@ -63,7 +63,7 @@ export function SettingsConversationSection({
   const handlePickWorkspace = async () => {
     setPickingWorkspace(true);
     try {
-      const selectedPath = await pickDirectory(effectiveDefaultChatWorkspacePath);
+      const selectedPath = await pickCenterDirectory(effectiveDefaultChatWorkspacePath);
       if (!selectedPath) {
         return;
       }

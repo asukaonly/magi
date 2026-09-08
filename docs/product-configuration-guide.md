@@ -969,3 +969,15 @@ Desktop configuration reads and writes use the canonical `/api/config/` URL,
 including its trailing slash. Authenticated desktop requests reject redirects;
 callers must address the registered endpoint directly instead of relying on
 FastAPI's slash redirect to another URL.
+
+### Center filesystem selection
+
+Workspace roots, plugin source paths, local model directories, archive directories,
+backup destinations, and export destinations refer to the active center filesystem.
+The shared path picker lists paths through authenticated `/api/files` routes in
+both local and remote modes; it does not send a client-native path to the center.
+It supports bounded listing, filtering, hidden entries, and explicit directory
+creation. A connection reset cancels the selection. File input and download flows
+must transfer contents when the source or destination is on the client device.
+Center filesystem access has the paired owner's permissions, subject to the
+center operating system's file and privacy permissions.

@@ -10,10 +10,8 @@ const { pickDirectoryMock, pickFileMock } = vi.hoisted(() => ({
   pickFileMock: vi.fn(),
 }));
 
-vi.mock('@/runtime/desktop', () => ({
-  pickDirectory: pickDirectoryMock,
-  pickFile: pickFileMock,
-}));
+vi.mock('@/runtime/center-files', () => ({  pickCenterDirectory: pickDirectoryMock,
+  pickCenterFile: pickFileMock,}));
 
 vi.mock('react-i18next', async () => {
   const actual: any = await vi.importActual('react-i18next');

@@ -10,6 +10,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
 _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
+    "files": {"/browse": {"GET"}, "/directories": {"POST"}},
     "tools": {
         "/config": {"GET"},
         "/{tool_name}/config": {"GET", "PUT"},
@@ -353,6 +354,7 @@ class _RouterRegistrationSpec:
 
 
 _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
+    _RouterRegistrationSpec("files_router", "files", "/api/files", "Center Files"),
     _RouterRegistrationSpec("tools_router", "tools", "/api/tools", "Tools"),
     _RouterRegistrationSpec("memory_router", "memory", "/api/memory", "Memory"),
     _RouterRegistrationSpec("user_messages_router", "messages", "/api/messages", "Messages"),

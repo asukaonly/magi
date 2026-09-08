@@ -62,10 +62,9 @@ vi.mock('@/api/modules/memoryPortability', () => ({
   },
 }));
 
+vi.mock('@/runtime/center-files', () => ({  pickCenterDirectory: pickDirectoryMock,}));
 vi.mock('@/runtime/desktop', () => ({
-  pickDirectory: pickDirectoryMock,
-  pickMemoryBackupFile: pickMemoryBackupFileMock,
-}));
+  pickMemoryBackupFile: pickMemoryBackupFileMock,}));
 
 function createOperation(
   overrides: Partial<MemoryPortabilityOperation> = {},

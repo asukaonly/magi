@@ -4,7 +4,7 @@ import { messagesApi } from '@/api';
 import type { ChatSessionListItem } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 import {
   captureBrowserContentGeneration,
   isBrowserContentGenerationCurrent,
@@ -92,7 +92,7 @@ export function useChatWorkspaceActions({
 
   const handlePickWorkspace = useCallback(async () => {
     const contentGeneration = captureBrowserContentGeneration();
-    const selectedPath = await pickDirectory(currentWorkspacePath ?? recentWorkspaces[0] ?? null);
+    const selectedPath = await pickCenterDirectory(currentWorkspacePath ?? recentWorkspaces[0] ?? null);
     if (
       !selectedPath
       || !isBrowserContentGenerationCurrent(contentGeneration)

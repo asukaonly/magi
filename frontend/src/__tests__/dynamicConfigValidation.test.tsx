@@ -9,7 +9,7 @@ import { DynamicConfigField } from '@/components/config-forms/DynamicConfigField
 import { isExtensionFieldVisible, validateDynamicConfigValue } from '@/components/config-forms/dynamic-config-specs';
 
 const { pickDirectory } = vi.hoisted(() => ({ pickDirectory: vi.fn() }));
-vi.mock('@/runtime/desktop', () => ({ pickDirectory, pickFile: vi.fn() }));
+vi.mock('@/runtime/center-files', () => ({ pickCenterDirectory: pickDirectory, pickCenterFile: vi.fn() }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 const spec: ToolConfigSpec = {

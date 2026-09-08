@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { normalizeDynamicSpec, validateDynamicConfigValue, type DynamicConfigSpec, type DynamicConfigIssue } from '@/components/config-forms/dynamic-config-specs';
 import { isRecord, isStringArray } from '@/utils/value-guards';
-import { pickDirectory, pickFile } from '@/runtime/desktop';
+import { pickCenterDirectory, pickCenterFile } from '@/runtime/center-files';
 
 interface DynamicConfigFieldProps {
   spec: DynamicConfigSpec;
@@ -156,8 +156,8 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
         setPickerFailed(false);
         try {
           const selected = isDirectory
-            ? await pickDirectory(selectedPath || undefined)
-            : await pickFile(selectedPath || undefined);
+            ? await pickCenterDirectory(selectedPath || undefined)
+            : await pickCenterFile(selectedPath || undefined);
           if (selected) {
             handleChange(selected);
           }
@@ -225,12 +225,7 @@ export const DynamicConfigField: React.FC<DynamicConfigFieldProps> = ({
       const handleBrowse = async () => {
         setPickerFailed(false);
         try {
-          // runtime/desktop is already in the eagerly-loaded bundle (via
-          // main.tsx); the dynamic import previously here only produced a
-          // Vite/Rolldown ineffective-dynamic-import warning. The Tauri
-          // runtime check inside pickDirectory still returns undefined when
-          // not running under the desktop shell.
-          const selected = await pickDirectory(paths[paths.length - 1] ?? undefined);
+          const selected = await pickCenterDirectory(paths[paths.length - 1] ?? undefined);
           if (selected && !paths.includes(selected)) {
             handleChange([...paths, selected]);
           }

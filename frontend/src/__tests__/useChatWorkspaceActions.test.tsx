@@ -25,9 +25,7 @@ vi.mock('@/api', () => ({
   },
 }));
 
-vi.mock('@/runtime/desktop', () => ({
-  pickDirectory: pickDirectoryMock,
-}));
+vi.mock('@/runtime/center-files', () => ({  pickCenterDirectory: pickDirectoryMock,}));
 
 vi.mock('sonner', () => ({
   toast: {

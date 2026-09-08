@@ -5648,5 +5648,23 @@
     "choose": "选择连接方式",
     "change": "选择其他连接",
     "serverPlugins": "插件在中心电脑采集数据和执行工具。"
+  },
+  "centerFiles": {
+    "chooseDirectory": "选择中心上的文件夹",
+    "chooseFile": "选择中心上的文件",
+    "description": "这里的路径属于当前连接的中心电脑。导入当前设备上的文件时，请使用上传入口。",
+    "home": "中心用户目录",
+    "parent": "上级目录",
+    "path": "中心文件夹路径",
+    "go": "打开",
+    "filter": "文件名以此开头…",
+    "filterAction": "筛选",
+    "hidden": "显示隐藏项",
+    "loadFailed": "无法读取或创建此路径，请检查中心上的路径和访问权限。",
+    "empty": "此文件夹中没有匹配的项目。",
+    "more": "加载更多",
+    "newFolder": "新文件夹名称",
+    "create": "新建文件夹",
+    "select": "选择"
   }
 }

@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 
 interface MemoryExportDialogProps {
   open: boolean;
@@ -69,7 +69,7 @@ export function MemoryExportDialog({
     setPickingDirectory(true);
     setError(null);
     try {
-      const selected = await pickDirectory(destinationDirectory || undefined);
+      const selected = await pickCenterDirectory(destinationDirectory || undefined);
       if (selected) {
         setDestinationDirectory(selected);
       }

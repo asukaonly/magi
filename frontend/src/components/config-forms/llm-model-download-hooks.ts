@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { EmbeddingConfig } from '@/api/modules/config';
 import { localEmbeddingApi, type DownloadStatusResponse } from '@/api/modules/local-embedding';
 import { localRerankerApi } from '@/api/modules/local-reranker';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 import { getErrorMessage } from '@/utils/error-handler';
 
 type ModelLibraryApi<Model> = {
@@ -134,7 +134,7 @@ export function useManagedEmbeddingModels({ enabled, modelDirPath, downloadFaile
   const handlePickDirectory = useCallback(async () => {
     const generation = ++pickerGeneration.current;
     try {
-      const dir = await pickDirectory(modelDirPath ?? undefined);
+      const dir = await pickCenterDirectory(modelDirPath ?? undefined);
       if (generation === pickerGeneration.current && dir && onEmbeddingConfigChange) {
         onEmbeddingConfigChange((draft) => { draft.local.model_dir_path = dir; });
       }

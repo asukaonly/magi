@@ -450,6 +450,11 @@
   ],
   "proxied_prefixes": [
     {
+      "prefix": "/api/files",
+      "owner": "python-ipc",
+      "owner_file": "backend/src/magi/api/routers/files.py"
+    },
+    {
       "prefix": "/api/availability",
       "owner": "python-ipc",
       "owner_file": "backend/src/magi/api/routers/availability_routes.py"

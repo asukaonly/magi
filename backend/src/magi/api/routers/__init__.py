@@ -3,6 +3,7 @@ API Router
 
 Contains all API route modules.
 """
+from .files import files_router
 from .tools import tools_router
 from .memory import memory_router
 from .messages import user_messages_router
@@ -32,6 +33,7 @@ from .notifications_routes import notifications_router
 from .channels_bindings import channels_bindings_router
 
 __all__ = [
+    "files_router",
     "tools_router",
     "memory_router",
     "user_messages_router",

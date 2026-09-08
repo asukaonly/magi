@@ -16,7 +16,7 @@ import { LabeledSelectField, NumberField } from '@/components/settings/form-fiel
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { pickDirectory } from '@/runtime/desktop';
+import { pickCenterDirectory } from '@/runtime/center-files';
 import type { MemoryToggleFieldId } from '@/types/settings';
 import { validateMemoryL0Config } from '@/utils/memory-settings-validation';
 
@@ -281,7 +281,7 @@ export function MemoryGeneralSettingsSection({
   const handlePickArchivePath = useCallback(async () => {
     setPickingArchivePath(true);
     try {
-      const selectedPath = await pickDirectory(effectiveArchivePath);
+      const selectedPath = await pickCenterDirectory(effectiveArchivePath);
       if (!selectedPath) {
         return;
       }

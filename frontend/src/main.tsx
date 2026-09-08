@@ -1,3 +1,4 @@
+import { CenterPathPickerHost } from './components/files/CenterPathPickerHost';
 import { readDevicePreferences } from './runtime/device-preferences';
 import { APP_EVENTS } from './constants/events';
 import { setCenterStorageScope } from './runtime/center-storage';
@@ -346,5 +347,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <DesktopQuitPrompt />
     <RuntimeBootstrap />
+    <CenterPathPickerHost />
   </React.StrictMode>
 );

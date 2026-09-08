@@ -168,15 +168,14 @@ vi.mock('@/components/settings/RuntimeStatisticsSection', () => ({
   RuntimeStatisticsSection: () => <div data-testid="runtime-statistics-section">runtime-statistics-section</div>,
 }));
 
+vi.mock('@/runtime/center-files', () => ({  pickCenterDirectory: pickDirectoryMock,}));
 vi.mock('@/runtime/desktop', () => ({
   syncCloseToTrayPreference: syncCloseToTrayPreferenceMock,
   syncAutoStartPreference: syncAutoStartPreferenceMock,
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   syncSkipQuitConfirmationPreference: vi.fn(),
-  pickDirectory: pickDirectoryMock,
   pickMemoryBackupFile: pickMemoryBackupFileMock,
-  openExternalUrl: openExternalUrlMock,
-}));
+  openExternalUrl: openExternalUrlMock,}));
 
 vi.mock('@/runtime/desktop-notifications', () => ({
   requestDesktopNotificationPermission: requestDesktopNotificationPermissionMock,
