@@ -2821,6 +2821,7 @@
       }
     },
     "permissionStatus": {
+      "centerDevice": "这里显示的是中心电脑的权限。请在中心电脑的系统设置中授权，然后在此刷新。",
       "refresh": "刷新",
       "empty": "暂未报告权限信息。",
       "required": "必需",

@@ -954,6 +954,11 @@ be forgotten. The title bar shows the active center, and a failed startup still
 allows selecting another connection. Switching reloads the interface, so users
 must save unsent content before choosing another center. Remote plugins execute
 on the center computer; connecting a desktop does not enroll it as a collector.
+Plugin resource pickers and permission status read from that center and refresh
+without changing the current selections. Remote permission blocks direct users
+to System Settings on the center computer; they never open the client's system
+settings as a substitute for center authorization. Web authorization links from
+explicit plugin actions can still open in the client's browser.
 
 ### Device preferences and center settings
 

@@ -1,6 +1,9 @@
 import { parsePluginPermissionItems, parsePluginResourceGroups } from '@/api/plugin-contract';
 import { getErrorMessage } from '@/utils/error-handler';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
+import { getRuntimeConfig } from '@/runtime/config';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, RefreshCw, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 
@@ -54,36 +57,23 @@ const CalendarListResourcePicker: React.FC<{
     return Array.isArray(value) ? value.map(String) : [];
   }, [block.value_key, values]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setLoading(true);
+  const beginRead = useRequestOwner(JSON.stringify([connectionId, block.resource_name]));
+  const load = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('resource');
+    if (!silent) { setLoading(true); setError(null); }
+    try {
+      const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
+      if (!isCurrent()) return;
+      setGroups(parsePluginResourceGroups(payload.data.groups));
       setError(null);
-      try {
-        const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
-        if (cancelled) {
-          return;
-        }
-        setGroups(parsePluginResourceGroups(payload.data.groups));
-      } catch (fetchError) {
-        if (cancelled) {
-          return;
-        }
-        setError(getErrorMessage(fetchError) || 'unknown');
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [block.resource_name, connectionId]);
+    } catch (fetchError) {
+      if (isCurrent() && !silent) setError(getErrorMessage(fetchError) || 'unknown');
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  }, [block.resource_name, connectionId, beginRead]);
+  useEffect(() => { void load(); }, [load]);
+  useCenterRefresh(() => load(true));
 
   const toggleItem = (itemId: string, checked: boolean) => {
     const nextIds = checked
@@ -178,30 +168,31 @@ const PermissionStatusBlock: React.FC<{
   block: PluginSettingsUiBlockSpec;
 }> = ({ connectionId, block }) => {
   const { t } = useTranslation('app');
+  const remote = getRuntimeConfig().mode === 'remote';
   const [items, setItems] = useState<PluginPermissionStatusItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const requestIdRef = useRef(0);
-  const load = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    setError(null);
+  const beginRead = useRequestOwner(JSON.stringify([connectionId, block.resource_name]));
+  const load = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('permissions');
+    if (!silent) { setLoading(true); setError(null); }
     try {
       const payload = await pluginsApi.getSettingsResource(connectionId, block.resource_name);
-      if (requestId !== requestIdRef.current) return;
+      if (!isCurrent()) return;
       setItems(parsePluginPermissionItems(payload.data.items));
+      setError(null);
     } catch (fetchError) {
-      if (requestId === requestIdRef.current) setError(getErrorMessage(fetchError) || 'unknown');
+      if (isCurrent() && !silent) setError(getErrorMessage(fetchError) || 'unknown');
     } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [block.resource_name, connectionId]);
+  }, [block.resource_name, connectionId, beginRead]);
 
   useEffect(() => {
     void load();
-    return () => { requestIdRef.current += 1; };
   }, [load]);
+  useCenterRefresh(() => load(true));
 
   // Permission item labels/descriptions are pre-translated server-side from
   // plugin i18n (see ``_translate_resource_payload`` in the backend), so we
@@ -231,6 +222,8 @@ const PermissionStatusBlock: React.FC<{
         </Button>
       </div>
 
+      {remote ? <p className="text-sm text-muted-foreground">{t('settings.permissionStatus.centerDevice')}</p> : null}
+
       {error ? (
         <p className="text-sm text-destructive">
           {t('settings.timeline.errors.resourceLoadFailed', { message: error })}
@@ -241,12 +234,12 @@ const PermissionStatusBlock: React.FC<{
         <p className="text-sm text-muted-foreground">{t('settings.permissionStatus.empty')}</p>
       ) : null}
 
-      {!error && items.length > 0 ? (
+      {items.length > 0 ? (
         <ul className="space-y-1.5">
           {items.map((item) => {
             const statusLabel = t(getPermissionStatusKey(item.status));
             const description = resolveDescription(item);
-            const showOpenSettings = item.status !== 'granted' && !!item.settings_url;
+            const showOpenSettings = !remote && item.status !== 'granted' && !!item.settings_url;
             return (
               <li
                 key={item.id}
@@ -272,7 +265,12 @@ const PermissionStatusBlock: React.FC<{
                     variant="outline"
                     size="sm"
                     className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
-                    onClick={() => void openExternalUrl(item.settings_url!)}
+                    onClick={() => {
+                      const isCurrent = beginRead('open-settings');
+                      void openExternalUrl(item.settings_url!).catch((error: unknown) => {
+                        if (isCurrent()) setError(getErrorMessage(error) || 'unknown');
+                      });
+                    }}
                     aria-label={t('settings.permissionStatus.openSettings')}
                     title={t('settings.permissionStatus.openSettings')}
                   >

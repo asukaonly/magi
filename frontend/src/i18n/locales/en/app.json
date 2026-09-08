@@ -2822,6 +2822,7 @@
       }
     },
     "permissionStatus": {
+      "centerDevice": "These permissions belong to the center computer. Grant them in System Settings on that computer, then refresh here.",
       "refresh": "Refresh",
       "empty": "No permissions reported.",
       "required": "Required",
