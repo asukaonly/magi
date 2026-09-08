@@ -338,9 +338,6 @@ async fn run_worker(
                 if context.maintenance.is_active() {
                     return Ok(WorkerExit::Maintenance);
                 }
-                tokio::task::spawn_blocking(magi_gateway::db::ensure_indexes)
-                    .await
-                    .map_err(|e| e.to_string())?;
                 if context.maintenance.is_active() {
                     return Ok(WorkerExit::Maintenance);
                 }

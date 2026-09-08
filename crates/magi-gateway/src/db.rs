@@ -260,38 +260,6 @@ pub fn emit_notification(channel: &str, user_id: &str, session_id: &str, payload
     .ok();
 }
 
-/// Ensure performance-critical indexes exist on memory databases.
-/// Called once at startup; uses `CREATE INDEX IF NOT EXISTS` so it is idempotent.
-pub fn ensure_indexes() {
-    // memory.db indexes
-    if let Some(conn) = open_readwrite(&memory_db_path()) {
-        let stmts = [
-            "CREATE INDEX IF NOT EXISTS idx_kg_status_updated \
-             ON knowledge_graph(status, updated_at DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_tom_assertions_updated \
-             ON tom_trait_assertions(updated_at DESC)",
-            "CREATE INDEX IF NOT EXISTS idx_summaries_updated \
-             ON summaries(updated_at DESC)",
-        ];
-        for sql in &stmts {
-            if let Err(e) = conn.execute_batch(sql) {
-                eprintln!("ensure_indexes: {e}");
-            }
-        }
-    }
-
-    // l1_events.db indexes
-    if let Some(conn) = open_readwrite(&l1_events_db_path()) {
-        let stmts = ["CREATE INDEX IF NOT EXISTS idx_fact_events_deleted_at \
-             ON fact_events(deleted_at) WHERE deleted_at IS NOT NULL"];
-        for sql in &stmts {
-            if let Err(e) = conn.execute_batch(sql) {
-                eprintln!("ensure_indexes: {e}");
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod data_root_tests {
     use super::resolve_magi_base_dir;

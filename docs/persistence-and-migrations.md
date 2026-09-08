@@ -56,6 +56,12 @@ Raw credentials and ephemeral tokens must not enter SQLite, YAML, logs,
 backups, chat payloads, memory records, or plugin state. `service/server.db` is
 outside memory portability and business-data restore ownership.
 
+Native L1 and shared-memory read indexes belong to the Alembic migration chains
+(`v5_gateway_read_indexes` and `v53_gateway_read_indexes`). The Rust gateway
+never creates schema objects at startup. This keeps production snapshots equal
+to the schema used by restore validation; an index outside that contract can
+otherwise make a newly created backup impossible to restore.
+
 A confirmed restore uses its inspected candidate UUID as the operation UUID.
 Repeated confirmations return the existing operation while it runs or after its
 receipt is reloaded; they do not launch a second replacement. A new restore
@@ -541,7 +547,8 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending service full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v51_portrait_prompt_contract` | version cached semantic portrait prompts and invalidate decoded profile caches; earlier revisions retain their strategy fencing and exact profile-diagnostic cleanup |
+| `memory_shared` | `v53_gateway_read_indexes` | own native query indexes in the portable schema; earlier heads include portrait prompt contracts and entity identity governance |
+| `l1` | `v5_gateway_read_indexes` | own the native deleted-event query index in the portable schema |
 
 `chat_task_execution_budgets` is owned by the accepted root turn. Its
 `root_turn_id` is a non-null primary key and a foreign key to `chat_turns`, with
