@@ -717,10 +717,10 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                 entity_type="user",
                 outcomes=[
                     # The unified insight renderer never leaks raw trait
-                    # names; outcomes need a natural_summary (the L2 LLM
-                    # writes one in production) or a known trait_family,
-                    # otherwise the insight is intentionally skipped.
+                    # names; outcomes need a complete host-owned fact
+                    # description or the insight is intentionally skipped.
                     ReconciledTraitOutcome(
+                        fact_completeness="complete",
                         entity_id="user:u1",
                         entity_type="user",
                         trait_name="stress_level",
@@ -734,6 +734,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
                         recommended_snapshot_field="core_traits",
                     ),
                     ReconciledTraitOutcome(
+                        fact_completeness="complete",
                         entity_id="user:u1",
                         entity_type="user",
                         trait_name="mood",

@@ -879,6 +879,34 @@ records, families, routes, conflicts, lifecycle fields, or persistence actions.
 Extraction profiles no longer expose `summary_instructions`; L3 narrative
 generation and its source hooks retain their separate ownership.
 
+Claim extraction contract v7 separates the raw object reference from source
+wording. `object_value` retains the emitted entity reference or literal value;
+`object_surface` holds an exact grounded name, or is absent. Evidence locators
+record host-verified `reference_surfaces` on the supporting or antecedent event
+that supplied the name. Canonical catalog names are not substituted into these
+immutable evidence fields. The predicate's semantic object role distinguishes
+entity references from literal names, dates, communication values and complete
+goal action text; entity type alone cannot make that distinction.
+
+`claim_text.py` batch-loads active Claim entity references and their authoritative
+catalog names into `ResolvedClaimText`. Materialization, durable Claim reload,
+tentative portrait lines and bounded summary recovery use this same owner.
+The renderer never concatenates raw entity references. A resolved identity with
+no readable name remains incomplete; an unresolved object may use a source name
+only with retained name provenance. Historical entity references remain identities
+even after invalidation or catalog removal, and a changed subject reference cannot
+borrow the former subject's name. Only the Claim's own user identity receives the
+self label; other people and organizations keep their resolved names. Literal
+values are never looked up as entities merely because they resemble an ID.
+Name resolution changes wording only: polarity, evidence attribution, temporal
+cue, raw time expression, confidence and promotion policy retain their owners.
+Route contract v9 records host-verified source wording and actual reference
+versions in new append-only route receipts. Its slot identity and promotion rules
+are unchanged. A catalog rename updates display wording without changing a
+same-version route receipt. Projection retries consume the latest valid entity
+enrichment, including identities rekeyed by a merge, instead of attempting to
+restore an invalidated version-one reference.
+
 The grounded Claim is the durable handoff between extraction and downstream
 projections. Phase 1 may emit only a `raw_time_expression` copied verbatim from
 the current evidence quote, or an empty value; it never calculates or rewrites
@@ -1068,6 +1096,13 @@ unresolved, and unsupported incomplete facts receive an explicit unavailable
 description. Entity IDs are never converted into guessed names. Scoped or recent
 wording remains part of the fact, independent of lifecycle or confidence labels.
 The display operation is read-only and makes no model calls.
+Retained wording that contains an explicitly linked subject or entity-object ID
+is unavailable rather than complete. This check follows reference roles, not ID
+prefixes or regular expressions, and does not reject a legitimate literal value.
+Invalid retained wording is not replaced with a sentence derived from retention
+scope: a `recent` lifecycle does not prove that the source said "recently".
+The controlled summary recovery procedure in Persistence & Migrations regenerates
+affected wording from immutable Claims without rerunning extraction or promotion.
 Literal value decoding follows the owning field contract: disallowed forms of
 address permit a single Claim literal or the string list written by Personal
 Profile. Other literal text is not interpreted as JSON based on its appearance.
@@ -1119,6 +1154,11 @@ returns unavailable/omits prompt context and does not persist an empty projectio
 Prompt fallback additionally requires the current persisted prompt contract, so
 an older cache cannot inject sentences assembled from UI placeholders. A valid
 current-contract cache keeps the same last-good behavior on transient failures.
+Prompt contract v2 additionally excludes unverified entity reference text. Every
+assertion-backed world, review and recent item carries a signature of its shared
+fact description and completeness. Freshness compares all of these signatures,
+including items outside the prompt line budget, so a stale page description
+cannot survive merely because the prompt omitted that item.
 Only a successful dependency read whose real result is empty may materialize an
 empty profile or portrait. Projection failures are logged with projection kind,
 stage, cache-retention decision, user ID, and error type without evidence text.
@@ -2188,7 +2228,7 @@ Typical outputs:
 
 #### Insight Generation Contract
 
-Insight-style L3 records are produced from structured lower-layer outcomes, not from an open-ended LLM decision. The owning service first builds a typed candidate from L2 reconciliation, contradiction, trend, or task-outcome packets. A deterministic gate decides whether the candidate has user-facing value; only accepted candidates are persisted.
+Insight-style L3 records are produced from structured lower-layer outcomes, not from an open-ended LLM decision. The owning service first builds a typed candidate from L2 reconciliation, contradiction, trend, or task-outcome packets. A deterministic gate decides whether the candidate has user-facing value; only accepted candidates are persisted. `ReconciledTraitOutcome.fact_completeness` is required: reconciliation and correction replay attach the shared host-resolved fact description, and every insight consumer requires a complete description. Missing subject or object names cannot be replaced with trait codes or raw interest values.
 
 The gate must be rule-based and inspect structured state such as:
 
@@ -2235,7 +2275,7 @@ L3 summary LLM calls use the optional `memory_summarizer` runtime scenario. This
 
 Temporal LLM generation is split into two calls over the same stable evidence-prefix prompt. The first call produces the user-facing detail body and is the required product output. The second call reuses the same evidence prefix plus the accepted body to extract a short `essence_prose` preview and optional structured fields such as topics, entities, sentiment, and change/pattern metadata. If the structured extraction fails, the accepted body still writes as a `temporal-llm` summary with empty structured fields and no preview. Rule-backed summaries remain an internal fallback and retry/debug lower bound; they should not be treated as normal Summary-page content unless a UI-specific quality gate explicitly allows them.
 
-The same product contract applies to thematic topic summaries and episodic/experience summaries: user-facing prose is generated first and structured fields are extracted afterward. A failed structure pass must not discard accepted prose. L3 insight renderers also apply a display-quality gate; L2 natural summaries that still look like raw machine signals are ignored and the renderer falls back to structured family/value text or skips the insight.
+The same product contract applies to thematic topic summaries and episodic/experience summaries: user-facing prose is generated first and structured fields are extracted afterward. A failed structure pass must not discard accepted prose. L3 insight renderers also apply a display-quality gate: incomplete host fact descriptions and text that still looks like a raw machine signal are skipped. The renderer never fabricates a replacement from a trait family or enum value.
 
 Generation starts from `L1` facts that are eligible for cognition and excludes runtime telemetry and disposable events. The store does not load every matching event into the prompt. Instead, [evidence_selector.py](../backend/src/magi/memory/l3/evidence_selector.py) performs source-aware compaction:
 

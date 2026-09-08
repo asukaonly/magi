@@ -5,7 +5,11 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from ..memory.l2.assertion_display import FactCompleteness, decorate_assertion_display
+from ..memory.l2.assertion_display import (
+    FactCompleteness,
+    assertion_fact_signature,
+    decorate_assertion_display,
+)
 from .models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 from .portrait_claim_query import (
     latest_portrait_claim_change_at,
@@ -53,13 +57,18 @@ async def portrait_projection_is_stale(
     if int(projection.source_generation) != await current_clear_generation(l2_store):
         return True
 
-    assertions = await _current_portrait_assertions(l2_store, entity_id)
+    assertions = await decorate_assertion_display(
+        getattr(l2_store, "db_path", None),
+        await _current_portrait_assertions(l2_store, entity_id),
+    )
     if not highwaters_equal(
         projection.input_assertion_highwater,
         assertion_records_highwater(assertions),
     ):
         return True
     if _cached_assertion_is_no_longer_current(projection, assertions):
+        return True
+    if _cached_fact_descriptions_changed(projection, assertions):
         return True
     if not highwaters_equal(
         projection.input_claim_highwater,
@@ -115,6 +124,32 @@ def _assertion_ids(items: Any) -> set[str]:
     }
 
 
+def _cached_fact_descriptions_changed(
+    projection: UserPortraitProjection,
+    assertions: list[dict[str, Any]],
+) -> bool:
+    """Check every cached fact, including facts outside the prompt budget."""
+    signatures = {
+        str(assertion.get("assertion_id") or ""): assertion_fact_signature(assertion)
+        for assertion in assertions
+    }
+    containers = [
+        group.get("items") or []
+        for group in (projection.world or {}).get("groups") or []
+        if isinstance(group, dict)
+    ]
+    containers.extend([
+        (projection.review or {}).get("items") or [],
+        (projection.recent or {}).get("items") or [],
+    ])
+    return any(
+        item.get("fact_signature") != signatures.get(str(item["assertion_id"]))
+        for items in containers
+        for item in items
+        if isinstance(item, dict) and item.get("assertion_id")
+    )
+
+
 def _missing_portrait_item_metadata(projection: UserPortraitProjection) -> bool:
     """Invalidate portrait caches missing fact and lossless correction metadata.
 
@@ -146,6 +181,8 @@ def _missing_portrait_item_metadata(projection: UserPortraitProjection) -> bool:
             if not {"correction_value", "correction_value_options", "correction_trait_name"}.issubset(item):
                 return True
             if item.get("display_status") not in {status.value for status in FactCompleteness}:
+                return True
+            if not str(item.get("fact_signature") or "").strip():
                 return True
     return False
 
@@ -198,9 +235,7 @@ async def _prompt_inputs_changed(
     current_candidate_lines = [candidate.prompt_line for candidate in candidates[:2]]
     current_summary = render_portrait_rule_prompt_summary(
         inputs=build_portrait_prompt_inputs(
-            assertions=await decorate_assertion_display(
-                getattr(l2_store, "db_path", None), assertions
-            ),
+            assertions=assertions,
             profile_projection=profile_projection,
         ),
         tentative_lines=current_candidate_lines,

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from ..assertion_family_policy import get_assertion_family_policy
+from ..claim_text import ResolvedClaimText
 from ..factual_rendering import render_grounded_fact
 from ..phase1_models import L2ClaimEvidenceMode, L2Phase1FactClaim, L2TemporalCue
 from ..semantic_routing import ROUTE_CONTRACT_VERSION, SemanticRouteDecision
@@ -51,6 +53,7 @@ class MaterializationInput:
     inference_depth: str
     observed_at: float
     now: float
+    claim_texts: Mapping[str, ResolvedClaimText]
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,7 +346,9 @@ def _trait_value(material: MaterializationInput) -> str:
 
 def _natural_summary(material: MaterializationInput) -> str:
     for claim in material.claims:
-        text = render_grounded_fact(claim)
+        text = render_grounded_fact(
+            claim, resolved_text=material.claim_texts.get(claim.claim_id, ResolvedClaimText())
+        )
         if text:
             return text
     return ""

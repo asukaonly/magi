@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l3.models import TrendShiftPacket
-from magi.memory.l3 import trend_shift_service
 from magi.memory.l3.trend_shift_service import TrendShiftService
 
 
@@ -23,11 +20,22 @@ def _outcome(**overrides) -> ReconciledTraitOutcome:
         time_span_hours=48.0,
         stability_kind="stable_pattern",
         recommended_snapshot_field="core_traits",
-        natural_summary="",
+        fact_completeness="complete",
+        natural_summary="用户的压力水平是高。",
         expires_at=None,
         trait_family="stress",
     )
     defaults.update(overrides)
+    if "natural_summary" not in overrides:
+        value = str(defaults["winning_value"])
+        if str(defaults["trait_name"]).startswith("interest."):
+            defaults["natural_summary"] = f"用户关注{value}。"
+        elif defaults["trait_family"] == "preference_profile":
+            defaults["natural_summary"] = f"用户偏好的音乐是{value}。"
+        elif defaults["trait_family"] == "mood":
+            defaults["natural_summary"] = f"用户感到{value}。"
+        else:
+            defaults["natural_summary"] = f"用户的压力水平是{value}。"
     return ReconciledTraitOutcome(**defaults)
 
 
@@ -203,14 +211,14 @@ async def test_trend_shift_interest_outcomes_use_stable_theme_key() -> None:
                     trait_name="interest.codex-coding-tools-by-openai",
                     winning_value="Codex",
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="Recurring interested_in signal for Codex",
+                    natural_summary="用户关注Codex。",
                     trait_family="preference_profile",
                 ),
                 _outcome(
                     trait_name="interest.deepseek",
                     winning_value="DeepSeek",
                     evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    natural_summary="用户关注DeepSeek。",
                     trait_family="preference_profile",
                 ),
             ],
@@ -225,21 +233,21 @@ async def test_trend_shift_interest_outcomes_use_stable_theme_key() -> None:
                     trait_name="interest.codex-coding-tools-by-openai",
                     winning_value="Codex",
                     evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="Recurring interested_in signal for Codex",
+                    natural_summary="用户关注Codex。",
                     trait_family="preference_profile",
                 ),
                 _outcome(
                     trait_name="interest.deepseek",
                     winning_value="DeepSeek",
                     evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="Recurring interested_in signal for DeepSeek",
+                    natural_summary="用户关注DeepSeek。",
                     trait_family="preference_profile",
                 ),
                 _outcome(
                     trait_name="interest.glm-5-2",
                     winning_value="GLM-5.2",
                     evidence_event_ids=["evt-7", "evt-8", "evt-9"],
-                    natural_summary="Recurring interested_in signal for GLM-5.2",
+                    natural_summary="用户关注GLM-5.2。",
                     trait_family="preference_profile",
                 ),
             ],
@@ -278,46 +286,21 @@ async def test_trend_shift_interest_content_does_not_expose_rule_template(monkey
         )
     )
 
-    assert candidate is not None
-    assert "Recurring" not in candidate.content
-    assert "interested_in" not in candidate.content
-    assert "Codex" in candidate.content
-    assert "DeepSeek" in candidate.content
-    assert "持续关注" in candidate.content
+    assert candidate is None
 
 
-async def test_trend_shift_interest_content_uses_backend_i18n(monkeypatch) -> None:
-    def fake_t(key: str, *, fallback=None, language=None, **kwargs):
-        if key == "memory.l3.insight.trend.interest":
-            return f"本地化关注：{kwargs['values']}。"
-        return fallback if fallback is not None else key
-
+async def test_trend_shift_interest_preserves_host_localized_complete_text(monkeypatch) -> None:
     monkeypatch.setattr("magi.memory.l3.trend_shift_service.wants_zh", lambda: True)
-    monkeypatch.setattr(trend_shift_service, "core_i18n", SimpleNamespace(t=fake_t), raising=False)
-    service = TrendShiftService()
-
-    candidate = await service.build_candidate(
+    candidate = await TrendShiftService().build_candidate(
         TrendShiftPacket(
-            entity_id="user:self",
-            entity_type="user",
+            entity_id="user:self", entity_type="user",
             outcomes=[
-                _outcome(
-                    trait_name="interest.codex-coding-tools-by-openai",
-                    winning_value="Codex",
-                    evidence_event_ids=["evt-1", "evt-2", "evt-3"],
-                    natural_summary="Recurring interested_in signal for Codex",
-                    trait_family="preference_profile",
-                ),
-                _outcome(
-                    trait_name="interest.deepseek",
-                    winning_value="DeepSeek",
-                    evidence_event_ids=["evt-4", "evt-5", "evt-6"],
-                    natural_summary="Recurring interested_in signal for DeepSeek",
-                    trait_family="preference_profile",
-                ),
+                _outcome(trait_name="interest.codex", winning_value="Codex",
+                         natural_summary="用户持续关注Codex。", trait_family="preference_profile"),
+                _outcome(trait_name="interest.deepseek", winning_value="DeepSeek",
+                         natural_summary="用户持续关注DeepSeek。", trait_family="preference_profile"),
             ],
         )
     )
-
     assert candidate is not None
-    assert candidate.content == "本地化关注：Codex、DeepSeek。"
+    assert candidate.content == "用户持续关注Codex；用户持续关注DeepSeek。"

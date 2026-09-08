@@ -8,7 +8,12 @@ from typing import Any, Mapping
 
 @dataclass(frozen=True, slots=True)
 class GroundedClaimInput:
-    """Semantic body of one evidence-grounded Claim."""
+    """Immutable semantic body and provenance, independent of display wording.
+
+    object_value preserves the extracted reference or typed literal. An entity
+    object_surface is an exact evidence name, or absent; it is never an identity
+    fallback or a catalog rename. Versioned entity refs own resolved identity.
+    """
 
     identity_key: str
     extractor_contract_version: int

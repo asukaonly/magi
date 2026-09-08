@@ -163,6 +163,8 @@ class L2Phase1FactClaim:
     target_from: float | None = None
     target_to: float | None = None
     raw_time_frame: dict[str, Any] | None = None
+    # Host-grounded source name; never accepted from the model payload.
+    object_surface: str | None = None
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1FactClaim":

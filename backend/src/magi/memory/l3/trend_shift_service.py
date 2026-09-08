@@ -5,12 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 
-from ... import i18n as core_i18n
 from ..l2.models import ReconciledTraitOutcome
 from .insight_renderer import render_insight_content
 from .insight_utils import (
     decode_value,
-    locale_for_zh,
     trait_group,
     wants_zh,
 )
@@ -93,49 +91,17 @@ class TrendShiftService:
         *,
         user_lang_zh: bool,
     ) -> str | None:
-        if outcomes and all(self._is_interest_outcome(outcome) for outcome in outcomes):
-            return self._render_interest_trend_content(outcomes, zh=user_lang_zh)
         return render_insight_content(
             insight_kind="trend_shift",
             outcomes=outcomes,
             user_lang_zh=user_lang_zh,
         )
 
-    def _render_interest_trend_content(
-        self,
-        outcomes: list[ReconciledTraitOutcome],
-        *,
-        zh: bool,
-    ) -> str | None:
-        values: list[str] = []
-        for outcome in sorted(
-            outcomes,
-            key=lambda item: (-len(item.evidence_event_ids), str(item.winning_value).casefold()),
-        ):
-            value = str(decode_value(str(outcome.winning_value)) or "").strip()
-            if not value or value.casefold() in {item.casefold() for item in values}:
-                continue
-            values.append(value)
-            if len(values) >= 6:
-                break
-        if not values:
-            return None
-        joined = "、".join(values) if zh else ", ".join(values)
-        if zh:
-            fallback = f"最近持续关注：{joined}。"
-        else:
-            fallback = f"Sustained interest: {joined}."
-        return core_i18n.t(
-            "memory.l3.insight.trend.interest",
-            language=locale_for_zh(zh),
-            fallback=fallback,
-            values=joined,
-        )
-
     def _trend_group(self, outcome: ReconciledTraitOutcome) -> str:
         if self._is_interest_outcome(outcome):
             return _INTEREST_TREND_GROUP
-        return trait_group(str(outcome.trait_name))
+        group: str = trait_group(str(outcome.trait_name))
+        return group
 
     def _is_interest_outcome(self, outcome: ReconciledTraitOutcome) -> bool:
         trait_name = str(outcome.trait_name or "").strip().lower()

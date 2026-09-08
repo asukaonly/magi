@@ -66,6 +66,54 @@ def test_unresolved_target_keeps_grounded_summary():
     ) == "用户喜欢草莓。"
 
 
+@pytest.mark.parametrize("target_name", ["苹果", None])
+@pytest.mark.parametrize("identity", ["other:source:7b25f5fba4e85deabb059555a6852c16", "opaque-reference"])
+def test_retained_summary_rejects_linked_identity_without_reinterpreting_time(identity, target_name):
+    row = _assertion(
+        target_entity_id=identity, target_entity_name=target_name,
+        natural_summary=f"用户喜欢{identity}。", temporal_scope="recent",
+    )
+    fact = render_assertion_fact(row, language="zh-CN")
+    assert fact.completeness == FactCompleteness.UNAVAILABLE
+    assert fact.text is None
+    assert "最近" not in render_assertion_display(row, language="zh-CN")
+    assert identity not in render_assertion_display(row, language="zh-CN")
+    assert row["natural_summary"] == f"用户喜欢{identity}。"
+
+
+@pytest.mark.parametrize("subject_type", ["user", "person", "organization"])
+def test_retained_summary_rejects_subject_identity(subject_type):
+    row = _assertion(
+        entity_type=subject_type, entity_id="opaque-subject", entity_name="小李",
+        natural_summary="opaque-subject不喜欢草莓。 原文时间: 上周",
+    )
+    assert render_assertion_fact(row).completeness == FactCompleteness.UNAVAILABLE
+
+
+@pytest.mark.parametrize(("trait", "value", "summary"), [
+    ("communication.address.preferred", "user:local_user", "用户希望被称为user:local_user。"),
+    ("identity.birth_date", "2000-01-02", "用户生日是2000-01-02。"),
+    ("goal.intent", "研究 opaque-reference 的 API", "用户计划研究 opaque-reference 的 API。 原文时间: 明年"),
+])
+def test_literal_summary_keeps_identifier_spelling_as_grounded_literal(trait, value, summary):
+    row = _assertion(
+        trait_name=trait, trait_value=value, natural_summary=summary,
+        target_entity_id="opaque-reference",
+    )
+    fact = render_assertion_fact(row)
+    assert fact.text == summary
+    assert fact.completeness == FactCompleteness.COMPLETE
+
+
+def test_catalog_name_equal_to_linked_identity_is_unresolved():
+    row = _assertion(
+        natural_summary="", target_entity_id="opaque-reference", target_entity_name="opaque-reference",
+    )
+    fact = render_assertion_fact(row)
+    assert fact.text == "用户喜欢尚未解析的对象。"
+    assert fact.completeness == FactCompleteness.PARTIAL
+
+
 def test_value_only_correction_does_not_invent_target():
     assert render_assertion_display({"value": "like"}, language="zh-CN") == "这条记录缺少完整事实描述。"
     assert render_assertion_display({"value": "dislike"}, language="en") == "A complete description of this record is unavailable."

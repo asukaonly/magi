@@ -36,7 +36,7 @@ class L2GraphEndpointResolutionMixin:
         host = self._graph_validation_host()
         ref = host._non_empty_text(subject_ref)
         if ref:
-            if ref.startswith("user:"):
+            if ref == "user:self":
                 return host._resolve_self_entity_id(event) or ref
             return ref
         return host._resolve_self_entity_id(event)
@@ -98,7 +98,7 @@ class L2GraphEndpointResolutionMixin:
         host = self._graph_validation_host()
         subject_ref = host._non_empty_text(raw_candidate.subject_ref)
         if subject_ref:
-            if subject_ref.startswith("user:"):
+            if subject_ref == "user:self":
                 return host._resolve_self_entity_id(event) or subject_ref
             return subject_ref
         return host._resolve_self_entity_id(event)

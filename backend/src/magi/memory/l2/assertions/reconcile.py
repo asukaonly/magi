@@ -9,6 +9,7 @@ from typing import Any, Protocol, cast
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ..models import ReconciledTraitOutcome
+from ..assertion_display import FactCompleteness, decorate_assertion_display, render_assertion_fact
 from .reconcile_state import L2ReconcileStateMixin, _MOMENTARY_TRAITS
 from .snapshot_evolution import L2SnapshotEvolutionMixin, _SNAPSHOT_HISTORY_LIMIT
 
@@ -56,6 +57,8 @@ class L2StoreReconcileMixin(
         )
         if not assertions:
             return []
+        host = cast(_L2StoreReconcileHostProtocol, self)
+        assertions = await decorate_assertion_display(host.db_path, assertions)
 
         keys = await self.resolve_independent_evidence_keys([str(event_id) for assertion in assertions for event_id in assertion.get("evidence_events", [])])
         normalized_entity_type = entity_type or assertions[0]["entity_type"]
@@ -151,6 +154,7 @@ class L2StoreReconcileMixin(
         stability_kind: str,
     ) -> ReconciledTraitOutcome:
         trait_name = str(assertion["trait_name"])
+        fact = render_assertion_fact(assertion)
         return ReconciledTraitOutcome(
             entity_id=entity_id,
             entity_type=entity_type,
@@ -165,7 +169,8 @@ class L2StoreReconcileMixin(
                 trait_name=trait_name,
                 status=status,
             ),
-            natural_summary=str(assertion.get("natural_summary") or "").strip(),
+            fact_completeness=fact.completeness.value,
+            natural_summary=fact.text if fact.completeness == FactCompleteness.COMPLETE and fact.text else "",
             expires_at=(
                 float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None
             ),

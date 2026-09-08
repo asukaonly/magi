@@ -13,6 +13,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..memory.l2.claim_text import load_claim_texts
 from ..memory.l2.claims.route_selection import (
     CURRENT_ENTITY_REF_VERSIONS_CTE,
     LATEST_ROUTE_ORDER_SQL,
@@ -62,6 +63,7 @@ async def list_tentative_portrait_claims(
             user_id=user_id,
             effective_at=at,
         )
+        claim_texts = await load_claim_texts(db, list({str(row["claim_id"]) for row in rows}))
         current_route_value_keys = await _route_value_keys_for_assertions(db, current_ids)
         visible_route_value_keys = await _route_value_keys_for_assertions(db, visible_ids)
 
@@ -72,16 +74,20 @@ async def list_tentative_portrait_claims(
     visible_event_ids = await _visible_l1_event_ids(l2_store, event_ids)
     provisional: list[TentativePortraitClaim] = []
 
-    for candidate in grouped.values():
-        claim_id = str(candidate["claim_id"])
+    for grouped_candidate in grouped.values():
+        claim_id = str(grouped_candidate["claim_id"])
+        resolved_text = claim_texts.get(claim_id)
+        grouped_candidate["claim"]["object_display_text"] = (
+            resolved_text.object_name if resolved_text is not None else None
+        )
         decision = classify_tentative_portrait_claim(
-            candidate["claim"],
-            candidate["route_outcome"],
+            grouped_candidate["claim"],
+            grouped_candidate["route_outcome"],
         )
         if decision is None:
             continue
         basis_event_ids = [
-            event_id for event_id in candidate["event_ids"] if event_id in visible_event_ids
+            event_id for event_id in grouped_candidate["event_ids"] if event_id in visible_event_ids
         ][:3]
         if not basis_event_ids:
             continue
@@ -96,8 +102,8 @@ async def list_tentative_portrait_claims(
                 prompt_line=prompt_line,
                 basis_refs=tuple(f"event:{event_id}" for event_id in basis_event_ids),
                 changed_at=max(
-                    _float(candidate["claim"].get("updated_at")),
-                    _float(candidate["route_outcome"].get("created_at")),
+                    _float(grouped_candidate["claim"].get("updated_at")),
+                    _float(grouped_candidate["route_outcome"].get("created_at")),
                 ),
             )
         )
@@ -293,15 +299,12 @@ def _group_candidate_rows(rows: list[aiosqlite.Row]) -> dict[str, dict[str, Any]
         claim_id = str(row["claim_id"])
         candidate = grouped.get(claim_id)
         if candidate is None:
-            object_value = _json_value(row["object_value_json"])
             route_details = _json_value(row["route_details_json"])
             candidate = {
                 "claim_id": claim_id,
                 "claim": {
                     "availability": row["availability"],
                     "canonical_predicate": row["canonical_predicate"],
-                    "object_value": object_value,
-                    "object_surface": row["object_surface"],
                     "updated_at": row["updated_at"],
                 },
                 "route_outcome": {

@@ -17,7 +17,7 @@ from .claims.identity import canonical_json
 from .ontology import PROFILE_SIGNAL_PREDICATES, is_valid_open_predicate, is_low_value_open_predicate
 from .predicate_catalog import SPEC_BY_CANONICAL
 
-ROUTE_CONTRACT_VERSION = 8
+ROUTE_CONTRACT_VERSION = 9
 SLOT_SCHEMA_VERSION = 2
 
 

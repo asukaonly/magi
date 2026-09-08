@@ -54,6 +54,8 @@ TYPE_GATE_FILES=(
   magi/memory/l2/batch_models.py
   magi/memory/l2/candidate_models.py
   magi/memory/l2/assertion_family_policy.py
+  magi/memory/l2/claim_text.py
+  magi/memory/l2/factual_rendering.py
   magi/memory/l2/episode_models.py
   magi/memory/evidence/policy.py
   magi/memory/l2/graph_conflicts.py

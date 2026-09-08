@@ -8,6 +8,7 @@ from magi.memory.l2.assertions.occurrence_stats import (
     ClaimRouteValueKey,
 )
 from magi.memory.l2.phase1_models import L2Phase1FactClaim
+from magi.memory.l2.claim_text import ResolvedClaimText
 from magi.memory.l2.factual_rendering import assertion_evidence_basis
 from magi.memory.l2.semantic_routing import SemanticRouteInput, derive_semantic_route
 
@@ -96,6 +97,12 @@ def _input(claim: L2Phase1FactClaim, route, **overrides):
         "inference_depth": "self_report",
         "observed_at": NOW - 60,
         "now": NOW,
+        "claim_texts": {
+            claim.claim_id: ResolvedClaimText(
+                object_name=claim.object_ref,
+                subject_is_self=claim.subject_ref == "user:local_user",
+            )
+        },
     }
     values.update(overrides)
     return MaterializationInput(**values)

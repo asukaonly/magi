@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,8 +14,9 @@ from ...core.sqlite import sqlite_connection_async
 from ..derivation_revision import DerivationRevision
 from ..l2.corrections.repository import MemoryCorrectionRepository
 from ..l2.models import ReconciledTraitOutcome
+from ..l2.assertion_display import FactCompleteness, decorate_assertion_display, render_assertion_fact
 from .contradiction_service import ContradictionInsightService
-from .dependency_validation import ensure_l3_dependencies_current
+from .dependency_validation import StaleL3CandidateError, ensure_l3_dependencies_current
 from .models import ContradictionPacket, L3Candidate, StateChangePacket, TrendShiftPacket
 from .derivation_fence import L3DerivationFence
 from .state_change_service import StateChangeService
@@ -44,15 +45,24 @@ class L3CorrectionDerivationService:
         subject_key: str,
         *,
         expected_revision: int | None = None,
+        summary_ids: Sequence[str] | None = None,
     ) -> None:
-        """Rebuild or retire stale insights that depend on one subject."""
+        """Rebuild stale insights, optionally limited to exact wording-recovery targets.
+
+        Explicit targets retain their dependency identities and user review state;
+        they cannot select other assertions merely because a trait name matches.
+        """
+        selected_ids = _recovery_summary_ids(summary_ids)
         try:
             await self._l3_store.initialize()
-            for insight in await self._stale_insights(subject_key):
+            for insight in await self._stale_insights(subject_key, summary_ids=selected_ids):
+                if selected_ids is not None and insight.get("review_state") == "rejected":
+                    continue
                 await self._rebuild_insight(
                     insight,
                     triggering_subject=subject_key,
                     expected_revision=expected_revision,
+                    exact_dependencies=selected_ids is not None,
                 )
         finally:
             if self._owns_l3_store:
@@ -64,6 +74,7 @@ class L3CorrectionDerivationService:
         *,
         triggering_subject: str,
         expected_revision: int | None,
+        exact_dependencies: bool = False,
     ) -> None:
         summary_id = str(insight["summary_id"])
         context = await self._rebuild_context(
@@ -71,6 +82,8 @@ class L3CorrectionDerivationService:
             triggering_subject=triggering_subject,
             expected_revision=expected_revision,
         )
+        if exact_dependencies and context.source_kinds != frozenset({"assertion"}):
+            raise StaleL3CandidateError("Wording recovery requires assertion-only dependencies")
         outcomes: list[ReconciledTraitOutcome] = []
         for subject_key, trait_names in context.claim_slots.items():
             assertions = await self._l2_store.list_current_assertions(
@@ -78,10 +91,19 @@ class L3CorrectionDerivationService:
                 context_scope=None,
                 limit=500,
             )
+            assertions = await decorate_assertion_display(self._db_path, assertions)
             for assertion in assertions:
-                if str(assertion.get("trait_name") or "") not in trait_names:
+                if exact_dependencies:
+                    if str(assertion.get("assertion_id") or "") not in context.assertion_ids.get(subject_key, set()):
+                        continue
+                elif str(assertion.get("trait_name") or "") not in trait_names:
                     continue
                 outcomes.append(_outcome_from_assertion(assertion))
+
+        if exact_dependencies:
+            required_ids = {identity for identities in context.assertion_ids.values() for identity in identities}
+            if not required_ids or required_ids != {outcome.source_assertion_id for outcome in outcomes}:
+                raise StaleL3CandidateError("Wording recovery requires every original assertion dependency")
 
         metadata = _json_dict(insight.get("insight_metadata"))
         candidate = await self._candidate_from_current_state(metadata, outcomes)
@@ -108,6 +130,7 @@ class L3CorrectionDerivationService:
             candidate=candidate,
             dependencies=dependencies,
             fence=context.fence,
+            preserve_review_state=exact_dependencies,
         )
 
     async def _candidate_from_current_state(
@@ -154,7 +177,9 @@ class L3CorrectionDerivationService:
             )
         return None
 
-    async def _stale_insights(self, subject_key: str) -> list[dict[str, Any]]:
+    async def _stale_insights(
+        self, subject_key: str, *, summary_ids: tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -167,9 +192,13 @@ class L3CorrectionDerivationService:
                 WHERE dependencies.subject_key = ?
                   AND summaries.summary_type = 'insight'
                   AND summaries.derivation_state = 'stale'
+                  AND (? IS NULL OR summaries.summary_id IN (
+                      SELECT CAST(value AS TEXT) FROM json_each(?)
+                  ))
                 ORDER BY summaries.updated_at ASC
                 """,
-                (subject_key,),
+                (subject_key, json.dumps(summary_ids) if summary_ids is not None else None,
+                 json.dumps(summary_ids) if summary_ids is not None else None),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [dict(row) for row in rows]
@@ -186,7 +215,8 @@ class L3CorrectionDerivationService:
             await db.execute("BEGIN")
             async with db.execute(
                 """
-                SELECT dependencies.subject_key, assertions.trait_name
+                SELECT dependencies.subject_key, assertions.trait_name,
+                       dependencies.source_kind, dependencies.source_id
                 FROM memory_derivation_dependencies AS dependencies
                 LEFT JOIN tom_trait_assertions AS assertions
                   ON dependencies.source_kind = 'assertion'
@@ -213,11 +243,19 @@ class L3CorrectionDerivationService:
                 source_revision=int(expected_revision),
             ).ensure_matches(fence.revisions[triggering_subject])
         claim_slots: dict[str, set[str]] = {}
-        for subject_key, trait_name in rows:
+        assertion_ids: dict[str, set[str]] = {}
+        for subject_key, trait_name, source_kind, source_id in rows:
+            if source_kind == "assertion":
+                assertion_ids.setdefault(str(subject_key), set()).add(str(source_id))
             if trait_name is None:
                 continue
             claim_slots.setdefault(str(subject_key), set()).add(str(trait_name))
-        return _RebuildContext(claim_slots=claim_slots, fence=fence)
+        return _RebuildContext(
+            claim_slots=claim_slots,
+            assertion_ids=assertion_ids,
+            source_kinds=frozenset(str(row[2]) for row in rows),
+            fence=fence,
+        )
 
     async def _persist_candidate(
         self,
@@ -226,11 +264,21 @@ class L3CorrectionDerivationService:
         candidate: L3Candidate,
         dependencies: list[tuple[str, str, str, int]],
         fence: L3DerivationFence,
+        preserve_review_state: bool = False,
     ) -> None:
         """Publish one rebuilt insight and its dependency ledger atomically."""
         summary_id = str(insight["summary_id"])
         stored: dict[str, Any]
         detached_chunk_ids: list[str] = []
+        metadata = dict(candidate.insight_metadata or {})
+        recovery_overrides: dict[str, Any] = {}
+        if preserve_review_state:
+            metadata = {**_json_dict(insight.get("insight_metadata")), **metadata}
+            metadata["trigger_reason"] = "assertion_summary_recovery"
+            recovery_overrides = {
+                "review_state": insight.get("review_state"),
+                "period_end": float(insight["period_end"]),
+            }
         async with self._l3_store.embedding_mutation_guard():
             async with sqlite_connection_async(self._db_path) as db:
                 db.row_factory = aiosqlite.Row
@@ -268,9 +316,10 @@ class L3CorrectionDerivationService:
                             "created_at": float(insight["created_at"]),
                             "source_event_ids": list(candidate.source_event_ids),
                             "source_event_count": len(candidate.source_event_ids),
-                            "insight_metadata": dict(candidate.insight_metadata or {}),
+                            "insight_metadata": metadata,
                             "source_revision": fence.source_revision,
                             "derivation_state": "current",
+                            **recovery_overrides,
                         },
                     )
                     await self._repository.replace_artifact_dependencies_on_connection(
@@ -333,7 +382,18 @@ class L3CorrectionDerivationService:
 @dataclass(frozen=True, slots=True)
 class _RebuildContext:
     claim_slots: dict[str, set[str]]
+    assertion_ids: dict[str, set[str]]
+    source_kinds: frozenset[str]
     fence: L3DerivationFence
+
+
+def _recovery_summary_ids(summary_ids: Sequence[str] | None) -> tuple[str, ...] | None:
+    if summary_ids is None:
+        return None
+    selected = tuple(str(identity).strip() for identity in summary_ids)
+    if not selected or len(selected) > 100 or len(set(selected)) != len(selected) or not all(selected):
+        raise ValueError("Provide between 1 and 100 unique nonblank summary identities")
+    return selected
 
 
 async def _summary_task_ids_on_connection(
@@ -374,6 +434,7 @@ async def _stale_insight_snapshot_matches_on_connection(
 def _outcome_from_assertion(assertion: Mapping[str, Any]) -> ReconciledTraitOutcome:
     first_seen = float(assertion.get("first_inferred_at") or 0.0)
     last_seen = float(assertion.get("last_validated_at") or first_seen)
+    fact = render_assertion_fact(assertion)
     return ReconciledTraitOutcome(
         entity_id=str(assertion.get("entity_id") or ""),
         entity_type=str(assertion.get("entity_type") or "entity"),
@@ -385,7 +446,8 @@ def _outcome_from_assertion(assertion: Mapping[str, Any]) -> ReconciledTraitOutc
         time_span_hours=max(0.0, (last_seen - first_seen) / 3600.0),
         stability_kind="user_authoritative" if assertion.get("authority_ref") else "current",
         recommended_snapshot_field="",
-        natural_summary=str(assertion.get("natural_summary") or ""),
+        fact_completeness=fact.completeness.value,
+        natural_summary=fact.text if fact.completeness == FactCompleteness.COMPLETE and fact.text else "",
         expires_at=(
             float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None
         ),

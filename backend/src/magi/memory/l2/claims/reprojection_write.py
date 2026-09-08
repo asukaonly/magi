@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..claim_text import claim_object_is_literal, load_claim_texts
 from ..corrections.fingerprints import canonical_claim_value
 from ..semantic_routing import (
     ROUTE_CONTRACT_VERSION,
@@ -190,6 +191,7 @@ async def _load_route_candidate(
             claims.polarity,
             COALESCE(object_catalog.entity_type, claims.object_type) AS object_type,
             claims.object_value_json,
+            claims.object_surface,
             claims.temporal_cue,
             claims.specificity,
             claims.confidence,
@@ -220,7 +222,14 @@ async def _load_route_candidate(
         (claim_id, claim_id),
     ) as cursor:
         row = await cursor.fetchone()
-    return dict(row) if row is not None else None
+    if row is None:
+        return None
+    candidate = dict(row)
+    if not claim_object_is_literal(str(candidate["canonical_predicate"])):
+        resolved_texts = await load_claim_texts(db, [claim_id])
+        resolved_text = resolved_texts.get(claim_id)
+        candidate["object_surface"] = resolved_text.object_surface if resolved_text else None
+    return candidate
 
 
 def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecision:
@@ -235,7 +244,11 @@ def _derive_candidate_route(candidate: Mapping[str, Any]) -> SemanticRouteDecisi
             fact_kind=str(candidate["fact_kind"]),
             polarity=str(candidate["polarity"]),
             object_type=str(candidate["object_type"]),
-            object_value=_decode_json(candidate.get("object_value_json")),
+            object_value=(
+                _decode_json(candidate.get("object_value_json"))
+                if claim_object_is_literal(str(candidate["canonical_predicate"]))
+                else candidate.get("object_surface")
+            ),
             object_entity_id=(
                 str(candidate["object_entity_id"])
                 if candidate.get("object_entity_id") is not None
@@ -990,14 +1003,14 @@ def _decision_allows_target(
     target_kind: str,
 ) -> bool:
     if target_kind == "assertion":
-        return decision.can_project_assertion
+        return bool(decision.can_project_assertion)
     if target_kind == "relationship":
         return decision.can_project_graph or (
             decision.disposition is RouteDisposition.NOT_APPLICABLE
             and decision.reason_code == "relationship_only"
         )
     if target_kind == "review":
-        return decision.can_project_assertion
+        return bool(decision.can_project_assertion)
     return False
 
 
@@ -1345,12 +1358,12 @@ async def _archive_target(
         )
         return max(int(cursor.rowcount or 0), 0)
     if target_kind == "review":
-        return await close_pending_review_on_connection(
+        return int(await close_pending_review_on_connection(
             db,
             review_id=target_id,
             reason=reason,
             changed_at=changed_at,
-        )
+        ))
     cursor = await db.execute(
         """
         UPDATE knowledge_graph

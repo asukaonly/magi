@@ -5,11 +5,12 @@ from __future__ import annotations
 import inspect
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from ..memory.derivation_revision import DerivationRevision
 from ..memory.l2.assertion_display import (
-    FactCompleteness, assertion_behavior_target, assertion_display_is_recent, assertion_value_options,
+    FactCompleteness, assertion_behavior_target, assertion_display_is_recent, assertion_fact_signature,
+    assertion_value_options,
     decorate_assertion_display, render_assertion_display, render_assertion_fact,
 )
 from ..memory.l2.factual_rendering import assertion_evidence_basis
@@ -78,6 +79,12 @@ class _PortraitFact:
     score: tuple[int, int, int]
     field: str = ""
     trait_family: str = ""
+
+
+class _PortraitWorldGroup(TypedDict):
+    id: str
+    items: list[dict[str, Any]]
+    summary: str
 
 
 class UserPortraitProjectionBuilder:
@@ -233,8 +240,10 @@ class UserPortraitProjectionBuilder:
         assertions: list[dict[str, Any]],
         profile_world: dict[str, list[dict[str, Any]]],
     ) -> dict[str, Any]:
-        groups = [{"id": group_id, "items": []} for group_id in WORLD_GROUP_IDS]
-        by_id = {group["id"]: group for group in groups}
+        groups: list[_PortraitWorldGroup] = [
+            {"id": group_id, "items": [], "summary": ""} for group_id in WORLD_GROUP_IDS
+        ]
+        by_id: dict[str, _PortraitWorldGroup] = {group["id"]: group for group in groups}
 
         for group_id, items in profile_world.items():
             target = by_id.get(group_id)
@@ -244,12 +253,12 @@ class UserPortraitProjectionBuilder:
         for assertion in assertions:
             if assertion_portrait_role(assertion) != "world":
                 continue
-            group_id = _world_group_for_assertion(assertion)
-            if not group_id:
+            assertion_group_id = _world_group_for_assertion(assertion)
+            if not assertion_group_id:
                 continue
             item = _item_from_assertion(assertion)
             if item:
-                by_id[group_id]["items"].append(item)
+                by_id[assertion_group_id]["items"].append(item)
 
         for group in groups:
             group["items"] = _dedupe_items(group["items"])[:5]
@@ -520,6 +529,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
         "display_status": render_assertion_fact(assertion).completeness.value,
+        "fact_signature": assertion_fact_signature(assertion),
         "correction_value": _correction_value(assertion.get("trait_value")),
         "correction_value_options": assertion_value_options(assertion),
         "correction_trait_name": _text(assertion.get("trait_name")),
@@ -541,7 +551,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _world_group_for_assertion(assertion: dict[str, Any]) -> str | None:
-    return classify_assertion_portrait(assertion).world_group
+    group_id: str | None = classify_assertion_portrait(assertion).world_group
+    return group_id
 
 
 def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:

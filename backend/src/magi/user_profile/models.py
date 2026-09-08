@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from ..identity.defaults import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 PROFILE_ENTITY_TYPE = "user"
-PORTRAIT_PROMPT_CONTRACT_VERSION = 1
+PORTRAIT_PROMPT_CONTRACT_VERSION = 2
 
 PROFILE_ASSERTION_FAMILIES = (
     "identity_profile",

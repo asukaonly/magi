@@ -64,7 +64,11 @@ def _seed_claim(
     fact_valid_from: float | None = None,
     fact_valid_to: float | None = None,
     natural_summary: str = "",
+    surface_verified: bool = True,
 ) -> None:
+    # Normal fixtures represent host-verified evidence surfaces. Corruption
+    # fixtures explicitly opt out of that provenance contract.
+    locator = {"reference_surfaces": {"object": str(object_value)}} if surface_verified else {}
     with sqlite3.connect(db_path) as db:
         db.execute(
             """
@@ -100,9 +104,9 @@ def _seed_claim(
                 claim_id, event_id, link_role, required_for_grounding,
                 event_time, timestamp_confidence, timestamp_quality,
                 evidence_rule_version, evidence_mode, source_type,
-                source_domain, author_type, evidence_class, created_at
+                source_domain, author_type, evidence_class, evidence_locator_json, created_at
             ) VALUES (?, ?, 'supporting', 0, ?, 'exact', 'exact', 1,
-                      'direct', 'chat', 'user_authored', ?, ?, ?)
+                      'direct', 'chat', 'user_authored', ?, ?, ?, ?)
             """,
             (
                 claim_id,
@@ -110,6 +114,7 @@ def _seed_claim(
                 created_at,
                 author_type,
                 evidence_class,
+                json.dumps(locator, ensure_ascii=False),
                 created_at,
             ),
         )
@@ -262,7 +267,7 @@ def test_tentative_claim_renderer_uses_only_typed_claim_and_route_fields(
         {
             "availability": "active",
             "canonical_predicate": predicate,
-            "object_value": value,
+            "object_display_text": value,
         },
         {
             "target_kind": "route",
@@ -290,7 +295,7 @@ def test_tentative_claim_policy_rejects_non_profile_and_stale_routes() -> None:
     claim = {
         "availability": "active",
         "canonical_predicate": "WORKS_ON",
-        "object_value": "Magi",
+        "object_display_text": "Magi",
     }
     project_route = {
         "target_kind": "route",
@@ -319,12 +324,111 @@ def test_tentative_claim_policy_rejects_non_profile_and_stale_routes() -> None:
             {
                 "availability": "active",
                 "canonical_predicate": "LIKES",
-                "object_value": "Magi",
+                "object_display_text": "Magi",
             },
             stale_route,
         )
         is None
     )
+
+
+def test_tentative_claim_renderer_never_falls_back_to_raw_reference():
+    route = {
+        "target_kind": "route", "target_slot_key": "slt_test",
+        "route_contract_version": ROUTE_CONTRACT_VERSION, "outcome": "routed",
+        "details": _route_details(
+            family="preference_profile", trait_code="preference.affinity", value_fingerprint="val_test",
+        ),
+    }
+    assert classify_tentative_portrait_claim({
+        "availability": "active", "canonical_predicate": "LIKES",
+        "object_value": "opaque-identity", "object_surface": "opaque-identity",
+        "object_display_text": None,
+    }, route) is None
+
+
+@pytest.mark.parametrize("recorded_value", ["苹果", "Apple", "opaque-apple-identity"])
+async def test_tentative_portrait_hydrates_catalog_name_across_reload_without_changing_claim(
+    tmp_path, recorded_value,
+):
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path, claim_id="clm_apple", event_id="event-apple", predicate="DISLIKES",
+        object_value=recorded_value, family="preference_profile", trait_code="preference.affinity",
+        slot_key="slt_apple", value_fingerprint="val_apple", created_at=100.0,
+        surface_verified=recorded_value != "opaque-apple-identity",
+    )
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "INSERT INTO entity_catalog (entity_id, canonical_name, entity_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            ("opaque-apple-identity", "苹果", "other", 1.0, 1.0),
+        )
+        db.execute(
+            "INSERT INTO l2_claim_entity_refs (claim_id, ref_role, entity_id, resolution_version, created_at) VALUES (?, ?, ?, ?, ?)",
+            ("clm_apple", "object", "opaque-apple-identity", 1, 100.0),
+        )
+        original = db.execute("SELECT * FROM l2_grounded_claims WHERE claim_id = 'clm_apple'").fetchone()
+    for _ in range(2):
+        store = _store(db_path, visible_event_ids={"event-apple"})
+        candidates = await list_tentative_portrait_claims(store, user_id="local_user")
+        assert len(candidates) == 1
+        assert candidates[0].prompt_line == "用户曾自述：不喜欢「苹果」（尚未形成长期结论）"
+        assert candidates[0].basis_refs == ("event:event-apple",)
+        projection = await UserPortraitProjectionBuilder(store).build("local_user")
+        assert projection.prompt_summary == [candidates[0].prompt_line]
+        assert not await portrait_projection_is_stale(projection, user_id="local_user", l2_store=store)
+        with sqlite3.connect(db_path) as db:
+            assert db.execute("SELECT * FROM l2_grounded_claims WHERE claim_id = 'clm_apple'").fetchone() == original
+
+
+async def test_tentative_portrait_drops_unresolved_identity_but_preserves_literal_address(tmp_path):
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    for claim_id, predicate, family, trait in (
+        ("clm_unresolved", "LIKES", "preference_profile", "preference.affinity"),
+        ("clm_address", "PREFERRED_FORM_OF_ADDRESS", "communication_profile", "communication.address.preferred"),
+    ):
+        _seed_claim(
+            db_path, claim_id=claim_id, event_id=f"event-{claim_id}", predicate=predicate,
+            object_value="opaque-identity", family=family, trait_code=trait,
+            slot_key=f"slt_{claim_id}", value_fingerprint=f"val_{claim_id}", created_at=100.0,
+            surface_verified=claim_id == "clm_address",
+        )
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "INSERT INTO l2_claim_entity_refs (claim_id, ref_role, entity_id, resolution_version, created_at) VALUES (?, ?, ?, ?, ?)",
+                (claim_id, "object", "opaque-identity", 1, 100.0),
+            )
+    store = _store(db_path, visible_event_ids={"event-clm_unresolved", "event-clm_address"})
+    candidates = await list_tentative_portrait_claims(store, user_id="local_user")
+    assert len(candidates) == 1
+    assert candidates[0].claim_id == "clm_address"
+    assert candidates[0].prompt_line == "用户曾自述：希望被称呼为「opaque-identity」（尚未形成长期结论）"
+
+
+@pytest.mark.parametrize(("historical_ref", "surface_verified"), [(False, False), (True, False), (True, True)])
+async def test_tentative_portrait_does_not_reinterpret_invalidated_reference_as_surface(
+    tmp_path, historical_ref, surface_verified,
+):
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    _seed_claim(
+        db_path, claim_id="clm_removed", event_id="event-removed", predicate="LIKES",
+        object_value="opaque-removed-identity", family="preference_profile", trait_code="preference.affinity",
+        slot_key="slt_removed", value_fingerprint="val_removed", created_at=100.0,
+        surface_verified=surface_verified,
+    )
+    if historical_ref:
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "INSERT INTO l2_claim_entity_refs (claim_id, ref_role, entity_id, resolution_version, created_at, invalidated_at, invalidated_reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("clm_removed", "object", "opaque-removed-identity", 1, 100.0, 101.0, "entity_deleted"),
+            )
+    store = _store(db_path, visible_event_ids={"event-removed"})
+    assert await list_tentative_portrait_claims(store, user_id="local_user") == []
+    projection = await UserPortraitProjectionBuilder(store).build("local_user")
+    assert projection.prompt_summary == []
 
 
 @pytest.mark.asyncio

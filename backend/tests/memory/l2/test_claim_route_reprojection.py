@@ -86,17 +86,18 @@ async def _seed_claim(
                     claim_id, event_id, link_role, required_for_grounding,
                     event_time, timestamp_confidence, timestamp_quality,
                     evidence_rule_version, evidence_mode, source_type,
-                    source_domain, author_type, evidence_class, created_at
+                    source_domain, author_type, evidence_class, evidence_locator_json, created_at
                 ) VALUES (
                     ?, ?, 'supporting', 1, ?, 'exact', 'source',
                     1, 'direct', 'chat', 'conversation', 'user',
-                    'user_self_report', ?
+                    'user_self_report', ?, ?
                 )
                 """,
                 (
                     claim_id,
                     evidence_event_id,
                     evidence_event_time if evidence_event_time is not None else created_at,
+                    json.dumps({"reference_surfaces": {"object": str(object_value)}}),
                     created_at,
                 ),
             )
@@ -699,6 +700,7 @@ async def test_reprojection_retries_after_object_resolution_changes(
         claim_id="claim-resolves-later",
         predicate="LIKES",
         created_at=10.0,
+        evidence_event_id="evt-resolves-later",
     )
     await _seed_route_outcome(
         l2_store_with_schema,
@@ -1072,6 +1074,8 @@ async def test_reprojection_keeps_existing_current_receipt_and_retires_stale_dup
     event_id = "event:current-and-stale-receipts"
     object_entity_id = "topic:jazz"
     current_attempt_key = f"route-reproject:v{ROUTE_CONTRACT_VERSION}:r1:{claim_id}"
+    catalog = L2EntityCatalog(db_path=l2_store_with_schema.db_path)
+    await catalog.upsert_entity(entity_id=object_entity_id, canonical_name="Jazz", entity_type="topic")
     route = _derive_route(
         claim_id=claim_id,
         predicate="LIKES",

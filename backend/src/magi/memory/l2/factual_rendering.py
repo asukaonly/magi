@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from ...i18n import effective_app_language_code
-from .phase1_models import L2Phase1FactClaim
+from .claim_text import ResolvedClaimText
+from .phase1_models import L2Phase1FactClaim, L2TemporalCue
 
 _PREDICATE_WORDING = {
     "LIKES": ("喜欢", "likes"),
@@ -32,7 +33,12 @@ def grounded_predicate_wording(predicate: str) -> tuple[str, str] | None:
     return _PREDICATE_WORDING.get(predicate.upper())
 
 
-def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = None) -> str:
+def render_grounded_fact(
+    claim: L2Phase1FactClaim,
+    *,
+    resolved_text: ResolvedClaimText,
+    language: str | None = None,
+) -> str:
     """Render a supported positive predicate without adding model-authored facts."""
     if claim.polarity != "positive":
         return ""
@@ -40,11 +46,11 @@ def render_grounded_fact(claim: L2Phase1FactClaim, *, language: str | None = Non
     if wording is None:
         return ""
     zh = (language or effective_app_language_code()).startswith("zh")
-    subject = "用户" if zh else "The user"
-    if claim.subject_type not in {"user", "person"}:
-        subject = claim.subject_ref
-    value = " ".join(str(claim.object_ref).split())
-    cue = claim.temporal_cue.value
+    subject = ("用户" if zh else "The user") if resolved_text.subject_is_self else resolved_text.subject_name
+    value = resolved_text.object_name
+    if not subject or not value:
+        return ""
+    cue = L2TemporalCue.from_value(claim.temporal_cue).value
     qualifier = {"recent": "最近", "one_off": "曾在一次经历中"}.get(cue, "") if zh else {
         "recent": "recently ", "one_off": "on one occasion "
     }.get(cue, "")

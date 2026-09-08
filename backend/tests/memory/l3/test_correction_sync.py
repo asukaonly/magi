@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from contextlib import asynccontextmanager
 
@@ -23,6 +24,14 @@ from magi.memory.l3.dependency_validation import StaleL3CandidateError
 from magi.memory.l3.state_change_service import StateChangeService
 from magi.memory.l3.summary_store import L3SummaryStore
 from magi.memory.store_l3_insights import L3InsightsMixin
+
+
+@pytest.fixture(autouse=True)
+def _english_fact_language():
+    from magi.i18n import language_context
+
+    with language_context("en"):
+        yield
 
 
 class _L1:
@@ -150,6 +159,7 @@ async def _candidate_for_assertion(
             entity_type="user",
             outcomes=[
                 ReconciledTraitOutcome(
+                    fact_completeness="complete",
                     entity_id="user:u1",
                     entity_type="user",
                     trait_name="stress_level",
@@ -187,6 +197,7 @@ async def test_correction_only_rebuilds_dependent_l3_insight(tmp_path) -> None:
             entity_type="user",
             outcomes=[
                 ReconciledTraitOutcome(
+                    fact_completeness="complete",
                     entity_id="user:u1",
                     entity_type="user",
                     trait_name="stress_level",
@@ -281,6 +292,7 @@ async def test_newer_correction_supersedes_paused_l3_rebuild(
             entity_type="user",
             outcomes=[
                 ReconciledTraitOutcome(
+                    fact_completeness="complete",
                     entity_id="user:u1",
                     entity_type="user",
                     trait_name="stress_level",
@@ -430,6 +442,7 @@ async def test_l3_rebuild_guards_every_dependency_subject(
     )
     outcomes = [
         ReconciledTraitOutcome(
+            fact_completeness="complete",
             entity_id="user:u1",
             entity_type="user",
             trait_name="stress_level",
@@ -445,6 +458,7 @@ async def test_l3_rebuild_guards_every_dependency_subject(
             source_assertion_id=user_assertion_id,
         ),
         ReconciledTraitOutcome(
+            fact_completeness="complete",
             entity_id="person:p1",
             entity_type="person",
             trait_name="mood",
@@ -534,6 +548,7 @@ async def test_stale_l3_insight_is_hidden_when_rebuild_has_no_current_claim(
             entity_type="user",
             outcomes=[
                 ReconciledTraitOutcome(
+                    fact_completeness="complete",
                     entity_id="user:u1",
                     entity_type="user",
                     trait_name="stress_level",
@@ -544,6 +559,7 @@ async def test_stale_l3_insight_is_hidden_when_rebuild_has_no_current_claim(
                     time_span_hours=72.0,
                     stability_kind="stable_pattern",
                     recommended_snapshot_field="core_traits",
+                    natural_summary="Work stress has stayed high.",
                     trait_family="stress",
                     source_assertion_id=assertion_id,
                 )
@@ -1349,3 +1365,132 @@ async def _summary_chunk_ids(db_path: str, summary_id: str) -> list[str]:
             (summary_id,),
         ) as cursor:
             return [str(row[0]) for row in await cursor.fetchall()]
+
+
+@pytest.mark.parametrize("review_state", ["pending_confirmation", "confirmed", "rejected"])
+async def test_wording_recovery_limits_summary_and_assertion_identities_and_preserves_review(
+    tmp_path, review_state,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    now = time.time()
+    assertion_id = await _seed_assertion(l2, now=now)
+    first = await l2.get_tom_assertion(assertion_id=assertion_id)
+    assert first is not None
+    unrelated_assertion_id = await l2.upsert_assertion_candidate({
+        **first, "assertion_id": "", "slot_key": "", "semantic_slot_key": "",
+        "target_entity_id": "other:unrelated-context", "target_scope": "entity_bound",
+        "context_ref_id": "other:unrelated-context", "context_key": "unrelated-context",
+        "natural_summary": "An unrelated context has high stress.",
+        "evidence_events": ["evt-other-1", "evt-other-2"],
+    })
+    assert unrelated_assertion_id != assertion_id
+    host = _InsightHost(l2=l2, l3=l3)
+    target = await host.persist_l3_candidate(candidate=await _candidate_for_assertion(assertion_id))
+    other_candidate = await _candidate_for_assertion(
+        unrelated_assertion_id, event_ids=["evt-other-1", "evt-other-2"],
+    )
+    other_candidate.insight_key = "state_change:user:u1:other-summary"
+    other = await host.persist_l3_candidate(candidate=other_candidate)
+    assert target is not None and other is not None
+    assert await l3.set_review_state(
+        summary_id=str(target["summary_id"]), review_state=review_state, user_note="Preserve this review note",
+    )
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute(
+            "UPDATE tom_trait_assertions SET natural_summary = ? WHERE assertion_id = ?",
+            ("Work stress has stayed high with a clear cause.", assertion_id),
+        )
+        await db.execute("UPDATE summaries SET derivation_state = 'stale', updated_at = ?", (now + 1.0,))
+        await db.commit()
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (other["summary_id"],)) as cursor:
+            unrelated_before = dict(await cursor.fetchone())
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (target["summary_id"],)) as cursor:
+            target_before = dict(await cursor.fetchone())
+    await L3CorrectionDerivationService(db_path=db_path, l2_store=l2, l3_store=l3).rebuild_subject(
+        "user:u1", expected_revision=0, summary_ids=[str(target["summary_id"])],
+    )
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (other["summary_id"],)) as cursor:
+            assert dict(await cursor.fetchone()) == unrelated_before
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (target["summary_id"],)) as cursor:
+            current = dict(await cursor.fetchone())
+        async with db.execute(
+            "SELECT source_id FROM memory_derivation_dependencies WHERE artifact_id = ? ORDER BY source_id",
+            (target["summary_id"],),
+        ) as cursor:
+            assert [row[0] for row in await cursor.fetchall()] == [assertion_id]
+    if review_state == "rejected":
+        assert current == target_before
+    else:
+        assert current["content"] == "Work stress has stayed high with a clear cause."
+        assert current["derivation_state"] == "current"
+        assert current["review_state"] == review_state
+        assert current["period_start"] == target_before["period_start"]
+        assert current["period_end"] == target_before["period_end"]
+        metadata = json.loads(current["insight_metadata"])
+        previous_metadata = json.loads(target_before["insight_metadata"])
+        assert metadata["user_note"] == previous_metadata["user_note"]
+        assert metadata["review_history"] == previous_metadata["review_history"]
+        assert "unrelated" not in current["content"].lower()
+    await l3.shutdown()
+
+
+async def test_wording_recovery_keeps_mixed_dependencies_stale_without_rewriting(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    assertion_id = await _seed_assertion(l2, now=time.time())
+    insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+        candidate=await _candidate_for_assertion(assertion_id),
+    )
+    assert insight is not None
+    summary_id = str(insight["summary_id"])
+    await MemoryCorrectionRepository(db_path).replace_artifact_dependencies(
+        artifact_kind="l3_insight",
+        artifact_id=summary_id,
+        dependencies=[
+            ("assertion", assertion_id, "user:u1", 0),
+            ("edge", "edge-original-support", "user:u1", 0),
+        ],
+    )
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE summaries SET derivation_state = 'stale' WHERE summary_id = ?", (summary_id,),
+        )
+        await db.commit()
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (summary_id,)) as cursor:
+            summary_before = await cursor.fetchone()
+        async with db.execute(
+            "SELECT * FROM memory_derivation_dependencies WHERE artifact_id = ? ORDER BY source_kind, source_id",
+            (summary_id,),
+        ) as cursor:
+            dependencies_before = await cursor.fetchall()
+
+    service = L3CorrectionDerivationService(db_path=db_path, l2_store=l2, l3_store=l3)
+    with pytest.raises(StaleL3CandidateError, match="assertion-only dependencies"):
+        await service.rebuild_subject("user:u1", expected_revision=0, summary_ids=[summary_id])
+
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT * FROM summaries WHERE summary_id = ?", (summary_id,)) as cursor:
+            assert await cursor.fetchone() == summary_before
+        async with db.execute(
+            "SELECT * FROM memory_derivation_dependencies WHERE artifact_id = ? ORDER BY source_kind, source_id",
+            (summary_id,),
+        ) as cursor:
+            assert await cursor.fetchall() == dependencies_before
+        async with db.execute(
+            "SELECT derivation_state FROM summaries WHERE summary_id = ?", (summary_id,),
+        ) as cursor:
+            assert await cursor.fetchone() == ("stale",)
+    assert await l3.get_summary_by_id(summary_id) is None
+    await l3.shutdown()
