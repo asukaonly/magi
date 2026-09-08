@@ -794,6 +794,12 @@ The managed service runs after GUI login; it is not a system daemon. Installatio
 uses a fixed executable/configuration path and rejects replacement of another
 installation's launch agent. `uninstall` removes the owned startup registration
 and preserves business data and configuration. Desktop removal is independent.
+Stop and restart wait for launchd to remove the old registration. Start explicitly
+requests a running job, including when the label already exists, so a rapid
+stop/start cannot silently accept a departing job as a running center.
+`scripts/smoke-service-launchagent.py` validates this lifecycle using a temporary
+data root, refuses to replace an existing installation, and removes its own
+registration while preserving its test data.
 
 Mac release CI builds the standalone disk image from the same signed service
 component inside the desktop candidate. The standalone image requires an accepted

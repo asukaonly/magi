@@ -56,6 +56,7 @@ pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
         io::Write,
         os::unix::fs::{MetadataExt, OpenOptionsExt},
         process::Command,
+        time::{Duration, Instant},
     };
     let config_path = config_path.canonicalize().map_err(|e| e.to_string())?;
     let config = ServerConfig::load(&config_path)?;
@@ -93,10 +94,25 @@ pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
             .status
             .success())
     };
+    let unload = || -> Result<(), String> {
+        if loaded()? {
+            launchctl(&["bootout", &target])?;
+        }
+        // launchd can retain a departing job briefly after bootout returns.
+        // A subsequent start must not mistake that job for a live registration.
+        let deadline = Instant::now() + Duration::from_secs(55);
+        while loaded()? {
+            if Instant::now() >= deadline {
+                return Err("Timed out waiting for the managed service to unload".into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        Ok(())
+    };
     if command == "install" {
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
         if !plist.exists() {
-            // Pre-create the log directory before launchd opens standard streams.
+            // Pre-create the service-owned log directory before launchd starts it.
             magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
             fs::create_dir_all(config.data_dir.join("logs")).map_err(|e| e.to_string())?;
             magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
@@ -128,21 +144,19 @@ pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
                 launchctl(&["enable", &target])?;
                 launchctl(&["bootstrap", &domain, plist_arg])?;
             }
+            launchctl(&["kickstart", &target])?;
         }
         "stop" | "uninstall" => {
-            if loaded()? {
-                launchctl(&["bootout", &target])?;
-            }
+            unload()?;
             if command == "uninstall" {
                 fs::remove_file(&plist).map_err(|e| e.to_string())?;
             }
         }
         "restart" => {
-            if loaded()? {
-                launchctl(&["bootout", &target])?;
-            }
+            unload()?;
             launchctl(&["enable", &target])?;
             launchctl(&["bootstrap", &domain, plist_arg])?;
+            launchctl(&["kickstart", &target])?;
         }
         _ => return Err("Unknown service installation command".into()),
     }
