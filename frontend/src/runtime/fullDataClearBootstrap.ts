@@ -6,7 +6,10 @@ export async function finishPendingCenterMaintenanceBeforeAppReady(
   onPhase: (phase: StartupPhase) => void,
   options: { releaseInteractionGateWhenNotPending?: boolean } = {},
 ): Promise<void> {
-  onPhase('recovering_maintenance');
-  await recoverPendingCenterMaintenance(options.releaseInteractionGateWhenNotPending === true);
+  onPhase('connecting');
+  await recoverPendingCenterMaintenance(
+    options.releaseInteractionGateWhenNotPending === true,
+    () => onPhase('recovering_maintenance'),
+  );
   dispatchAppEvent.memoryClearRecoveryReleased();
 }

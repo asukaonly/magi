@@ -996,12 +996,12 @@ async fn cors_allows_desktop_origin_and_session_header() {
 
     let req = Request::builder()
         .method("OPTIONS")
-        .uri("/api/health")
-        .header("Origin", "http://127.0.0.1:5173")
+        .uri("/api/server/maintenance")
+        .header("Origin", "tauri://localhost")
         .header("Access-Control-Request-Method", "GET")
         .header(
             "Access-Control-Request-Headers",
-            format!("{}, range", api::security::SESSION_TOKEN_HEADER),
+            format!("{}, range, user-agent", api::security::SESSION_TOKEN_HEADER),
         )
         .body(Body::empty())
         .unwrap();
@@ -1022,6 +1022,7 @@ async fn cors_allows_desktop_origin_and_session_header() {
         .to_ascii_lowercase();
     assert!(allowed_headers.contains(api::security::SESSION_TOKEN_HEADER));
     assert!(allowed_headers.contains("range"));
+    assert!(allowed_headers.contains("user-agent"));
     drop(guard);
 }
 

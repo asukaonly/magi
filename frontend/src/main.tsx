@@ -32,6 +32,7 @@ import { finishPendingCenterMaintenanceBeforeAppReady } from './runtime/fullData
 import { useFullDataClearInteractionGate } from './hooks/useFullDataClearInteractionGate';
 import DesktopQuitPrompt from './components/layout/DesktopQuitPrompt';
 import { PreAppWindowFrame } from './components/layout/PreAppWindowFrame';
+import { getErrorMessage } from './utils/error-handler';
 
 initializeDesktopLogging();
 initializeTheme();
@@ -147,9 +148,8 @@ const RuntimeBootstrap: React.FC = () => {
       if (current()) setReady(true);
     } catch (err) {
       if (!current()) return;
-      const message = err instanceof Error
-        ? err.message
-        : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' });
+      const message = getErrorMessage(err)
+        ?? (typeof err === 'string' ? err : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' }));
       setError(message);
       const detail = await readBackendStartupDiagnostics();
       if (current()) setDiagnostics(detail);

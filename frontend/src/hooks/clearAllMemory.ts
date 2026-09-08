@@ -108,13 +108,14 @@ export async function confirmCenterRestore(candidateId: string): Promise<void> {
 }
 
 /** Observe receipts by identity; reconnect never silently resubmits a destructive request. */
-export async function recoverPendingCenterMaintenance(retryFailed = false): Promise<boolean> {
-  if (activeMaintenance) { await activeMaintenance; return true; }
+export async function recoverPendingCenterMaintenance(retryFailed = false, onPending?: () => void): Promise<boolean> {
+  if (activeMaintenance) { onPending?.(); await activeMaintenance; return true; }
   const status = await serverApi.maintenance();
   const running = !['idle', 'completed'].includes(status.phase);
   const localKind: Kind | null = centerLocalStorage().getItem(pendingKey('clear')) ? 'clear'
     : centerLocalStorage().getItem(pendingKey('restore')) ? 'restore' : null;
   if (running || localKind) {
+    onPending?.();
     const kind = running ? status.kind : localKind;
     const id = running ? status.operation_id : localKind && centerLocalStorage().getItem(pendingKey(localKind));
     if (!kind || !id) throw new Error('Center maintenance identity is missing');
@@ -127,6 +128,7 @@ export async function recoverPendingCenterMaintenance(retryFailed = false): Prom
     });
     return true;
   }
+  if (status.content_epoch !== getRuntimeConfig().contentEpoch || centerLocalStorage().getItem('maintenance.device-cleanup')) onPending?.();
   try { await applyCenterEpochs(status); }
   catch (error) {
     dispatchAppEvent.centerMaintenance('clear', 'failed', error instanceof Error ? error.message : 'This device cleanup is incomplete');

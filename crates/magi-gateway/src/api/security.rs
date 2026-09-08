@@ -6,6 +6,7 @@ use crate::auth::AuthStore;
 use axum::extract::Request;
 use axum::http::header::{
     ACCEPT, ACCEPT_LANGUAGE, CACHE_CONTROL, CONTENT_TYPE, ORIGIN, RANGE, REFERRER_POLICY,
+    USER_AGENT,
 };
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
@@ -130,6 +131,8 @@ impl GatewaySecurity {
                 ACCEPT,
                 ACCEPT_LANGUAGE,
                 CONTENT_TYPE,
+                // WebKit includes this header in custom-scheme fetch preflights.
+                USER_AGENT,
                 RANGE,
                 HeaderName::from_static(SESSION_TOKEN_HEADER),
                 HeaderName::from_static("last-event-id"),
