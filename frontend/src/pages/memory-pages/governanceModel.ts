@@ -571,7 +571,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
     const evidenceEvents = toList(assertion.evidence_events);
     const entityName = assertion.entity_name || label('assertions.unknownEntity', '未知对象');
     const traitLabel = getAssertionTraitLabel(assertion, t);
-    const displayText = getAssertionDisplayText(assertion, t);
+    const displayText = getAssertionDisplayText(assertion);
     const traitValue = safeText(assertion.trait_value, '');
     const lifecycleStatus = safeText(
       assertion.status,

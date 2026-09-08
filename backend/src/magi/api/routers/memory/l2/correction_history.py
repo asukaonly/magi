@@ -10,7 +10,7 @@ from typing import Any
 import aiosqlite
 
 from .....core.sqlite import sqlite_connection_async
-from .....memory.l2.assertion_display import decorate_assertion_display
+from .....memory.l2.assertion_display import SummaryPolicy, decorate_assertion_display
 from .....memory.l2.corrections.fingerprints import (
     assertion_claim_fingerprint,
     canonical_scope_json,
@@ -27,7 +27,7 @@ from .....memory.l2.corrections.models import (
 )
 from .....memory.l2.corrections.repository import MemoryCorrectionRepository
 
-_ASSERTION_VALUE_FIELDS = frozenset({"trait_value", "value", "display_text", "value_options"})
+_ASSERTION_VALUE_FIELDS = frozenset({"trait_value", "value", "display_text", "display_status", "value_options"})
 _RELATIONSHIP_VALUE_FIELDS = frozenset(
     {
         "subject_id",
@@ -71,9 +71,9 @@ async def prepare_correction_history(
     if target_kind == CorrectionTargetKind.ASSERTION:
         # History has never exposed free-text summaries; retain that privacy boundary.
         versions = await decorate_assertion_display(db_path, [
-            {**version, "natural_summary": ""} for version in versions
+            version for version in versions
             if _version_record_id(target_kind, version) not in forgotten_ids
-        ])
+        ], summary_policy=SummaryPolicy.STRUCTURED_ONLY)
     public_versions = [
         public_version
         for version in versions
@@ -218,10 +218,11 @@ async def _decorate_normalized_corrections(
         ):
             if value is not None and record_id not in forgotten_ids:
                 display_keys.append((correction.correction_id, field))
-                # Immutable wording may retain text from partially forgotten evidence.
-                display_inputs.append({**value, "natural_summary": ""})
+                display_inputs.append(value)
     display_values = dict(zip(
-        display_keys, await decorate_assertion_display(db_path, display_inputs)
+        display_keys, await decorate_assertion_display(
+            db_path, display_inputs, summary_policy=SummaryPolicy.STRUCTURED_ONLY
+        )
     ))
     records: list[dict[str, Any]] = []
     for correction in corrections:
@@ -579,6 +580,7 @@ def _public_version(
     if target_kind == CorrectionTargetKind.ASSERTION:
         allowed = (
             "display_text",
+            "display_status",
             "value_options",
             "trait_value",
             "status",

@@ -43,7 +43,15 @@ async def search_memory(request: RetrievalRequest):
     response = asdict(payload)
     memory = _resolve_unified_memory()
     l2 = getattr(memory, "l2", None)
-    response["l2_assertions"] = await decorate_assertion_display(
-        getattr(l2, "db_path", None), payload.l2_assertions
+    locations = [
+        (group, index)
+        for group, items in response.items() if isinstance(items, list)
+        for index, item in enumerate(items)
+        if isinstance(item, dict) and (group == "l2_assertions" or "assertion_id" in item)
+    ]
+    facts = await decorate_assertion_display(
+        getattr(l2, "db_path", None), [response[group][index] for group, index in locations]
     )
+    for (group, index), fact in zip(locations, facts):
+        response[group][index] = fact
     return response

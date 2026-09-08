@@ -141,7 +141,7 @@ export function MemoryCorrectionHistory({
     setError(null);
     try {
       try {
-        await memoryApi.revertCorrection(correction.correction_id, requestId);
+        await memoryApi.revertCorrection(correction.correction_id, requestId, target.kind);
       } catch (caught) {
         const clientError = toApiClientError(caught);
         if (clientError.status === 409 || clientError.status === 404) {
@@ -511,7 +511,7 @@ function correctionValue(
 ): string {
   const safeValue = value ?? {};
   if (target.kind === 'assertion') {
-    return getAssertionDisplayText(safeValue, t);
+    return value ? getAssertionDisplayText(value) : t('memory.facts.unavailable');
   }
   const objectId = String(safeValue.object_id ?? target.relationship.objectId).trim();
   const knownObjectName = target.entityOptions.find((entity) => entity.id === objectId)?.name

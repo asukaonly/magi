@@ -8,6 +8,7 @@ from datetime import date, datetime
 from typing import Any
 
 from ..memory.derivation_revision import DerivationRevision
+from ..memory.l2.assertion_values import decode_assertion_literal
 from .derivation import derive_age_years, derive_birth_year, parse_iso_date
 from .models import (
     DEFAULT_USER_ID,
@@ -111,14 +112,16 @@ class UserProfileProjectionBuilder:
         for trait_name, candidates in grouped.items():
             ordered = sorted(candidates, key=_assertion_score, reverse=True)
             selected[trait_name] = ordered[0]
-            unique_values = {_stable_value(candidate.get("trait_value")) for candidate in ordered}
+            unique_values = {
+                _stable_value(trait_name, candidate.get("trait_value")) for candidate in ordered
+            }
             if len(unique_values) > 1:
                 conflicts[trait_name] = {
                     "selected_assertion_id": ordered[0].get("assertion_id"),
                     "candidates": [
                         {
                             "assertion_id": candidate.get("assertion_id"),
-                            "value": _parse_assertion_value(candidate.get("trait_value")),
+                            "value": decode_assertion_literal(trait_name, candidate.get("trait_value")),
                             "source": candidate.get("source_domain"),
                             "confidence": candidate.get("confidence_score"),
                             "validation_state": candidate.get("validation_state"),
@@ -157,7 +160,7 @@ def _apply_profile_trait(
     field_name: str,
     assertion: dict[str, Any],
 ) -> None:
-    value = _parse_assertion_value(assertion.get("trait_value"))
+    value = decode_assertion_literal(str(assertion.get("trait_name") or ""), assertion.get("trait_value"))
     if field_name == "birth_year":
         int_value = _coerce_int(value)
         if int_value is not None:
@@ -176,7 +179,7 @@ def _apply_disallowed_forms(
     if not disallowed:
         return
     communication["disallowed_forms_of_address"] = _as_text_list(
-        _parse_assertion_value(disallowed.get("trait_value"))
+        decode_assertion_literal("communication.address.disallowed", disallowed.get("trait_value"))
     )
     field_sources["disallowed_forms_of_address"] = _source_record(disallowed)
 
@@ -190,7 +193,7 @@ def _apply_stated_age(
     stated_age = selected.get("identity.age.stated")
     if not stated_age or projection.age_years:
         return
-    age_value = _coerce_int(_parse_assertion_value(stated_age.get("trait_value")))
+    age_value = _coerce_int(stated_age.get("trait_value"))
     if age_value is None:
         return
     projection.age_years = age_value
@@ -284,20 +287,8 @@ def _assertion_score(assertion: dict[str, Any]) -> tuple[int, float, float]:
     )
 
 
-def _parse_assertion_value(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text or text[0] not in '[{"':
-        return value
-    try:
-        return json.loads(text)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return value
-
-
-def _stable_value(value: Any) -> str:
-    parsed = _parse_assertion_value(value)
+def _stable_value(trait_name: str, value: Any) -> str:
+    parsed = decode_assertion_literal(trait_name, value)
     return (
         json.dumps(parsed, ensure_ascii=False, sort_keys=True)
         if isinstance(parsed, (dict, list))

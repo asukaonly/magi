@@ -39,7 +39,7 @@ const review: L2PendingReview = {
     target_entity_id: 'food:strawberry',
     target_entity_name: '草莓',
     natural_summary: '用户喜欢草莓。',
-    display_text: '用户喜欢草莓。',
+    display_text: '用户喜欢草莓。', display_status: 'complete' as const,
     value_options: ['like', 'dislike'],
   },
   route_contract_version: 7,
@@ -75,6 +75,7 @@ describe('PendingMemoryReviewEditDialog semantic values', () => {
         trait_name: 'communication.address.preferred',
         trait_value: '小夏',
         natural_summary: '用户希望被称呼为小夏。',
+        display_text: '用户希望被称呼为小夏。', display_status: 'complete',
         value_options: null,
       } }}
       busy={false}
@@ -96,6 +97,7 @@ describe('PendingMemoryReviewEditDialog semantic values', () => {
         trait_name: 'interest.attention',
         trait_value: 'interested',
         target_entity_id: 'entity:unresolved',
+        display_text: '完整事实暂不可用', display_status: 'unavailable',
         value_options: ['interested'],
       } }}
       busy={false}

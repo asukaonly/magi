@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import unittest
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from magi.context.user_profile_service import UserProfileService
+from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection
 
 
 class _FakeL2EntityCatalog:
@@ -46,9 +51,12 @@ class _FakeL2Store:
             return [
                 {
                     "assertion_id": "a-magi",
+                    "entity_id": "user:portrait",
+                    "entity_type": "user",
                     "trait_family": "interest_profile",
                     "trait_name": "interest.magi",
                     "trait_value": "Magi 记忆系统",
+                    "natural_summary": "用户关注 Magi 记忆系统。",
                     "source_domain": "conversation",
                     "validation_state": "stable",
                     "temporal_scope": "stable",
@@ -291,3 +299,42 @@ class TestUserProfileService(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing_l2", "profile", "freshness", "rebuild"])
+@pytest.mark.parametrize("contract_version", [0, PORTRAIT_PROMPT_CONTRACT_VERSION, PORTRAIT_PROMPT_CONTRACT_VERSION + 1])
+async def test_portrait_prompt_failure_fallback_requires_current_semantic_contract(failure, contract_version):
+    old_text = "用户关注或偏好：这条记录缺少完整事实描述。"
+    current_text = "用户希望被称为小林。"
+    line = current_text if contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION else old_text
+    cached = UserPortraitProjection(
+        user_id="audit", world={}, review={}, recent={},
+        prompt_summary=[line], prompt_contract_version=contract_version,
+    )
+    repo = SimpleNamespace(get=AsyncMock(return_value=cached), upsert=AsyncMock())
+    service = UserProfileService(unified_memory=SimpleNamespace(l2=None if failure == "missing_l2" else object()))
+    profile = AsyncMock(side_effect=RuntimeError("profile unavailable")) if failure == "profile" else AsyncMock(return_value=None)
+    freshness = AsyncMock(side_effect=RuntimeError("freshness unavailable")) if failure == "freshness" else AsyncMock(return_value=True)
+    builder = SimpleNamespace(build=AsyncMock(side_effect=RuntimeError("rebuild unavailable")))
+    with patch.object(service, "_memory_db_path", return_value="/unused-audit-memory.db"), patch.object(service, "_current_profile_projection", profile), patch("magi.context.user_profile_service.UserPortraitProjectionRepository", return_value=repo), patch("magi.context.user_profile_service.portrait_projection_is_stale", freshness), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
+        actual = await service._fetch_portrait_prompt_summary("audit")
+    assert actual == ([current_text] if contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION else [])
+    assert cached.prompt_summary == [line]
+    repo.upsert.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_portrait_prompt_rebuild_replaces_old_contract_before_context_use():
+    stale = UserPortraitProjection(user_id="audit", prompt_summary=["旧界面占位文案"])
+    current = UserPortraitProjection(
+        user_id="audit", prompt_summary=["用户喜欢草莓。"],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
+    )
+    repo = SimpleNamespace(get=AsyncMock(return_value=stale), upsert=AsyncMock(return_value=current))
+    builder = SimpleNamespace(build=AsyncMock(return_value=current))
+    service = UserProfileService(unified_memory=SimpleNamespace(l2=object()))
+    with patch.object(service, "_memory_db_path", return_value="/unused-audit-memory.db"), patch.object(service, "_current_profile_projection", AsyncMock(return_value=None)), patch("magi.context.user_profile_service.UserPortraitProjectionRepository", return_value=repo), patch("magi.context.user_profile_service.UserPortraitProjectionBuilder", return_value=builder):
+        assert await service._fetch_portrait_prompt_summary("audit") == ["用户喜欢草莓。"]
+    builder.build.assert_awaited_once_with("audit")
+    repo.upsert.assert_awaited_once_with(current)

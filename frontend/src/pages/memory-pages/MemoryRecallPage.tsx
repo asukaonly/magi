@@ -190,10 +190,7 @@ export const MemoryRecallPage = () => {
                   {section.items.map((item, index) => {
                     const assertion = section.field === 'l2_assertions' || typeof item.assertion_id === 'string';
                     const title = assertion
-                      ? getAssertionDisplayText({
-                          display_text: typeof item.display_text === 'string' ? item.display_text : null,
-                          natural_summary: typeof item.natural_summary === 'string' ? item.natural_summary : null,
-                        }, t)
+                      ? getAssertionDisplayText(item)
                       : getSearchItemTitle(item, getResultFallback(section.field, item, index, t));
                     const body = assertion ? null : getSearchItemBody(item, title);
                     const meta = getSearchItemMeta(item, t);

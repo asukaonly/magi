@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import type { L2FactDisplay } from './modules/memory';
+import type { L2FactDisplay, MemoryCorrectionTargetKind } from './modules/memory';
 
 const factDisplaySchema = z.object({
-  display_text: z.string().nullable().optional(),
+  display_text: z.string().trim().min(1),
+  display_status: z.enum(['complete', 'partial', 'unavailable']),
   entity_name: z.string().nullable().optional(),
   target_entity_name: z.string().nullable().optional(),
   natural_summary: z.string().nullable().optional(),
@@ -20,26 +21,32 @@ const reviewDisplaySchema = z.object({
   proposed: factDisplaySchema,
 }).passthrough();
 
-const correctionRecordDisplaySchema = z.object({
-  before: factDisplaySchema.nullable().optional(),
-  replacement: factDisplaySchema.nullable().optional(),
-}).passthrough();
+const relationshipValueSchema = z.object({}).passthrough();
 
-const correctionCommandDisplaySchema = z.object({
-  correction: correctionRecordDisplaySchema,
-  current_claim: factDisplaySchema.nullable().optional(),
-}).passthrough();
-
-const correctionHistoryDisplaySchema = z.object({
-  versions: z.array(factDisplaySchema),
-  corrections: z.array(correctionRecordDisplaySchema),
-}).passthrough();
+const correctionRecordDisplaySchema = (kind: MemoryCorrectionTargetKind) => {
+  const content = kind === 'assertion' ? factDisplaySchema : relationshipValueSchema;
+  return z.object({ before: content.nullable().optional(), replacement: content.nullable().optional() }).passthrough();
+};
 
 const portraitItemCorrectionSchema = z.object({
+  assertion_id: z.string().nullable().optional(),
   correction_value: z.string().nullable().optional(),
   correction_trait_name: z.string().nullable().optional(),
   correction_value_options: z.array(z.string()).nullable().optional(),
-}).passthrough();
+}).passthrough().superRefine((item, ctx) => {
+  if (!item.assertion_id) return;
+  const required = z.object({
+    display_status: z.enum(['complete', 'partial', 'unavailable']),
+    correction_value: z.string(),
+    correction_trait_name: z.string().min(1),
+    correction_value_options: z.array(z.string()).nullable(),
+  }).safeParse(item);
+  if (!required.success) {
+    for (const issue of required.error.issues) {
+      ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+    }
+  }
+});
 
 const portraitItemListSchema = z.object({
   items: z.array(portraitItemCorrectionSchema),
@@ -54,6 +61,10 @@ const portraitCorrectionDisplaySchema = z.object({
 }).passthrough();
 
 /** Validate the host-owned presentation fields without reshaping semantic data. */
+export function parseFactDisplay(value: unknown): L2FactDisplay {
+  return factDisplaySchema.parse(value);
+}
+
 export function validateAssertionDisplay(value: unknown): asserts value is L2FactDisplay {
   assertionDisplaySchema.parse(value);
 }
@@ -63,12 +74,31 @@ export function validateReviewDisplay(value: unknown): asserts value is { propos
   reviewDisplaySchema.parse(value);
 }
 
-export function validateCorrectionCommandDisplay(value: unknown): void {
-  correctionCommandDisplaySchema.parse(value);
+export function validateCorrectionCommandDisplay(value: unknown, kind: MemoryCorrectionTargetKind): void {
+  z.object({
+    correction: correctionRecordDisplaySchema(kind),
+    current_claim: (kind === 'assertion' ? factDisplaySchema : relationshipValueSchema).nullable().optional(),
+  }).passthrough().parse(value);
 }
 
-export function validateCorrectionHistoryDisplay(value: unknown): void {
-  correctionHistoryDisplaySchema.parse(value);
+export function validateCorrectionHistoryDisplay(value: unknown, kind: MemoryCorrectionTargetKind): void {
+  z.object({
+    versions: z.array(kind === 'assertion' ? factDisplaySchema : relationshipValueSchema),
+    corrections: z.array(correctionRecordDisplaySchema(kind)),
+  }).passthrough().parse(value);
+}
+
+export function validateMemorySearchDisplay(value: unknown): void {
+  const result = z.object({ l2_assertions: z.array(assertionDisplaySchema).optional() }).passthrough().parse(value);
+  for (const items of Object.values(result)) {
+    if (!Array.isArray(items)) continue;
+    const rows: unknown[] = items;
+    for (const item of rows) {
+      if (typeof item === 'object' && item !== null && 'assertion_id' in item) {
+        validateAssertionDisplay(item);
+      }
+    }
+  }
 }
 
 export function validatePortraitCorrectionDisplay(value: unknown): void {

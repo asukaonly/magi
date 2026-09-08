@@ -212,14 +212,14 @@ describe('assertion recall display', () => {
   };
 
   it.each([
-    ['喜欢', { natural_summary: '用户喜欢草莓。' }, '用户喜欢草莓。'],
-    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。' }, '用户不喜欢草莓。'],
-    ['兴趣', { trait_name: 'interest.topic', trait_value: 'interest', display_text: '用户对摄影感兴趣。' }, '用户对摄影感兴趣。'],
-    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', display_text: '用户希望被称为小涵。' }, '用户希望被称为小涵。'],
-    ['近期偏好', { temporal_scope: 'recent', display_text: '用户最近喜欢草莓。' }, '用户最近喜欢草莓。'],
-    ['摘要缺失', { display_text: '用户喜欢草莓。' }, '用户喜欢草莓。'],
-    ['实体未解析', { target_entity_name: null, display_text: '用户表达了喜欢，但具体对象暂不可用。' }, '用户表达了喜欢，但具体对象暂不可用。'],
-    ['完整描述缺失', {}, '完整事实暂不可用'],
+    ['喜欢', { natural_summary: '用户喜欢草莓。', display_text: '用户喜欢草莓。', display_status: 'complete' }, '用户喜欢草莓。'],
+    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。', display_text: '用户不喜欢草莓。', display_status: 'complete' }, '用户不喜欢草莓。'],
+    ['兴趣', { trait_name: 'interest.attention', trait_value: 'interested', display_text: '用户对摄影感兴趣。', display_status: 'complete' as const }, '用户对摄影感兴趣。'],
+    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', display_text: '用户希望被称为小涵。', display_status: 'complete' as const }, '用户希望被称为小涵。'],
+    ['近期偏好', { temporal_scope: 'recent', display_text: '用户最近喜欢草莓。', display_status: 'complete' as const }, '用户最近喜欢草莓。'],
+    ['摘要缺失', { display_text: '用户喜欢草莓。', display_status: 'complete' as const }, '用户喜欢草莓。'],
+    ['实体未解析', { target_entity_name: null, display_text: '用户表达了喜欢，但具体对象暂不可用。', display_status: 'partial' as const }, '用户表达了喜欢，但具体对象暂不可用。'],
+    ['完整描述缺失', { display_text: '完整事实暂不可用', display_status: 'unavailable' }, '完整事实暂不可用'],
   ] as const)('renders %s from the fact contract and keeps internal values out of the result', (_name, override, expected) => {
     showAssertions([{
       assertion_id: 'assert_f0246f5594db404196b430b6bc9a5ab4',
@@ -245,8 +245,8 @@ describe('assertion recall display', () => {
 
   it('preserves every concrete object and prioritizes the host display over an older summary', () => {
     showAssertions([
-      { assertion_id: 'strawberry', trait_value: 'like', natural_summary: '用户喜欢草莓。', display_text: '用户最近喜欢草莓。' },
-      { assertion_id: 'blueberry', trait_value: 'like', natural_summary: '用户喜欢蓝莓。' },
+      { assertion_id: 'strawberry', trait_value: 'like', natural_summary: '用户喜欢草莓。', display_text: '用户最近喜欢草莓。', display_status: 'complete' as const },
+      { assertion_id: 'blueberry', trait_value: 'like', natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。', display_status: 'complete' },
     ]);
     expect(screen.getByRole('heading', { name: '用户最近喜欢草莓。' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '用户喜欢蓝莓。' })).toBeInTheDocument();
@@ -254,7 +254,7 @@ describe('assertion recall display', () => {
   });
 
   it('uses the same assertion presentation in structured result groups', () => {
-    showAssertions([{ assertion_id: 'strawberry', trait_value: 'like', value: 'like', display_text: '用户喜欢草莓。' }], 'structured_results');
+    showAssertions([{ assertion_id: 'strawberry', trait_value: 'like', value: 'like', display_text: '用户喜欢草莓。', display_status: 'complete' as const }], 'structured_results');
     expect(screen.getByRole('heading', { name: '用户喜欢草莓。' })).toBeInTheDocument();
     expect(screen.queryByText('like')).not.toBeInTheDocument();
   });

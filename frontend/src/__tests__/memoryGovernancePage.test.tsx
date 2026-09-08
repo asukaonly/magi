@@ -117,7 +117,7 @@ const baseMemoryState = {
       entity_name: '用户',
       entity_type: 'person',
       trait_name: 'communication.response_style.preferred',
-      trait_value: '直白', display_text: '用户的沟通风格偏好是直白',
+      trait_value: '直白', display_text: '用户的沟通风格偏好是直白', display_status: 'complete' as const,
       confidence_score: 0.82,
       evidence_events: ['evt_1', 'evt_2'],
       validation_state: 'stable',
@@ -683,7 +683,7 @@ describe('MemoryGovernancePage', () => {
           entity_id: 'user:self',
           trait_name: 'tool.dev-tauri-hot_sh-75135f',
           trait_value: 'dev tauri hot sh',
-          display_text: '用户的工具是dev tauri hot sh',
+          display_text: '用户的工具是dev tauri hot sh', display_status: 'complete' as const,
         },
       ],
       l2Entities: [
@@ -949,11 +949,11 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_1',
         correction_kind: 'record_error',
-        before: { trait_value: '直白', display_text: '直白' },
+        before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
         created_at: 1719301300,
         state: 'active',
       },
-      current_claim: { trait_value: '直白', display_text: '直白', status: 'user_rejected' },
+      current_claim: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const, status: 'user_rejected' },
       derivation_state: 'completed',
       created: true,
     });
@@ -993,13 +993,13 @@ describe('MemoryGovernancePage', () => {
         correction: {
           correction_id: 'correction_2',
           correction_kind: 'situation_changed',
-          before: { trait_value: '直白', display_text: '直白' },
-          replacement: { value: '详细一些' },
+          before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
+          replacement: { value: '详细一些', display_text: '用户偏好详细一些的回答。', display_status: 'complete' },
           effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
           created_at: 1719374400,
           state: 'active',
         },
-        current_claim: { trait_value: '详细一些', display_text: '详细一些' },
+        current_claim: { trait_value: '详细一些', display_text: '用户偏好详细一些的回答。', display_status: 'complete' as const },
         derivation_state: 'pending',
         created: true,
       });
@@ -1032,7 +1032,7 @@ describe('MemoryGovernancePage', () => {
       effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
       expected_updated_at: 1719301200,
     }));
-    expect(await within(dialog).findByText('详细一些')).toBeInTheDocument();
+    expect(await within(dialog).findByText('用户偏好详细一些的回答。')).toBeInTheDocument();
     expect(within(dialog).getByText('到设定时间后，相关总结会自动更新。')).toBeInTheDocument();
     expect(within(dialog).queryByText('相关总结会在后台继续更新，不影响这次修正生效。')).not.toBeInTheDocument();
   });
@@ -1092,14 +1092,14 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_scope_assertion',
         correction_kind: 'scope_refinement',
-        before: { trait_value: '直白', display_text: '直白' },
-        replacement: { value: '直白' },
+        before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
+        replacement: { value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' },
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
-        trait_value: '直白', display_text: '直白',
+        trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const,
       },
       derivation_state: 'completed',
       created: true,
@@ -1260,15 +1260,15 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assert_1' },
       versions: [
-        { trait_value: '直白', display_text: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
-        { trait_value: '详细一些', display_text: '详细一些', status: 'active', valid_from: 1719301300 },
+        { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const, status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
+        { trait_value: '详细一些', display_text: '用户偏好详细一些的回答。', display_status: 'complete' as const, status: 'active', valid_from: 1719301300 },
       ],
       corrections: [
         {
           correction_id: 'correction_old',
           correction_kind: 'record_error',
-          before: { trait_value: '旧内容', display_text: '旧内容' },
-          replacement: { value: '直白' },
+          before: { trait_value: '旧内容', display_text: '用户过去表达过这项偏好。', display_status: 'complete' as const },
+          replacement: { value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' },
           created_at: 1719301200,
           state: 'active',
           can_revert: false,
@@ -1276,8 +1276,8 @@ describe('MemoryGovernancePage', () => {
         {
           correction_id: 'correction_latest',
           correction_kind: 'situation_changed',
-          before: { trait_value: '直白', display_text: '直白' },
-          replacement: { value: '详细一些' },
+          before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
+          replacement: { value: '详细一些', display_text: '用户偏好详细一些的回答。', display_status: 'complete' },
           created_at: 1719301300,
           state: 'active',
           can_revert: true,
@@ -1289,12 +1289,12 @@ describe('MemoryGovernancePage', () => {
       correction: {
         correction_id: 'correction_latest',
         correction_kind: 'situation_changed',
-        before: { trait_value: '直白', display_text: '直白' },
+        before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
         created_at: 1719301300,
         state: 'reverted',
         can_revert: false,
       },
-      current_claim: { trait_value: '直白', display_text: '直白' },
+      current_claim: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
       derivation_state: 'pending',
       created: false,
     });
@@ -1312,7 +1312,8 @@ describe('MemoryGovernancePage', () => {
 
     await waitFor(() => expect(memoryApi.revertCorrection).toHaveBeenCalledWith(
       'correction_latest',
-      expect.any(String)
+      expect.any(String),
+      'assertion'
     ));
   });
 
@@ -1377,6 +1378,7 @@ describe('MemoryGovernancePage', () => {
           entity_type: 'person',
           trait_name: 'preference',
           trait_value: '',
+          display_text: '完整事实暂不可用', display_status: 'unavailable',
         },
       ],
       l2Entities: [

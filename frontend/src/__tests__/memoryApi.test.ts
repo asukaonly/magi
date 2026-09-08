@@ -101,13 +101,13 @@ describe('memoryApi endpoints', () => {
         slot_key: 'slot-1',
         claim_fingerprint: 'claim-1',
         correction_kind: 'scope_refinement' as const,
-        before: { trait_value: '直白' },
-        replacement: { value: '直白' },
+        before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
+        replacement: { value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active' as const,
       },
-      current_claim: { trait_value: '直白' },
+      current_claim: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
       derivation_state: 'completed' as const,
       created: true,
     };
@@ -172,11 +172,11 @@ describe('memoryApi endpoints', () => {
         slot_key: 'slot-1',
         claim_fingerprint: 'claim-1',
         correction_kind: 'record_error' as const,
-        before: { trait_value: '直白' },
+        before: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
         created_at: 1719301300,
         state: 'reverted' as const,
       },
-      current_claim: { trait_value: '直白' },
+      current_claim: { trait_value: '直白', display_text: '用户偏好直白的回答。', display_status: 'complete' as const },
       derivation_state: 'completed' as const,
       created: false,
     };
@@ -186,7 +186,7 @@ describe('memoryApi endpoints', () => {
       data: response,
     });
 
-    await expect(memoryApi.revertCorrection('correction/with space', 'revert-1')).resolves.toEqual(response);
+    await expect(memoryApi.revertCorrection('correction/with space', 'revert-1', 'assertion')).resolves.toEqual(response);
 
     expect(postSpy).toHaveBeenCalledWith(
       '/memory/l2/corrections/correction%2Fwith%20space/revert',
@@ -207,14 +207,20 @@ describe('memory fact display response boundaries', () => {
     trait_name: 'preference.affinity',
     trait_value: 'like',
     target_entity_id: 'entity-strawberry',
-    display_text: '用户喜欢草莓。',
+    display_text: '用户喜欢草莓。', display_status: 'complete' as const,
     natural_summary: '用户喜欢草莓。',
     entity_name: '用户',
     target_entity_name: '草莓',
-    value_options: ['like', 'dislike', 'neutral'],
+    value_options: ['like', 'dislike'],
   };
 
   const invalidFields = [
+    { display_text: undefined },
+    { display_text: '' },
+    { display_text: '   ' },
+    { display_status: undefined },
+    { display_status: 'tentative' },
+    { display_text: undefined, display_status: undefined },
     { display_text: { value: 'like' } },
     { natural_summary: ['用户喜欢草莓。'] },
     { entity_name: 42 },
@@ -243,6 +249,11 @@ describe('memory fact display response boundaries', () => {
     await expect(memoryApi.submitAssertionFeedback('assert-strawberry', 'confirmed')).rejects.toThrow();
   });
 
+  it.each(invalidFields)('rejects incomplete fact contracts in search results: %j', async (invalid) => {
+    vi.spyOn(api, 'post').mockResolvedValue(response({ l2_assertions: [{ ...fact, ...invalid }] }));
+    await expect(memoryApi.search('草莓')).rejects.toThrow();
+  });
+
   it('retains complete facts and their independent semantic correction values', async () => {
     const list = { items: [fact], total: 1, limit: 10, offset: 0 };
     vi.spyOn(api, 'get').mockResolvedValue({ success: true, message: 'ok', data: list });
@@ -251,11 +262,14 @@ describe('memory fact display response boundaries', () => {
     expect(result.items[0].trait_value).toBe('like');
     expect(result.items[0].display_text).toBe('用户喜欢草莓。');
     expect(result.items[0].target_entity_name).toBe('草莓');
-    expect(result.items[0].value_options).toEqual(['like', 'dislike', 'neutral']);
+    expect(result.items[0].value_options).toEqual(['like', 'dislike']);
   });
 
-  it('allows explicit missing names and summaries for honest fallback presentation', async () => {
-    const unresolved = { ...fact, display_text: null, entity_name: null, target_entity_name: null, natural_summary: null, value_options: null };
+  it.each([
+    ['partial', '用户喜欢尚未解析的对象。'],
+    ['unavailable', '完整事实暂不可用'],
+  ] as const)('preserves explicit %s host presentation without filling missing names or summaries', async (display_status, display_text) => {
+    const unresolved = { ...fact, display_text, display_status, entity_name: null, target_entity_name: null, natural_summary: null, value_options: null };
     vi.spyOn(api, 'patch').mockResolvedValue(response(unresolved));
     expect(await memoryApi.submitAssertionFeedback('assert-strawberry', 'confirmed')).toEqual(unresolved);
   });
@@ -282,7 +296,7 @@ describe('correction and portrait display response boundaries', () => {
   ])('rejects invalid comparison text or semantic choices in command responses: %j', async (invalid) => {
     vi.spyOn(api, 'post').mockResolvedValue(response({ correction: {}, ...invalid }));
     await expect(memoryApi.applyCorrection(request)).rejects.toThrow();
-    await expect(memoryApi.revertCorrection('correction-1', 'revert-1')).rejects.toThrow();
+    await expect(memoryApi.revertCorrection('correction-1', 'revert-1', 'assertion')).rejects.toThrow();
   });
 
   it.each([
@@ -297,10 +311,10 @@ describe('correction and portrait display response boundaries', () => {
   it('preserves host correction text, semantic values, and options independently', async () => {
     const payload = {
       correction: {
-        before: { trait_value: 'like', display_text: '用户喜欢草莓。' },
-        replacement: { value: 'dislike', display_text: '用户不喜欢草莓。', value_options: ['like', 'dislike'] },
+        before: { trait_value: 'like', display_text: '用户喜欢草莓。', display_status: 'complete' as const },
+        replacement: { value: 'dislike', display_text: '用户不喜欢草莓。', display_status: 'complete' as const, value_options: ['like', 'dislike'] },
       },
-      current_claim: { trait_value: 'dislike', display_text: '用户不喜欢草莓。', value_options: ['like', 'dislike'] },
+      current_claim: { trait_value: 'dislike', display_text: '用户不喜欢草莓。', display_status: 'complete' as const, value_options: ['like', 'dislike'] },
     };
     vi.spyOn(api, 'post').mockResolvedValue(response(payload));
     expect(await memoryApi.applyCorrection(request)).toEqual(payload);
@@ -308,7 +322,7 @@ describe('correction and portrait display response boundaries', () => {
 
   it.each(['world', 'review', 'recent'] as const)('validates portrait correction fields in %s items', async (group) => {
     const view = { world: { groups: [] as Array<{ items: unknown[] }> }, review: { items: [] as unknown[] }, recent: { items: [] as unknown[] } };
-    const item = { correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: { 0: 'like' } };
+    const item = { assertion_id: 'assert-strawberry', display_status: 'complete', correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: { 0: 'like' } };
     if (group === 'world') view.world.groups.push({ items: [item] });
     else view[group].items.push(item);
     vi.spyOn(api, 'get').mockResolvedValue(response({ self_view: view }));
@@ -316,9 +330,26 @@ describe('correction and portrait display response boundaries', () => {
   });
 
   it('preserves portrait natural text separately from nullable correction metadata', async () => {
-    const item = { text: '用户喜欢草莓。', correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: ['like', 'dislike'] };
+    const item = { assertion_id: 'assert-strawberry', display_status: 'complete', text: '用户喜欢草莓。', correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: ['like', 'dislike'] };
     const payload = { self_view: { world: { groups: [{ items: [item] }] }, review: { items: [] }, recent: { items: [] } } };
     vi.spyOn(api, 'get').mockResolvedValue(response(payload));
     expect(await memoryPortraitSelfApi.get('local_user')).toEqual(payload);
+  });
+
+  it.each([
+    { display_status: undefined },
+    { display_status: 'tentative' },
+    { correction_value: undefined },
+    { correction_trait_name: '' },
+    { correction_value_options: undefined },
+  ])('rejects assertion-backed portrait items with incomplete display metadata: %j', async (invalid) => {
+    const item = {
+      assertion_id: 'assert-strawberry', display_status: 'complete', text: '用户喜欢草莓。',
+      correction_value: 'like', correction_trait_name: 'preference.affinity', correction_value_options: ['like', 'dislike'],
+      ...invalid,
+    };
+    const payload = { self_view: { world: { groups: [{ items: [item] }] }, review: { items: [] }, recent: { items: [] } } };
+    vi.spyOn(api, 'get').mockResolvedValue(response(payload));
+    await expect(memoryPortraitSelfApi.get('local_user')).rejects.toThrow();
   });
 });

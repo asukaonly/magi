@@ -91,6 +91,30 @@ async def test_projection_builder_prefers_user_authored_profile_assertions():
     assert projection.field_sources["real_name"]["source"] == "user_authored"
 
 
+async def test_profile_field_contract_preserves_literal_and_decodes_address_list():
+    from magi.user_profile.command_service import UserProfileCommandService
+
+    literal = '["小林", "老板"]'
+    service = UserProfileCommandService(unified_memory=None, query_service=None)
+    candidates = service._build_assertion_candidates(
+        user_id="local_user",
+        updates={
+            "preferred_form_of_address": literal,
+            "disallowed_forms_of_address": ["老师", "教授"],
+        },
+        evidence_event_ids=["profile-update"],
+    )
+
+    class ProfileL2:
+        async def list_current_assertions(self, **kwargs):
+            return candidates
+
+    projection = await UserProfileProjectionBuilder(ProfileL2()).build("local_user")
+    assert projection.preferred_form_of_address == literal
+    assert projection.display_name == literal
+    assert projection.communication["disallowed_forms_of_address"] == ["老师", "教授"]
+
+
 async def test_profile_projection_repository_roundtrips_assertion_highwater(tmp_path):
     repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
 

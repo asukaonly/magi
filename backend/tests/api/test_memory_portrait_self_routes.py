@@ -11,7 +11,7 @@ from magi.api.routers.memory.portrait_self_routes import (
     build_router,
     override_dependencies_for_test,
 )
-from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
+from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 
 
 def _app() -> FastAPI:
@@ -61,6 +61,7 @@ def _portrait(*, generated_at: float = 200.0) -> UserPortraitProjection:
         review={"items": []},
         recent={"items": []},
         prompt_summary=["用户关注或偏好：Magi 记忆系统。"],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
         generated_at=generated_at,
     )
 
@@ -98,6 +99,16 @@ def test_returns_existing_portrait_projection_without_rebuilding():
     portrait_repo.get = AsyncMock(return_value=_portrait())
     portrait_repo.upsert = AsyncMock()
     l2 = _empty_l2()
+    l2.list_current_assertions.return_value = [{
+        "assertion_id": "a1",
+        "trait_family": "interest_profile",
+        "trait_name": "interest.attention",
+        "trait_value": "interested",
+        "natural_summary": "Magi 记忆系统",
+        "source_domain": "user_authored",
+        "validation_state": "stable",
+        "temporal_scope": "stable",
+    }]
 
     body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
 

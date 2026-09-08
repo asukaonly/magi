@@ -117,7 +117,7 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
               <Badge variant="outline">{getAssertionStatusLabel(assertion.status || assertion.validation_state, t)}</Badge>
             </div>
             <div className="mt-2 text-[hsl(var(--memory-body))]">
-              {getAssertionDisplayText(assertion, t)}
+              {getAssertionDisplayText(assertion)}
             </div>
             <div className="mt-3 flex items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">

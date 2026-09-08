@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from ..identity.defaults import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 PROFILE_ENTITY_TYPE = "user"
+PORTRAIT_PROMPT_CONTRACT_VERSION = 1
 
 PROFILE_ASSERTION_FAMILIES = (
     "identity_profile",
@@ -60,6 +61,7 @@ class UserPortraitProjection(BaseModel):
     review: dict[str, Any] = Field(default_factory=dict)
     recent: dict[str, Any] = Field(default_factory=dict)
     prompt_summary: list[str] = Field(default_factory=list)
+    prompt_contract_version: int = Field(default=0, ge=0)
     evidence_refs: list[str] = Field(default_factory=list)
     source_counts: dict[str, int] = Field(default_factory=dict)
     generated_by: str = "rule"

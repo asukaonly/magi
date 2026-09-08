@@ -10,6 +10,7 @@ export type PortraitSelfViewWorldGroupId =
 export interface PortraitSelfViewItem {
   id: string;
   text: string;
+  display_status?: 'complete' | 'partial' | 'unavailable';
   correction_value?: string | null;
   correction_trait_name?: string | null;
   correction_value_options?: string[] | null;

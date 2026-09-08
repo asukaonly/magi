@@ -99,6 +99,19 @@ It preserves other retained wording, semantic values, evidence, lifecycle and
 timestamps. New settings writes no longer create that diagnostic, so no runtime
 source-name exception or old-format fallback is required.
 
+The revision `v51_portrait_prompt_contract` adds a persisted prompt contract
+version to the portrait cache. Existing rows retain their text and receive
+version `0`; only a successful rebuild from the current semantic prompt inputs
+records version `1`. Older prompts are ineligible for model-context fallback,
+including when L2 or profile reads fail. Current-contract caches still follow the
+existing last-successful-result policy on transient failures. This version is
+independent of the UI item shape, assertion lifecycle and source revisions.
+The same migration clears the rebuildable `user_profile_projection` cache so
+unchanged source highwaters cannot preserve values decoded under the previous
+generic JSON rules. Retained assertions, evidence and portrait prompt text remain
+unchanged; subsequent reads rebuild profile fields with their trait-specific
+value contract.
+
 `runtime/bootstrap_state.db` is the central ledger for bounded startup work
 whose result can be reused across launches. Each step owns a stable ID, an
 explicit revision, and an optional content fingerprint. The expected revision
@@ -420,7 +433,7 @@ Current heads that matter to the chat-clear, memory-projection, and delivery bou
 | `batch` | `v2` | remove the unused inline-driver reconciliation limit while preserving job and item manifests |
 | `channels` | `v2` | stable proactive-outreach identity and due-work indexes |
 | `message_queue` | `v7` | pending desktop full-clear transaction adopted before command recovery; success returns to an empty idle row |
-| `memory_shared` | `v49_l4_strategy_revisions` | add strategy revision and per-trace consumption markers for fenced procedural learning; no historical data repair |
+| `memory_shared` | `v51_portrait_prompt_contract` | version cached semantic portrait prompts and invalidate decoded profile caches; earlier revisions retain their strategy fencing and exact profile-diagnostic cleanup |
 
 `chat_task_execution_budgets` is owned by the accepted root turn. Its
 `root_turn_id` is a non-null primary key and a foreign key to `chat_turns`, with

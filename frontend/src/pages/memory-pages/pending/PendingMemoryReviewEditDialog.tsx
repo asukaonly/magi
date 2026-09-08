@@ -23,7 +23,7 @@ export function PendingMemoryReviewEditDialog({
   review: L2PendingReview | null;
   busy: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (edit: { trait_value: string; natural_summary?: string }) => void;
+  onSubmit: (edit: { trait_value: string }) => void;
 }) {
   const { t } = useTranslation('app');
   const [traitValue, setTraitValue] = useState('');
@@ -50,7 +50,7 @@ export function PendingMemoryReviewEditDialog({
               {t('memory.pending.reviewEdit.currentFact')}
             </p>
             <p className="break-words text-sm leading-6 text-foreground">
-              {getAssertionDisplayText(review?.proposed ?? {}, t)}
+              {review ? getAssertionDisplayText(review.proposed) : null}
             </p>
           </div>
           <label className="block space-y-2 text-sm font-medium text-foreground">

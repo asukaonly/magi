@@ -11,14 +11,13 @@ import pytest
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.l2.semantic_routing import ROUTE_CONTRACT_VERSION
-from magi.user_profile.models import UserPortraitProjection
+from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_claim_query import (
     latest_portrait_claim_change_at,
     list_tentative_portrait_claims,
 )
 from magi.user_profile.portrait_projection_builder import (
     UserPortraitProjectionBuilder,
-    render_portrait_rule_prompt_summary,
 )
 from magi.user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from magi.user_profile.portrait_signal_policy import (
@@ -1169,37 +1168,33 @@ async def test_future_candidate_displaced_by_protected_goals_keeps_cache_fresh(
         fact_valid_from=200.0,
     )
     store = _store(db_path, visible_event_ids={"event-displaced"})
-    world = {
-        "groups": [
-            {"id": "identity", "items": [{"text": "昵称是小明"}]},
-            {"id": "projects", "items": [{"text": "Magi"}]},
-        ]
-    }
-    recent = {
-        "items": [
-            {"text": "完成记忆迁移", "trait_family": "goal_profile"},
-            {"text": "验证桌面发布", "trait_family": "goal_profile"},
-        ]
-    }
-    cached_summary = render_portrait_rule_prompt_summary(
-        world=world,
-        recent=recent,
-        tentative_lines=[],
-    )
-    projection = UserPortraitProjection(
+    async def current_assertions(**kwargs):
+        return [{
+            "assertion_id": f"assert-protected-{index}",
+            "entity_id": "user:local_user", "entity_type": "user",
+            "trait_family": family, "trait_name": trait,
+            "trait_value": text, "natural_summary": text,
+            "source_domain": "user_authored", "validation_state": "stable",
+            "temporal_scope": scope, "confidence_score": 0.95,
+            "evidence_events": [f"event-protected-{index}"], "updated_at": 100.0,
+        } for index, (family, trait, text, scope) in enumerate([
+            ("project_profile", "project.engagement.active", "用户长期推进 Magi。", "stable"),
+            ("goal_profile", "goal.intent", "用户计划完成记忆迁移。", "recent"),
+            ("goal_profile", "goal.intent", "用户计划验证桌面发布。", "recent"),
+        ])]
+
+    monkeypatch.setattr(store, "list_current_assertions", current_assertions)
+    profile = UserProfileProjection(
         user_id="local_user",
         entity_id="user:local_user",
-        world=world,
-        recent=recent,
-        prompt_summary=cached_summary,
+        preferred_form_of_address="小明",
         source_revision=await store.current_subject_revision("user:local_user"),
         source_generation=await store.current_clear_generation(),
-        input_claim_highwater=await latest_portrait_claim_change_at(
-            store,
-            user_id="local_user",
-        ),
-        generated_at=clock[0],
     )
+    projection = await UserPortraitProjectionBuilder(store, profile_projection=profile).build("local_user")
+    cached_summary = list(projection.prompt_summary)
+    assert len(cached_summary) == 4
+    assert sum("近期计划" in line for line in cached_summary) == 2
 
     clock[0] = 250.0
     candidates = await list_tentative_portrait_claims(
@@ -1211,6 +1206,7 @@ async def test_future_candidate_displaced_by_protected_goals_keeps_cache_fresh(
         projection,
         user_id="local_user",
         l2_store=store,
+        profile_projection=profile,
     )
     assert projection.prompt_summary == cached_summary
 

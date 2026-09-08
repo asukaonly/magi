@@ -279,6 +279,7 @@ describe('L2Tab lab', () => {
             trait_name: 'preference.music',
             trait_value: 'jazz',
             natural_summary: 'User U1 likes jazz.',
+            display_text: 'User U1 likes jazz.', display_status: 'complete',
             confidence_score: 0.92,
             evidence_events: ['evt-2'],
             validation_state: 'stable',
@@ -430,6 +431,7 @@ describe('L2Tab lab', () => {
             trait_name: 'preference.music',
             trait_value: 'jazz',
             natural_summary: 'User U1 likes jazz.',
+            display_text: 'User U1 likes jazz.', display_status: 'complete',
             confidence_score: 0.7,
             evidence_events: ['evt-2'],
             validation_state: 'tentative',
@@ -523,6 +525,7 @@ describe('L2Tab lab', () => {
             entity_type: 'user',
             trait_name: 'preference.music',
             trait_value: { genre: 'jazz' } as unknown as string,
+            display_text: '完整事实暂不可用', display_status: 'unavailable',
             confidence_score: 0.7,
             evidence_events: '["evt-2"]' as unknown as string[],
             validation_state: 'tentative',
@@ -583,7 +586,7 @@ describe('L2Tab lab', () => {
             trait_family: 'mood',
             trait_name: 'mood',
             trait_value: 'high',
-            display_text: 'User U1 feels upbeat.',
+            display_text: 'User U1 feels upbeat.', display_status: 'complete' as const,
             trait_value_i18n: 'controlled',
             confidence_score: 0.7,
             evidence_events: ['evt-2'],
@@ -646,7 +649,8 @@ describe('MemoryKnowledgePage correction entry', () => {
         entity_type: 'user',
         trait_name: 'preference.music',
         trait_value: 'jazz',
-            natural_summary: 'User U1 likes jazz.',
+        natural_summary: 'User U1 likes jazz.',
+        display_text: 'User U1 likes jazz.', display_status: 'complete',
         confidence_score: 0.7,
         evidence_events: [],
         validation_state: 'tentative',
@@ -717,6 +721,7 @@ const preferenceAssertion = (overrides: Partial<L2Assertion> = {}): L2Assertion 
   target_entity_id: 'entity-strawberry',
   target_entity_name: '草莓',
   natural_summary: '用户喜欢草莓。',
+  display_text: '用户喜欢草莓。', display_status: 'complete',
   confidence_score: 0.9,
   evidence_events: [],
   validation_state: 'tentative',
@@ -762,13 +767,13 @@ const renderFactKnowledge = (assertions: L2Assertion[], options: {
 describe('knowledge assertion fact display', () => {
   it.each([
     ['喜欢', {}, '用户喜欢草莓。'],
-    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。' }, '用户不喜欢草莓。'],
-    ['兴趣', { trait_name: 'interest.topic', trait_value: 'interest', natural_summary: '用户对摄影感兴趣。' }, '用户对摄影感兴趣。'],
-    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', natural_summary: '用户希望被称为小涵。' }, '用户希望被称为小涵。'],
-    ['近期偏好', { temporal_scope: 'recent', natural_summary: '用户最近喜欢草莓。' }, '用户最近喜欢草莓。'],
-    ['无摘要', { natural_summary: null, display_text: '用户喜欢草莓。' }, '用户喜欢草莓。'],
-    ['未解析对象', { target_entity_name: null, natural_summary: null, display_text: '用户表达了喜欢，但具体对象暂不可用。' }, '用户表达了喜欢，但具体对象暂不可用。'],
-    ['无展示资料', { natural_summary: null, display_text: null }, '完整事实暂不可用'],
+    ['不喜欢', { trait_value: 'dislike', natural_summary: '用户不喜欢草莓。', display_text: '用户不喜欢草莓。' }, '用户不喜欢草莓。'],
+    ['兴趣', { trait_name: 'interest.attention', trait_value: 'interested', natural_summary: '用户对摄影感兴趣。', display_text: '用户对摄影感兴趣。' }, '用户对摄影感兴趣。'],
+    ['称呼', { trait_name: 'communication.address.preferred', trait_value: '小涵', natural_summary: '用户希望被称为小涵。', display_text: '用户希望被称为小涵。' }, '用户希望被称为小涵。'],
+    ['近期偏好', { temporal_scope: 'recent', natural_summary: '用户最近喜欢草莓。', display_text: '用户最近喜欢草莓。' }, '用户最近喜欢草莓。'],
+    ['无摘要', { natural_summary: null, display_text: '用户喜欢草莓。', display_status: 'complete' as const }, '用户喜欢草莓。'],
+    ['未解析对象', { target_entity_name: null, natural_summary: null, display_text: '用户表达了喜欢，但具体对象暂不可用。', display_status: 'partial' as const }, '用户表达了喜欢，但具体对象暂不可用。'],
+    ['无展示资料', { natural_summary: null, display_text: '完整事实暂不可用', display_status: 'unavailable' as const }, '完整事实暂不可用'],
   ] as const)('renders the complete %s fact without internal values', (_name, overrides, expected) => {
     renderFactKnowledge([preferenceAssertion(overrides)]);
     expect(screen.getAllByText(expected)[0]).toBeInTheDocument();
@@ -783,7 +788,7 @@ describe('knowledge assertion fact display', () => {
   it('retains different objects with the same internal value and searches their complete fact', () => {
     renderFactKnowledge([
       preferenceAssertion(),
-      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。' }),
+      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。' }),
     ], { knowledgeQuery: '草莓' });
     expect(screen.getAllByText('用户喜欢草莓。')[0]).toBeInTheDocument();
     expect(screen.queryByText('用户喜欢蓝莓。')).not.toBeInTheDocument();
@@ -792,8 +797,8 @@ describe('knowledge assertion fact display', () => {
   it('shows both objects and preserves semantic correction values when a fact is expanded', async () => {
     const onCorrect = vi.fn();
     renderFactKnowledge([
-      preferenceAssertion({ value_options: ['like', 'dislike', 'neutral'] }),
-      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。' }),
+      preferenceAssertion({ value_options: ['like', 'dislike'] }),
+      preferenceAssertion({ assertion_id: 'assert-blueberry', target_entity_id: 'entity-blueberry', target_entity_name: '蓝莓', natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。' }),
     ], { onCorrect });
     expect(screen.getAllByText('用户喜欢蓝莓。')[0]).toBeInTheDocument();
     const title = screen.getAllByText('用户喜欢草莓。')[0];
@@ -807,7 +812,7 @@ describe('knowledge assertion fact display', () => {
       assertionId: 'assert-strawberry',
       traitName: 'preference.affinity',
       correctionValue: 'like',
-      valueOptions: ['like', 'dislike', 'neutral'],
+      valueOptions: ['like', 'dislike'],
       title: '用户喜欢草莓。',
     }), 'replace');
   });

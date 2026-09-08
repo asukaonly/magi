@@ -42,6 +42,7 @@ class UserPortraitProjectionRepository:
                     review_json TEXT NOT NULL DEFAULT '{}',
                     recent_json TEXT NOT NULL DEFAULT '{}',
                     prompt_summary_json TEXT NOT NULL DEFAULT '[]',
+                    prompt_contract_version INTEGER NOT NULL DEFAULT 0,
                     evidence_refs_json TEXT NOT NULL DEFAULT '[]',
                     source_counts_json TEXT NOT NULL DEFAULT '{}',
                     generated_by TEXT NOT NULL DEFAULT 'rule',
@@ -118,12 +119,12 @@ class UserPortraitProjectionRepository:
                     """
                 INSERT INTO user_portrait_projection(
                     user_id, entity_id, entity_type,
-                    world_json, review_json, recent_json, prompt_summary_json,
+                    world_json, review_json, recent_json, prompt_summary_json, prompt_contract_version,
                     evidence_refs_json, source_counts_json, generated_by,
                     input_assertion_highwater, input_claim_highwater,
                     input_review_highwater, input_profile_highwater,
                     source_revision, source_generation, generated_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     entity_type = excluded.entity_type,
@@ -131,6 +132,7 @@ class UserPortraitProjectionRepository:
                     review_json = excluded.review_json,
                     recent_json = excluded.recent_json,
                     prompt_summary_json = excluded.prompt_summary_json,
+                    prompt_contract_version = excluded.prompt_contract_version,
                     evidence_refs_json = excluded.evidence_refs_json,
                     source_counts_json = excluded.source_counts_json,
                     generated_by = excluded.generated_by,
@@ -151,6 +153,7 @@ class UserPortraitProjectionRepository:
                         _dumps(payload["review"]),
                         _dumps(payload["recent"]),
                         _dumps(payload["prompt_summary"]),
+                        payload["prompt_contract_version"],
                         _dumps(payload["evidence_refs"]),
                         _dumps(payload["source_counts"]),
                         payload["generated_by"],
@@ -181,6 +184,7 @@ class UserPortraitProjectionRepository:
             review=cls._json_dict(row, "review_json"),
             recent=cls._json_dict(row, "recent_json"),
             prompt_summary=cls._json_list(row, "prompt_summary_json"),
+            prompt_contract_version=int(row["prompt_contract_version"]),
             evidence_refs=cls._json_list(row, "evidence_refs_json"),
             source_counts={
                 str(key): int(value)

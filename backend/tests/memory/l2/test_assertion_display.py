@@ -7,8 +7,11 @@ import sqlite3
 import pytest
 
 from magi.memory.l2.assertion_display import (
+    FactCompleteness,
+    SummaryPolicy,
     assertion_value_options,
     decorate_assertion_display,
+    render_assertion_fact,
     render_assertion_display,
 )
 
@@ -117,11 +120,51 @@ def test_known_literal_values_are_not_treated_as_internal_enums(trait, value, ex
     ) == expected
 
 
-def test_settings_profile_uses_authoritative_value_not_diagnostic_summary():
-    assert render_assertion_display(_assertion(
-        source_domain="settings_profile", trait_name="communication.address.preferred",
-        trait_value="小林", natural_summary="User profile field communication.address.preferred was set from personal profile settings.",
-    ), language="zh-CN") == "用户希望被称为小林。"
+@pytest.mark.parametrize("source", ["settings_profile", "user_authored", "user_feedback"])
+def test_retained_fact_wording_has_the_same_contract_for_every_source(source):
+    row = _assertion(source_domain=source, natural_summary="用户这周喜欢草莓。")
+    assert render_assertion_fact(row).text == "用户这周喜欢草莓。"
+    assert render_assertion_fact(row, summary_policy=SummaryPolicy.STRUCTURED_ONLY).text == "用户喜欢草莓。"
+    assert row["natural_summary"] == "用户这周喜欢草莓。"
+
+
+def test_description_completeness_is_separate_from_ui_placeholder_and_lifecycle():
+    complete = render_assertion_fact(_assertion(status="tentative"))
+    assert complete.completeness == FactCompleteness.COMPLETE
+    assert complete.text == "用户喜欢草莓。"
+    partial = render_assertion_fact(_assertion(natural_summary="", target_entity_name=None))
+    assert partial.completeness == FactCompleteness.PARTIAL
+    assert partial.text == "用户喜欢尚未解析的对象。"
+    unavailable = render_assertion_fact({})
+    assert unavailable.completeness == FactCompleteness.UNAVAILABLE
+    assert unavailable.text is None
+    assert render_assertion_display({}) == "这条记录缺少完整事实描述。"
+
+
+def test_literal_text_is_not_interpreted_as_json_or_an_internal_value():
+    row = _assertion(trait_name="communication.address.preferred", trait_value='["like"]', natural_summary="")
+    assert render_assertion_fact(row).text == '用户希望被称为["like"]。'
+
+
+@pytest.mark.parametrize(("addresses", "expected", "completeness"), [
+    (["老师", "老板"], "用户不希望被称为老师、老板。", FactCompleteness.COMPLETE),
+    (["like"], "用户不希望被称为like。", FactCompleteness.COMPLETE),
+    ([], None, FactCompleteness.UNAVAILABLE),
+])
+def test_profile_producer_address_list_renders_as_facts(addresses, expected, completeness):
+    from magi.user_profile.command_service import UserProfileCommandService
+
+    service = UserProfileCommandService(unified_memory=None, query_service=None)
+    [candidate] = service._build_assertion_candidates(
+        user_id="local_user", updates={"disallowed_forms_of_address": addresses},
+        evidence_event_ids=["profile-update"],
+    )
+    original_value = candidate["trait_value"]
+    fact = render_assertion_fact(candidate, language="zh-CN")
+    assert fact.text == expected
+    assert fact.completeness == completeness
+    assert candidate["trait_value"] == original_value
+    assert candidate["natural_summary"] == ""
 
 
 def test_controlled_state_value_keeps_subject_and_localized_meaning():

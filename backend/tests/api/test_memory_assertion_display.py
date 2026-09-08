@@ -54,6 +54,7 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
     assert result.status_code == 200
     item = result.json()["items"][0]
     assert item["display_text"] == "用户喜欢草莓。"
+    assert item["display_status"] == "complete"
     assert item["target_entity_name"] == "草莓"
     assert item["trait_value"] == "like"
     assert item["value_options"] == ["like", "dislike"]
@@ -63,14 +64,20 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
     assert response.status_code == 200
     proposed = response.json()["items"][0]["proposed"]
     assert proposed["display_text"] == item["display_text"]
+    assert proposed["display_status"] == "complete"
     assert proposed["trait_value"] == "like"
     assert proposed["status"] == "tentative"
 
-    retrieval = SimpleNamespace(query=AsyncMock(return_value=RetrievalPayload(l2_assertions=[assertion])))
+    retrieval = SimpleNamespace(query=AsyncMock(return_value=RetrievalPayload(
+        l2_assertions=[assertion], structured_results=[assertion],
+    )))
     monkeypatch.setattr("magi.api.routers.memory.search_routes._resolve_hybrid_retrieval_service", lambda: retrieval)
     monkeypatch.setattr("magi.api.routers.memory.search_routes._resolve_unified_memory", lambda: memory)
     search = client.post("/api/memory/search", json={"query": "我喜欢什么"})
     assert search.status_code == 200
     assert search.json()["l2_assertions"][0]["display_text"] == "用户喜欢草莓。"
+    assert search.json()["l2_assertions"][0]["display_status"] == "complete"
+    assert search.json()["structured_results"][0]["display_text"] == "用户喜欢草莓。"
+    assert search.json()["structured_results"][0]["display_status"] == "complete"
     assert search.json()["l2_assertions"][0]["trait_value"] == "like"
     assert "display_text" not in assertion

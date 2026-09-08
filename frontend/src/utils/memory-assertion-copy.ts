@@ -1,11 +1,7 @@
 import type { L2Assertion, L2PendingReview } from '@/api/modules/memory';
+import { parseFactDisplay } from '@/api/memory-fact-contract';
 
 export type MemoryAssertionTranslateFn = (key: string, options?: Record<string, unknown>) => string;
-
-export interface MemoryFactDisplay {
-  display_text?: string | null;
-  natural_summary?: string | null;
-}
 
 export interface PendingAssertionCopy {
   title: string;
@@ -14,10 +10,8 @@ export interface PendingAssertionCopy {
 
 // Fact semantics and entity resolution belong to the host read model.
 export const getAssertionDisplayText = (
-  fact: MemoryFactDisplay,
-  t: MemoryAssertionTranslateFn,
-): string => fact.display_text?.trim() || fact.natural_summary?.trim()
-  || t('memory.facts.unavailable', { defaultValue: '完整事实暂不可用' });
+  fact: unknown,
+): string => parseFactDisplay(fact).display_text;
 
 const translatedLabel = (t: MemoryAssertionTranslateFn, key: string): string | null => {
   const value = t(key);
@@ -52,7 +46,7 @@ export const getPendingAssertionCopy = (
   assertion: L2Assertion,
   t: MemoryAssertionTranslateFn,
 ): PendingAssertionCopy => {
-  const value = getAssertionDisplayText(assertion, t);
+  const value = getAssertionDisplayText(assertion);
   const context = assertion.conflict_context;
   const oldValue = context?.previous_display_text?.trim();
   const newValue = context?.current_display_text?.trim();
@@ -75,7 +69,7 @@ export const getPendingReviewCopy = (
   review: L2PendingReview,
   t: MemoryAssertionTranslateFn,
 ): PendingAssertionCopy => ({
-  title: getAssertionDisplayText(review.proposed, t),
+  title: getAssertionDisplayText(review.proposed),
   body: t('memory.pending.reviews.body'),
 });
 

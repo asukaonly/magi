@@ -210,7 +210,7 @@ export const MemoryPendingPage = () => {
     }
   };
 
-  const handleReviewEdit = async (edit: { trait_value: string; natural_summary?: string }) => {
+  const handleReviewEdit = async (edit: { trait_value: string }) => {
     if (!editingReview) return;
     const review = editingReview;
     const id = `review:${review.review_id}`;

@@ -18,7 +18,10 @@ from typing import Any, Dict
 from ..core.logger import get_logger
 from ..memory.l2.corrections.cache_signals import subject_change_signal
 from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
-from ..user_profile.portrait_projection_freshness import portrait_projection_is_stale
+from ..user_profile.portrait_projection_freshness import (
+    portrait_projection_is_stale,
+    portrait_prompt_contract_is_current,
+)
 from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ..user_profile.projection_builder import UserProfileProjectionBuilder
 from ..user_profile.projection_freshness import profile_projection_is_stale
@@ -216,7 +219,7 @@ class UserProfileService:
         cached_projection = projection
         l2 = getattr(self._unified_memory, "l2", None) if self._unified_memory is not None else None
         if l2 is None:
-            return [line for line in projection.prompt_summary if str(line).strip()] if projection is not None else []
+            return _prompt_lines(projection)
         try:
             profile_projection = await self._current_profile_projection(user_id)
         except Exception as exc:
@@ -493,7 +496,7 @@ class UserProfileService:
 
 
 def _prompt_lines(projection: Any) -> list[str]:
-    if projection is None:
+    if projection is None or not portrait_prompt_contract_is_current(projection):
         return []
     return [line for line in projection.prompt_summary if str(line).strip()]
 

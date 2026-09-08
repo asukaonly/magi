@@ -242,17 +242,17 @@ describe('MemoryPortraitPage', () => {
               id: 'work_style',
               items: [
                 { id: 'style-1', text: '直接深入', source: '', source_key: null, assertion_id: null, basis_count: 3, basis_refs: [] },
-                { id: 'style-2', text: '先看代码再判断', source: '', source_key: null, assertion_id: 'assert-stable', basis_count: 2, basis_refs: [] },
+                { id: 'style-2', text: '先看代码再判断', source: '', source_key: null, correction_value: '先看代码再判断', correction_trait_name: 'communication.response_style.preferred', correction_value_options: null, display_status: 'complete', assertion_id: 'assert-stable', basis_count: 2, basis_refs: [] },
               ],
             },
           ],
         },
         review: {
-          items: [{ id: 'review-1', text: '待确认内容', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
+          items: [{ id: 'review-1', text: '待确认内容', source: 'conversation', source_key: 'conversation', correction_value: '待确认内容', correction_trait_name: 'communication.response_style.preferred', correction_value_options: null, display_status: 'complete', assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
         },
         recent: {
           items: [
-            { id: 'recent-1', text: '插件导入', source: '', source_key: null, assertion_id: 'assert-2', basis_count: 5, basis_refs: [] },
+            { id: 'recent-1', text: '插件导入', source: '', source_key: null, correction_value: 'active', correction_trait_name: 'project.engagement.active', correction_value_options: ['active'], display_status: 'complete', assertion_id: 'assert-2', basis_count: 5, basis_refs: [] },
             { id: 'recent-2', text: '最近对话更偏产品设计判断，同时会追问实现链路是否闭环。', source: '', source_key: null, assertion_id: null, basis_count: 4, basis_refs: [] },
           ],
         },
@@ -354,6 +354,7 @@ describe('MemoryPortraitPage', () => {
               id: `preference-${index}`,
               text: `偏好 ${index}`,
               correction_value: `偏好 ${index}`,
+              correction_trait_name: 'communication.response_style.preferred', correction_value_options: null, display_status: 'complete',
               source: '',
               source_key: null,
               assertion_id: `assert-${index}`,
@@ -397,12 +398,12 @@ describe('MemoryPortraitPage', () => {
           items: [
             {
               id: 'recent-interest', text: '用户最近不喜欢 DIIV。', source: '', source_key: null,
-              assertion_id: 'assert-interest', basis_count: 3, basis_refs: [],
+              correction_value: 'dislike', correction_trait_name: 'preference.affinity', correction_value_options: ['like', 'dislike'], display_status: 'complete', assertion_id: 'assert-interest', basis_count: 3, basis_refs: [],
               claim_kind: 'preference_interest',
             },
             {
               id: 'recent-project', text: '用户最近在开发 Magi。', source: '', source_key: null,
-              assertion_id: 'assert-project', basis_count: 3, basis_refs: [],
+              correction_value: 'developer', correction_trait_name: 'project.role.developer', correction_value_options: ['developer'], display_status: 'complete', assertion_id: 'assert-project', basis_count: 3, basis_refs: [],
               claim_kind: 'active_work',
             },
           ],
@@ -432,7 +433,7 @@ describe('MemoryPortraitPage', () => {
                 text: 'Codex',
                 source: '',
                 source_key: null,
-                assertion_id: 'assert-external',
+                correction_value: 'interested', correction_trait_name: 'interest.attention', correction_value_options: ['interested'], display_status: 'complete', assertion_id: 'assert-external',
                 basis_count: 4,
                 basis_refs: ['assertion:assert-external', 'source:external_activity'],
               }],
@@ -469,7 +470,7 @@ describe('MemoryPortraitPage', () => {
                 text: '先看代码再判断',
                 source: 'Chrome 浏览器历史',
                 source_key: 'chrome_history',
-                assertion_id: 'assert-routine',
+                correction_value: '先看代码再判断', correction_trait_name: 'communication.response_style.preferred', correction_value_options: null, display_status: 'complete', assertion_id: 'assert-routine',
                 basis_count: 4,
                 basis_refs: ['assertion:assert-routine', 'source:chrome_history'],
               }],
@@ -515,7 +516,7 @@ describe('MemoryPortraitPage', () => {
             summary: '工作和沟通方式：先讲结论',
             items: [{
               id: 'style-1', text: '先讲结论', correction_value: '先讲结论', source: '', source_key: null,
-              assertion_id: 'assert-style', basis_count: 3, basis_refs: [], updated_at: 1719301200,
+              correction_trait_name: 'communication.response_style.preferred', correction_value_options: null, display_status: 'complete', assertion_id: 'assert-style', basis_count: 3, basis_refs: [], updated_at: 1719301200,
             }],
           }],
         },

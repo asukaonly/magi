@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from ...i18n import effective_app_language_code
 from .assertion_family_policy import get_assertion_family_policy
+from .assertion_values import decode_assertion_literal
 from .semantic_routing import ObjectRole, assertion_predicate_descriptors
 from .entities.catalog.lookup import get_canonical_names
 from .factual_rendering import grounded_predicate_wording, render_behavior_observation
@@ -39,6 +41,36 @@ _CONTROLLED_LABELS = {
 }
 
 
+class SummaryPolicy(str, Enum):
+    """The owning read boundary decides whether retained wording may be used."""
+
+    RETAINED = "retained"
+    STRUCTURED_ONLY = "structured_only"
+
+
+class FactCompleteness(str, Enum):
+    """Description completeness, independent of evidence strength or admission."""
+
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class FactDescription:
+    """A fact description, with no UI placeholder or prompt admission decision."""
+
+    text: str | None
+    completeness: FactCompleteness
+
+
+def _description(text: str, *, endpoints_resolved: bool = True) -> FactDescription:
+    return FactDescription(
+        text=text,
+        completeness=FactCompleteness.COMPLETE if endpoints_resolved else FactCompleteness.PARTIAL,
+    )
+
+
 def assertion_value_options(assertion: Mapping[str, Any]) -> list[str] | None:
     """Expose editable canonical values without changing their write semantics."""
     choices = _TARGET_PREDICATES.get(str(assertion.get("trait_name") or ""))
@@ -62,13 +94,7 @@ def assertion_behavior_target(assertion: Mapping[str, Any], *, language: str | N
 
 def _literal_text(value: Any, *, zh: bool) -> str:
     if isinstance(value, str):
-        text = value.strip()
-        if text.startswith(("{", "[", '"')):
-            try:
-                return _literal_text(json.loads(text), zh=zh)
-            except (TypeError, ValueError):
-                return text
-        return text
+        return value.strip()
     if isinstance(value, Mapping):
         return _literal_text(value.get("value"), zh=zh)
     if isinstance(value, list):
@@ -78,26 +104,37 @@ def _literal_text(value: Any, *, zh: bool) -> str:
     return str(value) if value is not None else ""
 
 
-def render_assertion_display(
-    assertion: Mapping[str, Any], *, language: str | None = None
-) -> str:
-    """Render a retained fact; missing endpoints never become invented names."""
+def render_assertion_fact(
+    assertion: Mapping[str, Any], *, language: str | None = None,
+    summary_policy: SummaryPolicy = SummaryPolicy.RETAINED,
+) -> FactDescription:
+    """Describe permitted fact content without choosing how consumers handle absence."""
     language = language or effective_app_language_code()
     zh = language.startswith("zh")
-    value = _literal_text(assertion.get("trait_value", assertion.get("value")), zh=zh)
+    trait = str(assertion.get("trait_name") or "")
+    value = _literal_text(
+        decode_assertion_literal(trait, assertion.get("trait_value", assertion.get("value"))),
+        zh=zh,
+    )
     recent = assertion_display_is_recent(assertion)
+    subject_resolved = assertion.get("entity_type") == "user" or bool(
+        str(assertion.get("entity_name") or "").strip()
+    )
     if assertion.get("inference_depth") == "topology_only":
         subject = None if assertion.get("entity_type") == "user" else (
             str(assertion.get("entity_name") or "").strip()
             or ("主体未解析的对象" if zh else "an unresolved subject")
         )
-        return render_behavior_observation(
-            assertion_behavior_target(assertion, language=language), recent=recent, language=language, subject=subject
+        return _description(
+            render_behavior_observation(
+                assertion_behavior_target(assertion, language=language), recent=recent,
+                language=language, subject=subject,
+            ),
+            endpoints_resolved=subject_resolved and bool(assertion.get("target_entity_name")),
         )
     summary = str(assertion.get("natural_summary") or "").strip()
-    if summary and assertion.get("source_domain") != "settings_profile":
-        return summary
-    trait = str(assertion.get("trait_name") or "")
+    if summary and summary_policy == SummaryPolicy.RETAINED:
+        return _description(summary)
     subject = str(assertion.get("entity_name") or "").strip()
     if assertion.get("entity_type") == "user":
         subject = "用户" if zh else "The user"
@@ -108,8 +145,10 @@ def render_assertion_display(
     policy = get_assertion_family_policy(str(assertion.get("trait_family") or ""))
     if family and label and policy and policy.value_i18n == "controlled":
         if zh:
-            return f"{subject}{'近期' if recent else ''}的{family[0]}是{label[0]}。"
-        return f"{subject}'s {'recent ' if recent else ''}{family[1]} is {label[1]}."
+            text = f"{subject}{'近期' if recent else ''}的{family[0]}是{label[0]}。"
+        else:
+            text = f"{subject}'s {'recent ' if recent else ''}{family[1]} is {label[1]}."
+        return _description(text, endpoints_resolved=subject_resolved)
     choices = _TARGET_PREDICATES.get(trait)
     predicate = choices.get(value) if choices else _LITERAL_PREDICATES.get(trait)
     wording = ("常住地是", "lives in") if predicate == "HOME_LOCATION" else (
@@ -117,17 +156,41 @@ def render_assertion_display(
     )
     if wording:
         target = str(assertion.get("target_entity_name") or "").strip() if choices else value
+        target_resolved = bool(target)
         if not target:
+            if not choices:
+                return FactDescription(None, FactCompleteness.UNAVAILABLE)
             target = "尚未解析的对象" if zh else "an unresolved object"
         if zh:
-            return f"{subject}{'最近' if recent else ''}{wording[0]}{target}。"
-        return f"{subject} {'recently ' if recent else ''}{wording[1]} {target}."
+            text = f"{subject}{'最近' if recent else ''}{wording[0]}{target}。"
+        else:
+            text = f"{subject} {'recently ' if recent else ''}{wording[1]} {target}."
+        return _description(text, endpoints_resolved=subject_resolved and target_resolved)
+    return FactDescription(None, FactCompleteness.UNAVAILABLE)
+
+
+def _display_text(fact: FactDescription, *, language: str | None = None) -> str:
+    if fact.text is not None:
+        return fact.text
+    zh = (language or effective_app_language_code()).startswith("zh")
     return "这条记录缺少完整事实描述。" if zh else "A complete description of this record is unavailable."
+
+
+def render_assertion_display(
+    assertion: Mapping[str, Any], *, language: str | None = None,
+    summary_policy: SummaryPolicy = SummaryPolicy.RETAINED,
+) -> str:
+    """Render UI text, including an explicit placeholder for unavailable facts."""
+    return _display_text(
+        render_assertion_fact(assertion, language=language, summary_policy=summary_policy),
+        language=language,
+    )
 
 
 async def decorate_assertion_display(
     db_path: str | None,
     assertions: Sequence[Mapping[str, Any]],
+    *, summary_policy: SummaryPolicy = SummaryPolicy.RETAINED,
 ) -> list[dict[str, Any]]:
     """Batch-hydrate authoritative names and attach presentation-only fields."""
     entity_ids = {
@@ -149,6 +212,8 @@ async def decorate_assertion_display(
             "target_entity_name": names.get(str(assertion.get("target_entity_id") or "")),
             "value_options": assertion_value_options(assertion),
         }
-        item["display_text"] = render_assertion_display(item)
+        fact = render_assertion_fact(item, summary_policy=summary_policy)
+        item["display_text"] = _display_text(fact)
+        item["display_status"] = fact.completeness.value
         result.append(item)
     return result

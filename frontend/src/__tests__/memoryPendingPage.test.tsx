@@ -1,5 +1,5 @@
 import { memoryFactCases, strawberryAssertion } from './fixtures/memoryFacts';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router';
 
 import { MemoryPendingPage } from '@/pages/memory-pages/MemoryPendingPage';
 import { memoryApi } from '@/api/modules/memory';
+import { api } from '@/api/client';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import { listNotifications, resolveConflict } from '@/api/modules/notifications';
 
@@ -135,7 +136,7 @@ const dashboardPayload = {
         trait_family: 'preference_profile',
         trait_name: '关注方向',
         trait_value: '本地优先的记忆系统',
-        display_text: '用户关注本地优先的记忆系统。',
+        display_text: '用户关注本地优先的记忆系统。', display_status: 'complete' as const,
         confidence_score: 0.52,
         evidence_events: ['evt-1', 'evt-2'],
         validation_state: 'tentative',
@@ -284,6 +285,8 @@ const renderPage = () =>
   );
 
 describe('MemoryPendingPage', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
@@ -382,6 +385,7 @@ describe('MemoryPendingPage', () => {
       proposed: {
         trait_value: '秋天去海边',
         natural_summary: '你提到想在秋天去海边，但具体年份还不明确。',
+        display_text: '你提到想在秋天去海边，但具体年份还不明确。', display_status: 'complete',
       },
       route_contract_version: 5,
       evidence_rule_version: 2,
@@ -432,7 +436,7 @@ describe('MemoryPendingPage', () => {
         semantic_lineage_key: 'goal-lineage:seaside',
         claim_ids: ['claim-1'],
         reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '去海边旅行', display_text: '用户曾计划去海边旅行。' },
+        proposed: { trait_value: '去海边旅行', display_text: '用户曾计划去海边旅行。', display_status: 'complete' as const },
         route_contract_version: 5,
         evidence_rule_version: 2,
         source_generation: 0,
@@ -450,7 +454,7 @@ describe('MemoryPendingPage', () => {
         semantic_lineage_key: 'goal-lineage:lamp',
         claim_ids: ['claim-2'],
         reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '更换书桌灯', display_text: '用户曾计划更换书桌灯。' },
+        proposed: { trait_value: '更换书桌灯', display_text: '用户曾计划更换书桌灯。', display_status: 'complete' as const },
         route_contract_version: 5,
         evidence_rule_version: 2,
         source_generation: 0,
@@ -485,14 +489,14 @@ describe('MemoryPendingPage', () => {
         review_id: 'review-plan-ok', subject_id: 'user:self', kind: 'goal_currentness',
         slot_key: 'goal-slot:ok', value_fingerprint: 'goal-value:ok', semantic_lineage_key: 'goal-lineage:ok',
         claim_ids: ['claim-ok'], reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '整理书架' }, route_contract_version: 5, evidence_rule_version: 2,
+        proposed: { trait_value: '整理书架', display_text: '用户计划整理书架。', display_status: 'complete' }, route_contract_version: 5, evidence_rule_version: 2,
         source_generation: 0, status: 'pending', version: 1, created_at: 1710000000, updated_at: 1710000000,
       },
       {
         review_id: 'review-plan-failed', subject_id: 'user:self', kind: 'goal_currentness',
         slot_key: 'goal-slot:failed', value_fingerprint: 'goal-value:failed', semantic_lineage_key: 'goal-lineage:failed',
         claim_ids: ['claim-failed'], reason_code: 'goal_low_time_confidence',
-        proposed: { trait_value: '学习摄影' }, route_contract_version: 5, evidence_rule_version: 2,
+        proposed: { trait_value: '学习摄影', display_text: '用户计划学习摄影。', display_status: 'complete' }, route_contract_version: 5, evidence_rule_version: 2,
         source_generation: 0, status: 'pending', version: 2, created_at: 1710000001, updated_at: 1710000001,
       },
     ];
@@ -526,6 +530,7 @@ describe('MemoryPendingPage', () => {
             trait_family: 'preference_profile',
             trait_name: 'interest.frank_wang-7efea7',
             trait_value: '阿里巴巴集团',
+            display_text: '用户关注阿里巴巴集团。', display_status: 'complete',
             confidence_score: 0.35,
             evidence_events: ['evt-1', 'evt-2', 'evt-3', 'evt-4', 'evt-5'],
             validation_state: 'contradicted',
@@ -554,6 +559,7 @@ describe('MemoryPendingPage', () => {
             trait_family: 'preference_profile',
             trait_name: 'interest.frank_wang-7efea7',
             trait_value: '',
+            display_text: '完整事实暂不可用', display_status: 'unavailable',
             confidence_score: 0.35,
             evidence_events: ['evt-1'],
             validation_state: 'contradicted',
@@ -581,7 +587,7 @@ describe('MemoryPendingPage', () => {
     expect(card.textContent).not.toContain('interest.frank_wang-7efea7');
 
     const fallbackCard = await screen.findByTestId('pending-assertion-assert-conflict-no-value');
-    expect(within(fallbackCard).getByText('memory.facts.unavailable')).toBeInTheDocument();
+    expect(within(fallbackCard).getByText('完整事实暂不可用')).toBeInTheDocument();
     expect(within(fallbackCard).getByText('证据还不够一致，但没有明确的相反判断。请确认它准不准。')).toBeInTheDocument();
     expect(fallbackCard.textContent).not.toContain('interest.frank_wang-7efea7');
   });
@@ -597,7 +603,7 @@ describe('MemoryPendingPage', () => {
             trait_family: 'communication_profile',
             trait_name: 'communication.address.preferred',
             trait_value: '子涵',
-            display_text: '你希望我称呼你为“子涵”。',
+            display_text: '你希望我称呼你为“子涵”。', display_status: 'complete' as const,
             confidence_score: 0.52,
             evidence_events: ['evt-1'],
             validation_state: 'tentative',
@@ -751,6 +757,41 @@ describe('MemoryPendingPage', () => {
     expect(memoryApi.getDashboard).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a missing host fact contract and retries through the real API validator', async () => {
+    const actual = await vi.importActual<typeof import('@/api/modules/memory')>('@/api/modules/memory');
+    vi.mocked(memoryApi.getDashboard).mockImplementation(actual.memoryApi.getDashboard);
+    const getSpy = vi.spyOn(api, 'get')
+      .mockResolvedValueOnce({
+        success: true, message: 'ok', data: {
+          pending_assertions: {
+            items: [{ assertion_id: strawberryAssertion.assertion_id, trait_value: 'like', natural_summary: '用户喜欢草莓。' }],
+            total: 1, limit: 25, offset: 0,
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true, message: 'ok', data: {
+          pending_assertions: { items: [strawberryAssertion], total: 1, limit: 25, offset: 0 },
+        },
+      });
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText('memory.pending.loadFailed')).toBeInTheDocument();
+    expect(screen.queryByTestId(`pending-assertion-${strawberryAssertion.assertion_id}`)).not.toBeInTheDocument();
+    expect(screen.queryByText('like')).not.toBeInTheDocument();
+    expect(screen.getByTestId('pending-conflict-42')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'memory.pending.retry' }));
+
+    const card = await screen.findByTestId(`pending-assertion-${strawberryAssertion.assertion_id}`);
+    expect(within(card).getByText('用户喜欢草莓。')).toBeInTheDocument();
+    expect(screen.queryByText('memory.pending.loadFailed')).not.toBeInTheDocument();
+    expect(getSpy).toHaveBeenCalledTimes(2);
+    expect(memoryStoriesApi.list).toHaveBeenCalledTimes(1);
+    expect(memoryApi.listPendingReviews).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps an item available and reports failed confirmation', async () => {
     vi.mocked(memoryApi.submitAssertionFeedback).mockRejectedValueOnce(new Error('offline'));
     const user = userEvent.setup();
@@ -765,7 +806,7 @@ describe('MemoryPendingPage', () => {
   it('preserves an unsaved edit when saving fails', async () => {
     vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [{
       review_id: 'review-edit-failed', kind: 'goal_currentness', reason_code: 'goal_ambiguous_time',
-      proposed: { trait_value: '原来的计划' }, claim_ids: [], version: 1,
+      proposed: { trait_value: '原来的计划', display_text: '用户曾表达过这个计划。', display_status: 'complete' }, claim_ids: [], version: 1,
     }], total: 1 } as never);
     vi.mocked(memoryApi.resolvePendingReview).mockRejectedValueOnce(new Error('offline'));
     const user = userEvent.setup();

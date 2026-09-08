@@ -1,4 +1,4 @@
-import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateReviewDisplay } from '../memory-fact-contract';
+import { validateAssertionDisplay, validateCorrectionCommandDisplay, validateCorrectionHistoryDisplay, validateMemorySearchDisplay, validateReviewDisplay } from '../memory-fact-contract';
 import { type LifecycleWire, parseDeletedEvent, parseForgottenEntity, parseForgottenEpisode, parseClearMemory } from '../lifecycle-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import type { GatewayResponse } from '../client';
@@ -211,7 +211,8 @@ export interface L2AssertionConflictContext {
 }
 
 export interface L2FactDisplay {
-  display_text?: string | null;
+  display_text: string;
+  display_status: 'complete' | 'partial' | 'unavailable';
   entity_name?: string | null;
   target_entity_name?: string | null;
   natural_summary?: string | null;
@@ -340,7 +341,7 @@ export interface MemoryCorrectionRequest {
   expected_updated_at?: number | null;
 }
 
-export interface MemoryCorrectionClaimValue extends L2FactDisplay {
+export interface MemoryCorrectionClaimValue extends Partial<L2FactDisplay> {
   trait_name?: string | null;
   value?: unknown;
   trait_value?: unknown;
@@ -375,7 +376,7 @@ export interface MemoryCorrectionRecord {
   can_revert?: boolean;
 }
 
-export interface MemoryCorrectionVersion extends L2FactDisplay {
+export interface MemoryCorrectionVersion extends Partial<L2FactDisplay> {
   trait_name?: string | null;
   trait_value?: unknown;
   subject_id?: string | null;
@@ -1047,7 +1048,7 @@ export const memoryApi = {
     payload: {
       action: L2PendingReviewAction;
       expected_version: number;
-      edit?: { trait_value?: string; natural_summary?: string };
+      edit?: { trait_value?: string };
     },
   ): Promise<L2PendingReviewResolution> =>
     unwrapMemoryResponse(await api.post<L2PendingReviewResolution>(
@@ -1061,7 +1062,7 @@ export const memoryApi = {
   },
   applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> => {
     const result = unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>('/memory/l2/corrections', payload));
-    validateCorrectionCommandDisplay(result);
+    validateCorrectionCommandDisplay(result, payload.target.kind);
     return result;
   },
   getCorrectionHistory: async (
@@ -1071,17 +1072,17 @@ export const memoryApi = {
     const result = unwrapMemoryResponse(await api.get<MemoryCorrectionHistoryResponse>('/memory/l2/corrections', {
       params: { target_kind: targetKind, target_id: targetId },
     }));
-    validateCorrectionHistoryDisplay(result);
+    validateCorrectionHistoryDisplay(result, targetKind);
     return result;
   },
   getCorrectionContextOptions: async (): Promise<MemoryCorrectionContextOptionsResponse> =>
     unwrapMemoryResponse(await api.get<MemoryCorrectionContextOptionsResponse>('/memory/l2/context-options')),
-  revertCorrection: async (correctionId: string, requestId: string): Promise<MemoryCorrectionCommandResponse> => {
+  revertCorrection: async (correctionId: string, requestId: string, targetKind: MemoryCorrectionTargetKind): Promise<MemoryCorrectionCommandResponse> => {
     const result = unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>(
       `/memory/l2/corrections/${encodeURIComponent(correctionId)}/revert`,
       { request_id: requestId },
     ));
-    validateCorrectionCommandDisplay(result);
+    validateCorrectionCommandDisplay(result, targetKind);
     return result;
   },
   getL2Entities: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Entity>> =>
@@ -1227,7 +1228,9 @@ export const memoryApi = {
     if (options?.query_mode) {
       payload.query_mode = options.query_mode;
     }
-    return unwrapMemoryResponse(await api.post<MemorySearchResultPayload>('/memory/search', payload));
+    const result = unwrapMemoryResponse(await api.post<MemorySearchResultPayload>('/memory/search', payload));
+    validateMemorySearchDisplay(result);
+    return result;
   },
 
   // Clear

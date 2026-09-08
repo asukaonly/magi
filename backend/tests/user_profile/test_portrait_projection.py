@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 
+import pytest
+
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
-from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
+from magi.user_profile.models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from magi.user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from magi.user_profile.portrait_projection_repository import UserPortraitProjectionRepository
@@ -284,6 +286,7 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
         review={"items": []},
         recent={"items": []},
         prompt_summary=["用户关注 RAG。"],
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
         evidence_refs=["assertion:a-interest-rag"],
         source_counts={"conversation": 1},
         generated_by="rule",
@@ -300,6 +303,7 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
     assert loaded.user_id == saved.user_id
     assert loaded.world["groups"][0]["items"][0]["text"] == "RAG"
     assert loaded.prompt_summary == ["用户关注 RAG。"]
+    assert loaded.prompt_contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION
     assert loaded.evidence_refs == ["assertion:a-interest-rag"]
     assert loaded.source_counts == {"conversation": 1}
     assert loaded.input_assertion_highwater == 11.0
@@ -395,6 +399,7 @@ async def test_pending_review_change_invalidates_portrait_projection():
         user_id="local_user",
         entity_id="user:local_user",
         input_review_highwater=10.0,
+        prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
     )
 
     assert await portrait_projection_is_stale(
@@ -683,3 +688,158 @@ async def test_unresolved_assertions_remain_distinct_when_fallback_text_matches(
         projection = await UserPortraitProjectionBuilder(UnresolvedTargets()).build("local_user")
     assert {item["assertion_id"] for item in projection.review["items"]} == {"assert-1", "assert-2"}
     assert {item["text"] for item in projection.review["items"]} == {"用户喜欢尚未解析的对象。"}
+
+
+def _governed_prompt_assertion(assertion_id: str, **values):
+    return {
+        "assertion_id": assertion_id, "entity_id": "user:local_user", "entity_type": "user",
+        "trait_family": "preference_profile", "trait_name": "preference.affinity", "trait_value": "like",
+        "target_entity_id": "food:strawberry", "natural_summary": "用户喜欢草莓。",
+        "source_domain": "user_authored", "validation_state": "stable", "confidence_score": 0.95,
+        "temporal_scope": "stable", "evidence_events": [f"event:{assertion_id}"], "updated_at": 100.0,
+        **values,
+    }
+
+
+async def test_portrait_keeps_missing_fact_notices_out_of_model_context():
+    from magi.i18n import language_context
+
+    class MissingDescriptions:
+        async def list_current_assertions(self, **kwargs):
+            assert kwargs == {
+                "entity_id": "user:local_user", "entity_type": "user", "context_scope": None, "limit": 500,
+            }
+            return [
+                _governed_prompt_assertion("assert-complete"),
+                _governed_prompt_assertion("assert-unresolved", natural_summary="", target_entity_id="food:hidden"),
+                _governed_prompt_assertion(
+                    "assert-unavailable", trait_family="interest_profile", trait_name="interest.unknown",
+                    natural_summary="", trait_value="assert:internal-id", target_entity_id=None,
+                ),
+                _governed_prompt_assertion(
+                    "assert-behavior", trait_family="routine_profile", trait_name="routine.interaction.repeat",
+                    natural_summary="", trait_value="tool:internal-id", target_entity_id="tool:internal-id",
+                    inference_depth="topology_only", temporal_scope="recent",
+                ),
+            ]
+
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(MissingDescriptions()).build("local_user")
+    ui_text = str(projection.world) + str(projection.recent)
+    assert "尚未解析的对象" in ui_text
+    assert "这条记录缺少完整事实描述。" in ui_text
+    items = [item for group in projection.world["groups"] for item in group["items"]]
+    items.extend(projection.recent["items"])
+    assert {item["assertion_id"]: item["display_status"] for item in items} == {
+        "assert-complete": "complete", "assert-unresolved": "partial",
+        "assert-unavailable": "unavailable", "assert-behavior": "partial",
+    }
+    assert len(projection.prompt_summary) == 1
+    assert "用户喜欢草莓。" in projection.prompt_summary[0]
+    assert "尚未解析" not in projection.prompt_summary[0]
+    assert "缺少完整事实描述" not in projection.prompt_summary[0]
+    assert "internal-id" not in projection.prompt_summary[0]
+    assert set(projection.evidence_refs) == {
+        "assertion:assert-complete", "assertion:assert-unresolved",
+        "assertion:assert-unavailable", "assertion:assert-behavior",
+    }
+
+
+async def test_portrait_prompt_and_freshness_do_not_read_ui_item_text(monkeypatch):
+    from magi.i18n import language_context
+    from magi.user_profile import portrait_projection_builder as builder_module
+
+    class GovernedFacts:
+        async def list_current_assertions(self, **kwargs):
+            return [
+                _governed_prompt_assertion("assert-complete"),
+                _governed_prompt_assertion(
+                    "assert-goal", trait_family="goal_profile", trait_name="goal.intent",
+                    trait_value="申请项目", natural_summary="用户计划明年申请项目。 原文时间: 明年",
+                    temporal_scope="recent", validation_state="tentative",
+                ),
+            ]
+
+    original_assertion_item = builder_module._item_from_assertion
+    original_profile_items = UserPortraitProjectionBuilder._profile_world_items
+
+    def ui_assertion_item(assertion):
+        item = original_assertion_item(assertion)
+        assert item is not None
+        return {**item, "text": "UI assertion notice"}
+
+    def ui_profile_items(profile):
+        grouped = original_profile_items(profile)
+        for items in grouped.values():
+            for item in items:
+                item["text"] = "UI profile notice"
+        return grouped
+
+    monkeypatch.setattr(builder_module, "_item_from_assertion", ui_assertion_item)
+    monkeypatch.setattr(UserPortraitProjectionBuilder, "_profile_world_items", staticmethod(ui_profile_items))
+    store = GovernedFacts()
+    profile = UserProfileProjection(preferred_form_of_address="小明")
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(store, profile_projection=profile).build("local_user")
+        assert "UI assertion notice" in str(projection.world)
+        assert "UI profile notice" in str(projection.world)
+        prompt = "\n".join(projection.prompt_summary)
+        assert "用户喜欢草莓。" in prompt
+        assert "希望称呼为「小明」" in prompt
+        assert projection.prompt_summary[-1] == "近期计划：用户计划明年申请项目。 原文时间: 明年"
+        assert "UI" not in prompt
+        assert not await portrait_projection_is_stale(
+            projection, user_id="local_user", l2_store=store, profile_projection=profile,
+        )
+        projection.prompt_summary = ["UI assertion notice"]
+        assert await portrait_projection_is_stale(
+            projection, user_id="local_user", l2_store=store, profile_projection=profile,
+        )
+
+
+@pytest.mark.parametrize("state", ["tentative", "contradicted"])
+async def test_complete_description_does_not_admit_review_assertion_to_prompt(state):
+    from magi.i18n import language_context
+
+    class ReviewFact:
+        async def list_current_assertions(self, **kwargs):
+            return [_governed_prompt_assertion("assert-review-only", validation_state=state)]
+
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(ReviewFact()).build("local_user")
+    assert projection.review["items"][0]["text"] == "用户喜欢草莓。"
+    assert projection.prompt_summary == []
+
+
+async def test_portrait_cache_requires_fact_completeness_outside_prompt_budget():
+    from magi.i18n import language_context
+
+    class ReviewFact:
+        async def list_current_assertions(self, **kwargs):
+            return [_governed_prompt_assertion("assert-review-only", validation_state="tentative")]
+
+    store = ReviewFact()
+    with language_context("zh-CN"):
+        projection = await UserPortraitProjectionBuilder(store).build("local_user")
+        assert projection.prompt_summary == []
+        assert not await portrait_projection_is_stale(
+            projection, user_id="local_user", l2_store=store,
+        )
+        projection.review["items"][0].pop("display_status")
+        assert await portrait_projection_is_stale(
+            projection, user_id="local_user", l2_store=store,
+        )
+
+
+async def test_old_prompt_contract_is_stale_without_any_assertion_ui_items():
+    old = UserPortraitProjection(
+        user_id="local_user", world={}, review={}, recent={},
+        prompt_summary=["用户关注或偏好：这条记录缺少完整事实描述。"],
+    )
+    assert await portrait_projection_is_stale(old, user_id="local_user", l2_store=object())
+    assert old.prompt_contract_version == 0
+
+
+async def test_successful_builder_marks_semantic_prompt_contract():
+    projection = await UserPortraitProjectionBuilder(_FakeL2()).build("local_user")
+    assert projection.prompt_contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION

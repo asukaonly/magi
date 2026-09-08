@@ -786,7 +786,7 @@ function CorrectionSuccess({
 }) {
   const { t, i18n } = useTranslation('app');
   const hasReplacement = Boolean(result.correction.replacement);
-  const currentValue = hasReplacement ? getReadableCurrentClaim(target, result.current_claim, t) : null;
+  const currentValue = hasReplacement ? getReadableCurrentClaim(target, result.current_claim) : null;
   const locale = correctionLocale(i18n.resolvedLanguage || i18n.language);
   const effectiveAt = result.correction.effective_at
     ? formatCorrectionTime(result.correction.effective_at, locale)
@@ -972,11 +972,10 @@ function mergeEntityOptions(
 function getReadableCurrentClaim(
   target: MemoryCorrectionUiTarget,
   claim: MemoryCorrectionClaimValue | null | undefined,
-  t: ReturnType<typeof useTranslation<'app'>>['t']
 ): string | null {
   if (!claim) return null;
   if (target.kind === 'assertion') {
-    return getAssertionDisplayText(claim, t);
+    return getAssertionDisplayText(claim);
   }
 
   const objectId = String(claim.object_id ?? '').trim();

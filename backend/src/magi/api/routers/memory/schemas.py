@@ -272,6 +272,7 @@ class MemoryCorrectionClaimValue(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_text: Optional[str] = None
+    display_status: Optional[Literal["complete", "partial", "unavailable"]] = None
     value_options: Optional[List[str]] = None
     value: Optional[Any] = None
     trait_value: Optional[Any] = None
@@ -324,6 +325,7 @@ class MemoryCorrectionVersion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_text: Optional[str] = None
+    display_status: Optional[Literal["complete", "partial", "unavailable"]] = None
     value_options: Optional[List[str]] = None
     trait_value: Optional[Any] = None
     subject_id: Optional[str] = None

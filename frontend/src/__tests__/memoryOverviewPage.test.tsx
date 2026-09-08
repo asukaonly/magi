@@ -190,7 +190,7 @@ const dashboardPayload = {
         trait_family: 'preference_profile',
         trait_name: 'favorite_language',
         trait_value: 'Python',
-        display_text: 'The user is interested in Python.',
+        display_text: 'The user is interested in Python.', display_status: 'complete' as const,
         confidence_score: 0.3,
         evidence_events: ['evt-1'],
         validation_state: 'tentative',
@@ -586,7 +586,7 @@ describe('MemoryOverviewPage', () => {
             trait_family: 'communication_profile',
             trait_name: 'communication.address.preferred',
             trait_value: '子涵',
-            display_text: 'You want me to call you "子涵".',
+            display_text: 'You want me to call you "子涵".', display_status: 'complete' as const,
             confidence_score: 0.52,
             evidence_events: ['evt-1'],
             validation_state: 'tentative',
@@ -665,6 +665,8 @@ describe('MemoryOverviewPage', () => {
           proposed: {
             trait_value: 'Visit the seaside in autumn',
             natural_summary: 'The user plans to visit the seaside in autumn; the year is unclear.',
+            display_text: 'The user plans to visit the seaside in autumn; the year is unclear.',
+            display_status: 'complete',
           },
           route_contract_version: 5,
           evidence_rule_version: 2,
@@ -715,7 +717,7 @@ describe('MemoryOverviewPage', () => {
 
 it('renders complete facts for stored and pre-materialization overview items', () => {
   const items = buildPendingItems({ pending_assertions: { items: [strawberryAssertion] } } as never, [], [{
-    review_id: 'review-blueberry', proposed: { ...strawberryAssertion, natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。' },
+    review_id: 'review-blueberry', proposed: { ...strawberryAssertion, natural_summary: '用户喜欢蓝莓。', display_text: '用户喜欢蓝莓。', display_status: 'complete' as const },
     status: 'pending', updated_at: 1,
   }] as never, new Set(), (key) => key);
   render(<OverviewPendingSection items={items} actionBusyId={null} onAction={vi.fn()} />);

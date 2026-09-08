@@ -1052,16 +1052,28 @@ user-understanding caches.
 Assertion lists, dashboard candidates, pre-materialization review proposals,
 public recall results, correction results/history, and assertion-backed portraits
 share the host-owned fact display read model in `l2/assertion_display.py`.
-`display_text` prefers the retained host-rendered `natural_summary`; when it is
-absent, deterministic rendering uses the existing semantic route descriptors and
+`render_assertion_fact` returns a typed description and its completeness, without
+UI placeholders or a prompt-admission decision. The owning read boundary chooses
+`SummaryPolicy.RETAINED` or `STRUCTURED_ONLY`; correction history explicitly
+chooses the latter instead of erasing an input field to signal privacy policy.
+Permitted retained wording preserves the factual description or grounded original
+words. When it is absent, deterministic rendering uses the existing semantic route descriptors and
 batched authoritative entity names. Missing subjects or targets are stated as
 unresolved, and unsupported incomplete facts receive an explicit unavailable
 description. Entity IDs are never converted into guessed names. Scoped or recent
 wording remains part of the fact, independent of lifecycle or confidence labels.
 The display operation is read-only and makes no model calls.
+Literal value decoding follows the owning field contract: disallowed forms of
+address permit a single Claim literal or the string list written by Personal
+Profile. Other literal text is not interpreted as JSON based on its appearance.
+This read conversion never changes the canonical value submitted by an editor.
 
 The API retains `trait_value`, target identity, evidence, temporal scope and
-lifecycle unchanged. `entity_name`, `target_entity_name`, `display_text` and
+lifecycle unchanged. The required `display_text` and `display_status`
+(`complete`, `partial`, or `unavailable`) distinguish an incomplete fact from a
+missing projection contract; completeness is not confidence or confirmation.
+The frontend rejects absent, empty or invalid projection fields instead of
+falling back to a raw summary or value. `entity_name`, `target_entity_name`, and
 `value_options` are presentation fields. The frontend shares one fact adapter
 across lists, details, pending lanes and correction surfaces; it does not rebuild
 sentences from enum values. Portrait items retain `correction_value`,
@@ -1084,10 +1096,17 @@ rules retain their existing ownership. The dismissed-suggestion read projection
 uses the localized review title for profile conflicts, including already stored
 dismissals, so the restore list does not expose an old internal trait name.
 Portrait wording and prompt selection are deterministic host logic. There is no
-optional portrait LLM post-processor in the runtime path. A transient freshness,
+optional portrait LLM post-processor in the runtime path. Product items and prompt
+inputs are separate projections of the same admitted facts. Prompt inputs carry
+only complete descriptions, never UI items or unavailable/unresolved display
+messages; the existing source ordering, line budgets, scope and tentative-Claim
+admission rules still apply. A transient freshness,
 input, or rebuild failure retains the last successfully persisted projection and
 marks the product response stale; when no successful row exists, the product
 returns unavailable/omits prompt context and does not persist an empty projection.
+Prompt fallback additionally requires the current persisted prompt contract, so
+an older cache cannot inject sentences assembled from UI placeholders. A valid
+current-contract cache keeps the same last-good behavior on transient failures.
 Only a successful dependency read whose real result is empty may materialize an
 empty profile or portrait. Projection failures are logged with projection kind,
 stage, cache-retention decision, user ID, and error type without evidence text.
@@ -1123,8 +1142,11 @@ pending for later; omission from a batch is never interpreted as rejection.
 The self-portrait API returns this grouped projection directly. It does not
 return a second raw-observation shape, and the frontend must not reclassify
 assertions or graph material with its own policy.
-The materialized portrait has one current shape. It does not carry internal
-schema versions or compatibility readers for older portrait payloads.
+The materialized portrait has one current shape and no compatibility reader.
+Its persisted `prompt_contract_version` records whether prompt generation met
+the current fact-input contract. A mismatched version invalidates the cache and
+requires rebuilding; it never selects an older rendering path. Migration marks
+existing rows unqualified without altering their source assertions or evidence.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
 and prompt assembly must rebuild them when newer profile or assertion inputs
 exist. User feedback or correction on a user assertion
@@ -1405,7 +1427,11 @@ shorten a recent assertion behind newer trusted evidence.
 
 Family choice shapes downstream handling but does not by itself decide trust. Conflict decisions are primarily source-tier and active-key based: user-authored assertions remain authoritative over behavioral or plugin-derived inference unless the user explicitly corrects or rejects them. Family policy determines whether a value behaves like short-lived state, durable semantic profile, preference snapshot content, or core-trait context after it has passed source-tier and evidence gates.
 
-Assertion API rows expose family display metadata, including `trait_value_i18n`, so the frontend can localize controlled state values while preserving literal user-authored profile and preference values.
+Assertion API rows expose family metadata, including `trait_value_i18n`, for
+structured editors and labels. Complete fact text comes from the shared host
+display contract; the frontend must not reconstruct it from controlled or literal
+values. Editor submissions preserve the canonical semantic value independently
+of the text shown to the user.
 
 **Episodic Memory** stores bounded historical activity, episode, and experience structure:
 

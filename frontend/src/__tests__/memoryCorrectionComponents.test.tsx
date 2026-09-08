@@ -78,13 +78,13 @@ const correctionResponse = (
   correction: {
     correction_id: 'correction-1',
     correction_kind: 'record_error',
-    before: { trait_value: '直白', display_text: '你偏好直白的回答。' },
-    replacement: { value: '简洁', display_text: '你偏好简洁的回答。' },
+    before: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const },
+    replacement: { value: '简洁', display_text: '你偏好简洁的回答。', display_status: 'complete' as const },
     created_at: 1719301300,
     state: 'active',
     can_revert: true,
   },
-  current_claim: { trait_value: '简洁', display_text: '你偏好简洁的回答。' },
+  current_claim: { trait_value: '简洁', display_text: '你偏好简洁的回答。', display_status: 'complete' as const },
   derivation_state: 'completed',
   created: true,
   ...overrides,
@@ -257,7 +257,7 @@ describe('MemoryCorrectionDialog request safety', () => {
       .mockRejectedValueOnce(new Error('network unavailable'))
       .mockRejectedValueOnce(new Error('network unavailable'))
       .mockResolvedValueOnce(correctionResponse({
-        current_claim: { trait_value: '更简洁', display_text: '你偏好更简洁的回答。' },
+        current_claim: { trait_value: '更简洁', display_text: '你偏好更简洁的回答。', display_status: 'complete' as const },
       }));
     const user = userEvent.setup();
 
@@ -503,7 +503,7 @@ describe('MemoryCorrectionDialog request safety', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
       correction: {
         ...correctionResponse().correction,
-        before: { trait_value: '直白', display_text: '你偏好直白的回答。', status: 'shadow' },
+        before: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const, status: 'shadow' },
         replacement: null,
       },
       current_claim: null,
@@ -542,11 +542,11 @@ describe('MemoryCorrectionDialog request safety', () => {
       correction: {
         ...correctionResponse().correction,
         correction_kind: 'scope_refinement',
-        replacement: { value: '直白' },
+        replacement: { value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' },
         scope: { all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }] },
       },
       current_claim: {
-        trait_value: '直白', display_text: '你偏好直白的回答。',
+        trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const,
       },
     }));
     const user = userEvent.setup();
@@ -775,8 +775,8 @@ describe('MemoryCorrectionHistory request safety', () => {
   const correction = {
     correction_id: 'correction-latest',
     correction_kind: 'record_error' as const,
-    before: { trait_value: '直白', display_text: '你偏好直白的回答。' },
-    replacement: { value: '简洁', display_text: '你偏好简洁的回答。' },
+    before: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const },
+    replacement: { value: '简洁', display_text: '你偏好简洁的回答。', display_status: 'complete' as const },
     created_at: 1719301300,
     state: 'active' as const,
     can_revert: true,
@@ -786,7 +786,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [{
-        trait_value: '直白', display_text: '你偏好直白的回答。',
+        trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const,
         status: 'stable',
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       }],
@@ -855,6 +855,7 @@ describe('MemoryCorrectionHistory request safety', () => {
       versions: [{
         trait_value: longValue,
         display_text: longValue,
+        display_status: 'complete',
         status: 'stable',
       }],
       corrections: [{ ...correction, reason: longReason }],
@@ -892,7 +893,7 @@ describe('MemoryCorrectionHistory request safety', () => {
       .mockRejectedValueOnce(new Error('response lost'))
       .mockResolvedValueOnce(correctionResponse({
         correction: { ...correction, state: 'reverted', can_revert: false },
-        current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。' },
+        current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const },
         created: false,
       }));
     const user = userEvent.setup();
@@ -924,7 +925,7 @@ describe('MemoryCorrectionHistory request safety', () => {
       .mockRejectedValueOnce(new Error('history refresh failed'));
     vi.mocked(memoryApi.revertCorrection).mockResolvedValue(correctionResponse({
       correction: { ...correction, state: 'reverted', can_revert: false },
-      current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。' },
+      current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const },
       created: false,
     }));
     const onReverted = vi.fn().mockRejectedValue(new Error('parent refresh failed'));
@@ -986,7 +987,7 @@ describe('MemoryCorrectionHistory request safety', () => {
 
     resolveRevert(correctionResponse({
       correction: { ...secondCorrection, state: 'reverted', can_revert: false },
-      current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。' },
+      current_claim: { trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const },
       created: false,
     }));
     await waitFor(() => expect(memoryApi.getCorrectionHistory).toHaveBeenCalledTimes(2));
@@ -1382,13 +1383,13 @@ describe('MemoryCorrectionHistory request safety', () => {
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [
         {
-          trait_value: '直白', display_text: '你偏好直白的回答。',
+          trait_value: '直白', display_text: '你偏好直白的回答。', display_status: 'complete' as const,
           status: 'superseded',
           valid_from: now - 3600,
           valid_to: now + 3600,
         },
         {
-          trait_value: '简洁', display_text: '你偏好简洁的回答。',
+          trait_value: '简洁', display_text: '你偏好简洁的回答。', display_status: 'complete' as const,
           status: 'stable',
           valid_from: now + 3600,
         },
@@ -1410,7 +1411,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [{
-        trait_value: '简洁', display_text: '你偏好简洁的回答。',
+        trait_value: '简洁', display_text: '你偏好简洁的回答。', display_status: 'complete' as const,
         status: 'archived',
         valid_from: now + 3600,
         valid_to: now - 60,
@@ -1440,7 +1441,7 @@ describe('semantic assertion presentation', () => {
 
   it('shows the complete fact and localized options while saving the semantic direction', async () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
-      current_claim: { trait_value: 'dislike', display_text: '用户不喜欢草莓。' },
+      current_claim: { trait_value: 'dislike', display_text: '用户不喜欢草莓。', display_status: 'complete' as const },
     }));
     const user = userEvent.setup();
     render(<MemoryCorrectionDialog open target={affinityTarget} onOpenChange={vi.fn()} />);
@@ -1462,7 +1463,7 @@ describe('semantic assertion presentation', () => {
 
   it('does not substitute the old fact when a corrected fact is unavailable', async () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
-      current_claim: { trait_value: 'dislike' },
+      current_claim: { trait_value: 'dislike', display_text: '完整事实暂不可用', display_status: 'unavailable' },
     }));
     const user = userEvent.setup();
     render(<MemoryCorrectionDialog open target={affinityTarget} onOpenChange={vi.fn()} />);
@@ -1479,14 +1480,14 @@ describe('semantic assertion presentation', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: affinityTarget.id },
       versions: [
-        { trait_value: 'like', display_text: '用户近期喜欢草莓。', status: 'tentative' },
-        { trait_value: 'interested', status: 'active' },
+        { trait_value: 'like', display_text: '用户近期喜欢草莓。', display_status: 'complete' as const, status: 'tentative' },
+        { trait_value: 'interested', status: 'active', display_text: '完整事实暂不可用', display_status: 'unavailable' },
       ],
       corrections: [{
         correction_id: 'correction-affinity',
         correction_kind: 'record_error',
-        before: { trait_value: 'like', display_text: '用户喜欢草莓。' },
-        replacement: { value: 'dislike', display_text: '用户不喜欢草莓。' },
+        before: { trait_value: 'like', display_text: '用户喜欢草莓。', display_status: 'complete' as const },
+        replacement: { value: 'dislike', display_text: '用户不喜欢草莓。', display_status: 'complete' as const },
         created_at: 1719301300,
         state: 'active',
         can_revert: false,

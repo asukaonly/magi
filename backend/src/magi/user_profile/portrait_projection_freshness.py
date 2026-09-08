@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from .models import UserPortraitProjection, UserProfileProjection
+from ..memory.l2.assertion_display import FactCompleteness, decorate_assertion_display
+from .models import PORTRAIT_PROMPT_CONTRACT_VERSION, UserPortraitProjection, UserProfileProjection
 from .portrait_claim_query import (
     latest_portrait_claim_change_at,
     list_tentative_portrait_claims,
@@ -13,6 +14,7 @@ from .portrait_claim_query import (
 from .portrait_projection_builder import (
     PORTRAIT_ASSERTION_FAMILIES,
     TENTATIVE_SELECTION_REF_PREFIX,
+    build_portrait_prompt_inputs,
     render_portrait_rule_prompt_summary,
     select_rendered_tentative_portrait_claims,
     tentative_portrait_selection_refs,
@@ -27,6 +29,11 @@ from .projection_freshness import (
 )
 
 
+def portrait_prompt_contract_is_current(projection: UserPortraitProjection) -> bool:
+    """Accept cached model facts only from the current semantic prompt contract."""
+    return projection.prompt_contract_version == PORTRAIT_PROMPT_CONTRACT_VERSION
+
+
 async def portrait_projection_is_stale(
     projection: UserPortraitProjection,
     *,
@@ -35,7 +42,7 @@ async def portrait_projection_is_stale(
     profile_projection: UserProfileProjection | None = None,
 ) -> bool:
     """Return true when a newer or no-longer-visible portrait input exists."""
-    if _missing_correction_version_metadata(projection):
+    if not portrait_prompt_contract_is_current(projection) or _missing_portrait_item_metadata(projection):
         return True
     entity_id = f"user:{user_id}"
     if int(projection.source_revision) != await current_subject_revision(
@@ -69,11 +76,12 @@ async def portrait_projection_is_stale(
         profile_projection_highwater(profile_projection),
     ):
         return True
-    return await _tentative_prompt_selection_changed(
+    return await _prompt_inputs_changed(
         projection,
         l2_store=l2_store,
         user_id=user_id,
         assertions=assertions,
+        profile_projection=profile_projection,
     )
 
 
@@ -107,14 +115,14 @@ def _assertion_ids(items: Any) -> set[str]:
     }
 
 
-def _missing_correction_version_metadata(projection: UserPortraitProjection) -> bool:
-    """Invalidate portrait caches missing lossless correction metadata.
+def _missing_portrait_item_metadata(projection: UserPortraitProjection) -> bool:
+    """Invalidate portrait caches missing fact and lossless correction metadata.
 
     Assertion-backed portrait items need their source ``updated_at`` value for
     optimistic concurrency checks and their stored ``correction_value`` so a
     display-formatted value is never written back as a different assertion. A
-    rebuilt projection persists both values, after which normal timestamp
-    freshness checks apply.
+    rebuilt projection also records description completeness. This keeps cached
+    UI facts current even when those items did not fit the prompt budget.
     """
     containers: list[Any] = []
     for group in (projection.world or {}).get("groups") or []:
@@ -136,6 +144,8 @@ def _missing_correction_version_metadata(projection: UserPortraitProjection) -> 
             if not _float_value(item.get("updated_at")) > 0.0:
                 return True
             if not {"correction_value", "correction_value_options", "correction_trait_name"}.issubset(item):
+                return True
+            if item.get("display_status") not in {status.value for status in FactCompleteness}:
                 return True
     return False
 
@@ -160,18 +170,14 @@ async def _current_portrait_assertions(
     ]
 
 
-async def _tentative_prompt_selection_changed(
+async def _prompt_inputs_changed(
     projection: UserPortraitProjection,
     *,
     l2_store: Any,
     user_id: str,
     assertions: list[dict[str, Any]],
+    profile_projection: UserProfileProjection | None,
 ) -> bool:
-    cached_lines = [
-        str(line).strip()
-        for line in projection.prompt_summary
-        if str(line).strip().startswith("用户曾自述：")
-    ]
     current_assertion_ids = {
         str(assertion.get("assertion_id") or "").strip()
         for assertion in assertions
@@ -191,15 +197,14 @@ async def _tentative_prompt_selection_changed(
     )
     current_candidate_lines = [candidate.prompt_line for candidate in candidates[:2]]
     current_summary = render_portrait_rule_prompt_summary(
-        world=projection.world,
-        recent=projection.recent,
+        inputs=build_portrait_prompt_inputs(
+            assertions=await decorate_assertion_display(
+                getattr(l2_store, "db_path", None), assertions
+            ),
+            profile_projection=profile_projection,
+        ),
         tentative_lines=current_candidate_lines,
     )
-    current_lines = [
-        str(line).strip()
-        for line in current_summary
-        if str(line).strip().startswith("用户曾自述：")
-    ]
     current_selection = select_rendered_tentative_portrait_claims(
         candidates[:2],
         current_summary,
@@ -210,7 +215,7 @@ async def _tentative_prompt_selection_changed(
         for reference in projection.evidence_refs
         if str(reference).strip().startswith(TENTATIVE_SELECTION_REF_PREFIX)
     ]
-    return cached_lines != current_lines or cached_selection_refs != current_selection_refs
+    return projection.prompt_summary != current_summary or cached_selection_refs != current_selection_refs
 
 
 async def _latest_review_change_at(l2_store: Any, *, entity_id: str) -> float:

@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import inspect
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from ..memory.derivation_revision import DerivationRevision
 from ..memory.l2.assertion_display import (
-    assertion_behavior_target, assertion_display_is_recent, assertion_value_options,
-    decorate_assertion_display, render_assertion_display,
+    FactCompleteness, assertion_behavior_target, assertion_display_is_recent, assertion_value_options,
+    decorate_assertion_display, render_assertion_display, render_assertion_fact,
 )
 from ..memory.l2.factual_rendering import assertion_evidence_basis
 from ..i18n import effective_app_language_code
 from .models import (
     DEFAULT_USER_ID,
+    PORTRAIT_PROMPT_CONTRACT_VERSION,
     PROFILE_ASSERTION_FAMILIES,
     UserPortraitProjection,
     UserProfileProjection,
@@ -58,6 +60,24 @@ _INTERNAL_SOURCE_KEYS = {
 _MAX_PROMPT_SUMMARY_LINES = 4
 _MAX_PROTECTED_GOAL_LINES = 2
 TENTATIVE_SELECTION_REF_PREFIX = "tentative:"
+
+
+@dataclass(frozen=True)
+class PortraitPromptInputs:
+    """Semantic facts selected from governed inputs, independent of UI items."""
+
+    world: dict[str, tuple[str, ...]]
+    recent: tuple[str, ...]
+    goals: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _PortraitFact:
+    key: str
+    text: str
+    score: tuple[int, int, int]
+    field: str = ""
+    trait_family: str = ""
 
 
 class UserPortraitProjectionBuilder:
@@ -107,8 +127,10 @@ class UserPortraitProjectionBuilder:
         # Keep main-model context grounded in governed assertions, explicit profile
         # fields, and deterministic Claim material.
         prompt_summary = render_portrait_rule_prompt_summary(
-            world=world,
-            recent=recent,
+            inputs=build_portrait_prompt_inputs(
+                assertions=assertions,
+                profile_projection=self._profile_projection,
+            ),
             tentative_lines=tentative_lines,
         )
         selected_tentative_claims = select_rendered_tentative_portrait_claims(
@@ -139,6 +161,7 @@ class UserPortraitProjectionBuilder:
             review=review,
             recent=recent,
             prompt_summary=prompt_summary,
+            prompt_contract_version=PORTRAIT_PROMPT_CONTRACT_VERSION,
             evidence_refs=evidence_refs,
             source_counts=source_counts,
             generated_by="rule",
@@ -240,56 +263,21 @@ class UserPortraitProjectionBuilder:
     def _profile_world_items(
         profile: UserProfileProjection | None,
     ) -> dict[str, list[dict[str, Any]]]:
-        if profile is None:
-            return {}
-        grouped: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in WORLD_GROUP_IDS}
-
-        def add(group_id: str, field: str, text: str, *, basis_count: int = 1) -> None:
-            clean = _text(text)
-            if not clean:
-                return
-            grouped[group_id].append({
-                "id": f"profile:{field}",
-                "text": clean,
+        return {
+            group_id: [{
+                "id": f"profile:{fact.field}",
+                "text": fact.text,
                 "source": "",
                 "source_key": "user_profile_projection",
                 "assertion_id": None,
-                "basis_count": basis_count,
+                "basis_count": 1,
                 "basis_refs": [
                     "source:user_profile_projection",
-                    f"profile:{field}",
+                    f"profile:{fact.field}",
                 ],
-            })
-
-        preferred_form_of_address = _profile_field_text(profile, "preferred_form_of_address")
-        if preferred_form_of_address:
-            add("identity", "preferred_form_of_address", f"希望称呼为「{preferred_form_of_address}」")
-        real_name = _profile_field_text(profile, "real_name")
-        if real_name:
-            add("identity", "real_name", f"真实姓名：{real_name}")
-        birth_date = _profile_field_text(profile, "birth_date")
-        if birth_date:
-            add("identity", "birth_date", f"生日：{birth_date}")
-        home_location = _profile_field_text(profile, "home_location")
-        if home_location:
-            add("identity", "home_location", f"常住地：{home_location}")
-
-        disallowed = profile.communication.get("disallowed_forms_of_address")
-        if isinstance(disallowed, list) and disallowed:
-            text = "、".join(_text(item) for item in disallowed if _text(item))
-            add("work_style", "disallowed_forms_of_address", f"避免这些称呼：{text}")
-
-        for key, value in (profile.preferences or {}).items():
-            text = _display_value(value)
-            if text:
-                add("preferences", f"preference:{key}", text)
-        for key, value in (profile.communication or {}).items():
-            if key == "disallowed_forms_of_address":
-                continue
-            text = _display_value(value)
-            if text:
-                add("work_style", f"communication:{key}", text)
-        return grouped
+            } for fact in facts]
+            for group_id, facts in _profile_facts(profile).items()
+        }
 
     def _build_review(self, assertions: list[dict[str, Any]]) -> dict[str, Any]:
         items = []
@@ -342,40 +330,139 @@ class UserPortraitProjectionBuilder:
 
 def render_portrait_rule_prompt_summary(
     *,
-    world: dict[str, Any],
-    recent: dict[str, Any],
+    inputs: PortraitPromptInputs,
     tentative_lines: list[str],
 ) -> list[str]:
     """Render the deterministic prompt summary used by build and freshness checks."""
 
-    groups = {group["id"]: list(group.get("items", [])) for group in world.get("groups", [])}
     lines: list[str] = []
-    identity = _item_texts(groups.get("identity", []))[:3]
+    identity = inputs.world.get("identity", ())[:3]
     if identity:
         lines.append(f"用户资料：{'；'.join(identity)}。")
-    projects = _item_texts(groups.get("projects", []))[:3]
+    projects = inputs.world.get("projects", ())[:3]
     if projects:
         lines.append(f"用户长期推进或反复关注：{'、'.join(projects)}。")
-    preferences = _item_texts(groups.get("preferences", []))[:4]
+    preferences = inputs.world.get("preferences", ())[:4]
     if preferences:
         lines.append(f"用户关注或偏好：{'、'.join(preferences)}。")
-    work_style = _item_texts(groups.get("work_style", []))[:4]
+    work_style = inputs.world.get("work_style", ())[:4]
     if work_style:
         lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
     for line in tentative_lines[:2]:
         if len(lines) >= _MAX_PROMPT_SUMMARY_LINES:
             break
         lines.append(line)
-    recent_items = _item_texts(
-        [
-            item
-            for item in list(recent.get("items", []))
-            if _text(item.get("trait_family")).casefold() != "goal_profile"
-        ]
-    )[:2]
+    recent_items = inputs.recent[:2]
     if recent_items and len(lines) < _MAX_PROMPT_SUMMARY_LINES:
         lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
-    return _merge_protected_prompt_lines(lines, _goal_prompt_lines(recent))
+    return _merge_protected_prompt_lines(lines, list(inputs.goals))
+
+
+def build_portrait_prompt_inputs(
+    *,
+    assertions: list[dict[str, Any]],
+    profile_projection: UserProfileProjection | None = None,
+) -> PortraitPromptInputs:
+    """Select grounded text after the existing portrait admission policy.
+
+    Assertion liveness, scope and evidence filtering remain owned by the current
+    Assertion read. An incomplete description supplies no model fact, while the
+    Assertion remains available to UI and tentative-Claim suppression rules.
+    """
+    grouped = _profile_facts(profile_projection)
+    recent_facts: list[_PortraitFact] = []
+    for assertion in assertions:
+        role = assertion_portrait_role(assertion)
+        if role not in {"world", "recent"}:
+            continue
+        description = render_assertion_fact(assertion)
+        if description.completeness != FactCompleteness.COMPLETE or not description.text:
+            continue
+        text = description.text
+        family = _text(assertion.get("trait_family"))
+        if family == "goal_profile":
+            text = _goal_text(text)
+        source = _text(assertion.get("source_domain"))
+        state = _text(assertion.get("validation_state") or assertion.get("status"))
+        fact = _PortraitFact(
+            key=_text(assertion.get("assertion_id")) or text.casefold(),
+            text=text,
+            score=(
+                SOURCE_STRENGTH.get(source, 0) + VALIDATION_STRENGTH.get(state, 0),
+                _evidence_count(assertion),
+                len(text),
+            ),
+            trait_family=family,
+        )
+        if role == "recent":
+            recent_facts.append(fact)
+        elif group_id := _world_group_for_assertion(assertion):
+            grouped.setdefault(group_id, []).append(fact)
+    selected_recent = _dedupe_facts(recent_facts, ranked=False)[:6]
+    return PortraitPromptInputs(
+        world={
+            group_id: tuple(fact.text for fact in _dedupe_facts(facts, ranked=True)[:5])
+            for group_id, facts in grouped.items()
+        },
+        recent=tuple(fact.text for fact in selected_recent if fact.trait_family != "goal_profile"),
+        goals=tuple(dict.fromkeys(
+            fact.text for fact in selected_recent if fact.trait_family == "goal_profile"
+        ))[:_MAX_PROTECTED_GOAL_LINES],
+    )
+
+
+def _profile_facts(
+    profile: UserProfileProjection | None,
+) -> dict[str, list[_PortraitFact]]:
+    grouped: dict[str, list[_PortraitFact]] = {group_id: [] for group_id in WORLD_GROUP_IDS}
+    if profile is None:
+        return grouped
+
+    def add(group_id: str, field: str, text: str) -> None:
+        clean = _text(text)
+        if clean:
+            grouped[group_id].append(_PortraitFact(
+                key=clean.casefold(),
+                text=clean,
+                score=(SOURCE_STRENGTH.get("user_profile_projection", 0), 1, len(clean)),
+                field=field,
+            ))
+
+    preferred_form_of_address = _profile_field_text(profile, "preferred_form_of_address")
+    if preferred_form_of_address:
+        add("identity", "preferred_form_of_address", f"希望称呼为「{preferred_form_of_address}」")
+    real_name = _profile_field_text(profile, "real_name")
+    if real_name:
+        add("identity", "real_name", f"真实姓名：{real_name}")
+    birth_date = _profile_field_text(profile, "birth_date")
+    if birth_date:
+        add("identity", "birth_date", f"生日：{birth_date}")
+    home_location = _profile_field_text(profile, "home_location")
+    if home_location:
+        add("identity", "home_location", f"常住地：{home_location}")
+
+    disallowed = profile.communication.get("disallowed_forms_of_address")
+    if isinstance(disallowed, list) and disallowed:
+        text = "、".join(_text(item) for item in disallowed if _text(item))
+        add("work_style", "disallowed_forms_of_address", f"避免这些称呼：{text}")
+
+    for key, value in (profile.preferences or {}).items():
+        text = _display_value(value)
+        if text:
+            add("preferences", f"preference:{key}", text)
+    for key, value in (profile.communication or {}).items():
+        if key != "disallowed_forms_of_address" and (text := _display_value(value)):
+            add("work_style", f"communication:{key}", text)
+    return grouped
+
+
+def _dedupe_facts(facts: list[_PortraitFact], *, ranked: bool) -> list[_PortraitFact]:
+    selected: dict[str, _PortraitFact] = {}
+    for fact in facts:
+        previous = selected.get(fact.key)
+        if previous is None or (ranked and fact.score > previous.score):
+            selected[fact.key] = fact
+    return sorted(selected.values(), key=lambda fact: fact.score, reverse=True) if ranked else list(selected.values())
 
 
 def select_rendered_tentative_portrait_claims(
@@ -412,8 +499,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         value = assertion_behavior_target(assertion)
         expression = {"kind": "behavior", "value": value, "horizon": "recent" if recent else "repeated"}
     elif _text(assertion.get("trait_family")).casefold() == "goal_profile":
-        prefix = "近期计划：" if effective_app_language_code().startswith("zh") else "Current plan: "
-        text = f"{prefix}{text}"
+        text = _goal_text(text)
     assertion_id = _text(assertion.get("assertion_id"))
     raw_source_key = _text(assertion.get("source_domain"))
     source_key = None if raw_source_key in _INTERNAL_SOURCE_KEYS else (raw_source_key or None)
@@ -433,6 +519,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
+        "display_status": render_assertion_fact(assertion).completeness.value,
         "correction_value": _correction_value(assertion.get("trait_value")),
         "correction_value_options": assertion_value_options(assertion),
         "correction_trait_name": _text(assertion.get("trait_name")),
@@ -524,15 +611,9 @@ def _item_texts(items: list[dict[str, Any]]) -> list[str]:
     return [_text(item.get("text")) for item in items if _text(item.get("text"))]
 
 
-def _goal_prompt_lines(recent: dict[str, Any]) -> list[str]:
-    lines: list[str] = []
-    for item in list(recent.get("items", [])):
-        if _text(item.get("trait_family")).casefold() != "goal_profile":
-            continue
-        text = _text(item.get("text"))
-        if text and text not in lines:
-            lines.append(text)
-    return lines[:_MAX_PROTECTED_GOAL_LINES]
+def _goal_text(text: str) -> str:
+    prefix = "近期计划：" if effective_app_language_code().startswith("zh") else "Current plan: "
+    return f"{prefix}{text}"
 
 
 def _merge_protected_prompt_lines(
@@ -581,7 +662,9 @@ def _optional_float(value: Any) -> float | None:
 
 __all__ = [
     "TENTATIVE_SELECTION_REF_PREFIX",
+    "PortraitPromptInputs",
     "UserPortraitProjectionBuilder",
+    "build_portrait_prompt_inputs",
     "render_portrait_rule_prompt_summary",
     "select_rendered_tentative_portrait_claims",
     "tentative_portrait_selection_refs",

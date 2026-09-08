@@ -665,6 +665,16 @@ Current storage implementation notes:
 - `agent.memory.l2.portrait_projection_refresh_delay_seconds` controls the debounced About You portrait refresh after L2 assertion changes. The default is 120 seconds, and repeated changes for the same user during that window are merged into one refresh.
 - `agent.memory.l2.experience_seed_llm_selection_max_per_run` bounds automatic experience-seed LLM selection during each consolidation run; seeds beyond the cap use local selection so background maintenance remains bounded.
 - Profile-memory conflict notifications should be routed through the Pending memory page so users can either accept the newer inferred memory or keep the existing user-authoritative memory.
+- Memory facts use the same host-owned description in management, pending review,
+  overview, About You, recall, and correction surfaces. An unresolved object or
+  unavailable description is shown explicitly; a missing display contract is a
+  loading error with retry, not permission for the page to invent a sentence.
+  Correction controls keep structured values separate from their visible text.
+- About You display explanations never become chat facts. Prompt context is
+  generated independently from qualified, complete facts. Previously materialized
+  portrait prompts must satisfy the current contract before reuse; a temporary
+  read failure may retain a qualified last-good prompt but cannot revive an
+  unqualified cache.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
 - Current `local` reranker execution first tries a configured provider instance such as `llm.providers.local.services.chat` that points to a local OpenAI-compatible service.
 - If that local provider path is unavailable and a managed/external local reranker model file is configured, retrieval may fall back to direct `llama-cli` execution against that local model file.

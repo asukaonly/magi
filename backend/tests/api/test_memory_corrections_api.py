@@ -1150,9 +1150,11 @@ def test_affinity_correction_renders_new_semantics_and_complete_history(tmp_path
     result = response.json()
     assert result["current_claim"]["trait_value"] == "dislike"
     assert result["current_claim"]["display_text"] == "用户不喜欢草莓。"
+    assert result["current_claim"]["display_status"] == "complete"
     assert result["correction"]["before"]["display_text"] == "用户喜欢草莓。"
     assert result["correction"]["replacement"]["value"] == "dislike"
     assert result["correction"]["replacement"]["display_text"] == "这条记录缺少完整事实描述。"
+    assert result["correction"]["replacement"]["display_status"] == "unavailable"
     history = client.get("/api/memory/l2/corrections", params={"target_kind": "assertion", "target_id": assertion_id})
     assert history.status_code == 200
     assert {version["display_text"] for version in history.json()["versions"]} == {"用户喜欢草莓。", "用户不喜欢草莓。"}
