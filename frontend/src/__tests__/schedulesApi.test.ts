@@ -27,6 +27,11 @@ describe('schedulesApi', () => {
     apiDelete.mockReset();
   });
 
+  it('rejects a schedule snapshot without a usable revision', async () => {
+    apiGet.mockResolvedValue({ schedules: [{ schedule_id: 'bad' }] });
+    await expect(schedulesApi.list()).rejects.toThrow();
+  });
+
   it('listActivity passes since/until/limit/targetTypes/statuses query params', async () => {
     apiGet.mockResolvedValue({ activities: [] });
     await schedulesApi.listActivity({
@@ -53,7 +58,7 @@ describe('schedulesApi', () => {
   });
 
   it('create posts the correct schedule body', async () => {
-    apiPost.mockResolvedValue({ schedule: { schedule_id: 'user-1' } });
+    apiPost.mockResolvedValue({ schedule: { schedule_id: 'user-1', revision: 1, target_type: 'user_agent_task', target_key: 'user-1', trigger: { trigger_type: 'interval', config: { seconds: 86400 } }, target_payload: {}, metadata: {}, enabled: true } });
     await schedulesApi.create({
       schedule_id: 'user-1',
       display_name: 'Daily summary',

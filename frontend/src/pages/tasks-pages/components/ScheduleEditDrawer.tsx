@@ -18,6 +18,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 
 import {
   getSchedulePrompt,
@@ -33,6 +34,7 @@ export interface ScheduleEditDrawerProps {
   schedule: ScheduleDTO | null;
   onClose: () => void;
   onSaved: () => void;
+  onReload?: () => Promise<void>;
 }
 
 const DEFAULT_CRON_CONFIG = {
@@ -45,9 +47,7 @@ const DEFAULT_CRON_CONFIG = {
 };
 
 const generateScheduleId = (): string => {
-  const time = Date.now().toString(36);
-  const noise = Math.random().toString(36).slice(2, 8);
-  return `user-${time}-${noise}`;
+  return `user-${crypto.randomUUID()}`;
 };
 
 const secondsToLocalInput = (seconds: number | null): string => {
@@ -65,6 +65,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
   schedule,
   onClose,
   onSaved,
+  onReload,
 }) => {
   const { t } = useTranslation('app');
   const isCreate = mode === 'create';
@@ -76,9 +77,15 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
   const [cronConfig, setCronConfig] = useState(JSON.stringify(DEFAULT_CRON_CONFIG, null, 2));
   const [targetPrompt, setTargetPrompt] = useState('');
   const [saving, setSaving] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [createId, setCreateId] = useState(generateScheduleId);
+  const beginRequest = useRequestOwner(isCreate ? 'create' : schedule?.schedule_id ?? 'closed');
 
   useEffect(() => {
+    setConflict(false);
+    setSaving(false);
     if (isCreate) {
+      setCreateId(generateScheduleId());
       setDisplayName('');
       setEnabled(true);
       setTriggerType('interval');
@@ -123,6 +130,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
   };
 
   const handleSave = async () => {
+    if (saving || conflict) return;
     const config = buildConfig();
     if (config === null) return;
 
@@ -133,28 +141,31 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
         return;
       }
       const trimmedName = displayName.trim();
+      const isCurrent = beginRequest('save');
       setSaving(true);
       try {
         await schedulesApi.create({
-          schedule_id: generateScheduleId(),
+          schedule_id: createId,
           display_name: trimmedName || t('tasks.scheduled.defaultDisplayName', { defaultValue: 'Untitled schedule' }),
           prompt: trimmedPrompt,
           trigger: { trigger_type: triggerType, config },
           enabled,
         });
+        if (!isCurrent()) return;
         toast.success(t('tasks.scheduled.feedback.createSuccess'));
         onSaved();
         onClose();
       } catch {
-        toast.error(t('tasks.scheduled.feedback.createFailed'));
+        if (isCurrent()) toast.error(t('tasks.scheduled.feedback.createFailed'));
       } finally {
-        setSaving(false);
+        if (isCurrent()) setSaving(false);
       }
       return;
     }
 
     if (!schedule) return;
     const updateBody: UpdateScheduleRequest = {
+      revision: schedule.revision,
       enabled,
       trigger: {
         trigger_type: triggerType,
@@ -172,16 +183,21 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
         prompt,
       };
     }
+    const isCurrent = beginRequest('save');
     setSaving(true);
     try {
       await schedulesApi.update(schedule.schedule_id, updateBody);
+      if (!isCurrent()) return;
       toast.success(t('tasks.scheduled.feedback.saveSuccess'));
       onSaved();
       onClose();
-    } catch {
-      toast.error(t('tasks.scheduled.feedback.saveFailed'));
+    } catch (error) {
+      if (!isCurrent()) return;
+      const changed = error != null && typeof error === 'object' && 'status' in error && (error.status === 409 || error.status === 428);
+      setConflict(changed);
+      toast.error(t(changed ? 'tasks.scheduled.feedback.changedOnCenter' : 'tasks.scheduled.feedback.saveFailed'));
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
@@ -201,11 +217,23 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
         {(isCreate || schedule) ? (
           <div className="flex min-h-0 flex-1 flex-col text-sm">
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-8 py-6">
+              {conflict && (
+                <div role="alert" className="rounded-lg border border-amber-500/40 p-4">
+                  <p>{t('tasks.scheduled.feedback.changedOnCenter')}</p>
+                  {onReload && <Button variant="outline" disabled={saving} onClick={() => {
+                    const isCurrent = beginRequest('save');
+                    setSaving(true);
+                    void onReload().catch(() => {
+                      if (isCurrent()) toast.error(t('tasks.scheduled.feedback.loadFailed'));
+                    }).finally(() => { if (isCurrent()) setSaving(false); });
+                  }}>{t('tasks.scheduled.actions.reloadCenter')}</Button>}
+                </div>
+              )}
               {isCreate ? (
                 <section className={drawerSectionClass}>
                   <label className="block space-y-2">
                     <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.displayName')}</span>
-                    <Input
+                    <Input disabled={saving}
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder={t('tasks.scheduled.fields.displayNamePlaceholder', { defaultValue: 'My scheduled task' })}
@@ -242,7 +270,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                   {isCreate || isPromptBackedSchedule(schedule!) ? (
                     <label className="block space-y-2">
                       <span className={drawerFieldLabelClass}>{t('tasks.scheduled.fields.promptText')}</span>
-                      <Textarea
+                      <Textarea disabled={saving}
                         aria-label={t('tasks.scheduled.fields.promptText')}
                         value={targetPrompt}
                         onChange={(event) => setTargetPrompt(event.target.value)}
@@ -270,7 +298,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                     </p>
                   </div>
                   <input
-                    type="checkbox"
+                    type="checkbox" disabled={saving}
                     checked={enabled}
                     onChange={(event) => setEnabled(event.target.checked)}
                     className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
@@ -284,7 +312,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                     <span className={drawerFieldLabelClass}>
                       {t('tasks.scheduled.fields.triggerType')}
                     </span>
-                    <select
+                    <select disabled={saving}
                       value={triggerType}
                       onChange={(event) => setTriggerType(event.target.value as ScheduleTriggerType)}
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -300,7 +328,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.intervalSeconds')}
                       </span>
-                      <Input
+                      <Input disabled={saving}
                         type="number"
                         min={1}
                         value={intervalSeconds}
@@ -314,7 +342,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.runAt')}
                       </span>
-                      <Input
+                      <Input disabled={saving}
                         type="datetime-local"
                         value={onceRunAt}
                         onChange={(event) => setOnceRunAt(event.target.value)}
@@ -327,7 +355,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                       <span className={drawerFieldLabelClass}>
                         {t('tasks.scheduled.fields.cronConfig')}
                       </span>
-                      <Textarea
+                      <Textarea disabled={saving}
                         value={cronConfig}
                         onChange={(event) => setCronConfig(event.target.value)}
                         rows={8}
@@ -344,7 +372,7 @@ export const ScheduleEditDrawer: React.FC<ScheduleEditDrawerProps> = ({
                 <Button type="button" variant="ghost" size="sm" onClick={onClose}>
                   {t('tasks.scheduled.actions.cancelEdit')}
                 </Button>
-                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving || conflict}>
                   {saving ? <LoadingSpinner className="mr-2 h-3.5 w-3.5" /> : null}
                   {t('tasks.scheduled.actions.save')}
                 </Button>

@@ -31,4 +31,4 @@ def test_scheduler_v1_upgrades_source_sync_jobs_for_durable_retries(tmp_path):
     assert "next_attempt_at" in columns
     assert "idx_source_sync_jobs_status_due_created" in indexes
     assert "idx_source_sync_jobs_status_created" not in indexes
-    assert revision == ("v2",)
+    assert revision == ("v3",)

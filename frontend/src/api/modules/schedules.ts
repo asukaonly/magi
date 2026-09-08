@@ -1,4 +1,5 @@
 import { api, unwrapGatewayPayload } from '../client';
+import { z } from 'zod';
 
 export type ScheduleTargetType =
   | 'source_sync'
@@ -35,6 +36,7 @@ export interface ScheduleSettingsLinkDTO {
 }
 
 export interface ScheduleDTO {
+  revision: number;
   schedule_id: string;
   target_type: ScheduleTargetType;
   target_key: string;
@@ -122,6 +124,7 @@ export interface CreateScheduleResponse {
 }
 
 export interface UpdateScheduleRequest {
+  revision: number;
   trigger?: ScheduleTriggerDTO;
   target_payload?: Record<string, unknown>;
   enabled?: boolean;
@@ -153,7 +156,30 @@ export interface CancelScheduleActivityResponse {
   };
 }
 
+const scheduleSchema = z.object({
+  schedule_id: z.string(), revision: z.number().finite().positive(), target_type: z.string(),
+  target_key: z.string(), trigger: z.object({ trigger_type: z.enum(['once', 'interval', 'cron']), config: z.record(z.string(), z.unknown()) }),
+  target_payload: z.record(z.string(), z.unknown()), enabled: z.boolean(), metadata: z.record(z.string(), z.unknown()),
+  job_id: z.string().nullish(), editable: z.boolean().optional(), owner_kind: z.string().optional(),
+  settings_link: z.object({ section: z.string(), source_name: z.string().nullish() }).nullish(),
+  target_state: z.object({
+    target_type: z.string(), target_key: z.string(), running: z.boolean(),
+    last_run_at: z.number().nullish(), last_success_at: z.number().nullish(), last_error: z.string().nullish(),
+    last_cursor: z.string().nullish(), watermark_ts: z.number().nullish(), next_run_at: z.number().nullish(),
+    scheduler_job_id: z.string().nullish(), updated_at: z.number().nullish(), stats: z.record(z.string(), z.unknown()).optional(),
+  }).nullish(),
+});
+const parseSchedule = (value: unknown): ScheduleDTO => {
+  // Narrow the hand-owned schedule boundary before the UI uses its revision.
+  const parsed = scheduleSchema.parse(value);
+  return parsed;
+};
+
 export const schedulesApi = {
+  async get(scheduleId: string): Promise<ScheduleDTO> {
+    const response = await api.get<{ schedule: unknown }>(`/schedules/${encodeURIComponent(scheduleId)}`);
+    return parseSchedule(unwrapGatewayPayload(response).schedule);
+  },
   async list(params: { enabledOnly?: boolean } = {}): Promise<ListSchedulesResponse> {
     const search = new URLSearchParams();
     if (params.enabledOnly !== undefined) {
@@ -161,7 +187,8 @@ export const schedulesApi = {
     }
     const query = search.toString();
     const response = await api.get<ListSchedulesResponse>(`/schedules${query ? `?${query}` : ''}`);
-    return unwrapGatewayPayload(response);
+    const payload = unwrapGatewayPayload(response);
+    return { schedules: payload.schedules.map(parseSchedule) };
   },
 
   async listActivity(params: ListActivityParams = {}): Promise<ListScheduleActivityResponse> {
@@ -190,7 +217,7 @@ export const schedulesApi = {
       enabled: body.enabled,
     };
     const response = await api.post<CreateScheduleResponse>('/schedules', wireBody);
-    return unwrapGatewayPayload(response);
+    return { schedule: parseSchedule(unwrapGatewayPayload(response).schedule) };
   },
 
   async update(scheduleId: string, body: UpdateScheduleRequest): Promise<UpdateScheduleResponse> {
@@ -198,11 +225,11 @@ export const schedulesApi = {
       `/schedules/${encodeURIComponent(scheduleId)}`,
       body,
     );
-    return unwrapGatewayPayload(response);
+    return { schedule: parseSchedule(unwrapGatewayPayload(response).schedule) };
   },
 
-  async remove(scheduleId: string): Promise<void> {
-    await api.delete(`/schedules/${encodeURIComponent(scheduleId)}`);
+  async remove(scheduleId: string, revision: number): Promise<void> {
+    await api.delete(`/schedules/${encodeURIComponent(scheduleId)}?revision=${encodeURIComponent(revision)}`);
   },
 
   /**
@@ -235,4 +262,3 @@ export const schedulesApi = {
     return unwrapGatewayPayload(response);
   },
 };
-

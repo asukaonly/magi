@@ -264,6 +264,10 @@
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
       "response_envelope": "native-json",
+      "python_mutations": {
+        "methods": ["POST"],
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      },
       "python_parity": {
         "owner_file": "backend/src/magi/api/routers/schedules.py"
       }
@@ -302,6 +306,10 @@
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
       "response_envelope": "native-json",
+      "python_mutations": {
+        "methods": ["DELETE", "PATCH"],
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      },
       "python_parity": {
         "owner_file": "backend/src/magi/api/routers/schedules.py"
       }
@@ -315,6 +323,10 @@
       "owner": "rust-native",
       "owner_file": "crates/magi-gateway/src/api/schedules.rs",
       "response_envelope": "native-json",
+      "python_mutations": {
+        "methods": ["POST"],
+        "owner_file": "backend/src/magi/api/routers/schedules.py"
+      },
       "python_parity": {
         "owner_file": "backend/src/magi/api/routers/schedules.py"
       }

@@ -107,7 +107,7 @@ pub fn build_router(state: ApiState) -> Router {
         // Schedules
         .route(
             "/api/schedules/activity/{activity_id}/cancel",
-            axum::routing::post(schedules::cancel_activity),
+            axum::routing::post(proxy::proxy_handler),
         )
         .route(
             "/api/schedules/activity",
@@ -124,12 +124,12 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/schedules/{schedule_id}",
             axum::routing::get(schedules::get_schedule)
-                .patch(schedules::update_schedule)
-                .delete(schedules::delete_schedule),
+                .patch(proxy::proxy_handler)
+                .delete(proxy::proxy_handler),
         )
         .route(
             "/api/schedules",
-            axum::routing::get(schedules::list_schedules).post(schedules::create_schedule),
+            axum::routing::get(schedules::list_schedules).post(proxy::proxy_handler),
         )
         // LLM metrics
         .route(

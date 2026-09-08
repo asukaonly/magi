@@ -57,7 +57,7 @@ pub(super) fn query_single_schedule(schedule_id: &str) -> Option<Value> {
             SCHEDULE_COLUMNS
         ))
         .ok()?;
-    let schedule = stmt
+    let mut schedule = stmt
         .query_row(rusqlite::params![schedule_id], serialize_schedule)
         .ok()?;
 
@@ -76,10 +76,8 @@ pub(super) fn query_single_schedule(schedule_id: &str) -> Option<Value> {
     let target_state =
         query_schedule_runtime_state(&conn, schedule_id, target_type, target_key, job_id);
 
-    Some(json!({
-        "schedule": schedule,
-        "target_state": target_state,
-    }))
+    schedule["target_state"] = target_state;
+    Some(json!({"schedule": schedule}))
 }
 
 fn query_schedule_runtime_state(

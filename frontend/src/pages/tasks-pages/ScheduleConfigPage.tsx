@@ -107,21 +107,23 @@ export const ScheduleConfigPage: React.FC = () => {
   const handleToggle = async (s: ScheduleDTO) => {
     setTogglingScheduleId(s.schedule_id);
     try {
-      await schedulesApi.update(s.schedule_id, { enabled: !s.enabled });
+      await schedulesApi.update(s.schedule_id, { enabled: !s.enabled, revision: s.revision });
       toast.success(t('tasks.scheduled.feedback.toggleSuccess'));
       await loadSchedules();
-    } catch {
-      toast.error(t('tasks.scheduled.feedback.toggleFailed'));
+    } catch (error) {
+      toast.error(t(isScheduleConflict(error) ? 'tasks.scheduled.feedback.changedOnCenter' : 'tasks.scheduled.feedback.toggleFailed'));
+      await loadSchedules(true);
     } finally { setTogglingScheduleId(null); }
   };
   const handleDelete = async (s: ScheduleDTO) => {
     setDeletingScheduleId(s.schedule_id);
     try {
-      await schedulesApi.remove(s.schedule_id);
+      await schedulesApi.remove(s.schedule_id, s.revision);
       toast.success(t('tasks.scheduled.feedback.deleteSuccess'));
       await loadSchedules();
-    } catch {
-      toast.error(t('tasks.scheduled.feedback.deleteFailed'));
+    } catch (error) {
+      toast.error(t(isScheduleConflict(error) ? 'tasks.scheduled.feedback.changedOnCenter' : 'tasks.scheduled.feedback.deleteFailed'));
+      await loadSchedules(true);
     } finally { setDeletingScheduleId(null); }
   };
   const handleOpenSettings = (s: ScheduleDTO) => {
@@ -211,6 +213,11 @@ export const ScheduleConfigPage: React.FC = () => {
           setEditingSchedule(null);
         }}
         onSaved={() => void loadSchedules()}
+        onReload={async () => {
+          if (!editingSchedule) return;
+          const current = await schedulesApi.get(editingSchedule.schedule_id);
+          setEditingSchedule((selected) => selected === editingSchedule ? current : selected);
+        }}
       />
       <ScheduleInfoDrawer
         schedule={infoSchedule}
@@ -219,3 +226,7 @@ export const ScheduleConfigPage: React.FC = () => {
     </TasksPageFrame>
   );
 };
+
+function isScheduleConflict(error: unknown): boolean {
+  return error != null && typeof error === 'object' && 'status' in error && (error.status === 409 || error.status === 428);
+}

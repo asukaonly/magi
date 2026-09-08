@@ -48,6 +48,7 @@ vi.mock('@/components/ui/sheet', () => ({
 }));
 
 const makeSchedule = (overrides: Partial<ScheduleDTO> = {}): ScheduleDTO => ({
+  revision: 1,
   schedule_id: 'source-sync:screen-time:screen_time',
   target_type: 'source_sync',
   target_key: 'screen-time:screen_time',
@@ -135,7 +136,7 @@ describe('ScheduleConfigPage', () => {
     await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.more' }));
     await user.click(await screen.findByRole('menuitem', { name: 'tasks.scheduled.actions.disable' }));
     await waitFor(() => {
-      expect(schedulesUpdateMock).toHaveBeenCalledWith('user-1', { enabled: false });
+      expect(schedulesUpdateMock).toHaveBeenCalledWith('user-1', { enabled: false, revision: 1 });
     });
   });
 
@@ -146,7 +147,7 @@ describe('ScheduleConfigPage', () => {
     await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.more' }));
     await user.click(await screen.findByRole('menuitem', { name: 'tasks.scheduled.actions.delete' }));
     await waitFor(() => {
-      expect(schedulesRemoveMock).toHaveBeenCalledWith('user-1');
+      expect(schedulesRemoveMock).toHaveBeenCalledWith('user-1', 1);
     });
   });
 

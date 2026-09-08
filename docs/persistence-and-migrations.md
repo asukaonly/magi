@@ -131,6 +131,7 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, source sync jobs |
+
 | `runtime/bootstrap_state.db` | bootstrap | completed revisions, content fingerprints, attempts, and errors for versioned startup work |
 | `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups, plugin/source full-clear checkpoint, pending service full-clear transaction |
 | `runtime/source_state.db` | sources | per-source cursors, fingerprints, stats |
@@ -140,6 +141,14 @@ the new files and finishes removing plaintext rollback artifacts.
 | `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
 | `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
+
+Scheduler migration `v3` adds content-free creation receipts keyed by the client
+schedule identifier. A request fingerprint prevents identifier reuse with a
+different payload. Receipts survive schedule execution, deletion, and user-data
+clear, so delayed retries cannot resurrect completed work; they contain no
+prompt or metadata text. Schedule read revisions use the definition's
+`updated_at` value. Runtime job binding changes leave that revision unchanged;
+conditional definition writes compare it inside an immediate SQLite transaction.
 
 ### Versioned startup work
 

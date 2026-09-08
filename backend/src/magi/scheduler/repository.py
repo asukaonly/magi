@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+import math
 import time
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,8 @@ from ..core.sqlite import connect_aiosqlite
 
 from .contracts import (
     ScheduleDefinition,
+    ScheduleConflictError,
+    schedule_creation_fingerprint,
     ScheduledTargetState,
     ScheduledTargetType,
     TriggerDefinition,
@@ -128,9 +131,34 @@ class ScheduleRepository(
             ),
         }
 
-    async def upsert_schedule(self, definition: ScheduleDefinition) -> None:
+    async def upsert_schedule(
+        self, definition: ScheduleDefinition, *, expected_revision: float | None = None,
+        create_only: bool = False,
+    ) -> None:
         now = time.time()
         async with self._connect() as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cursor = await db.execute(
+                "SELECT updated_at FROM schedules WHERE schedule_id = ?", (definition.schedule_id,),
+            )
+            current = await cursor.fetchone()
+            if (create_only and current is not None) or (
+                expected_revision is not None
+                and (current is None or float(current[0]) != expected_revision)
+            ):
+                raise ScheduleConflictError("Schedule changed on the center")
+            if current is not None:
+                now = max(now, math.nextafter(float(current[0]), math.inf))
+            if create_only:
+                receipt = await db.execute(
+                    "SELECT 1 FROM schedule_creation_receipts WHERE schedule_id = ?", (definition.schedule_id,),
+                )
+                if await receipt.fetchone() is not None:
+                    raise ScheduleConflictError("Schedule creation was already accepted")
+                await db.execute(
+                    "INSERT INTO schedule_creation_receipts (schedule_id, fingerprint, created_at) VALUES (?, ?, ?)",
+                    (definition.schedule_id, schedule_creation_fingerprint(definition), now),
+                )
             await db.execute(
                 """
                 INSERT INTO schedules (
@@ -173,12 +201,19 @@ class ScheduleRepository(
             )
             await db.commit()
 
+    async def get_creation_fingerprint(self, schedule_id: str) -> str | None:
+        """Read the durable create receipt, including after execution or deletion."""
+        async with self._connect() as db:
+            cursor = await db.execute("SELECT fingerprint FROM schedule_creation_receipts WHERE schedule_id = ?", (schedule_id,))
+            row = await cursor.fetchone()
+        return str(row[0]) if row else None
+
     async def get_schedule(self, schedule_id: str) -> Optional[ScheduleDefinition]:
         async with self._connect() as db:
             cursor = await db.execute(
                 """
                 SELECT schedule_id, target_type, target_key, trigger_type, trigger_config,
-                       target_payload, metadata, enabled, job_id
+                       target_payload, metadata, enabled, job_id, updated_at
                 FROM schedules
                 WHERE schedule_id = ?
                 """,
@@ -236,7 +271,7 @@ class ScheduleRepository(
     async def list_schedules(self, *, enabled_only: bool = False) -> list[ScheduleDefinition]:
         query = (
             "SELECT schedule_id, target_type, target_key, trigger_type, trigger_config, "
-            "target_payload, metadata, enabled, job_id FROM schedules"
+            "target_payload, metadata, enabled, job_id, updated_at FROM schedules"
         )
         params: tuple[object, ...] = ()
         if enabled_only:
@@ -309,9 +344,14 @@ class ScheduleRepository(
             row = await cursor.fetchone()
         return float(row[0]) if row is not None and row[0] is not None else None
 
-    async def delete_schedule(self, schedule_id: str) -> None:
+    async def delete_schedule(self, schedule_id: str, *, expected_revision: float | None = None) -> None:
         async with self._connect() as db:
-            await db.execute("DELETE FROM schedules WHERE schedule_id = ?", (schedule_id,))
+            cursor = await db.execute(
+                "DELETE FROM schedules WHERE schedule_id = ?" + (" AND updated_at = ?" if expected_revision is not None else ""),
+                (schedule_id, expected_revision) if expected_revision is not None else (schedule_id,),
+            )
+            if expected_revision is not None and cursor.rowcount != 1:
+                raise ScheduleConflictError("Schedule changed on the center")
             await db.commit()
 
     async def update_schedule_binding(
@@ -326,8 +366,8 @@ class ScheduleRepository(
         now = time.time()
         async with self._connect() as db:
             await db.execute(
-                "UPDATE schedules SET job_id = ?, updated_at = ? WHERE schedule_id = ?",
-                (job_id, now, schedule_id),
+                "UPDATE schedules SET job_id = ? WHERE schedule_id = ?",
+                (job_id, schedule_id),
             )
             await db.execute(
                 """
@@ -361,4 +401,5 @@ class ScheduleRepository(
             metadata=json.loads(str(row[6]) or "{}"),
             enabled=bool(row[7]),
             job_id=str(row[8]) if row[8] is not None else None,
+            revision=float(row[9]),
         )

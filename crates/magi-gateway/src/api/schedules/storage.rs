@@ -1,17 +1,12 @@
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 
 use crate::db;
 
 pub(super) const SCHEDULE_COLUMNS: &str = "schedule_id, target_type, target_key, trigger_type, \
-    trigger_config, target_payload, metadata, enabled, job_id";
+    trigger_config, target_payload, metadata, enabled, job_id, updated_at";
 
-pub(super) fn open_scheduler_db() -> Option<Connection> {
-    let path = db::scheduler_db_path();
-    if !path.exists() {
-        return None;
-    }
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+pub(super) fn open_scheduler_db() -> Option<db::GuardedConnection> {
+    db::open_readonly(&db::scheduler_db_path())
 }
 
 pub(super) fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value> {
@@ -34,6 +29,7 @@ pub(super) fn serialize_schedule(row: &rusqlite::Row) -> rusqlite::Result<Value>
     };
     Ok(json!({
         "schedule_id": row.get::<_, String>(0)?,
+        "revision": row.get::<_, f64>(9)?,
         "target_type": target_type,
         "target_key": row.get::<_, String>(2)?,
         "trigger": {

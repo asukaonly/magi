@@ -10,6 +10,12 @@ branch_labels = None
 depends_on = None
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS schedule_creation_receipts (
+    schedule_id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS schedules (
     schedule_id TEXT PRIMARY KEY,
     target_type TEXT NOT NULL,

@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 const ALLOWED_SQLITE_WRITE_FILES: &[&str] = &[
     "src/api/messages/mutations.rs",
     "src/api/memory/l2.rs",
-    "src/api/schedules/write.rs",
     "src/api/tasks/write.rs",
     "src/db.rs",
     "src/auth/storage.rs",

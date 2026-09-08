@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal, TypeVar
 from zoneinfo import ZoneInfo
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler, run_in_event_loop
 from apscheduler.triggers.cron import CronTrigger
@@ -22,6 +23,8 @@ from ..core.container import get_container
 from ..core.logger import get_logger
 from .contracts import (
     ScheduleDefinition,
+    ScheduleConflictError,
+    schedule_creation_fingerprint,
     ScheduledExecutionContext,
     ScheduledExecutionResult,
     ScheduledTargetType,
@@ -189,27 +192,47 @@ class SchedulerService:
             return "paused"
         return "enabled"
 
-    async def schedule(self, definition: ScheduleDefinition) -> ScheduleDefinition:
+    async def schedule(
+        self, definition: ScheduleDefinition, *, expected_revision: float | None = None,
+        create_only: bool = False,
+    ) -> ScheduleDefinition:
         async with self._data_clear_lock:
             self._assert_schedule_mutation_admitted()
-            return await self._schedule_definition(definition)
+            return await self._schedule_definition(definition, expected_revision=expected_revision, create_only=create_only)
 
     async def _schedule_definition(
         self,
         definition: ScheduleDefinition,
+        *, expected_revision: float | None = None, create_only: bool = False,
     ) -> ScheduleDefinition:
         async with self._schedule_lock:
             existing = await self._repository.get_schedule(definition.schedule_id)
+            if create_only:
+                fingerprint = await self._repository.get_creation_fingerprint(definition.schedule_id)
+                if fingerprint is not None:
+                    if fingerprint != schedule_creation_fingerprint(definition) or existing is None:
+                        raise ScheduleConflictError("Schedule creation was already accepted; reload the schedule list")
+                    if existing.enabled and self._scheduler.get_job(existing.job_id or existing.schedule_id) is None:
+                        await self._upsert_job(existing)
+                    return existing
+            if expected_revision is not None and (existing is None or existing.revision != expected_revision):
+                raise ScheduleConflictError("Schedule changed on the center")
+            if create_only and existing is not None:
+                raise ScheduleConflictError("Schedule identifier is already in use")
             if existing is not None and _same_schedule_definition(existing, definition):
                 job_id = existing.job_id or existing.schedule_id
                 if existing.enabled and self._scheduler.get_job(job_id) is None:
                     await self._upsert_job(existing)
                 return existing
-            await self._repository.upsert_schedule(definition)
+            self._build_trigger(definition.trigger)
+            await self._repository.upsert_schedule(definition, expected_revision=expected_revision, create_only=create_only)
             if definition.enabled:
-                await self._upsert_job(definition)
+                await self._upsert_job(definition, preserve_next_run=existing is not None and existing.trigger == definition.trigger)
             else:
-                await self._unschedule_locked(definition.schedule_id)
+                try:
+                    self._scheduler.remove_job(definition.job_id or definition.schedule_id)
+                except JobLookupError:
+                    pass
             persisted = await self._repository.get_schedule(definition.schedule_id)
         return persisted or definition
 
@@ -332,12 +355,14 @@ class SchedulerService:
         *,
         target_type: ScheduledTargetType | None = None,
         target_key: str | None = None,
+        expected_revision: float | None = None,
     ) -> None:
         async with self._schedule_lock:
             await self._unschedule_locked(
                 schedule_id,
                 target_type=target_type,
                 target_key=target_key,
+                expected_revision=expected_revision,
             )
 
     async def _unschedule_locked(
@@ -346,8 +371,10 @@ class SchedulerService:
         *,
         target_type: ScheduledTargetType | None = None,
         target_key: str | None = None,
+        expected_revision: float | None = None,
     ) -> None:
         schedule = await self._repository.get_schedule(schedule_id)
+        await self._repository.delete_schedule(schedule_id, expected_revision=expected_revision)
         job_id = schedule.job_id if schedule is not None else schedule_id
         try:
             self._scheduler.remove_job(job_id)
@@ -357,7 +384,6 @@ class SchedulerService:
             await self._repository.clear_target_schedule_binding(
                 schedule.target_type, schedule.target_key
             )
-            await self._repository.delete_schedule(schedule_id)
             return
         if target_type is not None and target_key is not None:
             await self._repository.clear_target_schedule_binding(target_type, target_key)
@@ -868,7 +894,7 @@ class SchedulerService:
             for schedule in await self._repository.list_schedules(enabled_only=True):
                 await self._upsert_job(schedule)
 
-    async def _upsert_job(self, schedule: ScheduleDefinition) -> None:
+    async def _upsert_job(self, schedule: ScheduleDefinition, *, preserve_next_run: bool = True) -> None:
         trigger = self._build_trigger(schedule.trigger)
         job_id = schedule.job_id or schedule.schedule_id
         # Preserve an already-scheduled job's next_run across re-registration.
@@ -885,7 +911,7 @@ class SchedulerService:
         # until the next full interval.
         add_kwargs: dict[str, object] = {}
         existing = self._scheduler.get_job(job_id)
-        if existing is not None and existing.next_run_time is not None:
+        if preserve_next_run and existing is not None and existing.next_run_time is not None:
             add_kwargs["next_run_time"] = existing.next_run_time
         job = self._scheduler.add_job(
             dispatch_scheduled_job,

@@ -10,7 +10,7 @@ import { ScheduleRunButton } from '@/pages/tasks-pages/components/ScheduleRunBut
 import { L4Tab } from '@/components/memory/L4Tab';
 import type { ScheduleDTO } from '@/api/modules/schedules';
 
-const schedule: ScheduleDTO = { schedule_id: 'test', target_type: 'timeline_diary_narrative', target_key: 'test', target_payload: {}, metadata: {}, enabled: true, trigger: { trigger_type: 'interval', config: {} } };
+const schedule: ScheduleDTO = { revision: 1, schedule_id: 'test', target_type: 'timeline_diary_narrative', target_key: 'test', target_payload: {}, metadata: {}, enabled: true, trigger: { trigger_type: 'interval', config: {} } };
 afterEach(async () => { await act(async () => { await i18n.changeLanguage('en'); }); });
 
 it('keeps actual language resources, storage and document metadata in sync', async () => {

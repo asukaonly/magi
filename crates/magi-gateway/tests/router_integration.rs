@@ -2182,6 +2182,45 @@ async fn delete_message_route_is_governed_by_python_runtime() {
 }
 
 #[tokio::test]
+async fn schedule_mutations_reach_the_runtime_owner() {
+    let _guard = router_test_guard();
+    let (state, forwarded) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 409, "headers": {"content-type": "application/json"},
+        "body": {"detail": "Schedule changed on the center"}
+    })).await;
+    let router = api::build_router(state);
+    for (method, path) in [("POST", "/api/schedules"), ("PATCH", "/api/schedules/shared"), ("DELETE", "/api/schedules/shared?revision=12.5"), ("POST", "/api/schedules/activity/source_job:1/cancel")] {
+        let (status, _) = request_json(router.clone(), method, path, Some(r#"{"revision":12.5}"#)).await;
+        assert_eq!(status, 409);
+    }
+    let requests = forwarded.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    for (request, method) in requests.iter().zip(["POST", "PATCH", "DELETE", "POST"]) {
+        assert_eq!(request["method"], "api.forward");
+        assert_eq!(request["params"]["method"], method);
+    }
+    assert_eq!(requests[2]["params"]["query"], "revision=12.5");
+}
+
+#[tokio::test]
+async fn schedule_reads_preserve_definition_revisions_and_envelope() {
+    let _home = isolated_home("schedule-revisions");
+    let path = db::scheduler_db_path();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch("CREATE TABLE schedules (schedule_id TEXT, target_type TEXT, target_key TEXT, trigger_type TEXT, trigger_config TEXT, target_payload TEXT, metadata TEXT, enabled INTEGER, job_id TEXT, updated_at REAL);
+        INSERT INTO schedules VALUES ('shared', 'user_agent_task', 'shared', 'interval', '{\"seconds\":60}', '{}', '{}', 1, 'shared', 1770000000.123456);").unwrap();
+    let router = api::build_router(test_state().await);
+    let (status, list) = request_json(router.clone(), "GET", "/api/schedules", None).await;
+    assert_eq!(status, 200);
+    let (status, detail) = request_json(router, "GET", "/api/schedules/shared", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(detail["schedule"]["revision"], list["schedules"][0]["revision"]);
+    assert_eq!(detail["schedule"]["revision"], 1770000000.123456);
+    assert!(detail["schedule"]["target_state"].is_object());
+}
+
+#[tokio::test]
 async fn assertion_confirmation_is_governed_by_python_runtime() {
     let guard = router_test_guard();
     let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({

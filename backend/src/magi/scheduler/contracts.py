@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Protocol
@@ -61,6 +63,22 @@ class ScheduleDefinition:
     enabled: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
     job_id: Optional[str] = None
+    revision: float = 0.0
+
+
+class ScheduleConflictError(ValueError):
+    """A schedule mutation was based on an obsolete definition."""
+
+
+def schedule_creation_fingerprint(definition: ScheduleDefinition) -> str:
+    """Bind a create identifier to its original request without retaining its text."""
+    fields = {
+        "schedule_id": definition.schedule_id, "target_type": definition.target_type.value,
+        "target_key": definition.target_key, "trigger_type": definition.trigger.trigger_type.value,
+        "trigger_config": definition.trigger.config, "target_payload": definition.target_payload,
+        "enabled": definition.enabled, "metadata": definition.metadata,
+    }
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
 
 @dataclass(slots=True)

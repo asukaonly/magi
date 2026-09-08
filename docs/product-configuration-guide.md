@@ -1019,6 +1019,12 @@ place; dirty configuration, control, and tool drafts retain their original
 baseline. Background refresh does not reset theme previews or remount editors.
 
 General configuration writes must echo the revision from their read snapshot.
+The center checks it again under the persistence lock after asynchronous
+maintenance admission. A stale revision returns 409; an absent revision returns
+428. The desktop preserves the rejected draft and offers an explicit action to
+discard that configuration draft and load the latest center snapshot. Successful
+saves advance the baseline even if the user has continued typing during the save.
+
 Global and per-session execution safety settings use the same conditional-write
 rule. A session revision includes its global policy and local override; changing
 either invalidates an older session editor. The check and mutation share the
@@ -1026,11 +1032,16 @@ settings manager lock. Rejected global edits remain available until explicitly
 discarded; the session safety popover reads the current policy on conflict and
 stays open without replaying the rejected action. These safety policies retain
 their existing runtime lifetime and are not persisted across service restarts.
-The center checks it again under the persistence lock after asynchronous
-maintenance admission. A stale revision returns 409; an absent revision returns
-428. The desktop preserves the rejected draft and offers an explicit action to
-discard that configuration draft and load the latest center snapshot. Successful
-saves advance the baseline even if the user has continued typing during the save.
+
+Scheduled-task editors, toggles, and deletes send their displayed definition
+revision. Conflicts preserve the editor and require an explicit reload before
+saving. Creation retries reuse one identifier for the open create form. The
+center keeps durable content-free receipts even after a one-off task executes
+or a task is deleted. Schedule writes and queued cancellations go through the
+Python scheduler; the Rust gateway retains direct reads. Pausing keeps the
+definition, resuming registers it again, and a changed trigger recalculates its
+next firing time. If the scheduler is unavailable, writes return an unavailable
+error instead of saving a definition that the live scheduler has not accepted.
 
 Chat reconciliation rereads session summaries and the active history without
 replaying bootstrap or creating conversations. A late history response cannot

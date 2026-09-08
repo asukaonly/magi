@@ -3,6 +3,7 @@ import { useSchedulesStore } from '@/stores/schedules';
 import type { ScheduleDTO } from '@/api';
 
 const makeSchedule = (id: string, running: boolean, enabled = true): ScheduleDTO => ({
+  revision: 1,
   schedule_id: id,
   target_type: 'user_agent_task',
   target_key: id,

@@ -14,6 +14,7 @@ from ... import i18n as core_i18n
 from ...core.runtime_bindings import require_scheduler_service
 from ...scheduler.contracts import (
     ScheduleDefinition,
+    ScheduleConflictError,
     ScheduledTargetType,
     TriggerDefinition,
     TriggerType,
@@ -30,6 +31,7 @@ class ScheduleTriggerBody(BaseModel):
 
 
 class ScheduleUpdateBody(BaseModel):
+    revision: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     trigger: Optional[ScheduleTriggerBody] = None
     target_payload: Optional[dict[str, Any]] = None
     enabled: Optional[bool] = None
@@ -109,6 +111,7 @@ def _serialize_schedule(schedule: ScheduleDefinition, state=None) -> dict[str, A
     )
     return {
         "schedule_id": schedule.schedule_id,
+        "revision": schedule.revision,
         "target_type": schedule.target_type.value,
         "target_key": schedule.target_key,
         "trigger": {
@@ -291,13 +294,13 @@ async def create_schedule(body: ScheduleCreateBody) -> dict[str, Any]:
     )
     repository = _repository()
     await repository.initialize()
+    scheduler_service = _scheduler_service_or_503()
     try:
-        scheduler_service = require_scheduler_service()
-    except RuntimeError:
-        await repository.upsert_schedule(schedule)
-        saved = await repository.get_schedule(schedule.schedule_id)
-    else:
-        saved = await scheduler_service.schedule(schedule)
+        saved = await scheduler_service.schedule(schedule, create_only=True)
+    except ScheduleConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid schedule trigger") from exc
     state = await repository.get_schedule_runtime_state(saved or schedule)
     return {"schedule": _serialize_schedule(saved or schedule, state)}
 
@@ -334,6 +337,9 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
             ),
         )
 
+    if body.revision is None:
+        raise HTTPException(status_code=428, detail="A current schedule revision is required")
+
     next_schedule = ScheduleDefinition(
         schedule_id=existing.schedule_id,
         target_type=existing.target_type,
@@ -352,13 +358,13 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdateBody) -> dict[st
         metadata=dict(body.metadata) if body.metadata is not None else dict(existing.metadata),
         job_id=existing.job_id,
     )
+    scheduler_service = _scheduler_service_or_503()
     try:
-        scheduler_service = require_scheduler_service()
-    except RuntimeError:
-        await repository.upsert_schedule(next_schedule)
-        saved = await repository.get_schedule(schedule_id)
-    else:
-        saved = await scheduler_service.schedule(next_schedule)
+        saved = await scheduler_service.schedule(next_schedule, expected_revision=body.revision)
+    except ScheduleConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid schedule trigger") from exc
     state = await repository.get_schedule_runtime_state(saved or next_schedule)
     return {"schedule": _serialize_schedule(saved or next_schedule, state)}
 
@@ -378,7 +384,7 @@ async def get_schedule(schedule_id: str) -> dict[str, Any]:
 
 
 @schedules_router.delete("/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_schedule(schedule_id: str) -> Response:
+async def delete_schedule(schedule_id: str, revision: float | None = Query(default=None, gt=0, allow_inf_nan=False)) -> Response:
     repository = _repository()
     await repository.initialize()
     existing = await repository.get_schedule(schedule_id)
@@ -387,17 +393,20 @@ async def delete_schedule(schedule_id: str) -> Response:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
         )
+    if existing.target_type is ScheduledTargetType.SOURCE_SYNC:
+        raise HTTPException(status_code=409, detail="Source schedules must be updated from source settings")
+    if revision is None:
+        raise HTTPException(status_code=428, detail="A current schedule revision is required")
+    scheduler_service = _scheduler_service_or_503()
     try:
-        scheduler_service = require_scheduler_service()
-    except RuntimeError:
-        await repository.clear_target_schedule_binding(existing.target_type, existing.target_key)
-        await repository.delete_schedule(schedule_id)
-    else:
         await scheduler_service.unschedule(
             schedule_id,
             target_type=existing.target_type,
             target_key=existing.target_key,
+            expected_revision=revision,
         )
+    except ScheduleConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

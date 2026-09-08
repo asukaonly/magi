@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routers import schedules as schedules_module
 from magi.api.routers.schedules import schedules_router
+from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.i18n import language_context
 from magi.scheduler import (
     ScheduleDefinition,
@@ -17,11 +18,13 @@ from magi.scheduler import (
     TriggerType,
 )
 from magi.scheduler.repository import ScheduleRepository
+from magi.scheduler import SchedulerService
+from pathlib import Path
 
 
 def _build_client(monkeypatch):
     app = FastAPI()
-    app.include_router(schedules_router, prefix="/api/schedules")
+    app.include_router(_build_public_router(schedules_router, _PUBLIC_ROUTE_METHODS["schedules"]), prefix="/api/schedules")
     runtime_base_dir = tempfile.mkdtemp(prefix="magi-schedules-")
     scheduler_db_path = f"{runtime_base_dir}/runtime/scheduler.db"
     monkeypatch.setattr(
@@ -128,6 +131,33 @@ def test_source_schedule_update_is_rejected(monkeypatch):
     )
 
     assert response.status_code == 409
+
+
+def test_public_schedule_writes_register_jobs_and_require_read_revision(monkeypatch):
+    client, repository = _build_client(monkeypatch)
+    service = SchedulerService(db_path=repository._db_path, runtime_dir=Path(repository._db_path).parent, repository=repository)
+    monkeypatch.setattr(schedules_module, "require_scheduler_service", lambda: service)
+    body = {"schedule_id": "client-retry", "target_type": "user_agent_task", "target_key": "client-retry", "trigger": {"trigger_type": "interval", "config": {"seconds": 3600}}, "target_payload": {"prompt": "test"}}
+    with client:
+        client.portal.call(service.start)
+        try:
+            first = client.post("/api/schedules", json=body)
+            assert first.status_code == 201
+            revision = first.json()["schedule"]["revision"]
+            assert service._scheduler.get_job("client-retry") is not None
+            assert client.post("/api/schedules", json=body).json()["schedule"]["revision"] == revision
+            assert client.patch("/api/schedules/client-retry", json={"enabled": False}).status_code == 428
+            paused = client.patch("/api/schedules/client-retry", json={"enabled": False, "revision": revision})
+            assert paused.status_code == 200
+            assert service._scheduler.get_job("client-retry") is None
+            assert paused.json()["schedule"]["enabled"] is False
+            assert client.patch("/api/schedules/client-retry", json={"enabled": True, "revision": revision}).status_code == 409
+            assert client.delete("/api/schedules/client-retry", params={"revision": revision}).status_code == 409
+            assert client.delete("/api/schedules/client-retry", params={"revision": paused.json()["schedule"]["revision"]}).status_code == 204
+            assert client.post("/api/schedules", json=body).status_code == 409
+            assert client.get("/api/schedules/client-retry").status_code == 404
+        finally:
+            client.portal.call(service.stop)
 
 
 def test_run_schedule_now_triggers_scheduler_service(monkeypatch):

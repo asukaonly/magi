@@ -402,7 +402,8 @@
         "save": "保存",
         "cancelEdit": "取消",
         "create": "新建调度任务",
-        "viewBackgroundTask": "查看后台任务"
+        "viewBackgroundTask": "查看后台任务",
+        "reloadCenter": "放弃修改并重新读取"
       },
       "edit": {
         "title": "编辑调度"
@@ -444,7 +445,8 @@
         "invalidRunAt": "请输入有效的执行时间。",
         "invalidCron": "Cron 配置不是有效 JSON。",
         "createSuccess": "已创建调度任务。",
-        "createFailed": "调度任务创建失败。"
+        "createFailed": "调度任务创建失败。",
+        "changedOnCenter": "此任务已在中心发生变化，请重新读取后再保存。"
       }
     },
     "activity": {
