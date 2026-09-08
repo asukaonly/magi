@@ -121,7 +121,7 @@ Return JSON only:
       "subject_ref": "entity ID or user:self",
       "subject_type": "user|person|...",
       "predicate": "enum from allowed predicates",
-      "object_ref": "entity surface or ID",
+      "object_ref": "entity surface or Existing Entity ID for an entity role; exact evidence value for a literal or goal role",
       "object_type": "enum from allowed types",
       "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent|interaction_evidence",
       "temporal_cue": "one_off|recent|recurring|stable|unspecified",

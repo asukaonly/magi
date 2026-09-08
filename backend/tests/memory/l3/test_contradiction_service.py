@@ -19,11 +19,22 @@ def _outcome(**overrides) -> ReconciledTraitOutcome:
         time_span_hours=2.0,
         stability_kind="state_pattern",
         recommended_snapshot_field="stress",
-        natural_summary="",
+        fact_completeness="complete",
+        natural_summary="用户的压力水平是高。",
         expires_at=None,
         trait_family="stress",
     )
     defaults.update(overrides)
+    if "natural_summary" not in overrides:
+        value = str(defaults["winning_value"])
+        if str(defaults["trait_name"]).startswith("interest."):
+            defaults["natural_summary"] = f"用户关注{value}。"
+        elif defaults["trait_family"] == "preference_profile":
+            defaults["natural_summary"] = f"用户偏好的音乐是{value}。"
+        elif defaults["trait_family"] == "mood":
+            defaults["natural_summary"] = f"用户感到{value}。"
+        else:
+            defaults["natural_summary"] = f"用户的压力水平是{value}。"
     return ReconciledTraitOutcome(**defaults)
 
 
@@ -49,9 +60,7 @@ async def test_uses_natural_summary_when_available() -> None:
     assert "state.sleep_quality" not in candidate.content
 
 
-async def test_falls_back_to_trait_family_when_natural_summary_missing() -> None:
-    """When natural_summary is empty but trait_family is known, renderer
-    uses the family label instead of raw trait_name."""
+async def test_skips_missing_fact_description_even_when_family_is_known() -> None:
     service = ContradictionInsightService()
     candidate = await service.build_candidate(
         ContradictionPacket(
@@ -59,9 +68,7 @@ async def test_falls_back_to_trait_family_when_natural_summary_missing() -> None
             outcomes=[_outcome(natural_summary="", trait_family="stress")],
         )
     )
-    assert candidate is not None
-    # Family label appears, raw trait_name does not.
-    assert "stress_level" not in candidate.content
+    assert candidate is None
 
 
 async def test_returns_none_when_no_clean_rendering_possible() -> None:

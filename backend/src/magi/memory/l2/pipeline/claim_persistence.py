@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
 from ....utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...evidence.independence import independent_evidence_key
 from ...evidence import EvidenceClassification, classify_event_evidence
 from ...event_contracts import MemoryEvent
 from ..claims.identity import derive_claim_identity_key
+from ..claim_text import claim_object_is_literal, grounded_reference_surface, load_claim_texts
 from ..claims.models import (
     ClaimEntityRefInput,
     ClaimEvidenceInput,
@@ -37,12 +40,14 @@ from .temporal_claims import resolve_claim_temporal_fields
 
 logger = get_logger("magi.memory.l2.pipeline")
 
-EXTRACTOR_CONTRACT_VERSION = 6
+EXTRACTOR_CONTRACT_VERSION = 7
 EVIDENCE_RULE_VERSION = 3
 ENTITY_RESOLUTION_VERSION = 1
 
 
 class _ClaimPersistenceStoreProtocol(Protocol):
+    db_path: str
+
     async def touch_running_projection_jobs(
         self,
         leases: list[L2ProjectionLease],
@@ -62,6 +67,8 @@ class _ClaimPersistenceStoreProtocol(Protocol):
         *,
         projection_leases: list[L2ProjectionLease],
     ) -> dict[str, Any] | None: ...
+
+    async def list_claim_entity_refs(self, *, claim_id: str) -> list[dict[str, Any]]: ...
 
     async def append_claim_projection_outcome(
         self,
@@ -134,6 +141,36 @@ class L2ClaimPersistenceMixin:
                 blocked_count += 1
                 continue
             subject_ref = _canonical_subject_ref(batch, claim)
+            object_surface = grounded_reference_surface(
+                claim, phase1_result, role="object",
+                antecedent_texts=[
+                    antecedent_events[event_id].content
+                    for event_id in claim.antecedent_event_ids if event_id in antecedent_events
+                ],
+            )
+            claim.object_surface = object_surface
+            subject_surface = grounded_reference_surface(
+                claim, phase1_result, role="subject",
+                antecedent_texts=[
+                    antecedent_events[event_id].content
+                    for event_id in claim.antecedent_event_ids if event_id in antecedent_events
+                ],
+            )
+            event_links = [
+                replace(link, evidence_locator={
+                    **(link.evidence_locator or {}),
+                    "reference_surfaces": {
+                        role: surface for role, surface in (
+                            ("object", object_surface), ("subject", subject_surface),
+                        )
+                        if surface and surface in (
+                            claim.evidence_text if link.link_role == "supporting"
+                            else antecedent_events[link.event_id].content
+                        )
+                    },
+                })
+                for link in event_links
+            ]
             canonical_predicate = (
                 canonicalize_predicate(claim.predicate) or str(claim.predicate or "").strip()
             )
@@ -167,7 +204,7 @@ class L2ClaimPersistenceMixin:
                 target_to=claim.target_to,
                 raw_time_frame=claim.raw_time_frame,
                 evidence_mode=evidence_mode,
-                object_surface=str(claim.object_ref or ""),
+                object_surface=object_surface,
                 object_value=str(claim.object_ref or ""),
                 supporting_event_ids=claim.supporting_event_ids,
                 antecedent_event_ids=claim.antecedent_event_ids,
@@ -189,7 +226,7 @@ class L2ClaimPersistenceMixin:
                     specificity=str(claim.specificity or "concrete"),
                     confidence=float(claim.confidence or 0.0),
                     object_value=str(claim.object_ref or ""),
-                    object_surface=str(claim.object_ref or ""),
+                    object_surface=object_surface,
                     temporal_cue=str(getattr(claim.temporal_cue, "value", claim.temporal_cue)),
                     fact_valid_from=claim.fact_valid_from,
                     fact_valid_to=claim.fact_valid_to,
@@ -204,6 +241,7 @@ class L2ClaimPersistenceMixin:
                 blocked_count += 1
                 continue
             claim.claim_id = str(stored["claim_id"])
+            claim.object_surface = stored.get("object_surface")
             claim.fact_valid_from = _optional_float(stored.get("fact_valid_from"))
             claim.fact_valid_to = _optional_float(stored.get("fact_valid_to"))
             claim.target_from = _optional_float(stored.get("target_from"))
@@ -246,7 +284,45 @@ class L2ClaimPersistenceMixin:
         await self._assert_current_projection_attempt(batch)
         object_refs: dict[str, tuple[str, str]] = {}
         for claim in phase1_result.fact_claims:
+            existing_refs = await host._cognition_store.list_claim_entity_refs(claim_id=claim.claim_id)
+            current_refs = {
+                str(ref["ref_role"]): ref
+                for ref in sorted(
+                    existing_refs,
+                    key=lambda item: (int(item["resolution_version"]), float(item["created_at"])),
+                )
+            }
+            current_subject = current_refs.get("subject")
+            subject_ref = _canonical_subject_ref(batch, claim)
+            if current_subject is not None:
+                claim.subject_ref = str(current_subject["entity_id"])
+            elif subject_ref != batch.self_entity_id:
+                subject_id = host._resolve_grounded_object_id(
+                    raw_object_ref=subject_ref,
+                    object_type=host._normalize_entity_type(claim.subject_type),
+                    resolved_mentions=resolved_mentions,
+                    catalog_name_index=batch.catalog_name_index,
+                )
+                if subject_id:
+                    stored_subject = await host._cognition_store.upsert_claim_entity_ref(
+                        ClaimEntityRefInput(
+                            claim_id=claim.claim_id, ref_role="subject", entity_id=subject_id,
+                            resolution_version=ENTITY_RESOLUTION_VERSION,
+                        ),
+                        projection_leases=batch.projection_leases,
+                    )
+                    if stored_subject is not None and stored_subject.get("invalidated_at") is None:
+                        claim.subject_ref = str(stored_subject["entity_id"])
+            if claim_object_is_literal(claim.predicate):
+                continue
             object_type = host._normalize_entity_type(claim.object_type)
+            current_object = current_refs.get("object")
+            if current_object is not None:
+                object_refs[claim.claim_id] = (
+                    str(current_object["entity_id"]),
+                    object_type or str(claim.object_type or "other"),
+                )
+                continue
             object_id = host._resolve_grounded_object_id(
                 raw_object_ref=claim.object_ref,
                 object_type=object_type,
@@ -264,7 +340,7 @@ class L2ClaimPersistenceMixin:
                 ),
                 projection_leases=batch.projection_leases,
             )
-            if stored_ref is None:
+            if stored_ref is None or stored_ref.get("invalidated_at") is not None:
                 continue
             persisted_object_id = str(stored_ref["entity_id"])
             object_refs[claim.claim_id] = (
@@ -287,7 +363,12 @@ class L2ClaimPersistenceMixin:
             return {}
         await self._assert_current_projection_attempt(batch)
         decisions: dict[str, SemanticRouteDecision] = {}
+        async with sqlite_connection_async(host._cognition_store.db_path) as db:
+            claim_texts = await load_claim_texts(db, [claim.claim_id for claim in phase1_result.fact_claims])
         for claim in phase1_result.fact_claims:
+            resolved_text = claim_texts.get(claim.claim_id)
+            if resolved_text is None:
+                raise RuntimeError("Active grounded Claim text context is unavailable")
             object_ref = object_refs.get(claim.claim_id)
             canonical_predicate = (
                 canonicalize_predicate(claim.predicate)
@@ -296,7 +377,7 @@ class L2ClaimPersistenceMixin:
             decision = derive_semantic_route(
                 SemanticRouteInput(
                     claim_id=claim.claim_id,
-                    subject_id=_canonical_subject_ref(batch, claim),
+                    subject_id=resolved_text.subject_entity_id or _canonical_subject_ref(batch, claim),
                     subject_type=str(claim.subject_type or "user"),
                     canonical_predicate=canonical_predicate,
                     fact_kind=str(claim.fact_kind or "explicit_fact"),
@@ -306,8 +387,11 @@ class L2ClaimPersistenceMixin:
                         if object_ref is not None
                         else str(claim.object_type or "other")
                     ),
-                    object_value=claim.object_ref,
-                    object_entity_id=object_ref[0] if object_ref is not None else None,
+                    object_value=(
+                        claim.object_ref if claim_object_is_literal(canonical_predicate)
+                        else resolved_text.object_surface or ""
+                    ),
+                    object_entity_id=resolved_text.object_entity_id,
                     temporal_cue=str(getattr(claim.temporal_cue, "value", claim.temporal_cue)),
                     specificity=str(claim.specificity or "concrete"),
                     target_from=claim.target_from,
@@ -333,15 +417,8 @@ class L2ClaimPersistenceMixin:
                     reason_code=decision.reason_code,
                     details=_route_outcome_details(
                         decision,
-                        subject_resolution_version=(
-                            ENTITY_RESOLUTION_VERSION
-                            if batch.self_entity_id
-                            and decision.subject_id == batch.self_entity_id
-                            else 0
-                        ),
-                        object_resolution_version=(
-                            ENTITY_RESOLUTION_VERSION if object_ref is not None else 0
-                        ),
+                        subject_resolution_version=resolved_text.subject_resolution_version,
+                        object_resolution_version=resolved_text.object_resolution_version,
                     ),
                 ),
                 projection_leases=batch.projection_leases,
@@ -397,7 +474,7 @@ def _canonical_subject_ref(
     claim: L2Phase1FactClaim,
 ) -> str:
     subject_ref = str(claim.subject_ref or "").strip()
-    if subject_ref.startswith("user:") and batch.self_entity_id:
+    if subject_ref == "user:self" and batch.self_entity_id:
         return cast(str, batch.self_entity_id)
     return subject_ref
 

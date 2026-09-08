@@ -1092,6 +1092,7 @@ class MemoryCorrectionRepository:
         *,
         source_kind: str,
         source_ids: Iterable[str],
+        summary_ids: Iterable[str] | None = None,
         subject_keys: Iterable[str] = (),
         include_current_subjects: bool = False,
         updated_at: float | None = None,
@@ -1109,6 +1110,11 @@ class MemoryCorrectionRepository:
         )
         if not normalized_ids and not normalized_subjects:
             return set()
+        normalized_summary_ids = None if summary_ids is None else list(dict.fromkeys(
+            str(summary_id).strip() for summary_id in summary_ids if str(summary_id).strip()
+        ))
+        if normalized_summary_ids == []:
+            return set()
         clauses: list[str] = []
         args: list[Any] = []
         if normalized_ids:
@@ -1124,6 +1130,11 @@ class MemoryCorrectionRepository:
                 subject_clause += " AND summaries.derivation_state = 'stale'"
             clauses.append(f"({subject_clause})")
             args.extend(normalized_subjects)
+        summary_scope = ""
+        if normalized_summary_ids is not None:
+            summary_placeholders = ", ".join("?" for _ in normalized_summary_ids)
+            summary_scope = f"AND summaries.summary_id IN ({summary_placeholders})"
+            args.extend(normalized_summary_ids)
         async with db.execute(
             f"""
             SELECT DISTINCT dependencies.artifact_id, dependencies.subject_key
@@ -1131,6 +1142,7 @@ class MemoryCorrectionRepository:
             JOIN summaries ON summaries.summary_id = dependencies.artifact_id
             WHERE dependencies.artifact_kind = 'l3_insight'
               AND ({" OR ".join(clauses)})
+              {summary_scope}
             """,
             tuple(args),
         ) as cursor:

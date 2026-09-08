@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 
 from ....core.logger import get_logger
+from ....core.sqlite import sqlite_connection_async
+from ..claim_text import load_claim_texts
 from ..assertions.materialize import (
     MaterializationDecision,
     MaterializationInput,
@@ -153,6 +155,12 @@ class L2ProjectionFlowMixin:
 
         groups = _claim_groups(phase1_flow)
         occurrence_stats = await self._load_materialization_occurrence_stats(groups)
+        claim_texts = {}
+        if groups:
+            async with sqlite_connection_async(self._cognition_store.db_path) as db:
+                claim_texts = await load_claim_texts(
+                    db, [claim.claim_id for _route, claims in groups.values() for claim in claims]
+                )
         decisions: list[MaterializationDecision] = []
         assertion_candidates: list[dict[str, Any]] = []
         pending_review_proposals: list[PendingReviewProposal] = []
@@ -178,6 +186,7 @@ class L2ProjectionFlowMixin:
                     inference_depth=batch.stored_event.tom_depth.label,
                     observed_at=float(batch.stored_event.timestamp),
                     now=datetime.now().timestamp(),
+                    claim_texts=claim_texts,
                 )
             )
             decisions.append(decision)
@@ -202,7 +211,8 @@ class L2ProjectionFlowMixin:
                     )
                 )
 
-        return await self._persist_materialization_result(
+        return await L2ProjectionFlowMixin._persist_materialization_result(
+            self,
             batch=batch,
             phase1_flow=phase1_flow,
             graph_candidates=graph_candidates,
@@ -223,7 +233,7 @@ class L2ProjectionFlowMixin:
             return {}
         if self._cognition_store is None:
             raise RuntimeError("L2 cognition store is unavailable for occurrence statistics")
-        stats = await load_routed_claim_occurrence_stats(
+        stats: dict[ClaimRouteValueKey, ClaimOccurrenceStats] = await load_routed_claim_occurrence_stats(
             self._cognition_store.db_path,
             keys=set(groups),
             local_timezone=datetime.now().astimezone().tzinfo,

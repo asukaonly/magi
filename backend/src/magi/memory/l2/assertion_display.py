@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
+import json
 from typing import Any
 
 from ...i18n import effective_app_language_code
@@ -64,6 +66,13 @@ class FactDescription:
     completeness: FactCompleteness
 
 
+def assertion_fact_signature(assertion: Mapping[str, Any]) -> str:
+    """Fingerprint semantic wording independently of surface-specific UI copy."""
+    fact = render_assertion_fact(assertion)
+    payload = json.dumps([fact.text, fact.completeness.value], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _description(text: str, *, endpoints_resolved: bool = True) -> FactDescription:
     return FactDescription(
         text=text,
@@ -86,10 +95,35 @@ def assertion_display_is_recent(assertion: Mapping[str, Any]) -> bool:
 
 def assertion_behavior_target(assertion: Mapping[str, Any], *, language: str | None = None) -> str:
     """Render the catalog target of a behavioral observation, never its storage strategy."""
-    name = str(assertion.get("target_entity_name") or "").strip()
+    name = _entity_name(assertion, "target_entity")
     if name:
         return name
     return "尚未解析的对象" if (language or effective_app_language_code()).startswith("zh") else "an unresolved object"
+
+
+def _entity_name(assertion: Mapping[str, Any], field: str) -> str:
+    """Reject a catalog identity used as its own supposedly readable name."""
+    name = str(assertion.get(f"{field}_name") or "").strip()
+    identity = str(assertion.get(f"{field}_id") or "").strip()
+    return name if name and name != identity else ""
+
+
+def _summary_contains_identity(
+    assertion: Mapping[str, Any], summary: str, *, literal_value: str | None,
+) -> bool:
+    """Validate linked references by their role, never by identifier spelling."""
+    subject_id = str(assertion.get("entity_id") or "").strip()
+    # A known literal may legitimately equal an identifier (for example an
+    # explicitly requested form of address). Its spelling does not change its role.
+    if subject_id and subject_id in summary and not (
+        literal_value is not None and subject_id in literal_value
+    ):
+        return True
+    if literal_value is None:
+        target_id = str(assertion.get("target_entity_id") or "").strip()
+        if target_id and target_id in summary:
+            return True
+    return False
 
 
 def _literal_text(value: Any, *, zh: bool) -> str:
@@ -117,12 +151,10 @@ def render_assertion_fact(
         zh=zh,
     )
     recent = assertion_display_is_recent(assertion)
-    subject_resolved = assertion.get("entity_type") == "user" or bool(
-        str(assertion.get("entity_name") or "").strip()
-    )
+    subject_resolved = assertion.get("entity_type") == "user" or bool(_entity_name(assertion, "entity"))
     if assertion.get("inference_depth") == "topology_only":
         subject = None if assertion.get("entity_type") == "user" else (
-            str(assertion.get("entity_name") or "").strip()
+            _entity_name(assertion, "entity")
             or ("主体未解析的对象" if zh else "an unresolved subject")
         )
         return _description(
@@ -130,12 +162,19 @@ def render_assertion_fact(
                 assertion_behavior_target(assertion, language=language), recent=recent,
                 language=language, subject=subject,
             ),
-            endpoints_resolved=subject_resolved and bool(assertion.get("target_entity_name")),
+            endpoints_resolved=subject_resolved and bool(_entity_name(assertion, "target_entity")),
         )
     summary = str(assertion.get("natural_summary") or "").strip()
     if summary and summary_policy == SummaryPolicy.RETAINED:
+        if _summary_contains_identity(
+            assertion, summary, literal_value=value if trait in _LITERAL_PREDICATES else None,
+        ):
+            # Retention scope is not the source's linguistic time cue. Replacing
+            # invalid retained wording with a structured sentence could invent
+            # "recently"; the governed rebuild owns recovery from Claim evidence.
+            return FactDescription(None, FactCompleteness.UNAVAILABLE)
         return _description(summary)
-    subject = str(assertion.get("entity_name") or "").strip()
+    subject = _entity_name(assertion, "entity")
     if assertion.get("entity_type") == "user":
         subject = "用户" if zh else "The user"
     if not subject:
@@ -155,7 +194,7 @@ def render_assertion_fact(
         grounded_predicate_wording(predicate) if predicate else None
     )
     if wording:
-        target = str(assertion.get("target_entity_name") or "").strip() if choices else value
+        target = _entity_name(assertion, "target_entity") if choices else value
         target_resolved = bool(target)
         if not target:
             if not choices:

@@ -504,6 +504,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         recommended_action="downgrade_confidence",
     )
     outcome = ReconciledTraitOutcome(
+        fact_completeness="unavailable",
         entity_id="user:u1",
         entity_type="user",
         trait_name="preference.food",
@@ -531,6 +532,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         "trait_family": "",
         "winning_value": "sushi",
         "natural_summary": "",
+        "fact_completeness": "unavailable",
         "status": "corroborated",
         "confidence": 0.7,
         "evidence_event_ids": ["evt-1", "evt-2"],
@@ -3201,6 +3203,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                         "entity_type": "user",
                         "trait_name": "stress_level",
                         "trait_value": "high",
+                        "natural_summary": "The user reports high stress.",
                         "confidence_score": 0.3,
                         "evidence_events": [
                             "evt-reconcile-1",
@@ -3226,6 +3229,7 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
                         "trait_family": "preference_profile",
                         "trait_name": "communication_style",
                         "trait_value": "concise",
+                        "natural_summary": "The user prefers concise communication.",
                         "confidence_score": 0.6,
                         "evidence_events": [
                             "evt-reconcile-1",

@@ -101,8 +101,10 @@ source-name exception or old-format fallback is required.
 
 The revision `v51_portrait_prompt_contract` adds a persisted prompt contract
 version to the portrait cache. Existing rows retain their text and receive
-version `0`; only a successful rebuild from the current semantic prompt inputs
-records version `1`. Older prompts are ineligible for model-context fallback,
+version `0`; the migration initially required a successful rebuild to record
+version `1`. The current host-resolved wording contract requires prompt version
+`2`, using the same persisted field without another schema migration. Older
+prompts are ineligible for model-context fallback,
 including when L2 or profile reads fail. Current-contract caches still follow the
 existing last-successful-result policy on transient failures. This version is
 independent of the UI item shape, assertion lifecycle and source revisions.
@@ -111,6 +113,70 @@ unchanged source highwaters cannot preserve values decoded under the previous
 generic JSON rules. Retained assertions, evidence and portrait prompt text remain
 unchanged; subsequent reads rebuild profile fields with their trait-specific
 value contract.
+
+Claim-backed assertion wording has a separate, explicit recovery boundary:
+`magi.memory.l2.assertions.summary_recovery.recover_assertion_summaries` accepts
+between 1 and 100 exact assertion snapshots (`assertion_id`, `expected_updated_at`,
+`expected_summary`) and defaults to `dry_run=True`. It never scans or repairs an
+entire memory database automatically. Under one write transaction it checks live
+assertion state, active immutable Claims and projection receipts, authoritative
+entity identities, routed semantic values, supporting and antecedent evidence,
+source deletion/forgetting barriers, user corrections, and completed source
+projection jobs. A stale snapshot, unresolved name, conflicting support, or a
+competing projection refuses the affected item.
+
+A committed repair replaces only `natural_summary` and the assertion's
+`updated_at`, appends an `assertion_summary` recovery receipt, invalidates L3
+insights linked by dependencies to those exact rebuilt assertions, and advances
+the affected subject revision. L3 invalidation removes stale search entries while
+preserving existing insight content and user review states until rebuilding.
+Only current or already stale dependencies are eligible; retired, rejected and
+deleted insights are excluded. Unrelated insights remain unchanged. Claim bodies,
+evidence, negation, temporal cues,
+confidence, promotion, correction and forgetting state remain unchanged. The
+revision makes stale profile and portrait caches ineligible immediately; normal
+reads rebuild them even after an interrupted recovery.
+
+Explicit L3 wording recovery requires every original dependency to be an
+assertion. Mixed assertion/edge dependencies fail closed and remain stale, so a
+wording repair cannot drop an edge's correction or forgetting dependency.
+
+Operators can rebuild the affected profile and portrait immediately through the
+existing handlers:
+
+```python
+from magi.memory.l2.assertions.summary_recovery import (
+    AssertionSummaryRecoveryRequest, recover_assertion_summaries,
+)
+from magi.user_profile.correction_derivation import UserProfileCorrectionDerivationHandlers
+from magi.memory.l3.correction_derivation import L3CorrectionDerivationService
+
+# Build these snapshots from a read-only inspection of explicitly selected rows.
+requests = [AssertionSummaryRecoveryRequest(assertion_id, updated_at, natural_summary)]
+preview = await recover_assertion_summaries(db_path, requests=requests, language="zh")
+# Apply the same inspected snapshots after reviewing the preview.
+result = await recover_assertion_summaries(
+    db_path, requests=requests, dry_run=False, language="zh",
+)
+handlers = UserProfileCorrectionDerivationHandlers(db_path=db_path, l2_store=l2_store)
+insights = L3CorrectionDerivationService(db_path=db_path, l2_store=l2_store)
+for subject, revision in result.subject_revisions.items():
+    job = {"target_key": subject, "target_revision": revision}
+    await handlers.rebuild_profile(job)
+    await handlers.rebuild_portrait(job)
+    if result.l3_summary_ids:
+        await insights.rebuild_subject(
+            subject, expected_revision=revision, summary_ids=result.l3_summary_ids,
+        )
+```
+
+This operation needs no model call when the retained Claim, evidence and entity
+resolution already describe the correct proposition. It repairs derived text,
+including summaries previously generated from entity IDs, without rewriting
+immutable Claims. A mistranslated Claim requires the versioned original-event
+extraction workflow under extractor contract 7; it must retain source, deletion,
+forgetting, correction and exact task-lease barriers. Summary recovery and route
+reprojection are not substitutes for that workflow.
 
 `runtime/bootstrap_state.db` is the central ledger for bounded startup work
 whose result can be reused across launches. Each step owns a stable ID, an

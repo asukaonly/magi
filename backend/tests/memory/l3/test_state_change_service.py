@@ -20,11 +20,22 @@ def _outcome(**overrides) -> ReconciledTraitOutcome:
         time_span_hours=48.0,
         stability_kind="stable_pattern",
         recommended_snapshot_field="core_traits",
-        natural_summary="",
+        fact_completeness="complete",
+        natural_summary="用户的压力水平是高。",
         expires_at=None,
         trait_family="stress",
     )
     defaults.update(overrides)
+    if "natural_summary" not in overrides:
+        value = str(defaults["winning_value"])
+        if str(defaults["trait_name"]).startswith("interest."):
+            defaults["natural_summary"] = f"用户关注{value}。"
+        elif defaults["trait_family"] == "preference_profile":
+            defaults["natural_summary"] = f"用户偏好的音乐是{value}。"
+        elif defaults["trait_family"] == "mood":
+            defaults["natural_summary"] = f"用户感到{value}。"
+        else:
+            defaults["natural_summary"] = f"用户的压力水平是{value}。"
     return ReconciledTraitOutcome(**defaults)
 
 

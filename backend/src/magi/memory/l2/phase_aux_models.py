@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from .phase_model_utils import _optional_text
 
@@ -88,6 +88,7 @@ class ReconciledTraitOutcome:
     time_span_hours: float
     stability_kind: str
     recommended_snapshot_field: str
+    fact_completeness: Literal["complete", "partial", "unavailable"]
     natural_summary: str = ""
     expires_at: float | None = None
     trait_family: str = ""  # host-owned assertion family; e.g. "state_profile", "mood"

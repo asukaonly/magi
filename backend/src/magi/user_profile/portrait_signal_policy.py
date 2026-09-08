@@ -269,9 +269,7 @@ def _tentative_claim_statement(
 
 
 def _claim_display_value(claim: Mapping[str, Any]) -> str:
-    value = display_value(claim.get("object_value"))
-    if not value:
-        value = display_value(claim.get("object_surface"))
+    value = display_value(claim.get("object_display_text"))
     return " ".join(value.split())[:200]
 
 

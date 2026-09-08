@@ -3,6 +3,7 @@
 import pytest
 
 from magi.memory.l2.factual_rendering import render_grounded_fact
+from magi.memory.l2.claim_text import ResolvedClaimText
 from magi.memory.l2.phase1_models import L2Phase1FactClaim
 
 
@@ -16,5 +17,6 @@ from magi.memory.l2.phase1_models import L2Phase1FactClaim
 )
 def test_fact_renderer_retains_temporal_qualifier(cue: str, zh: str, en: str) -> None:
     claim = L2Phase1FactClaim(predicate="LIKES", object_ref="苹果", temporal_cue=cue)
-    assert render_grounded_fact(claim, language="zh-CN") == zh
-    assert render_grounded_fact(claim, language="en") == en
+    text = ResolvedClaimText(object_name="苹果", subject_is_self=True)
+    assert render_grounded_fact(claim, resolved_text=text, language="zh-CN") == zh
+    assert render_grounded_fact(claim, resolved_text=text, language="en") == en
