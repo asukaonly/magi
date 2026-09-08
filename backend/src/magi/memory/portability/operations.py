@@ -126,9 +126,24 @@ class MemoryPortabilityOperationStore:
 
         async with self._admission_lock:
             self._ensure_loaded()
+            operation_id = str(uuid.uuid4())
+            if kind == "restore":
+                try:
+                    candidate_id = uuid.UUID(str(restore_candidate_id))
+                except ValueError as error:
+                    raise MemoryPortabilityError("invalid_restore_candidate", "Restore candidate identity is invalid.") from error
+                if candidate_id.version != 4 or str(candidate_id) != restore_candidate_id:
+                    raise MemoryPortabilityError("invalid_restore_candidate", "Restore candidate identity is invalid.")
+                # One inspected candidate authorizes at most one replacement operation.
+                operation_id = str(candidate_id)
+                existing = self.get(operation_id)
+                if existing is not None:
+                    if existing.kind != "restore":
+                        raise MemoryPortabilityError("operation_identity_conflict", "The operation identity is already in use.", status_code=409)
+                    return existing
             self._reject_if_busy()
             operation = MemoryPortabilityOperation(
-                operation_id=str(uuid.uuid4()),
+                operation_id=operation_id,
                 kind=kind,
                 created_at=_utc_now(),
             )

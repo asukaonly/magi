@@ -273,3 +273,46 @@ async def test_failed_progress_write_keeps_previous_state_and_releases_busy_slot
             break
         await asyncio.sleep(0.01)
     assert store.active() is None
+
+
+@pytest.mark.asyncio
+async def test_restore_confirmation_is_idempotent_while_running_and_after_reload(tmp_path: Path) -> None:
+    from uuid import uuid4
+    paths = RuntimePaths(tmp_path / "runtime")
+    store = MemoryPortabilityOperationStore(runtime_paths=paths)
+    candidate_id = str(uuid4())
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def runner(operation_id: str) -> None:
+        nonlocal calls
+        calls += 1
+        entered.set()
+        await release.wait()
+        store.succeed(operation_id)
+
+    first = await store.start(kind="restore", runner=runner, restore_candidate_id=candidate_id)
+    await entered.wait()
+    repeated = await store.start(kind="restore", runner=runner, restore_candidate_id=candidate_id)
+    assert first.operation_id == repeated.operation_id == candidate_id
+    assert calls == 1
+    release.set()
+    for _ in range(100):
+        if store.get(candidate_id).status == "succeeded":
+            break
+        await asyncio.sleep(0.01)
+    reloaded = MemoryPortabilityOperationStore(runtime_paths=paths)
+    receipt = await reloaded.start(kind="restore", runner=runner, restore_candidate_id=candidate_id)
+    assert receipt.status == "succeeded"
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_an_invalid_candidate_before_admitting_work(tmp_path: Path) -> None:
+    store = MemoryPortabilityOperationStore(runtime_paths=RuntimePaths(tmp_path / "runtime"))
+    async def runner(_operation_id: str) -> None:
+        raise AssertionError("Invalid candidate must not run")
+    with pytest.raises(MemoryPortabilityError, match="candidate identity"):
+        await store.start(kind="restore", runner=runner, restore_candidate_id="../candidate")
+    assert store.active() is None

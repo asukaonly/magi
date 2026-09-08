@@ -56,6 +56,11 @@ Raw credentials and ephemeral tokens must not enter SQLite, YAML, logs,
 backups, chat payloads, memory records, or plugin state. `service/server.db` is
 outside memory portability and business-data restore ownership.
 
+A confirmed restore uses its inspected candidate UUID as the operation UUID.
+Repeated confirmations return the existing operation while it runs or after its
+receipt is reloaded; they do not launch a second replacement. A new restore
+requires a new inspection. Admission rejects non-canonical candidate identities.
+
 Memory portability uses `runtime/memory-portability/` only for private,
 short-lived snapshot, inspection-candidate, and crash-recovery state. Automatic
 pre-restore safety backups are durable `.magibackup` files under
