@@ -986,7 +986,7 @@ describe('PersonaPreviewChat', () => {
     }));
 
     await waitFor(() => expect(updateToolSpy).toHaveBeenCalledWith('web-fetch', {
-      revision: 'a'.repeat(64), configurable: true,
+      revision: 'a'.repeat(64),
       updates: { allow_rfc2544_benchmark_range: true },
     }));
     await waitFor(() => expect(generationSpy).toHaveBeenCalledTimes(2));
