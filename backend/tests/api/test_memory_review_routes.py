@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -109,6 +110,22 @@ def test_stale_review_version_returns_conflict(monkeypatch) -> None:
 
     assert response.status_code == 409
     assert response.json()["detail"] == "pending review version is stale"
+
+
+@pytest.mark.parametrize("edit", [
+    {"natural_summary": "用户喜欢草莓。"},
+    {"trait_value": "dislike", "natural_summary": "用户喜欢草莓。"},
+    {"trait_value": "dislike", "target_entity_id": "food:other"},
+])
+def test_review_edits_reject_host_owned_fields(monkeypatch, edit) -> None:
+    store = SimpleNamespace(resolve_pending_review=AsyncMock())
+    response = _client(monkeypatch, store).post(
+        "/api/memory/l2/reviews/rev_1/resolve",
+        json={"action": "confirm_with_edit", "expected_version": 1, "edit": edit},
+    )
+
+    assert response.status_code == 422
+    store.resolve_pending_review.assert_not_awaited()
 
 
 def test_pending_reviews_count_and_page_through_public_router(monkeypatch):

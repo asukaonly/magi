@@ -22,7 +22,7 @@ class _FakeL1:
 
 class _FakeL2:
     def __init__(self):
-        self.db_path = "unused"
+        self.db_path = None
         self.assertions = []
         self.feedback = []
 
@@ -87,6 +87,7 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     assert "identity.birth_year" in trait_names
     assert "communication.address.preferred" in trait_names
     assert len(unified_memory.l1.events) == 1
+    assert all(assertion["natural_summary"] == "" for assertion in unified_memory.l2.assertions)
     assert all(feedback == "confirmed" for _, feedback in unified_memory.l2.feedback)
     assert projection.display_name == "子涵"
     assert projection.birth_year == 2000
@@ -96,6 +97,7 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     portrait_text = str(portrait.world) + "\n" + "\n".join(portrait.prompt_summary)
     assert "明日香" in portrait_text
     assert "子涵" in portrait_text
+    assert "User profile field" not in portrait_text
 
 
 async def test_command_service_refreshes_portrait_with_strong_profile_projection(tmp_path: Path):

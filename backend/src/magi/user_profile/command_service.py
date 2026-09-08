@@ -148,7 +148,7 @@ class UserProfileCommandService:
                     "context_ref_id": "",
                     "expires_at": None,
                     "memory_subdomain": "semantic",
-                    "natural_summary": f"User profile field {trait_name} was set from personal profile settings.",
+                    "natural_summary": "",
                 }
             )
 

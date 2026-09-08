@@ -93,6 +93,12 @@ the new files and finishes removing plaintext rollback artifacts.
 
 ### Versioned startup work
 
+The shared-memory revision `v50_profile_fact_descriptions` removes only the exact
+obsolete profile-settings diagnostic template from assertion `natural_summary`.
+It preserves other retained wording, semantic values, evidence, lifecycle and
+timestamps. New settings writes no longer create that diagnostic, so no runtime
+source-name exception or old-format fallback is required.
+
 `runtime/bootstrap_state.db` is the central ledger for bounded startup work
 whose result can be reused across launches. Each step owns a stable ID, an
 explicit revision, and an optional content fingerprint. The expected revision

@@ -6,7 +6,7 @@ import uuid
 from typing import Literal
 
 from fastapi import HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from magi.memory.l2.assertion_display import decorate_assertion_display
 from magi.memory.l2.pipeline.claim_persistence import EVIDENCE_RULE_VERSION
@@ -22,10 +22,11 @@ from ..router import memory_router
 
 
 class PendingReviewEditRequest(BaseModel):
-    """User-editable review fields; semantic routing fields remain host-owned."""
+    """Editable semantic value; routing and factual descriptions remain host-owned."""
+
+    model_config = ConfigDict(extra="forbid")
 
     trait_value: str | None = Field(default=None, min_length=1, max_length=1000)
-    natural_summary: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 class PendingReviewResolveRequest(BaseModel):

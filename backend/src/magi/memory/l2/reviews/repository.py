@@ -669,7 +669,7 @@ async def _confirmed_candidate(
     candidate["decay_anchor_at"] = now
     if action == "confirm_with_edit":
         edit_payload = dict(edit or {})
-        unsupported = set(edit_payload).difference({"trait_value", "natural_summary"})
+        unsupported = set(edit_payload).difference({"trait_value"})
         if unsupported:
             raise ValueError("pending review edit contains unsupported fields")
         if "trait_value" in edit_payload:
@@ -680,11 +680,6 @@ async def _confirmed_candidate(
             if candidate["trait_value"] != proposal.get("trait_value"):
                 # Wording derived from the previous value cannot describe an edit.
                 candidate["natural_summary"] = ""
-        if "natural_summary" in edit_payload:
-            candidate["natural_summary"] = _required_text(
-                edit_payload["natural_summary"],
-                "edit.natural_summary",
-            )[:500]
         candidate["semantic_route_slot_key"] = _edited_slot_key(candidate)
     return candidate
 

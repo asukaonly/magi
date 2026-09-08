@@ -1023,6 +1023,12 @@ field sources/conflicts, and derives deterministic fields such as `birth_year`
 and `age_years` from `identity.birth_date`. Settings writes are user-authored
 evidence: they create an L1 audit event, write confirmed L2 profile assertions,
 and then refresh the profile projection and self-portrait projection together.
+`natural_summary` is reserved for retained factual descriptions or grounded user
+wording, including time and conditions. Settings producers leave it empty when
+the structured field already carries the fact; operational diagnostics never
+belong in this field. Pending-review edits accept only the semantic value and
+reject externally supplied summaries. A changed value invalidates its derived
+wording, while an unchanged value preserves it.
 Product code and prompt assembly should read the projection first and fall back
 to raw L2 assertions only when the projection does not yet exist.
 The profile row persists the newest consumed Assertion timestamp and the exact

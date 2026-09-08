@@ -380,7 +380,7 @@ async def test_confirm_with_edit_creates_a_user_owned_slot(l2_store_with_schema)
         expected_version=1,
         resolved_by="user:u1",
         resolution_event_id="review-event-edit",
-        edit={"trait_value": "明年春天去海边", "natural_summary": "用户确认明年春天去海边。"},
+        edit={"trait_value": "明年春天去海边"},
         route_contract_version=5,
         evidence_rule_version=2,
     )
@@ -388,10 +388,40 @@ async def test_confirm_with_edit_creates_a_user_owned_slot(l2_store_with_schema)
     assertions = await l2_store_with_schema.list_current_assertions(entity_id="user:u1")
     assertion = next(item for item in assertions if item["assertion_id"] == resolved.assertion_id)
     assert assertion["trait_value"] == "明年春天去海边"
+    assert assertion["natural_summary"] == ""
     assert assertion["slot_key"].startswith("review-edit-slot:")
     outcomes = await l2_store_with_schema.list_claim_projection_outcomes(claim_id=claim_id)
     assertion_receipt = next(item for item in outcomes if item["target_kind"] == "assertion")
     assert assertion_receipt["target_slot_key"] == assertion["slot_key"]
+
+
+@pytest.mark.asyncio
+async def test_review_store_rejects_description_edits_without_resolving_review(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    review, _claim_id, _lease = await _create_review(store, "event-review-summary-edit")
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        await store.resolve_pending_review(
+            review_id=review.review_id,
+            action="confirm_with_edit",
+            expected_version=1,
+            resolved_by="user:u1",
+            resolution_event_id="review-event-summary-edit",
+            edit={"trait_value": "明年春天去海边", "natural_summary": "用户计划明天去海边。"},
+            route_contract_version=5,
+            evidence_rule_version=2,
+        )
+
+    pending = await store.list_pending_reviews(subject_id="user:u1")
+    assert len(pending) == 1
+    assert pending[0]["review_id"] == review.review_id
+    assert pending[0]["status"] == "pending"
+    assert pending[0]["version"] == 1
+    assert pending[0]["proposed"]["trait_value"] == "今年秋天去海边"
+    assert pending[0]["proposed"]["natural_summary"] == "用户想在秋天去海边，但年份尚不明确。"
+    assert await store.list_current_assertions(entity_id="user:u1") == []
 
 
 @pytest.mark.asyncio
