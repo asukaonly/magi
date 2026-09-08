@@ -347,13 +347,11 @@ pub struct DesktopLogRuntime {
     active: Arc<Mutex<ActiveLogFile>>,
     log_dir: PathBuf,
     log_root_identity: FileIdentity,
-    backend_log_path: PathBuf,
 }
 
 impl DesktopLogRuntime {
     fn build(
         log_dir: PathBuf,
-        backend_log_path: PathBuf,
         max_size: u64,
         level: LevelFilter,
     ) -> Result<(Self, SynchronizedLogger, LevelFilter), String> {
@@ -391,20 +389,14 @@ impl DesktopLogRuntime {
                 active,
                 log_dir,
                 log_root_identity,
-                backend_log_path,
             },
             SynchronizedLogger { gate, inner },
             max_level,
         ))
     }
 
-    pub fn install(
-        log_dir: PathBuf,
-        backend_log_path: PathBuf,
-        max_size: u64,
-        level: LevelFilter,
-    ) -> Result<Self, String> {
-        let (runtime, logger, max_level) = Self::build(log_dir, backend_log_path, max_size, level)?;
+    pub fn install(log_dir: PathBuf, max_size: u64, level: LevelFilter) -> Result<Self, String> {
+        let (runtime, logger, max_level) = Self::build(log_dir, max_size, level)?;
         log::set_boxed_logger(Box::new(logger))
             .map_err(|error| format!("Failed to install desktop logger: {error}"))?;
         log::set_max_level(max_level);
@@ -434,17 +426,6 @@ impl DesktopLogRuntime {
                 clear_legacy_desktop_logs(&self.log_dir, self.log_root_identity, &active_path);
             cleared_entries += cleared;
             failed_entries += failed;
-        }
-
-        if !self.backend_log_path.starts_with(&self.log_dir)
-            || root_identity_matches(&self.log_dir, self.log_root_identity)
-        {
-            match clear_known_log_path(&self.backend_log_path, self.backend_log_path.parent(), None)
-            {
-                Ok(true) => cleared_entries += 1,
-                Ok(false) => {}
-                Err(()) => failed_entries += 1,
-            }
         }
 
         DesktopLogClearResult {
@@ -480,8 +461,9 @@ fn clear_legacy_desktop_logs(
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if name.starts_with(LEGACY_DESKTOP_LOG_PREFIX)
-            && (name.ends_with(".log") || name.ends_with(".log.bak"))
+        if name == "service.log"
+            || (name.starts_with(LEGACY_DESKTOP_LOG_PREFIX)
+                && (name.ends_with(".log") || name.ends_with(".log.bak")))
         {
             candidates.insert(path);
         }
@@ -552,9 +534,8 @@ mod tests {
 
     fn build_runtime(root: &PathBuf, max_size: u64) -> (DesktopLogRuntime, impl Log) {
         let log_dir = root.join("logs");
-        let backend_log = log_dir.join("backend.log");
         let (runtime, logger, _) =
-            DesktopLogRuntime::build(log_dir, backend_log, max_size, LevelFilter::Trace).unwrap();
+            DesktopLogRuntime::build(log_dir, max_size, LevelFilter::Trace).unwrap();
         (runtime, logger)
     }
 
@@ -570,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn clears_active_legacy_and_backend_logs_then_keeps_logging() {
+    fn clears_desktop_logs_without_touching_backend_logs() {
         let root = test_root("clear");
         let _ = fs::remove_dir_all(&root);
         let (runtime, logger) = build_runtime(&root, 1024);
@@ -587,7 +568,7 @@ mod tests {
         let result = runtime.clear();
 
         assert_eq!(result.failed_entries, 0);
-        assert_eq!(result.cleared_entries, 4);
+        assert_eq!(result.cleared_entries, 3);
         assert_eq!(
             fs::read_to_string(log_dir.join(DESKTOP_LOG_FILE_NAME)).unwrap(),
             ""
@@ -600,7 +581,10 @@ mod tests {
             fs::read_to_string(log_dir.join("desktop_2026-07-31.log.bak")).unwrap(),
             ""
         );
-        assert_eq!(fs::read_to_string(log_dir.join("backend.log")).unwrap(), "");
+        assert_eq!(
+            fs::read_to_string(log_dir.join("backend.log")).unwrap(),
+            "old sidecar output"
+        );
 
         write_log(&logger, "fresh desktop content");
         let refreshed = fs::read_to_string(log_dir.join(DESKTOP_LOG_FILE_NAME)).unwrap();
@@ -705,13 +689,7 @@ mod tests {
         fs::create_dir_all(&outside).unwrap();
         symlink(&outside, root.join("logs")).unwrap();
 
-        assert!(DesktopLogRuntime::build(
-            root.join("logs"),
-            root.join("logs").join("backend.log"),
-            1024,
-            LevelFilter::Info,
-        )
-        .is_err());
+        assert!(DesktopLogRuntime::build(root.join("logs"), 1024, LevelFilter::Info,).is_err());
         let _ = fs::remove_dir_all(&root);
     }
 

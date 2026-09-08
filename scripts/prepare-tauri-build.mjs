@@ -28,12 +28,9 @@ if (process.platform === "win32") {
   run("npm", ["run", "build"], frontendDir);
 }
 
-if (process.platform === "win32") {
-  run(
-    "powershell.exe",
-    ["-ExecutionPolicy", "Bypass", "-File", path.join(scriptDir, "build-sidecar.ps1")],
-    repoRoot,
-  );
-} else {
-  run("bash", [path.join(scriptDir, "build-sidecar.sh")], repoRoot);
-}
+const { prepareServiceBundle, serviceBundle } = await import('./prepare-service-bundle.mjs');
+prepareServiceBundle();
+const { cpSync, rmSync } = await import('node:fs');
+const destination = path.join(frontendDir, 'src-tauri/server-dist');
+rmSync(destination, { recursive: true, force: true });
+cpSync(serviceBundle, destination, { recursive: true, verbatimSymlinks: true });

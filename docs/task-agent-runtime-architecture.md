@@ -1161,3 +1161,12 @@ metrics.
   validation story.
 - Tests should prove the current contracts. Delete tests whose only purpose is
   to preserve retired routes, fields, or compatibility behavior.
+
+### Desktop service ownership
+
+The desktop no longer constructs Axum, connects Python IPC or polls the center's
+SQLite notification table. `service_host.rs` launches the same `magi-server`
+artifact used by console deployment and closes a private stdin pipe on stop.
+Remote connection activation starts no worker. Native lifecycle operations are
+serialized with profile switches and session renewal; process-name scans and
+installer-wide worker termination have been removed.

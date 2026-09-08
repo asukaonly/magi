@@ -27,6 +27,14 @@ pub struct AccessSession {
 pub struct ServerInfo {
     pub server_id: String,
     pub protocol_version: u32,
+    pub runtime_ready: bool,
+    pub maintenance: MaintenanceInfo,
+}
+
+#[derive(Deserialize)]
+pub struct MaintenanceInfo {
+    pub data_epoch: String,
+    pub phase: String,
 }
 
 #[derive(Deserialize)]
@@ -58,7 +66,34 @@ pub struct CenterClient {
 }
 
 impl CenterClient {
+    pub fn local(base_url: &str) -> Result<Self, String> {
+        initialize_tls();
+        let url = Url::parse(base_url).map_err(|_| "Invalid local service address")?;
+        if url.scheme() != "http"
+            || url.host_str() != Some("127.0.0.1")
+            || url.port().is_none()
+            || url.path() != "/api"
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            return Err("Invalid local service address".into());
+        }
+        let http = Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|_| "Could not initialize local service connection")?;
+        Ok(Self {
+            http,
+            base_url: base_url.into(),
+        })
+    }
+
     pub fn remote(base_url: &str) -> Result<Self, String> {
+        initialize_tls();
         let base_url = normalize_remote_url(base_url)?;
         let http = Client::builder()
             .https_only(true)
@@ -136,6 +171,13 @@ impl CenterClient {
         }
         Ok(envelope.data)
     }
+}
+
+fn initialize_tls() {
+    static INITIALIZED: std::sync::Once = std::sync::Once::new();
+    INITIALIZED.call_once(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
 }
 
 #[cfg(test)]

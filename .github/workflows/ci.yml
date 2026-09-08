@@ -295,7 +295,7 @@ jobs:
 
       - name: Prepare empty packaged-resource directory
         shell: bash
-        run: mkdir -p frontend/src-tauri/sidecar-dist
+        run: mkdir -p frontend/src-tauri/server-dist
 
       - name: Check desktop shell
         run: cargo check --locked -p magi-desktop

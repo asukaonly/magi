@@ -10,11 +10,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 uuid = { version = "1", features = ["v4"] }
 magi-platform = { path = "../../crates/magi-platform" }
-magi-gateway = { path = "../../crates/magi-gateway" }
+magi-server-runtime = { path = "../../crates/magi-server-runtime" }
 libc = "0.2"
-rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"

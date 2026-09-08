@@ -4,7 +4,7 @@
   "version": "0.1.29",
   "identifier": "com.magi.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "node ../scripts/prepare-tauri-dev.mjs",
     "devUrl": "http://127.0.0.1:5173",
     "beforeBuildCommand": "node ../scripts/prepare-tauri-build.mjs",
     "frontendDist": "../dist"
@@ -38,7 +38,8 @@
           "http://127.0.0.1:*",
           "http://localhost:*",
           "ws://127.0.0.1:*",
-          "ws://localhost:*"
+          "ws://localhost:*",
+          "https:"
         ],
         "img-src": [
           "'self'",
@@ -86,8 +87,7 @@
     ],
     "targets": "all",
     "resources": [
-      "sidecar-dist/",
-      "plugin-python/"
+      "server-dist/"
     ],
     "macOS": {
       "dmg": {
@@ -105,11 +105,7 @@
         }
       }
     },
-    "windows": {
-      "nsis": {
-        "installerHooks": "installer-hooks.nsh"
-      }
-    }
+    "windows": {}
   },
   "plugins": {
     "updater": {

@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="${ROOT_DIR}/backend"
-SIDECAR_STAGING="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
-PLUGIN_PYTHON_STAGING="${ROOT_DIR}/frontend/src-tauri/plugin-python"
+SIDECAR_STAGING="${ROOT_DIR}/build/service/sidecar-dist"
+PLUGIN_PYTHON_STAGING="${ROOT_DIR}/build/service/plugin-python"
 
 if ! command -v rustc >/dev/null 2>&1; then
   echo "rustc is required to resolve target triple."
@@ -85,7 +85,8 @@ if [[ ! -f "${SOURCE_BIN}" ]]; then
   exit 1
 fi
 
-# Copy entire --onedir output to Tauri resource staging directory
+# Stage the shared service bundle for desktop and standalone packages
+mkdir -p "$(dirname "${SIDECAR_STAGING}")"
 rm -rf "${SIDECAR_STAGING}"
 cp -a "${SOURCE_DIR}" "${SIDECAR_STAGING}"
 chmod +x "${SIDECAR_STAGING}/magi-backend"

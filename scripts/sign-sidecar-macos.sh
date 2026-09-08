@@ -10,8 +10,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SIDECAR_DIR="${ROOT_DIR}/frontend/src-tauri/sidecar-dist"
-PLUGIN_PYTHON_DIR="${ROOT_DIR}/frontend/src-tauri/plugin-python"
+SIDECAR_DIR="${ROOT_DIR}/build/service/sidecar-dist"
+PLUGIN_PYTHON_DIR="${ROOT_DIR}/build/service/plugin-python"
 ENTITLEMENTS="${ROOT_DIR}/scripts/sidecar.entitlements.plist"
 RUNTIME_SIGNER="${ROOT_DIR}/scripts/sign-runtime-root-macos.sh"
 

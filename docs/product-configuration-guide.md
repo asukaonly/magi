@@ -252,24 +252,28 @@ When the desktop backend cannot finish startup, the frontend should show a diagn
 
 Startup loading, data-clear recovery, and diagnostic failure surfaces must keep the standard desktop title bar available so the frameless window remains draggable and exposes platform-appropriate window controls before the routed application shell mounts.
 
-The desktop host must monitor the spawned Python worker while waiting for its ready signal. If the worker exits first, the host should stop waiting and hand the non-zero exit status to the diagnostic screen on the next startup poll. Packaged workers should write uncaught startup tracebacks to the redirected backend log and exit cleanly with a failure code so PyInstaller does not display a separate native unhandled-exception dialog. The bounded log viewer should open at its newest output so the failure that ended startup is visible immediately.
+The desktop monitors the service child; the service monitors Python readiness,
+startup failures and bounded restarts. Service startup diagnostics are read only
+for local profiles. A remote connection failure must not display unrelated local
+backend logs. Packaged workers redirect tracebacks to the service-owned backend
+log instead of displaying a PyInstaller exception dialog.
 
-Current log sources:
+Current log ownership:
 
-- packaged desktop builds: `~/.magi/logs/backend.log`
-- desktop dev hot mode: `~/.magi/logs/backend-dev-hot.log`, or `MAGI_BACKEND_LOG_FILE` when that environment variable is set
-- desktop host diagnostics: `~/.magi/logs/desktop.log`; the host keeps one
-  active file bounded to 50 MB and uses the same serialized writer for ordinary
-  writes, rotation, and user-requested clearing
-- the desktop host passes the resolved absolute backend output path to the
-  sidecar, so Windows home-directory differences and relative dev paths cannot
-  make the clear operation target a different file
+- Center Python: `<data-dir>/logs/backend.log`, owned and cleared by center maintenance.
+- Desktop: OS app log directory, with `desktop.log` (50 MB rotation) and local-service supervisor output in `service.log`.
+- Desktop log clearing cannot truncate center Python logs or another connection's data.
 
-The log excerpt is for local troubleshooting only. It should stay bounded and should not replace the retry action.
+The excerpt remains bounded to 64 KiB and does not replace retry or connection
+selection.
 
-### Windows Uninstall Data Removal
+### Desktop uninstall
 
-The Windows uninstaller's **Delete application data** choice owns the complete Magi desktop runtime root. When the user selects it during a normal uninstall, the uninstaller should remove both Tauri's identifier-scoped application directories and `%USERPROFILE%\.magi`. Update-mode uninstall must preserve all application data. This cleanup does not include user-selected workspaces, source libraries, or project-local `.magi` overlays outside the desktop runtime root.
+Desktop uninstall removes identifier-scoped application files according to the
+platform installer. It does not delete the center's business data or kill
+processes by executable name. Center data deletion is an explicit authenticated
+maintenance operation. A local service follows its desktop owner pipe; an
+independent center keeps its own lifecycle.
 
 ## Conversation Settings
 

@@ -25,7 +25,7 @@ Current release expectations are:
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
 - frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
-- each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and Python sidecar exactly once before producing the desktop bundle
+- each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and shared Rust/Python service bundle exactly once before producing the desktop bundle
 - release jobs attach installers to a draft GitHub Release (`releaseDraft: true`); successful builds do not publish an unvalidated candidate or advance the public updater feed
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
@@ -182,13 +182,22 @@ in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
 pairing and renewal accept normalized HTTPS origins, reject redirects and
 validate center/device identity and protocol version before returning an access
 session. Linux remote credential persistence is not yet supported. Connection
-selection UI and local service-host migration remain separate integration work;
-the shipped desktop lifecycle below still applies until that migration lands.
+selection UI and frontend event reconciliation remain integration work. The native
+host now launches the shared service executable for a selected local profile; a
+remote profile renews its paired credential and launches no local business services.
 
-Magi is a desktop-only application:
+Magi has a desktop client and a Tauri-independent service:
 
-- Desktop mode
-  Tauri shell plus React WebView plus Rust Axum gateway plus Python sidecar (IPC worker)
+- Local desktop: Tauri + React, owning a `magi-server` child through a private stdin lifetime pipe.
+- Remote desktop: Tauri + React, connected to an independently managed center over HTTPS.
+- Service: Rust Axum gateway + supervised Python IPC worker, identical in both deployments.
+
+`prepare-service-bundle.mjs` stages the shared executable, Python worker, SDK and
+plugin Python under `build/service/`. Desktop builds copy this complete bundle
+to `frontend/src-tauri/server-dist/`; packaged startup has no source-tree fallback.
+`MAGI_BUILD_TARGET` selects an explicit release target. Development builds compile
+the same `magi-server` executable before opening Tauri. No development or installer
+helper may kill processes by executable name or arbitrary listening port.
 
 The Rust gateway serves HTTP on a single port. The independent server also exposes authenticated SSE at `/api/events`. It handles static database reads, identity-validated streaming chat attachment downloads, config file I/O, task CRUD, and lightweight chat-session creation/title/workspace updates natively in Rust. Governed message, session, and history deletion is forwarded to Python because it also owns memory, trace, file, delivery, and runtime cleanup. Chat attachment uploads are size-bounded and streamed into temporary staging by the gateway; IPC passes the staging reference, and Python streams the body into its in-memory API so it can own the final managed-file mutation, parsing, and message ownership without repeated whole-body copies. Other requests that require the Python runtime (message send, LLM calls, agent execution) use the same IPC channel, with Unix Domain Sockets on Unix-like systems and loopback TCP on Windows. The Python process runs no public HTTP server; FastAPI is used only as an in-memory ASGI app for IPC request dispatch.
 
@@ -200,16 +209,14 @@ environment before runtime and plugins start. This rule is identical for Unix
 sockets and Windows loopback TCP; the credential remains memory-only and is
 never exposed to the WebView, plugins, files, URLs, or logs.
 
-The desktop host also protects Magi's local data before it opens any log or
-starts the Python worker. Existing files under `~/.magi` are repaired on every
-launch so other operating-system accounts cannot read or change them. Links,
-foreign-owned entries, and files with aliases outside the tree stop startup
-instead of causing Magi to change an external target. This boundary covers only
-Magi-owned storage; it never changes permissions on user-selected workspaces or
-source libraries.
+The service protects its own data root before opening logs and stores. Existing
+files in that root are repaired so other OS accounts cannot read or change them.
+Links, foreign-owned entries and aliases outside the tree stop startup. Remote
+desktop startup touches only its own app configuration and log directories; it
+does not initialize, repair or collect from the local business data root.
 
-Every desktop gateway process creates a strong random session credential and
-returns it only to the Magi WebView. The credential stays in process memory: it
+For local mode the desktop generates a strong owner session credential, sends
+it to its service over stdin and returns it to the Magi WebView. The credential stays in process memory: it
 is not passed to Python or plugins, written to disk, logged, or placed in a URL.
 The liveness endpoint and bundled persona avatars are the only public reads.
 Every other native or proxied request requires the session credential, and
@@ -231,14 +238,15 @@ receive or reuse the desktop WebView session credential. This keeps external
 ingestion extensible without turning the complete desktop API into a local
 public service.
 
-On confirmed desktop quit, the Tauri shell hides the main window first and then stops the Python sidecar in the background before exiting. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
+On confirmed desktop quit, the Tauri shell hides the main window first and then closes its owned service pipe and waits for service shutdown before exiting. Remote centers remain running. Windows helper processes used for sidecar startup and shutdown must be launched without visible console windows so quit feels like a native desktop close rather than a terminal-driven teardown.
 
 External links are opened only after the desktop host validates their protocol. Web and email links are allowed on every platform; macOS and Windows additionally allow only their own system-settings protocol. Empty, malformed, credential-bearing, control-character, and all other protocol forms are rejected. Windows sends approved links directly to the native system handler and must never route them through a command interpreter.
 
 ### Process data directory
 
-The desktop host, Rust gateway, Python worker and plugin SDK resolve the same
-process-wide `MAGI_HOME` directory. The default is `~/.magi`. An override must be
+For a local profile, the service, Python worker and plugin SDK resolve the same
+process-wide `MAGI_HOME` directory. The desktop itself stores profiles and logs
+in OS app directories. The default is `~/.magi`. An override must be
 a dedicated absolute directory, set before launch; it cannot be empty, a filesystem
 root, the OS home itself, or contain parent traversal. Changing it requires a full
 exit and relaunch. It does not change the operating-system home or discover data

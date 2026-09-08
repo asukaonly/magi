@@ -4,8 +4,8 @@
 # Runs AFTER 'tauri build' has assembled the .app bundle.  Tauri's bundler
 # signs only the main binary + .app wrapper, but Apple notarization requires
 # ALL Mach-O binaries to carry valid signatures.  This script fills the gap
-# by signing every Mach-O inside Contents/Resources/sidecar-dist/ and
-# Contents/Resources/plugin-python/ when present, then
+# by signing every Mach-O inside Contents/Resources/server-dist/sidecar-dist/ and
+# Contents/Resources/server-dist/plugin-python/ when present, then
 # re-signing the .app, notarizing when credentials are available, and
 # regenerating the DMG and updater archive so tauri-action uploads the final
 # artifacts.
@@ -96,12 +96,12 @@ fi
 APP_NAME=$(basename "$APP_PATH" .app)
 echo "==> Found app: ${APP_PATH}"
 
-SIDECAR="${APP_PATH}/Contents/Resources/sidecar-dist"
+SIDECAR="${APP_PATH}/Contents/Resources/server-dist/sidecar-dist"
 if [[ ! -d "$SIDECAR" ]]; then
   echo "ERROR: sidecar-dist not found inside .app bundle"
   exit 1
 fi
-PLUGIN_PYTHON="${APP_PATH}/Contents/Resources/plugin-python"
+PLUGIN_PYTHON="${APP_PATH}/Contents/Resources/server-dist/plugin-python"
 
 if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   echo "WARNING: APPLE_SIGNING_IDENTITY is not set; skipping macOS sidecar signing and notarization."
@@ -320,6 +320,8 @@ if [[ -d "${PLUGIN_PYTHON}" ]]; then
 else
   echo "WARNING: plugin-python not found inside .app bundle; skipping plugin Python signing."
 fi
+
+codesign --force --options runtime --sign "${APPLE_SIGNING_IDENTITY}" --timestamp "${APP_PATH}/Contents/Resources/server-dist/magi-server"
 
 # ── Re-sign .app ────────────────────────────────────────────────
 # We modified resources, so the .app's CodeResources hash is stale.

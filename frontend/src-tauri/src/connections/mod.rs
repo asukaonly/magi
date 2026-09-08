@@ -1,7 +1,7 @@
 //! Device-owned connection profiles and OS-vault credentials.
 
 mod profiles;
-mod protocol;
+pub mod protocol;
 mod vault;
 
 use std::path::Path;

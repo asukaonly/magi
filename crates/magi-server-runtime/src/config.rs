@@ -44,6 +44,29 @@ fn default_shutdown_timeout() -> u64 {
 }
 
 impl ServerConfig {
+    /// Build configuration from the self-contained service bundle layout.
+    pub fn for_bundle(bundle: &Path, data_dir: PathBuf) -> Self {
+        let mut config = Self::for_development(bundle, data_dir);
+        config.worker = WorkerLaunch {
+            executable: bundle.join(if cfg!(windows) {
+                "sidecar-dist/magi-backend.exe"
+            } else {
+                "sidecar-dist/magi-backend"
+            }),
+            args: vec![],
+            working_directory: Some(bundle.to_path_buf()),
+            python_path: vec![],
+            plugin_python: bundle.join(if cfg!(windows) {
+                "plugin-python/python.exe"
+            } else {
+                "plugin-python/bin/python"
+            }),
+        };
+        config.builtin_avatar_dir =
+            Some(bundle.join("sidecar-dist/_internal/personalities/avatar"));
+        config
+    }
+
     pub fn load(path: &Path) -> Result<Self, String> {
         let bytes =
             std::fs::read(path).map_err(|e| format!("Failed to read server configuration: {e}"))?;

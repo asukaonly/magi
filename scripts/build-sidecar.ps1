@@ -4,8 +4,8 @@ $ErrorActionPreference = "Stop"
 
 $RootDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $BackendDir = Join-Path $RootDir "backend"
-$SidecarStaging = Join-Path $RootDir "frontend/src-tauri/sidecar-dist"
-$PluginPythonStaging = Join-Path $RootDir "frontend/src-tauri/plugin-python"
+$SidecarStaging = Join-Path $RootDir "build/service/sidecar-dist"
+$PluginPythonStaging = Join-Path $RootDir "build/service/plugin-python"
 
 # Prefer the project venv when present, but allow CI to use actions/setup-python.
 $VenvPython = Join-Path $RootDir ".venv/Scripts/python.exe"
