@@ -149,8 +149,6 @@ class L2EntityCatalogQueryMixin:
                 entity_id = str(item.get("entity_id") or "").strip()
                 if not entity_id or entity_id in seen_ids:
                     continue
-                if str(item.get("entity_type") or "").strip() != normalized_type:
-                    continue
                 seen_ids.add(entity_id)
                 candidates.append(item)
                 if len(candidates) >= normalized_limit:
@@ -159,7 +157,7 @@ class L2EntityCatalogQueryMixin:
         text_and_semantic_matches = await self.resolve_query_entities(
             query_text,
             limit=normalized_limit,
-            entity_types=[normalized_type],
+            entity_types=None,
         )
         _append(text_and_semantic_matches)
 
@@ -171,7 +169,31 @@ class L2EntityCatalogQueryMixin:
             )
             _append(recent_fallback)
 
-        return candidates[:normalized_limit]
+        selected = candidates[:normalized_limit]
+        return await self.describe_resolution_candidates(selected)
+
+    async def describe_resolution_candidates(self, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Attach source references and aliases without fabricating descriptions."""
+        if not candidates:
+            return []
+        host = self._query_host()
+        ids = [str(item["entity_id"]) for item in candidates]
+        rows = await self._list_entities(limit=None, entity_ids=ids)
+        by_id = {str(item["entity_id"]): item for item in rows}
+        async with sqlite_connection_async(host.db_path) as db:
+            for entity_id, item in by_id.items():
+                async with db.execute(
+                    "SELECT evidence_event_ids FROM entity_mentions WHERE resolved_entity_id = ? ORDER BY created_at DESC, mention_id DESC LIMIT 3",
+                    (entity_id,),
+                ) as cursor:
+                    mentions = await cursor.fetchall()
+                event_ids = []
+                for mention in mentions:
+                    for event_id in json.loads(mention[0] or "[]"):
+                        if event_id not in event_ids:
+                            event_ids.append(event_id)
+                item["evidence_event_ids"] = event_ids[:3]
+        return [by_id[str(item["entity_id"])] for item in candidates if str(item["entity_id"]) in by_id]
 
     async def find_by_canonical_name(
         self,

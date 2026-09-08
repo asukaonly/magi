@@ -50,15 +50,8 @@ def _normalize_catalog_entity_type(entity_type: Optional[str]) -> Optional[str]:
 
 
 def _normalize_entity_ref(entity_id: Optional[str], entity_type: Optional[str]) -> Optional[str]:
-    if entity_id is None:
-        return None
-    text = entity_id.strip()
-    if not text or not entity_type or ":" not in text:
-        return text or None
-    _, _, suffix = text.partition(":")
-    if not suffix:
-        return text
-    return f"{entity_type}:{suffix}"
+    """Preserve opaque catalog identity independently of classification."""
+    return str(entity_id).strip() or None if entity_id is not None else None
 
 
 class L2EntityCatalog(

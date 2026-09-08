@@ -42,6 +42,7 @@ class _CatalogMaintenanceStatsProtocol(Protocol):
     ghost_skipped_no_target: int
     tom_entity_refs_rewritten: int
     fragment_entities_merged: int
+    identity_review_candidates: list[dict[str, Any]]
     fragment_groups_processed: int
     orphans_pruned: int
     snapshots_refreshed: int

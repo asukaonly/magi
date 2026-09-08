@@ -291,7 +291,7 @@ class L2ProjectionFlowMixin:
             graph_candidates + batch.direct_write_candidates,
             assertion_candidates,
         )
-        touched_place_ids, touched_topic_keys = self._derive_place_and_topic_hints(
+        touched_place_ids, touched_topic_keys = await self._derive_place_and_topic_hints(
             touched_entity_ids
         )
         materialization_by_action: dict[str, int] = {}

@@ -11,7 +11,7 @@ from .....core.logger import get_logger
 from ....event_contracts import MemoryEvent
 from ...entity_names import valid_entity_name
 from ...phase1_models import L2EntityReferentKind
-from ...entities.identity import CONCEPT_ENTITY_TYPES, entity_hint_id, normalized_entity_name
+from ...entities.identity import entity_hint_id, normalized_entity_name
 from ...llm_json_client import L2LLMJsonError
 from ...models import (
     L2BatchEntityResolutionItem,
@@ -24,6 +24,7 @@ from ...models import (
     ResolvedEntityMention,
 )
 from ...ontology import is_vague_entity_reference
+from ...entity_types import EXTRACTABLE_ENTITY_TYPES
 from .id_resolution import L2EntityIdResolutionMixin
 from ...storage.utils import normalize_event_ids
 
@@ -45,12 +46,12 @@ class _PendingPhase1EntityResolution:
     resolved_confidence: float | None = None
     llm_mention_key: str | None = None
     source_event_ids: tuple[str, ...] = ()
+    candidate_ids: tuple[str, ...] = ()
 
     @property
     def cache_key(self) -> tuple[str, str | None]:
         surface = self.mention_text.strip().casefold()
-        if self.entity_type not in CONCEPT_ENTITY_TYPES:
-            surface = ":".join(self.source_event_ids) + ":" + surface
+        surface = ":".join(self.source_event_ids) + ":" + surface
         return (surface, self.entity_type)
 
     @property
@@ -62,6 +63,7 @@ class _PendingPhase1EntityResolution:
             "mention_text": self.mention_text,
             "canonical_name_hint": self.normalized_surface,
             "alias_signals": self.entity.alias_signals,
+            "is_new": self.entity.is_new,
         }
 
 
@@ -251,6 +253,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         mention_text = entity.surface
         normalized_surface = entity.normalized_name or mention_text
         entity_type = self._normalize_entity_type(entity.entity_type)  # type: ignore[attr-defined]
+        if entity_type not in EXTRACTABLE_ENTITY_TYPES and not entity.resolved_id:
+            return None
         if not self._phase1_entity_passes_filters(
             mention_text=mention_text,
             normalized_surface=normalized_surface,
@@ -335,8 +339,12 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 source_event_ids=pending_item.source_event_ids,
                 projection_leases=projection_leases,
             )
-            pending_item.resolved_confidence = pending_item.entity.confidence
-            return
+            if pending_item.resolved_entity_id:
+                rows = await self._entity_catalog.list_entities(entity_ids=[pending_item.resolved_entity_id], limit=1)
+                pending_item.entity_type = str(rows[0]["entity_type"])
+                pending_item.resolved_confidence = pending_item.entity.confidence
+                return
+            pending_item.entity.resolved_id = None
 
         cache = self._phase1_resolution_cache()
         if cache is not None and pending_item.cache_key in cache:
@@ -349,16 +357,6 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             )
             pending_item.resolved_entity_id = cached_id
             pending_item.resolved_confidence = cached_confidence
-            return
-
-        alias_result = await self._try_alias_resolution(
-            pending_item.mention_text,
-            pending_item.entity_type,
-        )
-        if alias_result is not None:
-            pending_item.resolved_entity_id, pending_item.resolved_confidence = alias_result
-            if cache is not None:
-                cache[pending_item.cache_key] = alias_result
             return
 
         await self._queue_phase1_entity_llm_resolution(
@@ -386,6 +384,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         if not candidate_entities:
             return
 
+        pending_item.candidate_ids = tuple(str(item["entity_id"]) for item in candidate_entities)
+        candidate_entities = await self._enrich_resolution_candidates(candidate_entities)
         mention_key = f"{len(llm_batch_items)}"
         pending_item.llm_mention_key = mention_key
         llm_batch_items.append(
@@ -460,20 +460,28 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     ) -> None:
         llm_resolution = llm_results.get(pending_item.llm_mention_key)
         if (
-            pending_item.entity_type in CONCEPT_ENTITY_TYPES
-            and llm_resolution is not None
+            llm_resolution is not None
             and llm_resolution.decision == "match"
-            and llm_resolution.matched_entity_id
+            and llm_resolution.matched_entity_id in pending_item.candidate_ids
         ):
             pending_item.resolved_entity_id = str(llm_resolution.matched_entity_id)
+            rows = await self._entity_catalog.list_entities(entity_ids=[pending_item.resolved_entity_id], limit=1)
+            if not rows:
+                pending_item.resolved_confidence = 0.0
+                pending_item.resolved_entity_id = None
+                return
+            pending_item.entity_type = str(rows[0]["entity_type"])
             pending_item.resolved_confidence = float(
                 llm_resolution.confidence or pending_item.mention_confidence
             )
             return
 
+        if llm_resolution is None or llm_resolution.decision != "create_new_candidate":
+            pending_item.resolved_confidence = 0.0
+            return
+        pending_item.entity.is_new = True
         await self._finalize_unresolved_phase1_entity(
-            pending_item,
-            projection_leases=projection_leases,
+            pending_item, projection_leases=projection_leases,
         )
 
     async def _finalize_unresolved_phase1_entity(
@@ -482,6 +490,9 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         projection_leases: tuple[L2ProjectionLease, ...],
     ) -> None:
+        if not pending_item.entity.is_new:
+            pending_item.resolved_confidence = 0.0
+            return
         (
             pending_item.resolved_entity_id,
             pending_item.resolved_confidence,

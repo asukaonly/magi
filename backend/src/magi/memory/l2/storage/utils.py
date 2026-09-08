@@ -109,15 +109,8 @@ def normalize_store_entity_type(entity_type: str | None) -> str | None:
 
 
 def normalize_store_entity_ref(entity_id: str | None, entity_type: str | None) -> str | None:
-    if entity_id is None:
-        return None
-    text = str(entity_id).strip()
-    if not text or not entity_type or ":" not in text:
-        return text or None
-    _, _, suffix = text.partition(":")
-    if not suffix:
-        return text
-    return f"{entity_type}:{suffix}"
+    """Preserve opaque catalog identity independently of classification."""
+    return str(entity_id).strip() or None if entity_id is not None else None
 
 
 def accumulate_confidence(old: float, new: float) -> float:

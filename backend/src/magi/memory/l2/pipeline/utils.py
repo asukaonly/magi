@@ -42,7 +42,9 @@ class L2PipelineUtilityMixin:
         text = self._non_empty_text(raw_value)
         if text is None:
             return None
-        return cast(str, coerce_unknown_entity_type(text))
+        from ..ontology import normalize_entity_type, ENTITY_TYPE_REGISTRY
+        normalized = normalize_entity_type(text)
+        return normalized if normalized in ENTITY_TYPE_REGISTRY else None
 
     def _normalize_predicate(self, raw_value: Any) -> Optional[str]:
         text = self._non_empty_text(raw_value)
@@ -264,9 +266,16 @@ class L2PipelineUtilityMixin:
         text = str(value).strip()
         return text or None
 
-    def _entity_type_from_id(self, entity_id: str) -> str:
-        prefix, _, _ = entity_id.partition(":")
-        return prefix or "entity"
+    async def _entity_type_from_id(self, entity_id: str) -> str:
+        if entity_id.startswith("user:"):
+            return "user"
+        catalog = getattr(self, "_entity_catalog", None)
+        if catalog is not None:
+            rows = await catalog.list_entities(entity_ids=[entity_id], limit=1)
+            if rows:
+                return str(rows[0]["entity_type"])
+        return "other"
+
 
 
 __all__ = ["L2PipelineUtilityMixin"]

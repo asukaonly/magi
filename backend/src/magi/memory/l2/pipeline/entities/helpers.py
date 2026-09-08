@@ -17,13 +17,6 @@ class _EntityResolutionHelperHostProtocol(Protocol):
 class L2EntityResolutionHelperMixin:
     """Shared entity quality, merge, and focal-entity helpers."""
 
-    _MERGEABLE_TYPE_GROUPS: list[frozenset[str]] = [
-        frozenset({"software", "product", "technology", "organization", "activity"}),
-        frozenset({"media", "activity", "topic", "concept"}),
-        frozenset({"person", "group"}),
-        frozenset({"place", "location_state"}),
-    ]
-
     async def _build_catalog_name_index(self) -> dict[str, str]:
         """Build casefold(name/alias/id) -> entity_id lookup from the catalog."""
         host = self._entity_helper_host()
@@ -52,17 +45,20 @@ class L2EntityResolutionHelperMixin:
                 add_key(alias, entity_id)
         return index
 
-    @classmethod
-    def _are_types_mergeable(cls, type_a: str, type_b: str) -> bool:
-        """Return whether two entity types are close enough to merge."""
-        if type_a == type_b:
-            return True
-        a = type_a.strip().lower()
-        b = type_b.strip().lower()
-        for group in cls._MERGEABLE_TYPE_GROUPS:
-            if a in group and b in group:
-                return True
-        return False
+    async def _enrich_resolution_candidates(self, candidates: list[dict]) -> list[dict]:
+        """Read bounded original context; historical context is never new evidence."""
+        l1_store = getattr(self, "_l1_store", None)
+        for item in candidates:
+            evidence = []
+            if l1_store is not None:
+                for event_id in item.get("evidence_event_ids", [])[:3]:
+                    event = await l1_store.get_event(str(event_id))
+                    if event is not None:
+                        content = str(event.get("content") or "").strip()
+                        if content:
+                            evidence.append(content[:500])
+            item["identity_evidence"] = evidence
+        return candidates
 
     def _build_focal_entities(
         self,
@@ -105,35 +101,18 @@ class L2EntityResolutionHelperMixin:
                 touched.add(str(entity_id))
         return sorted(touched)
 
-    def _derive_place_and_topic_hints(
-        self,
-        touched_entity_ids: list[str],
+    async def _derive_place_and_topic_hints(
+        self, touched_entity_ids: list[str]
     ) -> tuple[list[str], list[str]]:
-        """Split touched entity ids into place + topic hints for episode formation.
-
-        Entity ids are formatted ``{entity_type}:{slug}`` (see
-        ``_build_canonical_entity_id``), so the catalog type is recoverable from
-        the id prefix. The episode worker passes these through to
-        ``EpisodeCandidateJob`` (``place_ids`` / ``topic_keys``) so multi-type gap
-        + topic matching in ``episode_formation`` can fire instead of collapsing
-        every batch into a 30-min activity bucket.
-
-        Returns ``(place_ids, topic_keys)`` — both deduped and sorted:
-        - ``place_ids``: touched entities whose ``entity_type == "place"``.
-        - ``topic_keys``: touched entities whose ``entity_type == "topic"``.
-        """
-        place_ids: set[str] = set()
-        topic_keys: set[str] = set()
-        for raw in touched_entity_ids:
-            entity_id = str(raw).strip()
-            if not entity_id:
-                continue
-            entity_type, _, _ = entity_id.partition(":")
-            if entity_type == "place":
-                place_ids.add(entity_id)
-            elif entity_type == "topic":
-                topic_keys.add(entity_id)
-        return sorted(place_ids), sorted(topic_keys)
+        """Resolve current catalog types instead of interpreting ID prefixes."""
+        host = self._entity_helper_host()
+        if host._entity_catalog is None or not touched_entity_ids:
+            return [], []
+        rows = await host._entity_catalog.list_entities(entity_ids=touched_entity_ids, limit=None)
+        return (
+            sorted(row["entity_id"] for row in rows if row["entity_type"] == "place"),
+            sorted(row["entity_id"] for row in rows if row["entity_type"] == "topic"),
+        )
 
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None:
         if event.user_id:

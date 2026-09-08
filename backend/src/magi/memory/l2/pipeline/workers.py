@@ -50,7 +50,7 @@ class _L2PipelineWorkerHostProtocol(Protocol):
 
     async def _load_evidence_timestamps(self, entity_id: str) -> dict[str, float]: ...
 
-    def _entity_type_from_id(self, entity_id: str) -> str: ...
+    async def _entity_type_from_id(self, entity_id: str) -> str: ...
 
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
@@ -70,7 +70,7 @@ class L2PipelineWorkerMixin:
             return {}
         assertions = await host._cognition_store.list_tom_assertions(
             entity_id=entity_id,
-            entity_type=host._entity_type_from_id(entity_id),
+            entity_type=await host._entity_type_from_id(entity_id),
             limit=500,
         )
         event_ids = sorted(
@@ -471,7 +471,7 @@ class L2PipelineWorkerMixin:
         for entity_id in entity_ids:
             outcomes = await host._cognition_store.reconcile_entity(
                 entity_id=entity_id,
-                entity_type=host._entity_type_from_id(entity_id),
+                entity_type=await host._entity_type_from_id(entity_id),
                 evidence_timestamps=await host._load_evidence_timestamps(entity_id),
             )
             total_outcomes += len(outcomes)
@@ -479,7 +479,7 @@ class L2PipelineWorkerMixin:
                 snapshot_candidates.add(entity_id)
                 await self._emit_state_change_insight(
                     entity_id=entity_id,
-                    entity_type=host._entity_type_from_id(entity_id),
+                    entity_type=await host._entity_type_from_id(entity_id),
                     outcomes=outcomes,
                 )
         return snapshot_candidates, total_outcomes
@@ -579,7 +579,7 @@ class L2PipelineWorkerMixin:
         for entity_id in entity_ids:
             snapshot = await host._cognition_store.refresh_entity_snapshot(
                 entity_id=entity_id,
-                entity_type=host._entity_type_from_id(entity_id),
+                entity_type=await host._entity_type_from_id(entity_id),
             )
             if snapshot is not None:
                 refreshed_count += 1

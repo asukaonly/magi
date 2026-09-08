@@ -311,6 +311,8 @@ class L2EntityCandidate:
     entity_id: str
     canonical_name: str
     entity_type: str
+    aliases: list[str] = field(default_factory=list)
+    identity_evidence: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2EntityCandidate":
@@ -318,6 +320,8 @@ class L2EntityCandidate:
             entity_id=payload.get("entity_id", ""),
             canonical_name=payload.get("canonical_name", ""),
             entity_type=payload.get("entity_type", ""),
+            aliases=[str(item) for item in payload.get("aliases", [])],
+            identity_evidence=[str(item) for item in payload.get("identity_evidence", [])],
         )
 
     def __post_init__(self) -> None:

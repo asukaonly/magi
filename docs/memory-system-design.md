@@ -3296,3 +3296,24 @@ durable event IDs only in reference fields before grounding. Source text is
 never transformed by reference encoding. Cross-session context does not expose
 its session UUID. Captured temporal anchors remain available for temporal
 interpretation; removing them requires historical/timezone semantic validation.
+
+
+### Catalog identity resolution (2026-09-08)
+
+All persisted entity references are opaque. Ingestion and graph/assertion writes
+never rewrite an ID prefix to match a proposed category. Workers, snapshots,
+and episode hints read current categories from the catalog. An explicit model
+reference must exist; it cannot mint a catalog ID. Existing catalog identity
+and classification are preserved during ordinary extraction.
+
+Phase 1 recalls relevant catalog candidates with aliases and bounded original
+source context. Supplemental resolution permits cross-type candidates and
+applies validated matches to concrete entities as well as concepts. A returned
+ID must belong to the supplied candidate set. Explicitly distinct objects may
+create new mention-scoped identities; unresolved ambiguity does not. Resolution
+memoization is evidence-scoped, never a global name-to-object binding.
+
+The name/type mergeability whitelist and automatic alias shortcut are removed.
+Maintenance reports same-name identity-review candidates instead of merging
+them by popularity or category. The governed merge primitive retains its
+transactional graph/assertion/correction/forget rekey responsibilities.

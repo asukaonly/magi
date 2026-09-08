@@ -80,6 +80,12 @@ class L2StoreSnapshotMixin(
     ) -> Dict[str, Any] | None:
         """Rebuild one snapshot from reconciled assertions and graph edges."""
         host = cast(_SnapshotRefreshHostProtocol, self)
+        if not entity_id.startswith("user:"):
+            async with sqlite_connection_async(host.db_path) as db:
+                async with db.execute("SELECT entity_type FROM entity_catalog WHERE entity_id = ?", (entity_id,)) as cursor:
+                    catalog_row = await cursor.fetchone()
+            if catalog_row is not None:
+                entity_type = str(catalog_row[0])
         derivation_revision = await DerivationRevision.capture(host, entity_id)
         assertions = await host.list_current_assertions(
             entity_id=entity_id,
@@ -367,7 +373,7 @@ def _snapshot_refresh_entity_type(
         return entity_type
     if assertions:
         return str(assertions[0]["entity_type"])
-    return entity_id.split(":", 1)[0]
+    return "user" if entity_id.startswith("user:") else "other"
 
 
 def _log_snapshot_refreshed(

@@ -46,8 +46,10 @@ class L2LLMEntityResolutionMixin:
         if decision == "match" and confidence < min_confidence:
             return self._unresolved_resolution(confidence=confidence)
 
+        if decision == "create_new_candidate" and confidence >= min_confidence:
+            return L2EntityResolution(decision=decision, confidence=confidence)
         matched_entity_id = resolution.get("matched_entity_id")
-        if decision != "match" or not matched_entity_id:
+        if decision != "match" or matched_entity_id not in {item.entity_id for item in candidate_entities}:
             return self._unresolved_resolution(confidence=confidence)
 
         return L2EntityResolution(
@@ -104,8 +106,12 @@ class L2LLMEntityResolutionMixin:
             if decision == "match" and confidence < min_confidence:
                 results[mention_key] = self._unresolved_resolution(confidence=confidence)
                 continue
+            if decision == "create_new_candidate" and confidence >= min_confidence:
+                results[mention_key] = L2EntityResolution(decision=decision, confidence=confidence)
+                continue
             matched_entity_id = raw.get("matched_entity_id")
-            if decision != "match" or not matched_entity_id:
+            allowed_ids = {candidate.entity_id for item in items if item.mention_key == mention_key for candidate in item.candidate_entities}
+            if decision != "match" or matched_entity_id not in allowed_ids:
                 results[mention_key] = self._unresolved_resolution(confidence=confidence)
                 continue
             results[mention_key] = L2EntityResolution(

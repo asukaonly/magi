@@ -2973,6 +2973,7 @@ async def test_fragment_merge_rekeys_forgotten_assertion_governance() -> None:
             }
         )
         await store.forget_entity(entity_id=loser_id)
+        await L2EntityMaintenance(db_path=db_path)._merge_entity_into(winner_id, loser_id)
         stats = await L2EntityMaintenance(db_path=db_path).run(
             resolve_ghosts=False,
             prune_orphans=False,
@@ -2982,7 +2983,7 @@ async def test_fragment_merge_rekeys_forgotten_assertion_governance() -> None:
             reconcile_stale=False,
             consolidate_open_predicates=False,
         )
-        assert stats.fragment_entities_merged == 1
+        assert stats.fragment_entities_merged == 0
 
         new_slot = assertion_slot_key(
             entity_type="software",

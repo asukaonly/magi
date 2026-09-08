@@ -9,8 +9,6 @@ import aiosqlite
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
 from ...assertions.assertion_rekey_coordinator import AssertionEntityRekeyCoordinator
-from ...pipeline import L2Pipeline
-from ..identity import CONCEPT_ENTITY_TYPES
 from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
     L2EntityGhostMaintenanceMixin,
@@ -28,74 +26,20 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
     """Maintain fragmented entities and low-mention orphans."""
 
     async def _merge_fragmented_entities(
-        self,
-        stats: _CatalogMaintenanceStatsProtocol,
+        self, stats: _CatalogMaintenanceStatsProtocol,
     ) -> None:
-        """Merge catalog rows that share the same canonical name with mergeable types."""
+        """Report same-name candidates for review; names never authorize a merge."""
         host = self._catalog_maintenance_host()
         async with sqlite_connection_async(host._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("""
-                SELECT LOWER(TRIM(canonical_name)) AS ck, COUNT(*) AS n
-                FROM entity_catalog
-                GROUP BY ck
-                HAVING n >= 2
-                """) as cur:
-                keys = [str(r["ck"]) for r in await cur.fetchall()]
-
-        for ck in keys:
-            async with sqlite_connection_async(host._db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    """
-                    SELECT entity_id, canonical_name, entity_type
-                    FROM entity_catalog
-                    WHERE LOWER(TRIM(canonical_name)) = ?
-                    """,
-                    (ck,),
-                ) as cur:
-                    group = await cur.fetchall()
-            if len(group) < 2:
-                continue
-            types = [str(r["entity_type"]) for r in group]
-            if any(kind not in CONCEPT_ENTITY_TYPES for kind in types) or any(":source:" in str(row["entity_id"]) for row in group):
-                continue
-            if not self._group_types_all_mergeable(types):
-                continue
-            entity_ids = [str(r["entity_id"]) for r in group]
-            winner = await self._pick_entity_by_mention_count(entity_ids)
-            losers = [eid for eid in entity_ids if eid != winner]
-            merged_any = False
-            for loser in losers:
-                try:
-                    await self._merge_entity_into(winner, loser)
-                    stats.fragment_entities_merged += 1
-                    merged_any = True
-                except Exception as exc:
-                    stats.errors.append(f"merge {loser}->{winner}: {exc}")
-                    logger.warning(
-                        "L2 fragment merge failed", loser=loser, winner=winner, error=str(exc)
-                    )
-            if merged_any:
-                try:
-                    snapshot = await _refresh_tom_snapshot_after_rekey(host, winner)
-                    stats.snapshots_refreshed += int(snapshot is not None)
-                except Exception as exc:
-                    stats.errors.append(f"refresh snapshot {winner}: {exc}")
-                    logger.warning(
-                        "L2 snapshot refresh after entity merge failed",
-                        entity_id=winner,
-                        error=str(exc),
-                    )
-            stats.fragment_groups_processed += 1
-
-    @staticmethod
-    def _group_types_all_mergeable(types: list[str]) -> bool:
-        for i, a in enumerate(types):
-            for b in types[i + 1 :]:
-                if not L2Pipeline._are_types_mergeable(a, b):
-                    return False
-        return True
+            async with db.execute(
+                "SELECT LOWER(TRIM(canonical_name)), json_group_array(entity_id) FROM entity_catalog "
+                "GROUP BY LOWER(TRIM(canonical_name)) HAVING COUNT(*) > 1 ORDER BY 1 LIMIT 100"
+            ) as cursor:
+                groups = await cursor.fetchall()
+        import json
+        for name, ids in groups:
+            stats.identity_review_candidates.append({"name": name, "entity_ids": json.loads(ids)})
+        stats.fragment_groups_processed += len(groups)
 
     async def _merge_entity_into(
         self,

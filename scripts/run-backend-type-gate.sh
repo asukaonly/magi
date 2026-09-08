@@ -62,8 +62,9 @@ TYPE_GATE_FILES=(
   magi/memory/l2/llm_json_client.py
   magi/memory/l2/maintenance_schedule.py
   magi/memory/l2/ontology.py
+  magi/memory/l2/entity_types.py
+  magi/memory/l2/prompt_evidence_refs.py
   magi/memory/l2/phase1_models.py
-  magi/memory/l2/phase2_models.py
   magi/memory/l2/phase_aux_models.py
   magi/memory/l2/phase_model_utils.py
   magi/memory/l2/phase_models.py

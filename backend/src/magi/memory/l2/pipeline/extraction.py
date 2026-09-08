@@ -533,7 +533,16 @@ class L2PipelineExtractionMixin(L2ClaimPersistenceMixin, L2ProjectionFlowMixin):
                     event,
                     projection_leases=projection_leases,
                 )
-            existing_entities = await self._entity_catalog.list_entities(limit=30)
+            seen_ids: set[str] = set()
+            for event, _classification, _policy in eligible_events:
+                candidates = await self._entity_catalog.resolve_query_entities(event.content, limit=30)
+                for candidate in candidates:
+                    entity_id = str(candidate["entity_id"])
+                    if entity_id not in seen_ids:
+                        existing_entities.append(candidate)
+                        seen_ids.add(entity_id)
+            existing_entities = await self._entity_catalog.describe_resolution_candidates(existing_entities[:30])
+            existing_entities = await self._enrich_resolution_candidates(existing_entities)
         for event, _classification, _policy in eligible_events:
             self._inject_structured_entity_hints(event, existing_entities)
         return existing_entities

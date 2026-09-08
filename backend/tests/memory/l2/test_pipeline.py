@@ -3462,7 +3462,7 @@ async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_alias
         resolved = await pipeline._entity_catalog.resolve_alias("google.com", entity_type="software")
 
         assert resolved["decision"] == "match"
-        assert resolved["entity_id"] == "software:google.com"
+        assert resolved["entity_id"] == "site:google.com"
 
 
 @pytest.mark.asyncio
@@ -3593,6 +3593,10 @@ async def test_phase1_resolved_id_preserves_same_name_identities():
             entity_type="hardware",
         )
 
+        await pipeline._entity_catalog.upsert_entity(
+            entity_id="hardware:apple-ipad-pro-(11-inch)-(3rd-generation)",
+            canonical_name=canonical_name, entity_type="hardware",
+        )
         event = _make_memory_event(
             event_id="evt-ipad-phase1",
             content="iPad Pro (11-inch) (3rd generation)",
@@ -4134,36 +4138,6 @@ async def test_build_structured_graph_candidates_accepts_internal_topology_hints
 
 
 
-class TestTypeMergeability:
-    """Tests for _are_types_mergeable cross-type dedup gate."""
-
-    @pytest.fixture
-    def pipeline_cls(self):
-        from magi.memory.l2.pipeline import L2Pipeline
-        return L2Pipeline
-
-    def test_same_type_always_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("software", "software") is True
-
-    def test_software_and_product_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("software", "product") is True
-
-    def test_software_and_activity_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("software", "activity") is True
-
-    def test_media_and_topic_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("media", "topic") is True
-
-    def test_person_and_group_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("person", "group") is True
-
-    def test_person_and_software_not_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("person", "software") is False
-
-    def test_place_and_media_not_mergeable(self, pipeline_cls):
-        assert pipeline_cls._are_types_mergeable("place", "media") is False
-
-
 class TestExtractionInstructions:
     """Tests for extraction_instructions wiring into prompt rendering."""
 
@@ -4574,7 +4548,7 @@ class TestSameNameEntityDedup:
     """Tests for same-name entity dedup in _resolve_entity_id."""
 
     @pytest.mark.asyncio
-    async def test_reuses_existing_entity_with_same_name(self):
+    async def test_same_name_does_not_establish_cross_type_identity(self):
         from magi.memory.l2.models import L2Phase1Result
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4611,8 +4585,8 @@ class TestSameNameEntityDedup:
                 evidence_event_ids=["evt-dedup-2"],
             )
             assert len(resolved2) == 1
-            # Should reuse the same entity_id (deduped by name + mergeable type)
-            assert resolved2[0].resolved_entity_id == first_entity_id
+            # No identity evidence establishes equivalence between the two referents.
+            assert resolved2[0].resolved_entity_id != first_entity_id
 
     @pytest.mark.asyncio
     async def test_does_not_dedup_incompatible_types(self):
@@ -4688,10 +4662,10 @@ class TestEntityResolutionCache:
 
             # Verify cache is populated
             cache = getattr(pipeline, "_entity_resolution_cache", {})
-            assert ("magi", "software") in cache
+            assert ("evt-cache-1:magi", "software") in cache
 
     @pytest.mark.asyncio
-    async def test_cache_key_is_type_sensitive(self):
+    async def test_degraded_resolution_does_not_seed_an_identity_cache(self):
         from magi.memory.l2.models import L2Phase1Result
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4727,8 +4701,9 @@ class TestEntityResolutionCache:
             assert len(resolved2) == 1
 
             cache = getattr(pipeline, "_entity_resolution_cache", {})
-            assert ("magi", "software") in cache
-            assert ("evt-ct-2:magi", "person") in cache
+            assert ("evt-ct-1:magi", "software") in cache
+            assert ("evt-ct-2:magi", "person") not in cache
+            assert resolved2[0].resolved_entity_id is None
 
 
 class TestGraphCatalogNameIndex:
@@ -4954,59 +4929,6 @@ class TestCatalogFindByCanonicalName:
 
 
 # ── Episode formation hints: touched place ids + topic keys (Task 1.1) ──
-
-
-class TestDerivePlaceAndTopicHints:
-    """Pure derivation of touched_place_ids + touched_topic_keys from touched entities.
-
-    Episode formation needs place + topic hints so the worker can pass them into
-    EpisodeCandidateJob (today only entity_ids flow through, collapsing every
-    episode into 30-min activity buckets). Entity ids are formatted
-    ``{entity_type}:{slug}``, so the type is recoverable from the id prefix.
-    """
-
-    def _pipeline(self):
-        from magi.memory.l2.pipeline import L2Pipeline
-
-        return L2Pipeline.__new__(L2Pipeline)
-
-    def test_place_ids_are_place_typed_touched_entities(self):
-        pipeline = self._pipeline()
-        place_ids, _topic_keys = pipeline._derive_place_and_topic_hints(
-            [
-                "place:shanghai",
-                "person:alice",
-                "place:tokyo",
-                "software:github",
-            ]
-        )
-        assert place_ids == ["place:shanghai", "place:tokyo"]
-
-    def test_topic_keys_are_sorted_unique_topic_typed_entities(self):
-        pipeline = self._pipeline()
-        _place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
-            [
-                "topic:rust",
-                "topic:ai",
-                "topic:rust",
-                "person:bob",
-            ]
-        )
-        assert topic_keys == ["topic:ai", "topic:rust"]
-
-    def test_empty_touched_entities_yield_empty_hints(self):
-        pipeline = self._pipeline()
-        place_ids, topic_keys = pipeline._derive_place_and_topic_hints([])
-        assert place_ids == []
-        assert topic_keys == []
-
-    def test_no_place_or_topic_entities_yield_empty_hints(self):
-        pipeline = self._pipeline()
-        place_ids, topic_keys = pipeline._derive_place_and_topic_hints(
-            ["person:alice", "software:github", "user:local_user"]
-        )
-        assert place_ids == []
-        assert topic_keys == []
 
 
 class TestEpisodeCandidateJobEntityAttribution:

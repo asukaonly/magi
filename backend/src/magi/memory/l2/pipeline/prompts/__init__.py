@@ -254,7 +254,9 @@ def render_phase1_extract_prompt(
             cname = entity.get("canonical_name", "")
             aliases_list = entity.get("aliases", [])
             alias_str = f" (aliases: {', '.join(aliases_list)})" if aliases_list else ""
-            parts.append(f"- {eid} [{etype}] {cname}{alias_str}")
+            parts.append(f"- {eid} [stored_type={etype}] {cname}{alias_str}")
+            for evidence in entity.get("identity_evidence", [])[:3]:
+                parts.append(f"  Historical identity context (not new evidence): {evidence}")
         parts.append("")
 
     # Context messages (same session, with role annotation)

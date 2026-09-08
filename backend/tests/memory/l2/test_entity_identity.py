@@ -64,7 +64,7 @@ async def test_namespaced_source_keys_and_homonyms_are_distinct(tmp_path):
     index = await pipeline._build_catalog_name_index()
     assert "张伟" not in index
     assert index[a] == a
-    assert await pipeline._try_alias_resolution("张伟", "person") is None
+    assert (await catalog.resolve_alias("张伟", entity_type="person"))["decision"] != "match"
 
 
 @pytest.mark.asyncio

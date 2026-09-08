@@ -228,6 +228,8 @@ class CorrectionDerivationRunner:
         async with sqlite_connection_async(self._db_path) as db:
             async with db.execute(
                 """
+                SELECT entity_type FROM entity_catalog WHERE entity_id = ?
+                UNION ALL
                 SELECT entity_type FROM tom_trait_assertions WHERE entity_id = ?
                 UNION ALL
                 SELECT subject_type FROM knowledge_graph WHERE subject_id = ?
@@ -235,12 +237,12 @@ class CorrectionDerivationRunner:
                 SELECT object_type FROM knowledge_graph WHERE object_id = ?
                 LIMIT 1
                 """,
-                (entity_id, entity_id, entity_id),
+                (entity_id, entity_id, entity_id, entity_id),
             ) as cursor:
                 row = await cursor.fetchone()
         if row is not None and str(row[0]).strip():
             return str(row[0])
-        return entity_id.split(":", 1)[0] if ":" in entity_id else "entity"
+        return "user" if entity_id.startswith("user:") else "other"
 
     async def _delete_snapshot(
         self,

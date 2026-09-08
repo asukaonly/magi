@@ -72,6 +72,7 @@ class L2EntityMaintenanceStats:
     tom_entity_refs_rewritten: int = 0
     fragment_entities_merged: int = 0
     fragment_groups_processed: int = 0
+    identity_review_candidates: list[dict[str, Any]] = field(default_factory=list)
     orphans_pruned: int = 0
     expired_future_intents: int = 0
     expired_assertions: int = 0

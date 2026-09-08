@@ -348,34 +348,8 @@ async def test_find_resolution_candidates_prefers_semantic_hits_before_recent_fa
 
     with tempfile.TemporaryDirectory() as temp_dir:
         db_path = str(Path(temp_dir) / "memory.db")
-        async with sqlite_connection_async(db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE entity_catalog (
-                    entity_id TEXT PRIMARY KEY,
-                    canonical_name TEXT NOT NULL,
-                    entity_type TEXT NOT NULL,
-                    embedding_status TEXT NOT NULL DEFAULT 'disabled',
-                    embedding_profile_id TEXT,
-                        last_embedded_at REAL,
-                        canonical_name_is_independent INTEGER NOT NULL DEFAULT 1,
-                        created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL
-                );
-                CREATE TABLE entity_aliases (
-                    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_id TEXT NOT NULL,
-                    alias_text TEXT NOT NULL,
-                    normalized_alias TEXT NOT NULL,
-                        confidence REAL NOT NULL DEFAULT 1.0,
-                        is_independent INTEGER NOT NULL DEFAULT 1,
-                        created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    UNIQUE(entity_id, normalized_alias)
-                );
-                """
-            )
-            await db.commit()
+        from _shared.memory_schema import apply_memory_shared_schema
+        await apply_memory_shared_schema(db_path)
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
@@ -432,7 +406,7 @@ async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
         )
         entities = await catalog.list_entities(limit=10)
 
-        assert entity_id == "food:west-lake-vinegar-fish"
+        assert entity_id == "dish:west-lake-vinegar-fish"
         # Rows now carry created_at/updated_at timestamps; compare the
         # deterministic fields.
         assert len(entities) == 1
@@ -440,7 +414,7 @@ async def test_upsert_entity_normalizes_alias_entity_type_before_persistence():
         assert row.pop("created_at") > 0
         assert row.pop("updated_at") > 0
         assert row == {
-            "entity_id": "food:west-lake-vinegar-fish",
+            "entity_id": "dish:west-lake-vinegar-fish",
             "canonical_name": "West Lake Vinegar Fish",
             "entity_type": "food",
             "embedding_status": "disabled",
@@ -493,8 +467,8 @@ async def test_entity_embeddings_use_unified_builder_with_aliases_and_remain_sin
         await catalog.add_alias(entity_id=entity_id, alias_text="OpenAI Labs", confidence=0.95)
 
         assert catalog._vector_index.upserted_entity_ids == [
-            "organization:openai",
-            "organization:openai",
+            "org:openai",
+            "org:openai",
         ]  # type: ignore[attr-defined]
         assert embedding_service.texts[-1] == "organization\nOpenAI\nOpenAI Labs"
 
