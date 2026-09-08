@@ -50,6 +50,7 @@ describe('production configuration contracts', () => {
   it('validates at the API entry before returning to callers', async () => {
     vi.spyOn(api, 'get').mockResolvedValueOnce(examples.config).mockResolvedValueOnce({ success: true, message: 'OK', data: {} });
     await expect(configApi.get()).resolves.toMatchObject({ success: true, data: { agent: { name: 'magi-agent' } } });
+    expect(api.get).toHaveBeenCalledWith('/config/');
     await expect(configApi.get()).rejects.toBeInstanceOf(ApiContractError);
   });
 

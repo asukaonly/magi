@@ -964,3 +964,8 @@ centers or clearing center memory preserves these preferences. Changing only a
 device preference does not update the center or restart its model runtime.
 The settings editor composes center settings and device preferences for display;
 its persistence boundary writes each to its owning store.
+
+Desktop configuration reads and writes use the canonical `/api/config/` URL,
+including its trailing slash. Authenticated desktop requests reject redirects;
+callers must address the registered endpoint directly instead of relying on
+FastAPI's slash redirect to another URL.

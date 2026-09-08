@@ -766,8 +766,8 @@ export function toCenterConfig(config: Partial<SystemConfig>) {
 }
 
 export const configApi = {
-  get: () => api.get<unknown>('/config').then(parseConfigResponse),
-  update: (config: Partial<SystemConfig>) => api.put<unknown>('/config', toCenterConfig(config)).then(parseConfigResponse),
+  get: () => api.get<unknown>('/config/').then(parseConfigResponse),
+  update: (config: Partial<SystemConfig>) => api.put<unknown>('/config/', toCenterConfig(config)).then(parseConfigResponse),
   updateLanguagePreference: (language: LanguageCode) =>
     api.put<unknown>('/config/preferences/language', { language }).then(parseConfigResponse),
   embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
