@@ -171,6 +171,26 @@ async def identity_preview(
         },
         affected_subjects=len(subjects),
     )
+    evidence_by_entity: dict[str, list[str]] = {}
+    for entity in entities:
+        entity_id = str(entity["entity_id"])
+        mention_events = list(
+            dict.fromkeys(
+                str(event_id)
+                for row in reversed(state["mentions"])
+                if row["resolved_entity_id"] == entity_id
+                for event_id in json.loads(row["evidence_event_ids"] or "[]")
+            )
+        )
+        active_events = await _active_source_event_ids(
+            db,
+            mention_events,
+            target_entity_id=entity_id,
+            normalized_surface=str(entity["canonical_name"]).casefold(),
+            entity_type=str(entity["entity_type"]),
+            promote_candidates=False,
+        )
+        evidence_by_entity[entity_id] = list(active_events)[:3]
     return (
         EntityChangePreview(
             command=command,
@@ -179,6 +199,7 @@ async def identity_preview(
             fingerprint=fingerprint(state),
             impact=impact,
             correction_history_may_block_revert=bool(state["corrections"]),
+            evidence_event_ids=evidence_by_entity,
         ),
         state,
     )

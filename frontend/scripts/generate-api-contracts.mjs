@@ -44,3 +44,29 @@ await generate('plugins', ['PluginConnectionResponse', 'PluginConnectionsRespons
 await generate('events', ['ChatDisplayMessage', 'ChatSessionSummary', 'BackgroundTask', 'BackgroundTaskEvent', 'RunEvent', 'DelegateResult']);
 
 await generate('lifecycle', ['HistoryImportJobResponse', 'HistoryImportAppendResponse', 'HistoryImporterResponse', 'HistoryImportSourcePreviewResponse', 'MemoryPortabilityOperation', 'ClearMemoryResponseModel', 'DeleteL1EventResponse', 'ForgetEntityResponse', 'ForgetEpisodeResponse', 'ClearHistoryResponse', 'DeleteMessageResponse', 'DeleteSessionResponse']);
+
+await generate('identity', ['EntityChangePreview', 'EntityChangeResult', 'EntityTypeReviewList', 'EntityReviewRejectResult', 'EntityIdentityAudit']);
+
+async function generateEntityMetadata() {
+  const registry = JSON.parse(await readFile(new URL('../../contracts/api/entity-types.json', import.meta.url), 'utf8'));
+  const target = new URL('../src/api/generated/entity-types.ts', import.meta.url);
+  const content = '// Generated from the ordered backend entity registry. Run npm run contracts:generate.\n' +
+    'export const ENTITY_TYPES = ' + JSON.stringify(registry, null, 2) + ' as const;\n' +
+    'export type EntityType = typeof ENTITY_TYPES[number]["key"];\n';
+  if (process.argv.includes('--check')) {
+    if (await readFile(target, 'utf8') !== content) throw new Error('Entity metadata is stale');
+  } else await writeFile(target, content);
+  for (const [language, label] of [['zh-CN', 'label_zh'], ['en', 'label_en']]) {
+    const localeUrl = new URL(`../src/i18n/locales/${language}/app.json`, import.meta.url);
+    const current = await readFile(localeUrl, 'utf8');
+    const locale = JSON.parse(current);
+    const labels = Object.fromEntries(registry.map((item) => [item.key, item[label]]));
+    if (process.argv.includes('--check')) {
+      if (JSON.stringify(locale.memory.entityTypes) !== JSON.stringify(labels)) throw new Error(`${language} entity labels are stale`);
+    } else {
+      locale.memory.entityTypes = labels;
+      await writeFile(localeUrl, JSON.stringify(locale, null, 2) + '\n');
+    }
+  }
+}
+await generateEntityMetadata();

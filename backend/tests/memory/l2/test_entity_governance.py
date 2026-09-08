@@ -235,6 +235,7 @@ async def test_forgotten_source_removes_type_proposal_and_stales_preview(identit
             review_id=review.review_id,
         )
     )
+    assert preview.evidence_event_ids == {"other:apple": ["e1"]}
     from magi.memory.l2.entities.governance_read import EntityIdentityNotFoundError
 
     store = L2CognitionStore(db_path=identity.db_path)

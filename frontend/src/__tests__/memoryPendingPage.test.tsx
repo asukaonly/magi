@@ -1,3 +1,4 @@
+import { entityIdentityApi } from '@/api/modules/entityIdentity';
 import { memoryFactCases, strawberryAssertion } from './fixtures/memoryFacts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -11,12 +12,17 @@ import { api } from '@/api/client';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
 import { listNotifications, resolveConflict } from '@/api/modules/notifications';
 
+vi.mock('@/api/modules/entityIdentity', () => ({ entityIdentityApi: { reviews: vi.fn().mockResolvedValue({ items: [], total: 0 }), reject: vi.fn() } }));
+
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() } }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
+        'memory.identity.typePreview': '将“{{name}}”从“{{from}}”改为“{{to}}”。',
+        'memory.entityTypes.other': '其他',
+        'memory.entityTypes.food': '食物',
         'memory.pending.title': '待确认',
         'memory.pending.subtitle': '需要你判断的记忆线索都在这里。',
         'memory.pending.totalCount': '{{count}} 条',
@@ -288,6 +294,7 @@ describe('MemoryPendingPage', () => {
   afterEach(() => vi.restoreAllMocks());
 
   beforeEach(() => {
+    vi.mocked(entityIdentityApi.reviews).mockResolvedValue({ items: [], total: 0 });
     vi.clearAllMocks();
     vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
     vi.mocked(memoryApi.listPendingReviews).mockResolvedValue({ items: [], total: 0 });
@@ -329,6 +336,21 @@ describe('MemoryPendingPage', () => {
       seed_id: 'seed-1',
       seed: { ...seedPayload.items[0], status: 'rejected' },
     } as never);
+  });
+
+  it('shows classification proposals and keeps rejected judgments out of the queue', async () => {
+    const review = { review_id: 'entity-review', version: 1, entity: { entity_id: 'entity:apple', canonical_name: '苹果', entity_type: 'other' }, proposed_type: 'food', evidence_event_ids: ['e1'] };
+    vi.mocked(entityIdentityApi.reviews).mockResolvedValue({ items: [review], total: 1 });
+    vi.mocked(entityIdentityApi.reject).mockImplementation(async () => {
+      vi.mocked(entityIdentityApi.reviews).mockResolvedValue({ items: [], total: 0 });
+      return { review_id: review.review_id, status: 'rejected' };
+    });
+    renderPage();
+    expect(await screen.findByText('将“苹果”从“其他”改为“食物”。')).toBeInTheDocument();
+    expect(screen.queryByText('entity:apple')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'memory.identity.keepType' }));
+    await waitFor(() => expect(entityIdentityApi.reject).toHaveBeenCalledWith(review));
+    await waitFor(() => expect(screen.queryByText('将“苹果”从“其他”改为“食物”。')).not.toBeInTheDocument());
   });
 
   it('collects pending items into grouped confirmation lanes without the old page header', async () => {

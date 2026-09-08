@@ -10,7 +10,7 @@ import { MemoryKnowledgePage } from '@/pages/memory-pages/MemoryKnowledgePage';
 import { useMemory } from '@/hooks/useMemory';
 
 const TEST_TRANSLATIONS: Record<string, string> = {
-  'memory.pages.knowledge.entityTypes.user': '用户',
+  'memory.governance.relations.entityTypes.user': '用户',
   'memory.facts.unavailable': '完整事实暂不可用',
   'memory.facts.unknownTrait': '事实判断',
   'memory.governance.assertions.unknownEntity': '未知对象',
@@ -349,7 +349,7 @@ describe('L2Tab lab', () => {
     expect(screen.queryByText('user_self_report')).not.toBeInTheDocument();
   });
 
-  it('merges local user aliases into the self entity overview', () => {
+  it('keeps unbound namesakes separate from the user identity', () => {
     render(
       <L2Tab
         section="overview"
@@ -397,7 +397,7 @@ describe('L2Tab lab', () => {
     );
 
     expect(screen.getAllByText('memory.pages.knowledge.entities.self')).toHaveLength(1);
-    expect(screen.queryByText('local user')).not.toBeInTheDocument();
+    expect(screen.getByText('local user')).toBeInTheDocument();
   });
 
   it('renders a filtered grouped knowledge-base browser', async () => {

@@ -66,6 +66,7 @@ class EntityChangePreview(BaseModel):
     fingerprint: str
     impact: EntityChangeImpact
     correction_history_may_block_revert: bool
+    evidence_event_ids: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class EntityChangeResult(BaseModel):

@@ -544,6 +544,52 @@ def build_lifecycle_examples() -> dict:
     }
 
 
+
+def build_entity_identity_contract() -> dict:
+    from magi.memory.l2.entities.governance_models import (
+        EntityChangeCommand, EntityChangeApplyRequest, EntityChangePreview, EntityChangeResult,
+        EntityIdentityAudit, EntityTypeReviewList, EntityReviewRejectRequest, EntityReviewRejectResult,
+    )
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+    from magi.api.routers.memory import memory_router
+
+    contracts = {
+        ("POST", "/l2/entities/changes/preview"): EntityChangePreview,
+        ("POST", "/l2/entities/changes/apply"): EntityChangeResult,
+        ("GET", "/l2/entities/reviews"): EntityTypeReviewList,
+        ("POST", "/l2/entities/reviews/{review_id}/reject"): EntityReviewRejectResult,
+        ("GET", "/l2/entities/identity-audit"): EntityIdentityAudit,
+    }
+    public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
+    for (method, path), model in contracts.items():
+        if not any(route.path == path and method in route.methods and route.response_model is model for route in public.routes):
+            raise RuntimeError(f"Entity identity contract is not exposed: {method} {path}")
+    models = list(contracts.values()) + [EntityChangeCommand, EntityChangeApplyRequest, EntityReviewRejectRequest]
+    _, document = models_json_schema([(model, "serialization") for model in models], schema_generator=ResponseJsonSchema, ref_template="#/components/schemas/{model}")
+    return {"openapi": "3.1.0", "info": {"title": "Magi entity identity contracts", "version": "1"}, "paths": {}, "components": {"schemas": document["$defs"]}}
+
+
+def build_entity_identity_examples() -> dict:
+    from magi.memory.l2.entities.governance_models import (
+        EntityChangeCommand, EntityChangePreview, EntityChangeImpact, EntityChangeResult, IdentityEntity,
+    )
+    command = EntityChangeCommand(kind="type_correction", entity_id="entity:apple", new_type="food")
+    preview = EntityChangePreview(command=command,
+        entity=IdentityEntity(entity_id="entity:apple", canonical_name="苹果", entity_type="other"),
+        fingerprint="a" * 64,
+        impact=EntityChangeImpact(relationships=1, assertions=1, mentions=1, claims=1, corrections=0, source_bindings=0, affected_subjects=1),
+        correction_history_may_block_revert=False, evidence_event_ids={"entity:apple": ["fixture-event"]})
+    result = EntityChangeResult(operation_id="fixture-operation", kind=command.kind,
+        entity_id=command.entity_id, current_type="food", impact=preview.impact)
+    return {"preview": preview.model_dump(mode="json"), "result": result.model_dump(mode="json")}
+
+
+def build_entity_type_metadata() -> list[dict]:
+    from dataclasses import asdict
+    from magi.memory.l2.entity_types import ENTITY_TYPES
+    return [asdict(item) for item in ENTITY_TYPES]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -554,6 +600,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="magi-contract-export-") as runtime_dir:
         set_runtime_dir(runtime_dir)
         outputs = {
+            "frontend-identity.json": build_entity_identity_contract(),
+            "frontend-identity-examples.json": build_entity_identity_examples(),
+            "entity-types.json": build_entity_type_metadata(),
             "frontend-lifecycle.json": build_lifecycle_contract(), "frontend-lifecycle-examples.json": build_lifecycle_examples(),
             "frontend-config.json": build_contract(), "frontend-config-examples.json": build_examples(),
             "frontend-plugins.json": build_plugin_contract(), "frontend-plugins-examples.json": build_plugin_examples(),

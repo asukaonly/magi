@@ -1,3 +1,7 @@
+import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
+import { EntityIdentityAudit } from '@/components/memory/identity/EntityIdentityAudit';
+import type { IdentityEntity } from '@/api/modules/entityIdentity';
+import { canChangeEntityIdentity } from '@/utils/entity-types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -41,6 +45,8 @@ export const MemoryGovernancePage = () => {
   const [destructiveAction, setDestructiveAction] = useState<GovernanceDestructiveAction | null>(null);
   const [destructiveActionError, setDestructiveActionError] = useState<string | null>(null);
   const [deleteRawEntityEvents, setDeleteRawEntityEvents] = useState(false);
+  const [identityEntity, setIdentityEntity] = useState<IdentityEntity | null>(null);
+  const [identityRevision, setIdentityRevision] = useState(0);
   const [correctionDialogOpen, setCorrectionDialogOpen] = useState(false);
   const [correctionSaved, setCorrectionSaved] = useState(false);
   const [correctionConflict, setCorrectionConflict] = useState(false);
@@ -490,6 +496,7 @@ export const MemoryGovernancePage = () => {
           </TabsContent>
 
           <TabsContent value="manual" className="mt-0 overflow-y-auto">
+            <EntityIdentityAudit key={identityRevision} onSelect={setIdentityEntity} />
             <ManualMaintenancePanel
               label={label}
               reconsolidating={reconsolidating}
@@ -521,15 +528,24 @@ export const MemoryGovernancePage = () => {
         </Tabs>
       </div>
 
+      {identityEntity ? <EntityIdentityDialog key={identityEntity.entity_id} entity={identityEntity} onClose={() => setIdentityEntity(null)} onSaved={async () => {
+        setSelectedRecord(null);
+        setIdentityRevision((value) => value + 1);
+        await loadCategoryRecords(activeLayer, currentPageParams());
+      }} /> : null}
       <RecordDrawer
         record={selectedRecord}
-        open={selectedRecord !== null && !correctionDialogOpen && destructiveAction === null}
+        open={selectedRecord !== null && identityEntity === null && !correctionDialogOpen && destructiveAction === null}
         onOpenChange={(open) => {
           if (!open) setSelectedRecord(null);
         }}
         label={label}
         actionLoading={memory.l2ActionLoading || recordActionLoading}
         correctionTarget={correctionTarget}
+        onChangeEntityIdentity={selectedRecord?.categoryId === 'entities' && memory.l2Entities.some((item) => item.entity_id === selectedRecord.id && canChangeEntityIdentity(item)) ? () => {
+          const entity = memory.l2Entities.find((item) => item.entity_id === selectedRecord.id);
+          if (entity) setIdentityEntity(entity);
+        } : undefined}
         onReplay={() => void handleReplaySelected()}
         onCorrect={() => {
           setCorrectionSaved(false);

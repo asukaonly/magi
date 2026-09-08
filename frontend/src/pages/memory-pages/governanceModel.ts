@@ -1,3 +1,4 @@
+import { getEntityTypeLabel } from '@/utils/entity-types';
 import { getAssertionDisplayText, getAssertionTraitLabel, getAssertionStatusLabel, getAssertionEvidenceBasis, type MemoryAssertionTranslateFn } from '@/utils/memory-assertion-copy';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import type {
@@ -218,45 +219,6 @@ function getRelationPredicateLabel(predicate: unknown, label: GovernanceLabelFn)
     ['PLAYED', label('relations.predicates.played', '播放过')],
   ]);
   return knownPredicates.get(normalized) || raw.replace(/[_-]+/g, ' ').toLowerCase() || label('relations.unknownPredicate', '关联');
-}
-
-function getRelationEntityTypeLabel(entityType: unknown, label: GovernanceLabelFn): string {
-  const raw = safeText(entityType, label('relations.entityTypes.unknown', '未知'));
-  const normalized = raw.toLowerCase();
-  const knownTypes = new Map<string, string>([
-    ['user', label('relations.entityTypes.user', '用户')],
-    ['person', label('relations.entityTypes.person', '人物')],
-    ['place', label('relations.entityTypes.place', '地点')],
-    ['organization', label('relations.entityTypes.organization', '组织')],
-    ['org', label('relations.entityTypes.organization', '组织')],
-    ['project', label('relations.entityTypes.project', '项目')],
-    ['tool', label('relations.entityTypes.tool', '工具')],
-    ['group', label('relations.entityTypes.group', '群组')],
-    ['event', label('relations.entityTypes.event', '事件')],
-    ['media', label('relations.entityTypes.media', '内容')],
-    ['product', label('relations.entityTypes.product', '产品')],
-    ['food', label('relations.entityTypes.food', '食物')],
-    ['technology', label('relations.entityTypes.technology', '技术')],
-    ['hardware', label('relations.entityTypes.hardware', '硬件')],
-    ['software', label('relations.entityTypes.software', '软件')],
-    ['virtual_object', label('relations.entityTypes.virtualObject', '虚拟对象')],
-    ['activity', label('relations.entityTypes.activity', '活动')],
-    ['animal', label('relations.entityTypes.animal', '动物')],
-    ['pet', label('relations.entityTypes.pet', '宠物')],
-    ['health_metric', label('relations.entityTypes.healthMetric', '健康指标')],
-    ['concept', label('relations.entityTypes.concept', '概念')],
-    ['skill', label('relations.entityTypes.skill', '技能')],
-    ['topic', label('relations.entityTypes.topic', '主题')],
-    ['weather_state', label('relations.entityTypes.weatherState', '天气状态')],
-    ['location_state', label('relations.entityTypes.locationState', '位置状态')],
-    ['time_point', label('relations.entityTypes.timePoint', '时间点')],
-    ['session_topic', label('relations.entityTypes.sessionTopic', '会话主题')],
-    ['presence', label('relations.entityTypes.presence', '在场状态')],
-    ['website', label('relations.entityTypes.website', '网站')],
-    ['domain', label('relations.entityTypes.website', '网站')],
-    ['other', label('relations.entityTypes.other', '其他')],
-  ]);
-  return knownTypes.get(normalized) || raw.replace(/[_-]+/g, ' ');
 }
 
 function getReadableStatus(value: unknown, label: GovernanceLabelFn, fallback?: string): string {
@@ -542,7 +504,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       categoryLabel: categoryLabels.entities,
       title: safeText(entity.canonical_name, label('fallbacks.unknownRecord', '未知记录')),
       type: label('recordTypes.entity', '实体'),
-      source: getRelationEntityTypeLabel(entity.entity_type, label),
+      source: getEntityTypeLabel(entity.entity_type, t),
       status: label('statuses.valid', '有效'),
       updatedAt: entity.updated_at,
       evidenceCount,
@@ -554,13 +516,13 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
         { label: label('impact.snapshots', '快照'), value: l2Snapshots.filter((item) => item.entity_id === entity.entity_id).length },
       ],
       listCells: {
-        entityType: { value: getRelationEntityTypeLabel(entity.entity_type, label) },
+        entityType: { value: getEntityTypeLabel(entity.entity_type, t) },
         evidenceCount: { value: evidenceCount, tone: 'muted' },
         updatedAt: { value: formatTime(entity.updated_at) },
         status: { value: label('statuses.valid', '有效'), tone: 'status' },
       },
       details: [
-        { label: label('fields.entityType', '对象类型'), value: getRelationEntityTypeLabel(entity.entity_type, label) },
+        { label: label('fields.entityType', '对象类型'), value: getEntityTypeLabel(entity.entity_type, t) },
         { label: label('fields.aliases', '别名'), value: aliases.join('、') || '-' },
         { label: label('fields.createdAt', '创建时间'), value: formatTime(entity.created_at) },
       ],
@@ -637,8 +599,8 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       label
     );
     const predicateLabel = getRelationPredicateLabel(relation.predicate, label);
-    const subjectType = getRelationEntityTypeLabel(relation.subject_type, label);
-    const objectType = getRelationEntityTypeLabel(relation.object_type, label);
+    const subjectType = getEntityTypeLabel(relation.subject_type, t);
+    const objectType = getEntityTypeLabel(relation.object_type, t);
     const relationType = `${subjectType} → ${objectType}`;
     return {
       id: safeText(relation.triple_id, label('fallbacks.unknownRecord', '未知记录')),
@@ -701,7 +663,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       categoryLabel: categoryLabels.snapshots,
       title: label('snapshots.title', '{{entity}}的近期状态', { entity: entityName }),
       type: label('recordTypes.snapshot', '快照'),
-      source: getRelationEntityTypeLabel(snapshot.entity_type, label),
+      source: getEntityTypeLabel(snapshot.entity_type, t),
       status: label('statuses.valid', '有效'),
       updatedAt: snapshot.last_updated_at,
       evidenceCount: toOptionalNumber(snapshot.interaction_count),

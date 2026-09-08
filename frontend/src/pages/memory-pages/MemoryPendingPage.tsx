@@ -1,3 +1,6 @@
+import { EntityIdentityDialog } from '@/components/memory/identity/EntityIdentityDialog';
+import { EntityTypeReviewCards } from '@/components/memory/identity/EntityTypeReviewCards';
+import { entityIdentityApi, type EntityTypeReview } from '@/api/modules/entityIdentity';
 import { asEventHandler } from '@/utils/as-event-handler';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
@@ -34,10 +37,12 @@ import {
 import { isMemoryUpdateStory } from './storyFilters';
 import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 
-type PendingSection = 'reviews' | 'assertions' | 'stories' | 'seeds' | 'conflicts';
+type PendingSection = 'entities' | 'reviews' | 'assertions' | 'stories' | 'seeds' | 'conflicts';
 
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
+  const [entityReviews, setEntityReviews] = useState<EntityTypeReview[]>([]);
+  const [entityReview, setEntityReview] = useState<EntityTypeReview | null>(null);
   const [reviews, setReviews] = useState<L2PendingReview[]>([]);
   const [assertions, setAssertions] = useState<L2Assertion[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
@@ -85,6 +90,7 @@ export const MemoryPendingPage = () => {
       }
     };
     await Promise.all([
+      loadSection('entities', (offset) => entityIdentityApi.reviews(offset), setEntityReviews),
       loadSection('reviews', (offset) => memoryApi.listPendingReviews(25, offset), setReviews),
       loadSection('assertions', async (offset) => (await memoryApi.getDashboard({ pending_limit: 25, pending_offset: offset })).pending_assertions, setAssertions),
       loadSection('stories', (offset) => memoryStoriesApi.list({ limit: 25, offset, surface: 'all', group: 'memory_update', review_state: 'pending_confirmation' }), (items) => setStories(items.filter((story) => story.review_state === 'pending_confirmation' && isMemoryUpdateStory(story)))),
@@ -97,10 +103,15 @@ export const MemoryPendingPage = () => {
 
   useEffect(() => {
     void load();
+    const versions = requestVersions.current;
+    return () => {
+      loadVersion.current += 1;
+      for (const section of Object.keys(versions) as PendingSection[]) versions[section] = (versions[section] ?? 0) + 1;
+    };
   }, [load]);
 
   const totalCount = Object.values(totals).reduce((sum, count) => sum + count, 0);
-  const memoryCount = (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);
+  const memoryCount = (totals.entities ?? 0) + (totals.reviews ?? 0) + (totals.assertions ?? 0) + (totals.conflicts ?? 0);
   const experienceCount = totals.seeds ?? 0;
   const observationCount = totals.stories ?? 0;
 
@@ -323,6 +334,12 @@ export const MemoryPendingPage = () => {
             />
           </div>
           <div className="mt-6 [&>section+section]:mt-10 [&>section+section]:border-t [&>section+section]:border-[hsl(var(--memory-divider)/0.5)] [&>section+section]:pt-10">
+            {showMemory ? <EntityTypeReviewCards reviews={entityReviews} busy={actionId !== null} onInspect={setEntityReview} onReject={async (review) => {
+              setActionId(`entity:${review.review_id}`);
+              try { await entityIdentityApi.reject(review); await load('entities'); }
+              catch { toast.error(t('memory.identity.rejectFailed')); }
+              finally { setActionId(null); }
+            }} /> : null}
             <PendingReviewGroups
               reviews={reviews}
               assertions={assertions}
@@ -330,7 +347,7 @@ export const MemoryPendingPage = () => {
               seeds={seeds}
               conflicts={conflicts}
               actionId={actionId}
-              memoryCount={memoryCount}
+              memoryCount={memoryCount - (totals.entities ?? 0)}
               experienceCount={experienceCount}
               observationCount={observationCount}
               showMemory={showMemory}
@@ -349,15 +366,16 @@ export const MemoryPendingPage = () => {
           </div>
         </div>
       )}
-      {(['reviews', 'assertions', 'conflicts', 'stories', 'seeds'] as const).filter((section) => {
+      {(['entities', 'reviews', 'assertions', 'conflicts', 'stories', 'seeds'] as const).filter((section) => {
         const visible = section === 'stories' ? showObservations : section === 'seeds' ? showExperiences : showMemory;
-        const count = { reviews: reviews.length, assertions: assertions.length, stories: stories.length, seeds: seeds.length, conflicts: conflicts.length }[section];
+        const count = { entities: entityReviews.length, reviews: reviews.length, assertions: assertions.length, stories: stories.length, seeds: seeds.length, conflicts: conflicts.length }[section];
         return visible && (totals[section] ?? 0) > count;
       }).map((section) => (
         <Button key={section} variant="outline" disabled={loading || retryingSection !== null || actionId !== null} onClick={() => void load(section, true)}>
           {t('memory.pending.loadMore', { section: t(`memory.pending.loadSections.${section}`) })}
         </Button>
       ))}
+      {entityReview ? <EntityIdentityDialog key={entityReview.review_id} entity={entityReview.entity} review={entityReview} onClose={() => setEntityReview(null)} onSaved={() => load()} /> : null}
       <MemoryCorrectionDialog
         open={correctionTarget !== null}
         target={correctionTarget}

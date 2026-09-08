@@ -19,6 +19,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       const labels: Record<string, string> = {
+        'memory.entityTypes.software': '软件',
         'memory.correction.values.like': '喜欢',
         'memory.correction.values.dislike': '不喜欢',
         'memory.correction.values.unavailable': '当前选项暂不可用',
@@ -485,7 +486,7 @@ describe('MemoryCorrectionDialog request safety', () => {
       limit: 50,
       query: 'Codex',
     }));
-    expect(within(objectSelect).getByRole('option', { name: 'Codex · Other' })).toBeInTheDocument();
+    expect(within(objectSelect).getByRole('option', { name: 'Codex · 软件' })).toBeInTheDocument();
     await user.selectOptions(objectSelect, 'tool:codex');
     await user.clear(searchInput);
     await waitFor(() => expect(memoryApi.getL2Entities).toHaveBeenLastCalledWith({ limit: 100 }));

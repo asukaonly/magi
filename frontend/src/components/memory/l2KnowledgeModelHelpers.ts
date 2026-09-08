@@ -1,3 +1,4 @@
+import { getEntityTypeLabel } from '@/utils/entity-types';
 import { DEFAULT_USER_ID } from '@/constants';
 import type {
   L2Entity,
@@ -14,43 +15,18 @@ export const normalizeLabelKey = (value: string) => value
   .replace(/^_+|_+$/g, '')
   .toLowerCase();
 
-const collectEntityAliasCandidates = (value: string | null | undefined) => {
-  const rawValue = String(value || '').trim().toLowerCase();
-  if (!rawValue) {
-    return [] as string[];
-  }
-  const variants = new Set<string>([rawValue]);
-  const suffix = rawValue.includes(':') ? rawValue.split(':').pop() : null;
-  if (suffix) {
-    variants.add(suffix);
-  }
-  return Array.from(variants)
-    .map((item) => item.replace(/[^\p{L}\p{N}]+/gu, ''))
-    .filter(Boolean);
-};
-
 export const buildSelfEntityAliasSet = (
   canonicalSelfId: string | null | undefined,
   identityLinks: MemoryIdentityLink[]
 ) => {
-  const aliases = new Set<string>();
-  const addAlias = (value: string | null | undefined) => {
-    collectEntityAliasCandidates(value).forEach((candidate) => aliases.add(candidate));
-  };
-
-  addAlias('user:self');
-  addAlias(`user:${DEFAULT_USER_ID}`);
-  addAlias(DEFAULT_USER_ID);
-  addAlias('local user');
-  addAlias(canonicalSelfId);
-
-  identityLinks.forEach((link) => {
-    addAlias(link.memory_owner_id);
-    addAlias(link.runtime_user_id);
-    addAlias(`user:${link.runtime_user_id}`);
-  });
-
-  return aliases;
+  const ids = new Set<string>(['user:self', `user:${DEFAULT_USER_ID}`, DEFAULT_USER_ID]);
+  if (canonicalSelfId) ids.add(canonicalSelfId);
+  for (const link of identityLinks) {
+    ids.add(link.memory_owner_id);
+    ids.add(link.runtime_user_id);
+    ids.add(`user:${link.runtime_user_id}`);
+  }
+  return ids;
 };
 
 const humanizeToken = (value: string) => {
@@ -127,26 +103,11 @@ const translateOptional = (t: MemoryTranslateFn, key: string) => {
   return translated === key ? null : translated;
 };
 
-export const getReadableEntityType = (t: MemoryTranslateFn, entityType: string | null | undefined) => {
-  if (!entityType) {
-    return null;
-  }
-  return translateOptional(t, `memory.pages.knowledge.entityTypes.${normalizeLabelKey(entityType)}`)
-    || t('memory.governance.relations.entityTypes.unknown');
-};
+export const getReadableEntityType = (t: MemoryTranslateFn, entityType: string | null | undefined) => (
+  entityType ? getEntityTypeLabel(entityType, t) : null
+);
 
-const isSelfEntity = (
-  entityId: string,
-  entity: L2Entity | undefined,
-  selfEntityAliases: Set<string>
-) => {
-  const candidates = [
-    entityId,
-    entity?.canonical_name,
-    ...(Array.isArray(entity?.aliases) ? entity.aliases : []),
-  ];
-  return candidates.some((candidate) => collectEntityAliasCandidates(candidate).some((alias) => selfEntityAliases.has(alias)));
-};
+const isSelfEntity = (entityId: string, selfEntityAliases: Set<string>) => selfEntityAliases.has(entityId);
 
 export const getReadableEntityName = (
   t: MemoryTranslateFn,
@@ -155,7 +116,7 @@ export const getReadableEntityName = (
   selfEntityAliases: Set<string>
 ) => {
   const canonicalName = entity?.canonical_name?.trim();
-  if (isSelfEntity(entityId, entity, selfEntityAliases)) {
+  if (isSelfEntity(entityId, selfEntityAliases)) {
     return t('memory.pages.knowledge.entities.self');
   }
   return canonicalName || t('memory.governance.assertions.unknownEntity');
@@ -163,10 +124,10 @@ export const getReadableEntityName = (
 
 export const getEntityOverviewKey = (
   entityId: string,
-  entity: L2Entity | undefined,
+  _entity: L2Entity | undefined,
   selfEntityAliases: Set<string>
 ) => (
-  isSelfEntity(entityId, entity, selfEntityAliases) ? 'user:self' : entityId
+  isSelfEntity(entityId, selfEntityAliases) ? 'user:self' : entityId
 );
 
 export const getReadablePredicateLabel = (t: MemoryTranslateFn, predicate: string) => (

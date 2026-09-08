@@ -1,0 +1,401 @@
+{
+  "components": {
+    "schemas": {
+      "EntityChangeApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/EntityChangeCommand"
+          },
+          "expected_fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Fingerprint",
+            "type": "string"
+          },
+          "request_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Request Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "expected_fingerprint",
+          "request_id"
+        ],
+        "title": "EntityChangeApplyRequest",
+        "type": "object"
+      },
+      "EntityChangeCommand": {
+        "additionalProperties": false,
+        "properties": {
+          "entity_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "type_correction",
+              "merge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "new_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "New Type"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Review Id"
+          },
+          "target_entity_id": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Target Entity Id"
+          }
+        },
+        "required": [
+          "kind",
+          "entity_id",
+          "target_entity_id",
+          "new_type",
+          "review_id"
+        ],
+        "title": "EntityChangeCommand",
+        "type": "object"
+      },
+      "EntityChangeImpact": {
+        "properties": {
+          "affected_subjects": {
+            "title": "Affected Subjects",
+            "type": "integer"
+          },
+          "assertions": {
+            "title": "Assertions",
+            "type": "integer"
+          },
+          "claims": {
+            "title": "Claims",
+            "type": "integer"
+          },
+          "corrections": {
+            "title": "Corrections",
+            "type": "integer"
+          },
+          "mentions": {
+            "title": "Mentions",
+            "type": "integer"
+          },
+          "relationships": {
+            "title": "Relationships",
+            "type": "integer"
+          },
+          "source_bindings": {
+            "title": "Source Bindings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "relationships",
+          "assertions",
+          "mentions",
+          "claims",
+          "corrections",
+          "source_bindings",
+          "affected_subjects"
+        ],
+        "title": "EntityChangeImpact",
+        "type": "object"
+      },
+      "EntityChangePreview": {
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/EntityChangeCommand"
+          },
+          "correction_history_may_block_revert": {
+            "title": "Correction History May Block Revert",
+            "type": "boolean"
+          },
+          "entity": {
+            "$ref": "#/components/schemas/IdentityEntity"
+          },
+          "evidence_event_ids": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Evidence Event Ids",
+            "type": "object"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/EntityChangeImpact"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityEntity"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "command",
+          "entity",
+          "target",
+          "fingerprint",
+          "impact",
+          "correction_history_may_block_revert",
+          "evidence_event_ids"
+        ],
+        "title": "EntityChangePreview",
+        "type": "object"
+      },
+      "EntityChangeResult": {
+        "properties": {
+          "current_type": {
+            "title": "Current Type",
+            "type": "string"
+          },
+          "derivation_state": {
+            "const": "pending",
+            "default": "pending",
+            "title": "Derivation State",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/EntityChangeImpact"
+          },
+          "kind": {
+            "enum": [
+              "type_correction",
+              "merge"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "entity_id",
+          "current_type",
+          "impact",
+          "derivation_state"
+        ],
+        "title": "EntityChangeResult",
+        "type": "object"
+      },
+      "EntityIdentityAudit": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/EntityIdentityAuditGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "groups",
+          "total"
+        ],
+        "title": "EntityIdentityAudit",
+        "type": "object"
+      },
+      "EntityIdentityAuditGroup": {
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityEntity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "entities"
+        ],
+        "title": "EntityIdentityAuditGroup",
+        "type": "object"
+      },
+      "EntityReviewRejectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "EntityReviewRejectRequest",
+        "type": "object"
+      },
+      "EntityReviewRejectResult": {
+        "properties": {
+          "review_id": {
+            "title": "Review Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "rejected",
+            "default": "rejected",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_id",
+          "status"
+        ],
+        "title": "EntityReviewRejectResult",
+        "type": "object"
+      },
+      "EntityTypeReview": {
+        "properties": {
+          "entity": {
+            "$ref": "#/components/schemas/IdentityEntity"
+          },
+          "evidence_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Event Ids",
+            "type": "array"
+          },
+          "proposed_type": {
+            "title": "Proposed Type",
+            "type": "string"
+          },
+          "review_id": {
+            "title": "Review Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "review_id",
+          "entity",
+          "proposed_type",
+          "evidence_event_ids",
+          "version"
+        ],
+        "title": "EntityTypeReview",
+        "type": "object"
+      },
+      "EntityTypeReviewList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityTypeReview"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "EntityTypeReviewList",
+        "type": "object"
+      },
+      "IdentityEntity": {
+        "properties": {
+          "canonical_name": {
+            "title": "Canonical Name",
+            "type": "string"
+          },
+          "entity_id": {
+            "title": "Entity Id",
+            "type": "string"
+          },
+          "entity_type": {
+            "title": "Entity Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entity_id",
+          "canonical_name",
+          "entity_type"
+        ],
+        "title": "IdentityEntity",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Magi entity identity contracts",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {}
+}

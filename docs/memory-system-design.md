@@ -3415,3 +3415,19 @@ ordinal identities; replay bindings retain their original ID even when a later
 classification differs. The source adapter should provide a stable object key
 when it can establish identity across events. The retired global name/type hash
 and concept-specific identity shortcut are no longer runtime paths.
+
+
+The management entity drawer exposes classification correction and identity merge.
+Its manual-maintenance view lists historical namesakes without calling them
+confirmed duplicates. Pending memory includes versioned type proposals with
+source evidence, preview and rejection actions. Every decision previews the
+surviving name/type, affected records, and up to three active source references
+per entity. The client rejects mismatched responses and reuses an operation key
+when retrying an uncertain write. A changed preview requires another review.
+Entity search includes all categories and supports pagination.
+
+`contracts/api/entity-types.json` and frontend types, validators and locale labels
+are generated from the backend registry and public response models. Knowledge,
+management, correction and identity surfaces use the same type label helper.
+The knowledge overview recognizes self only through explicit identity bindings,
+never through matching names, aliases or ID suffixes.

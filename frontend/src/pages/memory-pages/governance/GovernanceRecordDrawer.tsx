@@ -25,6 +25,7 @@ export function RecordDrawer({
   actionLoading,
   correctionTarget,
   onReplay,
+  onChangeEntityIdentity,
   onCorrect,
   onCorrectionReverted,
   onCorrectionConflict,
@@ -38,6 +39,7 @@ export function RecordDrawer({
   actionLoading: boolean;
   correctionTarget: MemoryCorrectionUiTarget | null;
   onReplay: () => void;
+  onChangeEntityIdentity?: () => void;
   onCorrect: () => void;
   onCorrectionReverted: () => void | Promise<void>;
   onCorrectionConflict: () => void | Promise<void>;
@@ -178,6 +180,7 @@ export function RecordDrawer({
                       {replayAction.buttonLabel}
                     </Button>
                   ) : null}
+                  {onChangeEntityIdentity ? <Button variant="outline" onClick={onChangeEntityIdentity} disabled={actionLoading}>{label('drawer.actions.changeIdentity', '纠正分类或合并')}</Button> : null}
                   {canCorrect ? (
                     <Button variant="outline" className="min-h-11 rounded-lg" onClick={onCorrect} disabled={actionLoading}>
                       {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <SlidersHorizontal className="mr-2 h-4 w-4" />}

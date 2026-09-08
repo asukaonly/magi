@@ -1,0 +1,318 @@
+// Generated from the ordered backend entity registry. Run npm run contracts:generate.
+export const ENTITY_TYPES = [
+  {
+    "aliases": [],
+    "boundary": "Shared names do not identify the same person.",
+    "description": "an individual human",
+    "examples": [],
+    "key": "person",
+    "label_en": "Person",
+    "label_zh": "人物",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "A venue as a location is distinct from its operating organization.",
+    "description": "a physical or geographic location",
+    "examples": [],
+    "key": "place",
+    "label_en": "Place",
+    "label_zh": "地点",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Exclude its brands, products, services and informal collectives.",
+    "description": "a formal company or institution",
+    "examples": [
+      "Apple Inc. employs me -> organization; I like the Apple brand -> brand."
+    ],
+    "key": "organization",
+    "label_en": "Organization",
+    "label_zh": "组织",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Use for the collective itself, not a member or a work it creates.",
+    "description": "a named band, team, community or collective",
+    "examples": [
+      "A band called Apple -> group; a company called Apple -> organization. Shared spelling is not shared identity."
+    ],
+    "key": "group",
+    "label_en": "Group",
+    "label_zh": "团体",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Distinct from its owner and individual products; ownership needs separate evidence.",
+    "description": "a commercial brand identity",
+    "examples": [],
+    "key": "brand",
+    "label_en": "Brand",
+    "label_zh": "品牌",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Prefer hardware for physical devices and software for applications; exclude brands and services.",
+    "description": "a named commercial product",
+    "examples": [],
+    "key": "product",
+    "label_en": "Product",
+    "label_zh": "产品",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "An application used to obtain a service is software; its provider is an organization.",
+    "description": "a named service offering such as delivery, repair or consulting",
+    "examples": [
+      "A home repair service -> service; its booking app -> software."
+    ],
+    "key": "service",
+    "label_en": "Service",
+    "label_zh": "服务",
+    "structured_only": false
+  },
+  {
+    "aliases": [
+      "dish",
+      "drink",
+      "snack",
+      "ingredient"
+    ],
+    "boundary": "An edible item is distinct from a same-named brand or company.",
+    "description": "a specific food, dish, drink, snack or ingredient",
+    "examples": [
+      "I like eating apples -> food; I use Apple computers -> brand/hardware according to the referent."
+    ],
+    "key": "food",
+    "label_en": "Food",
+    "label_zh": "食物",
+    "structured_only": false
+  },
+  {
+    "aliases": [
+      "app",
+      "application",
+      "platform",
+      "os",
+      "database"
+    ],
+    "boundary": "Exclude the company, brand, service offering and underlying technical method.",
+    "description": "an application, digital platform, operating system or database",
+    "examples": [],
+    "key": "software",
+    "label_en": "Software",
+    "label_zh": "软件",
+    "structured_only": false
+  },
+  {
+    "aliases": [
+      "language",
+      "framework",
+      "algorithm",
+      "model"
+    ],
+    "boundary": "Distinguish a method or standard from its implementation and vendor.",
+    "description": "a language, framework, algorithm, model, standard or protocol",
+    "examples": [],
+    "key": "technology",
+    "label_en": "Technology",
+    "label_zh": "技术",
+    "structured_only": false
+  },
+  {
+    "aliases": [
+      "device",
+      "console",
+      "phone"
+    ],
+    "boundary": "Prefer this over product for devices; distinguish model names from uniquely identified individual devices.",
+    "description": "a physical device or computing component",
+    "examples": [],
+    "key": "hardware",
+    "label_en": "Hardware",
+    "label_zh": "硬件",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "A document instance is distinct from its file format and application.",
+    "description": "a specific digital asset, account, document or virtual item",
+    "examples": [],
+    "key": "virtual_object",
+    "label_en": "Digital object",
+    "label_zh": "数字对象",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Not a one-time action sentence or a complete plan.",
+    "description": "a named, reusable body of work",
+    "examples": [],
+    "key": "project",
+    "label_en": "Project",
+    "label_zh": "项目",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "not a complete plan or action clause; a particular occurrence is an event.",
+    "description": "a reusable practice or activity",
+    "examples": [],
+    "key": "activity",
+    "label_en": "Activity",
+    "label_zh": "活动",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Distinct occurrences remain separate even when their titles match.",
+    "description": "a named or clearly bounded occurrence",
+    "examples": [],
+    "key": "event",
+    "label_en": "Event",
+    "label_zh": "事件",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Use pet for a specific companion animal.",
+    "description": "an animal species or non-personal animal",
+    "examples": [],
+    "key": "animal",
+    "label_en": "Animal",
+    "label_zh": "动物",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Its species is an attribute or separate referent, not its identity.",
+    "description": "a specific companion animal",
+    "examples": [],
+    "key": "pet",
+    "label_en": "Pet",
+    "label_zh": "宠物",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Exclude a diagnosis, medication or ungrounded health inference.",
+    "description": "a named measurable health quantity",
+    "examples": [],
+    "key": "health_metric",
+    "label_en": "Health metric",
+    "label_zh": "健康指标",
+    "structured_only": false
+  },
+  {
+    "aliases": [
+      "idea",
+      "principle",
+      "theory"
+    ],
+    "boundary": "A quality is distinct from a subject area and a complete proposition.",
+    "description": "an abstract idea, quality, style or preference",
+    "examples": [
+      "Minimalism as an aesthetic -> concept; studying architecture -> topic."
+    ],
+    "key": "concept",
+    "label_en": "Concept",
+    "label_zh": "概念",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "A capability is distinct from one occasion of performing it.",
+    "description": "a learnable, reusable capability",
+    "examples": [],
+    "key": "skill",
+    "label_en": "Skill",
+    "label_zh": "技能",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Distinct from its creator, genre and a particular local file.",
+    "description": "a named song, album, film, book, podcast or creative work",
+    "examples": [],
+    "key": "media",
+    "label_en": "Creative work",
+    "label_zh": "作品",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Not a sentence about the subject, a quality or a particular work.",
+    "description": "a reusable subject area",
+    "examples": [],
+    "key": "topic",
+    "label_en": "Topic",
+    "label_zh": "主题",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Not a substitute for uncertain identity, unknown type, missing evidence or an unfamiliar name.",
+    "description": "a concrete reusable entity that fits no more specific type",
+    "examples": [],
+    "key": "other",
+    "label_en": "Other",
+    "label_zh": "其他",
+    "structured_only": false
+  },
+  {
+    "aliases": [],
+    "boundary": "Source-owned state identity.",
+    "description": "a structured weather condition",
+    "examples": [],
+    "key": "weather_state",
+    "label_en": "Weather state",
+    "label_zh": "天气状态",
+    "structured_only": true
+  },
+  {
+    "aliases": [],
+    "boundary": "Source-owned state identity.",
+    "description": "a structured location or movement state",
+    "examples": [],
+    "key": "location_state",
+    "label_en": "Location state",
+    "label_zh": "位置状态",
+    "structured_only": true
+  },
+  {
+    "aliases": [],
+    "boundary": "Source-owned temporal identity.",
+    "description": "a structured temporal point or anchor",
+    "examples": [],
+    "key": "time_point",
+    "label_en": "Time point",
+    "label_zh": "时间点",
+    "structured_only": true
+  },
+  {
+    "aliases": [],
+    "boundary": "Source-owned session identity.",
+    "description": "the bounded subject of a conversation session",
+    "examples": [],
+    "key": "session_topic",
+    "label_en": "Session topic",
+    "label_zh": "会话主题",
+    "structured_only": true
+  },
+  {
+    "aliases": [],
+    "boundary": "Source-owned presence identity.",
+    "description": "a structured presence or availability state",
+    "examples": [],
+    "key": "presence",
+    "label_en": "Presence",
+    "label_zh": "在场状态",
+    "structured_only": true
+  }
+] as const;
+export type EntityType = typeof ENTITY_TYPES[number]["key"];

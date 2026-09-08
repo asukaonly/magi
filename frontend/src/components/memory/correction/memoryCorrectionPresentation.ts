@@ -1,3 +1,4 @@
+import { getEntityTypeLabel } from '@/utils/entity-types';
 import type { TFunction } from 'i18next';
 
 type AppTranslation = TFunction<'app'>;
@@ -74,10 +75,5 @@ export const formatCorrectionEntityType = (
   value: string,
   t: AppTranslation
 ): string => {
-  const normalized = String(value || '').trim().toLowerCase();
-  return t(`memory.l2.relations.entityTypes.${normalized}`, {
-    defaultValue: t('memory.l2.relations.entityTypes.other', {
-      defaultValue: 'Other',
-    }),
-  });
+  return getEntityTypeLabel(value, t);
 };

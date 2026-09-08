@@ -1,0 +1,49 @@
+{
+  "preview": {
+    "command": {
+      "entity_id": "entity:apple",
+      "kind": "type_correction",
+      "new_type": "food",
+      "review_id": null,
+      "target_entity_id": null
+    },
+    "correction_history_may_block_revert": false,
+    "entity": {
+      "canonical_name": "苹果",
+      "entity_id": "entity:apple",
+      "entity_type": "other"
+    },
+    "evidence_event_ids": {
+      "entity:apple": [
+        "fixture-event"
+      ]
+    },
+    "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "impact": {
+      "affected_subjects": 1,
+      "assertions": 1,
+      "claims": 1,
+      "corrections": 0,
+      "mentions": 1,
+      "relationships": 1,
+      "source_bindings": 0
+    },
+    "target": null
+  },
+  "result": {
+    "current_type": "food",
+    "derivation_state": "pending",
+    "entity_id": "entity:apple",
+    "impact": {
+      "affected_subjects": 1,
+      "assertions": 1,
+      "claims": 1,
+      "corrections": 0,
+      "mentions": 1,
+      "relationships": 1,
+      "source_bindings": 0
+    },
+    "kind": "type_correction",
+    "operation_id": "fixture-operation"
+  }
+}
