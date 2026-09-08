@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type FC } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import { useTranslation } from 'react-i18next';
 import {
   Area,
@@ -157,40 +159,35 @@ const LLMStatisticsSectionInner: FC = () => {
   const [modelFilter, setModelFilter] = useState('all');
   const [activeTab, setActiveTab] = useState<TableTab>('models');
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setLoadState({ status: 'loading' });
-      try {
-        const [summaryResponse, timeseriesResponse] = await Promise.all([
-          metricsApi.getLLMUsageSummary(windowDays, 8),
-          metricsApi.getLLMUsageTimeseries(windowDays),
-        ]);
-        if (cancelled) {
-          return;
-        }
-        if (!summaryResponse.success || !summaryResponse.data ||
-            !timeseriesResponse.success || !timeseriesResponse.data) {
-          throw new Error('Usage metrics response is incomplete');
-        }
-        setLoadState({
-          status: 'success',
-          summary: summaryResponse.data,
-          points: timeseriesResponse.data.points,
-        });
-      } catch {
-        if (!cancelled) {
-          setLoadState({ status: 'error' });
-        }
+  const beginRead = useRequestOwner(String(windowDays));
+  const load = useCallback(async (silent = false) => {
+    const isCurrent = beginRead('usage');
+    if (!silent) setLoadState({ status: 'loading' });
+    try {
+      const [summaryResponse, timeseriesResponse] = await Promise.all([
+        metricsApi.getLLMUsageSummary(windowDays, 8),
+        metricsApi.getLLMUsageTimeseries(windowDays),
+      ]);
+      if (!isCurrent()) {
+        return;
       }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [retryAttempt, windowDays]);
+      if (!summaryResponse.success || !summaryResponse.data ||
+          !timeseriesResponse.success || !timeseriesResponse.data) {
+        throw new Error('Usage metrics response is incomplete');
+      }
+      setLoadState({
+        status: 'success',
+        summary: summaryResponse.data,
+        points: timeseriesResponse.data.points,
+      });
+    } catch {
+      if (isCurrent()) {
+        setLoadState((current) => silent && current.status === 'success' ? current : { status: 'error' });
+      }
+    }
+  }, [beginRead, windowDays]);
+  useEffect(() => { void load(); }, [retryAttempt, load]);
+  useCenterRefresh(() => load(true));
 
   const providerOptions = useMemo(
     () => uniqueStrings((summary?.providers || []).map((item) => item.provider)),

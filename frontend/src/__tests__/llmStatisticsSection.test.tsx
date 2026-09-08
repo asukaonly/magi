@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LLMStatisticsSection } from '@/components/settings/LLMStatisticsSection';
 import { metricsApi, type LLMUsageSummary, type LLMUsageTimeseries } from '@/api/modules/metrics';
+import { APP_EVENTS } from '@/constants/events';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -76,6 +77,23 @@ beforeEach(() => {
       disconnect() {}
     }
   );
+});
+
+it('reconciles the selected metrics window without resetting filters', async () => {
+  render(<LLMStatisticsSection />);
+  await userEvent.click(await screen.findByRole('button', { name: 'settings.usage.windows.30' }));
+  await screen.findByRole('combobox', { name: 'settings.usage.providerFilter' });
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'settings.usage.providerFilter' }), 'openai');
+  vi.mocked(metricsApi.getLLMUsageSummary).mockResolvedValue({ success: true, message: '', data: { ...summaryFixture, totals: { ...summaryFixture.totals, total_tokens: 999 } } });
+  act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+  await screen.findByText('999', {}, { timeout: 3000 });
+  expect(metricsApi.getLLMUsageSummary).toHaveBeenLastCalledWith(30, 8);
+  expect(screen.getByRole('combobox', { name: 'settings.usage.providerFilter' })).toHaveValue('openai');
+  vi.mocked(metricsApi.getLLMUsageSummary).mockRejectedValue(new Error('Disconnected'));
+  const previousReads = vi.mocked(metricsApi.getLLMUsageSummary).mock.calls.length;
+  act(() => window.dispatchEvent(new Event('focus')));
+  await waitFor(() => expect(metricsApi.getLLMUsageSummary).toHaveBeenCalledTimes(previousReads + 1), { timeout: 3000 });
+  expect(screen.getByText('999')).toBeInTheDocument();
 });
 
 describe('LLMStatisticsSection', () => {

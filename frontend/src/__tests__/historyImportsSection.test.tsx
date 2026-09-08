@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { APP_EVENTS } from '@/constants/events';
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -109,6 +110,35 @@ describe("HistoryImportsSection", () => {
       ...completedJob(),
       status: "running",
     });
+  });
+
+  it('discovers another device import while idle and retains it on read failure', async () => {
+    listMock.mockResolvedValue([]);
+    render(<HistoryImportsSection />);
+    await waitFor(() => expect(listMock).toHaveBeenCalledOnce());
+    listMock.mockResolvedValue([completedJob()]);
+    act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+    await screen.findByText('memory.sourcesPage.historyImports.personalWritingBatch', {}, { timeout: 3000 });
+    listMock.mockRejectedValue(new Error('Disconnected'));
+    act(() => window.dispatchEvent(new Event('focus')));
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(3), { timeout: 3000 });
+    expect(screen.getByText('memory.sourcesPage.historyImports.personalWritingBatch')).toBeInTheDocument();
+    expect(resumeMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('does not resurrect a deleted import from an older list response', async () => {
+    render(<HistoryImportsSection />);
+    await screen.findByText('memory.sourcesPage.historyImports.personalWritingBatch');
+    let resolveRead!: (jobs: HistoryImportJob[]) => void;
+    listMock.mockReturnValueOnce(new Promise((resolve) => { resolveRead = resolve; }));
+    act(() => window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED)));
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    await userEvent.click(screen.getByRole('button', { name: 'memory.sourcesPage.historyImports.deleteAction' }));
+    await userEvent.click(screen.getByRole('button', { name: 'memory.sourcesPage.historyImports.deleteConfirm' }));
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledOnce());
+    await act(async () => resolveRead([completedJob()]));
+    expect(screen.queryByText('memory.sourcesPage.historyImports.personalWritingBatch')).not.toBeInTheDocument();
   });
 
   it("shows durable imports and deletes a whole batch after confirmation", async () => {

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCenterRefresh } from '@/hooks/useCenterRefresh';
+import { useRequestOwner } from '@/hooks/useRequestOwner';
 import {
   FileText,
   Loader2,
@@ -81,29 +83,36 @@ export default function HistoryImportsSection({
   const [deleteTarget, setDeleteTarget] = useState<HistoryImportJob | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const beginRequest = useRequestOwner('history-imports');
+  const hasSnapshot = useRef(false);
 
   const loadJobs = useCallback(async (background = false): Promise<void> => {
+    const isCurrent = beginRequest('jobs');
     try {
       const nextJobs = await historyImportsApi.list();
+      if (!isCurrent()) return;
+      hasSnapshot.current = true;
       setJobs(nextJobs);
       setError(false);
       setPollingError(false);
     } catch {
-      if (background) {
+      if (!isCurrent()) return;
+      if (background && hasSnapshot.current) {
         setPollingError(true);
       } else {
         setError(true);
       }
     } finally {
-      if (!background) {
+      if (isCurrent()) {
         setLoading(false);
       }
     }
-  }, []);
+  }, [beginRequest]);
 
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+  useCenterRefresh(() => loadJobs(true));
 
   const availability: HistoryImportsAvailability = loading
     ? "loading"
@@ -160,6 +169,7 @@ export default function HistoryImportsSection({
   );
 
   const updateJob = (job: HistoryImportJob | null): void => {
+    if (!beginRequest('jobs')()) return;
     if (!job) {
       setDraftJobId(null);
       void loadJobs();
@@ -169,9 +179,15 @@ export default function HistoryImportsSection({
       setDraftJobId(job.job_id);
     }
     setJobs((current) => {
+      const confirmed = current.find((item) => item.job_id === job.job_id);
+      if (confirmed && confirmed.updated_at > job.updated_at) return current;
       const withoutJob = current.filter((item) => item.job_id !== job.job_id);
       return [job, ...withoutJob].sort((left, right) => right.created_at - left.created_at);
     });
+    hasSnapshot.current = true;
+    setLoading(false);
+    setError(false);
+    setPollingError(false);
   };
 
   const retryJob = async (jobId: string): Promise<void> => {
@@ -192,6 +208,7 @@ export default function HistoryImportsSection({
     setDeleting(true);
     try {
       await historyImportsApi.delete(deleteTarget.job_id);
+      if (!beginRequest('jobs')()) return;
       setJobs((current) =>
         current.filter((job) => job.job_id !== deleteTarget.job_id),
       );

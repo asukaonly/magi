@@ -1071,3 +1071,9 @@ depth. Source-setting drafts capture the connection revision at the first edit;
 saving cannot adopt a newer revision fetched afterward. Conflicts retain the
 draft and provide an explicit reload action. Successful own saves advance the
 baseline for any newer edits still pending on the same device.
+
+Idle history-import lists also discover new work from other devices. Accepted
+delete receipts invalidate older list reads, and background read failures retain
+the last confirmed jobs. LLM usage statistics refresh the selected time window
+without resetting provider/model filters. These reads never resume an import,
+change its selection, or submit a mutation.
