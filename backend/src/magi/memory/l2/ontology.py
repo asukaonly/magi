@@ -8,59 +8,7 @@ from typing import Any
 
 from .assertion_family_policy import ASSERTION_FAMILY_ALLOWLIST
 
-ENTITY_TYPE_REGISTRY: frozenset[str] = frozenset(
-    {
-        "person",
-        "place",
-        "organization",
-        "group",
-        "product",
-        "food",
-        "software",
-        "technology",
-        "hardware",
-        "virtual_object",
-        "project",
-        "activity",
-        "event",
-        "animal",
-        "pet",
-        "health_metric",
-        "concept",
-        "skill",
-        "media",
-        "topic",
-        "weather_state",
-        "location_state",
-        "time_point",
-        "session_topic",
-        "presence",
-        "other",
-    }
-)
-
-ENTITY_TYPE_ALIASES: dict[str, str] = {
-    "dish": "food",
-    "drink": "food",
-    "snack": "food",
-    "ingredient": "food",
-    "app": "software",
-    "application": "software",
-    "service": "software",
-    "platform": "software",
-    "os": "software",
-    "database": "software",
-    "language": "technology",
-    "framework": "technology",
-    "algorithm": "technology",
-    "model": "technology",
-    "device": "hardware",
-    "console": "hardware",
-    "phone": "hardware",
-    "idea": "concept",
-    "principle": "concept",
-    "theory": "concept",
-}
+from .entity_types import ENTITY_TYPE_ALIASES, ENTITY_TYPE_REGISTRY
 
 _ASSERTION_FAMILY_ROOTS: frozenset[str] = frozenset(
     family.split("_", 1)[0] for family in ASSERTION_FAMILY_ALLOWLIST

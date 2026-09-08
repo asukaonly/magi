@@ -137,13 +137,14 @@ class L2LLMJsonClientMixin:
             )
         retry_call = replace(
             call,
-            system_prompt=f"{call.system_prompt}{correction_suffix}",
+            prompt=f"{call.prompt}\n\n{correction_suffix}",
         )
         retry_context = dict(context)
         retry_context.update(
             {
                 "json_format_retry": True,
                 "system_prompt_char_count": len(retry_call.system_prompt),
+                "prompt_char_count": len(retry_call.prompt),
             }
         )
         retry_started_at = time.perf_counter()

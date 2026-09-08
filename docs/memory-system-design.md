@@ -3274,3 +3274,25 @@ upgrade. Re-extraction must use the durable source-event projection workflow and
 its active source/deletion/lease barriers; route-only replay cannot repair a
 previously mistranslated Claim body. No automatic bulk repair of live memory is
 performed by this change.
+
+
+### Ordered entity extraction contract (2026-09-08)
+
+`l2/entity_types.py` owns the ordered type definitions, boundaries, examples,
+aliases, labels, and structured-source applicability. Phase 1 renders its type
+instructions from this registry. Brand identities and named service offerings
+are distinct from organizations, software and products; `service` no longer
+normalizes to `software`. Five source-state categories remain registered but
+are only reused from source-owned identities during free-form extraction.
+
+Names and type compatibility are candidate signals, never identity proof.
+Ambiguous existing referents must not be arbitrarily assigned or silently
+reclassified. Extractor contract 7 records the revised semantic instructions.
+
+The system prefix contains stable instructions only. JSON format-retry feedback
+is appended to the dynamic request, leaving the cacheable system unchanged.
+Request-local E/C labels identify evidence and antecedents; the host restores
+durable event IDs only in reference fields before grounding. Source text is
+never transformed by reference encoding. Cross-session context does not expose
+its session UUID. Captured temporal anchors remain available for temporal
+interpretation; removing them requires historical/timezone semantic validation.

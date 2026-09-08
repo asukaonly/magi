@@ -10,6 +10,7 @@ from magi.events.first_context import first_context_from_metadata
 
 from magi.utils.calendar_timezone import calendar_timezone_id_from_metadata
 from ...models import L2EventWindow
+from ...entity_types import render_entity_type_instructions
 from .workflows import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
@@ -25,36 +26,7 @@ PHASE1_EXTRACT_SYSTEM_PROMPT = """You are a memory extraction engine for a perso
 
 Your task: identify entities, resolve references, and extract factual claims from user messages and trusted external observations.
 
-## Allowed Entity Types
-- `person` — an individual human.
-- `place` — a named physical or geographic location.
-- `organization` — a formal company, institution, or organization.
-- `group` — a named band, team, community, or other collective.
-- `product` — a named non-software commercial product.
-- `food` — a specific dish, drink, snack, or ingredient.
-- `software` — an app, service, platform, operating system, or database.
-- `technology` — a language, framework, algorithm, model, standard, or protocol.
-- `hardware` — a physical device or computing component.
-- `virtual_object` — a specific digital asset, account, document, or virtual item.
-- `project` — a named, reusable body of work, not a one-time action sentence.
-- `activity` — a reusable practice or activity, not a complete plan or action clause.
-- `event` — a named or clearly bounded occurrence.
-- `animal` — an animal species or non-personal animal.
-- `pet` — a specific companion animal.
-- `health_metric` — a named measurable health quantity.
-- `concept` — an abstract idea, quality, style, or preference.
-- `skill` — a learnable and reusable capability.
-- `media` — a named song, album, film, book, podcast, or creative work.
-- `topic` — a reusable subject area, not a sentence about that subject.
-- `weather_state` — a specific weather condition.
-- `location_state` — a structured location or movement state.
-- `time_point` — a specific named temporal point or anchor.
-- `session_topic` — the bounded subject of a conversation session.
-- `presence` — a structured presence or availability state.
-- `other` — a concrete reusable entity that fits no more specific type.
-
-### Entity Type Aliases (map to canonical type)
-dish/drink/snack/ingredient → food | app/application/service/platform/os/database → software | language/framework/algorithm/model → technology | device/console/phone → hardware | idea/principle/theory → concept
+{entity_type_instructions}
 
 ### Entity Type Selection
 Prefer the most specific allowed entity type supported by the current evidence.
@@ -77,7 +49,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 3. Do NOT extract preferences from questions, recall requests, or hypothetical statements (e.g., "你记得我喜欢什么吗？", "What if I liked X?").
 4. Do NOT create preference facts for generic/category-level objects (e.g., "天气", "food", "music", "地方"). Only create preference facts when a specific liked/disliked value is explicitly stated.
 5. If a pronoun, short answer, or vague reference appears (e.g., "那个", "它", "这种", "the one", "there"), use only the bounded Recent Context frame to interpret it. Recent Context is interpretation context, not standalone evidence. History Context may help identify an already known entity, but it must never supply a new claim.
-6. If a mentioned entity matches an Existing Entity by name, alias, or clear semantic equivalence, use its canonical ID. Otherwise mark as new.
+6. A shared name, alias, or category is only a candidate signal, never identity proof. Reuse an Existing Entity ID only when current context and its identity evidence identify the same referent. Same-named companies, brands, bands, works and people can be distinct. If identity is ambiguous, leave resolved_id null and is_new false; do not choose arbitrarily. If the referent is clearly distinct from all candidates, mark is_new true. Do not change an existing entity type merely to make a match.
 7. Each entity must include a specificity rating: "concrete" for specific items, "underspecified" for vague/category-level references.
 8. Preserve the evidence language and script for every entity type, including activity, concept, topic, event, and other abstract entities. `surface` must be an exact current-evidence span. `normalized_name` may normalize spelling, spacing, or punctuation only while retaining every letter script used by `surface`; never translate, romanize, transliterate, summarize, or slugify it. This applies to common nouns and phrases as well as proper nouns. The protocol rules and JSON schema are instructions, not evidence: never emit an entity surface or claim value copied from them. Add an item to `alias_signals` only when that exact alternate name appears in a current evidence message. Existing catalog aliases may be used for matching but must not be copied into output unless current evidence also contains them.
 9. Extract only concrete, named, reusable entities. Pronouns and vague placeholders such as "他", "她", "它", "这个", "那个", "this one", "that one", "the file", "the image", generic "app", or generic "PDF" may appear only in `resolved_refs`; do not emit them as `entities` unless they are confidently resolved to a specific existing entity or asset with a concrete canonical name.
@@ -177,7 +149,7 @@ Output fact_claims: [{"subject_ref": "user:self", "predicate": "LIKES", "object_
 Input: [USER] 你还记得我喜欢什么天气吗？
 Output: {"entities": [], "fact_claims": [], "diagnostics": {"entity_status": "none"}}
 Reason: This is a recall question, not a preference statement.
-"""
+""".replace("{entity_type_instructions}", render_entity_type_instructions())
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +185,11 @@ def render_phase1_extract_prompt(
     extraction_instructions: str | None = None,
     user_language: str | None = None,
     evidence_scripts: tuple[str, ...] = (),
+    event_ref_labels: dict[str, str] | None = None,
 ) -> str:
     """Render a Markdown-formatted Phase 1 extraction prompt."""
     parts: list[str] = []
+    ref_labels = event_ref_labels or {}
 
     if extraction_instructions:
         parts.append("## Source-Specific Instructions")
@@ -245,7 +219,7 @@ def render_phase1_extract_prompt(
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
         ts = _format_ts(event.timestamp, metadata=event.metadata_json)
-        parts.append(f"### [{role}] [#{event.event_id}] {ts}")
+        parts.append(f"### [{role}] [#{ref_labels.get(event.event_id, event.event_id)}] {ts}")
         parts.append(str(event.content).strip())
         parts.append("")
 
@@ -261,7 +235,7 @@ def render_phase1_extract_prompt(
         )
         for event_id, context in first_context_questions:
             parts.append(
-                f"- [#{event_id}] question_id={context['question_id']}: {context['question_text']}"
+                f"- [#{ref_labels.get(event_id, event_id)}] question_id={context['question_id']}: {context['question_text']}"
             )
         parts.append("")
 
@@ -292,7 +266,7 @@ def render_phase1_extract_prompt(
             event_id = str(msg.get("event_id", "")).strip()
             sequence = msg.get("session_seq")
             if content:
-                event_label = f" [#{event_id}]" if event_id else ""
+                event_label = f" [#{ref_labels.get(event_id, event_id)}]" if event_id else ""
                 sequence_label = f" [seq={sequence}]" if sequence is not None else ""
                 parts.append(f"- [{role}]{event_label}{sequence_label} {content}")
         parts.append("")
@@ -303,7 +277,7 @@ def render_phase1_extract_prompt(
         for ctx in event_window.history_contexts:
             ts = _format_ts(ctx.timestamp)
             matched = f", matched_entity: {ctx.canonical_name}" if ctx.canonical_name else ""
-            session_label = f"session: {ctx.session_id}" if ctx.session_id else "unknown session"
+            session_label = "different session; interpretation context only"
             parts.append(f"### ({session_label}{matched}, {ts})")
             parts.append(str(ctx.content).strip())
             parts.append("")

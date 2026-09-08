@@ -485,7 +485,8 @@ def test_invalid_json_is_retried_once_with_stricter_instruction():
     assert len(adapter.calls) == 2
     retry_messages = adapter.calls[1]["messages"]
     assert isinstance(retry_messages, list)
-    assert "previous response was not a valid JSON object" in str(retry_messages[0])
+    assert "previous response was not a valid JSON object" in str(retry_messages[-1])
+    assert retry_messages[0] == adapter.calls[0]["messages"][0]
 
 
 def test_repeated_invalid_json_raises_instead_of_becoming_empty_result():
@@ -555,6 +556,9 @@ def test_missing_required_json_fields_trigger_format_retry():
 
     assert resolution.decision == "unresolved"
     assert len(adapter.calls) == 2
+    first, retry = (call["messages"] for call in adapter.calls)
+    assert first[0] == retry[0]
+    assert first[-1] != retry[-1]
 
 
 def test_phase1_missing_evidence_quote_drops_only_the_candidate():

@@ -8,6 +8,7 @@ from typing import Any
 from ...core.logger import get_logger
 from ...utils.diagnostic_logging import full_content_logging_enabled
 from .models import L2EventWindow, L2Phase1Result
+from .prompt_evidence_refs import evidence_ref_labels, restore_evidence_refs
 from .llm_priority import l2_llm_priority_for_event_window
 from .pipeline.claim_grounding import (
     normalize_phase1_claim_contract,
@@ -49,6 +50,7 @@ class L2LLMExtractionMixin:
             user_id=user_id,
         )
         user_language = _effective_user_language()
+        ref_labels = evidence_ref_labels(event_window, context_messages)
         prompt = render_phase1_extract_prompt(
             event_window=event_window,
             focal_subject=focal_subject,
@@ -57,6 +59,7 @@ class L2LLMExtractionMixin:
             extraction_instructions=extraction_instructions,
             user_language=user_language or None,
             evidence_scripts=evidence_script_names(event_window),
+            event_ref_labels=ref_labels,
         )
         payload = await self._generate_json(
             system_prompt=PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -82,6 +85,7 @@ class L2LLMExtractionMixin:
                 response,
                 event_window,
                 context_messages=context_messages,
+                ref_labels=ref_labels,
             ),
         )
         result = L2Phase1Result.from_dict(payload)
@@ -119,7 +123,9 @@ def _normalize_phase1_contract(
     event_window: L2EventWindow,
     *,
     context_messages: list[dict[str, object]] | None = None,
+    ref_labels: dict[str, str] | None = None,
 ) -> list[str]:
+    restore_evidence_refs(payload, ref_labels or {})
     normalizations = normalize_phase1_entity_contract(payload, event_window)
     normalizations.extend(
         normalize_phase1_claim_contract(
