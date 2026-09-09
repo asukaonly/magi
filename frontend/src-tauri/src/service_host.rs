@@ -9,8 +9,17 @@ use std::time::{Duration, Instant};
 use magi_service_contract::config::ServerConfig;
 use magi_service_contract::{DesktopBootstrap, StartedServer};
 
+#[derive(Clone)]
+struct LaunchSpec {
+    binary: PathBuf,
+    config: ServerConfig,
+    config_path: PathBuf,
+    log_path: PathBuf,
+}
+
 pub struct LocalService {
     child: Child,
+    launch: LaunchSpec,
     owner: Option<ChildStdin>,
     shutdown_timeout: Duration,
     pub base_url: String,
@@ -24,6 +33,12 @@ impl LocalService {
         config_path: &Path,
         log_path: PathBuf,
     ) -> Result<Self, String> {
+        let launch = LaunchSpec {
+            binary: binary.into(),
+            config: config.clone(),
+            config_path: config_path.into(),
+            log_path: log_path.clone(),
+        };
         config.validate()?;
         write_config(config_path, config)?;
         let mut command = Command::new(binary);
@@ -75,6 +90,7 @@ impl LocalService {
             .ok_or("Service listener pipe is unavailable")?;
         let mut service = Self {
             child,
+            launch,
             owner: Some(owner),
             shutdown_timeout: Duration::from_secs(config.owner_shutdown_timeout_secs()),
             base_url: String::new(),
@@ -113,7 +129,7 @@ impl LocalService {
             let _ = sender.send(result);
         });
         let info = receiver
-            .recv_timeout(Duration::from_secs(15))
+            .recv_timeout(Duration::from_secs(config.shutdown_timeout_secs + 15))
             .map_err(|_| "Service listener startup timed out")??;
         if info.server_pid != service.child.id() {
             return Err("Service process identity does not match".into());
@@ -121,6 +137,16 @@ impl LocalService {
         crate::connections::protocol::CenterClient::local(&info.base_url)?;
         service.base_url = info.base_url;
         Ok(service)
+    }
+
+    /// Reuse the exact launch configuration of this owned service.
+    pub fn restart(&self) -> Result<Self, String> {
+        Self::start(
+            &self.launch.binary,
+            &self.launch.config,
+            &self.launch.config_path,
+            self.launch.log_path.clone(),
+        )
     }
 
     pub fn pid(&self) -> u32 {

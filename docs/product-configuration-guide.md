@@ -297,8 +297,15 @@ When the desktop backend cannot finish startup, the frontend should show a diagn
 
 Startup loading, data-clear recovery, and diagnostic failure surfaces must keep the standard desktop title bar available so the frameless window remains draggable and exposes platform-appropriate window controls before the routed application shell mounts.
 
-The desktop monitors the service child; the service monitors Python readiness,
-startup failures and bounded restarts. Service startup diagnostics are read only
+The desktop continuously monitors only its owned local service child, including
+while hidden to the tray. It automatically recovers crashes with bounded backoff
+and reconnects the WebView using the replacement service session. Explicit quit,
+disconnect and profile switches cancel recovery. Remote service restarts renew
+invalid sessions and reconnect reads/event streams without replaying writes.
+The service monitors critical transport tasks and Python event-loop responses;
+model/plugin readiness remains separate. Repeated worker failures enter a
+reported cooldown before retrying. Shutdown budgets propagate from the worker
+to the service and desktop/system owner. Service startup diagnostics are read only
 for local profiles. A remote connection failure must not display unrelated local
 backend logs. Packaged workers redirect tracebacks to the service-owned backend
 log instead of displaying a PyInstaller exception dialog.

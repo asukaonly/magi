@@ -7,13 +7,17 @@ use serde::Serialize;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
+
+mod recovery;
+pub use recovery::start_monitor;
 
 #[derive(Default)]
 pub struct ConnectionRuntime {
     generation: AtomicU64,
+    shutting_down: AtomicBool,
     active: Mutex<Option<ActiveConnection>>,
     operation: tokio::sync::Mutex<()>,
     last_log: Mutex<Option<PathBuf>>,
@@ -22,6 +26,7 @@ pub struct ConnectionRuntime {
 struct ActiveConnection {
     service: Option<service_host::LocalService>,
     response: ConnectionInfo,
+    recovery: recovery::RecoverySchedule,
 }
 
 #[derive(Clone, Serialize)]
@@ -55,6 +60,11 @@ pub struct ConnectionStartupDiagnostics {
 }
 
 impl ConnectionRuntime {
+    pub fn shutdown(&self) -> Result<(), String> {
+        self.shutting_down.store(true, Ordering::Release);
+        self.disconnect()
+    }
+
     pub fn snapshot(&self) -> Result<(u64, ConnectionInfo), String> {
         let active = self
             .active
@@ -139,6 +149,9 @@ pub async fn connect_active_profile(
     connections: State<'_, connections::Connections>,
 ) -> Result<ConnectionInfo, String> {
     let _operation = state.operation.lock().await;
+    if state.shutting_down.load(Ordering::Acquire) {
+        return Err("Desktop is stopping".into());
+    }
     let profile_id = connections
         .list()
         .active_profile_id
@@ -244,12 +257,17 @@ pub async fn connect_active_profile(
         expires_at_ms: expiry,
         local_service_pid: service.as_ref().map(service_host::LocalService::pid),
     };
-    *state
+    let mut active = state
         .active
         .lock()
-        .map_err(|_| "Service state lock failed")? = Some(ActiveConnection {
+        .map_err(|_| "Service state lock failed")?;
+    if state.shutting_down.load(Ordering::Acquire) {
+        return Err("Desktop is stopping".into());
+    }
+    *active = Some(ActiveConnection {
         service,
         response: response.clone(),
+        recovery: Default::default(),
     });
     Ok(response)
 }
@@ -413,7 +431,7 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    fn connection_info(mode: &str) -> ConnectionInfo {
+    pub(super) fn connection_info(mode: &str) -> ConnectionInfo {
         ConnectionInfo {
             ok: true,
             base_url: "https://remote.example/api".into(),
@@ -445,6 +463,7 @@ mod tests {
     async fn disconnecting_remote_invalidates_client_work_without_a_service_process() {
         let state = ConnectionRuntime::default();
         *state.active.lock().unwrap() = Some(ActiveConnection {
+            recovery: Default::default(),
             service: None,
             response: connection_info("remote"),
         });
@@ -460,6 +479,7 @@ mod tests {
         assert!(state.snapshot().is_err());
         // Reconnecting the same profile must not revive work from the old connection.
         *state.active.lock().unwrap() = Some(ActiveConnection {
+            recovery: Default::default(),
             service: None,
             response: connection_info("remote"),
         });
@@ -483,6 +503,7 @@ mod tests {
         });
         let state = ConnectionRuntime::default();
         *state.active.lock().unwrap() = Some(ActiveConnection {
+            recovery: Default::default(),
             service: None,
             response: ConnectionInfo {
                 ok: true,

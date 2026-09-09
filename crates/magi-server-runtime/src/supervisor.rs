@@ -37,7 +37,24 @@ pub async fn run(
     magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
     let _lease = InstanceLease::acquire(&runtime_dir.join("server.lock"))?;
     // A previous supervisor can disappear before its worker releases the data root.
-    drop(InstanceLease::acquire(&runtime_dir.join("worker.lock"))?);
+    let orphan_deadline = Instant::now() + Duration::from_secs(config.shutdown_timeout_secs + 2);
+    loop {
+        match InstanceLease::acquire(&runtime_dir.join("worker.lock")) {
+            Ok(lease) => {
+                drop(lease);
+                break;
+            }
+            Err(error) => {
+                if Instant::now() >= orphan_deadline {
+                    return Err(error);
+                }
+                tokio::select! {
+                    _ = owner_shutdown.changed() => return Ok(()),
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                }
+            }
+        }
+    }
     let service_dir = config.data_dir.join("service");
     fs::create_dir_all(&service_dir).map_err(|e| e.to_string())?;
     let auth = Arc::new(magi_gateway::auth::AuthStore::open(

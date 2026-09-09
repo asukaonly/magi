@@ -237,6 +237,7 @@ fn unresponsive_worker_is_replaced_while_gateway_stays_available() {
 
 #[test]
 fn repeated_crashes_enter_visible_cooldown_and_retry() {
+    let mut saw_cooldown = false;
     let server = Server::start();
     server.wait_ready();
     for _ in 0..2 {
@@ -246,6 +247,7 @@ fn repeated_crashes_enter_visible_cooldown_and_retry() {
         loop {
             let status = server.get("/api/server/info", true);
             if status.contains("\"phase\":\"cooldown\"") {
+                saw_cooldown = true;
                 assert!(status.contains("Python runtime exited"));
                 assert!(!status.contains("\"next_retry_at_ms\":null"));
                 break;
@@ -262,6 +264,10 @@ fn repeated_crashes_enter_visible_cooldown_and_retry() {
         }
         server.wait_ready();
     }
+    assert!(
+        saw_cooldown,
+        "Repeated crashes must expose the cooldown state"
+    );
     assert!(server.get("/api/health", false).starts_with("HTTP/1.1 200"));
 }
 

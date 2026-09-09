@@ -283,12 +283,12 @@ Readiness has three distinct meanings:
   are ready. An unrelated optional capability failure degrades health without
   disabling an otherwise usable Agent.
 
-`/api/ready` and `/api/health` also expose per-module `capabilities` with `state`,
+`/api/ready` exposes per-module `capabilities` with `state`,
 `reason` and `blocked_by`. Model readiness validates local selection/adapter
 construction; it is not a successful live provider request. Overall startup may
 be `starting`, `deferred`, `ready`, `failed`, `stopping` or `offline`; health can
-be `degraded` while management remains usable. A bounded IPC probe can separately
-report an unresponsive worker. Server-info and operator-status protocol version
+be `degraded` while management remains usable. The public `/api/health` endpoint reports gateway liveness only. The supervised
+IPC probe separately reports an unresponsive worker. Server-info and operator-status protocol version
 2 use `service_ready`, never an ambiguous `runtime_ready` for a connected worker.
 
 Full-clear recovery is completed before ordinary runtime commands are admitted.
@@ -1260,6 +1260,16 @@ instead of accessing the connection mutex directly.
 
 `service_host.rs` launches the same `magi-server`
 artifact used by console deployment and closes a private stdin pipe on stop.
+A native monitor checks the owned service child every second, including while
+the window is hidden. Crashes retry after 2/4/8 seconds, then a 60-second
+cooldown; 60 healthy seconds restores the budget. Recovery uses the original
+launch configuration, verifies the stable center identity and emits a
+credential-free event carrying the previous/new service PIDs. The WebView
+rebuilds its connection only when the event matches its current local profile
+and previous PID. Native download generations are invalidated as well.
+Disconnect/profile-switch/quit invalidates an in-flight recovery; a late service
+is stopped instead of installed into a new connection. The new service waits
+within a bounded deadline for an orphaned predecessor worker's lease to release.
 Remote connection activation starts no worker. Native lifecycle operations are
 serialized with profile switches and session renewal; process-name scans and
 installer-wide worker termination have been removed. The connection response

@@ -109,11 +109,13 @@ on the installed host.
 
 ## Upgrade and uninstall
 
-1. Use the **existing installation** to run `stop --config <file>`.
+1. Use the **existing installation and configuration** to run `uninstall --config <file>`.
+   This stops the managed service and removes its launch registration while preserving data.
 2. Make a verified backup of the center data before upgrading.
 3. Replace the entire application folder at the **same permanent path** with the
    new release. Do not merge old Python libraries into the new folder.
-4. Run `start --config <file>` and check `status` and the logs.
+4. Run `install --config <file>` to register the new service and its shutdown deadline,
+   then check `status` and the logs. For foreground deployments, stop/start `run` instead.
 
 If moving the installation or configuration to another path, use the old
 executable and config to run `uninstall` first, then update the absolute worker,
@@ -138,3 +140,9 @@ For source development only, `init` accepts `--development-root <absolute-repo>`
 Use a separate data directory for tests. The service is not production-validated
 until the packaged runtime, plugin permissions, proxy transfers, and recovery
 matrix have passed on the target devices.
+
+For isolated lifecycle fault injection on a development checkout, run
+`python scripts/smoke-service-lifecycle.py --executable target/debug/magi-server`.
+It exercises a real Python event-loop hang, responsive asynchronous work, service
+crash/worker lease handoff, paired-session renewal and graceful drain using a
+temporary data directory. It does not load business plugins or model providers.

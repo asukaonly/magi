@@ -21,6 +21,7 @@ import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
 import { initializeRuntime, readConnectionStartupDiagnostics, resetRuntimeInitialization, subscribeRuntimeReconnect } from './runtime/config';
+import { observeLocalServiceRecovery } from './runtime/service-recovery';
 import type { ConnectionStartupDiagnostics, StartupPhase } from './runtime/config';
 import { Button } from './components/ui/button';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, syncOnboardingCompleted, applyStartMinimized } from './runtime/desktop';
@@ -159,8 +160,9 @@ const RuntimeBootstrap: React.FC = () => {
 
   useEffect(() => {
     const unsubscribe = subscribeRuntimeReconnect(() => { void bootstrap(); });
+    const stopObserving = observeLocalServiceRecovery();
     void bootstrap();
-    return () => { unsubscribe(); bootstrapGeneration.current += 1; };
+    return () => { stopObserving(); unsubscribe(); bootstrapGeneration.current += 1; };
   }, [bootstrap]);
 
   useEffect(() => {

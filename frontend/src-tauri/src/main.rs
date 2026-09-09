@@ -157,7 +157,7 @@ fn set_window_caption_color(
 
 fn disconnect_for_app_exit(app: &AppHandle) {
     let state: State<'_, ConnectionRuntime> = app.state();
-    if let Err(err) = state.disconnect() {
+    if let Err(err) = state.shutdown() {
         log::warn!("Failed to disconnect service during app exit: {err}");
     }
 }
@@ -174,7 +174,7 @@ fn exit_after_disconnect(app: AppHandle) {
     hide_main_window_for_exit(&app);
     thread::spawn(move || {
         let state: State<'_, ConnectionRuntime> = app.state();
-        if let Err(err) = state.disconnect() {
+        if let Err(err) = state.shutdown() {
             log::warn!("Failed to disconnect service during confirmed app exit: {err}");
         }
         app.exit(0);
@@ -221,6 +221,7 @@ fn main() {
             app.manage(desktop_log_history::DesktopLogRuntime::install(log_directory, DESKTOP_LOG_MAX_BYTES, log_level).map_err(std::io::Error::other)?);
             let connection_directory = app.path().app_config_dir()?.join("connections");
             app.manage(connections::Connections::open(&connection_directory).map_err(std::io::Error::other)?);
+            connections::runtime::start_monitor(app.handle().clone());
             let current_version = app.package_info().version.to_string();
             log::info!(
                 "Magi desktop setup starting (version={current_version}, log_level={log_level:?})"
@@ -262,7 +263,7 @@ fn main() {
             }
             tauri::WindowEvent::Destroyed => {
                 let state: State<'_, ConnectionRuntime> = window.state();
-                let _ = state.disconnect();
+                let _ = state.shutdown();
             }
             _ => {}
         })
