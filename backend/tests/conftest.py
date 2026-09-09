@@ -18,10 +18,27 @@ for speed, copy this fixture and re-scope to ``session``.
 
 from __future__ import annotations
 
+import os
+import tempfile
+
 import pytest
+
+# Set a process-local home before importing any module that caches runtime paths.
+# Every pytest worker gets its own root even when the caller has a real MAGI_HOME.
+os.environ["MAGI_HOME"] = tempfile.mkdtemp(prefix="magi-pytest-session-")
 
 from magi.db import run_upgrade_head
 from magi.utils.runtime import RuntimePaths
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_runtime_paths(monkeypatch, tmp_path):
+    """Keep all implicit runtime paths away from the developer's installation."""
+    import magi.utils.runtime as runtime
+
+    root = tmp_path / "runtime-home"
+    monkeypatch.setenv("MAGI_HOME", str(root))
+    monkeypatch.setattr(runtime, "_runtime_paths", RuntimePaths(base_dir=root))
 
 
 @pytest.fixture
