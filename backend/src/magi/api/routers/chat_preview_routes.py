@@ -32,7 +32,6 @@ from magi.api.routers.chat_preview_schemas import (
 )
 from magi.agent.response_rhythm import (
     ResponseRhythmPlanner,
-    extract_persona_rhythm,
     strip_segmentation_sentinel,
 )
 from magi.chat_preview import (
@@ -121,8 +120,6 @@ def build_default_chat_preview_router(
                 persona_config=persona_config,
                 user_message=request.message.content,
             )
-            persona_rhythm = extract_persona_rhythm(prompt_package.prompt_context)
-
             llm_override = _normalize_llm_override(request.llm_override)
             core_model = core_model_dep(llm_override)
             llm_call = llm_call_dep(llm_override)
@@ -146,10 +143,7 @@ def build_default_chat_preview_router(
         ):
             chunks.append(chunk)
 
-        delivery = await _build_preview_delivery(
-            "".join(chunks),
-            persona=persona_rhythm,
-        )
+        delivery = await _build_preview_delivery("".join(chunks))
         return PreviewMessageResponse(
             segments=[
                 PreviewDeliverySegment(content=content, delay_ms=delay_ms)
@@ -189,13 +183,10 @@ def _resolve_persona_config(seed_slug: str, locale: str) -> PersonalityConfig:
 
 async def _build_preview_delivery(
     response_text: str,
-    *,
-    persona: Any = None,
 ) -> list[tuple[str, int]]:
     """Return validated preview bubbles with normal-chat delivery delays."""
     plan = await ResponseRhythmPlanner().plan(
         response_text=response_text,
-        persona=persona,
         streamed=False,
     )
     if plan is not None:

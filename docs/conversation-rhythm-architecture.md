@@ -123,9 +123,12 @@ memory, events, or external channels see the text. If the rejected split touched
 protected line-oriented structure such as lists or code blocks, markers are
 converted to line breaks so the original layout is preserved.
 
-Triggering is persona-aware. Chatty or emotional turns may naturally use more
-bubbles, while serious, task, analysis, and crisis turns should usually stay as
-one message.
+Triggering is persona-aware inside the main-model prompt. Chatty or emotional
+turns may naturally use more bubbles, while serious, task, analysis, and crisis
+turns should usually stay as one message. The backend parser does not recompute
+persona policy: it validates the model's semantic boundaries and computes delays
+from segment length only. This keeps one owner for the language decision and
+avoids treating conversational verbosity as typing speed.
 
 ## Prompt Interaction With Chat Scenario
 

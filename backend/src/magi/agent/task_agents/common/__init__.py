@@ -13,7 +13,6 @@ from .contracts import (
     PreparedAgentRunRequest,
     GenericFactPayload,
     IncomingFactKind,
-    RhythmPersonaSignal,
     TaskFactPayload,
     UserMessagePayload,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "PreparedAgentRunRequest",
     "GenericFactPayload",
     "IncomingFactKind",
-    "RhythmPersonaSignal",
     "TaskFactPayload",
     "TaskAgentLLMService",
     "UserMessagePayload",

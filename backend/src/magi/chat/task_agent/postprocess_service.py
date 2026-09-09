@@ -921,7 +921,6 @@ class ChatPostProcessService:
             return await self._response_rhythm_planner.plan(
                 response_text=response_text,
                 streamed=bool(getattr(result, "streamed", False)),
-                persona=getattr(result, "persona_rhythm", None),
                 ux_plan=ux_plan,
             )
         except Exception as exc:
