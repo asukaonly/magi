@@ -9,8 +9,16 @@ export const maintenanceSchema = z.object({
   data_epoch: z.string().min(1).max(128), result: z.unknown().nullable(), error: z.string().nullable(),
 });
 export type CenterMaintenance = z.infer<typeof maintenanceSchema>;
+export const supervisorSchema = z.object({
+  phase: z.enum(['starting', 'ready', 'unresponsive', 'backoff', 'cooldown', 'failed', 'stopping']),
+  restart_count: z.number().int().nonnegative(),
+  last_error: z.string().nullable(),
+  next_retry_at_ms: z.number().int().nonnegative().nullable(),
+});
+export type SupervisorStatus = z.infer<typeof supervisorSchema>;
 const infoSchema = z.object({
   server_id: z.string().uuid(), protocol_version: z.literal(2), service_ready: z.boolean(),
+  supervisor: supervisorSchema,
   maintenance: maintenanceSchema, plugin_execution: z.literal('server'),
 });
 const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), created_at_ms: z.number(), revoked_at_ms: z.number().nullable() });

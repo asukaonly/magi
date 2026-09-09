@@ -85,7 +85,9 @@ three). Sixty seconds of successful probes restores that budget. Exhaustion
 enters a 60-second cooldown before a new attempt; `max_restarts: 0` disables
 automatic retries. Failed durable maintenance stays blocked for explicit repair.
 Authenticated server info and private operator status expose `supervisor.phase`,
-`restart_count`, `last_error` and `next_retry_at_ms`. Probe failure closes business
+`restart_count`, `last_error` and `next_retry_at_ms`. The frontend server-info
+contract validates these fields and rejects unknown phases or invalid counters
+and retry timestamps. Probe failure closes business
 admission until responsiveness returns; gateway liveness is not worker health.
 
 The configured `shutdown_timeout_secs` (default 30) is the Python drain budget,
