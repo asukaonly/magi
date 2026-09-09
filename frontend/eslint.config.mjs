@@ -14,6 +14,7 @@ export default defineConfig([
       'node_modules/',
       'src-tauri/target/',
       'src-tauri/gen/',
+      'src-tauri/server-dist/',
       'src-tauri/sidecar-dist/',
       'src-tauri/plugin-python/',
       'src-tauri/Cargo.lock',
