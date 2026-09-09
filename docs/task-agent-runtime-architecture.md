@@ -207,6 +207,11 @@ scheduler engine is infrastructure even though it starts after services that
 register schedules into it. It remains paused until
 `runtime_scheduler_activation`; unchanged registrations are read-only.
 
+One process-owned lifecycle lock serializes initialization and shutdown. A
+configuration response may stop waiting while initialization continues, but a
+later save or shutdown must join that serialization boundary instead of starting
+another runtime concurrently.
+
 The product readiness states remain:
 
 - `ready` — normal agent execution is available;

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from dependency_injector import providers
 
@@ -128,7 +130,7 @@ async def test_initialize_agent_runtime_restarts_previously_deferred_runtime(
     monkeypatch.setattr(backend_module, "_resolve_from_container", _fake_resolve)
     monkeypatch.setattr(backend_module, "build_runtime_modules", lambda context, role=None: [])
     monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", lambda modules: _SuccessfulOrchestrator())
-    monkeypatch.setattr(backend_module, "shutdown_agent_runtime", _fake_shutdown)
+    monkeypatch.setattr(backend_module, "_shutdown_agent_runtime", _fake_shutdown)
 
     await backend_module.initialize_agent_runtime()
 
@@ -175,3 +177,36 @@ async def test_shutdown_agent_runtime_default_mode_keeps_best_effort_behavior(
     )
 
     await backend_module.shutdown_agent_runtime()
+@pytest.mark.asyncio
+async def test_lifecycle_serializes_background_initialization_and_shutdown(monkeypatch):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
+    ready = False
+
+    async def initialize():
+        nonlocal ready
+        if ready:
+            return
+        calls.append("start")
+        entered.set()
+        await release.wait()
+        ready = True
+
+    async def shutdown(*, strict=False):
+        calls.append("stop")
+
+    monkeypatch.setattr(backend_module, "_runtime_lifecycle_lock", asyncio.Lock())
+    monkeypatch.setattr(backend_module, "_initialize_agent_runtime", initialize)
+    monkeypatch.setattr(backend_module, "_shutdown_agent_runtime", shutdown)
+    first = asyncio.create_task(backend_module.initialize_agent_runtime())
+    await entered.wait()
+    second = asyncio.create_task(backend_module.initialize_agent_runtime())
+    stop = asyncio.create_task(backend_module.shutdown_agent_runtime())
+    await asyncio.sleep(0)
+    assert calls == ["start"]
+    assert not second.done()
+    assert not stop.done()
+    release.set()
+    await asyncio.gather(first, second, stop)
+    assert calls == ["start", "stop"]

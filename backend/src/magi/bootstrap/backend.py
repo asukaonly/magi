@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from dependency_injector import providers
 
 from ..config import AppConfig, get_config
@@ -15,6 +17,7 @@ from .runtime_startup_state import set_runtime_startup_state
 from .runtime_worker_builder import describe_runtime_worker_phase_plan
 
 logger = get_logger(__name__)
+_runtime_lifecycle_lock = asyncio.Lock()
 
 
 def _bind_runtime_bootstrap_state(
@@ -146,7 +149,13 @@ def _is_runtime_initialized() -> bool:
 
 
 async def initialize_agent_runtime() -> None:
-    """Initialize agent runtime on application startup."""
+    """Serialize startup with configuration retries and shutdown."""
+    async with _runtime_lifecycle_lock:
+        await _initialize_agent_runtime()
+
+
+async def _initialize_agent_runtime() -> None:
+    """Initialize runtime resources while holding the lifecycle owner lock."""
     if _is_runtime_initialized():
         set_runtime_startup_state("ready")
         logger.warning("Agent runtime already initialized")
@@ -155,7 +164,7 @@ async def initialize_agent_runtime() -> None:
     existing_orchestrator = _resolve_from_container("runtime_orchestrator")
     if existing_orchestrator is not None:
         logger.info("Cleaning up previously deferred runtime before reinitializing")
-        await shutdown_agent_runtime()
+        await _shutdown_agent_runtime()
 
     context = RuntimeBootstrapContext()
     orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
@@ -208,6 +217,12 @@ async def initialize_agent_runtime() -> None:
 
 
 async def shutdown_agent_runtime(*, strict: bool = False) -> None:
+    """Serialize shutdown with pending runtime initialization."""
+    async with _runtime_lifecycle_lock:
+        await _shutdown_agent_runtime(strict=strict)
+
+
+async def _shutdown_agent_runtime(*, strict: bool = False) -> None:
     """Shutdown agent runtime.
 
     Args:
