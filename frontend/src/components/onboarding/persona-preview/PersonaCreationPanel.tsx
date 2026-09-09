@@ -69,7 +69,7 @@ export function PersonaCreationPanel({
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <motion.div
         layout
-        className="flex-1 overflow-y-auto px-1 py-1 sm:px-4 sm:py-3 lg:px-7"
+        className="min-h-0 w-full max-w-3xl flex-1 overflow-y-auto px-1 py-1"
       >
         <AnimatePresence initial={false} mode="popLayout">
           {showDescriptionSummary && !descriptionExpanded ? (
@@ -124,14 +124,9 @@ export function PersonaCreationPanel({
           <div className="min-h-0 overflow-hidden">
             <div>
               {!showDescriptionSummary ? (
-                <>
-                  <h3 className="text-base font-semibold tracking-[-0.01em] text-foreground">
-                    {t("personaPreview.createCustomTitle")}
-                  </h3>
-                  <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    {t("personaPreview.createCustomHint")}
-                  </p>
-                </>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  {t("personaPreview.createCustomHint")}
+                </p>
               ) : null}
               <textarea
                 aria-label={t("personaPreview.createCustomTitle")}

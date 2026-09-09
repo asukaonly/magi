@@ -758,7 +758,7 @@ export function LLMSetupStep({
                 ? { duration: 0 }
                 : { duration: 0.26, ease: PROVIDER_TRANSITION_EASE }
             }
-            className="space-y-4"
+            className="w-full max-w-3xl space-y-4"
           >
             <div
               data-testid="llm-setup-provider-summary"
@@ -790,7 +790,7 @@ export function LLMSetupStep({
               </button>
             </div>
 
-            <div className="space-y-6 px-1 pb-1 pt-1 sm:px-2">
+            <div className="space-y-6 pb-1 pt-1">
               <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
                 {activeProvider.provider_type === 'custom'
                   ? t('llmSetup.customRelaySelectedHint')

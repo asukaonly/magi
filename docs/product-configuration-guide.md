@@ -131,6 +131,19 @@ navigation disabled until it settles. Saved-center management remains available
 from the application shell and startup recovery can return directly to location
 selection.
 
+After the welcome screen, onboarding uses one shared full-window frame: the
+progress rail, content inset, heading typography, and footer action positions
+stay consistent across device connection and center configuration. Step content
+starts at the top rather than moving vertically with its length. A shared
+maximum workspace width keeps headings and actions aligned on large screens;
+connection forms, model fields, short first-context routes, and completion copy
+use a narrower readable width aligned to that same left edge. Provider and
+persona pickers, persona previews, and history import can use the full workspace.
+Long forms scroll without displacing the footer, and preview conversations keep
+their own scrolling area. Completion uses the same footer for Enter Magi instead
+of introducing an action inside a separate card. The welcome screen remains a
+centered introduction before the guided steps begin.
+
 It focuses on:
 
 - device language selection through the welcome screen and guided setup

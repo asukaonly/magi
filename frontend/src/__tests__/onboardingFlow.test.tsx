@@ -757,7 +757,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const enterApp = await screen.findByRole("button", {
       name: "actions.enterApp",
     });
-    expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toContainElement(enterApp);
+    expect(screen.getAllByRole("button", { name: "actions.enterApp" })).toHaveLength(1);
+    expect(await screen.findByText("messages.completedDesc")).toBeInTheDocument();
     expect(
       screen.getByText("messages.completedNoteNoSources"),
     ).toBeInTheDocument();
@@ -798,7 +800,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(questionRoute.parentElement).toHaveClass("grid-cols-1");
     expect(historyRoute.parentElement).toHaveClass("grid-cols-1");
     expect(activityRoute.parentElement).toHaveClass("grid-cols-1");
-    expect(screen.getByText("firstContext.kicker")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "firstContext.title" })).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
     ).not.toBeInTheDocument();
@@ -2055,7 +2057,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       await screen.findByRole("button", { name: "actions.enterApp" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
+    expect(await screen.findByText("messages.completedDesc")).toBeInTheDocument();
     expect(
       screen.getByText("messages.completedNoteWithSources"),
     ).toBeInTheDocument();

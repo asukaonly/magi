@@ -32,11 +32,9 @@ import {
   type InstallableCatalogMode,
   type InstallableItem,
 } from "../../api/modules/systemSuggestions";
-import GuidedConfigFrame from "../config-forms/GuidedConfigFrame";
+import { OnboardingFrame } from "./OnboardingFrame";
 import { ConnectionOnboarding } from "./ConnectionOnboarding";
-import { OnboardingLanguageSelector } from "./OnboardingLanguageSelector";
 import { getRuntimeConfig } from "@/runtime/config";
-import StepIndicator from "./StepIndicator";
 import CompletionScreen from "./CompletionScreen";
 import FirstContextStep from "./FirstContextStep";
 import LLMSetupStep from "./LLMSetupStep";
@@ -54,6 +52,7 @@ import type {
   HistoryImportFlowHandle,
 } from "@/components/history-imports/HistoryImportFlow";
 import {
+  ONBOARDING_TITLE_CLASS,
   ONBOARDING_PRIMARY_ACTION_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
 } from "./onboardingStyles";
@@ -738,10 +737,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     saveProgress(readConfig(), seedSlug, customPersonas, prev);
   };
 
-  // The persona preview step uses the standard Previous/Next footer (the
-  // active persona in the rail is the selection; Next confirms it). The
-  // completion screen uses its own Enter App CTA, so the footer is hidden there.
-  const hideFooter = isLastStep;
   const isFirstContextQuestionRoute =
     current === FIRST_CONTEXT_STEP &&
     firstContextProgress.route === "question";
@@ -772,7 +767,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       ? t("firstContext.routes.back")
       : t("actions.previous");
   const nextLabel =
-    isFirstContextQuestionRoute
+    isLastStep
+      ? t("actions.enterApp")
+      : isFirstContextQuestionRoute
       ? firstContextStorySubmitting
         ? t("firstContext.story.submitting")
         : firstContextProgress.submitted ||
@@ -806,6 +803,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     (current === PERSONA_STEP &&
       (personaGenerating || personaConfirming));
   const nextDisabled =
+    finishingRuntime ||
     saving ||
     firstContextStorySubmitting ||
     llmConnectionConfigPending ||
@@ -948,16 +946,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
     if (current === COMPLETE_STEP) {
       return (
-        <CompletionScreen
-          onFinish={asEventHandler(handleFinish)}
-          connectedSourceCount={firstContextPluginIds.length}
-          loading={saving || finishingRuntime}
-          loadingLabel={
-            finishingRuntime
-              ? t("actions.startingRuntime")
-              : t("actions.saving")
-          }
-        />
+        <CompletionScreen connectedSourceCount={firstContextPluginIds.length} />
       );
     }
 
@@ -976,117 +965,91 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
 
   // Guided phase: step-by-step config
   return (
-    <div className="absolute inset-0 overflow-hidden bg-muted/25">
-      <div className="h-full w-full">
-        <GuidedConfigFrame
-          className="h-full"
-          layoutClassName="h-full"
-          contentClassName={
-            current === LLM_SETUP_STEP ? "overflow-y-auto" : "overflow-hidden"
-          }
-          sidebar={
-            <div className="flex min-w-max items-center lg:h-full lg:min-w-0 lg:flex-col lg:items-stretch">
-              <div
-                className="hidden select-none px-3 pt-1 lg:block"
-                aria-hidden="true"
+    <OnboardingFrame
+      steps={steps}
+      current={current}
+      language={onboardingLanguage}
+      onLanguageChange={handleLanguageChange}
+      languageDisabled={saving || llmConnectionTestState.loading || personaConfirming || finishingRuntime || firstContextStorySubmitting}
+      scrollable={current === LLM_SETUP_STEP}
+      footer={
+        <div className={`flex items-center gap-3 ${isLastStep ? "justify-end" : "justify-between"}`}>
+          {!isLastStep ? <Button
+            variant="ghost"
+            size="lg"
+            className={ONBOARDING_SECONDARY_ACTION_CLASS}
+            onClick={handlePrev}
+            disabled={previousDisabled}
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            {previousLabel}
+          </Button> : null}
+          <div className="flex items-center gap-2">
+            {historyImportAwaitingConfirmation ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                className={ONBOARDING_SECONDARY_ACTION_CLASS}
+                onClick={() => void abandonHistoryImport()}
+                disabled={historyImportActionState.busy}
               >
-                <span className="font-onboarding-display text-2xl font-bold tracking-[0.22em] text-foreground/85">
-                  Magi
-                </span>
-              </div>
-              <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center">
-                <StepIndicator
-                  steps={steps}
-                  current={current}
-                />
-              </div>
-              <div className="hidden px-1 lg:block"><OnboardingLanguageSelector language={onboardingLanguage} onChange={handleLanguageChange} disabled={saving || llmConnectionTestState.loading || personaConfirming || finishingRuntime || firstContextStorySubmitting} /></div>
-            </div>
-          }
-          footer={
-            hideFooter ? null : (
-              <div className="flex items-center justify-between gap-3">
-                <Button
-                  variant="ghost"
-                  size="lg"
-                  className={ONBOARDING_SECONDARY_ACTION_CLASS}
-                  onClick={handlePrev}
-                  disabled={previousDisabled}
-                >
-                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                  {previousLabel}
-                </Button>
-                <div className="flex items-center gap-2">
-                  {historyImportAwaitingConfirmation ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="lg"
-                      className={ONBOARDING_SECONDARY_ACTION_CLASS}
-                      onClick={() => void abandonHistoryImport()}
-                      disabled={historyImportActionState.busy}
-                    >
-                      {t("actions.abandonImport")}
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="lg"
-                    data-testid={
-                      isFirstContextQuestionRoute
-                        ? "first-context-story-submit"
-                        : undefined
-                    }
-                    className={ONBOARDING_PRIMARY_ACTION_CLASS}
-                    onClick={asEventHandler(handleNext)}
-                    disabled={nextDisabled || writeIssue !== null}
-                  >
-                    {current === LLM_SETUP_STEP && llmConnectionTestState.loading
-                      ? t("llm.actions.testingConnection")
-                      : current === PERSONA_STEP && personaConfirming
-                        ? t("actions.activatingPersona")
-                        : saving
-                          ? finishingRuntime
-                            ? t("actions.startingRuntime")
-                            : t("actions.saving")
-                          : nextLabel}
-                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </div>
-            )
-          }
-        >
-          <>
-            {writeIssue ? <div role="alert" className="m-4 rounded-md border border-amber-500/40 p-3 text-sm">
-              <p>{t(`messages.${writeIssue === 'conflict' ? 'centerConflict' : 'saveUnconfirmed'}`)}</p>
-              <Button className="mt-2" variant="outline" disabled={saving} onClick={() => window.location.reload()}>{t('messages.reloadCenter')}</Button>
-            </div> : null}
-            <AnimatePresence mode="wait">
-              <motion.div
-                className="flex h-full min-h-0 flex-1 flex-col"
-                key={current}
-                initial={shouldReduceMotion ? false : { opacity: 0, x: 16 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={shouldReduceMotion ? undefined : { opacity: 0, x: -12 }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.26,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-              >
-                {current === LLM_SETUP_STEP ? (
-                  <header className="mb-4 shrink-0 px-1 sm:mb-5">
-                    <h1 className="font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground">
-                      {steps[current]}
-                    </h1>
-                  </header>
-                ) : null}
-                {renderStepContent()}
-              </motion.div>
-            </AnimatePresence>
-          </>
-        </GuidedConfigFrame>
-      </div>
-    </div>
+                {t("actions.abandonImport")}
+              </Button>
+            ) : null}
+            <Button
+              size="lg"
+              data-testid={
+                isFirstContextQuestionRoute
+                  ? "first-context-story-submit"
+                  : undefined
+              }
+              className={ONBOARDING_PRIMARY_ACTION_CLASS}
+              onClick={asEventHandler(handleNext)}
+              disabled={nextDisabled || writeIssue !== null}
+            >
+              {current === LLM_SETUP_STEP && llmConnectionTestState.loading
+                ? t("llm.actions.testingConnection")
+                : current === PERSONA_STEP && personaConfirming
+                  ? t("actions.activatingPersona")
+                  : finishingRuntime
+                    ? t("actions.startingRuntime")
+                    : saving ? t("actions.saving") : nextLabel}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <>
+        {writeIssue ? <div role="alert" className="m-4 rounded-md border border-amber-500/40 p-3 text-sm">
+          <p>{t(`messages.${writeIssue === 'conflict' ? 'centerConflict' : 'saveUnconfirmed'}`)}</p>
+          <Button className="mt-2" variant="outline" disabled={saving} onClick={() => window.location.reload()}>{t('messages.reloadCenter')}</Button>
+        </div> : null}
+        <AnimatePresence mode="wait">
+          <motion.div
+            className="flex h-full min-h-0 flex-1 flex-col"
+            key={current}
+            initial={shouldReduceMotion ? false : { opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, x: -12 }}
+            transition={{
+              duration: shouldReduceMotion ? 0 : 0.26,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
+            {current === LLM_SETUP_STEP ? (
+              <header className="mb-6 shrink-0">
+                <h1 className={ONBOARDING_TITLE_CLASS}>
+                  {steps[current]}
+                </h1>
+              </header>
+            ) : null}
+            {renderStepContent()}
+          </motion.div>
+        </AnimatePresence>
+      </>
+    </OnboardingFrame>
   );
 };
 

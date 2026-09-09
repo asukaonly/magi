@@ -203,12 +203,12 @@ describe("first-context onboarding copy", () => {
     }
   });
 
-  it("only promises local storage for the chat record", () => {
+  it("describes chat storage at the selected runtime location", () => {
     expect(zhCnOnboarding.firstContext.story.privacyNote).toContain(
-      "聊天记录保存在本机",
+      "聊天记录保存在你选择运行 Magi 的电脑上",
     );
     expect(enOnboarding.firstContext.story.privacyNote).toContain(
-      "The chat record is stored on this device",
+      "The chat record is stored on the computer you chose to run Magi",
     );
   });
 });

@@ -1,55 +1,32 @@
 import React from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { ONBOARDING_PRIMARY_ACTION_CLASS } from './onboardingStyles';
+import { ONBOARDING_DESCRIPTION_CLASS, ONBOARDING_TITLE_CLASS } from './onboardingStyles';
 
 interface CompletionScreenProps {
-  onFinish: () => void;
   connectedSourceCount?: number;
-  loading?: boolean;
-  loadingLabel?: string;
 }
 
 export const CompletionScreen: React.FC<CompletionScreenProps> = ({
-  onFinish,
   connectedSourceCount = 0,
-  loading = false,
-  loadingLabel,
 }) => {
   const { t } = useTranslation('onboarding');
   const hasConnectedSources = connectedSourceCount > 0;
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <Card>
-        <CardContent className="px-8 py-10">
-          <div className="flex flex-col items-center gap-5 text-center">
-            <CheckCircle2 className="h-12 w-12 text-emerald-600" />
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold">{t('messages.completedTitle')}</h3>
-              <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">
-                {t('messages.completedDesc')}
-              </p>
-              <p className="mx-auto max-w-xl text-xs leading-5 text-muted-foreground/75">
-                {hasConnectedSources
-                  ? t('messages.completedNoteWithSources')
-                  : t('messages.completedNoteNoSources')}
-              </p>
-            </div>
-            <Button
-              size="lg"
-              className={ONBOARDING_PRIMARY_ACTION_CLASS}
-              onClick={onFinish}
-              disabled={loading}
-            >
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {loading ? loadingLabel || t('actions.saving') : t('actions.enterApp')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="w-full max-w-3xl">
+        <h1 className={ONBOARDING_TITLE_CLASS}>{t('messages.completedTitle')}</h1>
+        <p className={ONBOARDING_DESCRIPTION_CLASS}>{t('messages.completedDesc')}</p>
+        <div className="mt-6 flex items-start gap-3 rounded-xl bg-muted/45 p-5">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+          <p className="text-sm leading-6 text-muted-foreground">
+            {hasConnectedSources
+              ? t('messages.completedNoteWithSources')
+              : t('messages.completedNoteNoSources')}
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

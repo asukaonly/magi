@@ -14,3 +14,8 @@ export const ONBOARDING_FIELD_MUTED_CLASS =
 // 选中态:中性纸面 + 低调的 primary 细描边,不用彩色填充(去「AI 应用」的粉色 surface)。
 export const ONBOARDING_SELECTED_SURFACE_CLASS =
   'bg-card shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.38)]';
+export const ONBOARDING_TITLE_CLASS =
+  'font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground outline-none';
+
+export const ONBOARDING_DESCRIPTION_CLASS =
+  'mt-3 max-w-3xl text-sm leading-6 text-muted-foreground';

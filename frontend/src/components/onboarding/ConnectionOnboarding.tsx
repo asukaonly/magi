@@ -2,15 +2,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, ArrowRight, Check, Laptop, Loader2, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import GuidedConfigFrame from '@/components/config-forms/GuidedConfigFrame';
 import { RemoteConnectionForm, isRemoteConnectionDraftComplete } from '@/components/connections/RemoteConnectionForm';
 import { useConnectionSetup } from '@/components/connections/useConnectionSetup';
 import { resolveInitialLanguage, toI18nLanguage } from '@/utils/language';
 import { cn } from '@/lib/utils';
 import WelcomeScreen from './WelcomeScreen';
-import StepIndicator from './StepIndicator';
-import { OnboardingLanguageSelector } from './OnboardingLanguageSelector';
-import { ONBOARDING_PRIMARY_ACTION_CLASS, ONBOARDING_SECONDARY_ACTION_CLASS } from './onboardingStyles';
+import { OnboardingFrame } from './OnboardingFrame';
+import { ONBOARDING_DESCRIPTION_CLASS, ONBOARDING_PRIMARY_ACTION_CLASS, ONBOARDING_SECONDARY_ACTION_CLASS, ONBOARDING_TITLE_CLASS } from './onboardingStyles';
 
 interface ConnectionOnboardingProps {
   initialStep?: 'welcome' | 'location';
@@ -57,16 +55,13 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
 
   if (step === 'welcome') return <WelcomeScreen language={language} onLanguageChange={changeLanguage} onContinue={() => setStep('location')} />;
 
-  return <div className="absolute inset-0 overflow-hidden bg-muted/25">
-    <GuidedConfigFrame
-      className="h-full"
-      layoutClassName="h-full"
-      contentClassName="overflow-y-auto"
-      sidebar={<div className="flex min-w-max items-center lg:h-full lg:min-w-0 lg:flex-col lg:items-stretch">
-        <div className="hidden select-none px-3 pt-1 lg:block" aria-hidden="true"><span className="font-onboarding-display text-2xl font-bold tracking-[0.22em] text-foreground/85">Magi</span></div>
-        <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center"><StepIndicator steps={steps} current={step === 'remote' ? 1 : 0} /></div>
-        <div className="hidden px-1 lg:block"><OnboardingLanguageSelector language={language} onChange={changeLanguage} disabled={busy} /></div>
-      </div>}
+  return <OnboardingFrame
+      steps={steps}
+      current={step === 'remote' ? 1 : 0}
+      language={language}
+      onLanguageChange={changeLanguage}
+      languageDisabled={busy}
+      scrollable
       footer={<div className="flex items-center justify-between gap-3">
         <Button variant="ghost" className={ONBOARDING_SECONDARY_ACTION_CLASS} onClick={back} disabled={busy}><ArrowLeft className="h-4 w-4" aria-hidden="true" />{t('actions.previous')}</Button>
         {step === 'remote' ? <Button type="submit" form={formId} className={ONBOARDING_PRIMARY_ACTION_CLASS} disabled={busy || !isRemoteConnectionDraftComplete(draft)}>
@@ -77,10 +72,10 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
         }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? appT('connections.connecting') : t('actions.next')}<ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>}
       </div>}
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center py-4 sm:py-8">
-        <header className="mb-8">
-          <h1 ref={headingRef} tabIndex={-1} className="font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground outline-none">{t(step === 'remote' ? 'location.remoteTitle' : 'location.title')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{t(step === 'remote' ? 'location.remoteIntro' : 'location.description')}</p>
+      <div className="w-full max-w-3xl">
+        <header className="mb-6">
+          <h1 ref={headingRef} tabIndex={-1} className={ONBOARDING_TITLE_CLASS}>{t(step === 'remote' ? 'location.remoteTitle' : 'location.title')}</h1>
+          <p className={ONBOARDING_DESCRIPTION_CLASS}>{t(step === 'remote' ? 'location.remoteIntro' : 'location.description')}</p>
         </header>
         {step === 'location' ? <>
           <fieldset className="grid gap-4 sm:grid-cols-2 sm:gap-y-0" disabled={busy || !profiles}>
@@ -116,6 +111,5 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
         </div>}
         {error ? <div role="alert" className="mt-5 space-y-2 text-sm text-destructive"><p className="break-words">{error}</p>{!profiles ? <Button variant="outline" onClick={retry}>{appT('common.retry')}</Button> : null}</div> : null}
       </div>
-    </GuidedConfigFrame>
-  </div>;
+    </OnboardingFrame>;
 }

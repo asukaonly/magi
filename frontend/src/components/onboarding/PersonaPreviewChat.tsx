@@ -20,6 +20,7 @@ import { PersonaPicker } from "./persona-preview/PersonaPicker";
 import { PersonaCreationPanel } from "./persona-preview/PersonaCreationPanel";
 import { PersonaPreviewDetail } from "./persona-preview/PersonaPreviewDetail";
 import type { PersonaPreviewRoute } from "./persona-preview/personaPreviewRoute";
+import { ONBOARDING_TITLE_CLASS } from "./onboardingStyles";
 
 export type {
   CustomPersonaDraft,
@@ -243,17 +244,17 @@ export function PersonaPreviewChat({
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col">
       {confirmationError && (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          className="mb-4 rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
           {confirmationError}
         </div>
       )}
-      {/* 标题与模式 tab 同行:让左 rail 和右内容区顶部对齐。detail 阶段左侧带返回 picker 的按钮。 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+      {/* Keep the step heading and preview controls on the shared top baseline. */}
+      <div className="mb-6 flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5">
           {stage === 'detail' ? (
             <button
@@ -270,12 +271,12 @@ export function PersonaPreviewChat({
           {stage === 'detail' && mode !== 'create' && activeItem ? (
             <div className="flex min-w-0 items-center gap-3">
               <PreviewAvatar name={activeItem.name} avatar={activeItem.avatar} />
-              <h1 className="truncate font-onboarding-display text-[1.65rem] font-bold leading-snug text-foreground">
+              <h1 className={cn("truncate", ONBOARDING_TITLE_CLASS)}>
                 {activeItem.name}
               </h1>
             </div>
           ) : (
-            <h1 className="font-onboarding-display text-[1.9rem] font-bold leading-snug text-foreground">
+            <h1 className={ONBOARDING_TITLE_CLASS}>
               {stage === 'detail' && mode === 'create'
                 ? t('personaPreview.createCustomTitle')
                 : t('steps.personaPreview')}

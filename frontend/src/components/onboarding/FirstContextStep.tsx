@@ -32,6 +32,8 @@ import HistoryImportFlow, {
 } from "@/components/history-imports/HistoryImportFlow";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import {
+  ONBOARDING_DESCRIPTION_CLASS,
+  ONBOARDING_TITLE_CLASS,
   ONBOARDING_FIELD_CLASS,
   ONBOARDING_SECONDARY_ACTION_CLASS,
 } from "./onboardingStyles";
@@ -54,9 +56,8 @@ export function isFirstContextRoute(value: unknown): value is FirstContextRoute 
 }
 
 const KICKER_CLASS = "text-xs font-semibold tracking-[0.08em] text-primary";
-const HEADING_CLASS =
-  "font-onboarding-display text-[1.65rem] sm:text-3xl font-semibold leading-[1.3] tracking-[-0.01em] text-foreground outline-none";
-const BODY_CLASS = "mt-3 text-[15px] leading-7 text-muted-foreground";
+const HEADING_CLASS = ONBOARDING_TITLE_CLASS;
+const BODY_CLASS = ONBOARDING_DESCRIPTION_CLASS;
 const BADGE_CLASS =
   "rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary";
 
@@ -208,18 +209,17 @@ export function FirstContextStep({
   }, [route]);
 
   const renderRouteChooser = () => (
-    <div className="space-y-8" data-testid="first-context-route-chooser">
-      <div className="text-center">
-        <p className={`${KICKER_CLASS} mb-2.5`}>{t("firstContext.kicker")}</p>
-        <h3 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
+    <div className="space-y-6" data-testid="first-context-route-chooser">
+      <div>
+        <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
           {t("firstContext.title")}
-        </h3>
-        <p className={`${BODY_CLASS} mx-auto max-w-[520px]`}>
+        </h1>
+        <p className={BODY_CLASS}>
           {t("firstContext.body")}
         </p>
       </div>
 
-      <div className="mx-auto grid w-full max-w-2xl grid-cols-1 gap-4">
+      <div className="grid w-full grid-cols-1 gap-4">
         <RouteOptionCard
           testId="first-context-route-question"
           icon={<MessageCircleQuestion className="h-5 w-5" aria-hidden="true" />}
@@ -255,7 +255,7 @@ export function FirstContextStep({
         />
       </div>
 
-      <p className="text-center text-xs leading-5 text-muted-foreground/75">
+      <p className="text-xs leading-5 text-muted-foreground/75">
         {t("firstContext.routes.note")}
       </p>
     </div>
@@ -264,17 +264,13 @@ export function FirstContextStep({
   const renderHistoryRoute = () => (
     <div className="space-y-5" data-testid="first-context-history-route">
       <div>
-        <div className="flex items-center gap-3">
+        <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
+          {t("firstContext.history.title")}
+        </h1>
+        <div className="mt-3 flex items-center gap-3">
           <p className={KICKER_CLASS}>{t("firstContext.history.kicker")}</p>
           <span className={BADGE_CLASS}>{t("firstContext.history.badge")}</span>
         </div>
-        <h3
-          ref={routeHeadingRef}
-          tabIndex={-1}
-          className={`${HEADING_CLASS} mt-2.5`}
-        >
-          {t("firstContext.history.title")}
-        </h3>
         <p className={BODY_CLASS}>{t("firstContext.history.body")}</p>
       </div>
       <HistoryImportFlow
@@ -297,17 +293,13 @@ export function FirstContextStep({
     return (
       <div className="space-y-6" data-testid="first-context-question-route">
         <div>
-          <div className="flex items-center gap-3">
+          <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
+            {t("firstContext.story.title")}
+          </h1>
+          <div className="mt-3 flex items-center gap-3">
             <p className={KICKER_CLASS}>{t("firstContext.story.kicker")}</p>
             <span className={BADGE_CLASS}>{t("firstContext.story.badge")}</span>
           </div>
-          <h3
-            ref={routeHeadingRef}
-            tabIndex={-1}
-            className={`${HEADING_CLASS} mt-2.5`}
-          >
-            {t("firstContext.story.title")}
-          </h3>
           <p id={descriptionId} className={BODY_CLASS}>
             {t("firstContext.story.body")}
           </p>
@@ -400,17 +392,13 @@ export function FirstContextStep({
   const renderActivityRoute = () => (
     <div className="space-y-5" data-testid="first-context-activity-route">
       <div>
-        <div className="flex items-center gap-3">
+        <h1 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
+          {t("firstContext.activity.title")}
+        </h1>
+        <div className="mt-3 flex items-center gap-3">
           <p className={KICKER_CLASS}>{t("firstContext.activity.kicker")}</p>
           <span className={BADGE_CLASS}>{t("firstContext.activity.badge")}</span>
         </div>
-        <h3
-          ref={routeHeadingRef}
-          tabIndex={-1}
-          className={`${HEADING_CLASS} mt-2.5`}
-        >
-          {t("firstContext.activity.title")}
-        </h3>
         <p className={BODY_CLASS}>{t("firstContext.activity.body")}</p>
       </div>
 
@@ -500,17 +488,7 @@ export function FirstContextStep({
             ease: [0.22, 1, 0.36, 1],
           }}
           data-testid="first-context-route-content"
-          className={`mx-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
-            route === "history" ? "mb-auto mt-0" : "my-auto"
-          } ${
-            route === "history"
-              ? "max-w-none"
-              : route === "activity"
-              ? "max-w-[860px]"
-              : route === "question"
-                ? "max-w-[800px]"
-                : "max-w-[840px]"
-          }`}
+          className={`mb-auto mt-0 flex w-full flex-col pb-2 ${route === "history" ? "max-w-none" : "max-w-3xl"}`}
         >
           {route === "choose"
             ? renderRouteChooser()
