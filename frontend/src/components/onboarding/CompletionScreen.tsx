@@ -15,7 +15,7 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="w-full max-w-3xl">
+      <div className="w-full min-w-0">
         <h1 className={ONBOARDING_TITLE_CLASS}>{t('messages.completedTitle')}</h1>
         <p className={ONBOARDING_DESCRIPTION_CLASS}>{t('messages.completedDesc')}</p>
         <div className="mt-6 flex items-start gap-3 rounded-xl bg-muted/45 p-5">

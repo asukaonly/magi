@@ -758,7 +758,7 @@ export function LLMSetupStep({
                 ? { duration: 0 }
                 : { duration: 0.26, ease: PROVIDER_TRANSITION_EASE }
             }
-            className="w-full max-w-3xl space-y-4"
+            className="w-full min-w-0 space-y-4"
           >
             <div
               data-testid="llm-setup-provider-summary"

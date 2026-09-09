@@ -488,7 +488,7 @@ export function FirstContextStep({
             ease: [0.22, 1, 0.36, 1],
           }}
           data-testid="first-context-route-content"
-          className={`mb-auto mt-0 flex w-full flex-col pb-2 ${route === "history" ? "max-w-none" : "max-w-3xl"}`}
+          className="mb-auto mt-0 flex w-full min-w-0 flex-col pb-2"
         >
           {route === "choose"
             ? renderRouteChooser()

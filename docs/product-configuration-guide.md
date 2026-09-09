@@ -137,11 +137,13 @@ After the welcome screen, onboarding uses one shared full-window frame: the
 progress rail, content inset, heading typography, and footer action positions
 stay consistent across device connection and center configuration. Step content
 starts at the top rather than moving vertically with its length. A shared
-maximum workspace width keeps headings and actions aligned on large screens;
-connection forms, model fields, short first-context routes, and completion copy
-use a narrower readable width aligned to that same left edge. Runtime-location
-choices, provider and persona pickers, persona previews, and history import use
-the full workspace.
+maximum workspace width keeps headings and actions aligned on large screens.
+The shared frame is the sole owner of step-content width: connection forms,
+model fields, runtime-location choices, provider and persona pickers, persona
+previews, all first-context routes, and completion panels fill that workspace.
+Nested form or panel containers must not impose a narrower maximum width that
+leaves an empty strip beside the content. Explanatory paragraphs may keep a
+readable line length within their full-width parent.
 Long forms scroll without displacing the footer, and preview conversations keep
 their own scrolling area. Completion uses the same footer for Enter Magi instead
 of introducing an action inside a separate card. The welcome screen remains a

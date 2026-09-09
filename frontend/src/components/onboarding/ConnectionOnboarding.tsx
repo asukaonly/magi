@@ -98,7 +98,7 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
           </fieldset>
           <p className="mt-5 text-xs leading-5 text-muted-foreground">{t('location.changeLater')}</p>
           {!profiles && !error ? <p role="status" className="mt-4 text-sm text-muted-foreground">{appT('common.loading')}</p> : null}
-        </> : <div className="max-w-xl space-y-6">
+        </> : <div className="w-full min-w-0 space-y-6">
           {profiles?.state.profiles.some((profile) => profile.mode === 'remote') ? <section className="space-y-3" aria-label={t('location.savedCenters')}>
             <h2 className="text-sm font-semibold">{t('location.savedCenters')}</h2>
             {profiles.state.profiles.filter((profile) => profile.mode === 'remote').map((profile) => <div key={profile.id} className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
