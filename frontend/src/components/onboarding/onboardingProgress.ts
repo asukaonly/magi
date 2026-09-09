@@ -217,7 +217,7 @@ function createInitialProgress(
 ): OnboardingProgressState {
   return {
     version: ONBOARDING_PROGRESS_VERSION,
-    current: 0,
+    current: LLM_SETUP_STEP,
     values: initialConfig,
     seedSlug: null,
     customPersonas: [],
@@ -248,8 +248,8 @@ export function restoreOnboardingProgress(
     }
     const recoveredStep =
       typeof parsed.current === "number"
-        ? Math.max(0, Math.min(COMPLETE_STEP, parsed.current))
-        : 0;
+        ? Math.max(LLM_SETUP_STEP, Math.min(COMPLETE_STEP, parsed.current))
+        : LLM_SETUP_STEP;
     const persistedPreferences = (
       parsed.values as Partial<SystemConfig>
     ).preferences;

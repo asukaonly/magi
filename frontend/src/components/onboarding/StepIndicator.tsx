@@ -12,7 +12,7 @@ export const StepIndicator: React.FC<StepIndicatorProps> = ({ steps, current }) 
   const shouldReduceMotion = useReducedMotion();
 
   return (
-    <ol className="grid min-w-max grid-cols-4 gap-1 lg:min-w-0 lg:grid-cols-1 lg:gap-1.5">
+    <ol className="grid min-w-max grid-flow-col auto-cols-max gap-1 lg:min-w-0 lg:grid-flow-row lg:auto-cols-auto lg:grid-cols-1 lg:gap-1.5">
       {steps.map((title, index) => {
         const done = index < current;
         const active = index === current;

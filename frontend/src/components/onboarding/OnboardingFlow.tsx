@@ -33,7 +33,9 @@ import {
   type InstallableItem,
 } from "../../api/modules/systemSuggestions";
 import GuidedConfigFrame from "../config-forms/GuidedConfigFrame";
-import WelcomeScreen from "./WelcomeScreen";
+import { ConnectionOnboarding } from "./ConnectionOnboarding";
+import { OnboardingLanguageSelector } from "./OnboardingLanguageSelector";
+import { getRuntimeConfig } from "@/runtime/config";
 import StepIndicator from "./StepIndicator";
 import CompletionScreen from "./CompletionScreen";
 import FirstContextStep from "./FirstContextStep";
@@ -135,6 +137,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     firstContextProgress,
   } = onboardingProgress;
   const [saving, setSaving] = useState(false);
+  const [choosingLocation, setChoosingLocation] = useState(false);
   const onboardingRevisionRef = useRef(initialConfig.revision);
   const draftWriteInFlightRef = useRef(false);
   const [writeIssue, setWriteIssue] = useState<'conflict' | 'unconfirmed' | null>(null);
@@ -250,10 +253,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     onboardingProgress.values.preferences?.language,
   ]);
 
-  // Linear sequence: Welcome → LLM Setup → Persona Preview → First Context → Complete
+  // Runtime location is selected before the center-owned configuration steps.
   const steps = useMemo(
     () => [
-      t("steps.welcome"),
+      t("steps.location"),
       t("steps.llmSetup"),
       t("steps.personaPreview"),
       t("steps.firstContext"),
@@ -261,7 +264,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     ],
     [t],
   );
-  const guidedSteps = steps.slice(LLM_SETUP_STEP);
 
   const isLastStep = current === steps.length - 1;
   const onboardingLanguage = renderLanguage.startsWith("zh") ? "zh" : "en";
@@ -269,7 +271,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     ...onboardingProgressRef.current.values,
     preferences: {
       ...onboardingProgressRef.current.values.preferences,
-      language: onboardingLanguage,
+      language: normalizeLanguageCode(onboardingProgressRef.current.values.preferences.language),
     },
   });
 
@@ -660,8 +662,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const firstContextStorySubmitting = firstContextSubmission.submitting;
   const firstContextStoryError = firstContextSubmission.error;
 
-  /** Handle language change from welcome screen. */
-  const handleWelcomeLanguageChange = (lang: "zh" | "en") => {
+  /** Keep device language available throughout setup. */
+  const handleLanguageChange = (lang: "zh" | "en") => {
     const values = readConfig();
     saveProgress({ ...values, preferences: { ...values.preferences, language: lang } });
     localStorage.setItem("magi_language", lang);
@@ -721,6 +723,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   };
 
   const handlePrev = () => {
+    if (current === LLM_SETUP_STEP) {
+      setChoosingLocation(true);
+      return;
+    }
     if (
       current === FIRST_CONTEXT_STEP &&
       firstContextProgress.route !== "choose"
@@ -728,7 +734,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       firstContextSubmission.changeRoute("choose");
       return;
     }
-    const prev = Math.max(0, current - 1);
+    const prev = Math.max(LLM_SETUP_STEP, current - 1);
     saveProgress(readConfig(), seedSlug, customPersonas, prev);
   };
 
@@ -958,30 +964,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     return null;
   };
 
-  // Step 0: full-screen welcome
-  if (current === 0) {
-    const currentLang =
-      readConfig().preferences.language ||
-      (onboardingProgress.values.preferences?.language as "zh" | "en") ||
-      "zh";
-
-    return (
-      <>
-        <WelcomeScreen
-          language={currentLang}
-          onLanguageChange={handleWelcomeLanguageChange}
-          onContinue={() => {
-            saveProgress(
-              readConfig(),
-              seedSlug,
-              customPersonas,
-              LLM_SETUP_STEP,
-              firstContextPluginIds,
-            );
-          }}
-        />
-      </>
-    );
+  if (choosingLocation) {
+    return <ConnectionOnboarding
+      initialStep="location"
+      initialLocation={getRuntimeConfig().mode ?? 'local'}
+      onBack={() => setChoosingLocation(false)}
+      onUseActive={() => setChoosingLocation(false)}
+      onLanguageChange={handleLanguageChange}
+    />;
   }
 
   // Guided phase: step-by-step config
@@ -1006,10 +996,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
               </div>
               <div className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:justify-center">
                 <StepIndicator
-                  steps={guidedSteps}
-                  current={current - LLM_SETUP_STEP}
+                  steps={steps}
+                  current={current}
                 />
               </div>
+              <div className="hidden px-1 lg:block"><OnboardingLanguageSelector language={onboardingLanguage} onChange={handleLanguageChange} disabled={saving || llmConnectionTestState.loading || personaConfirming || finishingRuntime || firstContextStorySubmitting} /></div>
             </div>
           }
           footer={
@@ -1073,7 +1064,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             <AnimatePresence mode="wait">
               <motion.div
                 className="flex h-full min-h-0 flex-1 flex-col"
-                key={`${renderLanguage}-${current}`}
+                key={current}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={shouldReduceMotion ? undefined : { opacity: 0, x: -12 }}

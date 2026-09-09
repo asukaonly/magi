@@ -108,13 +108,32 @@ Safety and configuration ownership rules:
   draft and offer explicit reload without resubmitting it. All configuration
   save receipts are captured under the persistence lock before runtime refresh.
 
-The current first-run path is intentionally single-lane and progressive. It should
-reduce friction for first-time users while leaving the full configuration surface
-available in Settings after onboarding.
+First use begins with a device-owned welcome screen, followed by “Where would you
+like Magi to run?” in the same guided layout. Both screens are available before
+starting a local service or accessing center configuration. The welcome action
+reveals two choices; it does not start the local runtime implicitly:
+
+- **This computer** activates the local profile, then continues with model,
+  persona, and first-context setup when that center is incomplete.
+- **Connect to an existing center** reveals the address and pairing form, or a
+  saved center. After connection, a successfully loaded center onboarding status
+  decides whether to open the app or continue configuration. An unavailable status
+  is an error, never a reason to create fresh configuration.
+
+Existing active profiles reconnect without repeating the device welcome. Center
+configuration starts at model setup and marks runtime location as complete, so
+the connection handoff never displays a second welcome. Model setup can return to
+location selection and resume the same active center without a reload or losing
+its draft. Switching to another center reloads into that center's own state.
+Remote form values survive Previous/Next navigation in memory; pairing codes are
+never saved in browser storage. Pairing is owned by one pending action, with
+navigation disabled until it settles. Saved-center management remains available
+from the application shell and startup recovery can return directly to location
+selection.
 
 It focuses on:
 
-- language selection through the welcome screen
+- device language selection through the welcome screen and guided setup
 - a first-run LLM setup surface that asks for one provider, an API key when the provider requires one, and only the minimal endpoint/model fields needed for OpenAI-compatible relays; local or private OpenAI-compatible custom endpoints may be configured without authentication
 - model setup must verify the selected chat model before advancing; a successful manual verification is reused while the provider, API key, endpoint, billing plan, API format, and primary model remain unchanged, and any change to those connection settings requires verification again
 - AI persona selection or lightweight persona creation

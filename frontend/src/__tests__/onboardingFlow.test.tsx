@@ -57,6 +57,13 @@ vi.mock("react-router", () => ({
   useNavigate: () => navigateMock,
 }));
 
+vi.mock('@/runtime/connections', () => ({
+  listConnectionProfiles: vi.fn().mockResolvedValue({ supports_remote: true, state: { active_profile_id: 'local', profiles: [{ id: 'local', mode: 'local' }] } }),
+  activateConnection: vi.fn().mockResolvedValue(undefined),
+  pairCenter: vi.fn(),
+  forgetConnection: vi.fn(),
+}));
+
 // Mock the streaming preview so persona chat does not hit the network.
 vi.mock("@/api/modules/chatPreview", () => ({
   streamChatPreview: (...args: unknown[]) => streamChatPreviewMock(...args),
@@ -297,7 +304,6 @@ const generatedPersonaConfig = () => ({
 async function enterPersonaStep(
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> {
-  await user.click(screen.getByRole("button", { name: /welcome\.getStarted/ }));
   await user.click(await screen.findByTestId("llm-setup-provider-openai"));
   await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
   const nextButton = screen.getByRole("button", { name: "actions.next" });
@@ -522,18 +528,18 @@ describe("OnboardingFlow (linear 5-step)", () => {
     usePluginInstallPanelStore.getState().closePanel();
   });
 
-  it("renders the welcome entrypoint with no mode cards", () => {
+  it("starts the connected center at model setup without repeating welcome", () => {
     localStorageMock.getItem.mockReturnValue(null);
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    expect(screen.getByText("welcome.brand")).toBeInTheDocument();
-    expect(screen.getByText("welcome.title")).toBeInTheDocument();
+    expect(screen.queryByText("welcome.title")).not.toBeInTheDocument();
     expect(screen.queryByText("welcome.subtitleLine1")).not.toBeInTheDocument();
     expect(screen.queryByText("welcome.subtitleLine2")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /welcome\.getStarted/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'steps.llmSetup' })).toBeInTheDocument();
     // Mode cards no longer exist anywhere in the flow.
     expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();
     expect(screen.queryByText(/welcome\.expertMode/)).not.toBeInTheDocument();
@@ -543,15 +549,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeNull();
   });
 
-  it("starts guided progress at model setup without counting welcome", async () => {
-    const user = userEvent.setup();
+  it("marks runtime location complete before model setup", async () => {
     localStorageMock.getItem.mockReturnValue(null);
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
 
     // 步骤名同时出现在 display 标题和 rail 里,rail 项是 <li>。
     const modelStep = (await screen.findAllByText("steps.llmSetup")).find(
@@ -559,8 +561,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
     expect(modelStep?.closest("li")).toHaveAttribute("aria-current", "step");
     expect(screen.queryByText("steps.welcome")).not.toBeInTheDocument();
-    expect(screen.getByText("01")).toBeInTheDocument();
-    expect(screen.getByText("04")).toBeInTheDocument();
+    expect(screen.getByText('steps.location').closest('li')).not.toHaveAttribute('aria-current');
+    expect(screen.getByText("02")).toBeInTheDocument();
+    expect(screen.getByText("05")).toBeInTheDocument();
 
     const nextButton = screen.getByRole("button", { name: /actions\.next/ });
     expect(nextButton).toBeDisabled();
@@ -619,13 +622,25 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
   });
 
+  it('keeps the model draft when returning through runtime location selection', async () => {
+    const user = userEvent.setup();
+    render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: 'a'.repeat(64) }} />);
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'unsaved-model-key');
+    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+    expect(screen.getByRole('heading', { name: 'location.title' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    expect(await screen.findByTestId('llm-setup-api-key')).toHaveValue('unsaved-model-key');
+    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+  });
+
   it("keeps a conflicting model draft and stops automatic progress", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     vi.mocked(configApi.updateOnboardingDraft).mockRejectedValueOnce({ status: 409 });
     const initial = { ...DEFAULT_SYSTEM_CONFIG, revision: 'a'.repeat(64) };
     const view = render(<OnboardingFlow initialConfig={initial} />);
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
     await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     await user.type(screen.getByTestId('llm-setup-api-key'), 'private-draft');
     await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
@@ -639,7 +654,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
-  it("walks through welcome → LLM setup → persona preview → first context → completion and persists seed_slug on save", async () => {
+  it("walks through LLM setup → persona preview → first context → completion and persists seed_slug on save", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
@@ -652,10 +667,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    // Step 0: Welcome → Get Started
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
 
     // Step 1: LLM setup — choose a flat provider card and paste the key.
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
@@ -1454,9 +1465,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -1482,7 +1490,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the welcome language for persona previews and final persona setup", async () => {
+  it("uses the selected device language for persona previews and final persona setup", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
@@ -1501,9 +1509,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: "EN" }));
     await waitFor(() =>
       expect(personasApi.seedPreviews).toHaveBeenCalledWith("en"),
-    );
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
     );
 
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
@@ -1545,9 +1550,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-custom"));
     await user.type(
       screen.getByTestId("llm-setup-base-url"),
@@ -1581,9 +1583,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
@@ -1612,9 +1611,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-glm"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
     await user.click(
@@ -1688,9 +1684,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-glm"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
     await user.click(
@@ -1747,9 +1740,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     const keyInput = screen.getByTestId("llm-setup-api-key");
     await user.type(keyInput, "sk-first");
@@ -1779,9 +1769,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
@@ -1815,9 +1802,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
@@ -1871,9 +1855,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "bad-key");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -1936,9 +1917,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
     initialConfig.llm.selections.auxiliary.model = "local-model";
 
     render(<OnboardingFlow initialConfig={initialConfig} />);
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     const keyInput = await screen.findByTestId("llm-setup-api-key");
     await user.clear(keyInput);
     const baseUrlInput = screen.getByTestId("llm-setup-base-url");
@@ -1996,9 +1974,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     const nextBtn = screen.getByRole("button", { name: "actions.next" });
@@ -2032,9 +2007,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     const nextBtn = screen.getByRole("button", { name: "actions.next" });
@@ -2121,9 +2093,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
       </StrictMode>,
     );
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2157,9 +2126,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(screen.getByRole("button", { name: "actions.next" }));
@@ -2184,9 +2150,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
 
     await user.click(await screen.findByTestId("llm-setup-provider-anthropic"));
 
@@ -2201,9 +2164,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-anthropic"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await waitFor(() =>
@@ -2253,9 +2213,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     const nextBtn = screen.getByRole("button", { name: "actions.next" });
@@ -2471,9 +2428,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     const nextBtn = screen.getByRole("button", { name: "actions.next" });
@@ -2737,9 +2691,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: "a".repeat(64) }} />);
 
-    await user.click(
-      screen.getByRole("button", { name: /welcome\.getStarted/ }),
-    );
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     const nextBtn = screen.getByRole("button", { name: "actions.next" });

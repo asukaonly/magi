@@ -7,7 +7,7 @@
     "badge": "Takes about 2 minutes"
   },
   "steps": {
-    "welcome": "Welcome",
+    "location": "Run location",
     "llmSetup": "LLM Setup",
     "personaPreview": "Choose a persona",
     "firstContext": "First context",
@@ -68,6 +68,25 @@
     "brand": "Magi",
     "title": "Turning Time Into Context",
     "getStarted": "Start Setup"
+  },
+  "location": {
+    "title": "Where would you like Magi to run?",
+    "description": "Choose where your conversations, memories, and tasks are stored and run.",
+    "local": {
+      "title": "This computer",
+      "description": "Run Magi on this computer and keep your data here.",
+      "hint": "New to Magi? Start here, then set up your model and persona."
+    },
+    "remote": {
+      "title": "Connect to an existing center",
+      "description": "Connect to Magi on another computer and use its conversations, memories, and tasks.",
+      "hint": "You need a running center, its address, and a pairing code."
+    },
+    "changeLater": "You can switch in Connections later. Each location keeps its own data.",
+    "connectStep": "Connect center",
+    "remoteTitle": "Connect to your Magi center",
+    "remoteIntro": "A configured center opens the app directly. A new center continues setup.",
+    "savedCenters": "Saved centers"
   },
   "scenario": {
     "title": "Choose Your Use Case",

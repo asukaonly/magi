@@ -7,7 +7,7 @@
     "badge": "约 2 分钟完成配置"
   },
   "steps": {
-    "welcome": "欢迎",
+    "location": "运行位置",
     "llmSetup": "配置模型",
     "personaPreview": "选择人格",
     "firstContext": "首次上下文",
@@ -68,6 +68,25 @@
     "brand": "Magi",
     "title": "让时间沉淀为上下文",
     "getStarted": "开始配置"
+  },
+  "location": {
+    "title": "你想在哪里运行 Magi？",
+    "description": "选择对话、记忆和任务的保存与运行位置。",
+    "local": {
+      "title": "这台电脑",
+      "description": "在这台电脑运行 Magi，数据也保存在这里。",
+      "hint": "首次使用，从这里开始。接下来配置模型和人格。"
+    },
+    "remote": {
+      "title": "连接已有中心",
+      "description": "连接另一台电脑上的 Magi，使用那里已有的对话、记忆和任务。",
+      "hint": "需要一个已启动的中心、连接地址和配对码。"
+    },
+    "changeLater": "以后可以在连接管理中切换。不同运行位置的数据各自保存。",
+    "connectStep": "连接中心",
+    "remoteTitle": "连接你的 Magi 中心",
+    "remoteIntro": "已完成配置的中心会直接进入应用；尚未配置的中心会继续引导。",
+    "savedCenters": "已保存的中心"
   },
   "scenario": {
     "title": "选择使用场景",

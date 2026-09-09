@@ -5,6 +5,7 @@ import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import magiMark from '@/assets/magi-mark.png';
 import { ONBOARDING_PRIMARY_ACTION_CLASS } from './onboardingStyles';
+import { OnboardingLanguageSelector } from './OnboardingLanguageSelector';
 
 type LanguageCode = 'zh' | 'en';
 
@@ -13,11 +14,6 @@ interface WelcomeScreenProps {
   onLanguageChange: (lang: LanguageCode) => void;
   onContinue: () => void;
 }
-
-const languages: { value: LanguageCode; label: string }[] = [
-  { value: 'zh', label: '中文' },
-  { value: 'en', label: 'EN' },
-];
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   language,
@@ -83,24 +79,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       {/* Language toggle - bottom left */}
       <div className="absolute bottom-6 left-6 z-10">
-        <div className="flex items-center gap-1">
-          {languages.map((lang) => (
-            <button
-              key={lang.value}
-              type="button"
-              onClick={() => onLanguageChange(lang.value)}
-              aria-pressed={language === lang.value}
-              className={cn(
-                'relative flex h-11 min-w-12 items-center justify-center px-2 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-                language === lang.value
-                  ? 'text-primary after:absolute after:bottom-1.5 after:left-2 after:right-2 after:h-px after:bg-primary/55'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              {lang.label}
-            </button>
-          ))}
-        </div>
+        <OnboardingLanguageSelector language={language} onChange={onLanguageChange} />
       </div>
     </div>
   );

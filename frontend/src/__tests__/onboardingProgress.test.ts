@@ -83,7 +83,7 @@ describe("onboarding progress restoration", () => {
     expect(restored).toEqual(
       expect.objectContaining({
         version: 1,
-        current: 0,
+        current: 1,
         seedSlug: null,
         customPersonas: [],
         personaPreviewRoute: "picker",
@@ -104,7 +104,7 @@ describe("onboarding progress restoration", () => {
       null,
     );
 
-    expect(restored.current).toBe(0);
+    expect(restored.current).toBe(1);
     expect(restored.seedSlug).toBeNull();
   });
 

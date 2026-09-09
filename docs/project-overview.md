@@ -212,6 +212,12 @@ Magi has a desktop client and a Tauri-independent service:
 - Remote desktop: Tauri + React, connected to an independently managed center over HTTPS.
 - Service: Rust Axum gateway + supervised Python IPC worker, identical in both deployments.
 
+Without an active connection profile, desktop bootstrap shows the onboarding
+welcome and runtime-location choice before starting any local service. Selecting
+this computer activates local startup; selecting an existing center reveals its
+pairing flow. Once connected, persisted center onboarding status determines
+whether to enter the application or continue model setup, without another welcome.
+
 `prepare-service-bundle.mjs` stages the shared executable, Python worker, SDK and
 plugin Python under `build/service/`. Desktop builds copy this complete bundle
 to `frontend/src-tauri/server-dist/`; packaged startup has no source-tree fallback.

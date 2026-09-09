@@ -4,7 +4,7 @@ import { readDevicePreferences } from './runtime/device-preferences';
 import { APP_EVENTS } from './constants/events';
 import { setCenterStorageScope } from './runtime/center-storage';
 import { recoverPendingCenterMaintenance } from './hooks/clearAllMemory';
-import { ConnectionPicker } from './components/connections/ConnectionPicker';
+import { ConnectionOnboarding } from './components/onboarding/ConnectionOnboarding';
 import { listConnectionProfiles } from './runtime/connections';
 /**
  * Application entry point.
@@ -40,7 +40,7 @@ initializeTheme();
 const RuntimeBootstrap: React.FC = () => {
   const { t } = useTranslation('app');
   const [ready, setReady] = useState(false);
-  const [choosingConnection, setChoosingConnection] = useState(false);
+  const [connectionEntry, setConnectionEntry] = useState<'welcome' | 'location' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
@@ -96,7 +96,8 @@ const RuntimeBootstrap: React.FC = () => {
     try {
       const profiles = await listConnectionProfiles();
       if (!current()) return;
-      if (!profiles.state.active_profile_id) { setChoosingConnection(true); return; }
+      if (!profiles.state.active_profile_id) { setConnectionEntry('welcome'); return; }
+      setConnectionEntry(null);
       const runtime = await initializeRuntime((p) => { if (current()) setPhase(p); });
       if (!current()) return;
       if (!runtime.serverId || !runtime.contentEpoch) throw new Error('Center identity is missing');
@@ -185,7 +186,7 @@ const RuntimeBootstrap: React.FC = () => {
     }
   }, [diagnostics?.logExcerpt, error]);
 
-  if (choosingConnection) return <PreAppWindowFrame><section className="mx-auto my-10 w-full max-w-xl rounded-md border border-border bg-card p-6"><h1 className="mb-4 text-xl font-semibold">{t('connections.choose')}</h1><ConnectionPicker /></section></PreAppWindowFrame>;
+  if (connectionEntry) return <PreAppWindowFrame><ConnectionOnboarding initialStep={connectionEntry} onBack={error ? () => setConnectionEntry(null) : undefined} /></PreAppWindowFrame>;
 
   if (ready) {
     return <CenterMaintenanceBoundary gate={fullDataClearGate} onRetry={() => {
@@ -202,7 +203,7 @@ const RuntimeBootstrap: React.FC = () => {
       <PreAppWindowFrame>
         <div className="flex min-h-full items-center justify-center px-4 py-8 text-foreground">
           <section className="w-full max-w-4xl rounded-md border border-border bg-card p-6 text-left shadow-sm">
-            <Button className="mb-4" variant="outline" onClick={() => setChoosingConnection(true)}>{t('connections.change')}</Button>
+            <Button className="mb-4" variant="outline" onClick={() => setConnectionEntry('location')}>{t('connections.change')}</Button>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-2">
                 <h1 className="text-xl font-semibold">

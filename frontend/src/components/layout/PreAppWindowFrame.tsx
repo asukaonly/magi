@@ -7,6 +7,6 @@ import { DesktopTitleBar } from './DesktopTitleBar';
 export const PreAppWindowFrame = ({ children }: { children: ReactNode }) => (
   <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
     <DesktopTitleBar />
-    <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+    <div className="relative min-h-0 flex-1 overflow-auto">{children}</div>
   </div>
 );
