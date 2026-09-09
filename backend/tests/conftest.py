@@ -32,11 +32,11 @@ from magi.utils.runtime import RuntimePaths
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_runtime_paths(monkeypatch, tmp_path):
+def _hermetic_runtime_paths(monkeypatch, tmp_path_factory):
     """Keep all implicit runtime paths away from the developer's installation."""
     import magi.utils.runtime as runtime
 
-    root = tmp_path / "runtime-home"
+    root = tmp_path_factory.mktemp("runtime-home")
     monkeypatch.setenv("MAGI_HOME", str(root))
     monkeypatch.setattr(runtime, "_runtime_paths", RuntimePaths(base_dir=root))
 

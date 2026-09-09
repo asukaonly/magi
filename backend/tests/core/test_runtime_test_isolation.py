@@ -7,7 +7,9 @@ from magi.utils.runtime import RuntimePaths, get_runtime_paths
 
 
 def test_implicit_host_paths_are_scoped_to_the_current_test(tmp_path):
-    assert get_magi_home() == tmp_path / "runtime-home"
-    assert get_runtime_paths().base_dir == tmp_path / "runtime-home"
-    assert RuntimePaths().base_dir == tmp_path / "runtime-home"
+    root = get_magi_home()
+    assert root.is_relative_to(tmp_path.parent)
+    assert root.name.startswith("runtime-home")
+    assert get_runtime_paths().base_dir == root
+    assert RuntimePaths().base_dir == root
     assert get_config_file().is_relative_to(tmp_path)
