@@ -42,6 +42,7 @@ let initialized = false;
 let generation = 0;
 let initializing: Promise<RuntimeConfig> | undefined;
 let renewing: Promise<string | undefined> | undefined;
+let renewalFailure: { until: number; error: unknown } | undefined;
 const resetListeners = new Set<() => void>();
 const reconnectListeners = new Set<() => void>();
 
@@ -124,6 +125,7 @@ export function ensureRuntimeSession(owner = generation): Promise<string | undef
     return Promise.resolve(runtimeConfig.sessionToken);
   }
   if (renewing) return renewing;
+  if (renewalFailure && Date.now() < renewalFailure.until) return Promise.reject(renewalFailure.error);
   const profileId = runtimeConfig.profileId;
   const serverId = runtimeConfig.serverId;
   const pending = invoke<unknown>('renew_center_session', { profileId }).then((raw) => {
@@ -131,10 +133,24 @@ export function ensureRuntimeSession(owner = generation): Promise<string | undef
     const session = sessionSchema.parse(raw);
     if (session.server_id !== serverId || session.expires_at_ms <= Date.now()) throw new Error('Center session identity or expiry is invalid');
     runtimeConfig = { ...runtimeConfig, sessionToken: session.access_token, expiresAtMs: session.expires_at_ms };
+    renewalFailure = undefined;
     return session.access_token;
+  }).catch((error: unknown) => {
+    if (owner === generation) renewalFailure = { until: Date.now() + 5_000, error };
+    throw error;
   }).finally(() => { if (owner === generation) renewing = undefined; });
   renewing = pending;
   return pending;
+}
+
+/** An old 401 must not invalidate a newer session or another connection. */
+export function recoverRuntimeSession(rejectedToken: string | undefined, owner: number): Promise<string | undefined> {
+  assertRuntimeGeneration(owner);
+  if (runtimeConfig.mode !== 'remote') return Promise.resolve(undefined);
+  if (rejectedToken === runtimeConfig.sessionToken) {
+    runtimeConfig = { ...runtimeConfig, expiresAtMs: 0 };
+  }
+  return ensureRuntimeSession(owner);
 }
 
 export function resetRuntimeInitialization(): void {
@@ -142,6 +158,7 @@ export function resetRuntimeInitialization(): void {
   initialized = false;
   initializing = undefined;
   renewing = undefined;
+  renewalFailure = undefined;
   runtimeConfig = { isDesktop: true, apiBaseUrl: 'http://127.0.0.1:8000/api' };
   resetListeners.forEach((listener) => listener());
 }

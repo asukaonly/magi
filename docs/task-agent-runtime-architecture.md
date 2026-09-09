@@ -1248,7 +1248,14 @@ plugins and command registration; `connections/runtime.rs` owns active connectio
 state, readiness probes, profile switches and session renewal. Its Tauri commands
 are `connect_active_profile`, `poll_connection_startup`, `disconnect_service` and
 `read_connection_startup_diagnostics`. A remote disconnect releases client state
-without stopping the remote service. Downloads use generation-bound snapshots
+without stopping the remote service. A gateway `client_auth_required` response
+invalidates only the rejected short-lived session, even before its recorded
+expiry. Renewal is shared across concurrent requests, validates server identity,
+and cannot cross connection generations. Failed renewal is throttled for five
+seconds. Axios and streaming fetch retry authenticated GET/HEAD once after
+renewal; writes and uncertain network failures are never automatically replayed.
+Provider authentication errors do not trigger gateway session renewal.
+Downloads use generation-bound snapshots
 instead of accessing the connection mutex directly.
 
 `service_host.rs` launches the same `magi-server`

@@ -3,7 +3,7 @@
  */
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { getRuntimeConfig, getRuntimeGeneration, ensureRuntimeSession, subscribeRuntimeReset } from '@/runtime/config';
+import { getRuntimeConfig, getRuntimeGeneration, ensureRuntimeSession, recoverRuntimeSession, subscribeRuntimeReset } from '@/runtime/config';
 import { registerKnownLogSecrets } from '@/runtime/log-redaction';
 import { useBackendHealthStore } from '@/stores/backend-health';
 import { resolveInitialLanguage } from '@/utils/language';
@@ -72,6 +72,15 @@ async function sessionForScope(scope: ApiScope): Promise<string | undefined> {
   return token ?? scope.token;
 }
 subscribeRuntimeReset(() => { apiScope.abort.abort(); });
+
+function isSessionRejection(status: number | undefined, data: unknown): boolean {
+  return status === 401 && typeof data === 'object' && data !== null
+    && 'error_code' in data && data.error_code === 'client_auth_required';
+}
+
+function isReadRequest(method: string): boolean {
+  return ['GET', 'HEAD'].includes(method.toUpperCase());
+}
 
 const AXIOS_CONFIG_KEYS = new Set([
   'adapter',
@@ -312,7 +321,22 @@ const createApiClient = (): AxiosInstance => {
           request.headers.delete('X-Magi-Session-Token');
           if (token) request.headers.set('X-Magi-Session-Token', token);
           registerKnownLogSecrets({ headers: request.headers });
-          const response = await adapter(request);
+          let response: AxiosResponse;
+          try {
+            response = await adapter(request);
+          } catch (error: unknown) {
+            if (!axios.isAxiosError<unknown>(error)
+              || !isSessionRejection(error.response?.status, error.response?.data)) throw error;
+            assertScope(scope);
+            const refreshed = await recoverRuntimeSession(token, scope.owner);
+            assertScope(scope);
+            if (!refreshed || !isReadRequest(request.method ?? 'GET')) throw error;
+            if (abort.signal.aborted) throw new axios.CanceledError('Request cancelled');
+            request.headers.set('X-Magi-Session-Token', refreshed);
+            registerKnownLogSecrets({ headers: request.headers });
+            // Retry an authenticated read once. Writes and uncertain network failures are never replayed.
+            response = await adapter(request);
+          }
           assertScope(scope);
           return response;
         } finally {
@@ -396,8 +420,23 @@ export async function authenticatedFetch(
   const sourceSignal = init.signal ?? (input instanceof Request ? input.signal : undefined);
   const signal = sourceSignal ? AbortSignal.any([scope.abort.signal, sourceSignal]) : scope.abort.signal;
   registerKnownLogSecrets({ body: init.body, headers: Object.fromEntries(headers.entries()) });
-  const response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
+  let response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
   assertScope(scope);
+  if (response.status === 401) {
+    const payload: unknown = await response.clone().json().catch(() => undefined);
+    if (isSessionRejection(response.status, payload)) {
+      const refreshed = await recoverRuntimeSession(token, scope.owner);
+      assertScope(scope);
+      const method = init.method ?? (input instanceof Request ? input.method : 'GET');
+      if (refreshed && isReadRequest(method)) {
+        await response.body?.cancel();
+        headers.set('X-Magi-Session-Token', refreshed);
+        registerKnownLogSecrets({ headers: Object.fromEntries(headers.entries()) });
+        response = await fetch(input, { ...init, headers, signal, redirect: 'error', credentials: 'omit' });
+        assertScope(scope);
+      }
+    }
+  }
   return response;
 }
 
