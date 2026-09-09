@@ -55,8 +55,6 @@ def _set_rhythm(monkeypatch, *, on: bool = True) -> None:
     def fake_get_user_preference(key, default=None):  # type: ignore[no-untyped-def]
         if key == "conversation_rhythm_enabled":
             return on
-        if key == "conversation_rhythm_mode":
-            return "natural" if on else "off"
         return default
 
     monkeypatch.setattr(renderer_module, "get_user_preference", fake_get_user_preference)

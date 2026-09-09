@@ -1608,7 +1608,7 @@
     "streamingChatLabel": "Streaming output",
     "streamingChatDesc": "When enabled, messages appear word by word. When disabled, the full reply is shown at once.",
     "conversationRhythmLabel": "Natural reply rhythm",
-    "conversationRhythmDesc": "When enabled, longer non-streaming replies may appear as several natural chat bubbles while preserving one canonical answer for memory and trace.",
+    "conversationRhythmDesc": "When enabled, conversational replies may appear as several natural messages while technical and structured content stays intact.",
     "mediaGroundingLabel": "Let the assistant view image attachments when needed",
     "mediaGroundingDesc": "When enabled, the assistant can read image attachments you already added to help understand the conversation. Images are only sent when the current primary model supports vision.",
     "mediaGroundingUnavailable": "The current primary model does not support vision, so this option stays unavailable until you switch to a vision-capable model.",

@@ -2885,11 +2885,6 @@
             "title": "Conversation Rhythm Enabled",
             "type": "boolean"
           },
-          "conversation_rhythm_mode": {
-            "default": "natural",
-            "title": "Conversation Rhythm Mode",
-            "type": "string"
-          },
           "default_chat_workspace_path": {
             "anyOf": [
               {
@@ -2972,7 +2967,6 @@
           "default_chat_workspace_path",
           "streaming_chat_enabled",
           "conversation_rhythm_enabled",
-          "conversation_rhythm_mode",
           "allow_media_grounding_for_conversation",
           "allow_interjection",
           "allow_ask_in_background"

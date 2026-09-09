@@ -1379,7 +1379,6 @@ describe('settings page draft saving', () => {
         preferences: {
           ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
           conversation_rhythm_enabled: true,
-          conversation_rhythm_mode: 'natural',
         },
       },
     } as any);
@@ -1401,7 +1400,6 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           preferences: expect.objectContaining({
             conversation_rhythm_enabled: false,
-            conversation_rhythm_mode: 'off',
           }),
         })
       )
@@ -1417,7 +1415,6 @@ describe('settings page draft saving', () => {
         preferences: {
           ...structuredClone(DEFAULT_SYSTEM_CONFIG.preferences),
           conversation_rhythm_enabled: false,
-          conversation_rhythm_mode: 'natural',
         },
       },
     } as any);

@@ -19,6 +19,8 @@ afterthought when the answer naturally supports that shape.
   multiple independent assistant turns.
 - Natural reply rhythm is a visible Conversation setting. It is not a hidden
   experiment flag.
+- The product exposes one rhythm switch. There are no dormant natural versus
+  expressive modes; persona-aware variation belongs to the main reply prompt.
 - Natural reply rhythm and token streaming are mutually exclusive. Enabling
   either setting disables the other, and backend execution enforces the same
   rule even if configuration is edited outside the Settings UI.

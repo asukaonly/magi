@@ -29,21 +29,7 @@ class RenderedPromptLayers:
 
 
 def _conversation_rhythm_enabled() -> bool:
-    enabled = get_user_preference("conversation_rhythm_enabled", True)
-    mode = (
-        str(get_user_preference("conversation_rhythm_mode", "natural") or "natural").strip().lower()
-    )
-    if mode == "off":
-        return False
-    if isinstance(enabled, bool):
-        return enabled and mode in {"natural", "expressive"}
-    if isinstance(enabled, str):
-        normalized = enabled.strip().lower()
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-        if normalized in {"1", "true", "yes", "on"}:
-            return mode in {"natural", "expressive"}
-    return mode in {"natural", "expressive"}
+    return bool(get_user_preference("conversation_rhythm_enabled", True))
 
 
 class PromptContextRenderer:
