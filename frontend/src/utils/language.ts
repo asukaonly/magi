@@ -38,4 +38,3 @@ export const resolveInitialLanguage = ({
 
 export const toI18nLanguage = (language: LanguageCode): 'en' | 'zh-CN' =>
   language === 'zh' ? 'zh-CN' : 'en';
-

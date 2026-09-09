@@ -1287,7 +1287,7 @@ async def test_update_nonprojected_fields_does_not_rewrite_memory(monkeypatch):
 
     result = await routes.update_manual_entry(
         "manual-1",
-        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision, 
+        routes.ManualEntryUpdateBody(expected_revision=store.entry.revision,
             user_pinned=True,
             body_doc={"type": "doc", "content": []},
         ),
