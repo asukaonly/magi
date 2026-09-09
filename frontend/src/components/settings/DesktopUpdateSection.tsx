@@ -13,24 +13,15 @@ import {
   restartToApplyUpdate,
 } from '@/runtime/updater';
 import { toast } from 'sonner';
+import { requestRuntimeReconnect } from '@/runtime/config';
 
-const POST_BACKEND_STOP_QUIESCE_MS = 600;
+const POST_DISCONNECT_QUIESCE_MS = 600;
 
-async function stopBackendBeforeInstall(): Promise<void> {
+async function disconnectBeforeInstall(): Promise<void> {
   await invoke('disconnect_service');
   // Give Windows a moment to release file handles on sidecar-dist binaries
   // before NSIS tries to overwrite them. Harmless on macOS/Linux.
-  await new Promise((resolve) => setTimeout(resolve, POST_BACKEND_STOP_QUIESCE_MS));
-}
-
-async function restartBackendAfterInstallFailure(): Promise<void> {
-  try {
-      await invoke('connect_active_profile');
-  } catch (error) {
-    console.warn('[updater] failed to restart backend after install failure', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  await new Promise((resolve) => setTimeout(resolve, POST_DISCONNECT_QUIESCE_MS));
 }
 
 function formatReleaseDate(value: string | undefined): string | null {
@@ -169,14 +160,14 @@ export function DesktopUpdateSection() {
     setContentLength(null);
 
     let downloadCompleted = false;
-    let backendStopped = false;
+    let disconnected = false;
 
     try {
       let totalDownloadedBytes = 0;
       let expectedContentLength: number | null = null;
       let lastLoggedProgressBucket = -1;
 
-      // 1) Download the installer while the backend is still serving the UI.
+      // 1) Download the installer while the service is still available to the UI.
       await availableUpdate.download((event) => {
         switch (event.event) {
           case 'Started':
@@ -221,14 +212,13 @@ export function DesktopUpdateSection() {
       });
       downloadCompleted = true;
 
-      // 2) Stop the Python sidecar before NSIS rewrites sidecar-dist binaries.
-      // On Windows the sidecar holds file locks on _internal\*.pyd; without
-      // this step the installer fails mid-extraction with a sharing violation.
-      console.info('[updater] stopping backend before install', {
+      // 2) Release this client's connection and its owned local service, if any.
+      // Local shutdown also releases the worker's file locks before installation.
+      console.info('[updater] disconnecting service before install', {
         targetVersion: availableUpdate.version,
       });
-      await stopBackendBeforeInstall();
-      backendStopped = true;
+      await disconnectBeforeInstall();
+      disconnected = true;
 
       // 3) Run the platform installer.
       await availableUpdate.install();
@@ -249,18 +239,15 @@ export function DesktopUpdateSection() {
         currentVersion,
         targetVersion: availableUpdate.version,
         downloadCompleted,
-        backendStopped,
+        disconnected,
         error: serializeUpdaterError(error),
       });
 
-      // If we stopped the backend but the installer didn't take over, bring it
-      // back so the UI isn't stranded without an API.
-      if (backendStopped) {
-        await restartBackendAfterInstallFailure();
-      }
-
       const message = error instanceof Error ? error.message : t('settings.errorUnknown');
       toast.error(t('settings.updates.installFailed', { message }));
+      // A new local service has a different address and session. Rebuild the
+      // entire client connection through the same owner as initial bootstrap.
+      if (disconnected) requestRuntimeReconnect();
     } finally {
       setInstalling(false);
     }

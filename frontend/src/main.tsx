@@ -20,7 +20,7 @@ import './i18n';
 import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
-import { initializeRuntime, readConnectionStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
+import { initializeRuntime, readConnectionStartupDiagnostics, resetRuntimeInitialization, subscribeRuntimeReconnect } from './runtime/config';
 import type { ConnectionStartupDiagnostics, StartupPhase } from './runtime/config';
 import { Button } from './components/ui/button';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, syncOnboardingCompleted, applyStartMinimized } from './runtime/desktop';
@@ -158,8 +158,9 @@ const RuntimeBootstrap: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const unsubscribe = subscribeRuntimeReconnect(() => { void bootstrap(); });
     void bootstrap();
-    return () => { bootstrapGeneration.current += 1; };
+    return () => { unsubscribe(); bootstrapGeneration.current += 1; };
   }, [bootstrap]);
 
   useEffect(() => {

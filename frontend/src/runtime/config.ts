@@ -43,6 +43,7 @@ let generation = 0;
 let initializing: Promise<RuntimeConfig> | undefined;
 let renewing: Promise<string | undefined> | undefined;
 const resetListeners = new Set<() => void>();
+const reconnectListeners = new Set<() => void>();
 
 export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
@@ -147,3 +148,14 @@ export function resetRuntimeInitialization(): void {
 export function getRuntimeConfig(): RuntimeConfig { return runtimeConfig; }
 
 export function setRuntimeEpochs(dataEpoch: string, contentEpoch: string): void { runtimeConfig = { ...runtimeConfig, dataEpoch, contentEpoch }; }
+
+/** The app bootstrap owns rebuilding API clients, event streams and mounted views. */
+export function subscribeRuntimeReconnect(listener: () => void): () => void {
+  reconnectListeners.add(listener);
+  return () => { reconnectListeners.delete(listener); };
+}
+
+export function requestRuntimeReconnect(): void {
+  resetRuntimeInitialization();
+  reconnectListeners.forEach((listener) => listener());
+}

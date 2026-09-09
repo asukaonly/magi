@@ -28,6 +28,7 @@ Current release expectations are:
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and shared Rust/Python service bundle exactly once before producing the desktop bundle
 - release jobs attach installers to a draft GitHub Release (`releaseDraft: true`); successful builds do not publish an unvalidated candidate or advance the public updater feed
 - desktop update packages are signed with the Tauri updater keypair, and release automation expects `TAURI_SIGNING_PRIVATE_KEY` plus the optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret in the `release` environment
+- if installation fails after the desktop disconnects its service, recovery goes through the app bootstrap to replace runtime credentials, API clients and event streams; remote services are never stopped by a desktop update
 - the desktop app checks the GitHub Release update feed through `latest.json`; prerelease visibility follows the release tag and updater configuration, startup runs a delayed background check, and packaged builds reuse the app-level network proxy for updater requests when configured
 - macOS signing and notarization should be supplied through repository secrets before shipping public releases to end users
 

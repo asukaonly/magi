@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
-import { ensureRuntimeSession, getRuntimeConfig, initializeRuntime, normalizeApiBaseUrl, readConnectionStartupDiagnostics, resetRuntimeInitialization } from '@/runtime/config';
+import { ensureRuntimeSession, getRuntimeConfig, initializeRuntime, normalizeApiBaseUrl, readConnectionStartupDiagnostics, resetRuntimeInitialization, requestRuntimeReconnect, subscribeRuntimeReconnect, subscribeRuntimeReset } from '@/runtime/config';
 
 const serverId = 'cde1b1d1-7f23-4b95-a5d4-04e84d209af0';
 const clientId = 'a0c4c092-b043-4767-a2a7-041ad6194b8c';
@@ -38,6 +38,32 @@ describe('center runtime bootstrap', () => {
     expect(result.localServicePid).toBeUndefined();
     expect(phases).toEqual(['connecting', 'connecting', 'ready']);
     expect(invokeMock.mock.calls.map(([command]) => command)).toEqual(['connect_active_profile', 'poll_connection_startup']);
+  });
+  it('retires the old connection before asking app bootstrap to reconnect', async () => {
+    invokeMock.mockImplementation(async (command) => command === 'connect_active_profile'
+      ? started() : { ready: true, phase: 'ready' });
+    await initializeRuntime();
+    const invalidated = vi.fn();
+    const unsubscribeReset = subscribeRuntimeReset(invalidated);
+    let reconnected: ReturnType<typeof initializeRuntime> | undefined;
+    const bootstrap = vi.fn(() => {
+      expect(invalidated).toHaveBeenCalledOnce();
+      expect(getRuntimeConfig().sessionToken).toBeUndefined();
+      reconnected = initializeRuntime();
+    });
+    const unsubscribe = subscribeRuntimeReconnect(bootstrap);
+    invokeMock.mockImplementation(async (command) => command === 'connect_active_profile'
+      ? started({ baseUrl: 'http://127.0.0.1:29080/api', sessionToken: 'b'.repeat(64), localServicePid: 456 })
+      : { ready: true, phase: 'ready' });
+    try {
+      requestRuntimeReconnect();
+      expect(bootstrap).toHaveBeenCalledOnce();
+      await expect(reconnected).resolves.toMatchObject({ apiBaseUrl: 'http://127.0.0.1:29080/api', sessionToken: 'b'.repeat(64), localServicePid: 456 });
+    } finally {
+      unsubscribe(); unsubscribeReset();
+    }
+    requestRuntimeReconnect();
+    expect(bootstrap).toHaveBeenCalledOnce();
   });
   it('rejects a remote address without HTTPS', async () => {
     invokeMock.mockResolvedValue(started({ mode: 'remote' }));
