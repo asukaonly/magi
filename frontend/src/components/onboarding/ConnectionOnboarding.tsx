@@ -83,13 +83,13 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{t(step === 'remote' ? 'location.remoteIntro' : 'location.description')}</p>
         </header>
         {step === 'location' ? <>
-          <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy || !profiles}>
+          <fieldset className="grid gap-4 sm:grid-cols-2 sm:gap-y-0" disabled={busy || !profiles}>
             <legend className="sr-only">{t('location.title')}</legend>
             {(['local', 'remote'] as const).map((value) => {
               const Icon = value === 'local' ? Laptop : Server;
               const unavailable = value === 'remote' && profiles?.supports_remote === false;
               return <label key={value} className={cn(
-                'relative flex cursor-pointer flex-col rounded-xl border p-6 transition-colors focus-within:ring-2 focus-within:ring-primary/30',
+                'relative flex cursor-pointer flex-col rounded-xl border p-6 transition-colors focus-within:ring-2 focus-within:ring-primary/30 sm:row-span-4 sm:grid sm:grid-rows-subgrid',
                 location === value ? 'border-primary/60 bg-card shadow-sm' : 'border-border bg-card/40 hover:border-foreground/25',
                 (busy || !profiles || unavailable) && 'cursor-default opacity-50',
               )}>

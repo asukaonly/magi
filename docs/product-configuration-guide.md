@@ -115,7 +115,7 @@ reveals two choices; it does not start the local runtime implicitly:
 
 - **This computer** activates the local profile, then continues with model,
   persona, and first-context setup when that center is incomplete.
-- **Connect to an existing center** reveals the address and pairing form, or a
+- **Connect to remote Magi** reveals the address and pairing form, or a
   saved center. After connection, a successfully loaded center onboarding status
   decides whether to open the app or continue configuration. An unavailable status
   is an error, never a reason to create fresh configuration.

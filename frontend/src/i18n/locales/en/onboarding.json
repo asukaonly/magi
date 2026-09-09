@@ -78,15 +78,15 @@
       "hint": "New to Magi? Start here, then set up your model and persona."
     },
     "remote": {
-      "title": "Connect to an existing center",
+      "title": "Connect to remote Magi",
       "description": "Connect to Magi on another computer and use its conversations, memories, and tasks.",
-      "hint": "You need a running center, its address, and a pairing code."
+      "hint": "Start Magi on the other computer, then get its address and a pairing code."
     },
     "changeLater": "You can switch in Connections later. Each location keeps its own data.",
-    "connectStep": "Connect center",
-    "remoteTitle": "Connect to your Magi center",
-    "remoteIntro": "A configured center opens the app directly. A new center continues setup.",
-    "savedCenters": "Saved centers"
+    "connectStep": "Connect Magi",
+    "remoteTitle": "Connect to remote Magi",
+    "remoteIntro": "Connect to use your existing setup. If setup is unfinished, the guide will continue.",
+    "savedCenters": "Saved connections"
   },
   "scenario": {
     "title": "Choose Your Use Case",

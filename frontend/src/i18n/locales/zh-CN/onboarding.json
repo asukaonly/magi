@@ -78,15 +78,15 @@
       "hint": "首次使用，从这里开始。接下来配置模型和人格。"
     },
     "remote": {
-      "title": "连接已有中心",
+      "title": "连接远程 Magi",
       "description": "连接另一台电脑上的 Magi，使用那里已有的对话、记忆和任务。",
-      "hint": "需要一个已启动的中心、连接地址和配对码。"
+      "hint": "先在另一台电脑启动 Magi，再准备连接地址和配对码。"
     },
     "changeLater": "以后可以在连接管理中切换。不同运行位置的数据各自保存。",
-    "connectStep": "连接中心",
-    "remoteTitle": "连接你的 Magi 中心",
-    "remoteIntro": "已完成配置的中心会直接进入应用；尚未配置的中心会继续引导。",
-    "savedCenters": "已保存的中心"
+    "connectStep": "连接 Magi",
+    "remoteTitle": "连接远程 Magi",
+    "remoteIntro": "连接后即可使用已有配置；如果还未配置，将继续完成引导。",
+    "savedCenters": "已保存的连接"
   },
   "scenario": {
     "title": "选择使用场景",
