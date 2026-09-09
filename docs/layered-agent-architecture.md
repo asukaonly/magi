@@ -479,6 +479,7 @@ Notes:
 
 - the Python process runs no public HTTP server; external traffic arrives through the Rust gateway and crosses into Python over IPC (Unix Domain Socket on Unix-like systems, loopback TCP on Windows)
 - `server/` is the CLI composition root; `crates/magi-server-runtime/` owns the gateway and worker lifetimes, instance leases, restarts, and center maintenance. Tauri starts this same service executable in local mode and starts no business runtime in remote mode
+- `crates/magi-service-contract/` owns launch configuration, bootstrap messages and the protocol version without pulling in runtime, HTTP or database libraries. The desktop may depend on this contract and `magi-platform`, but must not import service implementations. Durable center-clear markers belong to `magi-server-runtime`, not the platform library. `scripts/check-rust-boundaries.py` enforces the workspace dependency direction.
 - the Rust gateway owns pairing, revocable device authentication, exact WebView-origin checks, and short-lived access tickets for DOM-loaded private resources. The service stores credential hashes; the desktop keeps reusable credentials in its OS vault and short-lived sessions in memory
 - Python, plugins, and business layers must not receive, persist, log, or place gateway credentials in resource URLs
 - resource tickets are transport grants only; chat, timeline, and personality owners still decide whether the referenced resource exists, is active, and may be read

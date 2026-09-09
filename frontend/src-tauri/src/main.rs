@@ -10,7 +10,7 @@ mod external_url;
 mod service_host;
 
 use connections::{protocol::CenterClient, Profile};
-use magi_server_runtime::config::ServerConfig;
+use magi_service_contract::config::ServerConfig;
 use serde::Serialize;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};

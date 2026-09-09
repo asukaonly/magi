@@ -81,6 +81,10 @@ fn console_version_and_help_do_not_require_a_configuration() {
         .unwrap();
     assert!(version.status.success());
     assert!(String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")));
+    assert!(String::from_utf8_lossy(&version.stdout).contains(&format!(
+        "protocol {}",
+        magi_service_contract::SERVER_PROTOCOL_VERSION
+    )));
     let help = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .arg("--help")
         .output()

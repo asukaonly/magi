@@ -2,6 +2,7 @@
 resolver = "2"
 exclude = ["vendor/glib"]
 members = [
+    "crates/magi-service-contract",
     "crates/magi-platform",
     "crates/magi-server-runtime",
     "crates/magi-gateway",

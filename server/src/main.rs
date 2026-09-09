@@ -4,14 +4,8 @@ mod service_install;
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 
-use magi_server_runtime::{config::ServerConfig, supervisor};
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct DesktopBootstrap {
-    session_token: String,
-}
+use magi_server_runtime::supervisor;
+use magi_service_contract::{config::ServerConfig, DesktopBootstrap, SERVER_PROTOCOL_VERSION};
 
 fn main() {
     let mut output = None;
@@ -29,7 +23,10 @@ fn main() {
 fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), String> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args == ["--version"] {
-        println!("Magi Server {} (protocol 1)", env!("CARGO_PKG_VERSION"));
+        println!(
+            "Magi Server {} (protocol {SERVER_PROTOCOL_VERSION})",
+            env!("CARGO_PKG_VERSION")
+        );
         return Ok(());
     }
     if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {

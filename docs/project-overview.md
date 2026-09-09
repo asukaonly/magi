@@ -9,7 +9,7 @@ At a high level, Magi combines:
 - a backend runtime for bootstrap, agent execution, memory, tools, plugins, and scheduling
 - a Rust gateway (Axum) that owns HTTP transport, static reads, config I/O, and IPC dispatch to Python
 - a React frontend for onboarding, settings, chat, inspection, and operational workflows
-- a Tauri desktop shell that hosts the frontend, starts the Rust gateway, and manages the Python sidecar process
+- a Tauri desktop shell that hosts the frontend and manages connections; local mode launches the independent service, which owns the gateway and Python worker
 
 The project is optimized for local deployment and contributor control rather than cloud-first orchestration.
 
@@ -221,6 +221,23 @@ Magi has a desktop client and a Tauri-independent service:
 - Local desktop: Tauri + React, owning a `magi-server` child through a private stdin lifetime pipe.
 - Remote desktop: Tauri + React, connected to an independently managed center over HTTPS.
 - Service: Rust Axum gateway + supervised Python IPC worker, identical in both deployments.
+
+Rust workspace packages have distinct compilation and process boundaries:
+
+- `frontend/src-tauri` builds `magi-desktop`; `server` builds `magi-server`.
+- `magi-service-contract` owns service configuration, the private launch handshake,
+  and the server protocol version. It depends only on serialization libraries.
+- `magi-platform` owns native filesystem protection, with no service workflows.
+- `magi-server-runtime` composes the gateway and supervises Python; center clear
+  and restore lifecycle state belongs here, including durable clear markers.
+- `magi-gateway` owns HTTP/SSE, authentication, native SQLite access and Python IPC.
+
+The desktop depends on the shared contract and platform crates, never the service
+runtime, gateway or database libraries. The server entry uses the runtime and
+shared crates; its direct gateway dependency is test-only. Libraries do not create
+additional processes. `scripts/check-rust-boundaries.py` checks declared workspace
+dependencies, including optional, target-specific, build and test dependencies,
+in CI. Service packages must remain independent of Tauri.
 
 Without an active connection profile, desktop bootstrap shows the onboarding
 welcome and runtime-location choice before starting any local service. Selecting
@@ -758,7 +775,11 @@ magi/
 │   │   └── transport/      # IPC transport app wiring and middleware
 │   └── tests/
 ├── crates/
-│   └── magi-gateway/       # Rust gateway: Axum routes, IPC client, DB reader
+│   ├── magi-service-contract/ # Shared launch configuration and wire contracts
+│   ├── magi-platform/     # Native filesystem protection
+│   ├── magi-server-runtime/ # Service lifecycle and Python supervision
+│   └── magi-gateway/      # HTTP/SSE routes, authentication, IPC and DB access
+├── server/                # Standalone service CLI and OS service installation
 ├── frontend/              # React UI and Tauri desktop host
 ├── docs/                  # Durable architecture and product documentation
 ├── benchmark/             # LongMemEval and benchmark utilities

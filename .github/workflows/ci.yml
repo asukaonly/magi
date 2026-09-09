@@ -249,8 +249,11 @@ jobs:
       - name: Run gateway tests
         run: cargo test --locked -p magi-gateway
 
+      - name: Check Rust dependency boundaries
+        run: python scripts/check-rust-boundaries.py
+
       - name: Test independent server runtime
-        run: cargo test --locked -p magi-server-runtime -p magi-server
+        run: cargo test --locked -p magi-service-contract -p magi-server-runtime -p magi-server
 
   desktop-shell:
     name: Desktop shell validation (${{ matrix.name }})

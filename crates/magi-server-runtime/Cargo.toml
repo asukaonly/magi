@@ -5,6 +5,7 @@ description = "Independent Magi service lifecycle"
 edition = "2021"
 
 [dependencies]
+magi-service-contract = { path = "../magi-service-contract" }
 magi-gateway = { path = "../magi-gateway" }
 magi-platform = { path = "../magi-platform" }
 libc = "0.2"

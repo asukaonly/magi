@@ -16,7 +16,7 @@ pub async fn info(State(state): State<ApiState>) -> Json<serde_json::Value> {
         "success": true,
         "data": {
             "server_id": state.security.auth.server_id,
-            "protocol_version": 2,
+            "protocol_version": magi_service_contract::SERVER_PROTOCOL_VERSION,
             "events": state.events.status(),
             "maintenance": state.maintenance.as_ref().map(|control| control.status()),
             "service_ready": state.storage_ready.load(Ordering::Acquire),

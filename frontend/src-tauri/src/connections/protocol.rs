@@ -120,7 +120,7 @@ impl CenterClient {
         let info: ServerInfo = self
             .request(Method::GET, "server/info", access, None)
             .await?;
-        if info.protocol_version != 2 {
+        if info.protocol_version != magi_service_contract::SERVER_PROTOCOL_VERSION {
             return Err("Center protocol is unsupported; update the client or center".into());
         }
         Ok(info)

@@ -2,15 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const MARKER_VERSION: u8 = 1;
 const MAX_MARKER_BYTES: u64 = 1024;
 const TEMP_MARKER_PREFIX: &str = ".full-data-clear-";
 const TEMP_MARKER_SUFFIX: &str = ".tmp";
-static TRANSACTION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,10 +27,6 @@ impl FullDataClearRuntime {
             marker_path,
             gate: Mutex::new(()),
         }
-    }
-
-    pub fn begin(&self) -> Result<PendingFullDataClear, String> {
-        self.begin_with_id(&new_transaction_id())
     }
 
     pub fn begin_with_id(&self, transaction_id: &str) -> Result<PendingFullDataClear, String> {
@@ -79,20 +72,6 @@ impl FullDataClearRuntime {
 
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|error| error.into_inner())
-}
-
-fn new_transaction_id() -> String {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let counter = TRANSACTION_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!(
-        "clear-{:016x}{:08x}{:08x}{:016x}",
-        duration.as_secs(),
-        duration.subsec_nanos(),
-        std::process::id(),
-        counter,
-    )
 }
 
 fn read_marker(path: &Path) -> Result<Option<PendingFullDataClear>, String> {
@@ -331,12 +310,17 @@ mod tests {
     fn pending_marker_survives_runtime_restart_and_is_reused() {
         let marker_path = test_marker_path("restart");
         let first = FullDataClearRuntime::new(marker_path.clone())
-            .begin()
+            .begin_with_id("clear-test-transaction")
             .unwrap();
 
         let reopened = FullDataClearRuntime::new(marker_path.clone());
         assert_eq!(reopened.read().unwrap(), Some(first.clone()));
-        assert_eq!(reopened.begin().unwrap(), first);
+        assert_eq!(
+            reopened
+                .begin_with_id("clear-different-transaction")
+                .unwrap(),
+            first
+        );
 
         let _ = fs::remove_dir_all(marker_path.parent().unwrap().parent().unwrap());
     }
@@ -345,7 +329,7 @@ mod tests {
     fn completion_requires_the_pending_transaction_and_removes_the_marker() {
         let marker_path = test_marker_path("complete");
         let runtime = FullDataClearRuntime::new(marker_path.clone());
-        let marker = runtime.begin().unwrap();
+        let marker = runtime.begin_with_id("clear-test-transaction").unwrap();
 
         assert!(runtime.complete("clear-wrong-transaction").is_err());
         assert_eq!(runtime.read().unwrap(), Some(marker.clone()));
@@ -470,7 +454,7 @@ mod tests {
 
         let runtime = FullDataClearRuntime::new(marker_path.clone());
         assert!(runtime.read().is_err());
-        assert!(runtime.begin().is_err());
+        assert!(runtime.begin_with_id("clear-test-transaction").is_err());
 
         let _ = fs::remove_dir_all(marker_path.parent().unwrap().parent().unwrap());
     }

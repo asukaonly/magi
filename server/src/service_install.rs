@@ -1,7 +1,7 @@
 //! User-session service installation. Business data is never removed here.
 
 #[cfg(target_os = "macos")]
-use magi_server_runtime::config::ServerConfig;
+use magi_service_contract::config::ServerConfig;
 use std::path::Path;
 
 #[cfg(target_os = "macos")]

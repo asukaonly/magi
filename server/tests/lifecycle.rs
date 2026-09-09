@@ -6,7 +6,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use magi_server_runtime::config::{ServerConfig, WorkerLaunch};
+use magi_service_contract::config::{ServerConfig, WorkerLaunch};
 use serde_json::{json, Value};
 
 const TOKEN: &str = "integration-session-0123456789abcdef";

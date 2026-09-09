@@ -124,7 +124,7 @@ async fn serve(
         serde_json::from_slice(&read_line(&mut stream, 4096).await?).map_err(|e| e.to_string())?;
     let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         match request {
-            Request::Status => Ok(json!({"server_id": auth.server_id, "protocol_version": 2,
+            Request::Status => Ok(json!({"server_id": auth.server_id, "protocol_version": magi_service_contract::SERVER_PROTOCOL_VERSION,
                 "base_url": base_url, "service_ready": ready.load(Ordering::Acquire)})),
             Request::Pair => {
                 serde_json::to_value(auth.create_pairing_grant()?).map_err(|e| e.to_string())

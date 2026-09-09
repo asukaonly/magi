@@ -5,6 +5,7 @@ description = "Magi gateway: Axum HTTP routes, IPC client, DB reader"
 edition = "2021"
 
 [dependencies]
+magi-service-contract = { path = "../magi-service-contract" }
 axum = { version = "0.8", features = ["multipart"] }
 base64 = "0.22"
 form_urlencoded = "1"

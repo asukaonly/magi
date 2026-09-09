@@ -2315,7 +2315,7 @@ dependencies = [
  "libc",
  "log",
  "magi-platform",
- "magi-server-runtime",
+ "magi-service-contract",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
@@ -2351,6 +2351,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "hyper",
+ "magi-service-contract",
  "percent-encoding",
  "rusqlite",
  "serde",
@@ -2372,8 +2373,6 @@ name = "magi-platform"
 version = "0.1.0"
 dependencies = [
  "libc",
- "serde",
- "serde_json",
  "windows-sys 0.61.2",
 ]
 
@@ -2385,7 +2384,7 @@ dependencies = [
  "magi-gateway",
  "magi-platform",
  "magi-server-runtime",
- "serde",
+ "magi-service-contract",
  "serde_json",
  "tokio",
 ]
@@ -2397,11 +2396,20 @@ dependencies = [
  "libc",
  "magi-gateway",
  "magi-platform",
+ "magi-service-contract",
  "serde",
  "serde_json",
  "tokio",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "magi-service-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

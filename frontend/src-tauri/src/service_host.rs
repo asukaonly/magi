@@ -6,15 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use magi_server_runtime::config::ServerConfig;
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ListenerInfo {
-    base_url: String,
-    server_pid: u32,
-}
+use magi_service_contract::config::ServerConfig;
+use magi_service_contract::{DesktopBootstrap, StartedServer};
 
 pub struct LocalService {
     child: Child,
@@ -89,13 +82,16 @@ impl LocalService {
                 uuid::Uuid::new_v4().simple()
             ),
         };
-        let bootstrap = serde_json::json!({"session_token":service.session_token});
+        let bootstrap = DesktopBootstrap {
+            session_token: service.session_token.clone(),
+        };
         writeln!(
             service
                 .owner
                 .as_mut()
                 .ok_or("Service owner pipe is unavailable")?,
-            "{bootstrap}"
+            "{}",
+            serde_json::to_string(&bootstrap).map_err(|e| e.to_string())?
         )
         .map_err(|e| e.to_string())?;
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -109,7 +105,7 @@ impl LocalService {
                     if line.len() > 4096 {
                         return Err("Service listener report exceeds size limit".into());
                     }
-                    serde_json::from_str::<ListenerInfo>(&line)
+                    serde_json::from_str::<StartedServer>(&line)
                         .map_err(|_| "Service did not report a valid listener".into())
                 });
             let _ = sender.send(result);

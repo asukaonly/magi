@@ -7,18 +7,12 @@ use magi_gateway::{
     api,
     ipc::{IpcClient, RuntimeConnection},
 };
-use serde::Serialize;
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, watch};
 
-use crate::{config::ServerConfig, instance::InstanceLease};
+use magi_service_contract::{config::ServerConfig, StartedServer};
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StartedServer {
-    pub base_url: String,
-    pub server_pid: u32,
-}
+use crate::instance::InstanceLease;
 
 /// Run one gateway and supervised worker for a private data root.
 pub async fn run(
@@ -318,7 +312,7 @@ async fn run_worker(
     context: &mut WorkerContext<'_>,
     worker: &mut WorkerProcess,
     token: &str,
-    recovery: Option<&magi_platform::full_data_clear::PendingFullDataClear>,
+    recovery: Option<&crate::full_data_clear::PendingFullDataClear>,
     restore: Option<&crate::maintenance::PendingRestore>,
 ) -> Result<WorkerExit, String> {
     let deadline = Instant::now() + Duration::from_secs(context.config.startup_timeout_secs);

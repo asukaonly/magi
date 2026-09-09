@@ -1,6 +1,6 @@
 //! Service lifecycle and operator configuration, independent of the desktop UI.
 
-pub mod config;
+mod full_data_clear;
 pub mod instance;
 pub mod logs;
 pub mod supervisor;
