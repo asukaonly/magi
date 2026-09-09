@@ -54,7 +54,7 @@ class SourceScheduleRegistrationModule(LifecycleModule):
         super().__init__(
             name="runtime_source_scheduler",
             dependencies=(
-                "runtime_plugin_system",
+                "runtime_plugin_activation",
                 "runtime_scheduler",
                 "runtime_memory",
                 "runtime_core_dependencies",

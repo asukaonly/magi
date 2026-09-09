@@ -15,7 +15,6 @@ from ...config.loader import config_write_guard, get_config, get_config_file_pat
 from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
-from ...bootstrap import refresh_runtime_llm_config
 from ...config.embedding_coordination import (
     embedding_execution_signature,
     get_embedding_config_update_lock,
@@ -280,27 +279,16 @@ async def _run_with_response_budget(
 
 
 async def _refresh_or_initialize_runtime_after_config_update(
-    refreshed_config: Any,
     *,
     reason: str,
 ) -> None:
-    """Refresh the runtime if it exists, or start it after a valid config save."""
+    """Reconcile the latest persisted configuration through the lifecycle owner."""
     from ...bootstrap import initialize_agent_runtime
-    from ...core.runtime_bindings import require_agent_runtime
-
-    try:
-        require_agent_runtime()
-        refresh_runtime_llm_config(refreshed_config)
-    except RuntimeError:
-        logger.info(
-            "Attempting to initialize agent runtime after configuration update",
-            reason=reason,
-        )
-        await _run_with_response_budget(
-            initialize_agent_runtime(),
-            operation=f"initialize_agent_runtime_after_{reason}",
-            timeout_seconds=ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS,
-        )
+    await _run_with_response_budget(
+        initialize_agent_runtime(),
+        operation=f"initialize_agent_runtime_after_{reason}",
+        timeout_seconds=ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS,
+    )
 
     await _run_with_response_budget(
         _enqueue_runtime_llm_refresh_command(reason=reason),
@@ -334,10 +322,9 @@ async def _persist_config_update(
                     before_commit()
                 if not save_config(updates):
                     raise HTTPException(status_code=500, detail=save_error_detail)
-                refreshed_config = reload_config()
+                reload_config()
                 receipt = (read_receipt or _build_system_config)()
             await _refresh_or_initialize_runtime_after_config_update(
-                refreshed_config,
                 reason=reason,
             )
             return receipt

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import deque
 from typing import Awaitable, Callable, Iterable, Sequence
@@ -18,11 +19,10 @@ async def _noop() -> None:
 
 
 class LifecycleInitDeferred(Exception):
-    """A module signals deferred init — already-started modules stay alive.
+    """Block a capability until its requirements can be met.
 
-    Raised when a non-critical module cannot initialize yet (e.g. LLM provider
-    not configured during onboarding) but infrastructure modules that were
-    already started should keep running.
+    The orchestrator retains ready modules and continues independent branches.
+    Only dependents of the deferred module wait for a subsequent reconciliation.
     """
 
 
@@ -46,8 +46,10 @@ class LifecycleModule:
         init: AsyncHook | None = None,
         post_init: AsyncHook | None = None,
         shutdown: AsyncHook | None = None,
+        critical: bool = True,
     ) -> None:
         self.name = name
+        self.critical = critical
         self.dependencies = tuple(dependencies or ())
         self._init_hook = init
         self._post_init_hook = post_init
@@ -61,7 +63,7 @@ class LifecycleModule:
         await self._init_hook()
 
     async def post_init(self) -> None:
-        """Initialize cross-module links after all modules are initialized."""
+        """Finish initialization before dependent modules can start."""
         if self._post_init_hook is None:
             await _noop()
             return
@@ -80,82 +82,111 @@ class ModuleLifecycleOrchestrator:
 
     def __init__(self, modules: Iterable[LifecycleModule]):
         self._modules = self._resolve_order(list(modules))
-        self._initialized_modules: list[LifecycleModule] = []
-        self._started = False
+        self._owned: set[str] = set()
+        self._states = {
+            module.name: {"state": "pending", "reason": None, "blocked_by": []}
+            for module in self._modules
+        }
 
-    async def startup(self) -> None:
-        """Run init for all modules, then run post-init for all initialized modules."""
-        if self._started:
-            logger.warning("Lifecycle startup skipped: already started")
-            return
+    def snapshot(self) -> dict[str, dict]:
+        """Return detached module states without exposing lifecycle ownership."""
+        return {
+            name: {**state, "blocked_by": list(state["blocked_by"])}
+            for name, state in self._states.items()
+        }
 
-        initialized: list[LifecycleModule] = []
-        startup_start = time.monotonic()
-        try:
-            for module in self._modules:
-                t0 = time.monotonic()
-                await module.init()
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                logger.info("Lifecycle module init", module=module.name, elapsed_ms=round(elapsed_ms, 1))
-                initialized.append(module)
+    def is_ready(self, name: str) -> bool:
+        return self._states[name]["state"] == "ready"
 
-            for module in initialized:
-                t0 = time.monotonic()
-                await module.post_init()
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                if elapsed_ms > 5:
-                    logger.info("Lifecycle module post-init", module=module.name, elapsed_ms=round(elapsed_ms, 1))
+    def _closure(self, targets: set[str]) -> set[str]:
+        by_name = {module.name: module for module in self._modules}
+        unknown = targets - by_name.keys()
+        if unknown:
+            raise ValueError(f"Unknown lifecycle targets: {sorted(unknown)}")
+        result = set(targets)
+        pending = list(targets)
+        while pending:
+            for dependency in by_name[pending.pop()].dependencies:
+                if dependency not in result:
+                    result.add(dependency)
+                    pending.append(dependency)
+        return result
 
-            self._initialized_modules = initialized
-            self._started = True
-            total_ms = (time.monotonic() - startup_start) * 1000
-            logger.info("Lifecycle startup completed", module_count=len(initialized), total_ms=round(total_ms, 1))
-        except LifecycleInitDeferred:
-            # Graceful deferral — keep infrastructure modules alive so that
-            # services like readiness, settings UI, etc. remain operational.
-            self._initialized_modules = initialized
-            self._started = True
-            logger.info(
-                "Lifecycle startup deferred",
-                module_count=len(initialized),
-            )
-            raise
-        except Exception:
-            await self._shutdown_modules(initialized)
-            raise
+    async def startup(self, *, targets: set[str] | None = None) -> None:
+        """Resume the dependency graph, retaining every already-ready module.
 
-    async def shutdown(self, *, strict: bool = False) -> None:
-        """Shutdown initialized modules in reverse order.
-
-        Strict shutdown retains lifecycle ownership when any module fails so a
-        storage-maintenance caller can retry without losing references to live
-        resources. Normal application shutdown remains best effort.
+        Only a failed critical module aborts startup. Optional failure or deferred
+        configuration blocks its dependents while independent capabilities start.
+        The caller serializes lifecycle operations; transport can remain available.
         """
-        if not self._initialized_modules:
-            self._started = False
-            return
-
-        initialized = list(self._initialized_modules)
-        failures = await self._shutdown_modules(initialized)
-        if strict and failures:
-            raise LifecycleShutdownError(failures)
-        self._initialized_modules = []
-        self._started = False
-        logger.info("Lifecycle shutdown completed", module_count=len(initialized))
-
-    async def _shutdown_modules(
-        self,
-        modules: list[LifecycleModule],
-    ) -> list[tuple[str, Exception]]:
-        failures: list[tuple[str, Exception]] = []
-        for module in reversed(modules):
+        selected = self._closure(targets) if targets is not None else set(self._states)
+        for module in self._modules:
+            if module.name not in selected or self.is_ready(module.name):
+                continue
+            state = self._states[module.name]
+            if module.name in self._owned:
+                # Failed cleanup must be retried by shutdown before another init.
+                continue
+            blocked = [name for name in module.dependencies if not self.is_ready(name)]
+            if blocked:
+                state.update(state="blocked", reason="dependencies_unavailable", blocked_by=blocked)
+                continue
+            state.update(state="starting", reason=None, blocked_by=[])
+            self._owned.add(module.name)
+            started = time.monotonic()
             try:
-                logger.info("Lifecycle module shutdown", module=module.name)
+                await module.init()
+                await module.post_init()
+            except (Exception, asyncio.CancelledError) as exc:
+                deferred = isinstance(exc, LifecycleInitDeferred)
+                state.update(state="blocked" if deferred else "failed", reason=str(exc))
+                try:
+                    await module.shutdown()
+                    self._owned.discard(module.name)
+                except Exception:
+                    state.update(state="failed", reason="cleanup_failed")
+                    logger.exception("Partial module cleanup failed", module=module.name)
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                if module.critical and not deferred:
+                    await self.shutdown()
+                    raise
+                logger.warning("Runtime capability unavailable", module=module.name, reason=str(exc))
+                continue
+            state.update(state="ready", reason=None, blocked_by=[])
+            logger.info("Lifecycle module ready", module=module.name,
+                        elapsed_ms=round((time.monotonic() - started) * 1000, 1))
+
+    async def shutdown(self, *, strict: bool = False, targets: set[str] | None = None) -> None:
+        """Release owned modules in reverse dependency order.
+
+        Successfully released modules are never stopped twice. A failed module
+        and its dependencies retain ownership so a strict retry remains safe.
+        """
+        selected = set(self._states) if targets is None else set(targets)
+        if targets is not None:
+            self._closure(targets)
+            for module in self._modules:
+                if any(dependency in selected for dependency in module.dependencies):
+                    selected.add(module.name)
+        failures: list[tuple[str, Exception]] = []
+        retained_dependencies: set[str] = set()
+        for module in reversed(self._modules):
+            if module.name not in selected or module.name not in self._owned or module.name in retained_dependencies:
+                continue
+            self._states[module.name].update(state="stopping")
+            try:
                 await module.shutdown()
             except Exception as exc:
                 failures.append((module.name, exc))
+                retained_dependencies.update(self._closure({module.name}))
+                self._states[module.name].update(state="failed", reason="cleanup_failed")
                 logger.warning("Lifecycle module shutdown failed", module=module.name, error=str(exc))
-        return failures
+            else:
+                self._owned.remove(module.name)
+                self._states[module.name].update(state="pending", reason=None, blocked_by=[])
+        if failures and strict:
+            raise LifecycleShutdownError(failures)
 
     def _resolve_order(self, modules: list[LifecycleModule]) -> list[LifecycleModule]:
         module_by_name: dict[str, LifecycleModule] = {}

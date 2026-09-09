@@ -29,9 +29,22 @@ async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     infrastructure_ready = all(
         _resolve_binding(name) is not None for name in INFRASTRUCTURE_PROVIDER_NAMES
     )
-    llm_ready = _resolve_binding("scenario_llm_pool") is not None
-    agent_runtime_ready = _resolve_binding("agent_runtime") is not None
+    owner = _resolve_binding("runtime_orchestrator")
+    capabilities = owner.snapshot() if owner is not None else {}
+    context = _resolve_binding("runtime_bootstrap_context")
+    llm_ready = (
+        capabilities.get("runtime_llm", {}).get("state") == "ready"
+        and context is not None
+        and context.llm.llm_adapter is not None
+        and not context.runtime_commands.full_clear_recovery_pending
+    )
+    agent_runtime_ready = (
+        _resolve_binding("agent_runtime") is not None
+        and capabilities.get("runtime_exports", {}).get("state") == "ready"
+        and capabilities.get("runtime_command_processor", {}).get("state") == "ready"
+    )
     runtime_ready = worker_ready and infrastructure_ready and llm_ready and agent_runtime_ready
+    storage_ready = capabilities.get("runtime_memory", {}).get("state") == "ready"
 
     startup_state = startup_snapshot.startup_state
     deferred_reason = startup_snapshot.reason
@@ -40,7 +53,8 @@ async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     if startup_state == "offline" and runtime_status != "offline":
         startup_state = runtime_status
 
-    if runtime_ready and queue_backlog_healthy:
+    capabilities_healthy = not any(state["state"] == "failed" for state in capabilities.values())
+    if runtime_ready and queue_backlog_healthy and capabilities_healthy:
         status = "ready"
     else:
         status = "degraded"
@@ -48,7 +62,10 @@ async def get_runtime_system_status(app: Any) -> dict[str, Any]:
     return {
         "api_ready": api_ready,
         "status": status,
+        "service_ready": api_ready and infrastructure_ready,
         "runtime_ready": runtime_ready,
+        "storage_ready": storage_ready,
+        "capabilities": capabilities,
         "worker_ready": worker_ready,
         "infrastructure_ready": infrastructure_ready,
         "llm_ready": llm_ready,
@@ -91,5 +108,5 @@ def _get_local_worker_status(startup_snapshot: Any) -> tuple[bool, str]:
         str(getattr(startup_snapshot, "startup_state", None) or "offline").strip()
         or "offline"
     )
-    worker_ready = runtime_status in {"ready", "deferred", "starting", "stopping"}
+    worker_ready = runtime_status in {"ready", "deferred", "starting", "failed"}
     return worker_ready, runtime_status

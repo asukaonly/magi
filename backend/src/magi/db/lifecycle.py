@@ -29,7 +29,7 @@ class DatabaseMigrationModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_database_migrations",
-            dependencies=("runtime_core_dependencies",),
+            dependencies=("runtime_memory_restore_recovery",),
         )
         self._context = context
 

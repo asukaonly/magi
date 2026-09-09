@@ -69,3 +69,33 @@ async def test_restore_worker_recovers_before_transport_without_starting_agents(
     assert 'MAGI_MEMORY_RESTORE_OPERATION_ID' not in os.environ
     assert maintenance_worker.owns_restore_operation(operation_id)
     assert not maintenance_worker.owns_restore_operation('different')
+
+
+@pytest.mark.asyncio
+async def test_management_transport_does_not_wait_for_optional_activation(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from magi.bootstrap import maintenance_worker
+    from magi.transport import http_app
+
+    base = AsyncMock()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    async def activate():
+        entered.set()
+        await release.wait()
+    monkeypatch.setattr(maintenance_worker, 'consume_restore_operation', lambda: None)
+    monkeypatch.setattr(maintenance_worker, 'is_restore_worker', lambda: False)
+    monkeypatch.setattr(worker_app, 'wire_container', Mock())
+    monkeypatch.setattr(worker_app, 'initialize_base_runtime', base)
+    monkeypatch.setattr(worker_app, 'initialize_agent_runtime', activate)
+    transport = object()
+    monkeypatch.setattr(http_app, 'create_transport_app', lambda **kwargs: transport)
+    assert await worker_app._initialize_worker_transport_app() is transport
+    base.assert_awaited_once()
+    assert not entered.is_set()
+    task = worker_app._start_runtime_activation()
+    await entered.wait()
+    assert not task.done()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)

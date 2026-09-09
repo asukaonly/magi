@@ -118,6 +118,16 @@ It listens on loopback, acquires an OS instance lease, binds before the worker
 is ready, gates business storage access during startup, and reconnects after
 bounded worker restarts. `crates/magi-platform` supplies shared OS data protection.
 
+The Python worker publishes management readiness after foundational storage and
+configuration initialize, before optional plugin/Agent startup. Missing core
+model configuration leaves management, raw memory storage and source collection
+available; model-dependent capabilities wait on the same lifecycle owner and
+resume after configuration is saved. `/api/server/info` and operator `status`
+use protocol version 2 and `service_ready` for this management boundary. Query
+`/api/ready` for actual Agent readiness and per-capability reasons. A client and
+server must use the same protocol version; there is no legacy response alias.
+
+
 For a source checkout with its Python environment installed:
 
 ```text

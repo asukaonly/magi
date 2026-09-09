@@ -17,7 +17,7 @@ from magi.hooks.lifecycle import HooksModule
 from magi.hooks.registry import HookRegistry
 from magi.plugins.connections import PluginConnectionStore
 from magi.plugins.discovery import load_plugin_manifest
-from magi.bootstrap.plugin_system import PluginSystemModule
+from magi.bootstrap.plugin_system import PluginSystemModule, PluginActivationModule
 from magi.plugins.operation_authorization import build_host_invocation
 from magi.plugins.process_runtime import ProcessPluginProxy
 from magi.skills.indexer import SkillIndexer
@@ -99,12 +99,13 @@ def bootstrap(tmp_path, monkeypatch, runtime_paths_with_schema):
     tools.bind_tool_effect_ledger(BackgroundTaskStore(
         db_path=str(runtime_paths_with_schema.background_tasks_db_path)))
     module = PluginSystemModule(context, tool_registry=tools, request_source_schedule_refresh=lambda: None)
+    activation = PluginActivationModule(context)
     hooks = HooksModule(context)
     skills = SkillsModule(context, tools, orchestrator_factory=lambda **_: None,
                           agent_run_request_factory=lambda **_: None)
     store = PluginConnectionStore(runtime_paths=runtime_paths_with_schema,
                                   require_package=lambda _: manifest, authorize_enable=lambda _: True)
-    yield SimpleNamespace(context=context, tools=tools, plugins=module, hooks=hooks, skills=skills,
+    yield SimpleNamespace(context=context, tools=tools, plugins=module, activation=activation, hooks=hooks, skills=skills,
                           store=store, container=container, user_hook_loader=user_hook_loader)
     asyncio.run(module.shutdown())
     asyncio.run(hooks.shutdown())
@@ -124,6 +125,8 @@ async def test_early_external_hook_and_skill_survive_later_modules_and_owner_unl
     app.context.hooks.registry = existing_hooks
     await app.plugins.init()
     manager = app.context.plugins.plugin_manager
+    assert manager.get_connection_plugin(connection.connection_id) is None
+    await app.activation.init()
     worker = manager.get_connection_plugin(connection.connection_id)
     assert isinstance(worker, ProcessPluginProxy), manager.get_package("bootstrap-test").last_error
     assert app.context.hooks.registry is existing_hooks
@@ -170,6 +173,14 @@ async def test_early_external_hook_and_skill_survive_later_modules_and_owner_unl
     assert existing_hooks.total() == 1
     decision = await app.context.hooks.gateway.dispatch(HookContext(event_type=HookEventType.USER_PROMPT_SUBMIT))
     assert decision.additional_context == "host-before-plugin"
+
+    await app.activation.shutdown()
+    await app.activation.init()
+    replacement = manager.get_connection_plugin(connection.connection_id)
+    assert isinstance(replacement, ProcessPluginProxy)
+    assert replacement is not worker
+    assert app.tools.is_skill(skill_name)
+    assert existing_hooks.total() == 2
 
 
 @pytest.mark.asyncio

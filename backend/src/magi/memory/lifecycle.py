@@ -33,7 +33,7 @@ class MemoryStoreModule(LifecycleModule):
         portrait_projection_refresh_registrar: Callable[[Any], None] | None = None,
     ):
         dependencies = [
-            "runtime_llm",
+            "runtime_llm_pool",
             "runtime_configuration",
             "runtime_core_dependencies",
             "runtime_plugin_system",
@@ -75,6 +75,7 @@ class MemoryStoreModule(LifecycleModule):
             self._portrait_projection_refresh_registrar(self._context.memory.unified_memory)
         await self._context.memory.unified_memory.initialize(
             start_workers=not recovery_pending,
+            start_projection_workers=False,
             recover_pending=not recovery_pending,
             restore_runtime_state=not recovery_pending,
         )
@@ -86,15 +87,6 @@ class MemoryStoreModule(LifecycleModule):
                 self._context.memory.unified_memory.memory_operation_epoch
             )
             logger.info("MessageBus memory operation epoch bound")
-
-        if recovery_pending:
-            self._context.memory.hybrid_retrieval_service = None
-            logger.warning("Hybrid retrieval held for full-clear recovery")
-        else:
-            self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(
-                scenario_llm_pool
-            )
-            logger.info("HybridRetrievalService initialized")
 
         await self._start_memory_integration(
             message_bus,
@@ -162,19 +154,6 @@ class MemoryStoreModule(LifecycleModule):
             temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
         )
 
-    def _build_hybrid_retrieval_service(self, scenario_llm_pool: Any) -> HybridRetrievalService:
-        unified_memory = require_initialized(
-            self._context.memory.unified_memory,
-            "unified memory",
-        )
-        return HybridRetrievalService(
-            unified_memory,
-            config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
-            llm_provider_bridge=LLMProviderBridge(
-                scenario_llm_pool.get(LLMScenario.AUXILIARY)
-            ),
-        )
-
     async def _start_memory_integration(
         self,
         message_bus: Any,
@@ -224,6 +203,44 @@ class MemoryStoreModule(LifecycleModule):
 
         self._context.memory.unified_memory = None
         self._context.memory.hybrid_retrieval_service = None
+
+
+class MemoryProcessingModule(LifecycleModule):
+    """Activate model-dependent memory projections without reopening storage."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(name="runtime_memory_processing",
+                         dependencies=("runtime_memory", "runtime_llm"))
+        self._context = context
+
+    async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            return
+        store = require_initialized(self._context.memory.unified_memory, "unified memory")
+        pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
+        self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(pool)
+        if store.l2_pipeline is not None:
+            await store.l2_pipeline.start()
+
+    async def shutdown(self) -> None:
+        store = self._context.memory.unified_memory
+        if store is not None and store.l2_pipeline is not None:
+            await store.l2_pipeline.shutdown()
+        self._context.memory.hybrid_retrieval_service = None
+
+    def _build_hybrid_retrieval_service(self, scenario_llm_pool: Any) -> HybridRetrievalService:
+        unified_memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        return HybridRetrievalService(
+            unified_memory,
+            config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
+            llm_provider_bridge=LLMProviderBridge(
+                scenario_llm_pool.get(LLMScenario.AUXILIARY)
+            ),
+        )
+
 
 
 class MemoryIngestionSubscriberModule(LifecycleModule):

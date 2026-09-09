@@ -973,3 +973,35 @@ async def test_failed_result_preserves_stats_without_marking_success(tmp_path):
         assert executions[0]["stats"] == state.stats
     finally:
         await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_unavailable_capability_preserves_once_job_until_resume(tmp_path):
+    ready = False
+    service = SchedulerService(
+        db_path=tmp_path / "scheduler.db", runtime_dir=tmp_path,
+        target_ready=lambda _target: ready,
+    )
+    handler = AsyncMock(return_value=ScheduledExecutionResult(success=True))
+    service.register_handler(ScheduledTargetType.USER_AGENT_TASK, handler)
+    await service.start(paused=True)
+    try:
+        schedule = await service.schedule(ScheduleDefinition(
+            schedule_id="waiting-agent", target_type=ScheduledTargetType.USER_AGENT_TASK,
+            target_key="task", trigger=TriggerDefinition(TriggerType.ONCE, {"run_at": time.time() - 1}),
+        ))
+        assert service.get_schedule_availability(schedule) == "unavailable"
+        assert service._scheduler.get_job(schedule.job_id).next_run_time is None
+        result = await service.execute_schedule(schedule.schedule_id, manual=True)
+        assert result.message == "capability_unavailable"
+        assert not handler.await_count
+        assert await service.repository.get_schedule(schedule.schedule_id) is not None
+        assert not await service.repository.list_executions(schedule_id=schedule.schedule_id)
+        ready = True
+        await service.refresh_availability()
+        assert service._scheduler.get_job(schedule.job_id).next_run_time is not None
+        result = await service.execute_schedule(schedule.schedule_id, manual=True)
+        assert result.success
+        assert handler.await_count == 1
+    finally:
+        await service.stop()

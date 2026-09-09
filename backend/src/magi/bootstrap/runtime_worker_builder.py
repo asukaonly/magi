@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from .context import RuntimeBootstrapContext
-from .exports import RuntimeExportsModule
+from .exports import RuntimeExportsModule, build_capability_exports
 from .control_plane import ControlPlaneModule
 from .lifecycle import LifecycleModule
 from .maintenance import OtherDependenciesModule, RuntimeOperationalGCScheduleRegistrationModule
 from .runtime_tools import RuntimeFirstPartyToolsModule
+from .schedule_readiness import schedule_target_ready
 
 from ..core.logger import get_logger
 
@@ -50,7 +51,7 @@ from ..events.lifecycle import (
     RuntimeCommandQueueModule,
 )
 from ..identity.lifecycle import IdentityModule
-from ..llm.lifecycle import LLMRuntimeModule, LLMUsageSubscriberModule
+from ..llm.lifecycle import LLMPoolModule, LLMRuntimeModule, LLMUsageSubscriberModule
 from ..location.lifecycle import LocationModule
 from ..mcp.lifecycle import MCPModule
 from ..memory.lifecycle import (
@@ -63,6 +64,7 @@ from ..memory.lifecycle import (
     L4MaintenanceScheduleRegistrationModule,
     MemoryIngestionSubscriberModule,
     MemoryStoreModule,
+    MemoryProcessingModule,
 )
 from ..memory.clear_generation import current_memory_clear_state
 from ..memory.manual_entries.lifecycle import ManualEntriesModule
@@ -70,7 +72,7 @@ from ..memory.history_imports.lifecycle import HistoryImportsModule
 from ..memory.portability.recovery import MemoryRestoreRecoveryModule
 from ..media.lifecycle import MediaRegistryModule
 from ..personality.lifecycle import PersonalityModule
-from .plugin_system import PluginSystemModule
+from .plugin_system import PluginSystemModule, PluginActivationModule
 from ..runtime_trace import RuntimeTraceStore
 from ..runtime_trace.lifecycle import RuntimeTraceSubscriberModule
 from ..scheduler.lifecycle import SchedulerActivationModule, SchedulerModule
@@ -123,9 +125,6 @@ class _RuntimeWorkerPhaseSpec:
 
 def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleModule:
     async def _init_runtime_trace() -> None:
-        from dependency_injector import providers as di_providers
-        from ..core.container import get_container
-
         runtime_paths = context.core.runtime_paths
         if runtime_paths is None:
             raise RuntimeError("runtime paths is not initialized")
@@ -137,23 +136,17 @@ def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleMo
             db_path=str(runtime_paths.runtime_trace_db_path),
             plugin_ingress_clear_state_reader=read_plugin_ingress_clear_state,
         )
-        await store.initialize()
         context.runtime_trace.store = store
-        # Eagerly register DI binding so readiness and other infra consumers
-        # work even when later modules (e.g. LLM) defer initialization.
-        get_container().runtime_trace_store.override(di_providers.Object(store))
+        await store.initialize()
 
     async def _shutdown_runtime_trace() -> None:
-        from ..core.container import get_container
-
-        get_container().runtime_trace_store.reset_override()
         if context.runtime_trace.store is not None:
             await context.runtime_trace.store.shutdown()
             context.runtime_trace.store = None
 
     return LifecycleModule(
         name="runtime_trace",
-        dependencies=("runtime_core_dependencies",),
+        dependencies=("runtime_database_migrations",),
         init=_init_runtime_trace,
         shutdown=_shutdown_runtime_trace,
     )
@@ -228,6 +221,7 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
             tool_registry=tool_registry,
             request_source_schedule_refresh=request_source_schedule_refresh,
         ),
+        LLMPoolModule(context),
         LLMRuntimeModule(context),
     ]
 
@@ -240,6 +234,8 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
             start_memory_integration=True,
             portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
         ),
+        MemoryProcessingModule(context),
+        PluginActivationModule(context),
         ChatForgettingRecoveryModule(context),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
         LocationModule(context),  # owns location pipeline; reads memory.db path directly
@@ -293,7 +289,7 @@ def _build_processing_modules(context: RuntimeBootstrapContext) -> list[Lifecycl
         TimelineSubscriberModule(context),
         KGSubscriberModule(context),
         SourceStateUpdateSubscriberModule(context),
-        SchedulerModule(context),
+        SchedulerModule(context, target_ready=schedule_target_ready),
         AgentScheduleRegistrationModule(context),
         SourceScheduleRegistrationModule(context),
     ]
@@ -304,6 +300,7 @@ def _build_exports_and_maintenance_modules(
 ) -> list[LifecycleModule]:
     """Build exports, schedule registration, and remaining maintenance modules."""
     return [
+        *build_capability_exports(context),
         RuntimeExportsModule(context),
         ControlPlaneModule(context),
         L1MaintenanceScheduleRegistrationModule(context),
@@ -330,7 +327,7 @@ _RUNTIME_WORKER_PHASE_SPECS: tuple[_RuntimeWorkerPhaseSpec, ...] = (
     _RuntimeWorkerPhaseSpec(
         phase_id="infrastructure",
         title="Infrastructure Bring-up",
-        description="Core runtime dependencies, configuration, persistence primitives, plugins, and the LLM deferral boundary.",
+        description="Core runtime dependencies, configuration, persistence primitives, plugin metadata, and the lazy LLM pool.",
         build_modules=_build_infrastructure_modules,
     ),
     _RuntimeWorkerPhaseSpec(
@@ -398,16 +395,21 @@ def describe_runtime_worker_phase_plan() -> str:
 def build_runtime_worker_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
     """Build lifecycle modules required by the background runtime worker.
 
-    The returned list stays in exact startup order; the phase helpers only
-    make that order easier to understand and maintain.
+    Dependencies determine startup order; phases group ownership for documentation.
     """
-    return [
-        *(
-            module
-            for _, modules in _build_runtime_worker_phase_entries(context)
-            for module in modules
-        ),
-    ]
+    modules = [module for _, group in _build_runtime_worker_phase_entries(context) for module in group]
+    # Only the management substrate is process-critical. Optional capabilities
+    # own their failures and block their dependents rather than repair APIs.
+    critical = {
+        "runtime_core_dependencies", "runtime_initialization_state", "runtime_memory_restore_recovery",
+        "runtime_database_migrations", "runtime_configuration", "runtime_command_queue",
+        "runtime_chat_store", "runtime_message_bus", "runtime_chat_projector", "runtime_trace",
+        "runtime_control_plane", "runtime_base_exports",
+    }
+    for module in modules:
+        module.critical = module.name in critical
+    return modules
+
 
 
 __all__ = [

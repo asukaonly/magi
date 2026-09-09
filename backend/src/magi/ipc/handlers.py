@@ -163,7 +163,11 @@ class RuntimeReadyHandler:
                 "ready": runtime_status["runtime_ready"]
                 and runtime_status["queue_backlog_healthy"],
                 "status": runtime_status["status"],
+                "service_ready": runtime_status["service_ready"],
                 "runtime_ready": runtime_status["runtime_ready"],
+                "infrastructure_ready": runtime_status["infrastructure_ready"],
+                "storage_ready": runtime_status["storage_ready"],
+                "capabilities": runtime_status["capabilities"],
                 "worker_ready": runtime_status["worker_ready"],
                 "llm_ready": runtime_status["llm_ready"],
                 "agent_runtime_ready": runtime_status["agent_runtime_ready"],

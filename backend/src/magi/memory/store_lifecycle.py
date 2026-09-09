@@ -73,6 +73,7 @@ class UnifiedMemoryLifecycleMixin:
         self,
         *,
         start_workers: bool = True,
+        start_projection_workers: bool = True,
         recover_pending: bool = True,
         restore_runtime_state: bool = True,
     ) -> None:
@@ -103,7 +104,7 @@ class UnifiedMemoryLifecycleMixin:
                     "Recovered durable forget operations before memory writers started: %s",
                     recovery,
                 )
-        if start_workers and self.l2_pipeline is not None:
+        if start_workers and start_projection_workers and self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 
         # Start the L2 edge-embedding drain only when vectors are enabled.

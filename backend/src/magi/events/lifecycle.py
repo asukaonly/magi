@@ -116,6 +116,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             dependencies=(
                 "runtime_command_queue",
                 "runtime_agent_core",
+                "runtime_exports",
                 "runtime_message_bus",
                 "runtime_chat_forgetting_recovery",
                 "runtime_chat_assistant_memory_projection",
@@ -432,7 +433,7 @@ class PluginIngressProcessorModule(LifecycleModule):
     ):
         super().__init__(
             name="runtime_plugin_ingress_processor",
-            dependencies=("runtime_trace", "runtime_plugin_system"),
+            dependencies=("runtime_trace", "runtime_plugin_activation"),
         )
         self._context = context
         self._poll_interval_seconds = poll_interval_seconds

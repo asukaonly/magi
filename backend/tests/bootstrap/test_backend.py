@@ -1,140 +1,61 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from dependency_injector import providers
 
 from magi.bootstrap import backend as backend_module
+from magi.bootstrap.lifecycle import LifecycleModule
 from magi.core.container import get_container
 from magi.llm.lifecycle import RuntimeInitializationDeferred
-from magi.skills.service_access import SkillsRuntimeBindings
-
-
-class _DeferredOrchestrator:
-    async def startup(self) -> None:
-        raise RuntimeInitializationDeferred(pending_selection=True)
 
 
 @pytest.mark.asyncio
-async def test_initialize_agent_runtime_binds_skills_when_runtime_deferred(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_base_runtime_is_available_before_optional_start_and_survives_retry(monkeypatch):
     container = get_container()
-    container.skill_indexer.reset_override()
-    container.skill_loader.reset_override()
-    container.skill_runner.reset_override()
+    for name in ("runtime_orchestrator", "runtime_bootstrap_context", "agent_runtime"):
+        getattr(container, name).reset_override()
+    configured = False
+    calls = []
+    config = SimpleNamespace()
+    monkeypatch.setattr(backend_module, "get_config", lambda: config)
+    monkeypatch.setattr("magi.bootstrap.maintenance_worker.is_restore_worker", lambda: True)
 
-    fake_config = type("Config", (), {"features": type("Features", (), {"enable_skills": True})()})()
-    bindings = SkillsRuntimeBindings(
-        skill_indexer=object(),
-        skill_loader=object(),
-        skill_runner=object(),
-    )
-
-    monkeypatch.setattr(backend_module, "_is_runtime_initialized", lambda: False)
-    monkeypatch.setattr(backend_module, "get_config", lambda: fake_config)
-    monkeypatch.setattr(backend_module, "build_runtime_modules", lambda context, role=None: [])
-    monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", lambda modules: _DeferredOrchestrator())
-    monkeypatch.setattr(
-        "magi.skills.service_access.build_skills_runtime",
-        lambda llm_adapter=None, *, tool_registry, orchestrator_factory=None, agent_run_request_factory=None, skill_indexer=None, skill_loader=None: bindings,
-    )
-
-    await backend_module.initialize_agent_runtime()
-
-    assert container.skill_indexer() is bindings.skill_indexer
-    assert container.skill_loader() is bindings.skill_loader
-    assert container.skill_runner() is bindings.skill_runner
-    assert container.skill_indexer.overridden
-    assert container.skill_loader.overridden
-    assert container.skill_runner.overridden
-
-    container.skill_indexer.reset_override()
-    container.skill_loader.reset_override()
-    container.skill_runner.reset_override()
-
-
-class _DeferredOrchestratorWithContext:
-    """Orchestrator that defers but lets context fields be populated first."""
-
-    def __init__(self, context):
-        self._context = context
-
-    async def startup(self) -> None:
-        # Simulate modules 1-6 running before LLM defers
-        self._context.chat.store = object()
-        self._context.message_bus.message_bus = object()
-        self._context.runtime_commands.runtime_command_queue = object()
-        raise RuntimeInitializationDeferred(pending_selection=True)
-
-
-@pytest.mark.asyncio
-async def test_initialize_agent_runtime_exports_infra_bindings_when_deferred(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Infrastructure bindings (chat_store, message_bus, etc.) should be
-    exported to the DI container even when full runtime init is deferred."""
-    container = get_container()
-    container.chat_store.reset_override()
-    container.message_bus.reset_override()
-    container.runtime_command_queue.reset_override()
-
-    fake_config = type("Config", (), {"features": type("Features", (), {"enable_skills": False})()})()
-
-    captured_context = {}
-
-    def fake_orchestrator_factory(modules):
-        ctx = captured_context.get("ctx")
-        return _DeferredOrchestratorWithContext(ctx)
-
-    def fake_build(context, role=None):
-        captured_context["ctx"] = context
-        return []
-
-    monkeypatch.setattr(backend_module, "_is_runtime_initialized", lambda: False)
-    monkeypatch.setattr(backend_module, "get_config", lambda: fake_config)
-    monkeypatch.setattr(backend_module, "build_runtime_modules", fake_build)
-    monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", fake_orchestrator_factory)
-
-    await backend_module.initialize_agent_runtime()
-
-    assert container.chat_store.overridden
-    assert container.message_bus.overridden
-    assert container.runtime_command_queue.overridden
-    assert not container.agent_runtime.overridden
-
-    container.chat_store.reset_override()
-    container.message_bus.reset_override()
-    container.runtime_command_queue.reset_override()
-
-
-@pytest.mark.asyncio
-async def test_initialize_agent_runtime_restarts_previously_deferred_runtime(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-
-    class _SuccessfulOrchestrator:
-        async def startup(self) -> None:
-            calls.append("startup")
-
-    async def _fake_shutdown() -> None:
-        calls.append("shutdown")
-
-    def _fake_resolve(attr: str):
-        if attr == "runtime_orchestrator":
-            return object()
-        return None
-
-    monkeypatch.setattr(backend_module, "_resolve_from_container", _fake_resolve)
-    monkeypatch.setattr(backend_module, "build_runtime_modules", lambda context, role=None: [])
-    monkeypatch.setattr(backend_module, "ModuleLifecycleOrchestrator", lambda modules: _SuccessfulOrchestrator())
-    monkeypatch.setattr(backend_module, "_shutdown_agent_runtime", _fake_shutdown)
-
-    await backend_module.initialize_agent_runtime()
-
-    assert calls == ["shutdown", "startup"]
+    def build(context):
+        async def base():
+            calls.append("base")
+            context.chat.store = object()
+        async def llm():
+            calls.append("llm")
+            if not configured:
+                raise RuntimeInitializationDeferred(pending_selection=True)
+        async def agent():
+            calls.append("agent")
+            container.agent_runtime.override(providers.Object(object()))
+        async def stop_agent():
+            container.agent_runtime.reset_override()
+        return [
+            LifecycleModule("runtime_base_exports", init=base),
+            LifecycleModule("runtime_llm", dependencies=("runtime_base_exports",), init=llm),
+            LifecycleModule("runtime_agent_core", dependencies=("runtime_llm",), init=agent, shutdown=stop_agent),
+        ]
+    monkeypatch.setattr(backend_module, "build_runtime_modules", build)
+    try:
+        await backend_module.initialize_base_runtime()
+        owner = container.runtime_orchestrator()
+        store = container.runtime_bootstrap_context().chat.store
+        assert calls == ["base"]
+        await backend_module.initialize_agent_runtime()
+        assert calls == ["base", "llm"]
+        configured = True
+        await backend_module.initialize_agent_runtime()
+        assert calls == ["base", "llm", "llm", "agent"]
+        assert container.runtime_orchestrator() is owner
+        assert container.runtime_bootstrap_context().chat.store is store
+    finally:
+        await backend_module.shutdown_agent_runtime()
 
 
 @pytest.mark.asyncio
@@ -209,4 +130,29 @@ async def test_lifecycle_serializes_background_initialization_and_shutdown(monke
     assert not stop.done()
     release.set()
     await asyncio.gather(first, second, stop)
+    assert calls == ["start", "stop"]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_fences_queued_initialization(monkeypatch):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    calls = []
+    async def initialize():
+        calls.append("start")
+        entered.set()
+        await release.wait()
+    async def stop(*, strict=False):
+        calls.append("stop")
+    monkeypatch.setattr(backend_module, "_runtime_lifecycle_lock", asyncio.Lock())
+    monkeypatch.setattr(backend_module, "_initialize_agent_runtime", initialize)
+    monkeypatch.setattr(backend_module, "_shutdown_agent_runtime", stop)
+    first = asyncio.create_task(backend_module.initialize_agent_runtime())
+    await entered.wait()
+    second = asyncio.create_task(backend_module.initialize_agent_runtime())
+    await asyncio.sleep(0)
+    stopping = asyncio.create_task(backend_module.shutdown_agent_runtime())
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second, stopping)
     assert calls == ["start", "stop"]

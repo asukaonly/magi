@@ -43,7 +43,7 @@ const {
 const xhrOpenSpy = vi.spyOn(XMLHttpRequest.prototype, 'open');
 
 const { centerRuntime } = vi.hoisted(() => ({ centerRuntime: { serverId: 'test-center', dataEpoch: 'original', contentEpoch: 'original', apiBaseUrl: 'http://127.0.0.1:8000/api' } }));
-vi.mock('@/api/modules/server', () => ({ serverApi: { clear: async (id: string) => ({ version: 2, kind: 'clear', operation_id: id, phase: 'completed', data_epoch: id, content_epoch: id, result: await clearAllMock(), error: null }), info: async () => ({ runtime_ready: true, maintenance: { data_epoch: 'cleared', content_epoch: 'cleared' } }) } }));
+vi.mock('@/api/modules/server', () => ({ serverApi: { clear: async (id: string) => ({ version: 2, kind: 'clear', operation_id: id, phase: 'completed', data_epoch: id, content_epoch: id, result: await clearAllMock(), error: null }), info: async () => ({ service_ready: true, maintenance: { data_epoch: 'cleared', content_epoch: 'cleared' } }) } }));
 vi.mock('@/runtime/config', async (importOriginal) => ({ ...await importOriginal<typeof import('@/runtime/config')>(), getRuntimeConfig: () => centerRuntime, setRuntimeEpochs: (epoch: string, content: string) => { centerRuntime.dataEpoch = epoch; centerRuntime.contentEpoch = content; } }));
 
 vi.mock('@/api/modules/notifications', async (importOriginal) => {

@@ -38,11 +38,13 @@ class _FakeUnifiedMemoryStore:
         self,
         *,
         start_workers: bool = True,
+        start_projection_workers: bool = True,
         recover_pending: bool = True,
         restore_runtime_state: bool = True,
     ) -> None:
         self.initialize_options = {
             "start_workers": start_workers,
+            "start_projection_workers": start_projection_workers,
             "recover_pending": recover_pending,
             "restore_runtime_state": restore_runtime_state,
         }

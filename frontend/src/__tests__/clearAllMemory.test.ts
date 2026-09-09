@@ -23,7 +23,7 @@ describe('center-owned full clear', () => {
     logs.mockResolvedValue({ clearedEntries: 1, failedEntries: 0 });
     server.clear.mockImplementation(async (id: string) => status(id));
     server.operation.mockImplementation(async (id: string) => status(id));
-    server.info.mockImplementation(async () => { const id = server.clear.mock.calls.at(-1)?.[0] ?? 'remote-operation'; return { runtime_ready: true, maintenance: status(id) }; });
+    server.info.mockImplementation(async () => { const id = server.clear.mock.calls.at(-1)?.[0] ?? 'remote-operation'; return { service_ready: true, maintenance: status(id) }; });
   });
   afterEach(() => vi.useRealTimers());
   it('deduplicates concurrent clear actions and cleans this device after center completion', async () => {
@@ -66,7 +66,7 @@ describe('center-owned full clear', () => {
     const restored = { ...status('restore-operation'), kind: 'restore', content_epoch: 'original', result: { success: true, rollback_performed: false } };
     centerLocalStorage().setItem('chat_session_active', 'keep-this-session');
     server.restore.mockResolvedValue(restored);
-    server.info.mockResolvedValue({ runtime_ready: true, maintenance: restored });
+    server.info.mockResolvedValue({ service_ready: true, maintenance: restored });
     await confirmCenterRestore('restore-operation');
     expect(runtime.dataEpoch).toBe('restore-operation');
     expect(runtime.contentEpoch).toBe('original');
@@ -79,7 +79,7 @@ describe('center-owned full clear', () => {
     centerLocalStorage().setItem('maintenance.pending-clear', 'previous-clear');
     server.maintenance.mockResolvedValue(newer);
     server.operation.mockResolvedValue({ ...status('previous-clear'), data_epoch: 'new-restore', content_epoch: 'previous-clear' });
-    server.info.mockResolvedValue({ runtime_ready: true, maintenance: newer });
+    server.info.mockResolvedValue({ service_ready: true, maintenance: newer });
     await recoverPendingCenterMaintenance();
     expect(server.operation).toHaveBeenCalledWith('previous-clear');
     expect(server.clear).not.toHaveBeenCalled();

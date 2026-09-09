@@ -24,13 +24,33 @@ class RuntimeInitializationDeferred(LifecycleInitDeferred):
         super().__init__(message)
 
 
+class LLMPoolModule(LifecycleModule):
+    """Create the stable, lazy provider pool without requiring a model selection."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(name="runtime_llm_pool",
+                         dependencies=("runtime_plugin_system", "runtime_configuration"))
+        self._context = context
+
+    async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            return
+        self._context.llm.scenario_llm_pool = create_scenario_llm_pool(
+            require_initialized(self._context.core.config, "runtime config"),
+            provider_registry=self._context.plugins.provider_registry,
+        )
+
+    async def shutdown(self) -> None:
+        self._context.llm.scenario_llm_pool = None
+
+
 class LLMRuntimeModule(LifecycleModule):
-    """Initialize scenario-based LLM pool and core adapter (L5)."""
+    """Validate the selected core adapter independently of pool ownership (L5)."""
 
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_llm",
-            dependencies=("runtime_plugin_system", "runtime_configuration"),
+            dependencies=("runtime_plugin_activation", "runtime_llm_pool"),
         )
         self._context = context
 
@@ -40,9 +60,6 @@ class LLMRuntimeModule(LifecycleModule):
             return
         config = require_initialized(self._context.core.config, "runtime config")
         try:
-            self._context.llm.scenario_llm_pool = create_scenario_llm_pool(
-                config, provider_registry=self._context.plugins.provider_registry,
-            )
             self._context.llm.llm_adapter = create_core_llm_adapter(
                 self._context.llm.scenario_llm_pool
             )
@@ -53,7 +70,6 @@ class LLMRuntimeModule(LifecycleModule):
             ) from exc
 
     async def shutdown(self) -> None:
-        self._context.llm.scenario_llm_pool = None
         self._context.llm.llm_adapter = None
 
 

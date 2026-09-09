@@ -276,10 +276,10 @@ async fn poll_backend_startup(
     }
     let maintenance = !matches!(info.maintenance.phase.as_str(), "idle" | "completed");
     Ok(PollStartupResponse {
-        ready: info.runtime_ready || maintenance,
+        ready: info.service_ready || maintenance,
         phase: if maintenance {
             "recovering_maintenance"
-        } else if info.runtime_ready {
+        } else if info.service_ready {
             "ready"
         } else {
             "waiting_for_worker"
@@ -717,7 +717,7 @@ mod connection_reuse_tests {
             assert!(
                 String::from_utf8_lossy(&request[..length]).starts_with("GET /api/server/info ")
             );
-            let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":1,"runtime_ready":true,"maintenance":{"data_epoch":"new-epoch","content_epoch":"content","phase":"completed"}}}).to_string();
+            let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":true,"maintenance":{"data_epoch":"new-epoch","content_epoch":"content","phase":"completed"}}}).to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
         });
         let state = BackendState::default();

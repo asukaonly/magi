@@ -16,7 +16,7 @@ class ConfigurationModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_configuration",
-            dependencies=("runtime_core_dependencies",),
+            dependencies=("runtime_database_migrations",),
         )
         self._context = context
 

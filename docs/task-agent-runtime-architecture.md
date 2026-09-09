@@ -143,82 +143,129 @@ The current runtime-worker sequence in `bootstrap/runtime_worker_builder.py` is:
 9. `runtime_message_bus`
 10. `runtime_chat_store`
 11. `runtime_plugin_system`
-12. `runtime_llm`
+12. `runtime_llm_pool`
+13. `runtime_llm`
 
-### Phase 2: stateful services and read/write stores
+### Phase 2: stateful services
 
-13. `runtime_memory`
-14. `runtime_chat_forgetting_recovery`
-15. `runtime_media_registry`
-16. `runtime_location`
-17. `runtime_manual_entries`
-18. `runtime_history_imports`
-19. `runtime_memory_ingestion_subscriber`
-20. `runtime_llm_usage_subscriber`
-21. `runtime_chat_projector`
-22. `runtime_chat_assistant_memory_projection`
-23. `runtime_control_transcript_subscriber`
-24. `runtime_trace`
-25. `runtime_trace_subscriber`
-26. `runtime_hooks`
-27. `runtime_first_party_tools`
-28. `runtime_tools`
-29. `runtime_skills`
-30. `runtime_mcp`
-31. `runtime_personality`
-32. `runtime_source_hub`
-33. `runtime_context`
-34. `runtime_agent_core`
+14. `runtime_memory`
+15. `runtime_memory_processing`
+16. `runtime_plugin_activation`
+17. `runtime_chat_forgetting_recovery`
+18. `runtime_media_registry`
+19. `runtime_location`
+20. `runtime_manual_entries`
+21. `runtime_history_imports`
+22. `runtime_memory_ingestion_subscriber`
+23. `runtime_llm_usage_subscriber`
+24. `runtime_chat_projector`
+25. `runtime_chat_assistant_memory_projection`
+26. `runtime_control_transcript_subscriber`
+27. `runtime_trace`
+28. `runtime_trace_subscriber`
+29. `runtime_hooks`
+30. `runtime_first_party_tools`
+31. `runtime_tools`
+32. `runtime_skills`
+33. `runtime_mcp`
+34. `runtime_personality`
+35. `runtime_source_hub`
+36. `runtime_context`
+37. `runtime_agent_core`
 
-### Phase 3: long-running processors and business services
+### Phase 3: processors and services
 
-35. `runtime_chat_delivery_recovery`
-36. `runtime_command_processor`
-37. `runtime_plugin_ingress_processor`
-38. `runtime_timeline`
-39. `runtime_timeline_subscriber`
-40. `runtime_kg_subscriber`
-41. `runtime_source_state_subscriber`
-42. `runtime_scheduler`
-43. `runtime_agent_schedule_registration`
-44. `runtime_source_scheduler`
+38. `runtime_chat_delivery_recovery`
+39. `runtime_command_processor`
+40. `runtime_plugin_ingress_processor`
+41. `runtime_timeline`
+42. `runtime_timeline_subscriber`
+43. `runtime_kg_subscriber`
+44. `runtime_source_state_subscriber`
+45. `runtime_scheduler`
+46. `runtime_agent_schedule_registration`
+47. `runtime_source_scheduler`
 
-### Phase 4: exports and maintenance registration
+### Phase 4: exports and maintenance
 
-45. `runtime_exports`
-46. `runtime_control_plane`
-47. `runtime_l1_maintenance_scheduler`
-48. `runtime_l2_maintenance_scheduler`
-49. `runtime_l2_consolidation_scheduler`
-50. `runtime_l2_derive_scheduler`
-51. `runtime_l3_summary_scheduler`
-52. `runtime_l3_maintenance_scheduler`
-53. `runtime_l4_maintenance_scheduler`
-54. `runtime_timeline_schedulers`
-55. `runtime_operational_gc_scheduler`
-56. `runtime_other_dependencies`
-57. `runtime_channels`
-58. `runtime_outreach`
-59. `runtime_scheduler_activation`
-60. `runtime_source_sync_executor`
+48. `runtime_base_exports`
+49. `runtime_plugin_exports`
+50. `runtime_memory_exports`
+51. `runtime_scheduler_exports`
+52. `runtime_source_exports`
+53. `runtime_exports`
+54. `runtime_control_plane`
+55. `runtime_l1_maintenance_scheduler`
+56. `runtime_l2_maintenance_scheduler`
+57. `runtime_l2_consolidation_scheduler`
+58. `runtime_l2_derive_scheduler`
+59. `runtime_l3_summary_scheduler`
+60. `runtime_l3_maintenance_scheduler`
+61. `runtime_l4_maintenance_scheduler`
+62. `runtime_timeline_schedulers`
+63. `runtime_operational_gc_scheduler`
+64. `runtime_other_dependencies`
+65. `runtime_channels`
+66. `runtime_outreach`
+67. `runtime_scheduler_activation`
+68. `runtime_source_sync_executor`
 
 Important rule: bootstrap order is dependency order, not ownership order. The
-scheduler engine is infrastructure even though it starts after services that
-register schedules into it. It remains paused until
-`runtime_scheduler_activation`; unchanged registrations are read-only.
+phase lists above group modules for maintainers; they are not a global startup
+barrier or the Python import-layer order. `backend/.importlinter` continues to
+protect the existing numbered layers. Recovery explicitly precedes migrations,
+and migrated database consumers declare that dependency.
 
-One process-owned lifecycle lock serializes initialization and shutdown. A
-configuration response may stop waiting while initialization continues, but a
-later save or shutdown must join that serialization boundary instead of starting
-another runtime concurrently.
+The IPC worker first initializes the dependency closure of
+`runtime_base_exports`: runtime paths, recovery/migrations, configuration,
+control services, chat persistence, command queue, bus and trace. It then binds
+IPC and writes `worker.ready`. Optional capability activation runs as a tracked
+worker task after that point. A failed plugin or model configuration leaves
+management and repair APIs reachable. Foundational database or configuration
+failures still fail worker startup rather than advertise unsafe storage access.
 
-The product readiness states remain:
+One process-owned lifecycle lock serializes initialization, configuration
+reconciliation and shutdown. Each module initializes and finishes its own
+post-init hook before dependents start. Deferred or failed optional modules
+block only their dependency descendants. Already-ready modules remain owned;
+a later configuration save resumes blocked/failed modules on the same context.
+Partial initialization is cleaned up before retry. Failed cleanup retains the
+module and its dependencies for a strict shutdown retry. No duplicate runtime
+or deferred-mode fallback service graph is constructed.
+Cancellation waits for an admitted plugin lifecycle thread to finish before
+releasing its mutation barrier or cleaning up the module's resources.
 
-- `ready` — normal agent execution is available;
-- `deferred` — configuration/onboarding may proceed, but full model execution is
-  not yet guaranteed;
-- `degraded` — startup completed with an explicitly reduced capability set;
-- `unresponsive` — the IPC worker did not answer the bounded readiness probe.
+Plugin discovery/metadata and activation have separate owners. The lazy LLM pool
+exists before a core model selection; activation registers plugin providers
+before core model validation. Storage opens independently of that validation.
+Raw source ingestion can persist events and durable L2 projection intents while
+core model selection is pending. L2 extraction and model-assisted retrieval
+start only through `runtime_memory_processing`; embedding workers retain their
+separate embedding configuration and do not imply core-model readiness.
+
+The scheduler may run independently of Agent initialization. Every production
+scheduled target is mapped to its lifecycle contributor in
+`bootstrap/schedule_readiness.py`. Unavailable targets keep paused jobs and
+reject manual execution without consuming a persisted one-off task. After
+capabilities resume, the scheduler re-arms those jobs. Source synchronization
+retains its dedicated execution thread. The desktop never decides Python module
+activation from which onboarding page happens to be visible.
+
+Readiness has three distinct meanings:
+
+- `service_ready`: management transport and its basic persistence are available;
+- `storage_ready`: the Python unified memory store is initialized;
+- `runtime_ready`: the model adapter, Agent exports and runtime command processor
+  are ready. An unrelated optional capability failure degrades health without
+  disabling an otherwise usable Agent.
+
+`/api/ready` and `/api/health` also expose per-module `capabilities` with `state`,
+`reason` and `blocked_by`. Model readiness validates local selection/adapter
+construction; it is not a successful live provider request. Overall startup may
+be `starting`, `deferred`, `ready`, `failed`, `stopping` or `offline`; health can
+be `degraded` while management remains usable. A bounded IPC probe can separately
+report an unresponsive worker. Server-info and operator-status protocol version
+2 use `service_ready`, never an ambiguous `runtime_ready` for a connected worker.
 
 Full-clear recovery is completed before ordinary runtime commands are admitted.
 This prevents pre-clear queue rows, projections, or plugin ingress from

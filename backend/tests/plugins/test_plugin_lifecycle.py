@@ -12,7 +12,7 @@ from typing import Any, Callable
 import pytest
 
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.bootstrap.plugin_system import PluginSystemModule
+from magi.bootstrap.plugin_system import PluginActivationModule, PluginSystemModule
 
 
 def _patch_plugin_runtime(
@@ -109,6 +109,8 @@ async def test_source_schedule_refresh_from_worker_runs_on_runtime_loop(
 
     assert "clear_checked" in captured
     assert captured["activate_enabled"] is False
+    assert "activated" not in captured
+    await PluginActivationModule(context).init()
     assert captured["activated"] is True
     assert context.plugins.user_content_clear_coordinator is not None
 

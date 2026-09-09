@@ -53,7 +53,7 @@ def main() -> None:
             if process.poll() is not None:
                 raise RuntimeError("Packaged service exited during startup")
             status = operator("status")
-            if status.get("runtime_ready"):
+            if status.get("service_ready"):
                 break
             time.sleep(0.5)
         else:

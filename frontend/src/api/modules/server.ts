@@ -10,7 +10,7 @@ export const maintenanceSchema = z.object({
 });
 export type CenterMaintenance = z.infer<typeof maintenanceSchema>;
 const infoSchema = z.object({
-  server_id: z.string().uuid(), protocol_version: z.literal(1), runtime_ready: z.boolean(),
+  server_id: z.string().uuid(), protocol_version: z.literal(2), service_ready: z.boolean(),
   maintenance: maintenanceSchema, plugin_execution: z.literal('server'),
 });
 const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), created_at_ms: z.number(), revoked_at_ms: z.number().nullable() });

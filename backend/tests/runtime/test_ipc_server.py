@@ -186,6 +186,10 @@ async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
     async def fake_runtime_status(received_app):
         assert received_app is app
         return {
+            "service_ready": True,
+            "storage_ready": True,
+            "infrastructure_ready": True,
+            "capabilities": {},
             "runtime_ready": True,
             "worker_ready": True,
             "llm_ready": True,
@@ -221,6 +225,10 @@ async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
             assert resp["result"]["data"] == {
                 "ready": True,
                 "status": "ready",
+                "service_ready": True,
+                "storage_ready": True,
+                "infrastructure_ready": True,
+                "capabilities": {},
                 "runtime_ready": True,
                 "worker_ready": True,
                 "llm_ready": True,

@@ -44,7 +44,7 @@ def main() -> None:
             return json.loads(result.stdout)
         def wait_ready() -> None:
             deadline = time.monotonic() + 180
-            while not operator('status').get('runtime_ready'):
+            while not operator('status').get('service_ready'):
                 if time.monotonic() > deadline or process.poll() is not None: raise RuntimeError('Service did not become ready')
                 time.sleep(0.25)
         wait_ready()

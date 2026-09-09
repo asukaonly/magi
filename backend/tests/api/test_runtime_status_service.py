@@ -2,7 +2,24 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from magi.api.services import runtime_status_service as service
+
+
+def _ready_binding(name):
+    if name == "runtime_orchestrator":
+        return SimpleNamespace(snapshot=lambda: {
+            key: {"state": "ready"} for key in (
+                "runtime_llm", "runtime_memory", "runtime_exports", "runtime_command_processor",
+            )
+        })
+    if name == "runtime_bootstrap_context":
+        return SimpleNamespace(
+            runtime_commands=SimpleNamespace(full_clear_recovery_pending=False),
+            llm=SimpleNamespace(llm_adapter=object()),
+        )
+    return object()
 
 
 class _FakeRuntimeCommandQueue:
@@ -65,7 +82,7 @@ async def test_get_runtime_system_status_reports_ready_when_runtime_and_bindings
         "get_runtime_startup_snapshot",
         lambda: _snapshot(startup_state="ready"),
     )
-    monkeypatch.setattr(service, "_resolve_binding", lambda _name: object())
+    monkeypatch.setattr(service, "_resolve_binding", _ready_binding)
 
     status = await service.get_runtime_system_status(app)
 
@@ -135,10 +152,31 @@ async def test_get_runtime_system_status_never_reads_runtime_heartbeat_store(mon
         "get_runtime_startup_snapshot",
         lambda: _snapshot(startup_state="ready"),
     )
-    monkeypatch.setattr(service, "_resolve_binding", lambda _name: object())
+    monkeypatch.setattr(service, "_resolve_binding", _ready_binding)
 
     status = await service.get_runtime_system_status(app)
 
     assert status["worker_ready"] is True
     assert status["runtime_ready"] is True
     assert status["runtime_status"] == "ready"
+
+
+@pytest.mark.parametrize("unavailable", ["adapter", "runtime_command_processor", "runtime_optional"])
+async def test_readiness_distinguishes_execution_failure_from_optional_failure(monkeypatch, unavailable):
+    def resolve(name):
+        value = _ready_binding(name)
+        if name == "runtime_bootstrap_context" and unavailable == "adapter":
+            value.llm.llm_adapter = None
+        if name == "runtime_orchestrator" and unavailable != "adapter":
+            states = value.snapshot()
+            states[unavailable] = {"state": "failed"}
+            value.snapshot = lambda: states
+        return value
+
+    monkeypatch.setattr(service, "_resolve_binding", resolve)
+    monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="failed"))
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue())
+    status = await service.get_runtime_system_status(SimpleNamespace(state=SimpleNamespace(backend_ready=True)))
+    assert status["service_ready"] and status["storage_ready"]
+    assert status["runtime_ready"] is (unavailable == "runtime_optional")
+    assert status["status"] == "degraded"

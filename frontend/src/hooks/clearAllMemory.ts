@@ -58,7 +58,7 @@ async function waitForOperation(initial: CenterMaintenance, operationId: string,
       // Completion is durable before a new normal worker becomes ready.
       const info = await serverApi.info();
       assertRuntimeGeneration(owner);
-      if (info.runtime_ready) {
+      if (info.service_ready) {
         await applyCenterEpochs(info.maintenance);
         centerLocalStorage().removeItem(pendingKey(kind));
         dispatchAppEvent.centerMaintenance(null, 'idle');

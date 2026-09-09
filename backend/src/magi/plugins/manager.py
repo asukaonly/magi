@@ -1145,10 +1145,9 @@ class PluginManager(PluginInstallationMixin):
                 await self.drain_shutdowns(connection.plugin_id)
             return self.load_connection(connection_id)
 
-    async def shutdown(self) -> None:
+    async def deactivate_plugins(self) -> None:
+        """Unload active instances while retaining the reusable metadata manager."""
         async with self._async_lifecycle_lock:
-            with self._lifecycle_write_lock:
-                self._shutdown_started = True
             failures: list[Exception] = []
             try:
                 for plugin_id in set(self._instance_packages.values()):
@@ -1160,6 +1159,12 @@ class PluginManager(PluginInstallationMixin):
                 await self.drain_shutdowns()
             if failures:
                 raise RuntimeError(f"Plugin shutdown cleanup failed: {failures}") from failures[0]
+
+    async def shutdown(self) -> None:
+        """Close the manager to new work and release active instances."""
+        with self._lifecycle_write_lock:
+            self._shutdown_started = True
+        await self.deactivate_plugins()
 
     def iter_consumers(self, library_id: str) -> list[str]:
         """Return plugin_ids that declare ``library_id`` in their ``depends_on``.

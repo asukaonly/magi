@@ -59,7 +59,7 @@ def main() -> None:
             result = subprocess.run([executable, command, '--config', str(config)], capture_output=True, text=True, check=True, timeout=10)
             return json.loads(result.stdout)
         deadline = time.monotonic() + 100
-        while not operator('status').get('runtime_ready'):
+        while not operator('status').get('service_ready'):
             if time.monotonic() > deadline or process.poll() is not None: raise RuntimeError('Service did not become ready')
             time.sleep(0.25)
         def call(method: str, path: str, payload=None, token=None, extra_headers=None):
@@ -162,7 +162,7 @@ def main() -> None:
                 code, status = call('GET', '/api/server/maintenance', token=second_token)
                 assert code == 200
                 if status['data']['phase'] == 'failed': raise RuntimeError(status)
-                if status['data']['phase'] == 'completed' and operator('status').get('runtime_ready'): break
+                if status['data']['phase'] == 'completed' and operator('status').get('service_ready'): break
                 time.sleep(0.25)
             else: raise RuntimeError('Full clear did not complete')
             assert status['data']['result']['warnings'] == [], status

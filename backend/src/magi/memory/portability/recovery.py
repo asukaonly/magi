@@ -736,7 +736,7 @@ class MemoryRestoreRecoveryModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_memory_restore_recovery",
-            dependencies=("runtime_core_dependencies",),
+            dependencies=("runtime_initialization_state",),
         )
         self._context = context
 

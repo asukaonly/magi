@@ -12,12 +12,13 @@ from ..core.logger import get_logger
 from .context import RuntimeBootstrapContext
 from .lifecycle import ModuleLifecycleOrchestrator
 from .builder import build_runtime_modules
-from ..llm.lifecycle import RuntimeInitializationDeferred
 from .runtime_startup_state import set_runtime_startup_state
 from .runtime_worker_builder import describe_runtime_worker_phase_plan
 
 logger = get_logger(__name__)
 _runtime_lifecycle_lock = asyncio.Lock()
+_runtime_generation = 0
+_runtime_stopping = False
 
 
 def _bind_runtime_bootstrap_state(
@@ -28,96 +29,6 @@ def _bind_runtime_bootstrap_state(
     container = get_container()
     container.runtime_orchestrator.override(providers.Object(orchestrator))
     container.runtime_bootstrap_context.override(providers.Object(context))
-
-
-def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) -> None:
-    """Bind infrastructure services that were created before LLM init was deferred.
-
-    When ``LLMRuntimeModule`` raises ``LifecycleInitDeferred``, modules that
-    ran *before* it (chat_store, message_bus, runtime_command_queue, etc.)
-    have already been initialised.  Export them to the DI container so that
-    API endpoints can use basic infrastructure even without a full runtime.
-    """
-    container = get_container()
-    bound: list[str] = []
-
-    if context.chat.store is not None:
-        container.chat_store.override(providers.Object(context.chat.store))
-        from ..chat.message_notifications import chat_message_notifier
-
-        container.chat_message_notifier.override(providers.Object(chat_message_notifier))
-        bound.append("chat_store")
-    if context.message_bus.message_bus is not None:
-        container.message_bus.override(providers.Object(context.message_bus.message_bus))
-        bound.append("message_bus")
-    if context.runtime_commands.runtime_command_queue is not None:
-        container.runtime_command_queue.override(
-            providers.Object(context.runtime_commands.runtime_command_queue),
-        )
-        bound.append("runtime_command_queue")
-    if context.plugins.plugin_manager is not None:
-        container.plugin_manager.override(providers.Object(context.plugins.plugin_manager))
-        bound.append("plugin_manager")
-    if context.plugins.plugin_projection_service is not None:
-        container.plugin_projection_service.override(
-            providers.Object(context.plugins.plugin_projection_service)
-        )
-        bound.append("plugin_projection_service")
-    if context.plugins.source_registry is not None:
-        container.source_registry.override(providers.Object(context.plugins.source_registry))
-        bound.append("source_registry")
-    if context.runtime_trace.store is not None:
-        container.runtime_trace_store.override(providers.Object(context.runtime_trace.store))
-        bound.append("runtime_trace_store")
-    if context.chat.store is not None and context.runtime_commands.runtime_command_queue is not None:
-        from ..chat.ingress import dispatch_user_message
-
-        container.user_message_dispatcher.override(providers.Object(dispatch_user_message))
-        bound.append("user_message_dispatcher")
-
-    if bound:
-        logger.info("Infrastructure bindings exported during deferred init: %s", ", ".join(bound))
-
-
-def _initialize_skills_bindings_for_configuration_mode(
-    config: AppConfig, context: RuntimeBootstrapContext,
-) -> None:
-    """Initialize skills bindings even when full runtime startup is deferred.
-
-    During onboarding/configuration, LLM selection may be incomplete, which defers
-    full runtime startup. The settings UI still needs skill metadata, so expose
-    lightweight skills services via DI container in that state.
-    """
-    container = get_container()
-
-    if not config.features.enable_skills:
-        container.skill_indexer.reset_override()
-        container.skill_loader.reset_override()
-        container.skill_runner.reset_override()
-        return
-
-    try:
-        from ..agent.execution.function_calling.headless_factory import (
-            build_function_calling_orchestrator,
-            build_headless_agent_run_request,
-        )
-        from ..skills.service_access import build_skills_runtime
-        from ..tools import tool_registry
-
-        bindings = build_skills_runtime(
-            llm_adapter=None,
-            tool_registry=tool_registry,
-            orchestrator_factory=build_function_calling_orchestrator,
-            agent_run_request_factory=build_headless_agent_run_request,
-            skill_indexer=context.skills.skill_indexer,
-            skill_loader=context.skills.skill_loader,
-        )
-        container.skill_indexer.override(providers.Object(bindings.skill_indexer))
-        container.skill_loader.override(providers.Object(bindings.skill_loader))
-        container.skill_runner.override(providers.Object(bindings.skill_runner))
-        logger.info("Skills bindings initialized for configuration mode")
-    except Exception as exc:
-        logger.warning("Failed to initialize skills bindings for configuration mode: %s", exc)
 
 
 def _resolve_from_container(attr: str):
@@ -150,76 +61,99 @@ def _is_runtime_initialized() -> bool:
 
 async def initialize_agent_runtime() -> None:
     """Serialize startup with configuration retries and shutdown."""
+    generation = _runtime_generation
+    if _runtime_stopping:
+        return
     async with _runtime_lifecycle_lock:
+        if generation != _runtime_generation or _runtime_stopping:
+            return
         await _initialize_agent_runtime()
 
 
+def _runtime_owner() -> tuple[ModuleLifecycleOrchestrator, RuntimeBootstrapContext]:
+    orchestrator = _resolve_from_container("runtime_orchestrator")
+    context = _resolve_from_container("runtime_bootstrap_context")
+    if orchestrator is None:
+        context = RuntimeBootstrapContext()
+        orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
+        _bind_runtime_bootstrap_state(orchestrator, context)
+    if context is None:
+        raise RuntimeError("Runtime lifecycle context is missing")
+    return orchestrator, context
+
+
+async def initialize_base_runtime() -> None:
+    """Open the management substrate before optional runtime startup."""
+    async with _runtime_lifecycle_lock:
+        orchestrator, _context = _runtime_owner()
+        set_runtime_startup_state("starting")
+        try:
+            await orchestrator.startup(targets={"runtime_base_exports"})
+        except Exception as exc:
+            set_runtime_startup_state("failed", reason="base_init_failed", detail=str(exc))
+            raise
+
+
 async def _initialize_agent_runtime() -> None:
-    """Initialize runtime resources while holding the lifecycle owner lock."""
-    if _is_runtime_initialized():
-        set_runtime_startup_state("ready")
-        logger.warning("Agent runtime already initialized")
-        return
-
-    existing_orchestrator = _resolve_from_container("runtime_orchestrator")
-    if existing_orchestrator is not None:
-        logger.info("Cleaning up previously deferred runtime before reinitializing")
-        await _shutdown_agent_runtime()
-
-    context = RuntimeBootstrapContext()
-    orchestrator = ModuleLifecycleOrchestrator(build_runtime_modules(context))
+    """Resume capabilities on the existing owner while holding its lock."""
+    orchestrator, context = _runtime_owner()
     set_runtime_startup_state("starting")
-
     try:
-        logger.info("Initializing Agent Runtime...")
+        context.core.config = get_config()
+        pool = context.llm.scenario_llm_pool
+        if pool is not None:
+            pool.refresh(context.core.config)
+            if orchestrator.is_ready("runtime_llm") and not context.runtime_commands.full_clear_recovery_pending:
+                from ..llm.factory import create_core_llm_adapter
+
+                try:
+                    context.llm.llm_adapter = create_core_llm_adapter(pool)
+                except Exception:
+                    # Withdraw readiness even if a dependent resource cannot stop.
+                    context.llm.llm_adapter = None
+                    await orchestrator.shutdown(targets={"runtime_llm"}, strict=True)
         logger.info("Runtime worker phase plan: %s", describe_runtime_worker_phase_plan())
         await orchestrator.startup()
-    except RuntimeInitializationDeferred as exc:
-        _bind_runtime_bootstrap_state(orchestrator, context)
-        _export_available_infrastructure_bindings(context)
-        _initialize_skills_bindings_for_configuration_mode(context.core.config or get_config(), context)
-        deferred_reason = "llm_selection_pending" if exc.pending_selection else "llm_configuration_invalid"
-        set_runtime_startup_state(
-            "deferred",
-            reason=deferred_reason,
-            detail=str(exc.cause) if exc.cause else None,
-        )
-        if exc.pending_selection:
-            logger.info(
-                "LLM runtime initialization deferred: required selections are incomplete "
-                "(core provider+model)."
-            )
-        else:
-            logger.warning("=" * 60)
-            logger.warning("LLM runtime configuration is incomplete: %s", exc.cause)
-            logger.warning("Agent runtime will NOT be initialized.")
-            logger.warning("Configure an enabled core provider and model selection to enable AI responses.")
-            logger.warning("=" * 60)
-        return
     except Exception as exc:
         set_runtime_startup_state("failed", reason="runtime_init_failed", detail=str(exc))
-        logger.error("Failed to initialize agent runtime: %s", exc, exc_info=True)
         raise
 
-    _bind_runtime_bootstrap_state(orchestrator, context)
-    set_runtime_startup_state("ready")
-    logger.info("Agent runtime initialized successfully")
+    states = orchestrator.snapshot()
+    failed = [name for name, state in states.items() if state["state"] == "failed"]
+    llm_state = states["runtime_llm"]
+    if failed:
+        set_runtime_startup_state("failed", reason="capability_init_failed", detail=", ".join(failed))
+    elif llm_state["state"] == "blocked":
+        reason = llm_state["reason"] or "llm_selection_pending"
+        set_runtime_startup_state("deferred", reason=reason.removeprefix("runtime_"))
+    elif _is_runtime_initialized():
+        set_runtime_startup_state("ready")
+    else:
+        set_runtime_startup_state("deferred", reason="capabilities_pending")
+
+    scheduler = context.scheduler.scheduler_service
+    if scheduler is not None and not context.runtime_commands.full_clear_recovery_pending:
+        await scheduler.refresh_availability()
+
     from .maintenance_worker import is_restore_worker
-
-    if not is_restore_worker():
+    if _is_runtime_initialized() and not is_restore_worker():
         from ..memory.portability.service import get_memory_portability_service
-
         try:
             await get_memory_portability_service().resume_restore_indexing()
         except Exception:
             logger.warning("Restore index rebuild remains pending", exc_info=True)
 
 
-
 async def shutdown_agent_runtime(*, strict: bool = False) -> None:
     """Serialize shutdown with pending runtime initialization."""
-    async with _runtime_lifecycle_lock:
-        await _shutdown_agent_runtime(strict=strict)
+    global _runtime_generation, _runtime_stopping
+    _runtime_generation += 1
+    _runtime_stopping = True
+    try:
+        async with _runtime_lifecycle_lock:
+            await _shutdown_agent_runtime(strict=strict)
+    finally:
+        _runtime_stopping = False
 
 
 async def _shutdown_agent_runtime(*, strict: bool = False) -> None:

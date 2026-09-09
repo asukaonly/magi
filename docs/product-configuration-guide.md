@@ -1155,3 +1155,16 @@ connection configuration remains owned by the plugin connection APIs.
 The response's required `configurable` flag controls whether the tool card offers
 an enable switch and editable fields. Tools without independent settings show
 their status and description without controls that cannot persist.
+
+
+### Service readiness during configuration
+
+Selecting this computer starts the local Rust service and its Python worker.
+Configuration and connection management become available before optional runtime
+activation finishes. An incomplete model selection does not reopen or replace
+storage on every save: the service retains its live infrastructure and resumes
+only capabilities whose requirements are now satisfied. Source collection can
+run without a core model; model-dependent extraction and Agent tasks wait for
+configuration. A remote desktop starts neither a local center nor a local
+Python worker. Readiness errors must distinguish an unavailable management
+service from an available service awaiting model configuration.

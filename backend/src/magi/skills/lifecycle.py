@@ -64,6 +64,4 @@ class SkillsModule(LifecycleModule):
         logger.info("Shared skills runtime initialized")
 
     async def shutdown(self) -> None:
-        self._context.skills.skill_indexer = None
-        self._context.skills.skill_loader = None
         self._context.skills.skill_runner = None

@@ -43,8 +43,8 @@ async def test_startup_runs_init_then_post_init_in_order() -> None:
 
     assert events == [
         "a.init",
-        "b.init",
         "a.post",
+        "b.init",
         "b.post",
         "b.stop",
         "a.stop",
@@ -78,7 +78,7 @@ async def test_startup_failure_triggers_reverse_shutdown_for_initialized_modules
     with pytest.raises(RuntimeError, match="boom"):
         await orchestrator.startup()
 
-    assert events == ["a.init", "b.init", "a.stop"]
+    assert events == ["a.init", "b.init", "b.stop", "a.stop"]
 
 
 @pytest.mark.asyncio
@@ -114,7 +114,7 @@ async def test_post_init_failure_triggers_reverse_shutdown_for_all_initialized_m
     with pytest.raises(RuntimeError, match="post-boom"):
         await orchestrator.startup()
 
-    assert events == ["a.init", "b.init", "a.post", "b.post", "b.stop", "a.stop"]
+    assert events == ["a.init", "a.post", "b.init", "b.post", "b.stop", "a.stop"]
 
 
 @pytest.mark.asyncio
@@ -180,3 +180,89 @@ def test_cycle_dependency_raises_value_error() -> None:
                 LifecycleModule(name="b", dependencies=["a"]),
             ]
         )
+
+
+@pytest.mark.asyncio
+async def test_deferred_branch_keeps_storage_and_resumes_only_missing_modules():
+    from magi.bootstrap.lifecycle import LifecycleInitDeferred
+    events = []
+    configured = False
+
+    async def record(name):
+        events.append(name)
+
+    async def model():
+        events.append("model")
+        if not configured:
+            raise LifecycleInitDeferred("missing_model")
+
+    owner = ModuleLifecycleOrchestrator([
+        LifecycleModule("storage", init=lambda: record("storage")),
+        LifecycleModule("model", dependencies=("storage",), init=model),
+        LifecycleModule("agent", dependencies=("model",), init=lambda: record("agent")),
+        LifecycleModule("sources", dependencies=("storage",), init=lambda: record("sources")),
+    ])
+    await owner.startup(targets={"storage"})
+    await owner.startup()
+    assert events == ["storage", "model", "sources"]
+    assert owner.snapshot()["agent"]["blocked_by"] == ["model"]
+    configured = True
+    await owner.startup()
+    await owner.startup()
+    assert events == ["storage", "model", "sources", "model", "agent"]
+    await owner.shutdown(targets={"model"}, strict=True)
+    assert owner.is_ready("storage") and owner.is_ready("sources")
+    assert not owner.is_ready("agent")
+    await owner.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_optional_module_cleans_partial_resources_and_allows_retry():
+    events = []
+    fail = True
+
+    async def broken():
+        events.append("allocate")
+        if fail:
+            raise OSError("plugin unavailable")
+
+    async def cleanup():
+        events.append("cleanup")
+
+    owner = ModuleLifecycleOrchestrator([
+        LifecycleModule("plugin", init=broken, shutdown=cleanup, critical=False),
+        LifecycleModule("settings"),
+    ])
+    await owner.startup()
+    assert owner.is_ready("settings")
+    assert owner.snapshot()["plugin"]["state"] == "failed"
+    assert events == ["allocate", "cleanup"]
+    fail = False
+    await owner.startup()
+    assert owner.is_ready("plugin")
+    assert events == ["allocate", "cleanup", "allocate"]
+    await owner.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_cleanup_retains_dependencies_without_reinitializing():
+    cleanup_fails = True
+    starts = []
+    async def start():
+        starts.append("start")
+    async def stop():
+        if cleanup_fails:
+            raise OSError("still owned")
+    owner = ModuleLifecycleOrchestrator([
+        LifecycleModule("storage"),
+        LifecycleModule("worker", dependencies=("storage",), init=start, shutdown=stop),
+    ])
+    await owner.startup()
+    with pytest.raises(LifecycleShutdownError):
+        await owner.shutdown(strict=True)
+    assert owner.is_ready("storage")
+    await owner.startup()
+    assert starts == ["start"]
+    cleanup_fails = False
+    await owner.shutdown(strict=True)
+    assert not owner.is_ready("storage")

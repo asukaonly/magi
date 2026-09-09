@@ -108,7 +108,9 @@ class SchedulerService:
         db_path: str | Path,
         runtime_dir: str | Path,
         repository: ScheduleRepository | None = None,
+        target_ready: Callable[[ScheduledTargetType], bool] | None = None,
     ) -> None:
+        self._target_ready = target_ready or (lambda _target: True)
         self._db_path = Path(db_path).expanduser()
         self._runtime_dir = Path(runtime_dir).expanduser()
         self._repository = repository or ScheduleRepository(self._db_path)
@@ -158,7 +160,7 @@ class SchedulerService:
         await self._restore_persisted_jobs()
 
     def activate(self) -> None:
-        """Allow persisted jobs to run after all startup contributors are ready."""
+        """Allow persisted jobs to run under their target readiness gates."""
         if not self._running:
             raise RuntimeError("Scheduler service is not started")
         if self._active:
@@ -183,7 +185,7 @@ class SchedulerService:
         """Report whether a persisted schedule can run in this runtime."""
         if not schedule.enabled:
             return "paused"
-        if not self._running or schedule.target_type not in self._handlers:
+        if not self._running or not self._target_ready(schedule.target_type) or schedule.target_type not in self._handlers:
             return "unavailable"
         job = self._scheduler.get_job(schedule.job_id or schedule.schedule_id)
         if job is None:
@@ -572,6 +574,8 @@ class SchedulerService:
         assert schedule is not None
         if self._data_clear_active:
             return self._early_execution_prep("data_clear_in_progress")
+        if not self._target_ready(schedule.target_type):
+            return self._early_execution_prep("capability_unavailable")
 
         effective_manual = manual or bool(schedule.metadata.get("manual", False))
         started_at = time.time()
@@ -889,6 +893,17 @@ class SchedulerService:
             watermark_ts=watermark_ts,
         )
 
+    async def refresh_availability(self) -> None:
+        """Reconcile paused jobs after capability startup or reconfiguration."""
+        async with self._schedule_lock:
+            for schedule in await self._repository.list_schedules(enabled_only=True):
+                job = self._scheduler.get_job(schedule.job_id or schedule.schedule_id)
+                ready = self._target_ready(schedule.target_type)
+                if not ready and job is not None:
+                    self._scheduler.pause_job(job.id)
+                elif ready and (job is None or job.next_run_time is None):
+                    await self._upsert_job(schedule)
+
     async def _restore_persisted_jobs(self) -> None:
         async with self._schedule_lock:
             for schedule in await self._repository.list_schedules(enabled_only=True):
@@ -913,6 +928,8 @@ class SchedulerService:
         existing = self._scheduler.get_job(job_id)
         if preserve_next_run and existing is not None and existing.next_run_time is not None:
             add_kwargs["next_run_time"] = existing.next_run_time
+        if not self._target_ready(schedule.target_type):
+            add_kwargs["next_run_time"] = None
         job = self._scheduler.add_job(
             dispatch_scheduled_job,
             trigger=trigger,

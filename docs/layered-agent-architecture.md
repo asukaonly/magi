@@ -582,3 +582,16 @@ The current codebase maps to the layered model like this:
 - `ipc/`, `transport/` and `crates/magi-gateway/` -> L15 connection and transport
 
 The boundary rules above should remain stable even as package internals evolve.
+
+
+### Runtime activation is independent of import layering
+
+The capability lifecycle graph in `bootstrap/` does not renumber or reorder the
+static Python layers. Layer-owned modules still declare their own startup and
+shutdown hooks; the outer composition root selects a dependency closure for
+management startup and resumes independent capabilities afterward. The LLM pool
+and memory storage can be constructed before core inference is configured.
+Model-dependent memory processing and Agent execution declare explicit runtime
+dependencies. This is lifecycle composition, not permission for lower layers to
+import higher-layer implementations; the existing import-linter contract remains
+unchanged.

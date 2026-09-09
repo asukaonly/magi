@@ -45,7 +45,7 @@ def main() -> None:
             result = command("status", check=False)
             if result.returncode == 0:
                 status = json.loads(result.stdout)
-                if status.get("runtime_ready"):
+                if status.get("service_ready"):
                     return status
             time.sleep(0.5)
         diagnostic = subprocess.run(["/bin/launchctl", "print", target], capture_output=True, text=True)
@@ -79,7 +79,7 @@ def main() -> None:
         assert not plist.exists()
         assert config.is_file() and (root / "data/service/server.db").is_file()
         print(json.dumps({"result": "passed", "data_root": str(root),
-                          "runtime_ready": first["runtime_ready"],
+                          "service_ready": first["service_ready"],
                           "install_start_stop_restart_uninstall": True,
                           "data_preserved": True}), flush=True)
     finally:

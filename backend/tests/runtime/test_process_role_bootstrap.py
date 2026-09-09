@@ -67,5 +67,5 @@ def test_build_runtime_modules_includes_full_runtime() -> None:
     assert module_names.index(
         "runtime_chat_assistant_memory_projection"
     ) < module_names.index("runtime_command_processor")
-    assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies
+    assert "runtime_base_exports" in module_by_name["runtime_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is True

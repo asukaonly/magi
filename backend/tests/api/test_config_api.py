@@ -1830,8 +1830,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
         calls.append("reload")
         return get_config()
 
-    def _fake_refresh_runtime_llm_config(config) -> None:  # type: ignore[no-untyped-def]
-        assert config is get_config()
+    async def _fake_refresh_runtime_llm_config() -> None:
         calls.append("refresh")
 
     async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
@@ -1841,7 +1840,7 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
     monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config",
+        "magi.bootstrap.initialize_agent_runtime",
         _fake_refresh_runtime_llm_config,
     )
     monkeypatch.setattr(
@@ -1874,7 +1873,7 @@ def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resume
         async def resume_starts(self) -> None:
             calls.append("resume")
 
-    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+    async def refresh(*, reason: str) -> None:
         assert reason == "config_updated"
         calls.append("refresh")
 
@@ -1932,7 +1931,7 @@ def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
     def unexpected_manager():
         raise AssertionError("Unrelated settings must not pause embedding rebuilds")
 
-    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+    async def refresh(*, reason: str) -> None:
         assert reason == "config_updated"
 
     monkeypatch.setattr(config_module, "get_config", lambda: current)
@@ -2021,7 +2020,7 @@ def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
         async def resume_starts(self) -> None:
             calls.append("resume")
 
-    async def failing_refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+    async def failing_refresh(*, reason: str) -> None:
         assert reason == "config_updated"
         calls.append("refresh")
         raise RuntimeError("refresh failed")
@@ -2133,7 +2132,7 @@ def test_update_config_initializes_runtime_when_runtime_is_deferred(
     monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
     monkeypatch.setattr(
-        "magi.bootstrap.backend.initialize_agent_runtime",
+        "magi.bootstrap.initialize_agent_runtime",
         _fake_initialize_agent_runtime,
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
@@ -2261,8 +2260,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         calls.append("reload")
         return get_config()
 
-    def _fake_refresh_runtime_llm_config(config) -> None:  # type: ignore[no-untyped-def]
-        assert config is get_config()
+    async def _fake_refresh_runtime_llm_config() -> None:
         calls.append("refresh")
 
     async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
@@ -2272,7 +2270,7 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
     monkeypatch.setattr(
-        "magi.api.routers.config.refresh_runtime_llm_config",
+        "magi.bootstrap.initialize_agent_runtime",
         _fake_refresh_runtime_llm_config,
     )
     monkeypatch.setattr(
@@ -2319,7 +2317,7 @@ def test_onboarding_embedding_change_uses_rebuild_coordination(
         async def resume_starts(self) -> None:
             calls.append("resume")
 
-    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+    async def refresh(*, reason: str) -> None:
         calls.append(f"refresh:{reason}")
 
     monkeypatch.setattr(config_module, "get_config", lambda: current)
@@ -2402,7 +2400,7 @@ def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
         0.001,
     )
     monkeypatch.setattr(
-        "magi.bootstrap.backend.initialize_agent_runtime",
+        "magi.bootstrap.initialize_agent_runtime",
         _slow_initialize_agent_runtime,
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)

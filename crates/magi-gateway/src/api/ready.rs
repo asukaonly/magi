@@ -27,6 +27,9 @@ fn unresponsive_payload(reason: String) -> Value {
         "data": {
             "ready": false,
             "status": "degraded",
+            "service_ready": false,
+            "storage_ready": false,
+            "capabilities": {},
             "runtime_ready": false,
             "worker_ready": false,
             "llm_ready": null,

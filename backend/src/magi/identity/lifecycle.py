@@ -33,7 +33,7 @@ class IdentityModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
             name="runtime_identity",
-            dependencies=("runtime_core_dependencies",),
+            dependencies=("runtime_database_migrations",),
         )
         self._context = context
         self._store: IdentityBindingsStore | None = None

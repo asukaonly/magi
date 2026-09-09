@@ -27,7 +27,7 @@ pub struct AccessSession {
 pub struct ServerInfo {
     pub server_id: String,
     pub protocol_version: u32,
-    pub runtime_ready: bool,
+    pub service_ready: bool,
     pub maintenance: MaintenanceInfo,
 }
 
@@ -120,7 +120,7 @@ impl CenterClient {
         let info: ServerInfo = self
             .request(Method::GET, "server/info", access, None)
             .await?;
-        if info.protocol_version != 1 {
+        if info.protocol_version != 2 {
             return Err("Center protocol is unsupported; update the client or center".into());
         }
         Ok(info)

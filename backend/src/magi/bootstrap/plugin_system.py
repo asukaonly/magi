@@ -176,7 +176,6 @@ class PluginSystemModule(LifecycleModule):
             await run_plugin_lifecycle_operation(
                 lambda: bindings.plugin_manager.scan(persist_discovery=True),
             )
-            await run_plugin_lifecycle_operation(bindings.plugin_manager.activate_enabled_plugins)
         self._context.plugins.user_content_clear_coordinator = PluginUserContentClearCoordinator(
             plugin_manager=bindings.plugin_manager,
             runtime_paths=require_initialized(
@@ -230,3 +229,25 @@ class PluginSystemModule(LifecycleModule):
         self._context.plugins.operation_registry = None
         self._context.plugins.provider_registry = None
         self._context.runtime_commands.full_clear_recovery_pending = False
+
+
+class PluginActivationModule(LifecycleModule):
+    """Activate configured plugins after their host storage services exist."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(name="runtime_plugin_activation",
+                         dependencies=("runtime_plugin_exports", "runtime_memory_exports"))
+        self._context = context
+
+    async def init(self) -> None:
+        if self._context.runtime_commands.full_clear_recovery_pending:
+            return
+        from ..plugins.operation_execution import run_plugin_lifecycle_operation
+
+        manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        await run_plugin_lifecycle_operation(manager.activate_enabled_plugins)
+
+    async def shutdown(self) -> None:
+        manager = self._context.plugins.plugin_manager
+        if manager is not None:
+            await manager.deactivate_plugins()

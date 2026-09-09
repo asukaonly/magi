@@ -106,7 +106,7 @@ async fn pairing_exchange_and_revocation_are_enforced_through_the_router() {
     let access = session["data"]["access_token"].as_str().unwrap();
     let (status, info) = request(&router, "GET", "/api/server/info", access, Value::Null).await;
     assert_eq!(status, 200);
-    assert_eq!(info["data"]["runtime_ready"], false);
+    assert_eq!(info["data"]["service_ready"], false);
     assert_eq!(
         request(&router, "POST", "/api/auth/session", access, Value::Null)
             .await

@@ -53,8 +53,11 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_message_bus",
         "runtime_chat_store",
         "runtime_plugin_system",
+        "runtime_llm_pool",
         "runtime_llm",
         "runtime_memory",
+        "runtime_memory_processing",
+        "runtime_plugin_activation",
         "runtime_chat_forgetting_recovery",
         "runtime_media_registry",
         "runtime_location",
@@ -86,6 +89,11 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_scheduler",
         "runtime_agent_schedule_registration",
         "runtime_source_scheduler",
+        "runtime_base_exports",
+        "runtime_plugin_exports",
+        "runtime_memory_exports",
+        "runtime_scheduler_exports",
+        "runtime_source_exports",
         "runtime_exports",
         "runtime_control_plane",
         "runtime_l1_maintenance_scheduler",
@@ -105,8 +113,8 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
     ]
 
 
-def test_background_schedule_execution_starts_after_all_registrations() -> None:
-    """Keep schedule writers ahead of scheduler and source execution."""
+def test_execution_starts_after_its_required_exports() -> None:
+    """Prevent queue consumers and scheduled jobs from observing missing bindings."""
     from magi.bootstrap.builder import build_runtime_modules
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.bootstrap.lifecycle import ModuleLifecycleOrchestrator
@@ -119,14 +127,11 @@ def test_background_schedule_execution_starts_after_all_registrations() -> None:
     ]
     activation_index = resolved.index("runtime_scheduler_activation")
     executor_index = resolved.index("runtime_source_sync_executor")
-    schedule_registrations = [
-        name
-        for name in resolved
-        if name.endswith("_scheduler") or name == "runtime_agent_schedule_registration"
-    ]
 
-    assert all(resolved.index(name) < activation_index for name in schedule_registrations)
+    assert resolved.index("runtime_scheduler_exports") < activation_index
+    assert resolved.index("runtime_source_scheduler") < executor_index
     assert activation_index < executor_index
+    assert resolved.index("runtime_exports") < resolved.index("runtime_command_processor")
 
 
 def test_schema_migrations_run_before_any_db_consuming_module() -> None:
@@ -189,7 +194,7 @@ def test_runtime_worker_phase_metadata_matches_built_module_order() -> None:
 
     phase_plan = describe_runtime_worker_phase_plan()
     assert "infrastructure=subprocess_orphan_cleanup" in phase_plan
-    assert "exports_and_maintenance=runtime_exports" in phase_plan
+    assert "exports_and_maintenance=runtime_base_exports" in phase_plan
 
 
 def test_runtime_worker_phase_docs_match_built_module_order() -> None:

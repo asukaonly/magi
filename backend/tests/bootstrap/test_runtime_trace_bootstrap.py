@@ -4,7 +4,7 @@ import pytest
 
 from magi.bootstrap.builder import build_runtime_modules
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.bootstrap.exports import RuntimeExportsModule
+from magi.bootstrap.exports import RuntimeExportsModule, build_capability_exports
 from magi.core.container import get_container
 
 
@@ -49,6 +49,8 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
     reset_tool_capabilities()
     reset_tool_capabilities_provider()
 
+    base = build_capability_exports(context)[0]
+    await base.init()
     module = RuntimeExportsModule(context)
     await module.init()
 
@@ -63,5 +65,6 @@ async def test_runtime_exports_register_runtime_trace_store() -> None:
         # store, plugin manager, ...) — resetting only two of them leaked
         # overrides into later test files. shutdown() resets them all.
         await module.shutdown()
+        await base.shutdown()
         reset_tool_capabilities_provider()
         reset_tool_capabilities()

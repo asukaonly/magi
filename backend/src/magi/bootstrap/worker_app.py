@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from ..core.container import get_container, wire_container
 from ..core.logger import configure_logging, get_logger
 from ..utils.runtime import get_runtime_paths
-from .backend import initialize_agent_runtime, shutdown_agent_runtime
+from .backend import initialize_base_runtime, initialize_agent_runtime, shutdown_agent_runtime
 from .runtime_startup_state import get_runtime_startup_snapshot
 
 logger = get_logger(__name__, category="WORKER")
@@ -66,14 +66,20 @@ async def _run_worker() -> None:
     configure_worker_logging()
     logger.info("IPC worker starting")
 
+    shutdown_event = _install_shutdown_signal_handlers()
     app = await _initialize_worker_transport_app()
     ipc_server = await _start_ipc_server(app, auth_token=ipc_auth_token)
     runtime_monitor = _start_runtime_monitor()
     health_file = _write_worker_ready_file(runtime_paths)
     _log_worker_ready(worker_t0, runtime_monitor.startup_state)
 
-    shutdown_event = _install_shutdown_signal_handlers()
-    await shutdown_event.wait()
+    activation = _start_runtime_activation()
+    try:
+        await shutdown_event.wait()
+    finally:
+        if activation is not None:
+            activation.cancel()
+            await asyncio.gather(activation, return_exceptions=True)
     await _shutdown_worker(
         ipc_server=ipc_server,
         runtime_monitor=runtime_monitor,
@@ -91,8 +97,8 @@ async def _initialize_worker_transport_app() -> FastAPI:
 
     t0 = time.monotonic()
     if restore_operation is None:
-        await initialize_agent_runtime()
-        logger.info("Agent runtime initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
+        await initialize_base_runtime()
+        logger.info("Management substrate initialized", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
     else:
         from ..memory.portability.recovery import recover_pending_memory_restore
 
@@ -102,6 +108,22 @@ async def _initialize_worker_transport_app() -> FastAPI:
     from ..transport.http_app import create_transport_app
 
     return create_transport_app(lifespan=_noop_lifespan)
+
+
+def _start_runtime_activation() -> asyncio.Task[None] | None:
+    from .maintenance_worker import is_restore_worker
+
+    if is_restore_worker():
+        return None
+
+    async def activate() -> None:
+        try:
+            await initialize_agent_runtime()
+        except Exception:
+            # Readiness carries the failure; the IPC configuration API stays up.
+            logger.exception("Optional runtime startup failed")
+
+    return asyncio.create_task(activate(), name="runtime_activation")
 
 
 def _consume_ipc_auth_token() -> str | None:
