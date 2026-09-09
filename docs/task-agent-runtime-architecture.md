@@ -1219,11 +1219,23 @@ metrics.
 ### Desktop service ownership
 
 The desktop no longer constructs Axum, connects Python IPC or polls the center's
-SQLite notification table. `service_host.rs` launches the same `magi-server`
+SQLite notification table. The desktop `main.rs` composes the native window,
+plugins and command registration; `connections/runtime.rs` owns active connection
+state, readiness probes, profile switches and session renewal. Its Tauri commands
+are `connect_active_profile`, `poll_connection_startup`, `disconnect_service` and
+`read_connection_startup_diagnostics`. A remote disconnect releases client state
+without stopping the remote service. Downloads use generation-bound snapshots
+instead of accessing the connection mutex directly.
+
+`service_host.rs` launches the same `magi-server`
 artifact used by console deployment and closes a private stdin pipe on stop.
 Remote connection activation starts no worker. Native lifecycle operations are
 serialized with profile switches and session renewal; process-name scans and
-installer-wide worker termination have been removed.
+installer-wide worker termination have been removed. The connection response
+reports only `localServicePid` for an owned local service; the desktop does not
+own or report a Python worker PID. Remote readiness is shown as connecting, not
+as launching a local backend. Desktop tests run independently in CI so Cargo
+feature unification with the server cannot hide missing desktop dependencies.
 
 ### Maintenance admission ownership
 

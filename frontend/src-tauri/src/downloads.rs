@@ -1,6 +1,5 @@
 //! Bounded center downloads saved atomically through a device-native save dialog.
 use std::io::Write;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -9,8 +8,9 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{connections, BackendState, StartBackendResponse};
+use crate::connections;
 use connections::protocol::CenterClient;
+use connections::runtime::{ConnectionInfo, ConnectionRuntime};
 
 const CHUNK_BYTES: usize = 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -68,15 +68,15 @@ fn decode_chunk(chunk: Chunk, metadata: &Metadata, offset: u64) -> Result<Vec<u8
     Ok(bytes)
 }
 
-fn ensure_connection(state: &BackendState, generation: u64) -> Result<(), String> {
-    if state.generation.load(Ordering::Acquire) != generation {
+fn ensure_connection(state: &ConnectionRuntime, generation: u64) -> Result<(), String> {
+    if !state.is_current(generation) {
         return Err("Connection changed during download".into());
     }
     Ok(())
 }
 
 async fn refresh_access(
-    snapshot: &mut StartBackendResponse,
+    snapshot: &mut ConnectionInfo,
     connections: &connections::Connections,
 ) -> Result<(), String> {
     let now = SystemTime::now()
@@ -97,7 +97,7 @@ async fn refresh_access(
 #[tauri::command]
 pub async fn download_portability_file(
     app: AppHandle,
-    state: State<'_, BackendState>,
+    state: State<'_, ConnectionRuntime>,
     connections: State<'_, connections::Connections>,
     operation_id: String,
     profile_id: String,
@@ -112,19 +112,7 @@ pub async fn download_portability_file(
     {
         return Err("Invalid download operation".into());
     }
-    let (generation, mut snapshot) = {
-        let runtime = state
-            .runtime
-            .lock()
-            .map_err(|_| "Connection state unavailable")?;
-        (
-            state.generation.load(Ordering::Acquire),
-            runtime
-                .as_ref()
-                .map(|active| active.response.clone())
-                .ok_or("Connect to a center first")?,
-        )
-    };
+    let (generation, mut snapshot) = state.snapshot()?;
     if snapshot.profile_id != profile_id {
         return Err("Connection changed before download".into());
     }

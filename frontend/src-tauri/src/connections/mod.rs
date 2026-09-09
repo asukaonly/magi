@@ -2,6 +2,7 @@
 
 mod profiles;
 pub mod protocol;
+pub mod runtime;
 mod vault;
 
 use std::path::Path;

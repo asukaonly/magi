@@ -80,7 +80,7 @@
     "dataClearInProgress": "Clearing all data",
     "dataClearInProgressHint": "Magi will remain unavailable until every copy has been removed.",
     "retry": "Retry",
-    "starting": "Starting Magi backend...",
+    "starting": "Connecting to Magi...",
     "initializeFailedFallback": "Failed to initialize runtime",
     "diagnosticsHint": "Magi could not finish starting. The details below include the startup error and the latest backend log output.",
     "summaryLabel": "Error summary",
@@ -91,7 +91,6 @@
     "copyDiagnostics": "Copy diagnostics",
     "copiedDiagnostics": "Copied",
     "phase": {
-      "spawning": "Launching backend process...",
       "waiting_for_worker": "Initializing runtime...",
       "connecting": "Establishing connection...",
       "recovering_maintenance": "Checking center maintenance...",

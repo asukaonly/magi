@@ -20,8 +20,8 @@ import './i18n';
 import i18n from './i18n';
 import { configureApiClient } from './api/client';
 import { configApi } from './api/modules/config';
-import { initializeRuntime, readBackendStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
-import type { BackendStartupDiagnostics, StartupPhase } from './runtime/config';
+import { initializeRuntime, readConnectionStartupDiagnostics, resetRuntimeInitialization } from './runtime/config';
+import type { ConnectionStartupDiagnostics, StartupPhase } from './runtime/config';
 import { Button } from './components/ui/button';
 import { syncCloseToTrayPreference, syncAutoStartPreference, syncStartMinimizedPreference, syncSkipQuitConfirmationPreference, syncOnboardingCompleted, applyStartMinimized } from './runtime/desktop';
 import { syncDesktopNotificationPreferences } from './runtime/desktop-notifications';
@@ -42,9 +42,9 @@ const RuntimeBootstrap: React.FC = () => {
   const [ready, setReady] = useState(false);
   const [connectionEntry, setConnectionEntry] = useState<'welcome' | 'location' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [diagnostics, setDiagnostics] = useState<BackendStartupDiagnostics | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ConnectionStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
-  const [phase, setPhase] = useState<StartupPhase>('spawning');
+  const [phase, setPhase] = useState<StartupPhase>('connecting');
   const bootstrapGeneration = useRef(0);
   const logExcerptRef = useRef<HTMLPreElement>(null);
   const { gate: fullDataClearGate, markRetrying: markFullDataClearRetrying } = (
@@ -92,7 +92,7 @@ const RuntimeBootstrap: React.FC = () => {
     setDiagnostics(null);
     setDiagnosticsCopied(false);
     setReady(false);
-    setPhase('spawning');
+    setPhase('connecting');
     try {
       const profiles = await listConnectionProfiles();
       if (!current()) return;
@@ -152,7 +152,7 @@ const RuntimeBootstrap: React.FC = () => {
       const message = getErrorMessage(err)
         ?? (typeof err === 'string' ? err : i18n.t('bootstrap.initializeFailedFallback', { ns: 'app' }));
       setError(message);
-      const detail = await readBackendStartupDiagnostics();
+      const detail = await readConnectionStartupDiagnostics();
       if (current()) setDiagnostics(detail);
     }
   }, []);

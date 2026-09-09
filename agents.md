@@ -63,13 +63,18 @@ Magi is a local-first AI agent framework with:
 - Task-agent runtime centered on `ChatTaskAgent`, `ExploreTaskAgent`, `TaskOrchestrator`, and `WorkerAgentManager`
 - Tool registry + builtin/provider tools + skills integration
 - Lifecycle-based memory system (`L0`-`L4`)
-- Desktop runtime target: `Tauri + React WebView + Python sidecar backend`
+- Desktop client: `Tauri + React WebView`; local mode owns a `magi-server` process, remote mode owns no local service
+- Service runtime: Tauri-independent Rust gateway with a supervised Python IPC worker
 
 Main code locations:
 - Backend core: `backend/src/magi/`
 - API layer: `backend/src/magi/api/`
 - Frontend app: `frontend/src/`
-- Desktop host/runtime: `frontend/src-tauri/`
+- Desktop host and connection lifecycle: `frontend/src-tauri/`
+- Service entry and lifecycle: `server/`, `crates/magi-server-runtime/`
+- HTTP, native database access and Python IPC: `crates/magi-gateway/`
+- Shared launch contracts: `crates/magi-service-contract/`; native filesystem protection: `crates/magi-platform/`
+- Rust dependency direction is enforced by `scripts/check-rust-boundaries.py`; desktop must not depend on service implementation crates
 - Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
 - External plugins repo: `github.com/asukaonly/magi-plugins` (marketplace registry + all non-builtin plugins)
 - Builtin plugins: `plugins/` (currently `core-tools`; `core-actions` is inactive)
@@ -122,7 +127,7 @@ magi/
 │   │   ├── hooks/              # Custom hooks
 │   │   ├── __tests__/          # Frontend tests
 │   │   └── main.tsx
-│   ├── src-tauri/              # Tauri desktop host (Rust + capabilities + sidecar wiring)
+│   ├── src-tauri/              # Tauri desktop host, connection profiles and local service launcher
 │   ├── package.json
 │   └── vite.config.ts
 ├── scripts/
@@ -204,7 +209,8 @@ magi-plugins/                     # github.com/asukaonly/magi-plugins
 ### Desktop Runtime
 - Tauri v2 (Rust host)
 - `@tauri-apps/api`
-- Python backend as sidecar process (PyInstaller --onedir, bundled via Tauri resources) with runtime token handshake
+- The desktop launches the bundled `magi-server` executable only for a local connection. The service owns the Python worker, gateway and IPC token handshake.
+- Desktop `main.rs` composes native UI and commands; `connections/runtime.rs` owns connection state and `service_host.rs` owns the local service child.
 
 ---
 

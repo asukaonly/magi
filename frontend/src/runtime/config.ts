@@ -5,8 +5,7 @@ export interface RuntimeConfig {
   isDesktop: boolean;
   apiBaseUrl: string;
   sessionToken?: string;
-  apiPid?: number;
-  runtimeWorkerPid?: number;
+  localServicePid?: number;
   serverId?: string;
   profileId?: string;
   mode?: 'local' | 'remote';
@@ -15,12 +14,12 @@ export interface RuntimeConfig {
   expiresAtMs?: number;
 }
 
-const startSchema = z.object({
+const connectionSchema = z.object({
   ok: z.literal(true), baseUrl: z.string().url(), sessionToken: z.string().min(32).max(256),
   serverId: z.string().uuid(), profileId: z.string().min(1), mode: z.enum(['local', 'remote']),
   contentEpoch: z.string().min(1).max(128),
   dataEpoch: z.string().min(1).max(128), expiresAtMs: z.number().int().nullable(),
-  apiPid: z.number().int().nullable(), runtimeWorkerPid: z.number().int().nullable(),
+  localServicePid: z.number().int().nullable(),
 });
 const pollSchema = z.object({ ready: z.boolean(), phase: z.string() });
 const sessionSchema = z.object({
@@ -30,12 +29,12 @@ const sessionSchema = z.object({
 const diagnosticsSchema = z.object({
   logPath: z.string().nullish(), logExcerpt: z.string().nullish(), logReadError: z.string().nullish(),
 });
-export interface BackendStartupDiagnostics {
+export interface ConnectionStartupDiagnostics {
   logPath?: string;
   logExcerpt?: string;
   logReadError?: string;
 }
-export type StartupPhase = 'spawning' | 'waiting_for_worker' | 'connecting' | 'recovering_maintenance' | 'ready' | 'error';
+export type StartupPhase = 'waiting_for_worker' | 'connecting' | 'recovering_maintenance' | 'ready' | 'error';
 export type StartupProgressCallback = (phase: StartupPhase) => void;
 
 let runtimeConfig: RuntimeConfig = { isDesktop: true, apiBaseUrl: 'http://127.0.0.1:8000/api' };
@@ -49,10 +48,10 @@ export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
 }
 
-export async function readBackendStartupDiagnostics(): Promise<BackendStartupDiagnostics | null> {
+export async function readConnectionStartupDiagnostics(): Promise<ConnectionStartupDiagnostics | null> {
   if (!isTauriRuntime()) return null;
   try {
-    const result = diagnosticsSchema.parse(await invoke<unknown>('read_backend_startup_diagnostics'));
+    const result = diagnosticsSchema.parse(await invoke<unknown>('read_connection_startup_diagnostics'));
     return { logPath: result.logPath ?? undefined, logExcerpt: result.logExcerpt ?? undefined, logReadError: result.logReadError ?? undefined };
   } catch { return null; }
 }
@@ -83,8 +82,8 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
   const progress = (phase: StartupPhase) => { assertRuntimeGeneration(owner); onProgress?.(phase); };
   const run = async (): Promise<RuntimeConfig> => {
     if (!isTauriRuntime()) throw new Error('Desktop runtime requires Tauri shell');
-    progress('spawning');
-    const result = startSchema.parse(await invoke<unknown>('start_backend'));
+    progress('connecting');
+    const result = connectionSchema.parse(await invoke<unknown>('connect_active_profile'));
     assertRuntimeGeneration(owner);
     const url = new URL(result.baseUrl);
     if ((result.mode === 'remote' && url.protocol !== 'https:')
@@ -96,12 +95,12 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
       isDesktop: true, apiBaseUrl: result.baseUrl, sessionToken: result.sessionToken,
       serverId: result.serverId, profileId: result.profileId, mode: result.mode,
       contentEpoch: result.contentEpoch, dataEpoch: result.dataEpoch, expiresAtMs: result.expiresAtMs ?? undefined,
-      apiPid: result.apiPid ?? undefined, runtimeWorkerPid: result.runtimeWorkerPid ?? undefined,
+      localServicePid: result.localServicePid ?? undefined,
     };
-    progress('waiting_for_worker');
+    progress(result.mode === 'local' ? 'waiting_for_worker' : 'connecting');
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      const poll = pollSchema.parse(await invoke<unknown>('poll_backend_startup'));
+      const poll = pollSchema.parse(await invoke<unknown>('poll_connection_startup'));
       assertRuntimeGeneration(owner);
       if (poll.ready) {
         initialized = true;
@@ -110,7 +109,7 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
       }
       await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
     }
-    throw new Error('Backend startup timed out while waiting for the worker');
+    throw new Error('Magi service readiness timed out');
   };
   const pending = run().finally(() => { if (owner === generation) initializing = undefined; });
   initializing = pending;

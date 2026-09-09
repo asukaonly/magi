@@ -7,11 +7,3 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
-
-interface RuntimeConfig {
-  isDesktop: boolean;
-  apiBaseUrl: string;
-  sessionToken?: string;
-  apiPid?: number;
-  runtimeWorkerPid?: number;
-}

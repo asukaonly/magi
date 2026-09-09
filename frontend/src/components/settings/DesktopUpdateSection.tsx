@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 const POST_BACKEND_STOP_QUIESCE_MS = 600;
 
 async function stopBackendBeforeInstall(): Promise<void> {
-  await invoke('stop_backend');
+  await invoke('disconnect_service');
   // Give Windows a moment to release file handles on sidecar-dist binaries
   // before NSIS tries to overwrite them. Harmless on macOS/Linux.
   await new Promise((resolve) => setTimeout(resolve, POST_BACKEND_STOP_QUIESCE_MS));
@@ -25,7 +25,7 @@ async function stopBackendBeforeInstall(): Promise<void> {
 
 async function restartBackendAfterInstallFailure(): Promise<void> {
   try {
-      await invoke('start_backend');
+      await invoke('connect_active_profile');
   } catch (error) {
     console.warn('[updater] failed to restart backend after install failure', {
       error: error instanceof Error ? error.message : String(error),
