@@ -72,7 +72,7 @@ export function ConnectionOnboarding({ initialStep = 'welcome', initialLocation 
         }}>{busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{busy ? appT('connections.connecting') : t('actions.next')}<ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>}
       </div>}
     >
-      <div className="w-full max-w-3xl">
+      <div className="w-full">
         <header className="mb-6">
           <h1 ref={headingRef} tabIndex={-1} className={ONBOARDING_TITLE_CLASS}>{t(step === 'remote' ? 'location.remoteTitle' : 'location.title')}</h1>
           <p className={ONBOARDING_DESCRIPTION_CLASS}>{t(step === 'remote' ? 'location.remoteIntro' : 'location.description')}</p>

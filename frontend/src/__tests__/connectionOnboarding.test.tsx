@@ -63,6 +63,10 @@ describe('connection onboarding', () => {
     await user.click(screen.getByRole('button', { name: 'actions.previous' }));
     expect(screen.queryByLabelText('connections.address')).not.toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'location.remote.title' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+    expect(screen.getByRole('heading', { name: 'welcome.title' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'welcome.getStarted' }));
+    expect(screen.getByRole('radio', { name: 'location.remote.title' })).toBeChecked();
     await user.click(next());
     expect(screen.getByLabelText('connections.address')).toHaveValue('https://center.example');
     expect(screen.getByLabelText('connections.pairingCode')).toHaveValue('private-code');

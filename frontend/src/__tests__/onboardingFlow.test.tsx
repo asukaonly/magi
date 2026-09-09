@@ -622,12 +622,17 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
   });
 
-  it('keeps the model draft when returning through runtime location selection', async () => {
+  it('returns through runtime location to welcome and resumes the unsaved model draft', async () => {
     const user = userEvent.setup();
     render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: 'a'.repeat(64) }} />);
     await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     await user.type(screen.getByTestId('llm-setup-api-key'), 'unsaved-model-key');
     await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+    expect(screen.getByRole('heading', { name: 'location.title' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+    expect(screen.getByRole('heading', { name: 'welcome.title' })).toBeInTheDocument();
+    expect(screen.queryByTestId('llm-setup-api-key')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'welcome.getStarted' }));
     expect(screen.getByRole('heading', { name: 'location.title' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'actions.next' }));

@@ -957,7 +957,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     return <ConnectionOnboarding
       initialStep="location"
       initialLocation={getRuntimeConfig().mode ?? 'local'}
-      onBack={() => setChoosingLocation(false)}
       onUseActive={() => setChoosingLocation(false)}
       onLanguageChange={handleLanguageChange}
     />;

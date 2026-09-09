@@ -123,8 +123,10 @@ reveals two choices; it does not start the local runtime implicitly:
 Existing active profiles reconnect without repeating the device welcome. Center
 configuration starts at model setup and marks runtime location as complete, so
 the connection handoff never displays a second welcome. Model setup can return to
-location selection and resume the same active center without a reload or losing
-its draft. Switching to another center reloads into that center's own state.
+location selection; Previous from there returns to the welcome screen, so backward
+navigation follows model setup → runtime location → welcome. Starting again and
+selecting the same active center resumes the model draft without a reload.
+Switching to another center reloads into that center's own state.
 Remote form values survive Previous/Next navigation in memory; pairing codes are
 never saved in browser storage. Pairing is owned by one pending action, with
 navigation disabled until it settles. Saved-center management remains available
@@ -137,8 +139,9 @@ stay consistent across device connection and center configuration. Step content
 starts at the top rather than moving vertically with its length. A shared
 maximum workspace width keeps headings and actions aligned on large screens;
 connection forms, model fields, short first-context routes, and completion copy
-use a narrower readable width aligned to that same left edge. Provider and
-persona pickers, persona previews, and history import can use the full workspace.
+use a narrower readable width aligned to that same left edge. Runtime-location
+choices, provider and persona pickers, persona previews, and history import use
+the full workspace.
 Long forms scroll without displacing the footer, and preview conversations keep
 their own scrolling area. Completion uses the same footer for Enter Magi instead
 of introducing an action inside a separate card. The welcome screen remains a
