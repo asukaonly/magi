@@ -138,14 +138,26 @@ async def run_plugin_preparation_operation(
 async def run_plugin_lifecycle_operation(
     operation: Callable[[], _ResultT],
 ) -> _ResultT:
-    """Run a lifecycle mutation on one dedicated worker."""
+    """Run a lifecycle mutation and retain ownership until its thread finishes."""
 
     async with plugin_runtime_operation():
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
+        future = loop.run_in_executor(
             _PLUGIN_LIFECYCLE_EXECUTOR,
             operation,
         )
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            # Cancelling the await cannot stop a running plugin thread. Keep the
+            # operation barrier held so teardown never races that mutation.
+            completion = asyncio.gather(future, return_exceptions=True)
+            while not completion.done():
+                try:
+                    await asyncio.shield(completion)
+                except asyncio.CancelledError:
+                    continue
+            raise
 
 
 async def run_plugin_callback_operation(
