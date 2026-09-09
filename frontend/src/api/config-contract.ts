@@ -85,7 +85,6 @@ export function toSystemConfig(value: Wire['SystemConfigModel']): SystemConfig {
       ...readDevicePreferences(),
       user_mode: z.enum(['quick', 'expert']).nullable().parse(value.preferences.user_mode),
       language: resolveInitialLanguage(),
-      conversation_rhythm_mode: z.enum(['off', 'natural', 'expressive']).parse(value.preferences.conversation_rhythm_mode),
     },
     network: { ...value.network, proxy_type: z.enum(['http', 'socks5']).parse(value.network.proxy_type) },
     memory: {

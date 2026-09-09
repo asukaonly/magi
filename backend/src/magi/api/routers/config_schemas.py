@@ -245,7 +245,6 @@ class UserPreferencesModel(BaseModel):
     default_chat_workspace_path: Optional[str] = Field(default_factory=lambda: str(get_magi_home() / "chat-workspace"))
     streaming_chat_enabled: bool = Field(default=False)
     conversation_rhythm_enabled: bool = Field(default=True)
-    conversation_rhythm_mode: str = Field(default="natural")
     allow_media_grounding_for_conversation: bool = Field(default=True)
     allow_interjection: bool = Field(default=False)
     allow_ask_in_background: bool = Field(default=False)

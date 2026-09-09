@@ -1607,7 +1607,7 @@
     "streamingChatLabel": "流式输出",
     "streamingChatDesc": "开启后消息将逐字显示，关闭则等待完整回复后一次性呈现。",
     "conversationRhythmLabel": "自然节奏回复",
-    "conversationRhythmDesc": "开启后，较长的非流式回复可能拆成几条自然气泡展示，同时仍保留一条完整回答用于记忆和追踪。",
+    "conversationRhythmDesc": "开启后，适合聊天式表达的回复可能拆成几条自然消息；技术和结构化内容仍会保持完整。",
     "mediaGroundingLabel": "在需要时允许助手查看图片附件",
     "mediaGroundingDesc": "开启后，助手在回答问题时可以读取你已添加的图片附件，用图片内容辅助理解上下文。只有当前核心模型支持视觉能力时，图片才会发送给模型。",
     "mediaGroundingUnavailable": "当前核心模型不支持视觉能力，切换到支持视觉的核心模型后才能开启。",

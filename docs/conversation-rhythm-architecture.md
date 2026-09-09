@@ -19,6 +19,8 @@ afterthought when the answer naturally supports that shape.
   multiple independent assistant turns.
 - Natural reply rhythm is a visible Conversation setting. It is not a hidden
   experiment flag.
+- The product exposes one rhythm switch. There are no dormant natural versus
+  expressive modes; persona-aware variation belongs to the main reply prompt.
 - Natural reply rhythm and token streaming are mutually exclusive. Enabling
   either setting disables the other, and backend execution enforces the same
   rule even if configuration is edited outside the Settings UI.
@@ -123,9 +125,12 @@ memory, events, or external channels see the text. If the rejected split touched
 protected line-oriented structure such as lists or code blocks, markers are
 converted to line breaks so the original layout is preserved.
 
-Triggering is persona-aware. Chatty or emotional turns may naturally use more
-bubbles, while serious, task, analysis, and crisis turns should usually stay as
-one message.
+Triggering is persona-aware inside the main-model prompt. Chatty or emotional
+turns may naturally use more bubbles, while serious, task, analysis, and crisis
+turns should usually stay as one message. The backend parser does not recompute
+persona policy: it validates the model's semantic boundaries and computes delays
+from segment length only. This keeps one owner for the language decision and
+avoids treating conversational verbosity as typing speed.
 
 ## Prompt Interaction With Chat Scenario
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from magi.config import get_user_preference
-from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment, RhythmPersonaSignal
+from magi.agent.task_agents.common import AssistantResponsePlan, AssistantResponseSegment
 
 _MAX_SEGMENTS = 6
 _CJK_MS = 50
@@ -32,7 +32,6 @@ _STACK_TRACE_RE = re.compile(
 def _compute_delay_ms(
     segment_text: str,
     *,
-    speed_factor: float = 1.0,
     rng: Any = None,
 ) -> int:
     """Estimate a human-like inter-bubble delay from the segment's own length.
@@ -47,7 +46,7 @@ def _compute_delay_ms(
     base = n_cjk * _CJK_MS + n_latin * _LATIN_MS
     source = rng if rng is not None else random
     jitter = source.uniform(1.0 - _JITTER, 1.0 + _JITTER)
-    value = base * speed_factor * jitter
+    value = base * jitter
     return int(max(_FLOOR_MS, min(value, _CEIL_MS)))
 
 
@@ -71,80 +70,8 @@ def strip_segmentation_sentinel(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", collapsed).strip()
 
 
-def _rhythm_level(persona: "RhythmPersonaSignal | None") -> float:
-    """Combine scene intensity and persona chattiness into a 0–1 pacing level.
-
-    Multiplicative so a low scene base (crisis/task) suppresses even a chatty
-    persona — the "serious turns stay un-fragmented" guard comes for free.
-    """
-    if persona is None:
-        intensity, chattiness = 1, 0.5
-    else:
-        intensity = persona.persona_intensity
-        chattiness = persona.chattiness
-    scene_norm = max(0.0, min(1.0, intensity / 2.0))
-    return max(0.0, min(1.0, scene_norm * float(chattiness)))
-
-
-def _rhythm_profile(rhythm_level: float) -> tuple[str, float, int]:
-    """Map pacing level to (segmentation_bias line, delay speed_factor, max_groups)."""
-    if rhythm_level < 0.20:
-        return ("- Use exactly one group; do not split.", 1.3, 1)
-    if rhythm_level < 0.50:
-        return (
-            "- Prefer one group; use at most two only when the units are truly separate moves.",
-            1.1,
-            2,
-        )
-    if rhythm_level < 0.75:
-        return ("- Prefer two groups; use three only for genuinely distinct moves.", 0.95, 3)
-    return (
-        "- Prefer a lively reply with distinct short-message moves; allow up to six when the persona and moment support it.",
-        0.8,
-        6,
-    )
-
-
 def is_conversation_rhythm_enabled() -> bool:
-    enabled = get_user_preference("conversation_rhythm_enabled", True)
-    mode = str(get_user_preference("conversation_rhythm_mode", "natural") or "natural").strip().lower()
-    if mode == "off":
-        return False
-    if isinstance(enabled, bool):
-        return enabled and mode in {"natural", "expressive"}
-    if isinstance(enabled, str):
-        normalized_enabled = enabled.strip().lower()
-        if normalized_enabled in {"0", "false", "no", "off"}:
-            return False
-        if normalized_enabled in {"1", "true", "yes", "on"}:
-            return mode in {"natural", "expressive"}
-    return mode in {"natural", "expressive"}
-
-
-def extract_persona_rhythm(prompt_context: Any) -> RhythmPersonaSignal | None:
-    """Read the rhythm-relevant signal from an assembled persona turn plan."""
-    self_memory = getattr(prompt_context, "self_memory", None)
-    plan = getattr(self_memory, "persona_turn_plan", None)
-    if plan is None:
-        return None
-    idiolect = getattr(plan, "idiolect", None)
-    sentence_style = ""
-    chattiness = 0.5
-    if isinstance(idiolect, dict):
-        sentence_style = str(idiolect.get("sentence_style", "") or "")
-        raw_chattiness = idiolect.get("chattiness", 0.5)
-        if raw_chattiness is not None:
-            try:
-                chattiness = max(0.0, min(1.0, float(raw_chattiness)))
-            except (TypeError, ValueError):
-                chattiness = 0.5
-    raw_intensity = getattr(plan, "persona_intensity", 1)
-    return RhythmPersonaSignal(
-        register=str(getattr(plan, "register", "casual") or "casual"),
-        persona_intensity=int(raw_intensity) if raw_intensity is not None else 1,
-        sentence_style=sentence_style,
-        chattiness=chattiness,
-    )
+    return bool(get_user_preference("conversation_rhythm_enabled", True))
 
 
 @dataclass(slots=True)
@@ -185,7 +112,6 @@ class ResponseRhythmPlanner:
         self,
         *,
         response_text: str,
-        persona: RhythmPersonaSignal | None = None,
         streamed: bool = False,
         ux_plan: dict[str, Any] | None = None,
     ) -> AssistantResponsePlan | None:
@@ -199,11 +125,9 @@ class ResponseRhythmPlanner:
         if _detect_content_features(response_text="\n".join(parts)).has_protected_structure:
             return None
 
-        rhythm_level = _rhythm_level(persona)
-        _, speed_factor, _ = _rhythm_profile(rhythm_level)
         segments: list[AssistantResponseSegment] = []
         for index, content in enumerate(parts):
-            delay_ms = 0 if index == 0 else _compute_delay_ms(content, speed_factor=speed_factor)
+            delay_ms = 0 if index == 0 else _compute_delay_ms(content)
             segments.append(
                 AssistantResponseSegment(
                     content=content,
@@ -230,7 +154,6 @@ class ResponseRhythmPlanner:
 
 __all__ = [
     "ResponseRhythmPlanner",
-    "extract_persona_rhythm",
     "is_conversation_rhythm_enabled",
     "split_on_sentinel",
     "strip_segmentation_sentinel",

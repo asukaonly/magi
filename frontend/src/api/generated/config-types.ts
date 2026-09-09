@@ -1424,11 +1424,6 @@ export interface components {
              * @default true
              */
             conversation_rhythm_enabled: boolean;
-            /**
-             * Conversation Rhythm Mode
-             * @default natural
-             */
-            conversation_rhythm_mode: string;
             /** Default Chat Workspace Path */
             default_chat_workspace_path: string | null;
             /**

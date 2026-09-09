@@ -37,9 +37,7 @@ export function SettingsConversationSection({
   const defaultChatWorkspacePath = draftConfig.preferences.default_chat_workspace_path;
   const effectiveDefaultChatWorkspacePath = defaultChatWorkspacePath ?? '';
   const canRestoreDefaultChatWorkspace = Boolean(defaultChatWorkspacePath);
-  const rhythmMode = draftConfig.preferences.conversation_rhythm_mode ?? 'off';
-  const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled)
-    && (rhythmMode === 'natural' || rhythmMode === 'expressive');
+  const conversationRhythmEnabled = Boolean(draftConfig.preferences.conversation_rhythm_enabled);
 
   const restoreDefaultWorkspace = async () => {
     if (restorePending.current) return;
@@ -129,7 +127,6 @@ export function SettingsConversationSection({
           draft.preferences.streaming_chat_enabled = checked;
           if (checked) {
             draft.preferences.conversation_rhythm_enabled = false;
-            draft.preferences.conversation_rhythm_mode = 'off';
           }
         })}
       />
@@ -141,9 +138,6 @@ export function SettingsConversationSection({
         checked={conversationRhythmEnabled}
         onCheckedChange={(checked) => patchDraftConfig((draft) => {
           draft.preferences.conversation_rhythm_enabled = checked;
-          draft.preferences.conversation_rhythm_mode = checked
-            ? (draft.preferences.conversation_rhythm_mode === 'expressive' ? 'expressive' : 'natural')
-            : 'off';
           if (checked) {
             draft.preferences.streaming_chat_enabled = false;
           }
