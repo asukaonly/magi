@@ -72,6 +72,30 @@ lifetime; normal teardown releases the lease after runtime/plugin shutdown.
 The server separately holds `runtime/server.lock`. Neither lock file is deleted
 on exit, so another process cannot lock a newly created inode beside a live owner.
 
+The service continuously supervises the HTTP listener, operator listener and
+notification bridge alongside the worker loop. A critical transport task ending
+stops the service and its worker, allowing its external owner to restart it.
+A lightweight authenticated IPC `ping` probes the Python main event loop every
+10 seconds with a 5-second deadline. Three consecutive failures replace the
+worker; slow asynchronous model requests and deferred capabilities do not count
+as failed probes. Maintenance workers retain their operation-specific deadlines.
+
+Worker retries use exponential backoff and a consecutive-failure budget (default
+three). Sixty seconds of successful probes restores that budget. Exhaustion
+enters a 60-second cooldown before a new attempt; `max_restarts: 0` disables
+automatic retries. Failed durable maintenance stays blocked for explicit repair.
+Authenticated server info and private operator status expose `supervisor.phase`,
+`restart_count`, `last_error` and `next_retry_at_ms`. Probe failure closes business
+admission until responsiveness returns; gateway liveness is not worker health.
+
+The configured `shutdown_timeout_secs` (default 30) is the Python drain budget,
+passed to the worker owner monitor. Log readers share a 2-second cleanup budget;
+HTTP teardown is bounded to 3 seconds. The service reserves 8 seconds beyond the
+worker budget and its desktop/launchd owner reserves another 5 seconds. Normal
+shutdown closes admission before asking Python to drain, and never replays
+outstanding requests. A hard deadline can interrupt cleanup; domain journals,
+effect ledgers and durable queues remain responsible for safe business recovery.
+
 The standalone gateway owns a bounded SSE fan-out hub and a single reader of
 `runtime_notifications`. SQLite polling runs on blocking workers with bounded
 batches, and no read connection is retained across a database replacement.

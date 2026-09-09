@@ -16,6 +16,9 @@ class WorkerInstance:
     """Hold the data-root lease until runtime and plugin shutdown finish."""
 
     def __init__(self, root: Path, parent_pid: int | None = None) -> None:
+        self._shutdown_timeout = float(os.environ.pop("MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS", "30"))
+        if not 1 <= self._shutdown_timeout <= 60:
+            raise ValueError("Worker shutdown timeout must be between 1 and 60 seconds")
         self._root = root
         self._parent_pid = parent_pid
         self._file: IO[bytes] | None = None
@@ -70,5 +73,5 @@ class WorkerInstance:
             pass
         if not self._stop.is_set():
             os.kill(os.getpid(), signal.SIGTERM)
-            if not self._stop.wait(10):
+            if not self._stop.wait(self._shutdown_timeout):
                 os._exit(70)

@@ -3,11 +3,12 @@
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, RwLock,
 };
 use std::time::Duration;
 
 use magi_gateway::auth::AuthStore;
+use magi_service_contract::lifecycle::SupervisorStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -34,6 +35,7 @@ impl ManagementServer {
         root: &Path,
         auth: Arc<AuthStore>,
         ready: Arc<AtomicBool>,
+        supervisor: Arc<RwLock<SupervisorStatus>>,
         base_url: String,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<Self, String> {
@@ -62,10 +64,11 @@ impl ManagementServer {
                         let Ok(permit) = Arc::clone(&operations).try_acquire_owned() else { continue; };
                         let auth = Arc::clone(&auth);
                         let ready = Arc::clone(&ready);
+                        let supervisor = Arc::clone(&supervisor);
                         let base_url = base_url.clone();
                         handlers.spawn(async move {
                             let _permit = permit;
-                            let _ = tokio::time::timeout(Duration::from_secs(5), serve(stream, auth, ready, base_url)).await;
+                            let _ = tokio::time::timeout(Duration::from_secs(5), serve(stream, auth, ready, supervisor, base_url)).await;
                         });
                     },
                 }
@@ -73,6 +76,10 @@ impl ManagementServer {
             handlers.abort_all();
         });
         Ok(Self { task, path })
+    }
+
+    pub async fn wait(&mut self) {
+        let _ = (&mut self.task).await;
     }
 }
 
@@ -117,6 +124,7 @@ async fn serve(
     stream: UnixStream,
     auth: Arc<AuthStore>,
     ready: Arc<AtomicBool>,
+    supervisor: Arc<RwLock<SupervisorStatus>>,
     base_url: String,
 ) -> Result<(), String> {
     let mut stream = BufReader::new(stream);
@@ -125,7 +133,8 @@ async fn serve(
     let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         match request {
             Request::Status => Ok(json!({"server_id": auth.server_id, "protocol_version": magi_service_contract::SERVER_PROTOCOL_VERSION,
-                "base_url": base_url, "service_ready": ready.load(Ordering::Acquire)})),
+                "base_url": base_url, "service_ready": ready.load(Ordering::Acquire),
+                "supervisor": supervisor.read().unwrap_or_else(|e| e.into_inner()).clone()})),
             Request::Pair => {
                 serde_json::to_value(auth.create_pairing_grant()?).map_err(|e| e.to_string())
             }

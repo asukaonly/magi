@@ -11,3 +11,4 @@ mod windows_job;
 pub mod management;
 
 mod maintenance;
+mod restart_budget;

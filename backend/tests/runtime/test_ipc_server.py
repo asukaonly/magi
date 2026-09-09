@@ -364,3 +364,40 @@ async def test_ipc_tcp_transport_requires_authentication(monkeypatch, unused_tcp
         await writer.wait_closed()
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix socket test")
+async def test_ping_remains_responsive_during_slow_async_work(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, "probe.sock")
+        monkeypatch.setenv("MAGI_IPC_SOCKET", path)
+        server = IpcServer(auth_token=TEST_IPC_AUTH_TOKEN)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_work(_params):
+            started.set()
+            await release.wait()
+            return {"done": True}
+
+        server.register("test.slow", slow_work)
+        await server.start()
+        reader, writer = await asyncio.open_unix_connection(path)
+        try:
+            await authenticate_ipc_client(reader, writer)
+            writer.write(b'{"id":"slow","method":"test.slow"}\n')
+            await writer.drain()
+            await asyncio.wait_for(started.wait(), 1)
+            writer.write(b'{"id":"probe","method":"ping"}\n')
+            await writer.drain()
+            reply = json.loads(await asyncio.wait_for(reader.readline(), 1))
+            assert reply == {"id": "probe", "result": {"status": "pong"}}
+            release.set()
+            reply = json.loads(await asyncio.wait_for(reader.readline(), 1))
+            assert reply["id"] == "slow"
+        finally:
+            release.set()
+            writer.close()
+            await writer.wait_closed()
+            await server.stop()

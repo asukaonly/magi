@@ -34,6 +34,13 @@ impl Server {
             port: 0,
             builtin_avatar_dir: None,
             max_restarts: 1,
+            supervision: magi_service_contract::lifecycle::SupervisionPolicy {
+                probe_interval_secs: 1,
+                probe_timeout_secs: 1,
+                missed_probes: 2,
+                stable_after_secs: 60,
+                cooldown_secs: 2,
+            },
             startup_timeout_secs: 10,
             shutdown_timeout_secs: 2,
             worker: WorkerLaunch {
@@ -204,6 +211,61 @@ fn worker_crash_reconnects_without_restarting_gateway() {
 }
 
 #[test]
+fn unresponsive_worker_is_replaced_while_gateway_stays_available() {
+    let server = Server::start();
+    server.wait_ready();
+    let pid = fs::read_to_string(server.root.join("runtime/worker.ready")).unwrap();
+    fs::write(server.root.join("hang-on-request"), b"").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut saw_unresponsive = false;
+    loop {
+        let status = server.get("/api/server/info", true);
+        saw_unresponsive |= status.contains("\"phase\":\"unresponsive\"");
+        let current = fs::read_to_string(server.root.join("runtime/worker.ready")).ok();
+        if current.as_ref().is_some_and(|current| current != &pid) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "Hung worker was not replaced: {status}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(saw_unresponsive);
+    server.wait_ready();
+}
+
+#[test]
+fn repeated_crashes_enter_visible_cooldown_and_retry() {
+    let server = Server::start();
+    server.wait_ready();
+    for _ in 0..2 {
+        let pid = fs::read_to_string(server.root.join("runtime/worker.ready")).unwrap();
+        fs::write(server.root.join("crash-on-request"), b"").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(12);
+        loop {
+            let status = server.get("/api/server/info", true);
+            if status.contains("\"phase\":\"cooldown\"") {
+                assert!(status.contains("Python runtime exited"));
+                assert!(!status.contains("\"next_retry_at_ms\":null"));
+                break;
+            }
+            let current = fs::read_to_string(server.root.join("runtime/worker.ready")).ok();
+            if current.as_ref().is_some_and(|current| current != &pid) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Worker neither retried nor cooled down: {status}"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        server.wait_ready();
+    }
+    assert!(server.get("/api/health", false).starts_with("HTTP/1.1 200"));
+}
+
+#[test]
 fn full_clear_is_owned_by_the_server_and_completed_requests_do_not_repeat() {
     let server = Server::start();
     server.wait_ready();
@@ -327,12 +389,20 @@ fn fake_worker() {
             fs::remove_file(root.join("crash-on-request")).unwrap();
             std::process::exit(31);
         }
+        if root.join("hang-on-request").exists() {
+            fs::remove_file(root.join("hang-on-request")).unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
         let result = if request["method"] == "ipc.authenticate" {
             assert_eq!(
                 request["params"]["token"],
                 std::env::var("MAGI_IPC_AUTH_TOKEN").unwrap()
             );
             json!({"authenticated": true})
+        } else if request["method"] == "ping" {
+            json!({"status": "pong"})
         } else if request["method"] == "api.forward"
             && request["params"]["path"] == "/api/memory/clear"
         {

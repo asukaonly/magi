@@ -37,7 +37,7 @@ fn launch_agent(
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>30</integer>
-<key>ExitTimeOut</key><integer>45</integer>
+<key>ExitTimeOut</key><integer>{}</integer>
 <key>ProcessType</key><string>Background</string>
 <key>LimitLoadToSessionType</key><string>Aqua</string>
 <key>Umask</key><integer>63</integer>
@@ -45,7 +45,8 @@ fn launch_agent(
 "#,
         text(executable)?,
         text(config_path)?,
-        text(&config.data_dir.join("logs/service.log"))?
+        text(&config.data_dir.join("logs/service.log"))?,
+        config.owner_shutdown_timeout_secs()
     ))
 }
 
@@ -100,7 +101,8 @@ pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
         }
         // launchd can retain a departing job briefly after bootout returns.
         // A subsequent start must not mistake that job for a live registration.
-        let deadline = Instant::now() + Duration::from_secs(55);
+        let deadline =
+            Instant::now() + Duration::from_secs(config.owner_shutdown_timeout_secs() + 10);
         while loaded()? {
             if Instant::now() >= deadline {
                 return Err("Timed out waiting for the managed service to unload".into());

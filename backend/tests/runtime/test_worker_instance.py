@@ -59,3 +59,32 @@ def test_closing_owner_pipe_stops_worker_and_releases_lease(tmp_path: Path) -> N
         if process.poll() is None:
             process.kill()
             process.wait()
+
+
+@pytest.mark.parametrize("timeout", ["0", "61", "nan"])
+def test_worker_rejects_invalid_shutdown_budget(tmp_path, monkeypatch, timeout):
+    monkeypatch.setenv("MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS", timeout)
+    with pytest.raises(ValueError, match="shutdown timeout"):
+        WorkerInstance(tmp_path / "invalid")
+
+
+def test_worker_uses_supervisor_shutdown_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS", "45")
+    worker = WorkerInstance(tmp_path / "worker")
+    waits = []
+
+    class Stop:
+        def is_set(self):
+            return False
+
+        def wait(self, timeout):
+            waits.append(timeout)
+            return True
+
+    worker._stop = Stop()
+    monkeypatch.setattr("magi.utils.worker_instance.os.read", lambda *_: b"")
+    monkeypatch.setattr("magi.utils.worker_instance.os.kill", lambda *_: None)
+    monkeypatch.setattr("magi.utils.worker_instance.sys.stdin", type("Input", (), {"fileno": lambda _: 0})())
+    worker._watch_owner()
+    assert waits == [45]
+    assert "MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS" not in os.environ

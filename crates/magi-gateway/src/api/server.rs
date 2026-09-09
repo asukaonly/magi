@@ -20,6 +20,7 @@ pub async fn info(State(state): State<ApiState>) -> Json<serde_json::Value> {
             "events": state.events.status(),
             "maintenance": state.maintenance.as_ref().map(|control| control.status()),
             "service_ready": state.storage_ready.load(Ordering::Acquire),
+            "supervisor": state.supervisor.read().unwrap_or_else(|error| error.into_inner()).clone(),
             "plugin_execution": "server",
         }
     }))

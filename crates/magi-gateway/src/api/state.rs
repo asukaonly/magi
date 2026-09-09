@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::ipc::{IpcClient, RuntimeConnection};
 
@@ -13,6 +13,7 @@ pub struct ApiState {
     pub events: Arc<crate::events::EventHub>,
     pub maintenance: Option<Arc<dyn crate::maintenance::MaintenanceControl>>,
     pub storage_ready: Arc<AtomicBool>,
+    pub supervisor: Arc<RwLock<magi_service_contract::lifecycle::SupervisorStatus>>,
     /// Directory for builtin persona avatar images.
     pub builtin_avatar_dir: Option<PathBuf>,
     /// Directory for user-uploaded avatar images (~/.magi/personalities/avatar).
@@ -41,6 +42,7 @@ impl ApiState {
             )),
             security,
             storage_ready: Arc::new(AtomicBool::new(false)),
+            supervisor: Arc::new(RwLock::new(Default::default())),
             builtin_avatar_dir: None,
             user_avatar_dir: None,
         }

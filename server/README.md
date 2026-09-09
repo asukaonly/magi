@@ -46,6 +46,28 @@ Python. Each native output log retains an 8 MiB current file and two backups.
 Foreground runs keep service diagnostics in the terminal unless `run --log-file
 <absolute-path>` is supplied.
 
+## Recovery and shutdown
+
+The service probes the Python event loop independently of model and plugin
+readiness. The default `supervision` policy probes every 10 seconds, waits up to
+5 seconds, and replaces a worker after 3 consecutive failed probes. It restores
+the restart budget after 60 healthy seconds. After `max_restarts` retries, the
+service keeps diagnostics available and waits 60 seconds before retrying.
+Set `max_restarts` to 0 to require an operator restart after a worker failure.
+A failed data maintenance operation remains blocked for explicit repair.
+
+`status` includes `supervisor.phase`, `restart_count`, `last_error` and
+`next_retry_at_ms`. `ready` means the transport responds; per-capability readiness
+still determines whether a particular operation is available. `/api/health` is
+only gateway liveness. A critical HTTP, management or notification task failure
+stops the service so launchd (or the owning desktop) can recover the whole process.
+
+`shutdown_timeout_secs` is the worker drain budget (default 30 seconds). The
+service reserves 8 additional seconds for cleanup and its owner waits 5 seconds
+longer. The generated LaunchAgent derives its exit deadline from this config.
+Stop and uninstall with the installed configuration before changing these limits,
+then reinstall so the registered deadline matches the service configuration.
+
 ## Connect another device
 
 The gateway listens only on loopback. Put a standard HTTPS reverse proxy on the

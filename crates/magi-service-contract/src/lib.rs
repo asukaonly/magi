@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod config;
+pub mod lifecycle;
 
 pub const SERVER_PROTOCOL_VERSION: u32 = 2;
 

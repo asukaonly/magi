@@ -1,6 +1,6 @@
 use std::fs::{self, OpenOptions};
 use std::process::Stdio;
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::{atomic::Ordering, Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use magi_gateway::{
@@ -13,15 +13,18 @@ use tokio::sync::{oneshot, watch};
 use magi_service_contract::{config::ServerConfig, StartedServer};
 
 use crate::instance::InstanceLease;
+use crate::restart_budget::RestartBudget;
+use magi_service_contract::lifecycle::{SupervisorPhase, SupervisorStatus};
 
 /// Run one gateway and supervised worker for a private data root.
 pub async fn run(
     config: ServerConfig,
     owner_token: Option<String>,
-    mut shutdown: watch::Receiver<bool>,
+    mut owner_shutdown: watch::Receiver<bool>,
     started: oneshot::Sender<StartedServer>,
 ) -> Result<(), String> {
     config.validate()?;
+    let (stop, mut shutdown) = watch::channel(false);
     if magi_gateway::db::configured_magi_base_dir()? != config.data_dir {
         return Err("MAGI_HOME must match server configuration before starting the runtime".into());
     }
@@ -55,6 +58,7 @@ pub async fn run(
                 Some(config.data_dir.join("personalities/avatar")),
             );
     let storage_ready = Arc::clone(&state.storage_ready);
+    let supervisor = Arc::clone(&state.supervisor);
     let events = Arc::clone(&state.events);
     let maintenance = Arc::new(
         crate::maintenance::Coordinator::open(
@@ -73,10 +77,11 @@ pub async fn run(
         .map_err(|e| format!("Failed to bind server listener: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     #[cfg(unix)]
-    let _management = crate::management::ManagementServer::bind(
+    let mut management = crate::management::ManagementServer::bind(
         &config.data_dir,
         auth,
         Arc::clone(&storage_ready),
+        Arc::clone(&supervisor),
         format!("http://127.0.0.1:{port}/api"),
         shutdown.clone(),
     )?;
@@ -105,181 +110,249 @@ pub async fn run(
             }
         });
     let bridge_shutdown = shutdown.clone();
-    let bridge = tokio::spawn(async move {
+    let mut bridge = tokio::spawn(async move {
         magi_gateway::notification_bridge::run_notification_bridge(Some(emitter), bridge_shutdown)
             .await;
     });
-    let mut attempts = 0;
-    let result = loop {
-        use magi_gateway::maintenance::MaintenanceControl;
-        if *shutdown.borrow() {
-            break Ok(());
-        }
-        if http_task.is_finished() {
-            break Err("Server listener stopped unexpectedly".into());
-        }
-        if maintenance.status().phase == "failed" {
-            tokio::select! {
-                _ = shutdown.changed() => break Ok(()),
-                _ = maintenance.changed.notified() => {},
+    let mut budget = RestartBudget::default();
+    let worker_loop = async {
+        loop {
+            use magi_gateway::maintenance::MaintenanceControl;
+            if *shutdown.borrow() {
+                break Ok(());
             }
-            continue;
-        }
-        let recovery = maintenance.pending();
-        let restore = maintenance.pending_restore();
-        let recovering = recovery.is_some() || restore.is_some();
-        if !recovering && maintenance.is_active() {
-            tokio::select! { _ = shutdown.changed() => break Ok(()), _ = maintenance.changed.notified() => {} }
-            continue;
-        }
-        let database_drain = if recovering {
-            maintenance.set_phase("draining", None);
-            match tokio::time::timeout(
-                Duration::from_secs(30),
-                magi_gateway::database_gate::global().drain(),
-            )
-            .await
-            {
-                Ok(Ok(guard)) => Some(guard),
-                _ => {
-                    maintenance
-                        .set_phase("failed", Some("Native database work did not drain".into()));
-                    continue;
+            if maintenance.status().phase == "failed" {
+                update_status(&supervisor, SupervisorPhase::Failed, budget.attempts, None);
+                tokio::select! {
+                    _ = shutdown.changed() => break Ok(()),
+                    _ = maintenance.changed.notified() => {},
                 }
+                continue;
             }
-        } else {
-            None
-        };
-        let token = api::security::generate_session_token();
-        let _ = fs::remove_file(runtime_dir.join("worker.ready"));
-        #[cfg(unix)]
-        let _ = fs::remove_file(&socket);
-        eprintln!("Starting Python runtime (attempt {})", attempts + 1);
-        let mut planned_restart = false;
-        match WorkerProcess::spawn(
-            &config,
-            &socket,
-            &token,
-            recovery
-                .as_ref()
-                .map(|marker| marker.transaction_id.as_str()),
-            restore.as_ref().map(|marker| marker.operation_id.as_str()),
-        ) {
-            Ok(mut worker) => {
-                let mut context = WorkerContext {
-                    config: &config,
-                    socket: &socket,
-                    connection: &connection,
-                    storage_ready: &storage_ready,
-                    events: &events,
-                    maintenance: &maintenance,
-                    shutdown: &mut shutdown,
-                };
-                let outcome = run_worker(
-                    &mut context,
-                    &mut worker,
-                    &token,
-                    recovery.as_ref(),
-                    restore.as_ref(),
+            let recovery = maintenance.pending();
+            let restore = maintenance.pending_restore();
+            let recovering = recovery.is_some() || restore.is_some();
+            if !recovering && maintenance.is_active() {
+                tokio::select! { _ = shutdown.changed() => break Ok(()), _ = maintenance.changed.notified() => {} }
+                continue;
+            }
+            let database_drain = if recovering {
+                maintenance.set_phase("draining", None);
+                match tokio::time::timeout(
+                    Duration::from_secs(30),
+                    magi_gateway::database_gate::global().drain(),
                 )
-                .await;
-                storage_ready.store(false, Ordering::Release);
-                events.reset("runtime_unavailable");
-                connection.replace(None);
-                worker
-                    .stop(Duration::from_secs(config.shutdown_timeout_secs))
+                .await
+                {
+                    Ok(Ok(guard)) => Some(guard),
+                    _ => {
+                        maintenance
+                            .set_phase("failed", Some("Native database work did not drain".into()));
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+            let token = api::security::generate_session_token();
+            let _ = fs::remove_file(runtime_dir.join("worker.ready"));
+            #[cfg(unix)]
+            let _ = fs::remove_file(&socket);
+            update_status(
+                &supervisor,
+                SupervisorPhase::Starting,
+                budget.attempts,
+                None,
+            );
+            eprintln!("Starting Python runtime (attempt {})", budget.attempts + 1);
+            let mut planned_restart = false;
+            match WorkerProcess::spawn(
+                &config,
+                &socket,
+                &token,
+                recovery
+                    .as_ref()
+                    .map(|marker| marker.transaction_id.as_str()),
+                restore.as_ref().map(|marker| marker.operation_id.as_str()),
+            ) {
+                Ok(mut worker) => {
+                    let mut context = WorkerContext {
+                        config: &config,
+                        socket: &socket,
+                        connection: &connection,
+                        storage_ready: &storage_ready,
+                        events: &events,
+                        maintenance: &maintenance,
+                        shutdown: &mut shutdown,
+                        supervisor: &supervisor,
+                        budget: &mut budget,
+                    };
+                    let outcome = run_worker(
+                        &mut context,
+                        &mut worker,
+                        &token,
+                        recovery.as_ref(),
+                        restore.as_ref(),
+                    )
                     .await;
-                match outcome {
-                    Ok(WorkerExit::Maintenance) => {
-                        planned_restart = true;
-                    }
-                    Ok(WorkerExit::Cleared(result)) => {
-                        let id = &recovery
-                            .as_ref()
-                            .expect("clear recovery owner")
-                            .transaction_id;
-                        let logs = config.data_dir.join("logs");
-                        let completed = async {
-                            tokio::task::spawn_blocking(move || clear_server_logs(&logs))
-                                .await
-                                .map_err(|e| e.to_string())??;
-                            maintenance.complete(id, result).await
-                        }
+                    budget.interrupted();
+                    storage_ready.store(false, Ordering::Release);
+                    events.reset("runtime_unavailable");
+                    connection.replace(None);
+                    worker
+                        .stop(Duration::from_secs(config.shutdown_timeout_secs))
                         .await;
-                        match completed {
-                            Ok(()) => {
-                                planned_restart = true;
-                            }
-                            Err(error) => maintenance.set_phase("failed", Some(error)),
+                    match outcome {
+                        Ok(WorkerExit::Maintenance) => {
+                            planned_restart = true;
                         }
-                    }
-                    Ok(WorkerExit::RestoreExecuted) => match maintenance.verify_restore().await {
-                        Ok(()) => planned_restart = true,
-                        Err(error) => maintenance.set_phase("failed", Some(error)),
-                    },
-                    Ok(WorkerExit::RestoreVerified(operation)) => {
-                        match maintenance.complete_restore(operation).await {
+                        Ok(WorkerExit::Cleared(result)) => {
+                            let id = &recovery
+                                .as_ref()
+                                .expect("clear recovery owner")
+                                .transaction_id;
+                            let logs = config.data_dir.join("logs");
+                            let completed = async {
+                                tokio::task::spawn_blocking(move || clear_server_logs(&logs))
+                                    .await
+                                    .map_err(|e| e.to_string())??;
+                                maintenance.complete(id, result).await
+                            }
+                            .await;
+                            match completed {
+                                Ok(()) => {
+                                    planned_restart = true;
+                                }
+                                Err(error) => maintenance.set_phase("failed", Some(error)),
+                            }
+                        }
+                        Ok(WorkerExit::RestoreExecuted) => match maintenance.verify_restore().await
+                        {
                             Ok(()) => planned_restart = true,
                             Err(error) => maintenance.set_phase("failed", Some(error)),
+                        },
+                        Ok(WorkerExit::RestoreVerified(operation)) => {
+                            match maintenance.complete_restore(operation).await {
+                                Ok(()) => planned_restart = true,
+                                Err(error) => maintenance.set_phase("failed", Some(error)),
+                            }
                         }
-                    }
-                    Ok(WorkerExit::Stopped) => {}
-                    Err(error) => {
-                        if recovering {
-                            maintenance.set_phase("failed", Some(error));
-                        } else {
-                            eprintln!("Python runtime unavailable: {error}");
+                        Ok(WorkerExit::Stopped) => {}
+                        Err(error) => {
+                            if recovering {
+                                maintenance.set_phase("failed", Some(error));
+                            } else {
+                                supervisor
+                                    .write()
+                                    .unwrap_or_else(|e| e.into_inner())
+                                    .last_error = Some(error.clone());
+                                eprintln!("Python runtime unavailable: {error}");
+                            }
                         }
                     }
                 }
+                Err(error) => {
+                    if recovering {
+                        maintenance.set_phase("failed", Some(error));
+                    } else {
+                        supervisor
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .last_error = Some(error.clone());
+                        eprintln!("Python runtime could not start: {error}");
+                    }
+                }
             }
-            Err(error) => {
-                if recovering {
-                    maintenance.set_phase("failed", Some(error));
+            drop(database_drain);
+            if !maintenance.is_active() {
+                magi_gateway::database_gate::global().reopen();
+            }
+            if *shutdown.borrow() {
+                break Ok(());
+            }
+            if planned_restart {
+                budget.reset();
+                continue;
+            }
+            if maintenance.has_pending() {
+                continue;
+            }
+            if config.max_restarts == 0 {
+                update_status(&supervisor, SupervisorPhase::Failed, budget.attempts, None);
+                tokio::select! {
+                    _ = shutdown.changed() => break Ok(()),
+                    _ = maintenance.changed.notified() => { budget.reset(); continue; },
+                }
+            }
+            let cooling = budget.attempts >= config.max_restarts;
+            let delay = if cooling {
+                Duration::from_secs(config.supervision.cooldown_secs)
+            } else {
+                budget.attempts += 1;
+                Duration::from_secs(1u64 << budget.attempts.min(4))
+            };
+            update_status(
+                &supervisor,
+                if cooling {
+                    SupervisorPhase::Cooldown
                 } else {
-                    eprintln!("Python runtime could not start: {error}");
-                }
-            }
-        }
-        drop(database_drain);
-        if !maintenance.is_active() {
-            magi_gateway::database_gate::global().reopen();
-        }
-        if *shutdown.borrow() {
-            break Ok(());
-        }
-        if planned_restart {
-            attempts = 0;
-            continue;
-        }
-        if maintenance.has_pending() {
-            continue;
-        }
-        if attempts >= config.max_restarts {
-            eprintln!("Python restart limit reached; gateway remains available for diagnostics");
+                    SupervisorPhase::Backoff
+                },
+                budget.attempts,
+                Some(delay),
+            );
             tokio::select! {
                 _ = shutdown.changed() => break Ok(()),
-                _ = maintenance.changed.notified() => { attempts = 0; continue; },
+                _ = tokio::time::sleep(delay) => {},
+                _ = maintenance.changed.notified() => {},
+            }
+            if cooling {
+                budget.reset();
             }
         }
-        attempts += 1;
-        tokio::select! {
-            _ = shutdown.changed() => break Ok(()),
-            _ = tokio::time::sleep(Duration::from_secs(1u64 << attempts.min(4))) => {},
-            _ = maintenance.changed.notified() => {},
+    };
+    let result = {
+        tokio::pin!(worker_loop);
+        let (result, workers_finished) = wait_for_exit(
+            &mut owner_shutdown,
+            &mut http_task,
+            &mut bridge,
+            worker_loop.as_mut(),
+            async {
+                #[cfg(unix)]
+                management.wait().await;
+                #[cfg(not(unix))]
+                std::future::pending::<()>().await;
+            },
+        )
+        .await;
+        storage_ready.store(false, Ordering::Release);
+        update_status(&supervisor, SupervisorPhase::Stopping, 0, None);
+        stop.send_replace(true);
+        http_stop_tx.send_replace(true);
+        if !workers_finished
+            && tokio::time::timeout(
+                Duration::from_secs(config.shutdown_timeout_secs + 3),
+                &mut worker_loop,
+            )
+            .await
+            .is_err()
+        {
+            eprintln!("Worker teardown exceeded the service shutdown deadline");
         }
+        result
     };
     storage_ready.store(false, Ordering::Release);
     connection.replace(None);
     bridge.abort();
-    let _ = bridge.await;
+    if !bridge.is_finished() {
+        let _ = bridge.await;
+    }
     http_stop_tx.send_replace(true);
-    if tokio::time::timeout(
-        Duration::from_secs(config.shutdown_timeout_secs),
-        &mut http_task,
-    )
-    .await
-    .is_err()
+    if !http_task.is_finished()
+        && tokio::time::timeout(Duration::from_secs(3), &mut http_task)
+            .await
+            .is_err()
     {
         http_task.abort();
         let _ = http_task.await;
@@ -306,6 +379,8 @@ struct WorkerContext<'a> {
     events: &'a magi_gateway::events::EventHub,
     maintenance: &'a crate::maintenance::Coordinator,
     shutdown: &'a mut watch::Receiver<bool>,
+    supervisor: &'a RwLock<SupervisorStatus>,
+    budget: &'a mut RestartBudget,
 }
 
 async fn run_worker(
@@ -317,6 +392,8 @@ async fn run_worker(
 ) -> Result<WorkerExit, String> {
     let deadline = Instant::now() + Duration::from_secs(context.config.startup_timeout_secs);
     let mut connected = false;
+    let mut next_probe = tokio::time::Instant::now();
+    let mut missed_probes = 0;
     loop {
         if *context.shutdown.borrow() {
             return Ok(WorkerExit::Stopped);
@@ -374,6 +451,16 @@ async fn run_worker(
                     .publish("state.changed", serde_json::json!({"resource":"runtime"}));
                 tokio::spawn(async move { while ipc_events.recv().await.is_some() {} });
                 connected = true;
+                context.budget.healthy(
+                    Instant::now(),
+                    Duration::from_secs(context.config.supervision.stable_after_secs),
+                );
+                update_status(
+                    context.supervisor,
+                    SupervisorPhase::Ready,
+                    context.budget.attempts,
+                    None,
+                );
                 eprintln!("Python runtime connected (pid {})", worker.pid);
             } else if Instant::now() >= deadline {
                 return Err("Python runtime startup timed out".into());
@@ -383,6 +470,30 @@ async fn run_worker(
         }
         tokio::select! {
             _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
+            _ = tokio::time::sleep_until(next_probe), if connected => {
+                let client = context.connection.current().map_err(|e| e.to_string())?;
+                let probe = tokio::select! {
+                    _ = context.shutdown.changed() => return Ok(WorkerExit::Stopped),
+                    result = client.request_with_timeout("ping", None, Duration::from_secs(context.config.supervision.probe_timeout_secs)) => result,
+                };
+                next_probe = tokio::time::Instant::now() + Duration::from_secs(context.config.supervision.probe_interval_secs);
+                if probe.is_ok_and(|value| value["status"] == "pong") {
+                    missed_probes = 0;
+                    context.budget.healthy(Instant::now(), Duration::from_secs(context.config.supervision.stable_after_secs));
+                    if !context.maintenance.is_active() {
+                        context.storage_ready.store(true, Ordering::Release);
+                    }
+                    update_status(context.supervisor, SupervisorPhase::Ready, context.budget.attempts, None);
+                } else {
+                    missed_probes += 1;
+                    context.budget.interrupted();
+                    context.storage_ready.store(false, Ordering::Release);
+                    update_status(context.supervisor, SupervisorPhase::Unresponsive, context.budget.attempts, None);
+                    if missed_probes >= context.config.supervision.missed_probes {
+                        return Err("Python event loop failed consecutive IPC probes".into());
+                    }
+                }
+            },
             _ = tokio::time::sleep(Duration::from_millis(200)) => {},
             _ = context.maintenance.changed.notified(), if recovery.is_none() && restore.is_none() => {},
         }
@@ -521,6 +632,10 @@ impl WorkerProcess {
             .env("MAGI_PLUGIN_PYTHON", &config.worker.plugin_python)
             .env("MAGI_SERVER_PARENT_PID", std::process::id().to_string())
             .env("MAGI_BACKEND_LOG_FILE", &log_path)
+            .env(
+                "MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS",
+                config.shutdown_timeout_secs.to_string(),
+            )
             .env_remove("MAGI_DESKTOP_SESSION_TOKEN")
             .env_remove("MAGI_EXTERNAL_BACKEND_SESSION_TOKEN")
             .env_remove("MAGI_FULL_DATA_CLEAR_TRANSACTION_ID")
@@ -584,11 +699,9 @@ impl WorkerProcess {
         }
         self.stop_group();
         // Finish or abort pipe readers before maintenance truncates old logs.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
         for mut task in self.output.drain(..) {
-            if tokio::time::timeout(Duration::from_secs(2), &mut task)
-                .await
-                .is_err()
-            {
+            if tokio::time::timeout_at(deadline, &mut task).await.is_err() {
                 task.abort();
                 let _ = task.await;
             }
@@ -615,5 +728,105 @@ impl Drop for WorkerProcess {
         for task in &self.output {
             task.abort();
         }
+    }
+}
+
+fn update_status(
+    status: &RwLock<SupervisorStatus>,
+    phase: SupervisorPhase,
+    attempts: u32,
+    retry: Option<Duration>,
+) {
+    let mut state = status.write().unwrap_or_else(|e| e.into_inner());
+    state.phase = phase;
+    state.restart_count = attempts;
+    state.next_retry_at_ms = retry.map(|delay| {
+        (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            + delay)
+            .as_millis() as u64
+    });
+}
+
+/// Keep every critical task in the same supervision scope as the worker loop.
+async fn wait_for_exit<W, M>(
+    owner: &mut watch::Receiver<bool>,
+    http: &mut tokio::task::JoinHandle<std::io::Result<()>>,
+    bridge: &mut tokio::task::JoinHandle<()>,
+    worker: W,
+    management: M,
+) -> (Result<(), String>, bool)
+where
+    W: std::future::Future<Output = Result<(), String>>,
+    M: std::future::Future<Output = ()>,
+{
+    tokio::select! {
+        biased;
+        _ = async { if !*owner.borrow() { let _ = owner.changed().await; } } => (Ok(()), false),
+        outcome = http => (Err(format!("Server listener stopped unexpectedly: {outcome:?}")), false),
+        outcome = bridge => (Err(format!("Notification bridge stopped unexpectedly: {outcome:?}")), false),
+        _ = management => (Err("Management listener stopped unexpectedly".into()), false),
+        outcome = worker => (outcome, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn critical_task_failure_interrupts_a_live_worker_loop() {
+        for failed in ["http", "bridge", "management"] {
+            let (_owner, mut shutdown) = watch::channel(false);
+            let mut http = tokio::spawn(std::future::pending::<std::io::Result<()>>());
+            let mut bridge = tokio::spawn(std::future::pending::<()>());
+            if failed == "http" {
+                http.abort();
+            }
+            if failed == "bridge" {
+                bridge.abort();
+            }
+            let (result, worker_finished) = tokio::time::timeout(
+                Duration::from_secs(1),
+                wait_for_exit(
+                    &mut shutdown,
+                    &mut http,
+                    &mut bridge,
+                    std::future::pending::<Result<(), String>>(),
+                    async {
+                        if failed != "management" {
+                            std::future::pending::<()>().await;
+                        }
+                    },
+                ),
+            )
+            .await
+            .expect("Critical failure must not wait for the live worker");
+            assert!(result.is_err());
+            assert!(!worker_finished);
+            http.abort();
+            bridge.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn requested_shutdown_is_not_reported_as_a_crash() {
+        let (owner, mut shutdown) = watch::channel(false);
+        let mut http = tokio::spawn(std::future::pending::<std::io::Result<()>>());
+        let mut bridge = tokio::spawn(std::future::pending::<()>());
+        owner.send_replace(true);
+        let (result, worker_finished) = wait_for_exit(
+            &mut shutdown,
+            &mut http,
+            &mut bridge,
+            std::future::pending::<Result<(), String>>(),
+            std::future::pending::<()>(),
+        )
+        .await;
+        assert!(result.is_ok());
+        assert!(!worker_finished);
+        http.abort();
+        bridge.abort();
     }
 }

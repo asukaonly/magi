@@ -16,6 +16,8 @@ pub struct ServerConfig {
     pub startup_timeout_secs: u64,
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout_secs: u64,
+    #[serde(default)]
+    pub supervision: crate::lifecycle::SupervisionPolicy,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -40,7 +42,7 @@ fn default_startup_timeout() -> u64 {
     120
 }
 fn default_shutdown_timeout() -> u64 {
-    10
+    30
 }
 
 impl ServerConfig {
@@ -80,6 +82,7 @@ impl ServerConfig {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        self.supervision.validate()?;
         validate_absolute(&self.data_dir)?;
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
         if self.data_dir.parent().is_none()
@@ -121,6 +124,7 @@ impl ServerConfig {
             max_restarts: default_restarts(),
             startup_timeout_secs: default_startup_timeout(),
             shutdown_timeout_secs: default_shutdown_timeout(),
+            supervision: Default::default(),
             builtin_avatar_dir: Some(project.join("backend/personalities/avatar")),
             worker: WorkerLaunch {
                 executable: python.clone(),
@@ -133,6 +137,16 @@ impl ServerConfig {
                 python_path: vec![project.join("backend/src"), project.join("sdk/src")],
             },
         }
+    }
+
+    /// Worker drain plus bounded transport and log cleanup.
+    pub fn service_shutdown_timeout_secs(&self) -> u64 {
+        self.shutdown_timeout_secs + 8
+    }
+
+    /// The owner must outlive the complete service teardown.
+    pub fn owner_shutdown_timeout_secs(&self) -> u64 {
+        self.service_shutdown_timeout_secs() + 5
     }
 }
 

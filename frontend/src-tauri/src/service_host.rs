@@ -12,6 +12,7 @@ use magi_service_contract::{DesktopBootstrap, StartedServer};
 pub struct LocalService {
     child: Child,
     owner: Option<ChildStdin>,
+    shutdown_timeout: Duration,
     pub base_url: String,
     pub session_token: String,
 }
@@ -75,6 +76,7 @@ impl LocalService {
         let mut service = Self {
             child,
             owner: Some(owner),
+            shutdown_timeout: Duration::from_secs(config.owner_shutdown_timeout_secs()),
             base_url: String::new(),
             session_token: format!(
                 "{}{}",
@@ -134,7 +136,7 @@ impl LocalService {
 
     pub fn stop(&mut self) {
         self.owner.take();
-        let deadline = Instant::now() + Duration::from_secs(15);
+        let deadline = Instant::now() + self.shutdown_timeout;
         while Instant::now() < deadline {
             match self.child.try_wait() {
                 Ok(Some(_)) => return,
