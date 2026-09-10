@@ -119,6 +119,15 @@ It listens on loopback, acquires an OS instance lease, binds before the worker
 is ready, gates business storage access during startup, and reconnects after
 bounded worker restarts. `crates/magi-platform` supplies shared OS data protection.
 
+Independent `run` deployments use a lightweight Rust owner process around the
+Rust gateway and Python worker. That owner, or the local desktop in desktop mode,
+checks authenticated gateway responsiveness and replaces an unresponsive owned
+process. The owner reserves the data root even during restart cooldowns. OS
+instance leases live in `magi-platform`; shared probe accounting and restart
+budgets live in `magi-service-contract`, without pulling service implementation
+into the desktop. External Unix plugins additionally have a small Python owner
+that reaps their processes independently of plugin execution.
+
 The Python worker publishes management readiness after foundational storage and
 configuration initialize, before optional plugin/Agent startup. Missing core
 model configuration leaves management, raw memory storage and source collection

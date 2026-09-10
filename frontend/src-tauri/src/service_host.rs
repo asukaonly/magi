@@ -5,10 +5,11 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use magi_service_contract::config::ServerConfig;
-use magi_service_contract::{DesktopBootstrap, StartedServer};
+use magi_service_contract::{OwnerBootstrap, StartedServer};
 
 #[derive(Clone)]
 struct LaunchSpec {
@@ -19,6 +20,7 @@ struct LaunchSpec {
 }
 
 pub struct LocalService {
+    reservation: Arc<magi_platform::instance::InstanceLease>,
     child: Child,
     launch: LaunchSpec,
     owner: Option<ChildStdin>,
@@ -40,6 +42,7 @@ impl LocalService {
             config_path,
             log_path,
             &AtomicBool::new(false),
+            None,
         )
     }
 
@@ -49,6 +52,7 @@ impl LocalService {
         config_path: &Path,
         log_path: PathBuf,
         cancelled: &AtomicBool,
+        reservation: Option<Arc<magi_platform::instance::InstanceLease>>,
     ) -> Result<Self, String> {
         if cancelled.load(Ordering::Acquire) {
             return Err("Service launch cancelled".into());
@@ -60,7 +64,16 @@ impl LocalService {
             log_path: log_path.clone(),
         };
         config.validate()?;
+        let reservation = match reservation {
+            Some(lease) => lease,
+            None => Arc::new(magi_platform::instance::InstanceLease::runtime_owner(
+                &config.data_dir,
+            )?),
+        };
         write_config(config_path, config)?;
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Service launch cancelled".into());
+        }
         let mut command = Command::new(binary);
         command
             .args(["run", "--config"])
@@ -109,6 +122,7 @@ impl LocalService {
             .take()
             .ok_or("Service listener pipe is unavailable")?;
         let mut service = Self {
+            reservation,
             child,
             launch,
             owner: Some(owner),
@@ -120,7 +134,7 @@ impl LocalService {
                 uuid::Uuid::new_v4().simple()
             ),
         };
-        let bootstrap = DesktopBootstrap {
+        let bootstrap = OwnerBootstrap {
             session_token: service.session_token.clone(),
         };
         writeln!(
@@ -178,7 +192,19 @@ impl LocalService {
             &self.launch.config_path,
             self.launch.log_path.clone(),
             cancelled,
+            Some(self.reservation.clone()),
         )
+    }
+
+    pub fn supervision_policy(&self) -> &magi_service_contract::lifecycle::SupervisionPolicy {
+        &self.launch.config.supervision
+    }
+
+    /// Force only this owned child after sustained failed responsiveness probes.
+    pub fn terminate_unresponsive(&mut self) {
+        self.owner.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 
     pub fn pid(&self) -> u32 {
@@ -261,9 +287,17 @@ mod tests {
             root.join("first.log"),
         )
         .unwrap();
-        let mut second = LocalService::start(
+        assert!(LocalService::start(
             &binary,
             &config,
+            &root.join("duplicate.json"),
+            root.join("duplicate.log")
+        )
+        .is_err());
+        let other_config = ServerConfig::for_development(&root, root.join("other-data"));
+        let mut second = LocalService::start(
+            &binary,
+            &other_config,
             &root.join("second.json"),
             root.join("second.log"),
         )

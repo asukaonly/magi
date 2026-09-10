@@ -3,18 +3,20 @@
 use serde::{Deserialize, Serialize};
 
 pub mod config;
+pub mod health;
 pub mod lifecycle;
+pub mod restart_budget;
 
 pub const SERVER_PROTOCOL_VERSION: u32 = 2;
 
-/// Private launch request passed over the owning desktop's stdin pipe.
+/// Private launch request passed over the owning process's stdin pipe.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct DesktopBootstrap {
+pub struct OwnerBootstrap {
     pub session_token: String,
 }
 
-/// Listener announcement returned to the desktop over the service's stdout pipe.
+/// Listener announcement returned to the owner over the service's stdout pipe.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartedServer {
@@ -28,7 +30,7 @@ mod tests {
 
     #[test]
     fn launch_contract_preserves_wire_names_and_rejects_extra_fields() {
-        let request = DesktopBootstrap {
+        let request = OwnerBootstrap {
             session_token: "test-launch-token".into(),
         };
         assert_eq!(
@@ -44,7 +46,7 @@ mod tests {
             serde_json::to_value(announcement).unwrap(),
             serde_json::json!({"baseUrl":"http://127.0.0.1:19080/api","serverPid":42})
         );
-        assert!(serde_json::from_value::<DesktopBootstrap>(
+        assert!(serde_json::from_value::<OwnerBootstrap>(
             serde_json::json!({"session_token":"test","extra":true})
         )
         .is_err());

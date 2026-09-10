@@ -12,9 +12,9 @@ use tokio::sync::{oneshot, watch};
 
 use magi_service_contract::{config::ServerConfig, StartedServer};
 
-use crate::instance::InstanceLease;
-use crate::restart_budget::RestartBudget;
+use magi_platform::instance::InstanceLease;
 use magi_service_contract::lifecycle::{SupervisorPhase, SupervisorStatus};
+use magi_service_contract::restart_budget::RestartBudget;
 
 /// Run one gateway and supervised worker for a private data root.
 pub async fn run(

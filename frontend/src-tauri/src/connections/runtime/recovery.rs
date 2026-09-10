@@ -11,6 +11,7 @@ pub(super) struct RecoverySchedule {
     attempts: u32,
     healthy_since: Option<Instant>,
     next_attempt: Option<Instant>,
+    health: magi_service_contract::health::ServiceHealth,
 }
 
 impl RecoverySchedule {
@@ -54,12 +55,63 @@ struct RecoveredConnection {
 }
 
 impl ConnectionRuntime {
+    async fn probe_owned_service(&self) -> Result<(), String> {
+        let snapshot = {
+            let mut active = self
+                .active
+                .lock()
+                .map_err(|_| "Connection state unavailable")?;
+            let Some(active) = active.as_mut() else {
+                return Ok(());
+            };
+            let Some(service) = active.service.as_mut() else {
+                return Ok(());
+            };
+            let policy = service.supervision_policy().clone();
+            if !service.running()? || !active.recovery.health.due(Instant::now(), &policy) {
+                return Ok(());
+            }
+            (
+                self.generation.load(Ordering::Acquire),
+                active.response.clone(),
+                policy,
+                active.recovery.cancelled.clone(),
+            )
+        };
+        let (generation, response, policy, cancelled) = snapshot;
+        let probe = async {
+            CenterClient::local(&response.base_url)?
+                .info(&response.session_token)
+                .await
+        };
+        let responsive = tokio::select! {
+            biased;
+            _ = wait_for_cancellation(&cancelled) => return Ok(()),
+            result = tokio::time::timeout(Duration::from_secs(policy.probe_timeout_secs), probe) => {
+                matches!(result, Ok(Ok(info)) if info.server_id == response.server_id)
+            }
+        };
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| "Connection state unavailable")?;
+        if self.is_current(generation) {
+            if let Some(active) = active.as_mut() {
+                active.recovery.health.record(responsive);
+                if !responsive {
+                    active.recovery.healthy_since = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn recover_owned_service(&self) -> Result<Option<RecoveredConnection>, String> {
         let _operation = self.operation.lock().await;
         if self.shutting_down.load(Ordering::Acquire) {
             return Ok(None);
         }
-        let (previous, response, generation, cancelled) = {
+        let (previous, response, generation, cancelled, unresponsive) = {
             let mut active = self
                 .active
                 .lock()
@@ -71,7 +123,8 @@ impl ConnectionRuntime {
                 return Ok(None);
             };
             let alive = service.running()?;
-            if !active.recovery.due(Instant::now(), alive) {
+            let unresponsive = active.recovery.health.failed(service.supervision_policy());
+            if !active.recovery.due(Instant::now(), alive && !unresponsive) {
                 return Ok(None);
             }
             let service = active.service.take().ok_or("Owned service disappeared")?;
@@ -80,6 +133,7 @@ impl ConnectionRuntime {
                 active.response.clone(),
                 self.generation.load(Ordering::Acquire),
                 active.recovery.cancelled.clone(),
+                unresponsive,
             )
         };
         // User intent may invalidate this attempt while startup is in flight.
@@ -87,6 +141,11 @@ impl ConnectionRuntime {
         let previous_pid = previous.pid();
         let launch_cancelled = cancelled.clone();
         let (previous, replacement) = tokio::task::spawn_blocking(move || {
+            let mut previous = previous;
+            if unresponsive && !launch_cancelled.load(Ordering::Acquire) {
+                log::warn!("Replacing an unresponsive owned service");
+                previous.terminate_unresponsive();
+            }
             let replacement = previous.restart(&launch_cancelled);
             (previous, replacement)
         })
@@ -145,6 +204,7 @@ impl ConnectionRuntime {
                     active.response.data_epoch = info.maintenance.data_epoch;
                     active.response.content_epoch = info.maintenance.content_epoch;
                     active.service = Some(service);
+                    active.recovery.health = Default::default();
                     active.response.connection_generation =
                         self.generation.fetch_add(1, Ordering::AcqRel) + 1;
                     Ok(Some(event))
@@ -176,6 +236,9 @@ pub fn start_monitor(app: AppHandle) {
             let state = app.state::<ConnectionRuntime>();
             if state.shutting_down.load(Ordering::Acquire) {
                 break;
+            }
+            if let Err(error) = state.probe_owned_service().await {
+                log::warn!("Owned service responsiveness check failed: {error}");
             }
             match state.recover_owned_service().await {
                 Ok(Some(event)) => {
@@ -230,7 +293,13 @@ mod tests {
     async fn crashed_owned_process_recovers_and_quit_cancels_inflight_recovery() {
         use std::os::unix::fs::PermissionsExt;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for scenario in ["recover", "quit", "switch", "switch_startup"] {
+        for scenario in [
+            "recover",
+            "quit",
+            "switch",
+            "switch_startup",
+            "unresponsive",
+        ] {
             let root = std::env::temp_dir().join(format!("magi-recovery-{}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&root).unwrap();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -240,7 +309,10 @@ mod tests {
             let starting = root.join("starting");
             fs::write(&binary, format!("#!/bin/sh\nread bootstrap\nif test -e '{}'; then printf %s \"$$\" > '{}'; else printf '{{\"baseUrl\":\"{base}\",\"serverPid\":%s}}\\n' \"$$\"; fi\nwhile IFS= read -r line; do :; done\n", stalled.display(), starting.display())).unwrap();
             fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
-            let config = ServerConfig::for_development(&root, root.join("data"));
+            let mut config = ServerConfig::for_development(&root, root.join("data"));
+            config.supervision.probe_interval_secs = 1;
+            config.supervision.probe_timeout_secs = 1;
+            config.supervision.missed_probes = 2;
             let service = service_host::LocalService::start(
                 &binary,
                 &config,
@@ -260,15 +332,40 @@ mod tests {
                 response,
                 recovery: Default::default(),
             });
-            assert!(std::process::Command::new("/bin/kill")
-                .args(["-KILL", &original_pid.to_string()])
-                .status()
-                .unwrap()
-                .success());
+            if scenario == "unresponsive" {
+                let serve_unready = async {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = [0; 4096];
+                    let _ = socket.read(&mut request).await.unwrap();
+                    let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":false,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"running"}}}).to_string();
+                    socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                };
+                let (probe, ()) = tokio::join!(state.probe_owned_service(), serve_unready);
+                probe.unwrap();
+                assert!(state.recover_owned_service().await.unwrap().is_none());
+                // The process stays alive, but two HTTP exchanges stop responding.
+                for _ in 0..2 {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let stalled = async {
+                        let (_socket, _) = listener.accept().await.unwrap();
+                        tokio::time::sleep(Duration::from_millis(1100)).await;
+                    };
+                    let (probe, ()) = tokio::join!(state.probe_owned_service(), stalled);
+                    probe.unwrap();
+                }
+            } else {
+                assert!(std::process::Command::new("/bin/kill")
+                    .args(["-KILL", &original_pid.to_string()])
+                    .status()
+                    .unwrap()
+                    .success());
+            }
             {
                 let mut active = state.active.lock().unwrap();
                 let active = active.as_mut().unwrap();
-                while active.service.as_mut().unwrap().running().unwrap() {
+                while scenario != "unresponsive"
+                    && active.service.as_mut().unwrap().running().unwrap()
+                {
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 active.recovery.next_attempt = Some(Instant::now());

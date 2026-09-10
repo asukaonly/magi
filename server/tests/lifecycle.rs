@@ -17,6 +17,8 @@ struct Server {
     config_path: PathBuf,
     root: PathBuf,
     address: SocketAddr,
+    service_pid: u32,
+    announcements: mpsc::Receiver<String>,
 }
 
 impl Server {
@@ -81,9 +83,16 @@ impl Server {
         let stdout = child.stdout.take().unwrap();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut line = String::new();
-            let _ = BufReader::new(stdout).read_line(&mut line);
-            let _ = tx.send(line);
+            let mut reader = BufReader::new(stdout);
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
         });
         let line = rx
             .recv_timeout(Duration::from_secs(10))
@@ -108,6 +117,8 @@ impl Server {
             config_path,
             root,
             address,
+            service_pid: info["serverPid"].as_u64().unwrap() as u32,
+            announcements: rx,
         }
     }
 
@@ -147,7 +158,13 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.owner.take();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        #[cfg(unix)]
+        if self.service_pid != self.child.id() && self.child.try_wait().ok().flatten().is_none() {
+            unsafe {
+                libc::kill(self.child.id() as i32, libc::SIGTERM);
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(12);
         while Instant::now() < deadline {
             if self.child.try_wait().ok().flatten().is_some() {
                 break;
@@ -364,14 +381,65 @@ fn signal_terminate(pid: u32) {
     assert!(status.success());
 }
 
+#[cfg(unix)]
+#[test]
+fn console_owner_recovers_a_suspended_service_and_keeps_its_reservation() {
+    let mut server = Server::start_mode(false);
+    assert_ne!(server.service_pid, server.child.id());
+    let operator_status = || {
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["status", "--config"])
+            .arg(&server.config_path)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let initial = operator_status();
+    // Suspension leaves the PID alive while every service runtime thread stops.
+    assert_eq!(
+        unsafe { libc::kill(server.service_pid as i32, libc::SIGSTOP) },
+        0
+    );
+    let duplicate = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["run", "--config"])
+        .arg(&server.config_path)
+        .output()
+        .unwrap();
+    assert!(!duplicate.status.success());
+    let next: Value = serde_json::from_str(
+        &server
+            .announcements
+            .recv_timeout(Duration::from_secs(15))
+            .unwrap(),
+    )
+    .unwrap();
+    let replacement = next["serverPid"].as_u64().unwrap() as u32;
+    assert_ne!(replacement, server.service_pid);
+    assert!(server.child.try_wait().unwrap().is_none());
+    assert_eq!(initial["server_id"], operator_status()["server_id"]);
+    assert_ne!(unsafe { libc::kill(server.service_pid as i32, 0) }, 0);
+    signal_terminate(server.child.id());
+    let deadline = Instant::now() + Duration::from_secs(12);
+    while server.child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert_ne!(unsafe { libc::kill(replacement as i32, 0) }, 0);
+    assert!(!server.root.join("runtime/worker.ready").exists());
+}
+
 // This test executable acts as the child fixture; it is never part of the product.
 #[test]
 #[ignore]
 fn fake_worker() {
+    std::thread::spawn(|| {
+        let _ = std::io::stdin().read(&mut [0_u8; 1]);
+        std::process::exit(0);
+    });
     let root = PathBuf::from(std::env::var_os("MAGI_HOME").unwrap());
     let _lease =
-        magi_server_runtime::instance::InstanceLease::acquire(&root.join("runtime/worker.lock"))
-            .unwrap();
+        magi_platform::instance::InstanceLease::acquire(&root.join("runtime/worker.lock")).unwrap();
     std::thread::sleep(Duration::from_millis(750));
     let socket = std::env::var("MAGI_IPC_SOCKET").unwrap();
     #[cfg(unix)]

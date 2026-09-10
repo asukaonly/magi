@@ -51,6 +51,11 @@ Last reviewed against the implementation: 2026-08-25.
 Each center has one Python `ipc_worker` process behind the Rust gateway.
 `magi-server` owns both lifetimes. The local desktop starts that same service
 executable; a remote desktop connects over HTTPS and runs neither process.
+For independent deployment, `magi-server run` is a small process owner that
+launches a separate gateway process through the private stdin protocol. The
+desktop already supplies that owner and launches the gateway directly. Both
+owners reserve `runtime/owner.lock` throughout recovery and cooldown; the gateway
+holds `server.lock`, and Python/plugin ownership retains `worker.lock`.
 Its in-memory ASGI app accepts product requests and enqueues durable commands;
 the same process consumes commands, runs task agents, owns the message bus,
 executes model/tool loops, and writes outcomes. These are logical responsibilities,
@@ -80,6 +85,16 @@ kernel Job ownership for this boundary.
 The service continuously supervises the HTTP listener, operator listener and
 notification bridge alongside the worker loop. A critical transport task ending
 stops the service and its worker, allowing its external owner to restart it.
+The external owner also probes authenticated `/api/server/info`. Three consecutive
+response failures (by default) replace its owned gateway even when the PID is
+still alive. A missing model, worker startup or active maintenance does not count
+as a failed gateway probe. Probe deadlines and intervals use `supervision`;
+long owner suspension gaps discard previous misses instead of firing catch-up
+probes. Only local ownership can restart a process; remote clients only reconnect.
+The headless owner backs off and cools down on repeated failures, resets its
+budget after sustained responses, and logs gateway failures/retries. `max_restarts:
+0` keeps the gateway stopped and the owner alive until an explicit operator restart. The
+API supervisor status continues to describe the Python worker, not its outer owner.
 A lightweight authenticated IPC `ping` probes the Python main event loop every
 10 seconds with a 5-second deadline. Three consecutive failures replace the
 worker; slow asynchronous model requests and deferred capabilities do not count

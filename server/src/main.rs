@@ -1,11 +1,12 @@
 mod managed_output;
 mod service_install;
+mod service_watch;
 
 use std::io::{BufRead, Read, Write};
 use std::path::PathBuf;
 
 use magi_server_runtime::supervisor;
-use magi_service_contract::{config::ServerConfig, DesktopBootstrap, SERVER_PROTOCOL_VERSION};
+use magi_service_contract::{config::ServerConfig, OwnerBootstrap, SERVER_PROTOCOL_VERSION};
 
 fn main() {
     let mut output = None;
@@ -122,7 +123,7 @@ fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), Str
                 },
                 &[],
             )?;
-            let config = ServerConfig::load(&PathBuf::from(config_path))?;
+            let config = ServerConfig::load(&PathBuf::from(&config_path))?;
             use magi_server_runtime::management::{request, Request};
             let request_kind = match command.as_str() {
                 "pair" => Request::Pair,
@@ -149,17 +150,20 @@ fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), Str
                 &["--config", "--log-file"],
                 &["--bootstrap-stdin"],
             )?;
-            let desktop = args.iter().any(|a| a == "--bootstrap-stdin");
+            let externally_owned = args.iter().any(|a| a == "--bootstrap-stdin");
             if let Some(path) = optional_option(&args[1..], "--log-file")? {
                 *output = Some(
-                    managed_output::ManagedOutput::start(std::path::Path::new(&path), !desktop)
-                        .map_err(|e| e.to_string())?,
+                    managed_output::ManagedOutput::start(
+                        std::path::Path::new(&path),
+                        !externally_owned,
+                    )
+                    .map_err(|e| e.to_string())?,
                 );
             }
-            let config = ServerConfig::load(&PathBuf::from(config_path))?;
+            let config = ServerConfig::load(&PathBuf::from(&config_path))?;
             // Resolve process-wide runtime paths before creating any runtime threads.
             std::env::set_var("MAGI_HOME", &config.data_dir);
-            let token = if desktop {
+            let token = if externally_owned {
                 let mut line = String::new();
                 std::io::stdin()
                     .lock()
@@ -167,24 +171,26 @@ fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), Str
                     .read_line(&mut line)
                     .map_err(|e| e.to_string())?;
                 if line.len() > 8192 {
-                    return Err("Desktop bootstrap exceeds size limit".into());
+                    return Err("Owner bootstrap exceeds size limit".into());
                 }
-                let bootstrap: DesktopBootstrap =
-                    serde_json::from_str(&line).map_err(|_| "Invalid desktop bootstrap")?;
+                let bootstrap: OwnerBootstrap =
+                    serde_json::from_str(&line).map_err(|_| "Invalid owner bootstrap")?;
                 if bootstrap.session_token.len() < 32 {
-                    return Err("Desktop bootstrap credential is too short".into());
+                    return Err("Owner bootstrap credential is too short".into());
                 }
                 Some(bootstrap.session_token)
             } else {
                 None
             };
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| e.to_string())?;
+            let mut builder = if externally_owned {
+                tokio::runtime::Builder::new_multi_thread()
+            } else {
+                tokio::runtime::Builder::new_current_thread()
+            };
+            let runtime = builder.enable_all().build().map_err(|e| e.to_string())?;
             runtime.block_on(async move {
                 let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-                if desktop {
+                if externally_owned {
                     let parent_lost = shutdown_tx.clone();
                     std::thread::spawn(move || {
                         let mut byte = [0u8; 1];
@@ -215,6 +221,10 @@ fn execute(output: &mut Option<managed_output::ManagedOutput>) -> Result<(), Str
                     }
                     shutdown_tx.send_replace(true);
                 });
+                if !externally_owned {
+                    return service_watch::run(config, PathBuf::from(config_path), shutdown_rx)
+                        .await;
+                }
                 let (started_tx, started_rx) = tokio::sync::oneshot::channel();
                 tokio::spawn(async move {
                     if let Ok(info) = started_rx.await {

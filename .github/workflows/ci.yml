@@ -255,6 +255,14 @@ jobs:
       - name: Test independent server runtime
         run: cargo test --locked -p magi-service-contract -p magi-server-runtime -p magi-server
 
+      - name: Exercise real Python lifecycle failures
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m venv .lifecycle-venv
+          .lifecycle-venv/bin/python -m pip install ./sdk
+          .lifecycle-venv/bin/python scripts/smoke-service-lifecycle.py --executable target/debug/magi-server
+
   desktop-shell:
     name: Desktop shell validation (${{ matrix.name }})
     strategy:

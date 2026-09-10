@@ -10,6 +10,9 @@ libc = "0.2"
 magi-server-runtime = { path = "../crates/magi-server-runtime" }
 magi-service-contract = { path = "../crates/magi-service-contract" }
 serde_json = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]

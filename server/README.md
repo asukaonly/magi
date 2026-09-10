@@ -21,7 +21,9 @@ runs a separate local desktop instance):
   --config "$HOME/.config/magi-server/server.json"
 ```
 
-`run` stays in the foreground; Control-C stops the owned worker. The default
+`run` stays in the foreground as a lightweight Rust owner. It starts a separate
+Rust gateway process, which owns Python. Control-C stops the complete owned
+runtime. The default
 HTTP listener is `127.0.0.1:19080`. Use `init --port <port>` to choose another.
 The configuration records absolute bundle paths, so choose the permanent bundle
 location before initialization. `init` refuses to overwrite an existing config.
@@ -37,7 +39,8 @@ This registers and starts the current user's `app.magi.server` LaunchAgent.
 Do not use `sudo`. It does not run before login, survive logout, or prevent Mac
 sleep. Configure the host's power settings to keep it available. One managed
 center is supported per macOS user; foreground instances can use separate data
-roots and ports. The data-root lock prevents two processes opening the same root.
+roots and ports. The owner retains its data-root lease during restart cooldowns,
+preventing another desktop or console owner from taking over that root.
 
 `start`, `stop`, and `restart` manage this specific LaunchAgent. `status` reports
 runtime readiness through a private local management socket. Logs are under
@@ -48,19 +51,31 @@ Foreground runs keep service diagnostics in the terminal unless `run --log-file
 
 ## Recovery and shutdown
 
+The owning desktop or headless `run` process probes the gateway through the
+authenticated server-info endpoint. It replaces that owned gateway after
+sustained failed responses, even if its PID remains alive. Missing models,
+Python startup and active maintenance do not count as gateway failures. Remote
+clients never restart the center. A long suspension gap resets missed-probe
+accounting rather than producing a burst of catch-up timeouts.
+
 The service probes the Python event loop independently of model and plugin
 readiness. The default `supervision` policy probes every 10 seconds, waits up to
 5 seconds, and replaces a worker after 3 consecutive failed probes. It restores
 the restart budget after 60 healthy seconds. After `max_restarts` retries, the
 service keeps diagnostics available and waits 60 seconds before retrying.
-Set `max_restarts` to 0 to require an operator restart after a worker failure.
+Set `max_restarts` to 0 to require an operator restart after a worker or gateway
+failure. The headless owner remains alive in that failed state, so launchd does
+not bypass the disabled retry policy. Gateway recovery uses the same bounded
+backoff, stable-health reset and cooldown policy; its diagnostics are in the
+service log. API `supervisor` fields describe the inner Python supervisor.
 A failed data maintenance operation remains blocked for explicit repair.
 
 `status` includes `supervisor.phase`, `restart_count`, `last_error` and
 `next_retry_at_ms`. `ready` means the transport responds; per-capability readiness
 still determines whether a particular operation is available. `/api/health` is
 only gateway liveness. A critical HTTP, management or notification task failure
-stops the service so launchd (or the owning desktop) can recover the whole process.
+stops the gateway so its headless owner (or the desktop) can recover the process.
+Launchd restarts the headless owner itself if that owner exits unexpectedly.
 
 `shutdown_timeout_secs` is the worker drain budget (default 30 seconds). The
 service reserves 8 additional seconds for cleanup and its owner waits 5 seconds
@@ -145,4 +160,7 @@ For isolated lifecycle fault injection on a development checkout, run
 `python scripts/smoke-service-lifecycle.py --executable target/debug/magi-server`.
 It exercises a real Python event-loop hang, responsive asynchronous work, service
 crash/worker lease handoff, paired-session renewal and graceful drain using a
-temporary data directory. It does not load business plugins or model providers.
+temporary data directory. It also suspends the whole gateway process and checks
+headless recovery and final Python drain. The Linux gateway CI job runs this
+probe with an isolated SDK environment. It does not load business plugins or
+model providers.

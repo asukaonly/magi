@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 /// Count failures between sustained healthy periods, never across the service lifetime.
 #[derive(Default)]
-pub(crate) struct RestartBudget {
+pub struct RestartBudget {
     pub attempts: u32,
     healthy_since: Option<Instant>,
 }

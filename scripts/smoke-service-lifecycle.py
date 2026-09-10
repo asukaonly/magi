@@ -77,23 +77,34 @@ async def worker_loop(root: Path) -> None:
 
 
 class Service:
-    def __init__(self, executable: Path, config: Path) -> None:
+    def __init__(self, executable: Path, config: Path, *, headless: bool = False) -> None:
+        self.headless = headless
         self.token = uuid.uuid4().hex * 2
         self.process = subprocess.Popen(
-            [str(executable), "run", "--config", str(config), "--bootstrap-stdin"],
+            [str(executable), "run", "--config", str(config), *([] if headless else ["--bootstrap-stdin"])],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
         self.errors: list[str] = []
         threading.Thread(target=lambda: self.errors.extend(self.process.stderr.readlines()), daemon=True).start()
-        self.process.stdin.write(json.dumps({"session_token": self.token}) + "\n")
-        self.process.stdin.flush()
-        lines: queue.Queue[str] = queue.Queue()
-        threading.Thread(target=lambda: lines.put(self.process.stdout.readline()), daemon=True).start()
+        if not headless:
+            self.process.stdin.write(json.dumps({"session_token": self.token}) + "\n")
+            self.process.stdin.flush()
+        self.announcements: queue.Queue[str] = queue.Queue()
+
+        def read_announcements() -> None:
+            for line in self.process.stdout:
+                self.announcements.put(line)
+
+        threading.Thread(target=read_announcements, daemon=True).start()
         try:
-            self.base = json.loads(lines.get(timeout=15))["baseUrl"]
+            self.read_announcement()
         except BaseException:
             self.close()
             raise
+
+    def read_announcement(self) -> None:
+        report = json.loads(self.announcements.get(timeout=15))
+        self.base, self.service_pid = report["baseUrl"], report["serverPid"]
 
     def request(self, path: str, *, token: str | None = None, method: str = "GET", body: dict[str, object] | None = None) -> tuple[int, dict[str, Any]]:
         request = urllib.request.Request(
@@ -108,6 +119,8 @@ class Service:
             return response.status, json.load(response)
 
     def close(self) -> None:
+        if self.headless and self.process.poll() is None:
+            self.process.terminate()
         if self.process.stdin and not self.process.stdin.closed:
             self.process.stdin.close()
         try:
@@ -182,6 +195,29 @@ def smoke(executable: Path) -> None:
             assert service.process.returncode == 0
             assert (root / f"drained-{final_pid}").exists()
             print("PASS: normal stop drains the Python worker before service exit", flush=True)
+
+            service = Service(executable, config, headless=True)
+            assert service.service_pid != service.process.pid
+            _, session = service.request("/auth/session", token=credential, method="POST")
+            service.token = session["data"]["access_token"]
+            eventually(ready)
+            previous_pid = pid_path.read_text()
+            previous_service_pid = service.service_pid
+            os.kill(previous_service_pid, signal.SIGSTOP)
+            service.read_announcement()
+            assert service.service_pid != previous_service_pid
+            assert service.process.poll() is None
+            _, session = service.request("/auth/session", token=credential, method="POST")
+            service.token = session["data"]["access_token"]
+            eventually(ready)
+            assert (root / f"drained-{previous_pid}").exists()
+            assert service.request("/server/info")[1]["data"]["server_id"] == server_id
+            print("PASS: headless owner replaces a suspended gateway and preserves paired identity", flush=True)
+            final_pid = pid_path.read_text()
+            service.close()
+            assert service.process.returncode == 0
+            assert (root / f"drained-{final_pid}").exists()
+            print("PASS: headless stop drains the real Python process before owner exit", flush=True)
         finally:
             service.close()
 

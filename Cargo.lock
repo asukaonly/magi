@@ -2385,8 +2385,11 @@ dependencies = [
  "magi-platform",
  "magi-server-runtime",
  "magi-service-contract",
+ "reqwest",
+ "rustls",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
