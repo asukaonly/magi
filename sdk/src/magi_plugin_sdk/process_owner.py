@@ -1,6 +1,6 @@
 """Unix plugin-family owner, executed directly with only the standard library.
 
-The host alone holds the lifetime pipe's writer. EOF kills this entire process
+The host alone holds the lifetime pipe's writer. EOF kills the worker's process
 group even when plugin code holds the GIL or blocks its event loop. Only this
 trusted owner retains the runtime lease; plugin code cannot unlock it.
 """

@@ -55,6 +55,7 @@ def install_worker_runtime(executable: Path, sdk_directory: Path) -> None:
         "sys.path[:0]=list(dict.fromkeys([paths['purelib'],paths['platlib']]));"
         "from magi_plugin_sdk.runtime import SDK_VERSION,PLUGIN_PROTOCOL_VERSION;"
         "from magi_plugin_sdk.worker import main;"
+        "from magi_plugin_sdk.process_owner import main as process_owner_main;"
         "from magi_plugin_sdk.transport import pack,read_frame;"
         "from importlib.metadata import version;"
         "assert SDK_VERSION==sys.argv[1] and PLUGIN_PROTOCOL_VERSION==int(sys.argv[2]);"
