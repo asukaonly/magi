@@ -1,11 +1,13 @@
 //! Recover only the service owned by the active desktop connection.
 
 use super::*;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 
 #[derive(Default)]
 pub(super) struct RecoverySchedule {
+    pub(super) cancelled: Arc<AtomicBool>,
     attempts: u32,
     healthy_since: Option<Instant>,
     next_attempt: Option<Instant>,
@@ -57,7 +59,7 @@ impl ConnectionRuntime {
         if self.shutting_down.load(Ordering::Acquire) {
             return Ok(None);
         }
-        let (previous, response, generation) = {
+        let (previous, response, generation, cancelled) = {
             let mut active = self
                 .active
                 .lock()
@@ -77,62 +79,92 @@ impl ConnectionRuntime {
                 service,
                 active.response.clone(),
                 self.generation.load(Ordering::Acquire),
+                active.recovery.cancelled.clone(),
             )
         };
+        // User intent may invalidate this attempt while startup is in flight.
+        drop(_operation);
         let previous_pid = previous.pid();
+        let launch_cancelled = cancelled.clone();
         let (previous, replacement) = tokio::task::spawn_blocking(move || {
-            let replacement = previous.restart();
+            let replacement = previous.restart(&launch_cancelled);
             (previous, replacement)
         })
         .await
         .map_err(|_| "Local service recovery task failed")?;
         let replacement = match replacement {
             Ok(service) => {
-                let info = async {
-                    CenterClient::local(&service.base_url)?
-                        .info(&service.session_token)
-                        .await
-                }
-                .await;
+                let info = tokio::select! {
+                    biased;
+                    _ = wait_for_cancellation(&cancelled) => Err("Service recovery cancelled".to_owned()),
+                    info = async {
+                        CenterClient::local(&service.base_url)?
+                            .info(&service.session_token).await
+                    } => info,
+                };
                 match info {
                     Ok(info) if info.server_id == response.server_id => Ok((service, info)),
-                    Ok(_) => Err("Recovered service identity changed".to_owned()),
-                    Err(error) => Err(error),
+                    info => {
+                        tokio::task::spawn_blocking(move || drop(service))
+                            .await
+                            .map_err(|_| "Service cleanup failed")?;
+                        Err(info
+                            .err()
+                            .unwrap_or_else(|| "Recovered service identity changed".to_owned()))
+                    }
                 }
             }
             Err(error) => Err(error),
         };
-        let mut active = self
-            .active
-            .lock()
-            .map_err(|_| "Connection state unavailable")?;
-        if self.shutting_down.load(Ordering::Acquire) || !self.is_current(generation) {
-            return Ok(None);
-        }
-        let Some(active) = active.as_mut() else {
-            return Ok(None);
-        };
-        match replacement {
-            Ok((service, info)) => {
-                let event = RecoveredConnection {
-                    profile_id: response.profile_id,
-                    previous_pid,
-                    local_service_pid: service.pid(),
-                };
-                active.response.base_url = service.base_url.clone();
-                active.response.session_token = service.session_token.clone();
-                active.response.local_service_pid = Some(service.pid());
-                active.response.data_epoch = info.maintenance.data_epoch;
-                active.response.content_epoch = info.maintenance.content_epoch;
-                active.service = Some(service);
-                self.generation.fetch_add(1, Ordering::AcqRel);
-                Ok(Some(event))
+        let mut previous = Some(previous);
+        let mut replacement = Some(replacement);
+        let outcome = (|| {
+            let mut active = self
+                .active
+                .lock()
+                .map_err(|_| "Connection state unavailable")?;
+            if self.shutting_down.load(Ordering::Acquire) || !self.is_current(generation) {
+                return Ok(None);
             }
-            Err(error) => {
-                active.service = Some(previous);
-                Err(error)
+            let Some(active) = active.as_mut() else {
+                return Ok(None);
+            };
+            match replacement
+                .take()
+                .expect("Recovery outcome is consumed once")
+            {
+                Ok((service, info)) => {
+                    let event = RecoveredConnection {
+                        profile_id: response.profile_id,
+                        previous_pid,
+                        local_service_pid: service.pid(),
+                    };
+                    active.response.base_url = service.base_url.clone();
+                    active.response.session_token = service.session_token.clone();
+                    active.response.local_service_pid = Some(service.pid());
+                    active.response.data_epoch = info.maintenance.data_epoch;
+                    active.response.content_epoch = info.maintenance.content_epoch;
+                    active.service = Some(service);
+                    self.generation.fetch_add(1, Ordering::AcqRel);
+                    Ok(Some(event))
+                }
+                Err(error) => {
+                    active.service = previous.take();
+                    Err(error)
+                }
             }
-        }
+        })();
+        // Never wait for owned-child shutdown while holding the connection lock.
+        tokio::task::spawn_blocking(move || drop((previous, replacement)))
+            .await
+            .map_err(|_| "Service cleanup failed")?;
+        outcome
+    }
+}
+
+async fn wait_for_cancellation(cancelled: &AtomicBool) {
+    while !cancelled.load(Ordering::Acquire) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -197,13 +229,15 @@ mod tests {
     async fn crashed_owned_process_recovers_and_quit_cancels_inflight_recovery() {
         use std::os::unix::fs::PermissionsExt;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        for quit in [false, true] {
+        for scenario in ["recover", "quit", "switch", "switch_startup"] {
             let root = std::env::temp_dir().join(format!("magi-recovery-{}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&root).unwrap();
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let base = format!("http://{}/api", listener.local_addr().unwrap());
             let binary = root.join("service");
-            fs::write(&binary, format!("#!/bin/sh\nread bootstrap\nprintf '{{\"baseUrl\":\"{base}\",\"serverPid\":%s}}\\n' \"$$\"\nwhile IFS= read -r line; do :; done\n")).unwrap();
+            let stalled = root.join("stall");
+            let starting = root.join("starting");
+            fs::write(&binary, format!("#!/bin/sh\nread bootstrap\nif test -e '{}'; then printf %s \"$$\" > '{}'; else printf '{{\"baseUrl\":\"{base}\",\"serverPid\":%s}}\\n' \"$$\"; fi\nwhile IFS= read -r line; do :; done\n", stalled.display(), starting.display())).unwrap();
             fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
             let config = ServerConfig::for_development(&root, root.join("data"));
             let service = service_host::LocalService::start(
@@ -239,24 +273,53 @@ mod tests {
                 active.recovery.next_attempt = Some(Instant::now());
             }
             let generation = state.generation.load(Ordering::Acquire);
+            if scenario == "switch_startup" {
+                fs::write(&stalled, b"stall").unwrap();
+            }
+            let switch = async {
+                // Exercise the same serialization boundary as profile selection.
+                let _operation =
+                    tokio::time::timeout(Duration::from_millis(200), state.operation.lock())
+                        .await
+                        .unwrap();
+                state.disconnect().unwrap();
+                *state.active.lock().unwrap() = Some(ActiveConnection {
+                    service: None,
+                    response: super::super::tests::connection_info("remote"),
+                    recovery: Default::default(),
+                });
+            };
             let serve = async {
+                if scenario == "switch_startup" {
+                    while !starting.exists() {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    switch.await;
+                    return;
+                }
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let mut request = [0; 4096];
                 let _ = socket.read(&mut request).await.unwrap();
-                if quit {
+                if scenario == "quit" {
                     state.shutdown().unwrap();
+                } else if scenario == "switch" {
+                    switch.await;
                 }
                 let body = serde_json::json!({"success":true,"data":{"server_id":"center","protocol_version":2,"service_ready":true,"maintenance":{"data_epoch":"data","content_epoch":"content","phase":"idle"}}}).to_string();
-                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
             };
             let (result, ()) = tokio::time::timeout(Duration::from_secs(10), async {
                 tokio::join!(state.recover_owned_service(), serve)
             })
             .await
             .unwrap();
-            if quit {
+            if scenario == "quit" {
                 assert!(result.unwrap().is_none());
                 assert!(state.snapshot().is_err());
+            } else if scenario.starts_with("switch") {
+                assert!(result.unwrap().is_none());
+                assert_eq!(state.snapshot().unwrap().1.mode, "remote");
+                state.shutdown().unwrap();
             } else {
                 let event = result.unwrap().unwrap();
                 assert_eq!(event.previous_pid, original_pid);

@@ -90,6 +90,9 @@ impl ConnectionRuntime {
                 .lock()
                 .map_err(|_| "Connection state unavailable")?;
             self.generation.fetch_add(1, Ordering::AcqRel);
+            if let Some(active) = active.as_ref() {
+                active.recovery.cancelled.store(true, Ordering::Release);
+            }
             active.take()
         };
         // Dropping a local service closes its owner pipe and waits for its children.
@@ -114,10 +117,11 @@ async fn reuse_local_connection(
         if active.response.mode != "local" || active.response.profile_id != profile_id {
             return Ok(None);
         }
-        if let Some(service) = active.service.as_mut() {
-            if !service.running()? {
-                return Ok(None);
-            }
+        let Some(service) = active.service.as_mut() else {
+            return Err("Local service recovery is in progress".into());
+        };
+        if !service.running()? {
+            return Ok(None);
         }
         active.response.clone()
     };
@@ -487,10 +491,25 @@ mod tests {
         assert!(state.is_current(state.snapshot().unwrap().0));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn local_reuse_refreshes_data_epoch_without_replacing_the_connection() {
+        use std::os::unix::fs::PermissionsExt;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
+        let root = std::env::temp_dir().join(format!("magi-reuse-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let binary = root.join("service");
+        fs::write(&binary, format!("#!/bin/sh\nread bootstrap\nprintf '{{\"baseUrl\":\"http://{address}/api\",\"serverPid\":%s}}\\n' \"$$\"\nwhile IFS= read -r line; do :; done\n")).unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
+        let service = service_host::LocalService::start(
+            &binary,
+            &ServerConfig::for_development(&root, root.join("data")),
+            &root.join("config.json"),
+            root.join("service.log"),
+        )
+        .unwrap();
+        let pid = service.pid();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
             let mut request = [0; 4096];
@@ -504,7 +523,7 @@ mod tests {
         let state = ConnectionRuntime::default();
         *state.active.lock().unwrap() = Some(ActiveConnection {
             recovery: Default::default(),
-            service: None,
+            service: Some(service),
             response: ConnectionInfo {
                 ok: true,
                 base_url: format!("http://{address}/api"),
@@ -515,7 +534,7 @@ mod tests {
                 data_epoch: "old-epoch".into(),
                 content_epoch: "content".into(),
                 expires_at_ms: None,
-                local_service_pid: Some(123),
+                local_service_pid: Some(pid),
             },
         });
         let response = reuse_local_connection(&state, "local")
@@ -523,7 +542,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(response.data_epoch, "new-epoch");
-        assert_eq!(response.local_service_pid, Some(123));
+        assert_eq!(response.local_service_pid, Some(pid));
         assert_eq!(
             state
                 .active
@@ -537,5 +556,7 @@ mod tests {
         );
         assert_eq!(state.generation.load(Ordering::Acquire), 0);
         server.await.unwrap();
+        state.shutdown().unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 }

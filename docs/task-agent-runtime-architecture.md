@@ -103,6 +103,11 @@ shutdown closes admission before asking Python to drain, and never replays
 outstanding requests. A hard deadline can interrupt cleanup; domain journals,
 effect ledgers and durable queues remain responsible for safe business recovery.
 
+Desktop-owned service recovery releases the connection operation lock before
+launch and identity verification. Switching profiles or disconnecting invalidates
+the attempt immediately, cancels its startup wait, and disposes any late child
+outside the connection lock. A stale recovery cannot replace the new connection.
+
 The standalone gateway owns a bounded SSE fan-out hub and a single reader of
 `runtime_notifications`. SQLite polling runs on blocking workers with bounded
 batches, and no read connection is retained across a database replacement.

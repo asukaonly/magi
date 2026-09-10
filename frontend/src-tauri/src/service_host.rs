@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use magi_service_contract::config::ServerConfig;
@@ -33,6 +34,25 @@ impl LocalService {
         config_path: &Path,
         log_path: PathBuf,
     ) -> Result<Self, String> {
+        Self::start_cancellable(
+            binary,
+            config,
+            config_path,
+            log_path,
+            &AtomicBool::new(false),
+        )
+    }
+
+    fn start_cancellable(
+        binary: &Path,
+        config: &ServerConfig,
+        config_path: &Path,
+        log_path: PathBuf,
+        cancelled: &AtomicBool,
+    ) -> Result<Self, String> {
+        if cancelled.load(Ordering::Acquire) {
+            return Err("Service launch cancelled".into());
+        }
         let launch = LaunchSpec {
             binary: binary.into(),
             config: config.clone(),
@@ -128,9 +148,20 @@ impl LocalService {
                 });
             let _ = sender.send(result);
         });
-        let info = receiver
-            .recv_timeout(Duration::from_secs(config.shutdown_timeout_secs + 15))
-            .map_err(|_| "Service listener startup timed out")??;
+        let deadline = Instant::now() + Duration::from_secs(config.shutdown_timeout_secs + 15);
+        let info = loop {
+            if cancelled.load(Ordering::Acquire) {
+                return Err("Service launch cancelled".into());
+            }
+            if Instant::now() >= deadline {
+                return Err("Service listener startup timed out".into());
+            }
+            match receiver.recv_timeout(Duration::from_millis(50)) {
+                Ok(info) => break info?,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(_) => return Err("Service listener report was interrupted".into()),
+            }
+        };
         if info.server_pid != service.child.id() {
             return Err("Service process identity does not match".into());
         }
@@ -140,12 +171,13 @@ impl LocalService {
     }
 
     /// Reuse the exact launch configuration of this owned service.
-    pub fn restart(&self) -> Result<Self, String> {
-        Self::start(
+    pub fn restart(&self, cancelled: &AtomicBool) -> Result<Self, String> {
+        Self::start_cancellable(
             &self.launch.binary,
             &self.launch.config,
             &self.launch.config_path,
             self.launch.log_path.clone(),
+            cancelled,
         )
     }
 
