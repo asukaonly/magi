@@ -80,6 +80,11 @@ frontend/src-tauri/server-dist/*
 # Cache
 .cache/
 .ruff_cache/
+.mypy_cache/
+.import_linter_cache/
+.codex-visual-check/
+.visual-review/
+/tmp/
 .worktrees/
 .worktree/
 .magi/
