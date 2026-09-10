@@ -26,7 +26,8 @@ def main() -> None:
     try:
         # The confinement wrapper applies only to the child, never the owner.
         child = subprocess.Popen(command, start_new_session=True)
-        while child.poll() is None:
+        # Retain the leader PID until group cleanup; reaping first permits reuse.
+        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
             readable, _, _ = select.select([owner_fd], [], [], 0.1)
             if readable:
                 break
