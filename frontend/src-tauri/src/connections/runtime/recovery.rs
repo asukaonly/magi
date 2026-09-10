@@ -145,7 +145,8 @@ impl ConnectionRuntime {
                     active.response.data_epoch = info.maintenance.data_epoch;
                     active.response.content_epoch = info.maintenance.content_epoch;
                     active.service = Some(service);
-                    self.generation.fetch_add(1, Ordering::AcqRel);
+                    active.response.connection_generation =
+                        self.generation.fetch_add(1, Ordering::AcqRel) + 1;
                     Ok(Some(event))
                 }
                 Err(error) => {
@@ -290,6 +291,7 @@ mod tests {
                 });
             };
             let serve = async {
+                assert!(state.connection_snapshot().unwrap().unwrap().recovering);
                 if scenario == "switch_startup" {
                     while !starting.exists() {
                         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -325,6 +327,12 @@ mod tests {
                 assert_eq!(event.previous_pid, original_pid);
                 assert_ne!(event.local_service_pid, original_pid);
                 let (_, info) = state.snapshot().unwrap();
+                let snapshot = state.connection_snapshot().unwrap().unwrap();
+                assert!(!snapshot.recovering);
+                assert_eq!(snapshot.generation, info.connection_generation);
+                let serialized = serde_json::to_string(&snapshot).unwrap();
+                assert!(!serialized.contains("sessionToken"));
+                assert!(!serialized.contains(&info.session_token));
                 assert_ne!(info.session_token, original_token);
                 assert!(!state.is_current(generation));
                 state.shutdown().unwrap();

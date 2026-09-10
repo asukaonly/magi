@@ -17,10 +17,10 @@ beforeEach(async () => {
   invokeMock.mockReset();
   (window as Window & { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__ = {};
   invokeMock.mockImplementation(async (command) => command === 'connect_active_profile' ? {
-    ok: true, baseUrl: 'https://center.example/api', sessionToken: oldToken,
+    ok: true, connectionGeneration: 1, baseUrl: 'https://center.example/api', sessionToken: oldToken,
     serverId, profileId: clientId, mode: 'remote', dataEpoch: serverId, contentEpoch: serverId,
     expiresAtMs: Date.now() + 900_000, localServicePid: null,
-  } : command === 'renew_center_session' ? session() : { ready: true, phase: 'ready' });
+  } : command === 'renew_center_session' ? session() : { connectionGeneration: 1, ready: true, phase: 'ready' });
   const runtime = await initializeRuntime();
   configureApiClient({ baseUrl: runtime.apiBaseUrl, sessionToken: runtime.sessionToken });
 });

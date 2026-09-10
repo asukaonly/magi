@@ -6,6 +6,7 @@ export interface RuntimeConfig {
   apiBaseUrl: string;
   sessionToken?: string;
   localServicePid?: number;
+  connectionGeneration?: number;
   serverId?: string;
   profileId?: string;
   mode?: 'local' | 'remote';
@@ -15,13 +16,14 @@ export interface RuntimeConfig {
 }
 
 const connectionSchema = z.object({
+  connectionGeneration: z.number().int().nonnegative().safe(),
   ok: z.literal(true), baseUrl: z.string().url(), sessionToken: z.string().min(32).max(256),
   serverId: z.string().uuid(), profileId: z.string().min(1), mode: z.enum(['local', 'remote']),
   contentEpoch: z.string().min(1).max(128),
   dataEpoch: z.string().min(1).max(128), expiresAtMs: z.number().int().nullable(),
   localServicePid: z.number().int().nullable(),
 });
-const pollSchema = z.object({ ready: z.boolean(), phase: z.string() });
+const pollSchema = z.object({ ready: z.boolean(), phase: z.string(), connectionGeneration: z.number().int().nonnegative().safe() });
 const sessionSchema = z.object({
   server_id: z.string().uuid(), client_id: z.string().uuid(),
   access_token: z.string().min(32).max(256), expires_at_ms: z.number().int(),
@@ -85,31 +87,35 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
   const run = async (): Promise<RuntimeConfig> => {
     if (!isTauriRuntime()) throw new Error('Desktop runtime requires Tauri shell');
     progress('connecting');
-    const result = connectionSchema.parse(await invoke<unknown>('connect_active_profile'));
-    assertRuntimeGeneration(owner);
-    const url = new URL(result.baseUrl);
-    if ((result.mode === 'remote' && url.protocol !== 'https:')
-      || (result.mode === 'local' && (url.protocol !== 'http:' || url.hostname !== '127.0.0.1'))
-      || url.username || url.password || url.search || url.hash || url.pathname !== '/api') {
-      throw new Error('Service returned an invalid API address');
-    }
-    runtimeConfig = {
-      isDesktop: true, apiBaseUrl: result.baseUrl, sessionToken: result.sessionToken,
-      serverId: result.serverId, profileId: result.profileId, mode: result.mode,
-      contentEpoch: result.contentEpoch, dataEpoch: result.dataEpoch, expiresAtMs: result.expiresAtMs ?? undefined,
-      localServicePid: result.localServicePid ?? undefined,
-    };
-    progress(result.mode === 'local' ? 'waiting_for_worker' : 'connecting');
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      const poll = pollSchema.parse(await invoke<unknown>('poll_connection_startup'));
+      const result = connectionSchema.parse(await invoke<unknown>('connect_active_profile'));
       assertRuntimeGeneration(owner);
-      if (poll.ready) {
-        initialized = true;
-        progress(poll.phase === 'recovering_maintenance' ? 'recovering_maintenance' : 'ready');
-        return runtimeConfig;
+      const url = new URL(result.baseUrl);
+      if ((result.mode === 'remote' && url.protocol !== 'https:')
+        || (result.mode === 'local' && (url.protocol !== 'http:' || url.hostname !== '127.0.0.1'))
+        || url.username || url.password || url.search || url.hash || url.pathname !== '/api') {
+        throw new Error('Service returned an invalid API address');
       }
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      runtimeConfig = {
+        isDesktop: true, apiBaseUrl: result.baseUrl, sessionToken: result.sessionToken,
+        serverId: result.serverId, profileId: result.profileId, mode: result.mode,
+        contentEpoch: result.contentEpoch, dataEpoch: result.dataEpoch, expiresAtMs: result.expiresAtMs ?? undefined,
+        localServicePid: result.localServicePid ?? undefined,
+        connectionGeneration: result.connectionGeneration,
+      };
+      progress(result.mode === 'local' ? 'waiting_for_worker' : 'connecting');
+      while (Date.now() < deadline) {
+        const poll = pollSchema.parse(await invoke<unknown>('poll_connection_startup'));
+        assertRuntimeGeneration(owner);
+        if (poll.connectionGeneration !== result.connectionGeneration) break;
+        if (poll.ready) {
+          initialized = true;
+          progress(poll.phase === 'recovering_maintenance' ? 'recovering_maintenance' : 'ready');
+          return runtimeConfig;
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      }
     }
     throw new Error('Magi service readiness timed out');
   };

@@ -32,6 +32,7 @@ struct ActiveConnection {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInfo {
+    pub(crate) connection_generation: u64,
     pub(crate) ok: bool,
     pub(crate) base_url: String,
     pub(crate) session_token: String,
@@ -47,8 +48,26 @@ pub struct ConnectionInfo {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PollStartupResponse {
+    connection_generation: u64,
     ready: bool,
     phase: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSnapshot {
+    generation: u64,
+    profile_id: String,
+    mode: String,
+    recovering: bool,
+}
+
+/// A credential-free snapshot, readable even while connection operations wait.
+#[tauri::command]
+pub fn read_connection_snapshot(
+    state: State<'_, ConnectionRuntime>,
+) -> Result<Option<ConnectionSnapshot>, String> {
+    state.connection_snapshot()
 }
 
 #[derive(Serialize)]
@@ -60,6 +79,18 @@ pub struct ConnectionStartupDiagnostics {
 }
 
 impl ConnectionRuntime {
+    fn connection_snapshot(&self) -> Result<Option<ConnectionSnapshot>, String> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| "Connection state unavailable")?;
+        Ok(active.as_ref().map(|active| ConnectionSnapshot {
+            generation: self.generation.load(Ordering::Acquire),
+            profile_id: active.response.profile_id.clone(),
+            mode: active.response.mode.clone(),
+            recovering: active.response.mode == "local" && active.service.is_none(),
+        }))
+    }
     pub fn shutdown(&self) -> Result<(), String> {
         self.shutting_down.store(true, Ordering::Release);
         self.disconnect()
@@ -250,6 +281,7 @@ pub async fn connect_active_profile(
         return Err("Center identity changed".into());
     }
     let response = ConnectionInfo {
+        connection_generation: state.generation.load(Ordering::Acquire),
         ok: true,
         base_url,
         session_token: token,
@@ -300,11 +332,19 @@ pub async fn poll_connection_startup(
         CenterClient::remote(&response.base_url)?
     };
     let info = client.info(&response.session_token).await?;
+    if !state.is_current(response.connection_generation) {
+        return Ok(PollStartupResponse {
+            ready: false,
+            phase: "connecting".into(),
+            connection_generation: state.generation.load(Ordering::Acquire),
+        });
+    }
     if info.server_id != response.server_id {
         return Err("Center identity changed".into());
     }
     let maintenance = !matches!(info.maintenance.phase.as_str(), "idle" | "completed");
     Ok(PollStartupResponse {
+        connection_generation: response.connection_generation,
         ready: info.service_ready || maintenance,
         phase: if maintenance {
             "recovering_maintenance"
@@ -437,6 +477,7 @@ mod tests {
 
     pub(super) fn connection_info(mode: &str) -> ConnectionInfo {
         ConnectionInfo {
+            connection_generation: 0,
             ok: true,
             base_url: "https://remote.example/api".into(),
             session_token: "test-session".into(),
@@ -525,6 +566,7 @@ mod tests {
             recovery: Default::default(),
             service: Some(service),
             response: ConnectionInfo {
+                connection_generation: 0,
                 ok: true,
                 base_url: format!("http://{address}/api"),
                 session_token: "owner-access".into(),

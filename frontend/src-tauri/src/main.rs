@@ -276,6 +276,7 @@ fn main() {
             connections::runtime::renew_center_session,
             connections::runtime::connect_active_profile,
             connections::runtime::poll_connection_startup,
+            connections::runtime::read_connection_snapshot,
             connections::runtime::disconnect_service,
             connections::runtime::read_connection_startup_diagnostics,
             set_close_to_tray_enabled,
