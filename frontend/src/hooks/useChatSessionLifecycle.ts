@@ -72,6 +72,8 @@ type UseChatSessionLifecycleOptions = {
   translate: (key: string, options?: Record<string, unknown>) => string;
 };
 
+type PersonaSnapshotPurpose = 'display-refresh' | 'bootstrap-evaluation';
+
 const normalizeHistoryVersion = (value: unknown): number | null => {
   if (typeof value !== 'number') return null;
   const version = Number(value);
@@ -332,8 +334,10 @@ export function useChatSessionLifecycle({
     return request;
   }, [requestHistory]);
 
-  const loadPersonaDisplay = useCallback(async () => {
-    const isCurrent = beginRead('persona-display');
+  const loadPersonaSnapshot = useCallback(async (
+    purpose: PersonaSnapshotPurpose,
+  ) => {
+    const isCurrent = beginRead(`persona-${purpose}`);
     const isCancelled = () => !isCurrent();
     try {
       const personasResponse = await personasApi.list({ includeDeleted: true });
@@ -366,7 +370,7 @@ export function useChatSessionLifecycle({
   useCenterRefresh(async () => {
     await Promise.all([
       loadCoreModelConfig(),
-      loadPersonaDisplay(),
+      loadPersonaSnapshot('display-refresh'),
       currentSessionId ? requestHistory(currentSessionId, { force: true, maxAttempts: 1, showError: false }) : Promise.resolve(),
     ]);
   });
@@ -377,7 +381,7 @@ export function useChatSessionLifecycle({
     isCancelled: () => boolean,
   ) => {
     try {
-      const data = await loadPersonaDisplay();
+      const data = await loadPersonaSnapshot('bootstrap-evaluation');
       if (!data || isCancelled()) return;
 
       const needsBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
@@ -437,7 +441,7 @@ export function useChatSessionLifecycle({
     } catch {
       // Non-critical — keep default AI name.
     }
-  }, [loadPersonaDisplay, removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
+  }, [loadPersonaSnapshot, removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
 
   const requestHistoryRef = useRef(requestHistory);
   const ensureSessionHistoryReadyRef = useRef(ensureSessionHistoryReady);

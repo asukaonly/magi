@@ -4,6 +4,7 @@ import { messagesApi } from '@/api';
 import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 import { DEFAULT_USER_ID } from '@/constants';
+import { APP_EVENTS } from '@/constants/events';
 import {
   shouldFireBootstrap,
   useChatSessionLifecycle,
@@ -50,6 +51,14 @@ vi.mock('@/api/modules/personas', async () => {
 vi.mock('@/hooks/useProductTourFlag', () => ({
   useProductTourFlag: vi.fn(),
 }));
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
 
 const Harness = ({ sessionId }: { sessionId: string }) => {
   useChatSessionLifecycle({
@@ -190,6 +199,44 @@ describe('bootstrap defer gate (hook integration)', () => {
     render(<Harness sessionId="session-a" />);
 
     await waitFor(() => expect(personasApi.bootstrapInit).toHaveBeenCalledWith('session-a', DEFAULT_USER_ID));
+  });
+
+  it('keeps bootstrap evaluation alive during a center snapshot refresh', async () => {
+    vi.mocked(useProductTourFlag).mockReturnValue({
+      completed: true,
+      loaded: true,
+      markCompleted: vi.fn(),
+    } as any);
+    const initialGreeting = createDeferred<Awaited<ReturnType<typeof personasApi.getGreeting>>>();
+    vi.mocked(personasApi.getGreeting)
+      .mockReturnValueOnce(initialGreeting.promise)
+      .mockResolvedValueOnce({
+        success: true,
+        data: { name: 'AI', avatar: '', needs_bootstrap_init: true },
+      } as any);
+
+    render(<Harness sessionId="session-a" />);
+
+    await waitFor(() => expect(personasApi.getGreeting).toHaveBeenCalledTimes(1));
+    act(() => {
+      window.dispatchEvent(new Event(APP_EVENTS.CENTER_STATE_CHANGED));
+    });
+    await waitFor(
+      () => expect(personasApi.getGreeting).toHaveBeenCalledTimes(2),
+      { timeout: 3_000 },
+    );
+    await act(async () => {
+      initialGreeting.resolve({
+        success: true,
+        data: { name: 'AI', avatar: '', needs_bootstrap_init: true },
+      } as Awaited<ReturnType<typeof personasApi.getGreeting>>);
+      await initialGreeting.promise;
+    });
+
+    await waitFor(() => expect(personasApi.bootstrapInit).toHaveBeenCalledWith(
+      'session-a',
+      DEFAULT_USER_ID,
+    ));
   });
 
   it('waits for history and skips bootstrap when a user message already exists', async () => {
