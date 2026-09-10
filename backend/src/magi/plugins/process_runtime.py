@@ -14,7 +14,6 @@ import json
 import os
 from pathlib import Path
 from queue import Queue, Full
-import signal
 import subprocess
 import sys
 import tempfile
@@ -244,9 +243,9 @@ class ProcessPluginProxy(Plugin):
         # -S avoids sitecustomize and executable .pth files. Plugin dependencies
         # are inserted only after trusted SDK import inside the child.
         import_roots = list(dict.fromkeys([*sdk_roots, *runtime["paths"]]))
-        launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main(lease_fd=int(sys.argv[1]) if int(sys.argv[1]) >= 0 else None)"
+        launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main()"
         # Launch the interpreter directly; framework launchers re-exec outside confinement.
-        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code, "-1"]
+        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code]
         state_dir, resources_dir = (
             self.context.state_dir.resolve(),
             self.context.resources_dir.resolve(),
@@ -314,10 +313,9 @@ class ProcessPluginProxy(Plugin):
                 owner_read, owner_write = os.pipe()
                 self._owner_pipe = os.fdopen(owner_write, "wb")
                 lease_fd = duplicate_worker_lease()
-                launch[-1] = str(lease_fd if lease_fd is not None else -1)
                 options["pass_fds"] = (owner_read,) + (() if lease_fd is None else (lease_fd,))
                 launch = [runtime["executable"], "-I", "-S", str(owner_script),
-                          str(owner_read), launch[-1], *launch]
+                          str(owner_read), str(lease_fd if lease_fd is not None else -1), *launch]
             self._process = subprocess.Popen(
                 launch,
                 stdin=subprocess.PIPE,
@@ -1136,9 +1134,7 @@ class ProcessPluginProxy(Plugin):
             self._windows_job.close()
         if process is not None:
             try:
-                if os.name != "nt":
-                    os.killpg(process.pid, signal.SIGKILL)
-                elif process.poll() is None:
+                if os.name == "nt" and process.poll() is None:
                     process.kill()
             except (ProcessLookupError, PermissionError):
                 pass

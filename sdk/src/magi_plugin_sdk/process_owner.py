@@ -1,8 +1,8 @@
 """Unix plugin-family owner, executed directly with only the standard library.
 
 The host alone holds the lifetime pipe's writer. EOF kills this entire process
-group even when plugin code holds the GIL or blocks its event loop. The plugin
-inherits the runtime lease, but never the lifetime pipe or its writer.
+group even when plugin code holds the GIL or blocks its event loop. Only this
+trusted owner retains the runtime lease; plugin code cannot unlock it.
 """
 
 from __future__ import annotations
@@ -20,17 +20,24 @@ def main() -> None:
     if os.getpgrp() != os.getpid() or not command:
         raise RuntimeError("Plugin owner requires a dedicated process group and command")
     os.set_inheritable(owner_fd, False)
-    leases = () if lease_fd < 0 else (lease_fd,)
+    if lease_fd >= 0:
+        os.set_inheritable(lease_fd, False)
+    child = None
     try:
         # The confinement wrapper applies only to the child, never the owner.
-        child = subprocess.Popen(command, pass_fds=leases)
+        child = subprocess.Popen(command, start_new_session=True)
         while child.poll() is None:
             readable, _, _ = select.select([owner_fd], [], [], 0.1)
             if readable:
                 break
     finally:
-        # Also remove ordinary descendants after the plugin itself exits.
-        os.killpg(os.getpid(), signal.SIGKILL)
+        if child is not None:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            # Keep the lease until the kernel confirms this worker has exited.
+            child.wait()
 
 
 if __name__ == "__main__":

@@ -546,9 +546,7 @@ def _verify_confinement(probe_path: Path) -> None:
         raise RuntimeError("Network confinement probe failed")
 
 
-def main(*, lease_fd: int | None = None) -> None:
-    if lease_fd is not None:
-        os.set_inheritable(lease_fd, False)
+def main() -> None:
     # Python and native plugin stdout writes cannot corrupt the protocol stream.
     reader = os.fdopen(os.dup(sys.stdin.fileno()), "rb", buffering=0)
     writer = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
@@ -558,8 +556,6 @@ def main(*, lease_fd: int | None = None) -> None:
     finally:
         reader.close()
         writer.close()
-        if lease_fd is not None:
-            os.close(lease_fd)
 
 
 if __name__ == "__main__":

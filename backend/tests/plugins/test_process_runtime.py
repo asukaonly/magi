@@ -61,6 +61,14 @@ class TestPlugin(Plugin):
     def get_tools(self):
         return [EchoTool]
     def read_settings_resource(self, resource_name):
+        if resource_name == "inherited-files":
+            import stat
+            files=[]
+            for fd in range(3,128):
+                try:
+                    if stat.S_ISREG(os.fstat(fd).st_mode): files.append(fd)
+                except OSError: pass
+            return files
         if resource_name == "crash": os._exit(17)
         if resource_name == "huge": return "x" * (5*1024*1024)
         if resource_name in ("block", "hold-gil"):
@@ -155,6 +163,7 @@ root=Path(sys.argv[1])
 fixture=runpy.run_path(sys.argv[2])
 with WorkerInstance(root / "data"):
     proxy=ProcessPluginProxy(*fixture["plugin_setup"].__wrapped__(root),python_executable=sys.executable)
+    assert proxy.read_settings_resource("inherited-files") == []
     (root/"pids.json").write_text(json.dumps({"owner":proxy.diagnostics["pid"],"worker":proxy.read_settings_resource("info")["pid"]}))
     threading.Thread(target=lambda:proxy.read_settings_resource(sys.argv[3]),daemon=True).start()
     while True:time.sleep(1)
@@ -196,10 +205,11 @@ with WorkerInstance(root / "data"):
         if pids is None and (root / "pids.json").exists():
             pids = json.loads((root / "pids.json").read_text())
         if pids is not None:
-            try:
-                os.killpg(pids["owner"], signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            for pid in pids.values():
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 def test_typed_codec_roundtrip_and_no_arbitrary_classes():
