@@ -4,8 +4,12 @@ import asyncio
 from dataclasses import dataclass
 import io
 import os
+from pathlib import Path
+import signal
 import struct
+import subprocess
 import sys
+import time
 
 import pytest
 
@@ -59,7 +63,12 @@ class TestPlugin(Plugin):
     def read_settings_resource(self, resource_name):
         if resource_name == "crash": os._exit(17)
         if resource_name == "huge": return "x" * (5*1024*1024)
-        if resource_name == "block": time.sleep(60)
+        if resource_name in ("block", "hold-gil"):
+            (self.context.state_dir / "blocked").write_text("ready")
+            if resource_name == "hold-gil":
+                import ctypes
+                ctypes.PyDLL(None).sleep(60)
+            else: time.sleep(60)
         if resource_name == "dependency":
             import worker_private_dep
             return worker_private_dep.VALUE
@@ -127,6 +136,70 @@ def proxy(plugin_setup, monkeypatch):
     instance = ProcessPluginProxy(*plugin_setup)
     yield instance
     instance._terminate()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Unix process-family ownership")
+@pytest.mark.parametrize("fault", ["block", "hold-gil"])
+def test_owner_death_reaps_blocked_plugin_and_preserves_generation_lease(tmp_path, fault):
+    import json
+    from magi.utils.worker_instance import WorkerInstance
+
+    root = tmp_path / "family"
+    root.mkdir()
+    script = '''
+import json,os,runpy,sys,threading,time
+from pathlib import Path
+from magi.utils.worker_instance import WorkerInstance
+from magi.plugins.process_runtime import ProcessPluginProxy
+root=Path(sys.argv[1])
+fixture=runpy.run_path(sys.argv[2])
+with WorkerInstance(root / "data"):
+    proxy=ProcessPluginProxy(*fixture["plugin_setup"].__wrapped__(root),python_executable=sys.executable)
+    (root/"pids.json").write_text(json.dumps({"owner":proxy.diagnostics["pid"],"worker":proxy.read_settings_resource("info")["pid"]}))
+    threading.Thread(target=lambda:proxy.read_settings_resource(sys.argv[3]),daemon=True).start()
+    while True:time.sleep(1)
+'''
+    host = subprocess.Popen(
+        [sys.executable, "-c", script, str(root), str(Path(__file__).resolve()), fault],
+        start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    pids = None
+
+    def wait_until(predicate):
+        deadline = time.monotonic() + 10
+        while not predicate():
+            assert time.monotonic() < deadline, "Plugin family did not settle"
+            time.sleep(0.02)
+
+    def dead(pid):
+        status = subprocess.run(["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True).stdout.strip()
+        return not status or status.startswith("Z")
+
+    try:
+        wait_until(lambda: (root / "state/blocked").exists())
+        pids = json.loads((root / "pids.json").read_text())
+        # Delay the independent owner to prove replacement cannot overlap cleanup.
+        os.kill(pids["owner"], signal.SIGSTOP)
+        os.killpg(host.pid, signal.SIGKILL)
+        host.wait(timeout=5)
+        with pytest.raises(RuntimeError, match="already owns"):
+            with WorkerInstance(root / "data"):
+                pass
+        os.kill(pids["owner"], signal.SIGCONT)
+        wait_until(lambda: all(dead(pid) for pid in pids.values()))
+        with WorkerInstance(root / "data"):
+            pass
+    finally:
+        if host.poll() is None:
+            os.killpg(host.pid, signal.SIGKILL)
+            host.wait(timeout=5)
+        if pids is None and (root / "pids.json").exists():
+            pids = json.loads((root / "pids.json").read_text())
+        if pids is not None:
+            try:
+                os.killpg(pids["owner"], signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_typed_codec_roundtrip_and_no_arbitrary_classes():

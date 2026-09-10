@@ -59,6 +59,16 @@ Contribution registration is transactional and each connection has an exact
 cleanup owner. Enabling, stopping, clearing, and disconnecting are separate
 operations. Application shutdown drains all active and setup workers.
 
+On Unix each external worker has a standard-library-only process owner outside
+the plugin confinement boundary. It watches a private lifetime pipe independently
+of plugin threads, kills its dedicated process group on host death or worker exit,
+and never imports plugin code. Diagnostics report that family's owner PID.
+The owner and worker retain an inherited runtime instance lease, preventing the
+next Python generation from opening the same data until the old family exits.
+Ordinary descendants stay in that group; explicitly detached native helpers must
+use the SDK's managed-subprocess recovery contract. Windows uses kernel Job
+ownership instead. The confined worker still cannot launch extra processes.
+
 Every asynchronous host callback belongs to an invocation or an explicit
 connection subscription. Cancellation revokes admission and cancels its actual
 host task, including progress and channel callbacks. Request completion and

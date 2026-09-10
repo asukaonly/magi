@@ -42,6 +42,7 @@ from magi_plugin_sdk.transport import (
 )
 from magi_plugin_sdk.worker_catalog import CHANNEL_PORTS
 
+from ..utils.worker_instance import duplicate_worker_lease
 from .process_broker import CapabilityBroker, CapabilityDenied
 from .process_confinement import plan_confinement
 
@@ -212,6 +213,7 @@ class ProcessPluginProxy(Plugin):
         self._channel_sessions: dict[str, Any] = {}
         self._catalog: dict[str, Any] = {}
         self._process: subprocess.Popen[bytes] | None = None
+        self._owner_pipe: Any = None
         self._windows_job: Any = None
         self._probe_path: Path | None = None
         self._source_cache: Any = None
@@ -242,9 +244,9 @@ class ProcessPluginProxy(Plugin):
         # -S avoids sitecustomize and executable .pth files. Plugin dependencies
         # are inserted only after trusted SDK import inside the child.
         import_roots = list(dict.fromkeys([*sdk_roots, *runtime["paths"]]))
-        launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main()"
+        launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main(lease_fd=int(sys.argv[1]) if int(sys.argv[1]) >= 0 else None)"
         # Launch the interpreter directly; framework launchers re-exec outside confinement.
-        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code]
+        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code, "-1"]
         state_dir, resources_dir = (
             self.context.state_dir.resolve(),
             self.context.resources_dir.resolve(),
@@ -299,16 +301,37 @@ class ProcessPluginProxy(Plugin):
                 "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             }
         )
-        self._process = subprocess.Popen(
-            self._confinement.command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=state_dir,
-            env=env,
-            bufsize=0,
-            **options,
-        )
+        owner_read, lease_fd = None, None
+        try:
+            launch = list(self._confinement.command)
+            if os.name != "nt":
+                owner_script = next(
+                    (Path(root) / "magi_plugin_sdk/process_owner.py" for root in import_roots
+                     if (Path(root) / "magi_plugin_sdk/process_owner.py").is_file()), None,
+                )
+                if owner_script is None:
+                    raise PluginProcessError("Plugin process owner is missing from the SDK bundle")
+                owner_read, owner_write = os.pipe()
+                self._owner_pipe = os.fdopen(owner_write, "wb")
+                lease_fd = duplicate_worker_lease()
+                launch[-1] = str(lease_fd if lease_fd is not None else -1)
+                options["pass_fds"] = (owner_read,) + (() if lease_fd is None else (lease_fd,))
+                launch = [runtime["executable"], "-I", "-S", str(owner_script),
+                          str(owner_read), launch[-1], *launch]
+            self._process = subprocess.Popen(
+                launch,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=state_dir,
+                env=env,
+                bufsize=0,
+                **options,
+            )
+        finally:
+            for fd in (owner_read, lease_fd):
+                if fd is not None:
+                    os.close(fd)
         if os.name == "nt":
             from .process_windows import WindowsWorkerJob
 
@@ -1101,6 +1124,9 @@ class ProcessPluginProxy(Plugin):
             failure_handler = self._failure_handler
         self._revoke_host_callbacks()
         self.broker.close()
+        if self._owner_pipe is not None:
+            self._owner_pipe.close()
+            self._owner_pipe = None
         try:
             self._outbox.put_nowait(None)
         except Full:

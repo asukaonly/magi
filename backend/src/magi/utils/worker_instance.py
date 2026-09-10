@@ -11,6 +11,15 @@ from typing import IO
 
 from .private_data import protect_private_data_tree
 
+_lease_lock = threading.Lock()
+_active_lease: int | None = None
+
+
+def duplicate_worker_lease() -> int | None:
+    """Retain the Unix runtime lease until an owned plugin family exits."""
+    with _lease_lock:
+        return os.dup(_active_lease) if os.name != "nt" and _active_lease is not None else None
+
 
 class WorkerInstance:
     """Hold the data-root lease until runtime and plugin shutdown finish."""
@@ -26,6 +35,7 @@ class WorkerInstance:
         self._monitor: threading.Thread | None = None
 
     def __enter__(self) -> WorkerInstance:
+        global _active_lease
         protect_private_data_tree(self._root)
         runtime_dir = self._root / "runtime"
         runtime_dir.mkdir(mode=0o700, exist_ok=True)
@@ -55,14 +65,20 @@ class WorkerInstance:
                 raise RuntimeError("The supervising process is no longer the worker parent")
             self._monitor = threading.Thread(target=self._watch_owner, name="magi-parent-monitor", daemon=True)
             self._monitor.start()
+        with _lease_lock:
+            _active_lease = fd
         return self
 
     def __exit__(self, *_exc: object) -> None:
+        global _active_lease
         self._stop.set()
         if self._monitor is not None:
             self._monitor.join(timeout=1)
         if self._file is not None:
-            self._file.close()
+            with _lease_lock:
+                if _active_lease == self._file.fileno():
+                    _active_lease = None
+                self._file.close()
             self._file = None
 
     def _watch_owner(self) -> None:

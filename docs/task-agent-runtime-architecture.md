@@ -71,6 +71,11 @@ worker from opening the same instance. A supervised worker observes its parent's
 lifetime; normal teardown releases the lease after runtime/plugin shutdown.
 The server separately holds `runtime/server.lock`. Neither lock file is deleted
 on exit, so another process cannot lock a newly created inode beside a live owner.
+Unix external-plugin families inherit the worker lease through a separate,
+standard-library-only process owner. Host death closes its private lifetime pipe
+and reaps the family independently of plugin event loops and the plugin GIL.
+Replacement remains excluded until those inherited leases close. Windows uses
+kernel Job ownership for this boundary.
 
 The service continuously supervises the HTTP listener, operator listener and
 notification bridge alongside the worker loop. A critical transport task ending
