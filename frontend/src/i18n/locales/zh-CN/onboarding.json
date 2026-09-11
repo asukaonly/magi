@@ -6,6 +6,10 @@
     "retryLoadConfig": "重试",
     "badge": "约 2 分钟完成配置"
   },
+  "remoteSetup": {
+    "title": "正在配置远程 Magi",
+    "description": "模型、人格和数据保存在这个 Magi，连接它的其他设备也会共用。"
+  },
   "steps": {
     "location": "运行位置",
     "llmSetup": "配置模型",

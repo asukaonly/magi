@@ -6,6 +6,10 @@
     "retryLoadConfig": "Try again",
     "badge": "Takes about 2 minutes"
   },
+  "remoteSetup": {
+    "title": "Setting up remote Magi",
+    "description": "Models, personas, and data are saved on this Magi and shared with other devices that connect to it."
+  },
   "steps": {
     "location": "Run location",
     "llmSetup": "LLM Setup",

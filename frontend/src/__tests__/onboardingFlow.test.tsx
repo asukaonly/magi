@@ -1,4 +1,5 @@
 import * as fileTransfers from '@/runtime/file-transfers';
+import * as runtimeConfig from '@/runtime/config';
 import { centerStorageKey } from '@/runtime/center-storage';
 import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -540,6 +541,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       screen.queryByRole("button", { name: /welcome\.getStarted/ }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'steps.llmSetup' })).toBeInTheDocument();
+    expect(screen.queryByRole('complementary', { name: 'remoteSetup.title' })).not.toBeInTheDocument();
     // Mode cards no longer exist anywhere in the flow.
     expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();
     expect(screen.queryByText(/welcome\.expertMode/)).not.toBeInTheDocument();
@@ -548,6 +550,26 @@ describe("OnboardingFlow (linear 5-step)", () => {
       screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i),
     ).toBeNull();
   });
+
+  it.each(['https://home.example:9443/api', 'http://127.0.0.1:19081/api'])(
+    'identifies the paired center across setup steps for %s', async (apiBaseUrl) => {
+      vi.spyOn(runtimeConfig, 'getRuntimeConfig').mockReturnValue({
+        isDesktop: true, apiBaseUrl, mode: 'remote', profileId: 'test-profile', serverId: 'test-center',
+      });
+      const user = userEvent.setup();
+      render(<OnboardingFlow initialConfig={{ ...DEFAULT_SYSTEM_CONFIG, revision: 'a'.repeat(64) }} />);
+      const notice = screen.getByRole('complementary', { name: 'remoteSetup.title' });
+      expect(notice).toHaveTextContent(new URL(apiBaseUrl).origin);
+      expect(notice).toHaveTextContent('remoteSetup.description');
+      await enterPersonaStep(user);
+      expect(screen.getByRole('complementary', { name: 'remoteSetup.title' })).toBe(notice);
+      await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+      await screen.findByRole('heading', { name: 'steps.llmSetup' });
+      await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+      expect(await screen.findByRole('heading', { name: 'location.title' })).toBeInTheDocument();
+      expect(screen.queryByRole('complementary', { name: 'remoteSetup.title' })).not.toBeInTheDocument();
+    },
+  );
 
   it("marks runtime location complete before model setup", async () => {
     localStorageMock.getItem.mockReturnValue(null);

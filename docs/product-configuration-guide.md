@@ -127,6 +127,12 @@ location selection; Previous from there returns to the welcome screen, so backwa
 navigation follows model setup → runtime location → welcome. Starting again and
 selecting the same active center resumes the model draft without a reload.
 Switching to another center reloads into that center's own state.
+During remote center configuration, every guided step shows the connected
+center's address and explains that models, personas, and data are saved on that
+center and shared by its connected devices. This notice follows the active
+connection mode, including an independently deployed center on loopback HTTP;
+it is absent during local setup and device-owned location selection. The address
+comes from the initialized connection, without an additional profile request.
 Remote form values survive Previous/Next navigation in memory; pairing codes are
 never saved in browser storage. Pairing is owned by one pending action, with
 navigation disabled until it settles. Saved-center management remains available

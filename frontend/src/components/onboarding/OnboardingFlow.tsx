@@ -44,7 +44,7 @@ import {
   type PersonaCreationDraft,
 } from "./PersonaPreviewChat";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Server } from "lucide-react";
 import type { PluginInstallDoneInfo } from "../../stores/pluginInstallPanel";
 import type { HistoryImportJob } from "@/api/modules/historyImports";
 import type {
@@ -117,6 +117,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   initialConfig,
 }) => {
   const { t, i18n } = useTranslation("onboarding");
+  const runtimeConfig = getRuntimeConfig();
   const shouldReduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const {
@@ -956,7 +957,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   if (choosingLocation) {
     return <ConnectionOnboarding
       initialStep="location"
-      initialLocation={getRuntimeConfig().mode ?? 'local'}
+      initialLocation={runtimeConfig.mode ?? 'local'}
       onUseActive={() => setChoosingLocation(false)}
       onLanguageChange={handleLanguageChange}
     />;
@@ -1021,6 +1022,18 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       }
     >
       <>
+        {runtimeConfig.mode === 'remote' ? (
+          <aside aria-label={t('remoteSetup.title')} className="mb-5 flex shrink-0 items-start gap-3 border-b border-border/60 pb-4">
+            <Server className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <p className="text-sm font-medium">{t('remoteSetup.title')}</p>
+                <p className="break-all text-xs text-muted-foreground">{new URL(runtimeConfig.apiBaseUrl).origin}</p>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('remoteSetup.description')}</p>
+            </div>
+          </aside>
+        ) : null}
         {writeIssue ? <div role="alert" className="m-4 rounded-md border border-amber-500/40 p-3 text-sm">
           <p>{t(`messages.${writeIssue === 'conflict' ? 'centerConflict' : 'saveUnconfirmed'}`)}</p>
           <Button className="mt-2" variant="outline" disabled={saving} onClick={() => window.location.reload()}>{t('messages.reloadCenter')}</Button>
