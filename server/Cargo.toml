@@ -5,12 +5,15 @@ description = "Standalone Magi service"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.6", features = ["derive"] }
+cliclack = "0.5"
+serde = { version = "1", features = ["derive"] }
 magi-platform = { path = "../crates/magi-platform" }
 libc = "0.2"
 magi-server-runtime = { path = "../crates/magi-server-runtime" }
 magi-service-contract = { path = "../crates/magi-service-contract" }
 serde_json = "1"
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "blocking"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["full"] }

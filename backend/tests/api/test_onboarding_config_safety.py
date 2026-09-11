@@ -15,8 +15,13 @@ from magi.api.routers.config_schemas import LLMProviderConfigModel, SystemConfig
 
 @pytest.fixture
 def client() -> TestClient:
+    from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
+
     app = FastAPI()
-    app.include_router(config_module.config_router, prefix="/config")
+    app.include_router(
+        _build_public_router(config_module.config_router, _PUBLIC_ROUTE_METHODS["config"]),
+        prefix="/config",
+    )
     return TestClient(app)
 
 
@@ -156,9 +161,11 @@ def test_onboarding_template_recovers_only_masked_backend_llm_draft(
 
     def _build_recovered_config(mask_secrets: bool = True) -> SystemConfigModel:
         calls.append(mask_secrets)
-        return _config_with_provider_key(
+        config = _config_with_provider_key(
             "***" if mask_secrets else "sk-draft-secret",
         )
+        config.preferences.language = "en"
+        return config
 
     monkeypatch.setattr(config_module, "_build_system_config", _build_recovered_config)
 
@@ -167,6 +174,7 @@ def test_onboarding_template_recovers_only_masked_backend_llm_draft(
     assert response.status_code == 200
     assert calls == [False]
     payload = response.json()["data"]["config"]
+    assert payload["preferences"]["language"] == "en"
     assert payload["llm"]["providers"]["openai"]["api_key"] == "***"
     for service_name in ("chat", "embedding", "image_generation", "tts"):
         assert payload["llm"]["providers"]["openai"]["services"][service_name][

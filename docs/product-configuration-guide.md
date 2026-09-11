@@ -76,6 +76,33 @@ Implementation notes:
 - `zh-CN` and `en` resources should stay aligned
 - language changes should keep local state, persisted preference, and document language in sync
 
+## Console Setup
+
+Running `magi-server` without a subcommand opens an English console flow. Its
+five steps are service settings, setup method, Magi language, model configuration,
+and default persona. Choosing desktop setup skips the last three and displays
+the actual loopback URL plus a single-use thirty-minute pairing code. The console
+interface remains English; the selected `zh`/`en` Magi language is saved in the
+center and determines the builtin persona catalog and default conversation
+language. It does not override any desktop's interface language.
+
+The console uses the same server-side draft, revision checks, secret masking,
+provider verification and persona activation APIs as desktop. Language and model
+steps survive cancellation; completion is saved only after successful model
+verification and persona activation. A resumed template includes the center's
+saved language. Persona selection checks both locale and seed identity.
+
+The default command reuses a running instance and skips setup once completion is
+persisted. `configure` explicitly edits a running center, including after initial
+setup; `configure --from-stdin` accepts a secret-bearing JSON setup document for
+automation without prompts or secrets in command arguments. Non-interactive
+startup uses `init` then `run`, never the interactive default entry.
+
+Foreground setup stops only its own service on cancellation or terminal loss.
+An existing service or an explicitly installed background service keeps running.
+The final summary distinguishes configuration completion from Agent readiness.
+See [server operator guide](../server/README.md) for deployment paths and commands.
+
 ## Onboarding Flow
 
 The onboarding flow is the first-run configuration experience.

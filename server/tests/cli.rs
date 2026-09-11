@@ -15,6 +15,13 @@ impl Fixture {
             b"fixture",
         )
         .unwrap();
+        let plugin = root.join(if cfg!(windows) {
+            "bundle/plugin-python/python.exe"
+        } else {
+            "bundle/plugin-python/bin/python"
+        });
+        fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        fs::write(plugin, b"fixture").unwrap();
         Self(root)
     }
 }
@@ -63,6 +70,22 @@ fn packaged_init_uses_bundle_paths_and_refuses_overwriting_config() {
     assert!(!repeated.status.success());
     assert_eq!(fs::read(&config).unwrap(), original);
     assert!(!data.exists());
+    for command in ["show", "validate"] {
+        let inspected = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["config", command, "--config"])
+            .arg(&config)
+            .env_remove("HOME")
+            .env_remove("USERPROFILE")
+            .output()
+            .unwrap();
+        assert!(
+            inspected.status.success(),
+            "{}",
+            String::from_utf8_lossy(&inspected.stderr)
+        );
+        assert!(!data.exists());
+        assert_eq!(fs::read(&config).unwrap(), original);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -91,6 +114,38 @@ fn console_version_and_help_do_not_require_a_configuration() {
         .unwrap();
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("--bundle-root"));
+}
+
+#[test]
+fn default_entry_refuses_noninteractive_input_without_creating_data() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("never-created.json");
+    let result = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .arg("--config")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("requires a terminal"));
+    assert!(!path.exists());
+}
+
+#[test]
+fn explicit_commands_reject_invalid_or_misplaced_arguments() {
+    for args in [
+        vec!["revoke"],
+        vec!["run", "--port", "1234"],
+        vec!["init", "--port", "65536"],
+        vec!["configure", "--api-key", "secret"],
+        vec!["run", "--bootstrap-stdin", "--shutdown-on-stdin-close"],
+    ] {
+        assert!(!Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
 }
 
 #[cfg(unix)]

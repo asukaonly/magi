@@ -10,8 +10,53 @@ Copy the **entire `MagiServer` folder** from the disk image to a permanent
 location, for example `/Applications/MagiServer`. Do not run it from the mounted
 disk image. No system Python, Node.js, or Tauri installation is required.
 
-Initialize a dedicated data directory (choose a different one if this Mac also
-runs a separate local desktop instance):
+Start with one command:
+
+```sh
+/Applications/MagiServer/magi-server
+```
+
+The English console guide has five steps:
+
+1. **Service settings**: dedicated data directory, loopback port, and foreground
+   or background-after-login mode. Defaults are `~/.magi-center`, port `19080`,
+   and `~/.config/magi-server/server.json` for deployment configuration.
+2. **Setup method**: configure in this terminal or continue in Magi desktop.
+3. **Magi language**: Chinese (Simplified) or English. Prompts remain English;
+   persona content and the center's default conversation language follow this choice.
+4. **Model configuration**: provider and plan, endpoint, hidden API key, core and
+   fast models. Defaults come from the service's provider catalog. Connection
+   verification makes a small real provider request and may incur provider charges.
+5. **Default persona**: select and activate a builtin persona in the chosen language.
+
+Choosing desktop setup skips steps 3–5 and prints the actual same-machine address
+and a thirty-minute, single-use pairing code. Setup stays incomplete until a
+client finishes it. The console summary reports Agent readiness separately from
+configuration completion and does not assume an HTTPS proxy exists.
+Completing terminal setup also prints a first pairing code for connecting a UI.
+
+Run the same command again to resume saved setup. If the service is already
+running, the console reuses it; configured instances show their status without
+repeating setup or generating another pairing code. A stopped instance starts
+using the mode saved in the adjacent `server.console.json` file. This file holds
+only the console run-mode preference, never model keys or business settings.
+
+Foreground mode keeps the console open. Ctrl+C, cancellation, or loss of its
+terminal stops the headless owner it launched and its gateway/Python processes;
+saved steps remain available. This adds a console coordinator while interactive
+foreground mode is open. Background mode installs the login service and keeps
+running after terminal exit. Editing an existing service never takes ownership
+of it. `configure` explicitly changes models, language and the default persona
+after setup, using the same server APIs and masked secrets as desktop:
+
+```sh
+/Applications/MagiServer/magi-server configure
+```
+
+For source development, use `./scripts/dev-server.sh --setup`. It keeps the
+development config/data defaults separate from the packaged deployment.
+
+For scripts and service managers, use explicit commands. They never prompt:
 
 ```sh
 /Applications/MagiServer/magi-server init \
@@ -20,6 +65,11 @@ runs a separate local desktop instance):
 /Applications/MagiServer/magi-server run \
   --config "$HOME/.config/magi-server/server.json"
 ```
+
+All commands accept `--config <absolute-path>` to target a specific deployment.
+`init` can also take `--development-root <absolute-repository>` for source runs.
+The no-command entry requires a terminal and refuses redirected input before
+creating deployment configuration or starting a process.
 
 `run` stays in the foreground as a lightweight Rust owner. It starts a separate
 Rust gateway process, which owns Python. Control-C stops the complete owned
@@ -48,6 +98,42 @@ runtime readiness through a private local management socket. Logs are under
 Python. Each native output log retains an 8 MiB current file and two backups.
 Foreground runs keep service diagnostics in the terminal unless `run --log-file
 <absolute-path>` is supplied.
+
+## Change configuration
+
+Deployment settings (data root, port, runtime executable and supervision limits)
+belong to `server.json`. Inspect or check them without starting Python:
+
+```sh
+magi-server config show
+magi-server config validate
+```
+
+Stop a foreground service before editing this JSON file. For an installed login
+service, use `uninstall` with the original config, edit and validate the file,
+then `install` again so its command and shutdown deadline remain synchronized.
+Changing `data_dir` selects another store; it does not move existing data.
+`init` never overwrites an existing deployment. To change the interactive launch
+preference, stop/uninstall the service and remove only the adjacent
+`server.console.json`; the next no-command launch asks for run mode again.
+
+Business settings live under the configured data root and are edited through
+Magi desktop or `magi-server configure`. These changes preserve unrelated
+settings and apply through the service's configuration/runtime lifecycle.
+
+Automation can configure an already running center from standard input:
+
+```sh
+magi-server configure --config "$HOME/.config/magi-server/server.json" --from-stdin < setup.json
+```
+
+The document must contain exactly `language` (`zh` or `en`), `llm` (the product
+API's LLM configuration object), and `persona_slug` (a builtin seed in that
+language). Core and auxiliary selections are verified before saving, then the
+persona is seeded/activated; unfinished onboarding is completed only afterwards.
+Saved steps remain if a later step fails; rerun with corrected input to finish.
+Keep any input file containing credentials private. The CLI does not print its
+contents, accepts no API key argument, and does not persist an extra copy.
 
 ## Recovery and shutdown
 

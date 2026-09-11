@@ -1,0 +1,253 @@
+//! Explicit automation commands and the interactive default entry point.
+
+use clap::{Args, Parser, Subcommand};
+use magi_service_contract::config::ServerConfig;
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
+
+#[derive(Parser)]
+#[command(name = "magi-server", version = version(), about = "Magi Server — run without a command for guided setup")]
+pub struct Cli {
+    /// Deployment configuration (default: ~/.config/magi-server/server.json).
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+    #[command(flatten)]
+    pub init: InitOptions,
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+#[derive(Args, Default)]
+pub struct InitOptions {
+    /// Dedicated data directory, only when creating a deployment.
+    #[arg(long, global = true)]
+    pub data_dir: Option<PathBuf>,
+    /// Loopback port, only for a new deployment (0 selects an available port).
+    #[arg(long, global = true)]
+    pub port: Option<u16>,
+    /// Source checkout containing the development Python environment.
+    #[arg(long, global = true, conflicts_with = "bundle_root")]
+    pub development_root: Option<PathBuf>,
+    /// Permanent directory containing the packaged server and Python runtime.
+    #[arg(long, global = true)]
+    pub bundle_root: Option<PathBuf>,
+}
+
+impl InitOptions {
+    pub fn supplied(&self) -> bool {
+        self.data_dir.is_some()
+            || self.port.is_some()
+            || self.development_root.is_some()
+            || self.bundle_root.is_some()
+    }
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Create deployment configuration without prompts; does not start the service.
+    Init,
+    /// Run in the foreground without prompts. Ctrl+C stops the owned service.
+    Run {
+        #[arg(long, hide = true, conflicts_with = "shutdown_on_stdin_close")]
+        bootstrap_stdin: bool,
+        #[arg(long, hide = true)]
+        shutdown_on_stdin_close: bool,
+        #[arg(long)]
+        log_file: Option<PathBuf>,
+    },
+    /// Configure language, models and persona on an already running service.
+    Configure {
+        /// Read a setup document from standard input instead of showing prompts.
+        #[arg(long)]
+        from_stdin: bool,
+    },
+    /// Read deployment settings or validate them without starting the service.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// Show running service health as JSON.
+    Status,
+    /// Generate a single-use pairing code valid for 30 minutes.
+    Pair,
+    /// List paired devices.
+    Clients,
+    /// Revoke a paired device.
+    Revoke {
+        #[arg(long)]
+        client_id: String,
+    },
+    /// Install and start the current user's macOS login service.
+    Install,
+    /// Start the installed macOS login service.
+    Start,
+    /// Stop the installed macOS login service.
+    Stop,
+    /// Restart the installed macOS login service.
+    Restart,
+    /// Remove the macOS login service, preserving all data.
+    Uninstall,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    Show,
+    Validate,
+}
+
+fn version() -> &'static str {
+    static VERSION: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    VERSION.get_or_init(|| {
+        format!(
+            "{} (protocol {})",
+            env!("CARGO_PKG_VERSION"),
+            magi_service_contract::SERVER_PROTOCOL_VERSION
+        )
+    })
+}
+
+pub fn home_path(relative: &str) -> Result<PathBuf, String> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| PathBuf::from(home).join(relative))
+        .ok_or("User home is unavailable".into())
+}
+
+pub fn execute(
+    cli: Cli,
+    output: &mut Option<crate::managed_output::ManagedOutput>,
+) -> Result<(), String> {
+    let path = match cli.config {
+        Some(path) => path,
+        None => home_path(".config/magi-server/server.json")?,
+    };
+    if !path.is_absolute() {
+        return Err("Server configuration path must be absolute".into());
+    }
+    if cli.command.is_some() && !matches!(cli.command, Some(Command::Init)) && cli.init.supplied() {
+        return Err(
+            "Deployment initialization options only apply to init or first-run setup".into(),
+        );
+    }
+    match cli.command {
+        None => crate::console::launch(&path, cli.init),
+        Some(Command::Init) => {
+            let data = match &cli.init.data_dir {
+                Some(data) => data.clone(),
+                None => home_path(".magi-center")?,
+            };
+            create_config(&path, &cli.init, data, cli.init.port.unwrap_or(19080))?;
+            println!("Created server configuration: {}", path.display());
+            Ok(())
+        }
+        Some(Command::Run {
+            bootstrap_stdin,
+            shutdown_on_stdin_close,
+            log_file,
+        }) => crate::run(
+            path,
+            bootstrap_stdin,
+            shutdown_on_stdin_close,
+            log_file,
+            output,
+        ),
+        Some(Command::Configure { from_stdin }) => crate::console::configure(&path, from_stdin),
+        Some(Command::Config { action }) => {
+            let config = ServerConfig::load(&path)?;
+            match action {
+                ConfigAction::Show => {
+                    print_json(&serde_json::to_value(config).map_err(|e| e.to_string())?)
+                }
+                ConfigAction::Validate => {
+                    validate_worker(&config)?;
+                    println!("Deployment configuration is valid.");
+                    Ok(())
+                }
+            }
+        }
+        Some(command) => {
+            use crate::console_api::Request;
+            let request = match command {
+                Command::Status => Request::Status,
+                Command::Pair => Request::Pair,
+                Command::Clients => Request::Clients,
+                Command::Revoke { client_id } => Request::Revoke { client_id },
+                Command::Install => return crate::service_install::execute("install", &path),
+                Command::Start => return crate::service_install::execute("start", &path),
+                Command::Stop => return crate::service_install::execute("stop", &path),
+                Command::Restart => return crate::service_install::execute("restart", &path),
+                Command::Uninstall => return crate::service_install::execute("uninstall", &path),
+                _ => unreachable!(),
+            };
+            let config = ServerConfig::load(&path)?;
+            print_json(&crate::console_api::management(&config, request)?)
+        }
+    }
+}
+
+pub fn print_json(value: &serde_json::Value) -> Result<(), String> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).map_err(|e| e.to_string())?
+    );
+    Ok(())
+}
+
+pub fn validate_worker(config: &ServerConfig) -> Result<(), String> {
+    config.validate()?;
+    for path in [&config.worker.executable, &config.worker.plugin_python] {
+        if !path.is_file() {
+            return Err(format!("Runtime executable is missing: {}", path.display()));
+        }
+    }
+    Ok(())
+}
+
+pub fn create_config(
+    path: &Path,
+    options: &InitOptions,
+    data: PathBuf,
+    port: u16,
+) -> Result<ServerConfig, String> {
+    let mut config = if let Some(project) = &options.development_root {
+        ServerConfig::for_development(project, data)
+    } else {
+        let bundle = options.bundle_root.clone().unwrap_or(
+            std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .parent()
+                .ok_or("Service bundle directory is unavailable")?
+                .to_owned(),
+        );
+        ServerConfig::for_bundle(&bundle, data)
+    };
+    config.port = port;
+    validate_worker(&config)
+        .map_err(|error| format!("{error}. Use --development-root for a source checkout."))?;
+    create_private_file(
+        path,
+        &serde_json::to_vec_pretty(&config).map_err(|e| e.to_string())?,
+    )?;
+    Ok(config)
+}
+
+pub fn create_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("Cannot create {}: {e}", path.display()))?;
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| e.to_string())
+}

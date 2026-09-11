@@ -503,6 +503,7 @@ async def get_onboarding_template(request: Request):
     with config_write_guard():
         snapshot = _build_onboarding_snapshot()
     template.llm = snapshot.llm
+    template.preferences.language = snapshot.preferences.language
     template.revision = snapshot.revision
     return OnboardingTemplateResponse(
         success=True,
@@ -659,9 +660,8 @@ async def complete_onboarding(
             before_save=lambda: _ensure_onboarding_incomplete(request),
         )
 
-        # NOTE: persona registry entries are created by the frontend via
-        # ``POST /api/personas/seed`` after this call returns to avoid duplicate
-        # non-builtin entries that conflict with the seeded builtins.
+        # Clients seed and activate a persona through the persona API before
+        # completing setup; configuration persistence does not create personas.
 
         return ConfigResponse(
             success=True,

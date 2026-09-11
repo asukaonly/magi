@@ -144,6 +144,13 @@ For a source checkout with its Python environment installed:
 ./scripts/dev-server.sh
 ```
 
+Add `--setup` to use the English console wizard against that development config.
+Packaged users start with a single `magi-server` command; a new deployment asks
+for service settings, terminal/desktop setup, Magi language, models and persona.
+The CLI interface stays English while persona content follows the chosen language.
+An existing configured service is reused without creating new pairing grants.
+See [the operator guide](../server/README.md) for explicit automation commands.
+
 This macOS/Linux development shortcut initializes
 `~/.config/magi-server/dev.json` once and reuses it on later runs, with
 `~/.magi-center-dev` as its default data root. It builds the debug server and
