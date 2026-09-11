@@ -231,9 +231,11 @@ missed a clear followed by a restore still sees the changed content epoch.
 The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
 in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
-pairing and renewal accept normalized HTTPS origins, reject redirects and
+pairing and renewal accept normalized HTTPS origins or same-machine HTTP at
+`127.0.0.1` (`localhost` is pinned to that literal address), reject redirects and
 validate center/device identity and protocol version before returning an access
-session. Linux remote credential persistence is not yet supported. First startup
+session. Native loopback requests bypass proxies and retain ordinary pairing and
+session authentication. Linux remote credential persistence is not yet supported. First startup
 offers local or remote connection; the sidebar opens saved connection management.
 The title bar identifies the active center. Switching selects one profile and
 reloads the interface; unsent content must be saved first. The native
@@ -243,7 +245,7 @@ remote profile renews its paired credential and launches no local business servi
 Magi has a desktop client and a Tauri-independent service:
 
 - Local desktop: Tauri + React, owning a `magi-server` child through a private stdin lifetime pipe.
-- Remote desktop: Tauri + React, connected to an independently managed center over HTTPS.
+- Paired desktop: Tauri + React, connected to an independently managed center over HTTPS, or loopback HTTP on the same machine, without owning its processes.
 - Service: Rust Axum gateway + supervised Python IPC worker, identical in both deployments.
 
 Rust workspace packages have distinct compilation and process boundaries:

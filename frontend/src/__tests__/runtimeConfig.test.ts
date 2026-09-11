@@ -29,13 +29,14 @@ describe('center runtime bootstrap', () => {
     await expect(first).resolves.toMatchObject({ serverId, mode: 'local', localServicePid: 123 });
     expect(invokeMock.mock.calls.map(([command]) => command)).toEqual(['connect_active_profile', 'poll_connection_startup']);
   });
-  it('connects remotely without reporting a local process launch', async () => {
+  it.each(['https://center.example/api', 'http://127.0.0.1:19080/api'])('connects to %s without reporting a local process launch', async (baseUrl) => {
     invokeMock.mockImplementation(async (command) => command === 'connect_active_profile'
-      ? started({ mode: 'remote', profileId: clientId, baseUrl: 'https://center.example/api', localServicePid: null, expiresAtMs: Date.now() + 900_000 })
+      ? started({ mode: 'remote', profileId: clientId, baseUrl, localServicePid: null, expiresAtMs: Date.now() + 900_000 })
       : { connectionGeneration: 1, ready: true, phase: 'ready' });
     const phases: string[] = [];
     const result = await initializeRuntime((phase) => phases.push(phase));
     expect(result.localServicePid).toBeUndefined();
+    expect(result).toMatchObject({ mode: 'remote', apiBaseUrl: baseUrl });
     expect(phases).toEqual(['connecting', 'connecting', 'ready']);
     expect(invokeMock.mock.calls.map(([command]) => command)).toEqual(['connect_active_profile', 'poll_connection_startup']);
   });
@@ -65,8 +66,12 @@ describe('center runtime bootstrap', () => {
     requestRuntimeReconnect();
     expect(bootstrap).toHaveBeenCalledOnce();
   });
-  it('rejects a remote address without HTTPS', async () => {
-    invokeMock.mockResolvedValue(started({ mode: 'remote' }));
+  it.each([
+    'http://center.example/api', 'http://192.168.1.20:19080/api',
+    'http://0.0.0.0:19080/api', 'http://127.0.0.1.example/api',
+    'http://user:secret@127.0.0.1:19080/api', 'http://127.0.0.1:19080/api?token=x',
+  ])('rejects an unsafe external address: %s', async (baseUrl) => {
+    invokeMock.mockResolvedValue(started({ mode: 'remote', baseUrl }));
     await expect(initializeRuntime()).rejects.toThrow('invalid API address');
   });
   it('reloads credentials if the native generation changes while readiness is polled', async () => {
@@ -87,9 +92,9 @@ describe('center runtime bootstrap', () => {
     resetRuntimeInitialization(); finish(started()); await rejected;
     expect(getRuntimeConfig().serverId).toBeUndefined();
   });
-  it('deduplicates expiring remote session renewal and validates center identity', async () => {
+  it.each(['https://center.example/api', 'http://127.0.0.1:19080/api'])('renews paired sessions at %s', async (baseUrl) => {
     invokeMock.mockImplementation(async (command) => command === 'connect_active_profile'
-      ? started({ mode: 'remote', profileId: clientId, baseUrl: 'https://center.example/api', expiresAtMs: 1, localServicePid: null })
+      ? started({ mode: 'remote', profileId: clientId, baseUrl, expiresAtMs: 1, localServicePid: null })
       : { connectionGeneration: 1, ready: true, phase: 'ready' });
     await initializeRuntime();
     invokeMock.mockResolvedValue({ server_id: serverId, client_id: clientId, access_token: 'b'.repeat(64), expires_at_ms: Date.now() + 900_000 });

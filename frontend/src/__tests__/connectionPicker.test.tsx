@@ -18,18 +18,19 @@ describe('connection selection', () => {
     await waitFor(() => expect(activate).toHaveBeenCalledWith('local'));
     expect(pair).not.toHaveBeenCalled();
   });
-  it('confirms before pairing, then pairs before activation', async () => {
+  it.each(['https://center.example', 'http://127.0.0.1:19080'])('pairs %s before activation', async (address) => {
     pair.mockResolvedValue({ id: 'remote' }); render(<ConnectionPicker />);
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
     fireEvent.change(screen.getByLabelText('connections.deviceName'), { target: { value: 'Work laptop' } });
-    fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: 'https://center.example' } });
+    expect(screen.getByLabelText('connections.address')).toHaveAccessibleDescription('connections.addressHint');
+    fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: address } });
     fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'one-time-code' } });
     fireEvent.click(screen.getByText('connections.pair'));
     expect(pair).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('connections.confirmPair'));
     await waitFor(() => expect(activate).toHaveBeenCalledWith('remote'));
-    expect(pair).toHaveBeenCalledWith('https://center.example', 'one-time-code', 'Home', 'Work laptop');
+    expect(pair).toHaveBeenCalledWith(address, 'one-time-code', 'Home', 'Work laptop');
     expect(pair.mock.invocationCallOrder[0]).toBeLessThan(activate.mock.invocationCallOrder[0]);
   });
   it('keeps invalid pairings editable and never activates a rejected center', async () => {

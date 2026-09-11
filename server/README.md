@@ -83,7 +83,26 @@ longer. The generated LaunchAgent derives its exit deadline from this config.
 Stop and uninstall with the installed configuration before changing these limits,
 then reinstall so the registered deadline matches the service configuration.
 
-## Connect another device
+## Connect a desktop client
+
+After the service starts, generate a one-time pairing code on the center Mac:
+
+```sh
+/Applications/MagiServer/magi-server pair \
+  --config "$HOME/.config/magi-server/server.json"
+```
+
+Paste the output's `pairing_token` into the desktop connection form. It works
+once and expires after five minutes. If the desktop runs on this same Mac, enter
+`http://127.0.0.1:19080` (or the configured port). `http://localhost:<port>` also
+works and is normalized to `127.0.0.1`. This still creates a paired connection;
+closing the desktop leaves the independently deployed center running. The
+desktop requires HTTPS when connecting from another computer.
+
+For a source-development center, the corresponding pairing command is
+`./target/debug/magi-server pair --config "$HOME/.config/magi-server/dev.json"`.
+
+### Connect from another computer
 
 The gateway listens only on loopback. Put a standard HTTPS reverse proxy on the
 same Mac. For a private network, an optional convenience is
@@ -121,6 +140,37 @@ does not silently start a local collector. Photos, Calendar, and protected folde
 may require permissions on the center Mac; a background core does not grant those
 permissions. Plugin availability and macOS permission behavior must be checked
 on the installed host.
+
+## Configure the center
+
+There are two configuration surfaces:
+
+- **Models and everyday settings:** pair a Magi desktop with this center, then
+  complete onboarding or open Settings. Model providers, API keys, personalities,
+  memory and plugins are configured on the active center. An empty center can
+  accept pairing and configuration before a model is available. Changes saved
+  through the UI use the center's configuration API and runtime refresh flow.
+  Client preferences such as tray behavior remain on the client device.
+- **Deployment settings:** the file passed to `--config`, for example
+  `~/.config/magi-server/server.json`, controls `port`, `data_dir`, worker paths,
+  `max_restarts`, timeouts and `supervision`. The CLI reads this file at startup;
+  it is not the place for model API keys. Edit it on the center Mac and restart
+  the deployment. There is currently no graphical service installer or deployment
+  configuration editor.
+
+For a managed installation, the safe workflow for changing deployment settings
+is to run `uninstall --config <file>` using the original configuration, edit the
+JSON, then run `install --config <file>` and `status --config <file>`. Uninstall
+preserves data. Reinstallation also updates launchd's recorded log path and
+shutdown deadline. For a foreground run, stop with Control-C before editing,
+then run the service again. Changing `data_dir` selects a different data root;
+it does not move existing conversations, settings or paired identities.
+
+With the example `--data-dir "$HOME/.magi-center"`, center configuration lives
+under `~/.magi-center/config/` (`agent.yaml`, `llm.yaml`, `lifecycle.yaml` and
+plugin configuration), with personality files under `~/.magi-center/personalities/`.
+Prefer the connected UI so changes receive validation and runtime activation.
+If editing these files manually, stop the service first and restart afterwards.
 
 ## Upgrade and uninstall
 

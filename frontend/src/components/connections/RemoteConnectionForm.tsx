@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,12 +19,16 @@ export function isRemoteConnectionDraftComplete(draft: RemoteConnectionDraft): b
 
 export function RemoteConnectionForm({ id, draft, onChange, onSubmit, busy, showSubmit = true }: RemoteConnectionFormProps) {
   const { t } = useTranslation('app');
+  const addressHintId = useId();
   return <form id={id} className="space-y-5" onSubmit={(event) => {
     event.preventDefault();
     if (!busy && isRemoteConnectionDraftComplete(draft)) void onSubmit();
   }}>
     <p className="text-sm leading-6 text-muted-foreground">{t('connections.pairingHint')}</p>
-    <label className="block space-y-2 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} required disabled={busy} autoComplete="off" spellCheck={false} /></label>
+    <div className="space-y-2">
+      <label className="block space-y-2 text-sm"><span>{t('connections.address')}</span><Input type="url" placeholder="https://magi.example.com" aria-describedby={addressHintId} value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} required disabled={busy} autoComplete="off" spellCheck={false} /></label>
+      <p id={addressHintId} className="text-xs leading-5 text-muted-foreground">{t('connections.addressHint')}</p>
+    </div>
     <label className="block space-y-2 text-sm"><span>{t('connections.pairingCode')}</span><Input type="password" value={draft.token} onChange={(event) => onChange({ ...draft, token: event.target.value })} required disabled={busy} autoComplete="off" /></label>
     <div className="grid gap-5 sm:grid-cols-2">
       <label className="block space-y-2 text-sm"><span>{t('connections.name')}</span><Input value={draft.name} onChange={(event) => onChange({ ...draft, name: event.target.value })} maxLength={64} required disabled={busy} autoComplete="off" /></label>

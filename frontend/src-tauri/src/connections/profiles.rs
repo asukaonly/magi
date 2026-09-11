@@ -161,6 +161,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn same_machine_center_remains_a_paired_external_profile() {
+        let root = std::env::temp_dir().join(format!("magi-profiles-{}", uuid::Uuid::new_v4()));
+        let mut store = ProfileStore::open(&root).unwrap();
+        let mut data = store.data.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        data.profiles.push(Profile::Remote {
+            id: id.clone(),
+            name: "Independent center".into(),
+            api_base_url: "http://127.0.0.1:19080/api".into(),
+            server_id: uuid::Uuid::new_v4().to_string(),
+            client_id: uuid::Uuid::new_v4().to_string(),
+        });
+        data.active_profile_id = Some(id.clone());
+        store.save(data).unwrap();
+        let reopened = ProfileStore::open(&root).unwrap();
+        assert!(
+            matches!(reopened.profile(&id).unwrap(), Profile::Remote { api_base_url, .. } if api_base_url == "http://127.0.0.1:19080/api")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn profiles_persist_identity_without_credentials_and_reject_unknown_versions() {
         let root = std::env::temp_dir().join(format!("magi-profiles-{}", uuid::Uuid::new_v4()));
         let mut store = ProfileStore::open(&root).unwrap();

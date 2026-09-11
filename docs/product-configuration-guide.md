@@ -1016,8 +1016,16 @@ For a high-level repository and architecture introduction, read:
 
 ### Center connections
 
-First launch offers this computer or a paired remote center. A remote connection
-requires an HTTPS address and a one-time pairing code generated on the center.
+First launch offers this computer or a paired independently managed center.
+Connections to another computer require HTTPS. A center on the same computer
+also accepts `http://127.0.0.1:<port>`; `http://localhost:<port>` is normalized
+to that literal address before pairing. The HTTP exception does not resolve
+arbitrary hostnames and native loopback requests bypass proxies. Pairing still
+requires a one-time code generated on the center, and redirects remain rejected.
+This is a paired external profile even on loopback: the desktop does not launch,
+restart or stop that center. Startup validation, saved profiles, session renewal
+and file downloads use the same address policy. The shared connection form
+explains both same-computer HTTP and other-computer HTTPS addresses.
 Pairing grants full single-owner management access; the form states this scope.
 The desktop stores the reusable device credential in the OS vault. Saved
 connections are managed under Settings → Application → Center Connections,
@@ -1037,6 +1045,18 @@ settings as a substitute for center authorization. Web authorization links from
 explicit plugin actions can still open in the client's browser.
 
 ### Device preferences and center settings
+
+For an independently deployed center, deployment parameters such as the listener
+port, data root, worker launch paths and supervision policy belong to the
+operator's `server.json`. They are configured by the service CLI and edited on
+the center host, outside the desktop settings editor. The packaged service's
+README documents initialization, login startup and reconfiguration.
+
+Once paired, a desktop configures models, provider credentials, personalities,
+memory and plugins on the active center. An unconfigured center remains available
+for pairing and management; the connected desktop completes its onboarding.
+These edits persist under the center's data root and activate through its runtime
+configuration API. They do not configure a separate Python process on the client.
 
 Desktop close-to-tray, notification delivery/previews, autostart, minimized startup,
 and quit confirmation belong to the client device. They persist in the device

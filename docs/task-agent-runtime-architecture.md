@@ -50,7 +50,9 @@ Last reviewed against the implementation: 2026-08-25.
 
 Each center has one Python `ipc_worker` process behind the Rust gateway.
 `magi-server` owns both lifetimes. The local desktop starts that same service
-executable; a remote desktop connects over HTTPS and runs neither process.
+executable; a paired desktop connects over HTTPS (or HTTP to `127.0.0.1` on the
+same machine) and runs neither process. Loopback pairing does not transfer
+lifecycle ownership to that desktop.
 For independent deployment, `magi-server run` is a small process owner that
 launches a separate gateway process through the private stdin protocol. The
 desktop already supplies that owner and launches the gateway directly. Both

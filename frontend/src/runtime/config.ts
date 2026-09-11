@@ -92,7 +92,8 @@ export function initializeRuntime(onProgress?: StartupProgressCallback): Promise
       const result = connectionSchema.parse(await invoke<unknown>('connect_active_profile'));
       assertRuntimeGeneration(owner);
       const url = new URL(result.baseUrl);
-      if ((result.mode === 'remote' && url.protocol !== 'https:')
+      const loopbackHttp = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+      if ((result.mode === 'remote' && url.protocol !== 'https:' && !loopbackHttp)
         || (result.mode === 'local' && (url.protocol !== 'http:' || url.hostname !== '127.0.0.1'))
         || url.username || url.password || url.search || url.hash || url.pathname !== '/api') {
         throw new Error('Service returned an invalid API address');

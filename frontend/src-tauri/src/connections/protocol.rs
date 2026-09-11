@@ -45,8 +45,14 @@ struct Envelope<T> {
 }
 
 pub fn normalize_remote_url(raw: &str) -> Result<String, String> {
-    let url = Url::parse(raw.trim()).map_err(|_| "Enter a valid HTTPS center address")?;
-    if url.scheme() != "https"
+    let mut url = Url::parse(raw.trim()).map_err(|_| "Enter a valid center address")?;
+    // Pin the same-machine alias to the gateway's literal bind address, without DNS.
+    if url.scheme() == "http" && url.host_str() == Some("localhost") {
+        url.set_host(Some("127.0.0.1"))
+            .map_err(|_| "Invalid loopback center address")?;
+    }
+    let loopback_http = url.scheme() == "http" && url.host_str() == Some("127.0.0.1");
+    if (url.scheme() != "https" && !loopback_http)
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
@@ -55,7 +61,7 @@ pub fn normalize_remote_url(raw: &str) -> Result<String, String> {
         || !matches!(url.path(), "" | "/" | "/api" | "/api/")
     {
         return Err(
-            "Center address must use HTTPS with no credentials, query or extra path".into(),
+            "Center address must use HTTPS or HTTP on 127.0.0.1/localhost, with no credentials, query or extra path".into(),
         );
     }
     Ok(format!("{}/api", url.origin().ascii_serialization()))
@@ -96,8 +102,14 @@ impl CenterClient {
     pub fn remote(base_url: &str) -> Result<Self, String> {
         initialize_tls();
         let base_url = normalize_remote_url(base_url)?;
-        let http = Client::builder()
-            .https_only(true)
+        let builder = Client::builder();
+        let builder = if base_url.starts_with("http://") {
+            // A loopback credential must never be sent to an environment/system proxy.
+            builder.no_proxy()
+        } else {
+            builder.https_only(true)
+        };
+        let http = builder
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
@@ -175,7 +187,7 @@ impl CenterClient {
             request = request.json(&body);
         }
         let mut response = request.send().await.map_err(|_| {
-            "Secure center connection failed; check its address, network and HTTPS trust"
+            "Center connection failed; check its address, network and certificate when using HTTPS"
         })?;
         if !response.status().is_success() {
             return Err(match response.status().as_u16() {
@@ -243,6 +255,16 @@ mod tests {
         );
         for address in [
             "http://center.example",
+            "http://192.168.1.20:19080",
+            "http://0.0.0.0:19080",
+            "http://127.0.0.1.example:19080",
+            "http://localhost.example:19080",
+            "http://localhost.:19080",
+            "http://[2001:db8::1]:19080",
+            "http://127.0.0.1:19080/other",
+            "http://127.0.0.1:19080?token=secret",
+            "http://127.0.0.1:19080/#fragment",
+            "http://owner:secret@127.0.0.1:19080",
             "https://owner:password@center.example",
             "https://center.example?token=secret",
             "https://center.example/other",
@@ -251,5 +273,103 @@ mod tests {
         ] {
             assert!(normalize_remote_url(address).is_err(), "{address}");
         }
+    }
+
+    #[test]
+    fn same_machine_addresses_are_canonical_and_do_not_depend_on_dns() {
+        for input in [
+            "http://127.0.0.1:19080",
+            " http://localhost:19080/api/ ",
+            "http://LOCALHOST:19080/",
+        ] {
+            assert_eq!(
+                normalize_remote_url(input).unwrap(),
+                "http://127.0.0.1:19080/api"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn loopback_pairing_renewal_info_and_download_keep_authentication() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            for (path, token, body) in [
+                (
+                    "POST /api/auth/pair ",
+                    "pair-code",
+                    json!({"success":true,"data":{
+                        "server_id":"center", "client_id":"device", "client_credential":"device-key"
+                    }}),
+                ),
+                (
+                    "POST /api/auth/session ",
+                    "device-key",
+                    json!({"success":true,"data":{
+                        "server_id":"center", "client_id":"device", "access_token":"session-key", "expires_at_ms":1
+                    }}),
+                ),
+                (
+                    "GET /api/server/info ",
+                    "session-key",
+                    json!({"success":true,"data":{
+                        "server_id":"center", "protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION,
+                        "service_ready":true, "maintenance":{"data_epoch":"data", "content_epoch":"content", "phase":"idle"}
+                    }}),
+                ),
+                (
+                    "GET /api/files/outputs/id/chunks ",
+                    "session-key",
+                    json!({"data":"file-content"}),
+                ),
+            ] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut headers = Vec::new();
+                while !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+                    let mut buffer = [0; 1024];
+                    let length = socket.read(&mut buffer).await.unwrap();
+                    assert!(length > 0 && headers.len() + length <= 8192);
+                    headers.extend_from_slice(&buffer[..length]);
+                }
+                let headers = String::from_utf8_lossy(&headers);
+                assert!(headers.starts_with(path), "{headers}");
+                assert!(headers.contains(&format!("x-magi-session-token: {token}\r\n")));
+                let body = body.to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let client = CenterClient::remote(&format!("http://localhost:{port}")).unwrap();
+        let grant = client.pair("pair-code", "This computer").await.unwrap();
+        let session = client.renew(&grant.client_credential).await.unwrap();
+        let info = client.info(&session.access_token).await.unwrap();
+        assert!(info.service_ready);
+        let output: Value = client
+            .file_output("files/outputs/id/chunks", &session.access_token)
+            .await
+            .unwrap();
+        assert_eq!(output["data"], "file-content");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn loopback_authentication_never_follows_redirects() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            socket.read(&mut request).await.unwrap();
+            socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://192.0.2.1/collect\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+        });
+        let client = CenterClient::remote(&format!("http://{address}")).unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), client.info("test-access"))
+            .await
+            .unwrap()
+            .err()
+            .unwrap();
+        assert_eq!(error, "Center connection request failed");
+        server.await.unwrap();
     }
 }
