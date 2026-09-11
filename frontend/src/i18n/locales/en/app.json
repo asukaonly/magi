@@ -5671,7 +5671,7 @@
       "confirmRevoke": "Revoke now",
       "empty": "No devices are currently paired.",
       "createCode": "Create pairing code",
-      "codeHint": "This code works once and expires in five minutes. Share it only with a device you want to authorize.",
+      "codeHint": "This code works once and expires in 30 minutes. Restarting the Magi service invalidates it. Share it only with a device you want to authorize.",
       "copy": "Copy",
       "copied": "Copied",
       "loadFailed": "Could not load device access.",
@@ -5687,7 +5687,7 @@
     "pairingHint": "Generate a one-time pairing code on the computer running Magi and paste it here.",
     "name": "Connection name",
     "address": "Magi address",
-    "addressHint": "On the same computer, use http://127.0.0.1:19080. Connections to another computer require an HTTPS address.",
+    "addressHint": "Use the address and port of your Magi deployment. Same-computer connections support HTTP on 127.0.0.1 or localhost; other computers require HTTPS.",
     "pairingCode": "Pairing code",
     "ownerAccess": "Pairing gives this device full access to remote Magi's data, settings, and tools. Only connect to a Magi you trust.",
     "pair": "Pair and connect",
@@ -5705,7 +5705,16 @@
     "choose": "Choose a connection",
     "change": "Choose another connection",
     "serverPlugins": "Plugins collect data and run tools on the computer running Magi.",
-    "deviceName": "This device name"
+    "deviceName": "This device name",
+    "errors": {
+      "pairingFormat": "Invalid pairing code format. Paste only the pairing_token value (64 characters), without quotes or the full JSON output.",
+      "pairingRejected": "This pairing code is not valid for this Magi. It may have expired, been used, or been invalidated by a service restart. Generate a new code on the Magi you want to connect to and try again.",
+      "deviceCredential": "This device authorization is invalid or has been revoked. Pair this device again.",
+      "sessionExpired": "Your connection session has expired. Reconnect, and pair again if the problem continues.",
+      "originRejected": "Magi rejected this client’s request origin. Check the client and proxy configuration.",
+      "authorizationRejected": "Magi rejected the authorization request. Check the connection address and credentials.",
+      "busy": "Magi is busy. Try again shortly."
+    }
   },
   "centerFiles": {
     "chooseDirectory": "Choose a folder on the center",

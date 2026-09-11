@@ -97,6 +97,25 @@ describe('connection onboarding', () => {
     expect(activate).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['invalid_pairing_format', 'pairingFormat'],
+    ['invalid_pairing_grant', 'pairingRejected'],
+    ['invalid_client_credential', 'deviceCredential'],
+    ['client_auth_required', 'sessionExpired'],
+    ['origin_not_allowed', 'originRejected'],
+    ['center_authorization_rejected', 'authorizationRejected'],
+    ['auth_busy', 'busy'],
+  ])('shows localized recovery for %s without dropping the editable draft', async (code, key) => {
+    pair.mockRejectedValue(code);
+    render(<ConnectionOnboarding initialStep="location" />);
+    const user = await openRemote();
+    fillRemote();
+    await user.click(screen.getByRole('button', { name: 'connections.pair' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(`connections.errors.${key}`);
+    expect(screen.getByLabelText('connections.pairingCode')).toHaveValue('private-code');
+    expect(activate).not.toHaveBeenCalled();
+  });
+
   it('owns a single pairing request and blocks back navigation while it is pending', async () => {
     let finish!: (value: typeof remote) => void;
     pair.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));

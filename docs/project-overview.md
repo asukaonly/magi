@@ -172,7 +172,7 @@ desktop host or benchmark launcher, not a remote pairing mechanism.
 On macOS and Unix hosts, the same OS account can run `magi-server status`,
 `pair`, `clients`, or `revoke`, each with `--config <json-file>`; revocation also
 requires `--client-id <id>`. These commands use the private `runtime/manage.sock`
-channel to the running instance. `pair` outputs a single-use, five-minute
+channel to the running instance. `pair` outputs a single-use, 30-minute
 pairing token; transfer it through a trusted channel. HTTP pairing exchanges
 it for one device credential, and session renewal exchanges that credential
 for a fifteen-minute access token. All three use `x-magi-session-token` only

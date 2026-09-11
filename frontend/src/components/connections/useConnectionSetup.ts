@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '@/utils/error-handler';
+import { connectionErrorKey } from './connectionErrors';
 import {
   activateConnection, forgetConnection, listConnectionProfiles, pairCenter,
   type ConnectionProfiles,
@@ -53,7 +54,8 @@ export function useConnectionSetup() {
     catch (failure) {
       if (mounted.current) {
         const detail = getErrorMessage(failure) ?? (typeof failure === 'string' ? failure : '');
-        setError(`${t('connections.failed')} ${detail}`.trim());
+        const errorKey = connectionErrorKey(detail);
+        setError(errorKey ? t(errorKey) : `${t('connections.failed')} ${detail}`.trim());
       }
     } finally {
       inFlight.current = false;

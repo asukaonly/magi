@@ -11,7 +11,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 const ACCESS_TTL: Duration = Duration::from_secs(15 * 60);
-const PAIR_TTL: Duration = Duration::from_secs(5 * 60);
+const PAIR_TTL: Duration = Duration::from_secs(30 * 60);
 pub const LOCAL_OWNER: &str = "local-owner";
 
 pub struct AuthStore {
@@ -284,6 +284,27 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pairing_grants_have_a_thirty_minute_deadline() {
+        let store = AuthStore::local("owner");
+        let before = now_ms();
+        let grant = store.create_pairing_grant().unwrap();
+        let after = now_ms();
+        assert!((before + 1_800_000..=after + 1_800_000).contains(&grant.expires_at_ms));
+        let expiry = store.memory.read().unwrap().grants[&hash(&grant.pairing_token)];
+        let remaining = expiry.duration_since(Instant::now());
+        assert!(remaining > Duration::from_secs(29 * 60));
+        assert!(remaining <= Duration::from_secs(30 * 60));
+        assert!(store.validates_pairing_grant(&grant.pairing_token));
+
+        store.memory.write().unwrap().grants.insert(
+            hash(&grant.pairing_token),
+            Instant::now() - Duration::from_secs(1),
+        );
+        assert!(!store.validates_pairing_grant(&grant.pairing_token));
+        assert!(store.pair(&grant.pairing_token, "Laptop").is_err());
+    }
 
     #[test]
     fn pairing_is_single_use_and_credentials_are_distinct_from_sessions() {

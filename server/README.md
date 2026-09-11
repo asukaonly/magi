@@ -92,8 +92,10 @@ After the service starts, generate a one-time pairing code on the center Mac:
   --config "$HOME/.config/magi-server/server.json"
 ```
 
-Paste the output's `pairing_token` into the desktop connection form. It works
-once and expires after five minutes. If the desktop runs on this same Mac, enter
+Paste only the output's `pairing_token` value (64 characters, without quotes or
+the JSON object) into the desktop connection form. It works once and expires
+after 30 minutes. Restarting the service invalidates outstanding codes; generate
+a new code on the center you want to connect to. If the desktop runs on this same Mac, enter
 `http://127.0.0.1:19080` (or the configured port). `http://localhost:<port>` also
 works and is normalized to `127.0.0.1`. This still creates a paired connection;
 closing the desktop leaves the independently deployed center running. The
@@ -115,7 +117,7 @@ tailscale serve --bg http://127.0.0.1:19080
 ```
 
 Use the HTTPS address reported by the proxy and the one-time pairing token in
-Magi desktop's connection screen. Tokens expire after five minutes. Pair each
+Magi desktop's connection screen. Tokens expire after 30 minutes. Pair each
 device separately. The private Serve endpoint is sufficient; public Funnel is
 not required. Choose a hostname without private information because public TLS
 certificate names appear in certificate transparency logs. Magi does not require

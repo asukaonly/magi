@@ -48,7 +48,7 @@ permission-protected Unix management socket rather than modifying an active
 service database directly.
 
 Pairing grants, access sessions, desktop OS-owner sessions and resource tickets
-exist only in process memory. Pairing grants expire after five minutes; access
+exist only in process memory. Pairing grants expire after 30 minutes; access
 sessions after fifteen minutes; owner sessions end with the host process.
 Service restart preserves client authorization but requires fresh access
 sessions. Revocation persists and also invalidates existing resource tickets.

@@ -367,6 +367,59 @@ fn unowned_console_server_supports_private_operator_pairing() {
     assert!(!database
         .windows(64)
         .any(|part| part == pairing["pairing_token"].as_str().unwrap().as_bytes()));
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let remaining_ms = pairing["expires_at_ms"].as_i64().unwrap() - now_ms;
+    assert!((1_740_000..=1_800_000).contains(&remaining_ms));
+
+    let request = |method: &str, path: &str, token: &str, payload: Value| {
+        let mut stream =
+            TcpStream::connect_timeout(&server.address, Duration::from_secs(1)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let body = payload.to_string();
+        write!(stream, "{method} {path} HTTP/1.1\r\nHost: {}\r\nx-magi-session-token: {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", server.address, body.len()).unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+        (
+            headers.split_whitespace().nth(1).unwrap().to_owned(),
+            serde_json::from_str::<Value>(body).unwrap(),
+        )
+    };
+    let (status, rejected) = request(
+        "POST",
+        "/api/auth/pair",
+        &"f".repeat(64),
+        json!({"name":"Laptop"}),
+    );
+    assert_eq!(status, "401");
+    assert_eq!(rejected["error_code"], "invalid_pairing_grant");
+    let token = pairing["pairing_token"].as_str().unwrap();
+    let (status, paired) = request("POST", "/api/auth/pair", token, json!({"name":"Laptop"}));
+    assert_eq!(status, "200");
+    let (status, reused) = request("POST", "/api/auth/pair", token, json!({"name":"Other"}));
+    assert_eq!(status, "401");
+    assert_eq!(reused["error_code"], "invalid_pairing_grant");
+    let (status, session) = request(
+        "POST",
+        "/api/auth/session",
+        paired["data"]["client_credential"].as_str().unwrap(),
+        json!({}),
+    );
+    assert_eq!(status, "200");
+    let (status, info) = request(
+        "GET",
+        "/api/server/info",
+        session["data"]["access_token"].as_str().unwrap(),
+        json!({}),
+    );
+    assert_eq!(status, "200");
+    assert_eq!(info["data"]["server_id"], pairing["server_id"]);
+    assert_eq!(operator("clients").as_array().unwrap().len(), 1);
     // SIGTERM requests graceful exit of the child owned by this test.
     signal_terminate(server.child.id());
 }

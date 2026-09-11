@@ -119,6 +119,9 @@ impl CenterClient {
     }
 
     pub async fn pair(&self, token: &str, name: &str) -> Result<ClientGrant, String> {
+        if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("invalid_pairing_format".into());
+        }
         self.request(Method::POST, "auth/pair", token, Some(json!({"name":name})))
             .await
     }
@@ -189,14 +192,7 @@ impl CenterClient {
         let mut response = request.send().await.map_err(|_| {
             "Center connection failed; check its address, network and certificate when using HTTPS"
         })?;
-        if !response.status().is_success() {
-            return Err(match response.status().as_u16() {
-                401 | 403 => "Center authorization was rejected; pair this device again",
-                429 => "Center is busy; try again shortly",
-                _ => "Center connection request failed",
-            }
-            .into());
-        }
+        let status = response.status();
         let mut bytes = Vec::new();
         while let Some(chunk) = response
             .chunk()
@@ -208,7 +204,33 @@ impl CenterClient {
             }
             bytes.extend_from_slice(&chunk);
         }
+        if !status.is_success() {
+            // Preserve known protocol codes without exposing remote response text or credentials.
+            let code = response_error_code(status.as_u16(), &bytes);
+            log::warn!("Center request rejected (path={path}, status={status}, code={code})");
+            return Err(code.into());
+        }
         Ok(bytes)
+    }
+}
+
+fn response_error_code(status: u16, bytes: &[u8]) -> &'static str {
+    #[derive(Deserialize)]
+    struct Failure {
+        error_code: String,
+    }
+    let failure = serde_json::from_slice::<Failure>(bytes).ok();
+    match (
+        status,
+        failure.as_ref().map(|value| value.error_code.as_str()),
+    ) {
+        (401, Some("invalid_pairing_grant")) => "invalid_pairing_grant",
+        (401, Some("invalid_client_credential")) => "invalid_client_credential",
+        (401, Some("client_auth_required")) => "client_auth_required",
+        (403, Some("origin_not_allowed")) => "origin_not_allowed",
+        (401 | 403, _) => "center_authorization_rejected",
+        (429, _) => "auth_busy",
+        _ => "Center connection request failed",
     }
 }
 
@@ -222,6 +244,73 @@ fn initialize_tls() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PAIR_CODE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn authentication_errors_preserve_codes_without_remote_messages() {
+        for code in [
+            "invalid_pairing_grant",
+            "invalid_client_credential",
+            "client_auth_required",
+        ] {
+            let body = json!({"error_code": code, "message": "untrusted remote text"});
+            assert_eq!(response_error_code(401, body.to_string().as_bytes()), code);
+        }
+        assert_eq!(
+            response_error_code(403, br#"{"error_code":"origin_not_allowed"}"#),
+            "origin_not_allowed"
+        );
+        assert_eq!(
+            response_error_code(401, b"not json"),
+            "center_authorization_rejected"
+        );
+        assert_eq!(
+            response_error_code(403, br#"{"error_code":"unknown_secret"}"#),
+            "center_authorization_rejected"
+        );
+        assert_eq!(
+            response_error_code(500, br#"{"error_code":"invalid_pairing_grant"}"#),
+            "Center connection request failed"
+        );
+    }
+
+    #[tokio::test]
+    async fn pairing_rejects_full_output_and_quoted_or_malformed_codes_before_network_io() {
+        let client = CenterClient::remote("http://127.0.0.1:1").unwrap();
+        for token in [
+            String::new(),
+            format!("\"{PAIR_CODE}\""),
+            json!({"pairing_token":PAIR_CODE}).to_string(),
+            "g".repeat(64),
+            "a".repeat(63),
+        ] {
+            assert_eq!(
+                client.pair(&token, "Laptop").await.err().unwrap(),
+                "invalid_pairing_format"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pairing_rejection_reaches_the_caller_as_a_protocol_code() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0; 4096];
+            socket.read(&mut request).await.unwrap();
+            let body = r#"{"success":false,"error_code":"invalid_pairing_grant","message":"Pairing grant is invalid or expired"}"#;
+            socket.write_all(format!("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        let client = CenterClient::remote(&format!("http://{address}")).unwrap();
+        assert_eq!(
+            client.pair(PAIR_CODE, "Laptop").await.err().unwrap(),
+            "invalid_pairing_grant"
+        );
+        server.await.unwrap();
+    }
 
     #[tokio::test]
     async fn download_contract_accepts_bounded_raw_json_without_native_envelopes() {
@@ -298,7 +387,7 @@ mod tests {
             for (path, token, body) in [
                 (
                     "POST /api/auth/pair ",
-                    "pair-code",
+                    PAIR_CODE,
                     json!({"success":true,"data":{
                         "server_id":"center", "client_id":"device", "client_credential":"device-key"
                     }}),
@@ -340,7 +429,7 @@ mod tests {
             }
         });
         let client = CenterClient::remote(&format!("http://localhost:{port}")).unwrap();
-        let grant = client.pair("pair-code", "This computer").await.unwrap();
+        let grant = client.pair(PAIR_CODE, "This computer").await.unwrap();
         let session = client.renew(&grant.client_credential).await.unwrap();
         let info = client.info(&session.access_token).await.unwrap();
         assert!(info.service_ready);

@@ -1105,13 +1105,18 @@ invalidates a pending transfer; download access never uses a credential in a URL
 The Settings connection section separates saved connection profiles from the
 current center's device authorizations. The access panel lists paired devices,
 requires explicit confirmation before revocation, and can generate a one-use
-five-minute pairing code. Codes remain masked in component memory and are copied
+30-minute pairing code. Codes remain masked in component memory and are copied
 only on user action; they are never stored in browser persistence. Revoking the
 current device disconnects its profile without stopping the center. The remote
 quit prompt explicitly states that center tasks continue after closing the client.
 
 Pairing asks separately for the saved center connection name and the current
 device name. Only the device name identifies the authorization on the center.
+Address guidance uses the deployment's actual port, without implying a fixed
+development port. Pairing accepts the 64-character token value, not the CLI's
+full JSON output. Invalid pairing codes, revoked device credentials and expired
+sessions have distinct localized recovery instructions. Restarting the service
+invalidates outstanding pairing codes even before their 30-minute deadline.
 
 Mounted chat, persona headers, settings, and device access panels reconcile center snapshots after
 change hints, focus/reconnect, and a 30-second fallback check while visible.

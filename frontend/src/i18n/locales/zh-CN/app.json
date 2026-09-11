@@ -5669,7 +5669,7 @@
       "confirmRevoke": "确认撤销",
       "empty": "目前没有已配对的设备。",
       "createCode": "生成配对码",
-      "codeHint": "配对码仅可使用一次，五分钟后失效。请只提供给你希望授权的设备。",
+      "codeHint": "配对码仅可使用一次，30 分钟后失效；Magi 服务重启后需重新生成。请只提供给你希望授权的设备。",
       "copy": "复制",
       "copied": "已复制",
       "loadFailed": "暂时无法读取设备授权。",
@@ -5685,7 +5685,7 @@
     "pairingHint": "在运行 Magi 的电脑上生成一次性配对码，再粘贴到这里。",
     "name": "连接名称",
     "address": "Magi 地址",
-    "addressHint": "同一台电脑可填 http://127.0.0.1:19080；连接其他电脑需使用 HTTPS 地址。",
+    "addressHint": "地址和端口以 Magi 的实际部署为准。同机连接支持 127.0.0.1 或 localhost 的 HTTP 地址；连接其他电脑需使用 HTTPS。",
     "pairingCode": "配对码",
     "ownerAccess": "配对后，这台设备可管理远程 Magi 的全部数据、设置和工具。请确认这是你信任的 Magi。",
     "pair": "配对并连接",
@@ -5703,7 +5703,16 @@
     "choose": "选择连接方式",
     "change": "选择其他连接",
     "serverPlugins": "插件在运行 Magi 的电脑上采集数据和执行工具。",
-    "deviceName": "这台设备的名称"
+    "deviceName": "这台设备的名称",
+    "errors": {
+      "pairingFormat": "配对码格式不正确。请只粘贴 pairing_token 的值（64 位字符），不要包含引号或整段 JSON 输出。",
+      "pairingRejected": "这个配对码无法用于当前 Magi，可能已过期、已使用或因服务重启而失效。请在要连接的 Magi 上重新生成配对码后重试。",
+      "deviceCredential": "这台设备的授权已失效或被撤销，请重新配对。",
+      "sessionExpired": "连接会话已失效，请重新连接；如果仍失败，请重新配对。",
+      "originRejected": "Magi 拒绝了当前客户端的请求来源，请检查客户端与代理配置。",
+      "authorizationRejected": "Magi 拒绝了授权请求，请确认连接地址和授权信息。",
+      "busy": "Magi 暂时繁忙，请稍后重试。"
+    }
   },
   "centerFiles": {
     "chooseDirectory": "选择中心上的文件夹",
