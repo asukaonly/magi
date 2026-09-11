@@ -233,8 +233,11 @@ It should provide a stable place where users can revisit and update:
 Expected behavior:
 
 - settings are grouped by category
-- General settings use focused sub-sections for appearance, desktop behavior,
-  center connections, network access, and diagnostics instead of one long form
+- Application settings use focused sub-sections for interface and language,
+  desktop and notifications, center connections, network and proxy,
+  diagnostics and logs, and About Magi instead of one long form
+- version information and update controls belong under About Magi rather than
+  desktop behavior settings
 - changes are validated before save
 - save success and validation errors are visible to the user
 - language switching remains available from settings
@@ -1017,8 +1020,8 @@ First launch offers this computer or a paired remote center. A remote connection
 requires an HTTPS address and a one-time pairing code generated on the center.
 Pairing grants full single-owner management access; the form states this scope.
 The desktop stores the reusable device credential in the OS vault. Saved
-connections are managed under Settings → General → Connections, where inactive
-remote profiles can be forgotten. A failed startup still allows selecting
+connections are managed under Settings → Application → Center Connections,
+where inactive remote profiles can be forgotten. A failed startup still allows selecting
 another connection before the main settings surface is available. Selecting a
 different saved profile or pairing a new center requires explicit confirmation
 before Magi reloads its interface and rebuilds its runtime clients. The warning

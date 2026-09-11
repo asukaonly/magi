@@ -866,7 +866,7 @@ describe('settings page draft saving', () => {
 
     const general = await screen.findByRole('button', { name: 'settings.tabs.preferences' });
     expect(general).toHaveAttribute('aria-expanded', 'true');
-    for (const section of ['appearance', 'desktop', 'connections', 'network', 'diagnostics']) {
+    for (const section of ['appearance', 'desktop', 'connections', 'network', 'diagnostics', 'about']) {
       expect(screen.getByRole('button', { name: `settings.tabs.${section}` })).toBeInTheDocument();
     }
     expect(screen.getByRole('heading', { name: 'settings.tabs.appearance' })).toBeInTheDocument();
@@ -875,12 +875,18 @@ describe('settings page draft saving', () => {
     expect(screen.getByRole('heading', { name: 'settings.tabs.desktop' })).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'settings.closeToTrayLabel' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'settings.fields.language' })).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.updates.currentVersionLabel')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.network' }));
     expect(screen.getByRole('button', { name: 'settings.fields.networkProxy' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'settings.tabs.diagnostics' }));
     expect(screen.getByRole('switch', { name: 'settings.diagnostics.fullContentLoggingLabel' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'settings.tabs.about' }));
+    expect(screen.getByRole('heading', { name: 'settings.tabs.about' })).toBeInTheDocument();
+    expect(screen.getByText('settings.updates.currentVersionLabel')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'settings.closeToTrayLabel' })).not.toBeInTheDocument();
   });
 
   it('shows a retryable error instead of editable defaults when configuration cannot load', async () => {

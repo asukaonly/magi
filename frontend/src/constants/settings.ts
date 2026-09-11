@@ -41,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
       { id: 'connections' },
       { id: 'network' },
       { id: 'diagnostics' },
+      { id: 'about' },
     ],
   },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },

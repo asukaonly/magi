@@ -76,6 +76,7 @@ const PREFERENCE_SECTION_IDS = new Set<string>([
   'desktop',
   'network',
   'diagnostics',
+  'about',
 ]);
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
@@ -268,6 +269,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       case 'desktop':
       case 'network':
       case 'diagnostics':
+      case 'about':
         if (!PREFERENCE_SECTION_IDS.has(effectiveActiveSection)) {
           return null;
         }

@@ -21,7 +21,7 @@ interface SettingsPreferencesSectionProps {
   onLanguageDraftChange: (value: string) => void;
 }
 
-export type SettingsPreferencesSectionId = 'appearance' | 'desktop' | 'network' | 'diagnostics';
+export type SettingsPreferencesSectionId = 'appearance' | 'desktop' | 'network' | 'diagnostics' | 'about';
 
 const settingsSwitchClassName =
   'transition-colors duration-200 data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.76)] data-[state=checked]:bg-primary hover:data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.94)] hover:data-[state=checked]:bg-primary/90 focus-visible:ring-ring/30';
@@ -177,8 +177,6 @@ export function SettingsPreferencesSection({
               />
             </div>
           </SettingsGroup>
-
-          <DesktopUpdateSection />
         </>
       ) : null}
 
@@ -289,6 +287,8 @@ export function SettingsPreferencesSection({
           })}
         />
       </SettingsGroup> : null}
+
+      {section === 'about' ? <DesktopUpdateSection /> : null}
     </SettingsSectionShell>
   );
 }
