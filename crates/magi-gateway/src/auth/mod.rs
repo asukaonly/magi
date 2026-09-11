@@ -110,6 +110,42 @@ impl AuthStore {
         );
     }
 
+    /// Issue a bounded session only after authenticating the private OS operator channel.
+    pub fn operator_session(&self) -> AccessSession {
+        let mut memory = self.memory.write().unwrap_or_else(|e| e.into_inner());
+        memory.active_clients.insert(LOCAL_OWNER.into());
+        memory.sessions.retain(|_, session| {
+            session
+                .expires_at
+                .is_none_or(|expiry| expiry > Instant::now())
+        });
+        let operator_sessions = memory.sessions.iter().filter(|(_, session)| {
+            session.client_id == LOCAL_OWNER && session.expires_at.is_some()
+        });
+        if operator_sessions.clone().count() >= 8 {
+            if let Some(oldest) = operator_sessions
+                .min_by_key(|(_, session)| session.expires_at)
+                .map(|(key, _)| key.clone())
+            {
+                memory.sessions.remove(&oldest);
+            }
+        }
+        let token = random_token();
+        memory.sessions.insert(
+            hash(&token),
+            Session {
+                client_id: LOCAL_OWNER.into(),
+                expires_at: Some(Instant::now() + ACCESS_TTL),
+            },
+        );
+        AccessSession {
+            server_id: self.server_id.clone(),
+            client_id: LOCAL_OWNER.into(),
+            access_token: token,
+            expires_at_ms: now_ms() + ACCESS_TTL.as_millis() as i64,
+        }
+    }
+
     pub fn authenticate(&self, token: &str) -> Option<String> {
         if token.len() > 256 {
             return None;
@@ -284,6 +320,34 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn operator_sessions_expire_are_bounded_and_preserve_process_owner() {
+        let store = AuthStore::local("guardian");
+        let first = store.operator_session();
+        assert_eq!(
+            store.authenticate(&first.access_token).as_deref(),
+            Some(LOCAL_OWNER)
+        );
+        assert!((now_ms()..=now_ms() + 900_000).contains(&first.expires_at_ms));
+        for _ in 0..8 {
+            store.operator_session();
+        }
+        assert!(store.authenticate(&first.access_token).is_none());
+        assert_eq!(store.authenticate("guardian").as_deref(), Some(LOCAL_OWNER));
+        assert_eq!(store.memory.read().unwrap().sessions.len(), 9);
+        assert!(store.clients().unwrap().is_empty());
+        let last = store.operator_session();
+        store
+            .memory
+            .write()
+            .unwrap()
+            .sessions
+            .get_mut(&hash(&last.access_token))
+            .unwrap()
+            .expires_at = Some(Instant::now() - Duration::from_secs(1));
+        assert!(store.authenticate(&last.access_token).is_none());
+    }
 
     #[test]
     fn pairing_grants_have_a_thirty_minute_deadline() {

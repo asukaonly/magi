@@ -390,6 +390,25 @@ fn unowned_console_server_supports_private_operator_pairing() {
             serde_json::from_str::<Value>(body).unwrap(),
         )
     };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let access = runtime
+        .block_on(magi_server_runtime::management::request(
+            &server.root,
+            magi_server_runtime::management::Request::OperatorSession,
+        ))
+        .unwrap();
+    let (operator_status, operator_info) = request(
+        "GET",
+        "/api/server/info",
+        access["session"]["access_token"].as_str().unwrap(),
+        json!({}),
+    );
+    assert_eq!(operator_status, "200");
+    assert_eq!(operator_info["data"]["server_id"], pairing["server_id"]);
+    assert_eq!(operator("clients"), json!([]));
     let (status, rejected) = request(
         "POST",
         "/api/auth/pair",

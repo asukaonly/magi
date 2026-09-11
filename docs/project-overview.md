@@ -180,6 +180,13 @@ at their specific purpose boundary. Credentials and tokens never appear in URLs.
 Each paired device has full access to the single owner's center and can be
 individually revoked. Revocation invalidates its sessions and resource tickets.
 
+The private same-account management channel can also issue a fifteen-minute
+operator session for console setup. This credential stays in the CLI process,
+uses the existing authenticated product API, and creates neither a paired device
+nor a persistent credential. At most eight operator sessions coexist; issuing one
+never evicts the process-lifetime guardian credential. Network clients cannot
+request an operator session.
+
 The center keeps a durable identity and hashed device credentials in its own
 `service/server.db`; business data remains in existing domain stores. Only
 liveness and bundled avatars are public. HTTPS must terminate at a trusted

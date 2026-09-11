@@ -19,6 +19,7 @@ use tokio::sync::{watch, Semaphore};
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Status,
+    OperatorSession,
     Pair,
     Clients,
     Revoke { client_id: String },
@@ -138,6 +139,10 @@ async fn serve(
             Request::Pair => {
                 serde_json::to_value(auth.create_pairing_grant()?).map_err(|e| e.to_string())
             }
+            Request::OperatorSession => Ok(json!({
+                "base_url": base_url,
+                "session": auth.operator_session(),
+            })),
             Request::Clients => serde_json::to_value(auth.clients()?).map_err(|e| e.to_string()),
             Request::Revoke { client_id } => {
                 auth.revoke(&client_id)?;
