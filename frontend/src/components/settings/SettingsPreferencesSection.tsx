@@ -11,6 +11,7 @@ import { requestDesktopNotificationPermission } from '@/runtime/desktop-notifica
 import { THEME_MODE_OPTIONS, type ThemeMode } from '@/stores/theme';
 
 interface SettingsPreferencesSectionProps {
+  section: SettingsPreferencesSectionId;
   draftConfig: SystemConfig;
   fakeIpCompatibilityEnabled: boolean | undefined;
   onFakeIpCompatibilityChange: (enabled: boolean) => void;
@@ -19,6 +20,8 @@ interface SettingsPreferencesSectionProps {
   onThemePreviewChange: (mode: ThemeMode) => void;
   onLanguageDraftChange: (value: string) => void;
 }
+
+export type SettingsPreferencesSectionId = 'appearance' | 'desktop' | 'network' | 'diagnostics';
 
 const settingsSwitchClassName =
   'transition-colors duration-200 data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.76)] data-[state=checked]:bg-primary hover:data-[state=unchecked]:bg-[hsl(var(--settings-secondary)/0.94)] hover:data-[state=checked]:bg-primary/90 focus-visible:ring-ring/30';
@@ -61,6 +64,7 @@ function PreferenceToggleRow({
 }
 
 export function SettingsPreferencesSection({
+  section,
   draftConfig,
   fakeIpCompatibilityEnabled,
   onFakeIpCompatibilityChange,
@@ -89,86 +93,96 @@ export function SettingsPreferencesSection({
 
   return (
     <SettingsSectionShell>
-      <SettingsGroup title={t('settings.fields.language')}>
-        <LabeledSelectField
-          label=""
-          ariaLabel={t('settings.fields.language')}
-          value={draftConfig.preferences.language}
-          options={[
-            { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
-            { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
-          ]}
-          onChange={onLanguageDraftChange}
-        />
-      </SettingsGroup>
+      {section === 'appearance' ? (
+        <>
+          <SettingsGroup title={t('settings.fields.language')}>
+            <LabeledSelectField
+              label=""
+              ariaLabel={t('settings.fields.language')}
+              value={draftConfig.preferences.language}
+              options={[
+                { label: t('language.zhHans', { ns: 'onboarding' }), value: 'zh' },
+                { label: t('language.en', { ns: 'onboarding' }), value: 'en' },
+              ]}
+              onChange={onLanguageDraftChange}
+            />
+          </SettingsGroup>
 
-      <SettingsGroup
-        title={t('settings.fields.theme')}
-        description={t('settings.themeDesc')}
-      >
-        <LabeledSelectField
-          label=""
-          ariaLabel={t('settings.fields.theme')}
-          value={draftThemeMode}
-          options={THEME_MODE_OPTIONS.map((mode) => ({
-            label: t(`settings.theme.${mode}`),
-            value: mode,
-          }))}
-          onChange={(value) => onThemePreviewChange(value as ThemeMode)}
-        />
-      </SettingsGroup>
+          <SettingsGroup
+            title={t('settings.fields.theme')}
+            description={t('settings.themeDesc')}
+          >
+            <LabeledSelectField
+              label=""
+              ariaLabel={t('settings.fields.theme')}
+              value={draftThemeMode}
+              options={THEME_MODE_OPTIONS.map((mode) => ({
+                label: t(`settings.theme.${mode}`),
+                value: mode,
+              }))}
+              onChange={(value) => onThemePreviewChange(value as ThemeMode)}
+            />
+          </SettingsGroup>
+        </>
+      ) : null}
 
-      <SettingsGroup title={t('settings.fields.windowSettings')} description={t('settings.deviceOnly')}>
-        <div className="space-y-1.5">
-          <PreferenceToggleRow
-            label={t('settings.closeToTrayLabel')}
-            checked={draftConfig.preferences.close_to_tray_enabled}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.close_to_tray_enabled = checked;
-            })}
-          />
-          <PreferenceToggleRow
-            label={t('settings.skipQuitConfirmationLabel')}
-            checked={draftConfig.preferences.skip_quit_confirmation}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.skip_quit_confirmation = checked;
-            })}
-          />
-          <PreferenceToggleRow
-            label={t('settings.desktopNotificationsLabel')}
-            checked={draftConfig.preferences.desktop_notifications_enabled}
-            onCheckedChange={handleDesktopNotificationsChange}
-          />
-          <PreferenceToggleRow
-            label={t('settings.desktopNotificationPreviewsLabel')}
-            checked={draftConfig.preferences.desktop_notification_previews_enabled}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.desktop_notification_previews_enabled = checked;
-            })}
-          />
-        </div>
-      </SettingsGroup>
+      {section === 'desktop' ? (
+        <>
+          <SettingsGroup title={t('settings.fields.windowSettings')} description={t('settings.deviceOnly')}>
+            <div className="space-y-1.5">
+              <PreferenceToggleRow
+                label={t('settings.closeToTrayLabel')}
+                checked={draftConfig.preferences.close_to_tray_enabled}
+                onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                  draft.preferences.close_to_tray_enabled = checked;
+                })}
+              />
+              <PreferenceToggleRow
+                label={t('settings.skipQuitConfirmationLabel')}
+                checked={draftConfig.preferences.skip_quit_confirmation}
+                onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                  draft.preferences.skip_quit_confirmation = checked;
+                })}
+              />
+              <PreferenceToggleRow
+                label={t('settings.desktopNotificationsLabel')}
+                checked={draftConfig.preferences.desktop_notifications_enabled}
+                onCheckedChange={handleDesktopNotificationsChange}
+              />
+              <PreferenceToggleRow
+                label={t('settings.desktopNotificationPreviewsLabel')}
+                checked={draftConfig.preferences.desktop_notification_previews_enabled}
+                onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                  draft.preferences.desktop_notification_previews_enabled = checked;
+                })}
+              />
+            </div>
+          </SettingsGroup>
 
-      <SettingsGroup title={t('settings.startupSettings')} description={t('settings.deviceOnly')}>
-        <div className="space-y-1.5">
-          <PreferenceToggleRow
-            label={t('settings.autoStartLabel')}
-            checked={draftConfig.preferences.auto_start_enabled}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.auto_start_enabled = checked;
-            })}
-          />
-          <PreferenceToggleRow
-            label={t('settings.startMinimizedLabel')}
-            checked={draftConfig.preferences.start_minimized}
-            onCheckedChange={(checked) => patchDraftConfig((draft) => {
-              draft.preferences.start_minimized = checked;
-            })}
-          />
-        </div>
-      </SettingsGroup>
+          <SettingsGroup title={t('settings.startupSettings')} description={t('settings.deviceOnly')}>
+            <div className="space-y-1.5">
+              <PreferenceToggleRow
+                label={t('settings.autoStartLabel')}
+                checked={draftConfig.preferences.auto_start_enabled}
+                onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                  draft.preferences.auto_start_enabled = checked;
+                })}
+              />
+              <PreferenceToggleRow
+                label={t('settings.startMinimizedLabel')}
+                checked={draftConfig.preferences.start_minimized}
+                onCheckedChange={(checked) => patchDraftConfig((draft) => {
+                  draft.preferences.start_minimized = checked;
+                })}
+              />
+            </div>
+          </SettingsGroup>
 
-      <SettingsGroup title={t('settings.fields.networkProxy')}>
+          <DesktopUpdateSection />
+        </>
+      ) : null}
+
+      {section === 'network' ? <SettingsGroup title={t('settings.fields.networkProxy')}>
         <div className="space-y-4">
           <LabeledSelectField
             label=""
@@ -260,9 +274,9 @@ export function SettingsPreferencesSection({
             onCheckedChange={onFakeIpCompatibilityChange}
           />
         </div>
-      </SettingsGroup>
+      </SettingsGroup> : null}
 
-      <SettingsGroup
+      {section === 'diagnostics' ? <SettingsGroup
         title={t('settings.diagnostics.title')}
         description={t('settings.diagnostics.description')}
       >
@@ -274,9 +288,7 @@ export function SettingsPreferencesSection({
             draft.diagnostics.full_content_logging_enabled = checked;
           })}
         />
-      </SettingsGroup>
-
-      <DesktopUpdateSection />
+      </SettingsGroup> : null}
     </SettingsSectionShell>
   );
 }

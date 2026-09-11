@@ -209,6 +209,7 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'shell.settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.timeline' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'shell.tasks.label' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'connections.title' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('sidebar-conversation-rail')).not.toBeInTheDocument();
 
     await user.click(conversationButton);

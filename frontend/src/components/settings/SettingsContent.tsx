@@ -22,7 +22,8 @@ import { SettingsMemorySection, type SettingsMemorySectionId } from '@/component
 import { EmbeddingPreflightConfirmDialog } from '@/components/settings/EmbeddingPreflightConfirmDialog';
 import { SettingsNavigationSidebar } from '@/components/settings/SettingsNavigationSidebar';
 import { SettingsPersonalityRuntimeSection } from '@/components/settings/SettingsPersonalityRuntimeSection';
-import { SettingsPreferencesSection } from '@/components/settings/SettingsPreferencesSection';
+import { SettingsPreferencesSection, type SettingsPreferencesSectionId } from '@/components/settings/SettingsPreferencesSection';
+import { SettingsConnectionsSection } from '@/components/settings/SettingsConnectionsSection';
 import { SettingsToolsSection } from '@/components/settings/SettingsToolsSection';
 import { MCPServersSection } from '@/components/settings/MCPServersSection';
 import { CodeAgentSection } from '@/components/settings/CodeAgentSection';
@@ -68,6 +69,13 @@ const TOOL_SECTION_IDS = new Set<string>([
   'toolsBuiltin',
   'toolsPlugins',
   'toolsSkills',
+]);
+
+const PREFERENCE_SECTION_IDS = new Set<string>([
+  'appearance',
+  'desktop',
+  'network',
+  'diagnostics',
 ]);
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
@@ -256,9 +264,16 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     }
 
     switch (effectiveActiveSection) {
-      case 'preferences':
+      case 'appearance':
+      case 'desktop':
+      case 'network':
+      case 'diagnostics':
+        if (!PREFERENCE_SECTION_IDS.has(effectiveActiveSection)) {
+          return null;
+        }
         return (
           <SettingsPreferencesSection
+            section={effectiveActiveSection as SettingsPreferencesSectionId}
             draftConfig={draftConfig}
             fakeIpCompatibilityEnabled={typeof fakeIpCompatibilityEnabled === 'boolean' ? fakeIpCompatibilityEnabled : undefined}
             onFakeIpCompatibilityChange={(enabled) => handleToolDraftChange('web-fetch', 'allow_rfc2544_benchmark_range', enabled)}
@@ -268,6 +283,9 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
             onLanguageDraftChange={handleLanguageDraftChange}
           />
         );
+
+      case 'connections':
+        return <SettingsConnectionsSection hasUnsavedSettings={dirty} />;
 
       case 'conversation':
         return (

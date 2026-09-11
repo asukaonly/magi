@@ -19,9 +19,10 @@ export function useSettingsNavigation(): UseSettingsNavigationReturn {
   const initialSearchParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const settingsNavigationIntent = useChatShellStore((state) => state.settingsNavigationIntent);
   const [activeSection, setActiveSection] = useState(
-    settingsNavigationIntent?.section || initialSearchParams.get('section') || 'preferences'
+    settingsNavigationIntent?.section || initialSearchParams.get('section') || 'appearance'
   );
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({
+    preferences: true,
     llm: false,
     personality: false,
     memory: false,

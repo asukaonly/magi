@@ -9,12 +9,16 @@ beforeEach(() => {
   activate.mockResolvedValue(undefined);
 });
 describe('connection selection', () => {
-  it('allows local selection without requiring a remote pairing form', async () => {
-    render(<ConnectionPicker />); fireEvent.click(await screen.findByText('connections.connect'));
+  it('confirms before selecting a local connection', async () => {
+    render(<ConnectionPicker />);
+    fireEvent.click(await screen.findByText('connections.connect'));
+    expect(activate).not.toHaveBeenCalled();
+    expect(screen.getByText('connections.confirmSwitchTitle')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('connections.confirmSwitch'));
     await waitFor(() => expect(activate).toHaveBeenCalledWith('local'));
     expect(pair).not.toHaveBeenCalled();
   });
-  it('pairs before activation and explains full owner access', async () => {
+  it('confirms before pairing, then pairs before activation', async () => {
     pair.mockResolvedValue({ id: 'remote' }); render(<ConnectionPicker />);
     await screen.findByText('connections.ownerAccess');
     fireEvent.change(screen.getByLabelText('connections.name'), { target: { value: 'Home' } });
@@ -22,6 +26,8 @@ describe('connection selection', () => {
     fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: 'https://center.example' } });
     fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'one-time-code' } });
     fireEvent.click(screen.getByText('connections.pair'));
+    expect(pair).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('connections.confirmPair'));
     await waitFor(() => expect(activate).toHaveBeenCalledWith('remote'));
     expect(pair).toHaveBeenCalledWith('https://center.example', 'one-time-code', 'Home', 'Work laptop');
     expect(pair.mock.invocationCallOrder[0]).toBeLessThan(activate.mock.invocationCallOrder[0]);
@@ -34,7 +40,29 @@ describe('connection selection', () => {
     fireEvent.change(screen.getByLabelText('connections.address'), { target: { value: 'https://center.example' } });
     fireEvent.change(screen.getByLabelText('connections.pairingCode'), { target: { value: 'expired-code' } });
     fireEvent.click(screen.getByText('connections.pair'));
+    fireEvent.click(screen.getByText('connections.confirmPair'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Pairing expired');
     expect(activate).not.toHaveBeenCalled(); expect(screen.getByLabelText('connections.pairingCode')).not.toBeDisabled();
+  });
+
+  it('marks the active connection without offering a redundant switch', async () => {
+    list.mockResolvedValue({
+      supports_remote: true,
+      state: { active_profile_id: 'local', profiles: [{ id: 'local', mode: 'local' }] },
+    });
+    render(<ConnectionPicker />);
+
+    expect(await screen.findByText('connections.active')).toBeInTheDocument();
+    expect(screen.queryByText('connections.connect')).not.toBeInTheDocument();
+    expect(screen.queryByText('connections.switch')).not.toBeInTheDocument();
+  });
+
+  it('warns that pending settings will be lost before switching', async () => {
+    render(<ConnectionPicker hasUnsavedSettings />);
+    fireEvent.click(await screen.findByText('connections.connect'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('connections.unsavedSettingsWarning');
+    fireEvent.click(screen.getByText('common.cancel'));
+    expect(activate).not.toHaveBeenCalled();
   });
 });

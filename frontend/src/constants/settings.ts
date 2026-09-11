@@ -32,7 +32,17 @@ export const LANGUAGE_STORAGE_KEY = 'magi_language';
 // ============================================================================
 
 export const NAV_ITEMS: NavItem[] = [
-  { id: 'preferences', icon: Settings2 },
+  {
+    id: 'preferences',
+    icon: Settings2,
+    children: [
+      { id: 'appearance' },
+      { id: 'desktop' },
+      { id: 'connections' },
+      { id: 'network' },
+      { id: 'diagnostics' },
+    ],
+  },
   { id: 'llm', icon: Brain, children: [{ id: 'llmProviders' }, { id: 'llmModels' }] },
   { id: 'conversation', icon: MessageSquare },
   { id: 'codeAgent', icon: Code2 },

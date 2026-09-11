@@ -233,6 +233,8 @@ It should provide a stable place where users can revisit and update:
 Expected behavior:
 
 - settings are grouped by category
+- General settings use focused sub-sections for appearance, desktop behavior,
+  center connections, network access, and diagnostics instead of one long form
 - changes are validated before save
 - save success and validation errors are visible to the user
 - language switching remains available from settings
@@ -1015,11 +1017,16 @@ First launch offers this computer or a paired remote center. A remote connection
 requires an HTTPS address and a one-time pairing code generated on the center.
 Pairing grants full single-owner management access; the form states this scope.
 The desktop stores the reusable device credential in the OS vault. Saved
-connections can be selected from the sidebar and inactive remote profiles can
-be forgotten. The title bar shows the active center, and a failed startup still
-allows selecting another connection. Switching reloads the interface, so users
-must save unsent content before choosing another center. Remote plugins execute
-on the center computer; connecting a desktop does not enroll it as a collector.
+connections are managed under Settings → General → Connections, where inactive
+remote profiles can be forgotten. A failed startup still allows selecting
+another connection before the main settings surface is available. Selecting a
+different saved profile or pairing a new center requires explicit confirmation
+before Magi reloads its interface and rebuilds its runtime clients. The warning
+states that unsaved settings and unsent content can be lost, while tasks on a
+remote center continue running. This runtime reload is sufficient; switching
+profiles does not require quitting and relaunching the native desktop process.
+Remote plugins execute on the center computer; connecting a desktop does not
+enroll it as a collector.
 Plugin resource pickers and permission status read from that center and refresh
 without changing the current selections. Remote permission blocks direct users
 to System Settings on the center computer; they never open the client's system
@@ -1072,7 +1079,7 @@ invalidates a pending transfer; download access never uses a credential in a URL
 
 ### Connected center access
 
-The title-bar connection dialog separates saved connection profiles from the
+The Settings connection section separates saved connection profiles from the
 current center's device authorizations. The access panel lists paired devices,
 requires explicit confirmation before revocation, and can generate a one-use
 five-minute pairing code. Codes remain masked in component memory and are copied
