@@ -140,6 +140,20 @@ server must use the same protocol version; there is no legacy response alias.
 
 For a source checkout with its Python environment installed:
 
+```sh
+./scripts/dev-server.sh
+```
+
+This macOS/Linux development shortcut initializes
+`~/.config/magi-server/dev.json` once and reuses it on later runs, with
+`~/.magi-center-dev` as its default data root. It builds the debug server and
+uses the repository's `.venv` and Python source without starting the desktop.
+Stop with Control-C and restart after code changes. `--config` selects another
+absolute config path; `--data-dir` and `--port` apply only when creating a new
+config. Existing settings are never rewritten by the shortcut.
+
+The equivalent explicit initialization and startup commands are:
+
 ```text
 cargo build -p magi-server
 magi-server init --config <new-json-file> --data-dir <absolute-private-directory> --development-root <absolute-repository>

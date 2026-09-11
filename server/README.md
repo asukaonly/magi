@@ -143,6 +143,33 @@ Do not downgrade a migrated data directory without a tested restoration plan.
 
 ## Build from source
 
+For development on macOS or Linux, install the backend dependencies into the
+repository's `.venv`, then run:
+
+```sh
+./scripts/dev-server.sh
+```
+
+The script builds the debug server as needed, creates
+`~/.config/magi-server/dev.json` on first use, and runs only the center using
+Python source from this checkout. Its default data directory is
+`~/.magi-center-dev` and its default loopback port is `19080`. Existing config
+files are reused without modification. Control-C stops the owned runtime;
+source changes require a restart. Tauri, Vite and a packaged sidecar are not needed.
+
+To create another development instance, use absolute paths:
+
+```sh
+./scripts/dev-server.sh \
+  --config "$HOME/.config/magi-server/experiment.json" \
+  --data-dir "$HOME/.magi-center-experiment" \
+  --port 19081
+```
+
+On subsequent runs, pass only `--config` for that instance. `--data-dir` and
+`--port` are initialization options and are rejected when the config exists;
+edit the existing config to change those values. Use `--help` for all options.
+
 From the repository, `node scripts/prepare-service-bundle.mjs` stages the shared
 service component under `build/service`. Release builds must supply a verified,
 relocatable plugin Python runtime with `MAGI_PLUGIN_PYTHON_SOURCE`; a development
