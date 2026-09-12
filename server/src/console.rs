@@ -44,6 +44,25 @@ fn clean(value: &str) -> String {
         .collect()
 }
 
+fn progress<T>(
+    pending: &str,
+    success: &str,
+    failure: &str,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let spinner = cliclack::spinner();
+    spinner.start(pending);
+    let result = operation();
+    if result.is_ok() {
+        spinner.stop(success);
+    } else {
+        spinner.error(failure);
+    }
+    // Release the renderer before another prompt or error message writes to the terminal.
+    drop(spinner);
+    result
+}
+
 fn run_mode() -> Result<RunMode, String> {
     let mut select = cliclack::select("1/5 · Service settings — run mode").item(
         RunMode::Foreground,
@@ -94,9 +113,10 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
     ui(cliclack::note(
         "Deployment",
         format!(
-            "Config: {}\nData: {}",
+            "Config: {}\nData: {}\nLogs: {}",
             path.display(),
-            config.data_dir.display()
+            config.data_dir.display(),
+            config.data_dir.join("logs").display()
         ),
     ))?;
     let running = management(&config, Request::Status).is_ok();
@@ -117,7 +137,12 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
             };
             cli::validate_worker(&config)?;
             if mode == RunMode::Background {
-                crate::service_install::execute("install", path)?;
+                progress(
+                    "Installing and starting the background service",
+                    "Background service started; it will also start after login",
+                    "Background service could not be started",
+                    || crate::service_install::execute("install", path),
+                )?;
                 background_started = true;
             } else {
                 foreground = Some(Foreground::start(path, &config)?);
@@ -127,15 +152,12 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
                 "1/5 · Service settings — using the running instance",
             ))?;
         }
-        let spinner = cliclack::spinner();
-        spinner.start("Waiting for the configuration service");
-        let ready = console_runtime::wait_ready(&config, &mut foreground);
-        spinner.stop(if ready.is_ok() {
-            "Configuration service is ready"
-        } else {
-            "Service is not ready"
-        });
-        ready?;
+        progress(
+            "Waiting for the configuration service",
+            "Configuration service is ready",
+            "Service is not ready",
+            || console_runtime::wait_ready(&config, &mut foreground),
+        )?;
         let api = Api::connect(&config)?;
         if !api.completed()? {
             let in_terminal = ui(cliclack::select("2/5 · Setup method")
@@ -169,11 +191,11 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
     })();
     if result.is_err() {
         if foreground.is_some() {
-            eprintln!("Stopping the foreground service started by this console. Saved configuration is retained.");
+            let _ = cliclack::log::info("Stopping the foreground service started by this console. Saved configuration is retained.");
             drop(foreground.take());
         } else if running || background_started {
-            eprintln!(
-                "The existing/background service remains running. Saved configuration is retained."
+            let _ = cliclack::log::info(
+                "The existing/background service remains running. Saved configuration is retained.",
             );
         }
     }
@@ -252,14 +274,12 @@ fn interactive_configure(api: &Api) -> Result<(), String> {
         } else {
             collect_model(api, &snapshot["llm"])?
         };
-        let spinner = cliclack::spinner();
-        spinner.start("Verifying core and fast models (a small provider request may be billed)");
-        let tested = api.test_models(&llm);
-        spinner.stop(if tested.is_ok() {
-            "Model connection verified"
-        } else {
-            "Model verification failed"
-        });
+        let tested = progress(
+            "Verifying core and fast models (a small provider request may be billed)",
+            "Model connection verified",
+            "Model verification failed",
+            || api.test_models(&llm),
+        );
         match tested {
             Ok(()) => {
                 snapshot["llm"] = llm;

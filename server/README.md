@@ -54,7 +54,15 @@ after setup, using the same server APIs and masked secrets as desktop:
 ```
 
 For source development, use `./scripts/dev-server.sh --setup`. It keeps the
-development config/data defaults separate from the packaged deployment.
+development config/data defaults separate from the packaged deployment:
+`~/.config/magi-server/dev.json` and `~/.magi-center-dev`.
+
+The production default data root is in the user's home directory, **not the
+current working directory or the application bundle**. The first-run guide can
+choose another absolute path, saved as `data_dir` in the deployment JSON.
+Later launches keep using that saved path regardless of the shell's directory.
+Within the data root, business configuration is in `config/agent.yaml`, persisted
+domain data is in `data/`, and diagnostics are in `logs/`.
 
 For scripts and service managers, use explicit commands. They never prompt:
 
@@ -96,8 +104,12 @@ preventing another desktop or console owner from taking over that root.
 runtime readiness through a private local management socket. Logs are under
 `<data-dir>/logs`: `service.log` for the managed service and `backend.log` for
 Python. Each native output log retains an 8 MiB current file and two backups.
-Foreground runs keep service diagnostics in the terminal unless `run --log-file
-<absolute-path>` is supplied.
+The interactive guide displays the log directory and writes service diagnostics
+to files in both foreground and background mode. Installation and startup show
+step feedback; early startup failures appear after the progress indicator stops,
+without overwriting active prompts. Explicit `run` keeps service diagnostics in
+the terminal unless `run --log-file <absolute-path>` is supplied; explicit
+service-management commands print JSON results for automation.
 
 ## Change configuration
 

@@ -159,6 +159,20 @@ def main() -> None:
         root = Path(directory)
         config, data = root / "server.json", root / "data"
         try:
+            # An early child failure must not write over the active progress renderer.
+            failed_data, failed_config = root / "failure", root / "failure.json"
+            subprocess.run([executable, "init", "--config", str(failed_config), "--data-dir", str(failed_data), "--development-root", project, "--port", "0"], check=True, capture_output=True)
+            failed_config.with_suffix(".console.json").write_text('{"run_mode":"foreground"}')
+            (failed_data / "logs/service.log").mkdir(parents=True)
+            failed = Terminal([executable, "--config", str(failed_config)])
+            terminals.append(failed)
+            failed.expect("Startup diagnostics:")
+            assert failed.exit() != 0
+            plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", failed.transcript)
+            assert plain.index("Service is not ready") < plain.index("Startup diagnostics:")
+            assert "│" in plain and "└" in plain
+            wait_for(lambda: stopped(failed_data), "Failed startup left an owned runtime")
+
             # First run: initialize, choose language, then cancel before credentials.
             terminal = Terminal([executable, "--config", str(config), "--development-root", project, "--data-dir", str(data), "--port", "0"])
             terminals.append(terminal)
@@ -169,6 +183,8 @@ def main() -> None:
             terminal.expect("run mode")
             terminal.send("\r")
             terminal.expect("2/5")
+            assert "Starting Python runtime" not in terminal.transcript
+            assert f"Logs: {data / 'logs'}" in terminal.transcript
             terminal.send("\r")
             terminal.expect("3/5")
             terminal.send("\x1b[B\r")
@@ -261,7 +277,7 @@ def main() -> None:
             applied = subprocess.run([executable, "configure", "--config", str(config2), "--from-stdin"], input=json.dumps(payload), capture_output=True, text=True, timeout=90)
             assert applied.returncode == 0, applied.stderr
             assert api(data2, "/config/onboarding-status")["data"]["completed"]
-            print("PASS: cancellation, resume, language/persona, model verification, reconfigure, running reuse, foreground shutdown, desktop pairing and noninteractive first setup/failure")
+            print("PASS: ordered startup diagnostics, file-only service logs, cancellation, resume, language/persona, model verification, reconfigure, running reuse, foreground shutdown, desktop pairing and noninteractive first setup/failure")
         except BaseException:
             for name in ("service.log", "backend.log"):
                 log = data / "logs" / name

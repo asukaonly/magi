@@ -174,11 +174,21 @@ pub fn execute(
                 Command::Pair => Request::Pair,
                 Command::Clients => Request::Clients,
                 Command::Revoke { client_id } => Request::Revoke { client_id },
-                Command::Install => return crate::service_install::execute("install", &path),
-                Command::Start => return crate::service_install::execute("start", &path),
-                Command::Stop => return crate::service_install::execute("stop", &path),
-                Command::Restart => return crate::service_install::execute("restart", &path),
-                Command::Uninstall => return crate::service_install::execute("uninstall", &path),
+                Command::Install => {
+                    return print_json(&crate::service_install::execute("install", &path)?)
+                }
+                Command::Start => {
+                    return print_json(&crate::service_install::execute("start", &path)?)
+                }
+                Command::Stop => {
+                    return print_json(&crate::service_install::execute("stop", &path)?)
+                }
+                Command::Restart => {
+                    return print_json(&crate::service_install::execute("restart", &path)?)
+                }
+                Command::Uninstall => {
+                    return print_json(&crate::service_install::execute("uninstall", &path)?)
+                }
                 _ => unreachable!(),
             };
             let config = ServerConfig::load(&path)?;

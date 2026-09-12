@@ -4,6 +4,8 @@ use crate::console_api::{management, Request};
 use magi_service_contract::config::ServerConfig;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::VecDeque,
+    io::Read,
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
     time::{Duration, Instant},
@@ -43,6 +45,7 @@ pub struct Foreground {
     child: Child,
     input: Option<ChildStdin>,
     shutdown_timeout: Duration,
+    diagnostics: Option<std::thread::JoinHandle<std::io::Result<String>>>,
 }
 
 impl Foreground {
@@ -58,7 +61,7 @@ impl Foreground {
             .arg(config.data_dir.join("logs/service.log"))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            .stderr(Stdio::piped());
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -67,18 +70,51 @@ impl Foreground {
         }
         let mut child = command.spawn().map_err(|e| e.to_string())?;
         let input = child.stdin.take();
-        Ok(Self {
+        let mut foreground = Self {
             child,
             input,
             shutdown_timeout: Duration::from_secs(config.owner_shutdown_timeout_secs() + 2),
-        })
+            diagnostics: None,
+        };
+        let stderr = foreground
+            .child
+            .stderr
+            .take()
+            .ok_or("Service error output is unavailable")?;
+        foreground.diagnostics = Some(
+            std::thread::Builder::new()
+                .name("magi-console-diagnostics".into())
+                .spawn(move || capture_diagnostics(stderr))
+                .map_err(|e| e.to_string())?,
+        );
+        Ok(foreground)
     }
 
-    pub fn exited(&mut self) -> Result<bool, String> {
-        self.child
-            .try_wait()
-            .map(|status| status.is_some())
-            .map_err(|e| e.to_string())
+    pub fn check_running(&mut self) -> Result<(), String> {
+        if let Some(status) = self.child.try_wait().map_err(|e| e.to_string())? {
+            return Err(self.exit_error(status));
+        }
+        Ok(())
+    }
+
+    fn exit_error(&mut self, status: std::process::ExitStatus) -> String {
+        let diagnostics = self
+            .diagnostics
+            .take()
+            .and_then(|reader| reader.join().ok())
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        let mut error = format!("Foreground service exited: {status}. Check service.log.");
+        if !diagnostics.trim().is_empty() {
+            error.push_str("\nStartup diagnostics:\n");
+            error.extend(
+                diagnostics
+                    .trim()
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n'),
+            );
+        }
+        error
     }
 
     pub fn wait(mut self) -> Result<(), String> {
@@ -86,9 +122,7 @@ impl Foreground {
         if status.success() {
             Ok(())
         } else {
-            Err(format!(
-                "Foreground service exited: {status}. Check service.log."
-            ))
+            Err(self.exit_error(status))
         }
     }
 }
@@ -105,6 +139,31 @@ impl Drop for Foreground {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
+        if let Some(reader) = self.diagnostics.take() {
+            let _ = reader.join();
+        }
+    }
+}
+
+fn capture_diagnostics(mut source: impl Read) -> std::io::Result<String> {
+    // Service logs go to files. Capture pre-log startup errors without sharing the terminal.
+    let mut tail = VecDeque::with_capacity(8192);
+    let mut buffer = [0; 4096];
+    loop {
+        match source.read(&mut buffer) {
+            Ok(0) => {
+                return Ok(
+                    String::from_utf8_lossy(&tail.into_iter().collect::<Vec<_>>()).into_owned(),
+                )
+            }
+            Ok(count) => {
+                let discard = (tail.len() + count).saturating_sub(8192);
+                tail.drain(..discard);
+                tail.extend(&buffer[..count]);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
     }
 }
 
@@ -115,9 +174,7 @@ pub fn wait_ready(
     let deadline = Instant::now() + Duration::from_secs(config.startup_timeout_secs + 10);
     loop {
         if let Some(child) = foreground.as_mut() {
-            if child.exited()? {
-                return Err("Service exited during startup. Check service.log.".into());
-            }
+            child.check_running()?;
         }
         if management(config, Request::Status).is_ok_and(|status| status["service_ready"] == true) {
             return Ok(());
@@ -126,5 +183,20 @@ pub fn wait_ready(
             return Err("Service setup is not ready. Check status and service.log, then run magi-server again.".into());
         }
         std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_diagnostics_are_drained_without_unbounded_retention() {
+        let bytes = format!("{}final startup failure", "x".repeat(32_768));
+        let mut source = std::io::Cursor::new(bytes.as_bytes());
+        let tail = capture_diagnostics(&mut source).unwrap();
+        assert_eq!(source.position(), bytes.len() as u64);
+        assert_eq!(tail.len(), 8192);
+        assert!(tail.ends_with("final startup failure"));
     }
 }

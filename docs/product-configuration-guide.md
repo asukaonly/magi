@@ -101,6 +101,18 @@ startup uses `init` then `run`, never the interactive default entry.
 Foreground setup stops only its own service on cancellation or terminal loss.
 An existing service or an explicitly installed background service keeps running.
 The final summary distinguishes configuration completion from Agent readiness.
+The console owns terminal rendering throughout setup: installation and startup
+return results to the step UI instead of printing JSON or service logs between
+prompts. Service diagnostics go to the displayed data-root log directory; early
+startup failures are displayed after the progress renderer has stopped. Explicit
+service-management subcommands retain their machine-readable JSON output.
+
+Packaged deployments default to `~/.magi-center` for data and
+`~/.config/magi-server/server.json` for deployment configuration. These paths
+are rooted in the user's home directory, not the shell's current directory.
+First-run setup records the chosen absolute data root in `server.json.data_dir`;
+subsequent launches reuse it. The development script uses separate
+`~/.magi-center-dev` and `~/.config/magi-server/dev.json` defaults.
 See [server operator guide](../server/README.md) for deployment paths and commands.
 
 ## Onboarding Flow

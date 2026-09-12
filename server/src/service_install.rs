@@ -51,7 +51,7 @@ fn launch_agent(
 }
 
 #[cfg(target_os = "macos")]
-pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
+pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, String> {
     use std::{
         fs,
         io::Write,
@@ -162,15 +162,14 @@ pub fn execute(command: &str, config_path: &Path) -> Result<(), String> {
         }
         _ => return Err("Unknown service installation command".into()),
     }
-    println!(
-        "{}",
-        serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true})
-    );
-    Ok(())
+    // The caller owns presentation: JSON for automation, step feedback for the wizard.
+    Ok(
+        serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true}),
+    )
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn execute(_command: &str, _config_path: &Path) -> Result<(), String> {
+pub fn execute(_command: &str, _config_path: &Path) -> Result<serde_json::Value, String> {
     Err("Managed service installation is supported on macOS in this release; use run for a foreground service".into())
 }
 

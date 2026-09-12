@@ -9,15 +9,23 @@ mod service_watch;
 use clap::Parser;
 use magi_server_runtime::supervisor;
 use magi_service_contract::{config::ServerConfig, OwnerBootstrap};
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 fn main() {
     let mut output = None;
-    let outcome = cli::execute(cli::Cli::parse(), &mut output);
+    let args = cli::Cli::parse();
+    let guided = std::io::stderr().is_terminal()
+        && matches!(
+            args.command,
+            None | Some(cli::Command::Configure { from_stdin: false })
+        );
+    let outcome = cli::execute(args, &mut output);
     let failed = outcome.is_err();
     if let Err(error) = outcome {
-        eprintln!("{error}");
+        if !guided || cliclack::outro_cancel(&error).is_err() {
+            eprintln!("{error}");
+        }
     }
     drop(output);
     if failed {
