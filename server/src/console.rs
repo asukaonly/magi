@@ -121,7 +121,7 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
     ))?;
     let running = management(&config, Request::Status).is_ok();
     let mut foreground = None;
-    let mut background_started = false;
+    let mut background_requested = false;
     let result: Result<(), String> = (|| {
         if !running {
             // Do not replace a recovering owner merely because management is unavailable.
@@ -139,11 +139,11 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
             if mode == RunMode::Background {
                 progress(
                     "Installing and starting the background service",
-                    "Background service started; it will also start after login",
-                    "Background service could not be started",
+                    "Background start requested; checking configuration service readiness",
+                    "Background service could not be registered or requested",
                     || crate::service_install::execute("install", path),
                 )?;
-                background_started = true;
+                background_requested = true;
             } else {
                 foreground = Some(Foreground::start(path, &config)?);
             }
@@ -193,9 +193,13 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
         if foreground.is_some() {
             let _ = cliclack::log::info("Stopping the foreground service started by this console. Saved configuration is retained.");
             drop(foreground.take());
-        } else if running || background_started {
+        } else if background_requested {
             let _ = cliclack::log::info(
-                "The existing/background service remains running. Saved configuration is retained.",
+                "The background service remains registered. Saved configuration is retained.",
+            );
+        } else if running {
+            let _ = cliclack::log::info(
+                "This console has not stopped the existing service. Saved configuration is retained.",
             );
         }
     }

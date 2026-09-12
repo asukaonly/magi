@@ -176,11 +176,20 @@ pub fn wait_ready(
         if let Some(child) = foreground.as_mut() {
             child.check_running()?;
         }
-        if management(config, Request::Status).is_ok_and(|status| status["service_ready"] == true) {
-            return Ok(());
-        }
+        let detail = match management(config, Request::Status) {
+            Ok(status) if status["service_ready"] == true => return Ok(()),
+            Ok(status) => format!(
+                "Local management responds, but the configuration service is not ready. Supervisor phase: {}.",
+                status["supervisor"]["phase"].as_str().unwrap_or("unknown")
+            ),
+            Err(error) => format!("Local management is unavailable: {error}"),
+        };
         if Instant::now() >= deadline {
-            return Err("Service setup is not ready. Check status and service.log, then run magi-server again.".into());
+            return Err(format!(
+                "Service setup timed out.\n{detail}\nManagement socket: {}\nService log: {}\nFor a background deployment, run magi-server restart with the same --config path, then retry setup. Stop the service before moving or removing its data directories.",
+                config.data_dir.join("runtime/manage.sock").display(),
+                config.data_dir.join("logs/service.log").display(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(200));
     }
@@ -189,6 +198,33 @@ pub fn wait_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn readiness_timeout_reports_the_missing_management_channel() {
+        let root = std::env::temp_dir().join(format!("magi-console-{}", uuid::Uuid::new_v4()));
+        let mut config = ServerConfig::for_bundle(&root.join("bundle"), root.join("data"));
+        config.startup_timeout_secs = 1;
+        let error = wait_ready(&config, &mut None).unwrap_err();
+        assert!(error.contains("Local management is unavailable"));
+        assert!(error.contains("Cannot connect to running service"));
+        assert!(error.contains(
+            &config
+                .data_dir
+                .join("runtime/manage.sock")
+                .display()
+                .to_string()
+        ));
+        assert!(error.contains(
+            &config
+                .data_dir
+                .join("logs/service.log")
+                .display()
+                .to_string()
+        ));
+        assert!(error.contains("magi-server restart"));
+        assert!(!root.exists());
+    }
 
     #[test]
     fn startup_diagnostics_are_drained_without_unbounded_retention() {

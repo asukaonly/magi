@@ -153,7 +153,7 @@ fn explicit_commands_reject_invalid_or_misplaced_arguments() {
 fn managed_output_captures_startup_failures_without_changing_console_output() {
     let fixture = Fixture::new();
     let config = fixture.0.join("missing.json");
-    let log = fixture.0.join("service.log");
+    let log = fixture.0.join("logs/service.log");
     let result = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .args(["run", "--config"])
         .arg(&config)
@@ -164,6 +164,27 @@ fn managed_output_captures_startup_failures_without_changing_console_output() {
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
     assert!(result.stderr.is_empty());
+    assert!(!fs::read(&log).unwrap().is_empty());
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        fs::metadata(log.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700,
+    );
+    // Every run owns log initialization, including restarts after a log cleanup.
+    fs::remove_dir_all(log.parent().unwrap()).unwrap();
+    let restarted = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["run", "--config"])
+        .arg(&config)
+        .arg("--log-file")
+        .arg(&log)
+        .output()
+        .unwrap();
+    assert!(!restarted.status.success());
+    assert!(restarted.stderr.is_empty());
     assert!(!fs::read(&log).unwrap().is_empty());
     let console = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .args(["run", "--config"])

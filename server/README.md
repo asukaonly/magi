@@ -110,6 +110,17 @@ step feedback; early startup failures appear after the progress indicator stops,
 without overwriting active prompts. Explicit `run` keeps service diagnostics in
 the terminal unless `run --log-file <absolute-path>` is supplied; explicit
 service-management commands print JSON results for automation.
+Each service start creates missing log directories with private permissions,
+including after a stopped service's logs were cleaned. A successful launchd
+start request does not guarantee readiness; the console waits for the local
+management service and reports its last connection error or supervisor phase
+on timeout.
+
+Stop the service before moving or removing data-root directories. Removing
+`runtime/` from a live service breaks console management even while the HTTP
+listener is still responding. For an installed service, `magi-server restart
+--config <absolute-config-path>` recreates its runtime endpoints; retry setup
+afterward. Restarting does not restore removed business data.
 
 ## Change configuration
 

@@ -8,6 +8,7 @@ mod unix {
     use std::fs::File;
     use std::io::{self, Read, Write};
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::fs::DirBuilderExt;
     use std::path::Path;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -36,6 +37,14 @@ mod unix {
             if !path.is_absolute() {
                 return Err(io::Error::other("Output log path must be absolute"));
             }
+            // A managed restart must also work after its log directory was removed.
+            let directory = path
+                .parent()
+                .ok_or_else(|| io::Error::other("Output log path has no parent directory"))?;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(directory)?;
             let mut log = RotatingLog::open(path)?;
             let stdout = duplicate(libc::STDOUT_FILENO)?;
             let stderr = duplicate(libc::STDERR_FILENO)?;

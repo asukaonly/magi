@@ -106,6 +106,10 @@ return results to the step UI instead of printing JSON or service logs between
 prompts. Service diagnostics go to the displayed data-root log directory; early
 startup failures are displayed after the progress renderer has stopped. Explicit
 service-management subcommands retain their machine-readable JSON output.
+Background registration/start requests are not reported as service readiness.
+Setup timeouts include the latest management-channel failure or supervisor
+phase, the socket/log locations, and a restart instruction. Service startup
+creates missing log directories independently of first-time installation.
 
 Packaged deployments default to `~/.magi-center` for data and
 `~/.config/magi-server/server.json` for deployment configuration. These paths
