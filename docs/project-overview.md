@@ -244,12 +244,17 @@ missed a clear followed by a restore still sees the changed content epoch.
 
 The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
-in macOS Keychain or Windows Credential Manager, never in profile JSON. Native
-pairing and renewal accept normalized HTTPS origins or same-machine HTTP at
+separately in `connections/credentials.json`, with current-user filesystem
+permissions (Unix directory `0700`, file `0600`; Windows current-user ACL).
+The file is native-only and excluded from frontend profile responses, logs and
+center exports. It is not encrypted against other programs running as that user.
+Pairing and reconnecting never access Keychain or Credential Manager. Existing
+profiles without a local credential require pairing again; there is no vault
+import or fallback. Native pairing and renewal accept normalized HTTPS origins or same-machine HTTP at
 `127.0.0.1` (`localhost` is pinned to that literal address), reject redirects and
 validate center/device identity and protocol version before returning an access
 session. Native loopback requests bypass proxies and retain ordinary pairing and
-session authentication. Linux remote credential persistence is not yet supported. First startup
+session authentication. The credential file supports Unix and Windows hosts. First startup
 offers local or remote connection; the sidebar opens saved connection management.
 The title bar identifies the active center. Switching selects one profile and
 reloads the interface; unsent content must be saved first. The native

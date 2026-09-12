@@ -5,6 +5,7 @@ import { APP_EVENTS } from './constants/events';
 import { setCenterStorageScope } from './runtime/center-storage';
 import { recoverPendingCenterMaintenance } from './hooks/clearAllMemory';
 import { ConnectionOnboarding } from './components/onboarding/ConnectionOnboarding';
+import { connectionErrorKey } from './components/connections/connectionErrors';
 import { listConnectionProfiles } from './runtime/connections';
 /**
  * Application entry point.
@@ -43,6 +44,8 @@ const RuntimeBootstrap: React.FC = () => {
   const [ready, setReady] = useState(false);
   const [connectionEntry, setConnectionEntry] = useState<'welcome' | 'location' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const errorKey = error ? connectionErrorKey(error) : null;
+  const displayedError = errorKey ? t(errorKey) : error;
   const [diagnostics, setDiagnostics] = useState<ConnectionStartupDiagnostics | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [phase, setPhase] = useState<StartupPhase>('connecting');
@@ -53,11 +56,11 @@ const RuntimeBootstrap: React.FC = () => {
   );
 
   const diagnosticText = useMemo(() => {
-    if (!error) {
+    if (!displayedError) {
       return '';
     }
 
-    const sections = [`${t('bootstrap.summaryLabel')}\n${error}`];
+    const sections = [`${t('bootstrap.summaryLabel')}\n${displayedError}`];
     if (diagnostics?.logPath) {
       sections.push(`${t('bootstrap.logPathLabel')}\n${diagnostics.logPath}`);
     }
@@ -68,7 +71,7 @@ const RuntimeBootstrap: React.FC = () => {
       sections.push(`${t('bootstrap.logReadError', { error: diagnostics.logReadError })}`);
     }
     return sections.join('\n\n');
-  }, [diagnostics, error, t]);
+  }, [diagnostics, displayedError, t]);
 
   const copyDiagnostics = useCallback(async () => {
     if (!diagnosticText || !navigator.clipboard) {
@@ -245,7 +248,7 @@ const RuntimeBootstrap: React.FC = () => {
                   {t('bootstrap.summaryLabel')}
                 </p>
                 <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs leading-5 text-destructive">
-                  {error}
+                  {displayedError}
                 </pre>
               </div>
 

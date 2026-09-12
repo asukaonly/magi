@@ -1076,8 +1076,16 @@ restart or stop that center. Startup validation, saved profiles, session renewal
 and file downloads use the same address policy. The shared connection form
 explains both same-computer HTTP and other-computer HTTPS addresses.
 Pairing grants full single-owner management access; the form states this scope.
-The desktop stores the reusable device credential in the OS vault. Saved
-connections are managed under Settings → Application → Center Connections,
+The desktop stores the reusable device credential in a private file under its
+own configuration directory (`connections/credentials.json`), separate from
+profile metadata. Pairing and reconnecting do not request the system password.
+Unix directories/files use `0700`/`0600`; Windows uses a current-user ACL. This
+protects against other accounts, not programs already running as the same user.
+Long-lived credentials stay in native code, never in frontend profile responses,
+logs or center exports; short-lived sessions stay in memory. Forgetting a
+connection removes its local credential. A profile whose credential is missing
+requires a new pairing; the desktop does not read or import OS-vault entries.
+Saved connections are managed under Settings → Application → Center Connections,
 where inactive remote profiles can be forgotten. A failed startup still allows selecting
 another connection before the main settings surface is available. Selecting a
 different saved profile or pairing a new center requires explicit confirmation

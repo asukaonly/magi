@@ -1,6 +1,8 @@
 /** Map native connection protocol errors to localized recovery instructions. */
 export function connectionErrorKey(code: string): string | null {
   switch (code) {
+    case 'local_credential_missing': return 'connections.errors.localCredentialMissing';
+    case 'local_credentials_invalid': return 'connections.errors.localCredentialsInvalid';
     case 'invalid_pairing_format': return 'connections.errors.pairingFormat';
     case 'invalid_pairing_grant': return 'connections.errors.pairingRejected';
     case 'invalid_client_credential': return 'connections.errors.deviceCredential';

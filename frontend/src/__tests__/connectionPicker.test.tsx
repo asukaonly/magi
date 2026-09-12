@@ -9,6 +9,14 @@ beforeEach(() => {
   activate.mockResolvedValue(undefined);
 });
 describe('connection selection', () => {
+  it('explains missing local credentials instead of showing a native error code', async () => {
+    activate.mockRejectedValue('local_credential_missing');
+    render(<ConnectionPicker />);
+    fireEvent.click(await screen.findByText('connections.connect'));
+    fireEvent.click(screen.getByText('connections.confirmSwitch'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('connections.errors.localCredentialMissing');
+    expect(screen.queryByText('local_credential_missing')).not.toBeInTheDocument();
+  });
   it('confirms before selecting a local connection', async () => {
     render(<ConnectionPicker />);
     fireEvent.click(await screen.findByText('connections.connect'));

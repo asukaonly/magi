@@ -5708,6 +5708,8 @@
       "pairingFormat": "配对码格式不正确。请只粘贴 pairing_token 的值（64 位字符），不要包含引号或整段 JSON 输出。",
       "pairingRejected": "这个配对码无法用于当前 Magi，可能已过期、已使用或因服务重启而失效。请在要连接的 Magi 上重新生成配对码后重试。",
       "deviceCredential": "这台设备的授权已失效或被撤销，请重新配对。",
+      "localCredentialMissing": "这台设备没有保存此连接的凭据。请重新输入 Magi 地址和新配对码进行配对。",
+      "localCredentialsInvalid": "本机连接凭据文件已损坏。请移除客户端配置目录下的 connections/credentials.json，再重新配对。",
       "sessionExpired": "连接会话已失效，请重新连接；如果仍失败，请重新配对。",
       "originRejected": "Magi 拒绝了当前客户端的请求来源，请检查客户端与代理配置。",
       "authorizationRejected": "Magi 拒绝了授权请求，请确认连接地址和授权信息。",

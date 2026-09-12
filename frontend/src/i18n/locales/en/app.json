@@ -5710,6 +5710,8 @@
       "pairingFormat": "Invalid pairing code format. Paste only the pairing_token value (64 characters), without quotes or the full JSON output.",
       "pairingRejected": "This pairing code is not valid for this Magi. It may have expired, been used, or been invalidated by a service restart. Generate a new code on the Magi you want to connect to and try again.",
       "deviceCredential": "This device authorization is invalid or has been revoked. Pair this device again.",
+      "localCredentialMissing": "This device has no saved credential for this connection. Enter the Magi address and a new pairing code to pair again.",
+      "localCredentialsInvalid": "The local connection credential file is invalid. Remove connections/credentials.json from the client configuration directory, then pair again.",
       "sessionExpired": "Your connection session has expired. Reconnect, and pair again if the problem continues.",
       "originRejected": "Magi rejected this client’s request origin. Check the client and proxy configuration.",
       "authorizationRejected": "Magi rejected the authorization request. Check the connection address and credentials.",

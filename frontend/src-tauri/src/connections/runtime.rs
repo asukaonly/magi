@@ -400,7 +400,7 @@ pub fn read_connection_startup_diagnostics(
 pub fn list_connection_profiles(
     connections: State<'_, connections::Connections>,
 ) -> serde_json::Value {
-    serde_json::json!({"state":connections.list(),"supports_remote":cfg!(any(target_os = "macos", windows))})
+    serde_json::json!({"state":connections.list(),"supports_remote":cfg!(any(unix, windows))})
 }
 
 #[tauri::command]
