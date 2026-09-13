@@ -168,17 +168,28 @@ ACK; `best_effort` expires after one hour and explicitly reports drops at capaci
 The outbox caps pending/failed records at 10,000 and payload bytes at 64 MiB.
 Reliable/full queues reject admission so collectors must pause and retain their
 own cursor; a failed local write is never reported as successful collection.
-Permanent failures remain visible and block only their stream. A manual retry
-is available in Settings → Connections → Background sync.
+Permanent failures remain visible and block only their stream. Settings →
+Connections → Background sync shows per-stream origin, connection, oldest record,
+attempt count, next retry and a safe error category. It supports targeted retry
+and explicit discard (with confirmation); executing/leased records cannot be
+discarded. Discard preserves ordering watermarks and cannot restart an old event.
 
 For plugin facts, Python atomically writes a fingerprinted deduplication receipt
 and `plugin_ingress_events` work item before ACK. This is acceptance, not completed
 memory processing. The worker recovers interrupted claims, backs off failures,
 and quarantines after ten processing failures. Per-stream processing order is
-preserved; failed/backed-off streams do not block independent streams. Handler
-execution remains serial, so a currently executing slow handler delays other handlers. A replay-safe handler must deduplicate its
+preserved; failed/backed-off streams do not block independent streams. Four
+consumers process work concurrently, with one claim per connection and at most
+two per handler target. A slow connection cannot consume every processing slot.
+The shared clear barrier drains all consumers. Permission, invalid-payload and
+unsupported-schema failures stop automatic retries immediately; transient
+failures back off, up to ten attempts. SDK ingress errors preserve these bounded
+categories across the process boundary without exposing arbitrary error text.
+A replay-safe handler must deduplicate its
 own effects using the stable host event ID. No transport layer promises exactly
-once external execution. Failed inbox work is retained by operational GC. Ingress routing includes a
+once external execution. Failed inbox work is retained by operational GC. Completed
+payloads are erased and at most 1,000 completed ingress metadata rows remain.
+Ingress routing includes a
 host-owned plugin connection and content epoch, with leases shared by admission
 and processing. Plugin lifecycle detaches and drains these leases before worker
 shutdown. Clear/delete fence stale observations durably; ordinary reload retains

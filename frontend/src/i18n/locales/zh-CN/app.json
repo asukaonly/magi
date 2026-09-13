@@ -5619,15 +5619,6 @@
       "reinstall": "请重新安装此插件，再授权运行。"
     },
     "connections": {
-    "delivery": {
-      "title": "后台同步",
-      "description": "已保存的后台信息会在连接恢复后继续发送。切换连接后，待发送信息会保留到你重新连接原来的 Magi；完全退出应用期间会暂停发送。",
-      "outbox": "这台设备：{{pending}} 条待发送，{{failed}} 条需要处理",
-      "inbox": "Magi：{{pending}} 条待处理，{{failed}} 条处理失败",
-      "serverUnavailable": "暂时无法读取 Magi 的处理状态。已保存在本机的信息会保留。",
-      "retry": "重试失败的信息",
-      "failed": "无法读取或更新同步状态，请稍后重试。"
-    },
       "selectConnection": "选择 {{name}}",
       "choose": "选择一个连接",
       "title": "连接实例",
@@ -5725,6 +5716,39 @@
       "originRejected": "Magi 拒绝了当前客户端的请求来源，请检查客户端与代理配置。",
       "authorizationRejected": "Magi 拒绝了授权请求，请确认连接地址和授权信息。",
       "busy": "Magi 暂时繁忙，请稍后重试。"
+    },
+    "delivery": {
+      "title": "后台同步",
+      "description": "已保存的后台信息会在连接恢复后继续发送。切换连接后，待发送信息会保留到你重新连接原来的 Magi；完全退出应用期间会暂停发送。",
+      "outbox": "这台设备：{{pending}} 条待发送，{{failed}} 条需要处理",
+      "inbox": "Magi：{{pending}} 条待处理，{{failed}} 条处理失败",
+      "serverUnavailable": "暂时无法读取 Magi 的处理状态。已保存在本机的信息会保留。",
+      "retry": "重试失败的信息",
+      "failed": "无法读取或更新同步状态，请稍后重试。",
+      "thisDevice": "这台设备 · 等待发送",
+      "device": "接收自设备：{{id}}",
+      "notifications": "通知",
+      "streamCounts": "等待：{{pending}} · 失败：{{failed}} · 已尝试：{{attempts}} 次",
+      "oldest": "最早记录：{{time}}",
+      "nextRetry": "下次重试：{{time}}",
+      "retryStream": "重试这条数据流",
+      "discard": "丢弃等待中的记录",
+      "confirmDiscard": "确认丢弃",
+      "truncated": "每个队列显示前 100 条数据流。处理后可查看其余数据流。",
+      "reasons": {
+        "permission_required": "需要授权，请修复权限后重试。",
+        "invalid_payload": "数据格式不正确，请检查采集插件。",
+        "unsupported_schema": "插件不支持这个数据版本。",
+        "temporarily_unavailable": "依赖服务暂时不可用。",
+        "handler_timeout": "处理超时。",
+        "handler_failed": "处理失败，可能已达到自动重试次数上限。",
+        "connection_unavailable": "插件连接已停用或暂时不可用。",
+        "connection_epoch_changed": "这个连接的数据已清空或被替换，旧记录不能恢复。",
+        "authorization_unavailable": "请重新连接这台设备以恢复授权。",
+        "receipt_capacity": "中心已达到数据流数量上限。",
+        "inbox_full": "中心队列已满，等待处理后继续。",
+        "unknown": "投递失败，请检查连接与插件状态。"
+      }
     }
   },
   "centerFiles": {

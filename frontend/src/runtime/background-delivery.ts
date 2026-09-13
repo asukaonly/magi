@@ -9,6 +9,21 @@ const statusSchema = z.object({
 });
 export type BackgroundDeliveryStatus = z.infer<typeof statusSchema>;
 
+export const deliveryStreamSchema = z.object({
+  stream: z.string(), connection_id: z.string().nullable(), plugin_target: z.string().nullable(),
+  pending: count, failed: count, oldest_at_ms: count, attempts: count,
+  next_retry_at_ms: z.number().nullable(), last_error: z.string().nullable(),
+});
+export type DeliveryStream = z.infer<typeof deliveryStreamSchema>;
+
+export async function readBackgroundStreams(): Promise<DeliveryStream[]> {
+  return z.array(deliveryStreamSchema).parse(await invoke<unknown>('background_delivery_streams', deliveryDestination()));
+}
+
+export async function recoverBackgroundStream(stream: string, discard: boolean): Promise<void> {
+  await invoke('recover_background_stream', { ...deliveryDestination(), stream, discard });
+}
+
 /** Capture the destination before asynchronous work; never look up a new target on retry. */
 export function deliveryDestination() {
   const runtime = getRuntimeConfig();

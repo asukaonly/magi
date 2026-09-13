@@ -131,7 +131,7 @@ async def deliver(
                                     payload_json=json.dumps(payload.data, ensure_ascii=False),
                                 ),
                             )
-                            status = "accepted" if code == "accepted" else "retry" if code == "inbox_full" else "rejected"
+                            status = "accepted" if code == "accepted" else "retry" if code in {"inbox_full", "receipt_capacity"} else "rejected"
         except sqlite3.Error:
             code, status = "storage_unavailable", "retry"
         receipts.append(EventReceipt(event_id=event.event_id, status=status, code=code))
@@ -151,11 +151,25 @@ async def connection_delivery_scope(connection_id: str) -> dict[str, str]:
 
 
 @delivery_router.get("/status")
-async def delivery_status() -> dict[str, int]:
+async def delivery_status() -> dict[str, JsonValue]:
     return await get_container().runtime_trace_store().background_delivery_status()
 
 
+class DeliverySelection(StrictModel):
+    connection_id: Key | None = None
+    producer_id: Annotated[str, Field(min_length=1, max_length=256)] | None = None
+    stream: Key | None = None
+
+
 @delivery_router.post("/retry")
-async def retry_delivery() -> dict[str, bool]:
-    await get_container().runtime_trace_store().retry_failed_background_deliveries()
+async def retry_delivery(selection: DeliverySelection) -> dict[str, bool]:
+    await get_container().runtime_trace_store().retry_failed_background_deliveries(**selection.model_dump())
+    return {"ok": True}
+
+
+@delivery_router.post("/discard")
+async def discard_delivery(selection: DeliverySelection) -> dict[str, bool]:
+    if not all((selection.connection_id, selection.producer_id, selection.stream)):
+        raise HTTPException(422, "Discard requires an exact device, connection and stream")
+    await get_container().runtime_trace_store().discard_background_stream(**selection.model_dump())
     return {"ok": True}

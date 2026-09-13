@@ -5621,15 +5621,6 @@
       "reinstall": "Reinstall this package before authorizing it."
     },
     "connections": {
-    "delivery": {
-      "title": "Background sync",
-      "description": "Saved background information is sent when the connection returns. Switching connections keeps pending information for the original Magi. Delivery pauses while the app is fully closed.",
-      "outbox": "This device: {{pending}} pending, {{failed}} need attention",
-      "inbox": "Magi: {{pending}} pending, {{failed}} failed",
-      "serverUnavailable": "Magi processing status is unavailable. Information saved on this device is retained.",
-      "retry": "Retry failed information",
-      "failed": "Unable to read or update sync status. Please try again."
-    },
       "selectConnection": "Select {{name}}",
       "choose": "Choose a connection",
       "title": "Connections",
@@ -5727,6 +5718,39 @@
       "originRejected": "Magi rejected this client’s request origin. Check the client and proxy configuration.",
       "authorizationRejected": "Magi rejected the authorization request. Check the connection address and credentials.",
       "busy": "Magi is busy. Try again shortly."
+    },
+    "delivery": {
+      "title": "Background sync",
+      "description": "Saved background information is sent when the connection returns. Switching connections keeps pending information for the original Magi. Delivery pauses while the app is fully closed.",
+      "outbox": "This device: {{pending}} pending, {{failed}} need attention",
+      "inbox": "Magi: {{pending}} pending, {{failed}} failed",
+      "serverUnavailable": "Magi processing status is unavailable. Information saved on this device is retained.",
+      "retry": "Retry failed information",
+      "failed": "Unable to read or update sync status. Please try again.",
+      "thisDevice": "This device · waiting to send",
+      "device": "Received from device: {{id}}",
+      "notifications": "Notifications",
+      "streamCounts": "Waiting: {{pending}} · Failed: {{failed}} · Attempts: {{attempts}}",
+      "oldest": "Oldest record: {{time}}",
+      "nextRetry": "Next retry: {{time}}",
+      "retryStream": "Retry this stream",
+      "discard": "Discard waiting records",
+      "confirmDiscard": "Confirm discard",
+      "truncated": "Showing the first 100 streams per queue. Resolve these streams to reveal more.",
+      "reasons": {
+        "permission_required": "Permission is required. Fix it before retrying.",
+        "invalid_payload": "The data format is invalid. Check the collector.",
+        "unsupported_schema": "This data version is unsupported.",
+        "temporarily_unavailable": "A dependency is temporarily unavailable.",
+        "handler_timeout": "Processing timed out.",
+        "handler_failed": "Processing failed; the retry limit may have been reached.",
+        "connection_unavailable": "The plugin connection is disabled or unavailable.",
+        "connection_epoch_changed": "This connection was cleared or replaced. Old records cannot be restored.",
+        "authorization_unavailable": "Reconnect this device to restore authorization.",
+        "receipt_capacity": "The center has reached its stream limit.",
+        "inbox_full": "The center queue is full. Processing must catch up.",
+        "unknown": "Delivery failed. Check the connection and plugin status."
+      }
     }
   },
   "centerFiles": {

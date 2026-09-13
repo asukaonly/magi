@@ -13,7 +13,8 @@ version 1, producer identity, per-destination stream sequences, pending payloads
 leases and retry deadlines. It uses an OS ownership lock, SQLite FULL synchronous
 commits, DELETE journaling and secure deletion. Supported platforms use the same
 owner-only filesystem protection as connection credentials. Queue capacity is
-10,000 outstanding records / 64 MiB of payload; stream metadata is separate.
+10,000 outstanding records / 64 MiB of payload, plus at most 10,000 stream
+watermarks. Admission fails explicitly when capacity is exhausted.
 
 Server delivery receipts and work items live in `runtime/runtime_trace.db`;
 A plugin connection's first ingress epoch is its immutable host-issued UUID.
@@ -40,7 +41,15 @@ uncertain identity tombstones. Result recording cannot overwrite such tombstones
 Alembic revision `v6` creates `background_delivery_receipts` and ingress retry
 columns/index and the work item delivery epoch. Admission uses a FULL synchronous
 transaction for both receipt and payload. Receipts contain identity and a payload fingerprint, not a payload
-copy, and survive completed-work GC so a lost ACK cannot reprocess old facts.
+copy. A reliable sender admits the next sequence only after confirming the prior
+ACK. Advancing a stream therefore compacts its receipts to the latest fingerprint
+and sequence watermark. Replaying that latest event returns the same ACK;
+older stream positions are rejected without execution. No timer deletes a current
+watermark. Event identity is scoped to its producer/epoch/stream position; an
+event must never be moved to another stream or assigned a new sequence to retry.
+There are at most 10,000 retained stream watermarks. Existing streams can advance
+at that limit; new streams receive backpressure. Completed ingress payloads are
+erased immediately and completed metadata is capped at 1,000 rows.
 Failed background ingress work is retained until retried or explicitly cleared.
 Full content clear removes receipts and queued payloads under the ingress barrier.
 The gateway data epoch additionally invalidates offline work on clear/restore.

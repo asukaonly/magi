@@ -73,7 +73,7 @@ async def test_restore_verification_holds_inbox_without_discarding_rollback_work
             if (await store.background_delivery_status())["pending"] == 0:
                 break
             await asyncio.sleep(0.01)
-        assert (await store.background_delivery_status()) == {"pending": 0, "failed": 0}
+        assert (await store.background_delivery_status()) == {"pending": 0, "failed": 0, "streams": [], "truncated": False}
     finally:
         await processor.shutdown()
 
@@ -165,7 +165,7 @@ async def test_partial_rejection_identity_conflict_and_sequence_checks(receiver)
     assert (await client.post("/api/delivery/events", json=modified)).json()["receipts"][0][
         "code"
     ] == "stream_sequence_conflict"
-    assert (await client.get("/api/delivery/status")).json() == {"pending": 1, "failed": 0}
+    assert (await client.get("/api/delivery/status")).json()["pending"] == 1
 
 
 @pytest.mark.asyncio
@@ -201,13 +201,13 @@ async def test_restart_retry_order_quarantine_and_clear(receiver):
     for _ in range(9):
         await store.retry_background_delivery(first.event_id)
     assert (await store.background_delivery_status())["failed"] == 1
-    assert (await client.post("/api/delivery/retry")).status_code == 200
+    assert (await client.post("/api/delivery/retry", json={})).status_code == 200
     assert (
         await store.claim_next_plugin_ingress_event(consumer_name="restarted")
     ).event_id == first.event_id
     async with store.plugin_ingress_global_clear_boundary():
         pass
-    assert (await store.background_delivery_status()) == {"pending": 0, "failed": 0}
+    assert (await store.background_delivery_status()) == {"pending": 0, "failed": 0, "streams": [], "truncated": False}
 
 
 @pytest.mark.asyncio
@@ -301,3 +301,90 @@ async def test_clear_fences_unsent_events_and_keeps_other_connection_work(receiv
     assert replay.json()["receipts"][0]["code"] == "connection_epoch_changed"
     assert (await store.background_delivery_status())["pending"] == 0
     assert (await client.get(f"/api/delivery/connections/{CONNECTION}")).json()["connection_epoch"] == epoch
+
+
+@pytest.mark.asyncio
+async def test_stream_watermark_compacts_receipts_without_reexecuting_old_positions(receiver):
+    import sqlite3
+    client, store, _ = receiver
+    body = batch(event())
+    old = deepcopy(body)
+    for sequence in range(1, 31):
+        body["events"] = [event(sequence=sequence)]
+        assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0]["status"] == "accepted"
+    with sqlite3.connect(store.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM background_delivery_receipts").fetchone()[0] == 1
+    assert (await client.post("/api/delivery/events", json=old)).json()["receipts"][0]["code"] == "stream_sequence_conflict"
+    assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0]["status"] == "accepted"
+    assert (await store.background_delivery_status())["pending"] == 30
+
+
+@pytest.mark.asyncio
+async def test_scoped_recovery_does_not_change_another_device_or_executing_record(receiver):
+    client, store, _ = receiver
+    body = batch(event())
+    for device in ("device-a", "device-b"):
+        await client.post("/api/delivery/events", json=body, headers={"x-magi-client-id": device})
+    first = await store.claim_next_plugin_ingress_event(consumer_name="test")
+    await store.fail_plugin_ingress_event(first.event_id, error_text="permission_required")
+    state = (await client.get("/api/delivery/status")).json()
+    row = next(r for r in state["streams"] if r["failed"])
+    assert row["last_error"] == "permission_required"
+    assert row["oldest_at_ms"] > 0 and "payload" not in row
+    selection = {k: row[k] for k in ("producer_id", "connection_id", "stream")}
+    assert (await client.post("/api/delivery/retry", json=selection)).status_code == 200
+    claimed = await store.claim_next_plugin_ingress_event(consumer_name="test")
+    assert claimed.event_id == first.event_id
+    assert (await client.post("/api/delivery/discard", json=selection)).status_code == 200
+    assert (await store.get_plugin_ingress_event(claimed.event_id)).status == "claimed"
+    await store.fail_plugin_ingress_event(claimed.event_id, error_text="permission_required")
+    await client.post("/api/delivery/discard", json=selection)
+    assert await store.get_plugin_ingress_event(claimed.event_id) is None
+    assert (await store.background_delivery_status())["pending"] == 1
+    assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0]["status"] == "accepted"
+    assert (await store.background_delivery_status())["pending"] == 1
+
+
+@pytest.mark.asyncio
+async def test_claims_serialize_connections_and_reserve_capacity_for_other_plugins(receiver):
+    client, store, registry = receiver
+    for n, target in ((1, "photos"), (2, "photos"), (3, "photos"), (4, "other")):
+        cid = "conn_" + str(n) * 32
+        if n != 1:
+            registry.register(cid, EPOCH, [PluginIngressHandlerRegistration(target, "observed.v1", Handler(), replay_safe=True)])
+        item = event(stream=f"stream{n}")
+        item["payload"].update(connection_id=cid, plugin_target=target)
+        await client.post("/api/delivery/events", json=batch(item))
+    claims = [await store.claim_next_plugin_ingress_event(consumer_name="test") for _ in range(3)]
+    assert [c.plugin_target for c in claims] == ["photos", "photos", "other"]
+    assert await store.claim_next_plugin_ingress_event(consumer_name="test") is None
+    await store.complete_plugin_ingress_event(claims[0].event_id)
+    assert (await store.claim_next_plugin_ingress_event(consumer_name="test")).connection_id == "conn_" + "3" * 32
+
+
+@pytest.mark.asyncio
+async def test_permanent_handler_error_is_quarantined_without_secret_text(receiver, monkeypatch):
+    from unittest.mock import AsyncMock
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.events.lifecycle import PluginIngressProcessorModule
+    client, store, registry = receiver
+    monkeypatch.setattr(Handler, "handle_event", AsyncMock(side_effect=PermissionError("private-credential-value")))
+    body = batch(event())
+    await client.post("/api/delivery/events", json=body)
+    monkeypatch.setenv("MAGI_DATA_EPOCH", body["data_epoch"])
+    context = RuntimeBootstrapContext()
+    context.runtime_trace.store = store
+    processor = PluginIngressProcessorModule(context, registry=registry, connection_store=SimpleNamespace(ingress_epoch=lambda cid: EPOCH),
+        global_clear_pending=AsyncMock(return_value=False), poll_interval_seconds=0.01)
+    await processor.init()
+    try:
+        for _ in range(100):
+            status = await store.background_delivery_status()
+            if status["failed"]: break
+            await asyncio.sleep(0.01)
+        assert status["failed"] == 1
+        assert status["streams"][0]["attempts"] == 0
+        assert status["streams"][0]["last_error"] == "permission_required"
+        assert "private-credential-value" not in json.dumps(status)
+    finally:
+        await processor.shutdown()

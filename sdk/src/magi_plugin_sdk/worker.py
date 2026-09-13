@@ -409,6 +409,7 @@ class WorkerServer:
                 }
             )
         except BaseException as exc:  # noqa: BLE001 - Contain arbitrary plugin exceptions.
+            from .ingress import classify_ingress_error
             # Exception text is bounded. Do not transmit tracebacks or locals.
             self.send(
                 {
@@ -416,6 +417,7 @@ class WorkerServer:
                     "id": identifier,
                     "ok": False,
                     "error": f"{type(exc).__name__}: {str(exc)[:1024]}",
+                    "ingress_error": classify_ingress_error(exc) if method == "invoke" and str(payload.get("target", "")).startswith("ingress:") else None,
                 }
             )
         finally:

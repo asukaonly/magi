@@ -310,7 +310,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/system-suggestions/dismissals/{dedupe_key}": {"DELETE"},
         "/system-suggestions/installable": {"GET"},
     },
-    "delivery": {"/events": {"POST"}, "/status": {"GET"}, "/retry": {"POST"},
+    "delivery": {"/events": {"POST"}, "/status": {"GET"}, "/retry": {"POST"}, "/discard": {"POST"},
                  "/connections/{connection_id}": {"GET"}},
     "notifications": {
         "/notifications": {"GET"},

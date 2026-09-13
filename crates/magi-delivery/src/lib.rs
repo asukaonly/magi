@@ -46,6 +46,19 @@ pub struct QueueStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct StreamStatus {
+    pub stream: String,
+    pub connection_id: Option<String>,
+    pub plugin_target: Option<String>,
+    pub pending: i64,
+    pub failed: i64,
+    pub oldest_at_ms: i64,
+    pub attempts: i64,
+    pub next_retry_at_ms: Option<i64>,
+    pub last_error: Option<String>,
+}
+
 pub struct Outbox {
     db: Connection,
     _lease: magi_platform::instance::InstanceLease,
@@ -156,6 +169,13 @@ impl Outbox {
         .map_err(error)?;
         if policy == DeliveryPolicy::Latest {
             tx.execute("DELETE FROM events WHERE profile=? AND server=? AND epoch=? AND stream=? AND policy='latest' AND lease<=?", params![scope.profile_id,scope.server_id,scope.data_epoch,stream,now]).map_err(error)?;
+        }
+        let stream_exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM streams WHERE profile=? AND server=? AND epoch=? AND stream=?)", params![scope.profile_id,scope.server_id,scope.data_epoch,stream], |r| r.get(0)).map_err(error)?;
+        let stream_count: i64 = tx
+            .query_row("SELECT COUNT(*) FROM streams", [], |r| r.get(0))
+            .map_err(error)?;
+        if !stream_exists && stream_count >= MAX_ROWS {
+            return Err("Background stream capacity exhausted".into());
         }
         let (rows, bytes): (i64, i64) = tx
             .query_row(
@@ -388,6 +408,50 @@ impl Outbox {
 
     pub fn retry_failed(&self, scope: &Scope) -> Result<(), String> {
         self.db.execute("UPDATE events SET state='pending',attempts=0,due=0,lease=0,last_error=NULL WHERE profile=? AND server=? AND epoch=? AND state='failed'", params![scope.profile_id,scope.server_id,scope.data_epoch]).map_err(error)?;
+        Ok(())
+    }
+
+    pub fn streams(&self, scope: &Scope) -> Result<Vec<StreamStatus>, String> {
+        let mut statement = self.db.prepare("SELECT stream,MAX(json_extract(payload,'$.connection_id')),MAX(json_extract(payload,'$.plugin_target')),SUM(state='pending'),SUM(state='failed'),MIN(occurred),MAX(attempts),MIN(CASE WHEN state='pending' THEN due END),MAX(last_error) FROM events WHERE profile=? AND server=? AND epoch=? GROUP BY stream ORDER BY SUM(state='failed') DESC,MIN(occurred) LIMIT 100").map_err(error)?;
+        let rows = statement
+            .query_map(
+                params![scope.profile_id, scope.server_id, scope.data_epoch],
+                |r| {
+                    Ok(StreamStatus {
+                        stream: r.get(0)?,
+                        connection_id: r.get(1)?,
+                        plugin_target: r.get(2)?,
+                        pending: r.get(3)?,
+                        failed: r.get(4)?,
+                        oldest_at_ms: r.get(5)?,
+                        attempts: r.get(6)?,
+                        next_retry_at_ms: r.get(7)?,
+                        last_error: r.get(8)?,
+                    })
+                },
+            )
+            .map_err(error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(error)?;
+        Ok(rows)
+    }
+
+    pub fn recover_stream(
+        &self,
+        scope: &Scope,
+        stream: &str,
+        discard: bool,
+        now: i64,
+    ) -> Result<(), String> {
+        if !valid_key(stream) {
+            return Err("Invalid background stream".into());
+        }
+        if discard {
+            self.db.execute("DELETE FROM events WHERE profile=? AND server=? AND epoch=? AND stream=? AND lease<=?", params![scope.profile_id,scope.server_id,scope.data_epoch,stream,now]).map_err(error)?;
+        } else {
+            self.db.execute("UPDATE events SET state='pending',attempts=0,due=0,last_error=NULL WHERE profile=? AND server=? AND epoch=? AND stream=? AND state='failed' AND lease<=?", params![scope.profile_id,scope.server_id,scope.data_epoch,stream,now]).map_err(error)?;
+        }
+        // Preserve sequence metadata: removing work must never reset a destination watermark.
         Ok(())
     }
 }

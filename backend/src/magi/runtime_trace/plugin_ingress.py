@@ -125,6 +125,8 @@ class PluginIngressPersistenceMixin:
                         SELECT e.event_id
                         FROM plugin_ingress_events e
                         WHERE e.status = 'pending' AND e.next_attempt_at_ms <= ?
+                          AND (SELECT COUNT(*) FROM plugin_ingress_events busy WHERE busy.status='claimed' AND busy.plugin_target=e.plugin_target) < 2
+                          AND NOT EXISTS (SELECT 1 FROM plugin_ingress_events busy WHERE busy.status='claimed' AND busy.connection_id=e.connection_id)
                           AND NOT EXISTS (
                             SELECT 1 FROM plugin_ingress_events older
                             WHERE e.source_kind = 'background_delivery'
@@ -189,6 +191,10 @@ class PluginIngressPersistenceMixin:
                 previous = (await cursor.fetchone())[0]
                 if previous is not None and sequence <= previous:
                     return "stream_sequence_conflict"
+                if previous is None:
+                    total = (await (await db.execute("SELECT COUNT(*) FROM background_delivery_receipts")).fetchone())[0]
+                    if total >= 10000:
+                        return "receipt_capacity"
                 # The gateway validates data_epoch under its maintenance permit.
                 # Device clocks are not an authority for clearing remote observations.
                 cursor = await db.execute(
@@ -197,6 +203,9 @@ class PluginIngressPersistenceMixin:
                 count, size = await cursor.fetchone()
                 if count >= 10000 or size + len(record.payload_json.encode()) > 64 * 1024 * 1024:
                     return "inbox_full"
+                # Advancing a stream proves the sender confirmed its previous ACK.
+                # Keep its newest receipt as the non-expiring sequence watermark.
+                await db.execute("DELETE FROM background_delivery_receipts WHERE producer_id=? AND data_epoch=? AND stream=?", (producer_id, data_epoch, stream))
                 await db.execute(
                     "INSERT INTO background_delivery_receipts VALUES (?,?,?,?,?,?,?)",
                     (producer_id, data_epoch, event_id, stream, sequence, fingerprint, self._now_ms()),
@@ -219,6 +228,7 @@ class PluginIngressPersistenceMixin:
             await db.execute("PRAGMA synchronous=FULL")
             await db.execute("DELETE FROM plugin_ingress_events WHERE source_kind='background_delivery' AND delivery_epoch IS NOT ?", (data_epoch,))
             await db.execute("DELETE FROM background_delivery_receipts WHERE data_epoch != ?", (data_epoch,))
+            await db.execute("DELETE FROM background_delivery_receipts AS old WHERE EXISTS (SELECT 1 FROM background_delivery_receipts newer WHERE newer.producer_id=old.producer_id AND newer.data_epoch=old.data_epoch AND newer.stream=old.stream AND newer.sequence>old.sequence)")
             await db.execute("""UPDATE plugin_ingress_events
                 SET status='pending', claimed_by=NULL, claimed_at_ms=NULL
                 WHERE source_kind='background_delivery' AND status='claimed'""")
@@ -253,18 +263,18 @@ class PluginIngressPersistenceMixin:
             )
             await db.commit()
 
-    async def retry_background_delivery(self, event_id: int) -> None:
+    async def retry_background_delivery(self, event_id: int, *, code: str = "handler_failed") -> None:
         """Back off transient handler failures; retain exhausted work for inspection."""
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute("""UPDATE plugin_ingress_events
                 SET status=CASE WHEN attempts >= 9 THEN 'failed' ELSE 'pending' END,
                     next_attempt_at_ms=? + MIN(300000, 1000 * (1 << MIN(attempts, 8))),
                     attempts=attempts+1, claimed_by=NULL, claimed_at_ms=NULL,
-                    last_error='handler_failed'
-                WHERE event_id=?""", (self._now_ms(), event_id))
+                    last_error=?
+                WHERE event_id=?""", (self._now_ms(), code, event_id))
             await db.commit()
 
-    async def background_delivery_status(self) -> dict[str, int]:
+    async def background_delivery_status(self) -> dict[str, Any]:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             cursor = await db.execute("""SELECT
@@ -272,14 +282,33 @@ class PluginIngressPersistenceMixin:
                 COALESCE(SUM(status='failed'),0)
                 FROM plugin_ingress_events WHERE source_kind='background_delivery'""")
             pending, failed = await cursor.fetchone()
-            return {"pending": pending, "failed": failed}
+            db.row_factory = aiosqlite.Row
+            rows = await (await db.execute("""SELECT producer AS producer_id, connection_id, plugin_target,
+                cursor_key AS stream, SUM(status IN ('pending','claimed')) AS pending,
+                SUM(status='failed') AS failed, MIN(created_at_ms) AS oldest_at_ms,
+                MAX(attempts) AS attempts, MIN(CASE WHEN status='pending' THEN next_attempt_at_ms END) AS next_retry_at_ms,
+                MAX(last_error) AS last_error
+                FROM plugin_ingress_events WHERE source_kind='background_delivery' AND status != 'completed'
+                GROUP BY producer,connection_id,plugin_target,cursor_key ORDER BY failed DESC,oldest_at_ms LIMIT 101""")).fetchall()
+            return {"pending": pending, "failed": failed, "streams": [dict(row) for row in rows[:100]], "truncated": len(rows)>100}
 
-    async def retry_failed_background_deliveries(self) -> None:
+    async def retry_failed_background_deliveries(self, *, connection_id: str | None = None,
+                                               producer_id: str | None = None, stream: str | None = None) -> None:
         async with self.plugin_ingress_operation():
             async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
                 await db.execute("""UPDATE plugin_ingress_events
                     SET status='pending', attempts=0, next_attempt_at_ms=0, last_error=NULL
-                    WHERE source_kind='background_delivery' AND status='failed'""")
+                    WHERE source_kind='background_delivery' AND status='failed'
+                      AND (? IS NULL OR connection_id=?) AND (? IS NULL OR producer=?) AND (? IS NULL OR cursor_key=?)""",
+                    (connection_id,connection_id,producer_id,producer_id,stream,stream))
+                await db.commit()
+
+    async def discard_background_stream(self, *, connection_id: str, producer_id: str, stream: str) -> None:
+        """Explicitly erase waiting work, never race an executing handler or remove its watermark."""
+        async with self.plugin_ingress_operation():
+            async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+                await db.execute("PRAGMA secure_delete=ON")
+                await db.execute("DELETE FROM plugin_ingress_events WHERE source_kind='background_delivery' AND connection_id=? AND producer=? AND cursor_key=? AND status IN ('pending','failed')", (connection_id,producer_id,stream))
                 await db.commit()
 
     async def _plugin_ingress_clear_cutoff_ms(self) -> int | None:
@@ -297,6 +326,11 @@ class PluginIngressPersistenceMixin:
             status="completed",
             error_text=None,
         )
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute("PRAGMA secure_delete=ON")
+            await db.execute("UPDATE plugin_ingress_events SET payload_json='{}' WHERE event_id=? AND source_kind='background_delivery' AND status='completed'", (event_id,))
+            await db.execute("DELETE FROM plugin_ingress_events WHERE source_kind='background_delivery' AND status='completed' AND event_id NOT IN (SELECT event_id FROM plugin_ingress_events WHERE source_kind='background_delivery' AND status='completed' ORDER BY event_id DESC LIMIT 1000)")
+            await db.commit()
 
     async def fail_plugin_ingress_event(
         self,

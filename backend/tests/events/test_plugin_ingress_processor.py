@@ -48,6 +48,38 @@ class _BlockingHandler:
 
 
 @pytest.mark.asyncio
+async def test_slow_connection_does_not_block_other_plugin_processing(tmp_path):
+    from magi.events.lifecycle import PluginIngressProcessorModule
+    from magi.events.plugin_ingress import PluginIngressHandlerRegistration
+
+    store = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    await store.initialize()
+    registry = PluginIngressRegistry()
+    slow, fast = _BlockingHandler(), _RecordingHandler()
+    for cid, target, handler in (("slow", "photo", slow), ("fast", "music", fast)):
+        registry.register(cid, "epoch_test", [PluginIngressHandlerRegistration(target, "observed", handler)])
+        await store.append_plugin_ingress_event(StoredPluginIngressEventRecord(connection_id=cid, connection_epoch="epoch_test", event_id=0,
+            source_kind="desktop", producer="device", plugin_target=target, event_type="observed", occurred_at_ms=1))
+    context = RuntimeBootstrapContext()
+    context.runtime_trace.store = store
+    processor = PluginIngressProcessorModule(context, registry=registry,
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        global_clear_pending=AsyncMock(return_value=False), poll_interval_seconds=0.01)
+    await processor.init()
+    try:
+        await asyncio.wait_for(slow.started.wait(), 2)
+        for _ in range(100):
+            if fast.events: break
+            await asyncio.sleep(0.01)
+        assert fast.events == [("observed", {})]
+        assert not slow.release.is_set()
+    finally:
+        slow.release.set()
+        await processor.shutdown()
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None:
     from magi.events.plugin_ingress import PluginIngressHandlerRegistration
     from magi.events.lifecycle import PluginIngressProcessorModule

@@ -275,6 +275,8 @@ fn main() {
             background_delivery::enqueue_background_event,
             background_delivery::background_delivery_status,
             background_delivery::retry_background_delivery,
+            background_delivery::background_delivery_streams,
+            background_delivery::recover_background_stream,
             downloads::download_portability_file,
             connections::runtime::list_connection_profiles,
             connections::runtime::pair_center,

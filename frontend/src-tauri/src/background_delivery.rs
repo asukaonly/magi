@@ -5,7 +5,7 @@ use crate::connections::{
     protocol::CenterClient,
     runtime::{ConnectionInfo, ConnectionRuntime},
 };
-use magi_delivery::{DeliveryPolicy, Outbox, QueueStatus, Scope};
+use magi_delivery::{DeliveryPolicy, Outbox, QueueStatus, Scope, StreamStatus};
 use magi_service_contract::delivery::{
     BackgroundPayload, DeliveryReceipt, EventReceipt, ReceiptStatus,
 };
@@ -147,6 +147,36 @@ pub async fn retry_background_delivery(
     validate_scope(&state, &scope, generation)?;
     delivery
         .storage(move |queue| queue.retry_failed(&scope))
+        .await?;
+    delivery.wake.notify_one();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn background_delivery_streams(
+    state: State<'_, ConnectionRuntime>,
+    delivery: State<'_, DeliveryRuntime>,
+    scope: Scope,
+    generation: u64,
+) -> Result<Vec<StreamStatus>, String> {
+    let _operation = state.operation.lock().await;
+    validate_scope(&state, &scope, generation)?;
+    delivery.storage(move |queue| queue.streams(&scope)).await
+}
+
+#[tauri::command]
+pub async fn recover_background_stream(
+    state: State<'_, ConnectionRuntime>,
+    delivery: State<'_, DeliveryRuntime>,
+    scope: Scope,
+    generation: u64,
+    stream: String,
+    discard: bool,
+) -> Result<(), String> {
+    let _operation = state.operation.lock().await;
+    validate_scope(&state, &scope, generation)?;
+    delivery
+        .storage(move |queue| queue.recover_stream(&scope, &stream, discard, now()))
         .await?;
     delivery.wake.notify_one();
     Ok(())

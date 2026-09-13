@@ -694,8 +694,10 @@ class ProcessPluginProxy(Plugin):
                         if frame.get("ok") is True:
                             call.future.set_result(frame.get("result"))
                         else:
+                            from magi_plugin_sdk.ingress import IngressProcessingError
+                            code = frame.get("ingress_error")
                             call.future.set_exception(
-                                PluginProcessError(
+                                IngressProcessingError(code) if isinstance(code, str) and code in IngressProcessingError.CODES else PluginProcessError(
                                     str(frame.get("error", "Plugin invocation failed"))[:2048]
                                 )
                             )

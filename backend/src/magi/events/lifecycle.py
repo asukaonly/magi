@@ -431,6 +431,7 @@ class PluginIngressProcessorModule(LifecycleModule):
         registry: PluginIngressRegistry | None = None,
         connection_store=None,
         poll_interval_seconds: float = 0.1,
+        concurrency: int = 4,
     ):
         super().__init__(
             name="runtime_plugin_ingress_processor",
@@ -438,6 +439,7 @@ class PluginIngressProcessorModule(LifecycleModule):
         )
         self._context = context
         self._poll_interval_seconds = poll_interval_seconds
+        self._concurrency = max(1, min(8, concurrency))
         self._task: asyncio.Task | None = None
         self._running = False
         from ..core.container import get_container
@@ -472,7 +474,16 @@ class PluginIngressProcessorModule(LifecycleModule):
                 await store.retire_connection_ingress(connection_id, keep_epoch=epoch)
         self._delivery_registry.ready = True
         self._running = True
-        self._task = asyncio.create_task(self._run_loop())
+        self._task = asyncio.create_task(self._run_consumers())
+
+    async def _run_consumers(self) -> None:
+        consumers = [asyncio.create_task(self._run_loop()) for _ in range(self._concurrency)]
+        try:
+            await asyncio.gather(*consumers)
+        finally:
+            for task in consumers:
+                task.cancel()
+            await asyncio.gather(*consumers, return_exceptions=True)
 
     async def shutdown(self) -> None:
         self._running = False
@@ -527,10 +538,10 @@ class PluginIngressProcessorModule(LifecycleModule):
                 if not self._delivery_registry.connection_active(event.connection_id):
                     await store.defer_plugin_ingress(event.event_id)
                 else:
-                    await store.fail_plugin_ingress_event(event.event_id, error_text="Ingress handler is unavailable")
+                    await store.fail_plugin_ingress_event(event.event_id, error_text="handler_unavailable")
                 return
             if event.source_kind == "background_delivery" and not registration.replay_safe:
-                await store.fail_plugin_ingress_event(event.event_id, error_text="Ingress handler is not replay safe")
+                await store.fail_plugin_ingress_event(event.event_id, error_text="handler_not_replay_safe")
                 return
             try:
                 payload = json.loads(event.payload_json or "{}")
@@ -539,7 +550,12 @@ class PluginIngressProcessorModule(LifecycleModule):
                 await asyncio.wait_for(registration.handler.handle_event(event, payload), timeout=60)
             except Exception as exc:
                 if event.source_kind == "background_delivery":
-                    await store.retry_background_delivery(event.event_id)
+                    from magi_plugin_sdk.ingress import IngressProcessingError, classify_ingress_error
+                    code = classify_ingress_error(exc)
+                    if code in IngressProcessingError.PERMANENT:
+                        await store.fail_plugin_ingress_event(event.event_id, error_text=code)
+                    else:
+                        await store.retry_background_delivery(event.event_id, code=code)
                 else:
                     await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
                 return

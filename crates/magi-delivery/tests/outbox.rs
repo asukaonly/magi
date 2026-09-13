@@ -37,6 +37,57 @@ fn ack(batch: &DeliveryBatch, status: ReceiptStatus) -> DeliveryReceipt {
 }
 
 #[test]
+fn targeted_recovery_preserves_other_streams_and_inflight_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let scope = scope();
+    let mut queue = Outbox::open(dir.path()).unwrap();
+    for stream in ["photos", "music"] {
+        queue
+            .enqueue(
+                &scope,
+                stream,
+                &id(),
+                payload(1),
+                DeliveryPolicy::Reliable,
+                1,
+            )
+            .unwrap();
+    }
+    let batch = queue.claim(&scope, 1).unwrap();
+    queue.recover_stream(&scope, "photos", true, 2).unwrap();
+    assert_eq!(queue.status(&scope).unwrap().pending, 2);
+    queue
+        .acknowledge(&batch, &ack(&batch, ReceiptStatus::Rejected), 3)
+        .unwrap();
+    queue.recover_stream(&scope, "photos", false, 4).unwrap();
+    let streams = queue.streams(&scope).unwrap();
+    assert_eq!(
+        streams
+            .iter()
+            .find(|s| s.stream == "photos")
+            .unwrap()
+            .pending,
+        1
+    );
+    assert_eq!(
+        streams.iter().find(|s| s.stream == "music").unwrap().failed,
+        1
+    );
+    queue.recover_stream(&scope, "photos", true, 5).unwrap();
+    queue
+        .enqueue(
+            &scope,
+            "photos",
+            &id(),
+            payload(2),
+            DeliveryPolicy::Reliable,
+            6,
+        )
+        .unwrap();
+    assert_eq!(queue.claim(&scope, 6).unwrap().events[0].sequence, 2);
+}
+
+#[test]
 fn restart_replays_same_identity_and_sequence_until_ack() {
     let dir = tempfile::tempdir().unwrap();
     let scope = scope();

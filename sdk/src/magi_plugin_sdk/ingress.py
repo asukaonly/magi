@@ -6,6 +6,33 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 
+class IngressProcessingError(RuntimeError):
+    """Report a safe processing category without persisting credentials or payloads."""
+
+    CODES = frozenset({"permission_required", "invalid_payload", "unsupported_schema", "temporarily_unavailable", "handler_timeout", "handler_failed"})
+    PERMANENT = frozenset({"permission_required", "invalid_payload", "unsupported_schema"})
+
+    def __init__(self, code: str) -> None:
+        if code not in self.CODES:
+            raise ValueError("Unsupported ingress failure category")
+        self.code = code
+        super().__init__(code)
+
+
+def classify_ingress_error(error: BaseException) -> str:
+    if isinstance(error, IngressProcessingError):
+        return error.code
+    if isinstance(error, PermissionError):
+        return "permission_required"
+    if isinstance(error, (ValueError, TypeError)):
+        return "invalid_payload"
+    if isinstance(error, TimeoutError):
+        return "handler_timeout"
+    if isinstance(error, OSError):
+        return "temporarily_unavailable"
+    return "handler_failed"
+
+
 @runtime_checkable
 class PluginIngressEventRecord(Protocol):
     """Host-provided plugin ingress event envelope passed to handlers."""
@@ -52,7 +79,9 @@ class PluginIngressHandlerRegistration:
 
 
 __all__ = [
+    "IngressProcessingError",
     "PluginIngressEventHandler",
     "PluginIngressEventRecord",
     "PluginIngressHandlerRegistration",
+    "classify_ingress_error",
 ]
