@@ -81,6 +81,7 @@ async def setup_runtime(tmp_path, sources):
         "notes", "notes.source", sources[connection_id], SourceSpec(source_id="notes.source", display_name="Notes")
     )
     manager = Mock()
+    manager.connection_store.collector_binding.return_value = None
     manager.get_package.return_value = SimpleNamespace(manifest=SimpleNamespace(version="0.2.0"))
     contrib = SourceSchedulerContrib(
         scheduler_service=Mock(), source_registry=registry, plugin_manager=manager,
@@ -295,5 +296,29 @@ async def test_connection_readiness_ignores_other_account_and_deleted_l1(tmp_pat
         assert len(remaining) == 1
         assert ids[0] not in remaining
         assert len(await visible_source_event_ids(contrib.source_store, memory, connection_id="account-b", source_type="notes")) == 2
+    finally:
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_remote_observation_uses_normal_l1_pipeline_and_replay_dedup(tmp_path):
+    source = NotesSource(owner(), tmp_path)
+    memory, contrib, bus = await setup_runtime(tmp_path, {"account-a": source})
+    spec = SourceSpec(source_id="notes.source", display_name="Notes", metadata={"remote_collection": "source.change.v1"})
+    contrib._source_registry.resolve_source.side_effect = lambda *args, **kwargs: ("notes", "notes.source", source, spec)
+    contrib._plugin_manager.connection_store.collector_binding.return_value = "device"
+    contrib._scheduler_service.get_target_state = AsyncMock(return_value=SimpleNamespace(last_success_at=None))
+    try:
+        with pytest.raises(PermissionError, match="paired device"):
+            await sync(contrib)
+        for _ in range(2):
+            await contrib.ingest_collector_change(connection_id="account-a", source_type="notes", client_id="device",
+                                                  plugin_version="0.2.0", change=source.batch.changes[0])
+        assert source.collect_count == 0
+        assert len(await events(memory)) == 1
+        assert bus.publish.await_args_list
+        with pytest.raises(PermissionError):
+            await contrib.ingest_collector_change(connection_id="account-a", source_type="notes", client_id="other",
+                                                  plugin_version="0.2.0", change=source.batch.changes[0])
     finally:
         await memory.shutdown()

@@ -245,7 +245,7 @@ class ProcessPluginProxy(Plugin):
         import_roots = list(dict.fromkeys([*sdk_roots, *runtime["paths"]]))
         launch_code = f"import sys;sys.path[:0]={import_roots!r};from magi_plugin_sdk.worker import main;main()"
         # Launch the interpreter directly; framework launchers re-exec outside confinement.
-        command = [runtime["executable"], "-I", "-S", "-u", "-c", launch_code]
+        command = [runtime["executable"], "-I", "-S", "-B", "-u", "-c", launch_code]
         state_dir, resources_dir = (
             self.context.state_dir.resolve(),
             self.context.resources_dir.resolve(),

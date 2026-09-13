@@ -198,6 +198,7 @@ fn collect_forward_headers(request: &Request) -> serde_json::Map<String, Value> 
             || name_lower == "content-length"
             || name_lower == "transfer-encoding"
             || name_lower == "x-magi-client-id"
+            || name_lower == "x-magi-collector-source"
             || name_lower == super::security::SESSION_TOKEN_HEADER
         {
             continue;
@@ -213,6 +214,12 @@ fn collect_forward_headers(request: &Request) -> serde_json::Map<String, Value> 
         headers.insert(
             "x-magi-client-id".into(),
             Value::String(client.client_id.clone()),
+        );
+    }
+    if let Some(scope) = request.extensions().get::<crate::auth::CollectorScope>() {
+        headers.insert(
+            "x-magi-collector-source".into(),
+            Value::String(scope.source_type.clone()),
         );
     }
     headers
@@ -424,9 +431,21 @@ mod tests {
     fn forwarded_peer_identity_is_issued_by_authentication() {
         let mut request = axum::http::Request::builder()
             .header("x-magi-client-id", "spoofed")
+            .header("x-magi-collector-source", "spoofed")
             .body(Body::empty())
             .unwrap();
         assert!(!super::collect_forward_headers(&request).contains_key("x-magi-client-id"));
+        assert!(!super::collect_forward_headers(&request).contains_key("x-magi-collector-source"));
+        request
+            .extensions_mut()
+            .insert(crate::auth::CollectorScope {
+                connection_id: "connection".into(),
+                source_type: "git_activity".into(),
+            });
+        assert_eq!(
+            super::collect_forward_headers(&request)["x-magi-collector-source"],
+            "git_activity"
+        );
         request
             .extensions_mut()
             .insert(crate::api::security::AuthenticatedClient {

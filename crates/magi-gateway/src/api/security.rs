@@ -317,10 +317,9 @@ pub async fn enforce_gateway_access(
         } else if let Some(client_id) = security.auth.authenticate(&token) {
             if let Some(scope) = security.auth.collector_scope(&client_id) {
                 let allowed = (request.method() == Method::POST && path == "/api/delivery/events")
-                    || (request.method() == Method::GET
-                        && (path == "/api/server/info"
-                            || path
-                                == format!("/api/collector/connections/{}", scope.connection_id)));
+                    || (request.method() == Method::GET && path == "/api/server/info")
+                    || (matches!(*request.method(), Method::GET | Method::POST)
+                        && path == format!("/api/delivery/collector/{}", scope.connection_id));
                 if !allowed {
                     return error_response(
                         StatusCode::FORBIDDEN,
@@ -328,6 +327,9 @@ pub async fn enforce_gateway_access(
                         "collector_scope_denied",
                     );
                 }
+            }
+            if let Some(scope) = security.auth.collector_scope(&client_id) {
+                request.extensions_mut().insert(scope);
             }
             request
                 .extensions_mut()

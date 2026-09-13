@@ -213,6 +213,30 @@ class PluginConnectionStore:
             except (OSError, ValueError) as exc:
                 raise ConnectionStoreError("Plugin ingress epoch is invalid") from exc
 
+    def collector_binding(self, connection_id: str, source_type: str) -> str | None:
+        """Read collection ownership independently of plugin credentials and settings."""
+        with connection_file_lock(self.root):
+            self._record(self._read(), connection_id)
+            path = self.root / f"{connection_id}.collectors.json"
+            if not path.exists():
+                return None
+            bindings = json.loads(path.read_text())
+            if not isinstance(bindings, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in bindings.items()):
+                raise ConnectionStoreError("Collector bindings are invalid")
+            return bindings.get(source_type)
+
+    def bind_collector(self, connection_id: str, source_type: str, client_id: str | None) -> None:
+        """Called only by the host after authenticated source admission is drained."""
+        with connection_file_lock(self.root):
+            self._record(self._read(), connection_id)
+            path = self.root / f"{connection_id}.collectors.json"
+            bindings = json.loads(path.read_text()) if path.exists() else {}
+            if client_id is None:
+                bindings.pop(source_type, None)
+            else:
+                bindings[source_type] = client_id
+            write_connection_json(path, json.dumps(bindings))
+
     def invalidate_ingress(self, connection_id: str, *, expected_revision: int) -> None:
         """Fence old observations durably before any content is erased."""
         with connection_file_lock(self.root):
@@ -377,3 +401,4 @@ class PluginConnectionStore:
             del registry.connections[connection_id]
             self._write(registry)
             (self.root / f"{connection_id}.ingress.json").unlink(missing_ok=True)
+            (self.root / f"{connection_id}.collectors.json").unlink(missing_ok=True)

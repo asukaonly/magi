@@ -1288,3 +1288,80 @@ the notification center overlays pending read states over server snapshots.
 Explicit mark-all-read, dismissals and notification actions still require a
 successful direct request. Ordinary operations are not silently queued for later
 execution.
+
+### Running a device collector
+
+Remote desktop connections do not automatically collect device data. For the
+first Git Activity collector on macOS, install Git Activity 0.3.2 on the center,
+create a dedicated connection, authorize its access, and enable the Git source.
+The repository paths to scan belong to the collector's settings; the center does
+not use those paths after collection is claimed. The connection's source enable
+switch still controls admission and processing.
+
+On the running center, find the connection ID and generate a restricted grant:
+
+```sh
+magi-server collector-connections --plugin-id git-activity
+magi-server pair-collector --connection-id conn_<id> --source-type git_activity
+```
+
+Use `--config /absolute/path/server.json` for a non-default deployment, including
+the development `~/.config/magi-server/dev.json`. These commands use the existing
+same-account operator socket and authenticated API. The grant lasts 30 minutes,
+is single-use, and is separate from the desktop administrator pairing code.
+
+On the collecting computer, prepare a local settings JSON file:
+
+```json
+{
+  "sources": {
+    "git_activity": {
+      "enabled": true,
+      "repos": ["/absolute/path/to/repository"],
+      "initial_sync_policy": "lookback_days",
+      "initial_sync_lookback_days": 30
+    }
+  }
+}
+```
+
+From the standalone service bundle, initialize and run the collector:
+
+```sh
+magi-server collect init --address https://your-magi.example --connection conn_<id> --plugin /path/to/git_activity --settings-file /path/to/source.json --trust-plugin
+magi-server collect run
+magi-server collect status
+```
+
+Initialization privately prompts for the collector pairing code. A same-machine
+server may use its actual `http://127.0.0.1:<port>` address. The plugin path must
+contain the same reviewed version as the center and any preinstalled locked
+`.deps`; initialization does not download or install dependencies. The explicit
+trust flag permits native code with the user's OS access. It snapshots the package
+and settings into `~/.magi-collector` by default, independent of center and desktop
+data. `magi-server --data-dir /absolute/dedicated/path collect ...` selects another
+collector. Settings or trusted package changes require a reviewed new collector
+directory and grant, preserving the old queue for inspection.
+
+In a source checkout, replace `magi-server collect` with
+`./scripts/dev-collector.sh`; it uses `~/.magi-collector-dev`, overridable with
+`MAGI_COLLECTOR_DATA_DIR`. No local center or agent starts. `run --once` performs one
+collection and a bounded delivery pass. Ordinary `run` continues until Ctrl+C;
+restarting the same command resumes the queue and checkpoint. It is a foreground
+process; use an OS service supervisor when unattended startup is required.
+
+`status` is read-only and can inspect a running collector. Stop it before
+`retry` or `discard --confirm`; discard removes failed queued records only and
+preserves sequence watermarks. Diagnostics never print record payloads or
+credentials. Settings → Center Connections lists each device as administrator or
+source collector with its restricted source identity. To replace a collector,
+revoke its device with the UI or `magi-server revoke --client-id <id>`, then create
+a new scoped grant. To move collection back to the center after revocation:
+
+```sh
+magi-server release-collector --connection-id conn_<id> --source-type git_activity
+```
+
+Photo binaries, device permission dialogs and automatic desktop collector
+installation are not part of this source protocol. Their plugins continue to run
+on the center until they adopt an appropriate collector/resource contract.

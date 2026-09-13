@@ -173,3 +173,61 @@ async def discard_delivery(selection: DeliverySelection) -> dict[str, bool]:
         raise HTTPException(422, "Discard requires an exact device, connection and stream")
     await get_container().runtime_trace_store().discard_background_stream(**selection.model_dump())
     return {"ok": True}
+
+
+class CollectorClaim(StrictModel):
+    plugin_id: Key
+    plugin_version: Annotated[str, Field(min_length=1, max_length=128)]
+
+
+@delivery_router.get("/collector/{connection_id}")
+async def collector_scope(
+    connection_id: str, x_magi_collector_source: Annotated[str, Header(min_length=1)],
+) -> dict[str, str | None]:
+    """Expose only the source protocol and generations, never center settings or secrets."""
+    container = get_container()
+    manager = container.plugin_manager()
+    try:
+        connection = manager.connection_store.get(connection_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Plugin connection does not exist") from exc
+    resolved = container.source_registry().resolve_source(x_magi_collector_source, connection_id=connection_id)
+    if resolved is None or not connection.enabled:
+        raise HTTPException(409, "Enable the source connection on the center first")
+    plugin_id, _, _, spec = resolved
+    if spec.metadata.get("remote_collection") != "source.change.v1":
+        raise HTTPException(409, "This source does not support remote collection")
+    package = manager.get_package(plugin_id)
+    if package is None:
+        raise HTTPException(409, "Source package is unavailable")
+    return {"connection_id": connection_id, "connection_epoch": manager.connection_store.ingress_epoch(connection_id),
+            "plugin_id": plugin_id, "plugin_version": package.manifest.version, "source_type": x_magi_collector_source,
+            "claimed_by": manager.connection_store.collector_binding(connection_id, x_magi_collector_source)}
+
+
+@delivery_router.post("/collector/{connection_id}")
+async def claim_collector(
+    connection_id: str, claim: CollectorClaim,
+    x_magi_client_id: Annotated[str, Header(min_length=1)],
+    x_magi_collector_source: Annotated[str, Header(min_length=1)],
+) -> dict[str, str | None]:
+    scope = await collector_scope(connection_id, x_magi_collector_source)
+    if scope["plugin_version"] != claim.plugin_version or scope["plugin_id"] != claim.plugin_id:
+        raise HTTPException(409, "Install the same plugin version on the collector and center")
+    try:
+        await get_container().source_scheduler_contrib().claim_collector(connection_id, x_magi_collector_source, x_magi_client_id)
+    except (ValueError, PermissionError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    scope["claimed_by"] = x_magi_client_id
+    return scope
+
+
+class CollectorRelease(StrictModel):
+    source_type: Key
+
+
+@delivery_router.post("/collector/{connection_id}/release")
+async def release_collector(connection_id: str, release: CollectorRelease) -> dict[str, bool]:
+    """Admin-only: return collection to the center after revoking the device credential."""
+    await get_container().source_scheduler_contrib().claim_collector(connection_id, release.source_type, None)
+    return {"ok": True}

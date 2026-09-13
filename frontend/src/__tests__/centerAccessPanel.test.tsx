@@ -6,7 +6,7 @@ vi.mock('@/runtime/connections', () => ({ listConnectionProfiles: profiles }));
 vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => ({ profileId: 'local' }), resetRuntimeInitialization: vi.fn() }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t }) }));
 import { CenterAccessPanel } from '@/components/connections/CenterAccessPanel';
-const client = { client_id: 'device-a', name: 'Living room', created_at_ms: 1, revoked_at_ms: null };
+const client = { client_id: 'device-a', name: 'Living room', created_at_ms: 1, revoked_at_ms: null, role: 'admin', collector_scope: null };
 beforeEach(() => {
   vi.clearAllMocks(); clients.mockResolvedValue([client]); revoke.mockResolvedValue(undefined);
   profiles.mockResolvedValue({ state: { profiles: [{ mode: 'local', id: 'local' }] } });

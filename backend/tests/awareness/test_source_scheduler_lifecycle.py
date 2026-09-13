@@ -57,6 +57,7 @@ CONNECTION = PluginConnection(
 class _FakePluginManager:
     def __init__(self) -> None:
         self.package = SimpleNamespace(manifest=SimpleNamespace(version="0.2.0"))
+        self.connection_store = SimpleNamespace(collector_binding=lambda *_: None)
 
     def get_package(self, plugin_id: str):
         return self.package if plugin_id == "pull-plugin" else None

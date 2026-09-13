@@ -213,7 +213,7 @@ class SourceSchedulerContrib:
             current_settings = source.connection.settings
             default_settings = dict(spec.metadata.get("default_settings", {}))
             source_settings = dict(current_settings.get("sources", {}).get(source_type, {}))
-            enabled = source.connection.enabled and bool(source_settings.get("enabled", default_settings.get("enabled", True)))
+            enabled = not self._plugin_manager.connection_store.collector_binding(connection_id, source_type) and source.connection.enabled and bool(source_settings.get("enabled", default_settings.get("enabled", True)))
             sync_mode = str(
                 source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode))
             )
@@ -393,6 +393,47 @@ class SourceSchedulerContrib:
             admitted_at=context.triggered_at,
         )
 
+    async def ingest_collector_change(self, *, connection_id: str, source_type: str,
+                                      client_id: str, plugin_version: str, change: SourceChange) -> None:
+        """Materialize a remote observation through the normal source checkpoint pipeline."""
+        from magi_plugin_sdk.ingress import IngressProcessingError
+
+        lock = self._source_locks.setdefault((connection_id, source_type), asyncio.Lock())
+        async with plugin_runtime_operation(), lock:
+            target = self._resolve_source_sync_target(source_type, connection_id=connection_id, require_pull=False)
+            package = self._plugin_manager.get_package(target.plugin_id)
+            if package is None or package.manifest.version != plugin_version:
+                raise IngressProcessingError("unsupported_schema")
+            if target.spec.metadata.get("remote_collection") != "source.change.v1" or change.resources:
+                raise IngressProcessingError("unsupported_schema")
+            if self._plugin_manager.connection_store.collector_binding(connection_id, source_type) != client_id:
+                raise PermissionError("Collector no longer owns this source")
+            target_key = build_source_target_key(connection_id, source_type)
+            state = await self._scheduler_service.get_target_state(ScheduledTargetType.SOURCE_SYNC, target_key)
+            result = await self._run_admitted_source_sync(
+                schedule_id="collector", target_key=target_key, source_type=source_type,
+                connection_id=connection_id, manual=False, target_state=state,
+                sync_payload={"source_change": change.model_dump(mode="json")}, admitted_at=time.time(),
+            )
+            if not result.success:
+                raise RuntimeError("Collector ingestion did not complete")
+
+    async def claim_collector(self, connection_id: str, source_type: str, client_id: str | None) -> None:
+        """Drain the source before changing which machine is allowed to collect it."""
+        lock = self._source_locks.setdefault((connection_id, source_type), asyncio.Lock())
+        async with plugin_runtime_operation(), lock:
+            target = self._resolve_source_sync_target(source_type, connection_id=connection_id, require_pull=False)
+            if target.spec.metadata.get("remote_collection") != "source.change.v1" or bool(getattr(target.source, "supports_watch_mode", False)):
+                raise ValueError("Source does not support remote pull collection")
+            self._source_sync_settings(connection=target.source.connection, source_type=source_type, spec=target.spec)
+            if self._plugin_manager.connection_store.collector_binding(connection_id, source_type) == client_id:
+                return
+            checkpoint = await self.source_store.checkpoint(target.source.connection, target.source.source_id, source_type)
+            if await self.source_store.pending(checkpoint) is not None:
+                raise ValueError("Finish or clear the pending source batch before moving collection")
+            self._plugin_manager.connection_store.bind_collector(connection_id, source_type, client_id)
+        await self.sync_schedules()
+
     async def queue_source_change(self, payload: dict[str, Any]) -> ScheduleDefinition:
         """Durably queue broker-bound source ingress without reentering its worker."""
         connection_id = str(payload.get("connection_id") or "")
@@ -553,6 +594,8 @@ class SourceSchedulerContrib:
         if resolved is None:
             raise RuntimeError(f"Source not found: {source_type}")
         plugin_id, _, source, spec = resolved
+        if require_pull and self._plugin_manager.connection_store.collector_binding(connection_id, source_type):
+            raise PermissionError("This source is collected on its paired device")
         if require_pull and not bool(getattr(source, "supports_pull_sync", False)):
             raise RuntimeError(f"Source does not support pull sync: {source_type}")
         return _ResolvedSourceSyncTarget(plugin_id=plugin_id, source=source, spec=spec)

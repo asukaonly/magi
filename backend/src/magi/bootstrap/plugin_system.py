@@ -156,6 +156,8 @@ class PluginSystemModule(LifecycleModule):
         )
         providers = PluginProviderRegistry(get_connection=get_connection)
 
+        from ..awareness.remote_collection import source_ingress_registrations
+
         bindings = build_plugin_runtime(
             tool_registry=self._tool_registry,
             request_source_schedule_refresh=request_source_schedule_refresh,
@@ -164,6 +166,10 @@ class PluginSystemModule(LifecycleModule):
             operation_registrar=operations,
             provider_registrar=providers,
             ingress_registry=container.plugin_ingress_registry(),
+            source_ingress_factory=lambda connection, plugin, sources: source_ingress_registrations(
+                connection, plugin, sources,
+                lambda: self._context.agent_runtime.source_scheduler_contrib,
+            ),
             content_clearer=content.clear,
             connection_disconnector=content.disconnect,
             configure_instance=configure_instance,

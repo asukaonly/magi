@@ -72,6 +72,31 @@ pub enum Command {
     Status,
     /// Generate a single-use pairing code valid for 30 minutes.
     Pair,
+    /// List plugin connections and their IDs for collector enrollment.
+    CollectorConnections {
+        #[arg(long)]
+        plugin_id: String,
+    },
+    /// Return source collection to the center after revoking its collector.
+    ReleaseCollector {
+        #[arg(long)]
+        connection_id: String,
+        #[arg(long)]
+        source_type: String,
+    },
+    /// Issue a scoped source collector grant; does not grant center management access.
+    PairCollector {
+        #[arg(long)]
+        connection_id: String,
+        #[arg(long)]
+        source_type: String,
+    },
+    /// Run a device source without starting a center. Use `collect --help` for commands.
+    #[command(disable_help_flag = true)]
+    Collect {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// List paired devices.
     Clients,
     /// Revoke a paired device.
@@ -126,7 +151,10 @@ pub fn execute(
     if !path.is_absolute() {
         return Err("Server configuration path must be absolute".into());
     }
-    if cli.command.is_some() && !matches!(cli.command, Some(Command::Init)) && cli.init.supplied() {
+    if cli.command.is_some()
+        && !matches!(cli.command, Some(Command::Init | Command::Collect { .. }))
+        && cli.init.supplied()
+    {
         return Err(
             "Deployment initialization options only apply to init or first-run setup".into(),
         );
@@ -153,6 +181,42 @@ pub fn execute(
             log_file,
             output,
         ),
+        Some(Command::Collect { args }) => run_collector(&cli.init, args),
+        Some(Command::CollectorConnections { plugin_id }) => {
+            if !magi_gateway_key(&plugin_id) {
+                return Err("Invalid plugin identity".into());
+            }
+            let config = ServerConfig::load(&path)?;
+            let api = crate::console_api::Api::connect(&config)?;
+            print_json(&api.call("GET", &format!("/plugins/{plugin_id}/connections"), None)?)
+        }
+        Some(Command::ReleaseCollector {
+            connection_id,
+            source_type,
+        }) => {
+            if !magi_gateway_key(&connection_id) {
+                return Err("Invalid connection identity".into());
+            }
+            let config = ServerConfig::load(&path)?;
+            let api = crate::console_api::Api::connect(&config)?;
+            print_json(&api.call(
+                "POST",
+                &format!("/delivery/collector/{connection_id}/release"),
+                Some(&serde_json::json!({"source_type":source_type})),
+            )?)
+        }
+        Some(Command::PairCollector {
+            connection_id,
+            source_type,
+        }) => {
+            let config = ServerConfig::load(&path)?;
+            let api = crate::console_api::Api::connect(&config)?;
+            print_json(&api.call(
+                "POST",
+                "/server/collector-grants",
+                Some(&serde_json::json!({"connection_id":connection_id,"source_type":source_type})),
+            )?)
+        }
         Some(Command::Configure { from_stdin }) => crate::console::configure(&path, from_stdin),
         Some(Command::Config { action }) => {
             let config = ServerConfig::load(&path)?;
@@ -260,4 +324,69 @@ pub fn create_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())
+}
+
+fn run_collector(options: &InitOptions, args: Vec<String>) -> Result<(), String> {
+    let data = options
+        .data_dir
+        .clone()
+        .unwrap_or(home_path(".magi-collector")?);
+    let config = if let Some(project) = &options.development_root {
+        ServerConfig::for_development(project, data)
+    } else {
+        let bundle = options.bundle_root.clone().unwrap_or(
+            std::env::current_exe()
+                .map_err(|e| e.to_string())?
+                .parent()
+                .ok_or("Bundle directory is unavailable")?
+                .to_owned(),
+        );
+        ServerConfig::for_bundle(&bundle, data)
+    };
+    validate_worker(&config)?;
+    let mut command = std::process::Command::new(&config.worker.executable);
+    command
+        .args(&config.worker.args)
+        .arg("--collector")
+        .args(args)
+        .env("MAGI_HOME", &config.data_dir)
+        .env("MAGI_PLUGIN_PYTHON", &config.worker.plugin_python)
+        .env_remove("MAGI_IPC_AUTH_TOKEN")
+        .env_remove("MAGI_IPC_SOCKET")
+        .env_remove("MAGI_SERVER_PARENT_PID")
+        .env_remove("MAGI_DATA_EPOCH")
+        .env_remove("MAGI_BACKEND_LOG_FILE");
+    if let Some(cwd) = &config.worker.working_directory {
+        command.current_dir(cwd);
+    }
+    if config.worker.python_path.is_empty() {
+        command.env_remove("PYTHONPATH");
+    } else {
+        command.env(
+            "PYTHONPATH",
+            std::env::join_paths(&config.worker.python_path).map_err(|e| e.to_string())?,
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(format!("Collector could not start: {}", command.exec()))
+    }
+    #[cfg(not(unix))]
+    {
+        let status = command.status().map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Collector exited with an error".into())
+        }
+    }
+}
+
+fn magi_gateway_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
 }

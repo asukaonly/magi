@@ -74,6 +74,7 @@ export function CenterAccessPanel() {
       <div className="flex items-center gap-3"><p className="min-w-0 flex-1 truncate text-sm">{client.name}{client.client_id === currentClientId ? ` · ${t('connections.access.thisDevice')}` : ''}</p>
         <Button size="sm" variant="outline" disabled={busy} onClick={() => setConfirming(client.client_id)}>{t('connections.access.revoke')}</Button>
       </div>
+      <p className="break-all text-xs text-muted-foreground">{t(client.role === 'collector' ? 'connections.access.collectorRole' : 'connections.access.adminRole')}{client.collector_scope ? ` · ${client.collector_scope.source_type} · ${client.collector_scope.connection_id}` : ''}</p>
       {confirming === client.client_id ? <div className="space-y-2">
         <p className="text-xs text-muted-foreground">{t(client.client_id === currentClientId ? 'connections.access.revokeSelfHint' : 'connections.access.revokeHint')}</p>
         <div className="flex gap-2"><Button size="sm" variant="destructive" disabled={busy} onClick={() => { void run(() => revoke(client.client_id)); }}>{t('connections.access.confirmRevoke')}</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(null)}>{t('common.cancel')}</Button></div>

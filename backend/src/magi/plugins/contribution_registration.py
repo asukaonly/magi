@@ -29,6 +29,7 @@ class PluginContributionRegistrar:
         operation_registrar: Any | None = None,
         provider_registrar: Any | None = None,
         ingress_registry: Any | None = None,
+        source_ingress_factory: Callable[..., Any] | None = None,
         get_ingress_epoch: Callable[[str], str] | None = None,
     ) -> None:
         self._tool_registry = tool_registry
@@ -39,6 +40,7 @@ class PluginContributionRegistrar:
         self._operation_registrar = operation_registrar
         self._provider_registrar = provider_registrar
         self._ingress_registry = ingress_registry
+        self._source_ingress_factory = source_ingress_factory
         self._get_ingress_epoch = get_ingress_epoch
         self._registrations: dict[str, list[Callable[[], None]]] = {}
         self._lock = threading.RLock()
@@ -345,9 +347,12 @@ class PluginContributionRegistrar:
                     paths = ScopedSourceRuntimePaths(
                         connection_id, plugin_id, plugin_instance.context.state_dir
                     )
+                    registrations = list(plugin_instance.get_plugin_ingress_registrations(runtime_paths=paths))
+                    if self._source_ingress_factory is not None:
+                        registrations.extend(self._source_ingress_factory(connection_id, plugin_id, sources))
                     disposers.append(self._ingress_registry.register(
                         connection_id, self._get_ingress_epoch(connection_id),
-                        list(plugin_instance.get_plugin_ingress_registrations(runtime_paths=paths)),
+                        registrations,
                     ))
                 return contributions
             except BaseException:

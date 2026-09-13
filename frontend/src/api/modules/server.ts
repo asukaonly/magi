@@ -21,7 +21,9 @@ const infoSchema = z.object({
   supervisor: supervisorSchema,
   maintenance: maintenanceSchema, plugin_execution: z.literal('server'),
 });
-const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), created_at_ms: z.number(), revoked_at_ms: z.number().nullable() });
+const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), created_at_ms: z.number(), revoked_at_ms: z.number().nullable(),
+  role: z.enum(['admin', 'collector']), collector_scope: z.object({ connection_id: z.string().regex(/^conn_[0-9a-f]{32}$/), source_type: z.string().min(1) }).nullable(),
+}).refine((client) => (client.role === 'collector') === (client.collector_scope !== null), 'Invalid client role scope');
 
 export const serverApi = {
   async info() {

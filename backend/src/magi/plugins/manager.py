@@ -125,6 +125,7 @@ def build_plugin_runtime(
     hook_registry_provider: Callable[[], Any] | None = None,
     operation_registrar: Any | None = None,
     ingress_registry: Any | None = None,
+    source_ingress_factory: Callable[..., Any] | None = None,
     provider_registrar: Any | None = None,
     content_clearer: Callable[..., Any] | None = None,
     connection_disconnector: Callable[[PluginConnection], Any] | None = None,
@@ -148,6 +149,7 @@ def build_plugin_runtime(
         hook_registry_provider=hook_registry_provider,
         operation_registrar=operation_registrar,
         ingress_registry=ingress_registry,
+        source_ingress_factory=source_ingress_factory,
         provider_registrar=provider_registrar,
         content_clearer=content_clearer,
         connection_disconnector=connection_disconnector,
@@ -189,6 +191,7 @@ class PluginManager(PluginInstallationMixin):
         hook_registry_provider: Callable[[], Any] | None = None,
         operation_registrar: Any | None = None,
         ingress_registry: Any | None = None,
+        source_ingress_factory: Callable[..., Any] | None = None,
         provider_registrar: Any | None = None,
         content_clearer: Callable[..., Any] | None = None,
         connection_disconnector: Callable[[PluginConnection], Any] | None = None,
@@ -248,6 +251,7 @@ class PluginManager(PluginInstallationMixin):
         self.ingress_registry = ingress_registry or PluginIngressRegistry()
         self._contribution_registrar = PluginContributionRegistrar(
             ingress_registry=self.ingress_registry,
+            source_ingress_factory=source_ingress_factory,
             get_ingress_epoch=self.connection_store.ingress_epoch,
             tool_registry=tool_registry,
             source_registry=source_registry,

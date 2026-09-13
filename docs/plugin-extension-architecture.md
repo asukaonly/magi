@@ -1632,3 +1632,61 @@ channel, lifecycle or memory-projection ownership.
 Managed subprocess orphan cleanup requires a live matching process identity.
 If the operating system cannot provide that identity, the SDK keeps the registry
 entry for a later check and does not terminate the process.
+
+### Explicit device collection
+
+A connected desktop remains a management UI. It does not silently install or run
+center plugins on the device. `magi-server collect` is a separate, lightweight
+collector host: a private transport queue and one trusted plugin worker family,
+without a gateway, agent loop, models or memory databases. The first verified
+package is Git Activity 0.3.2 on macOS.
+
+A pull source opts in through `SourceSpec.metadata.remote_collection =
+"source.change.v1"`. This is a protocol promise: its collected `SourceChange`
+payload is portable, and its center-side `fetch_item`, `build_output` and
+`extract_metadata` need only that payload. They must not interpret client paths
+as center filesystem access. Resource references, watch-only sources, shared
+plugin dependencies and plugin credentials are outside this first protocol.
+Photo collection needs a separate resource upload contract before opting in.
+The center and device must install the same plugin version.
+
+The center uses its normal connection trust/enable flow and keeps its plugin for
+processing and presentation. A dedicated connection should represent one device
+source. A collector grant permits only that connection and source; it cannot read
+chats, change settings, create other grants or execute tools. The gateway strips
+caller-supplied identity headers and injects the authenticated device and source.
+Only one active collector credential may exist for each connection/source pair.
+The source claim waits for current source execution, refuses unresolved source
+batches, persists a host-owned binding, and disables center pull scheduling and
+manual sync. Returning to center collection requires revocation and explicit
+release. Disconnect removes the binding; a content clear preserves collection
+ownership but rotates the observation generation.
+
+The collector snapshots the explicitly trusted local package into its private
+data directory, verifies its complete content identity on every launch, and passes
+only local source settings to its worker. Gateway credentials stay in the
+collector's private transport record, never in the plugin context or environment.
+The worker disables bytecode writes so ordinary imports cannot change a sealed
+package. This is trusted native execution, not a sandbox against malicious code
+running under the same OS account.
+
+Checkpoint advancement and enqueue of the entire collected batch share one SQLite
+transaction. One stream has one in-flight event, stable producer/event/sequence
+identities survive restarts, and a receipt must match the server, generation and
+event before deletion. Overlapping source reads use a bounded 5,000-object local
+revision cache; eviction may resend an observation, whose center source version
+store remains authoritative for deduplication. The queue caps at 10,000 records
+and 64 MiB and pauses collection before advancing when full. Retries use bounded
+exponential backoff; ten failures or permanent rejection requires explicit retry
+or discard. Source/schema changes, revocation and content-generation changes stop
+the collector without retargeting old records. Offline startup uses only its
+previously captured scope. A newly paired collector must contact the center before
+collecting. Recovery after a clear uses a new grant/directory and an explicitly
+chosen initial sync scope; old queued observations are never relabeled.
+
+Portable observations enter the existing durable plugin ingress and source
+checkpoint/ingestion pipeline. The center allocates resource identities and commits
+normal L1 facts and source events, feeding the existing memory processing and
+timeline UI. Per-connection ingestion locking, plugin disable/disconnect leases,
+clear fencing, failure diagnostics and retry controls apply to these observations
+as well as local ingress.

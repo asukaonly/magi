@@ -388,3 +388,28 @@ async def test_permanent_handler_error_is_quarantined_without_secret_text(receiv
         assert "private-credential-value" not in json.dumps(status)
     finally:
         await processor.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_collector_routes_use_public_router_and_do_not_expose_center_settings(monkeypatch):
+    from unittest.mock import AsyncMock
+    scope = SimpleNamespace(metadata={"remote_collection": "source.change.v1"})
+    store = SimpleNamespace(get=lambda _: SimpleNamespace(enabled=True, settings={"secret": "private"}),
+                            ingress_epoch=lambda _: EPOCH, collector_binding=lambda *_: "device")
+    manager = SimpleNamespace(connection_store=store, get_package=lambda _: SimpleNamespace(manifest=SimpleNamespace(version="0.3.2")))
+    contributor = SimpleNamespace(claim_collector=AsyncMock())
+    monkeypatch.setattr(delivery, "get_container", lambda: SimpleNamespace(plugin_manager=lambda: manager,
+        source_registry=lambda: SimpleNamespace(resolve_source=lambda *_, **kwargs: ("git-activity", "source", None, scope)),
+        source_scheduler_contrib=lambda: contributor))
+    app = FastAPI()
+    app.include_router(_build_public_router(delivery.delivery_router, _PUBLIC_ROUTE_METHODS["delivery"]), prefix="/api/delivery")
+    async with AsyncClient(transport=ASGITransport(app), base_url="http://test", headers={"x-magi-client-id": "device", "x-magi-collector-source": "git_activity"}) as client:
+        response = await client.get(f"/api/delivery/collector/{CONNECTION}")
+        assert response.status_code == 200
+        assert "private" not in response.text and "settings" not in response.text
+        invalid = await client.post(f"/api/delivery/collector/{CONNECTION}", json={"plugin_id": "wrong", "plugin_version": "0.3.2"})
+        assert invalid.status_code == 409
+        contributor.claim_collector.assert_not_awaited()
+        valid = await client.post(f"/api/delivery/collector/{CONNECTION}", json={"plugin_id": "git-activity", "plugin_version": "0.3.2"})
+        assert valid.status_code == 200
+        contributor.claim_collector.assert_awaited_once_with(CONNECTION, "git_activity", "device")

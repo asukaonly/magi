@@ -202,7 +202,7 @@ dismissal, mark-all-read, configuration, queries and tool execution remain direc
 requests. Chat retains its existing turn-ID recovery contract. Existing server
 Source collection retains its source journal/checkpoint contract instead of
 adding a redundant outbox around local domain writes. This change does not add
-client-side plugin installation, a collector host, or new telemetry collection.
+automatic client-side plugin installation or new telemetry collection. The explicit `magi-server collect` host is described in the plugin architecture and uses this admission contract.
 
 Gateway admission checks `data_epoch` while holding the maintenance permit.
 Clear and restore change this epoch; old outbox data is retired after observing

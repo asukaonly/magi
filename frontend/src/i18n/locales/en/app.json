@@ -5677,7 +5677,9 @@
       "copy": "Copy",
       "copied": "Copied",
       "loadFailed": "Could not load device access.",
-      "actionFailed": "The operation could not be confirmed. Refresh the list and try again."
+      "actionFailed": "The operation could not be confirmed. Refresh the list and try again.",
+      "adminRole": "Manage this Magi",
+      "collectorRole": "Collect for this source only"
     },
     "local": "This computer",
     "localDescription": "Run Magi locally when this app is open.",

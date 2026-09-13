@@ -3,7 +3,7 @@
 Magi backend server launcher.
 
 In desktop mode the Rust gateway spawns this script with --role=ipc_worker.
-The only supported role is ipc_worker (agent runtime + IPC server, no HTTP).
+The collector entry runs only a device source and its reliable transport queue.
 """
 import sys
 import os
@@ -16,6 +16,10 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 def main() -> None:
+    if sys.argv[1:2] == ["--collector"]:
+        from magi.collector.cli import main as run_collector
+        raise SystemExit(run_collector(sys.argv[2:]))
+
     from magi.utils.log_redaction import install_redacting_standard_streams
 
     install_redacting_standard_streams()
