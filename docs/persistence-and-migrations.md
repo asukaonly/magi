@@ -16,10 +16,12 @@ owner-only filesystem protection as connection credentials. Queue capacity is
 10,000 outstanding records / 64 MiB of payload; stream metadata is separate.
 
 Server delivery receipts and work items live in `runtime/runtime_trace.db`;
-Plugin connection registry schema `2` requires a host-owned `ingress_epoch` on
-all records. It has no schema-1 compatibility reader. A clear request rotates the
-epoch before erasure; settings updates and stop/start preserve it. Runtime trace
-revision `v7` requires connection-scoped ingress records. Unscoped pre-v7 work is
+A plugin connection's first ingress epoch is its immutable host-issued UUID.
+A clear request durably replaces that epoch in host-only
+`plugin-connections/{connection_id}.ingress.json` before erasure. Settings
+updates and stop/start preserve it. This metadata is separate from account settings:
+the connection registry format is unchanged and needs no compatibility reader or
+configuration reset. Runtime trace revision `v7` requires connection-scoped ingress records. Unscoped pre-v7 work is
 removed because assigning it to one of several accounts would be unsafe; receipts
 retain only identity hashes. Connection erasure removes payloads, and startup
 retires any obsolete generations left by an interrupted clear.

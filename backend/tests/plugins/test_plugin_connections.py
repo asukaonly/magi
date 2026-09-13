@@ -213,7 +213,9 @@ def test_ingress_epoch_survives_settings_but_is_fenced_before_clear(store):
     epoch = store.ingress_epoch(connection.connection_id)
     updated = store.update(connection.connection_id, expected_revision=0, display_name="Renamed")
     assert store.ingress_epoch(connection.connection_id) == epoch
+    account_config = store.path.read_bytes()
     store.invalidate_ingress(connection.connection_id, expected_revision=updated.revision)
+    assert store.path.read_bytes() == account_config
     fenced = store.ingress_epoch(connection.connection_id)
     assert fenced != epoch
     reopened = PluginConnectionStore(runtime_paths=RuntimePaths(store.root.parents[1]), require_package=_require_package)

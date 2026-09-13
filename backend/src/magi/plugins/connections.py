@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import shutil
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from magi_plugin_sdk.context import PluginContext
@@ -45,14 +45,18 @@ class _Record(BaseModel):
     credentials: dict[str, str] = Field(default_factory=dict, repr=False)
     private_state: dict[str, JsonValue] = Field(default_factory=dict)
     content_state: dict[str, JsonValue] = Field(default_factory=dict)
-    ingress_epoch: str
     state_revision: int = Field(default=0, ge=0)
     readiness: list[CapabilityReadiness] = Field(default_factory=list)
 
 
+class _IngressEpoch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    epoch: UUID
+
+
 class _Registry(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[2] = 2
+    schema_version: Literal[1] = 1
     connections: dict[str, _Record] = Field(default_factory=dict)
 
 
@@ -175,7 +179,7 @@ class PluginConnectionStore:
             connection_id=f"conn_{uuid4().hex}", plugin_id=plugin_id,
             display_name=display_name.strip(), settings=settings or {}, enabled=enabled,
         )
-        record = _Record(connection=connection, ingress_epoch=str(uuid4()))
+        record = _Record(connection=connection)
         self._credentials(record, credentials or {})
         with connection_file_lock(self.root):
             self._admit(record.connection)
@@ -199,7 +203,15 @@ class PluginConnectionStore:
     def ingress_epoch(self, connection_id: str) -> str:
         """Return the host-owned generation used to fence delayed observations."""
         with connection_file_lock(self.root):
-            return self._record(self._read(), connection_id).ingress_epoch
+            self._record(self._read(), connection_id)
+            path = self.root / f"{connection_id}.ingress.json"
+            if not path.exists():
+                # A connection's first generation is its immutable host-issued identity.
+                return str(UUID(connection_id.removeprefix("conn_")))
+            try:
+                return str(_IngressEpoch.model_validate_json(path.read_text()).epoch)
+            except (OSError, ValueError) as exc:
+                raise ConnectionStoreError("Plugin ingress epoch is invalid") from exc
 
     def invalidate_ingress(self, connection_id: str, *, expected_revision: int) -> None:
         """Fence old observations durably before any content is erased."""
@@ -207,8 +219,8 @@ class PluginConnectionStore:
             registry = self._read()
             record = self._record(registry, connection_id)
             _check_revision(record.connection.revision, expected_revision)
-            record.ingress_epoch = str(uuid4())
-            self._write(registry)
+            write_connection_json(self.root / f"{connection_id}.ingress.json",
+                                  _IngressEpoch(epoch=uuid4()).model_dump_json())
 
     def update(
         self,
@@ -364,3 +376,4 @@ class PluginConnectionStore:
                 shutil.rmtree(instance_dir)
             del registry.connections[connection_id]
             self._write(registry)
+            (self.root / f"{connection_id}.ingress.json").unlink(missing_ok=True)

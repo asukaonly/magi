@@ -13,7 +13,7 @@ fn scope() -> Scope {
 }
 fn payload(value: u32) -> BackgroundPayload {
     BackgroundPayload::PluginEvent {
-        connection_id: "conn_test".into(),
+        connection_id: "conn_11111111111141118111111111111111".into(),
         connection_epoch: "11111111-1111-4111-8111-111111111111".into(),
         plugin_target: "test".into(),
         event_type: "observation".into(),
@@ -325,7 +325,7 @@ fn invalid_and_oversized_content_never_enters_storage() {
         )
         .is_err());
     let large = BackgroundPayload::PluginEvent {
-        connection_id: "conn_test".into(),
+        connection_id: "conn_11111111111141118111111111111111".into(),
         connection_epoch: "11111111-1111-4111-8111-111111111111".into(),
         plugin_target: "test".into(),
         event_type: "facts".into(),
@@ -385,7 +385,7 @@ fn storage_is_private_and_forgetting_erases_payload() {
     let scope = scope();
     let mut q = Outbox::open(dir.path()).unwrap();
     let payload = BackgroundPayload::PluginEvent {
-        connection_id: "conn_test".into(),
+        connection_id: "conn_11111111111141118111111111111111".into(),
         connection_epoch: "11111111-1111-4111-8111-111111111111".into(),
         plugin_target: "test".into(),
         event_type: "facts".into(),

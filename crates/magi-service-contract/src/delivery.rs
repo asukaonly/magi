@@ -32,7 +32,7 @@ impl BackgroundPayload {
                 event_type,
                 data,
             } => {
-                if !valid_key(connection_id)
+                if !valid_connection_id(connection_id)
                     || !valid_id(connection_epoch)
                     || !valid_key(plugin_target)
                     || !valid_key(event_type)
@@ -57,6 +57,15 @@ impl BackgroundPayload {
         }
         Ok(())
     }
+}
+
+pub fn valid_connection_id(value: &str) -> bool {
+    value.strip_prefix("conn_").is_some_and(|id| {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    })
 }
 
 pub fn valid_key(value: &str) -> bool {

@@ -235,13 +235,14 @@ class PluginIngressPersistenceMixin:
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute("PRAGMA secure_delete=ON")
-            await db.execute(
+            deleted = await db.execute(
                 "DELETE FROM plugin_ingress_events WHERE connection_id=? AND connection_epoch IS NOT ?",
                 (connection_id, keep_epoch),
             )
             await db.commit()
         # Receipts contain hashes only and still reject reuse of an old event identity.
-        await secure_compact_sqlite(self.db_path, profile="hot_write")
+        if deleted.rowcount > 0:
+            await secure_compact_sqlite(self.db_path, profile="hot_write")
 
     async def defer_plugin_ingress(self, event_id: int) -> None:
         """Retain disabled/unloaded connection work without exhausting its retry budget."""
