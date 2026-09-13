@@ -201,6 +201,14 @@ a committed replacement retires its work. Ordinary service restarts keep the
 epoch. A delayed ACK cannot acknowledge a replacement record with a different
 identity, epoch, sequence or payload.
 
+The event client retries both initial connection failures and interrupted streams
+with bounded backoff; disconnecting or switching centers cancels its retry owner.
+The notification bell and panel share one mounted reconciliation owner. Center
+state hints, replay gaps, reconnect, focus and the bounded refresh clock reload the
+notification snapshot, including read-state changes made on another device. Hints
+arriving during a read coalesce into one trailing read; stale-center responses
+remain guarded by the runtime generation.
+
 ### Maintenance and process-local messages
 
 Full-clear lifecycle belongs to the independent service. It closes and drains

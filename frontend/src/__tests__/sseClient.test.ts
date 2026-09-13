@@ -36,3 +36,29 @@ describe('authenticated center events', () => {
     const client = new SseClient(); await expect(client.connect()).rejects.toThrow('rejected'); client.disconnect();
   });
 });
+
+it('automatically retries an initial failure and stops retries on disconnect', async () => {
+  vi.useFakeTimers();
+  const wire = stream();
+  fetchMock.mockRejectedValueOnce(new TypeError('offline')).mockResolvedValueOnce(wire.response);
+  const client = new SseClient();
+  const status = vi.fn();
+  client.subscribeStatus(status);
+  await expect(client.connect()).rejects.toThrow('offline');
+  await vi.advanceTimersByTimeAsync(1_100);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(status).toHaveBeenLastCalledWith(expect.objectContaining({ connected: true }));
+  client.disconnect();
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it('does not retry a failed initial attempt after its owner is disconnected', async () => {
+  vi.useFakeTimers();
+  fetchMock.mockRejectedValue(new TypeError('offline'));
+  const client = new SseClient();
+  await expect(client.connect()).rejects.toThrow('offline');
+  client.disconnect();
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

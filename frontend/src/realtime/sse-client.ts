@@ -54,7 +54,7 @@ export class SseClient {
     }).catch((error: unknown) => {
       if (owner === this.abort) {
         this.setStatus({ connected: false, lastError: 'Center event connection failed' });
-        this.abort = undefined;
+        void this.run(owner).catch(() => undefined);
       }
       throw error;
     }).finally(() => { if (this.connecting === pending) this.connecting = undefined; });
@@ -77,10 +77,10 @@ export class SseClient {
     return response;
   }
 
-  private async run(owner: AbortController, initial: Response): Promise<void> {
+  private async run(owner: AbortController, initial?: Response): Promise<void> {
     let response = initial;
     while (owner === this.abort && !owner.signal.aborted) {
-      try { await this.consume(owner, response); }
+      try { if (response) await this.consume(owner, response); }
       catch { /* An interrupted stream resumes from the last validated frame. */ }
       if (owner !== this.abort || owner.signal.aborted) return;
       this.setStatus({ connected: false, lastError: 'Center event stream interrupted' });
