@@ -230,6 +230,24 @@ with WorkerInstance(root / "data"):
                     pass
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Unix process-family ownership")
+@pytest.mark.parametrize("target", ["owner", "guardian"])
+def test_supervisor_crash_terminates_the_worker_family(proxy, target):
+    worker_pid = proxy.read_settings_resource("info")["pid"]
+    guardian_pid = os.getpgid(worker_pid)
+    assert guardian_pid != worker_pid
+    os.kill(proxy._process.pid if target == "owner" else guardian_pid, signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    while True:
+        state = subprocess.run(["ps", "-p", str(worker_pid), "-o", "stat="], capture_output=True, text=True).stdout.strip()
+        if (not state or state.startswith("Z")) and not proxy.diagnostics["healthy"]:
+            break
+        assert time.monotonic() < deadline, "A crashed supervisor left its plugin worker running"
+        time.sleep(0.02)
+    with pytest.raises(PluginProcessError):
+        proxy.read_settings_resource("info")
+
+
 def test_typed_codec_roundtrip_and_no_arbitrary_classes():
     value = SourceChangeBatch(next_cursor="cursor")
     assert read_frame(io.BytesIO(pack({"value": value}))) == {"value": value}

@@ -59,13 +59,16 @@ Contribution registration is transactional and each connection has an exact
 cleanup owner. Enabling, stopping, clearing, and disconnecting are separate
 operations. Application shutdown drains all active and setup workers.
 
-On Unix each external worker has a standard-library-only process owner outside
-the plugin confinement boundary. It watches a private lifetime pipe independently
-of plugin threads, kills its dedicated process group on host death or worker exit,
-and never imports plugin code. Diagnostics report that family's owner PID.
-Only the trusted owner retains an inherited runtime instance lease and releases
-it after the worker has been reaped. Plugin code cannot access or unlock that
-lease; the next Python generation remains excluded while cleanup is pending.
+On Unix each external worker has a standard-library-only process owner and group
+guardian outside the plugin confinement boundary. The owner watches the host's
+lifetime pipe; the guardian watches the owner's lifetime pipe. The worker shares
+the guardian's process group. An owner crash triggers guardian cleanup; a guardian
+crash triggers the owner's cleanup while it retains the unreaped group leader PID.
+Neither supervisor imports plugin code. Diagnostics report the outer owner PID,
+and a dedicated host monitor detects its exit without waiting for stdout EOF.
+Only the trusted supervisors retain inherited runtime instance leases. Group
+termination is issued before releasing these leases; plugin code cannot access
+or unlock them. The outer owner waits for its group leader before exiting.
 Ordinary descendants stay in that group; explicitly detached native helpers must
 use the SDK's managed-subprocess recovery contract. Windows uses kernel Job
 ownership instead. The confined worker still cannot launch extra processes.

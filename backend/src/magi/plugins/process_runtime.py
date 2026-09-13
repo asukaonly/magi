@@ -339,6 +339,7 @@ class ProcessPluginProxy(Plugin):
             ("writer", self._write_loop),
             ("reader", self._read_loop),
             ("stderr", self._stderr_loop),
+            ("exit", self._exit_loop),
         ):
             threading.Thread(
                 target=target, name=f"plugin-{self.connection.connection_id}-{name}", daemon=True
@@ -376,6 +377,12 @@ class ProcessPluginProxy(Plugin):
             if self._probe_path:
                 self._probe_path.unlink(missing_ok=True)
                 self._probe_path = None
+
+    def _exit_loop(self) -> None:
+        process = self._process
+        if process is not None:
+            process.wait()
+            self._terminate("Plugin process owner exited")
 
     @property
     def diagnostics(self) -> dict[str, Any]:

@@ -79,8 +79,11 @@ lifetime; normal teardown releases the lease after runtime/plugin shutdown.
 The server separately holds `runtime/server.lock`. Neither lock file is deleted
 on exit, so another process cannot lock a newly created inode beside a live owner.
 Unix external-plugin families inherit the worker lease through a separate,
-standard-library-only process owner. Host death closes its private lifetime pipe
-and reaps the family independently of plugin event loops and the plugin GIL.
+standard-library-only process owner and a group guardian. Host death closes the
+owner's private lifetime pipe. The guardian watches a separate owner lifetime
+pipe and shares its process group with the plugin worker, so an owner crash also
+kills the family independently of plugin event loops and the plugin GIL. The
+host monitors owner exit separately from stdout, which descendants may still hold.
 Replacement remains excluded until those inherited leases close. Windows uses
 kernel Job ownership for this boundary.
 

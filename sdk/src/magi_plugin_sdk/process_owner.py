@@ -1,8 +1,8 @@
 """Unix plugin-family owner, executed directly with only the standard library.
 
-The host alone holds the lifetime pipe's writer. EOF kills the worker's process
-group even when plugin code holds the GIL or blocks its event loop. Only this
-trusted owner retains the runtime lease; plugin code cannot unlock it.
+The outer owner watches the host. A trusted group guardian watches the owner;
+plugin code shares the guardian's group but inherits neither lifetime pipes nor
+the runtime lease. Either supervisor can die without orphaning plugin work.
 """
 
 from __future__ import annotations
@@ -14,24 +14,55 @@ import subprocess
 import sys
 
 
+def guard(owner_fd: int, lease_fd: int, command: list[str]) -> None:
+    """Keep the group identity alive until all group members receive SIGKILL."""
+    os.set_inheritable(owner_fd, False)
+    if lease_fd >= 0:
+        os.set_inheritable(lease_fd, False)
+    try:
+        child = subprocess.Popen(command)
+        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+            readable, _, _ = select.select([owner_fd], [], [], 0.1)
+            if readable:
+                break
+    finally:
+        # This guardian is the live group leader, so the group ID cannot be reused.
+        # SIGKILL reaches descendants even if plugin code blocks or ignores signals.
+        os.killpg(os.getpid(), signal.SIGKILL)
+
+
 def main() -> None:
-    owner_fd, lease_fd = map(int, sys.argv[1:3])
-    command = sys.argv[3:]
+    guarded = sys.argv[1] == "--guard"
+    args = sys.argv[2:] if guarded else sys.argv[1:]
+    owner_fd, lease_fd = map(int, args[:2])
+    command = args[2:]
     if os.getpgrp() != os.getpid() or not command:
         raise RuntimeError("Plugin owner requires a dedicated process group and command")
     os.set_inheritable(owner_fd, False)
     if lease_fd >= 0:
         os.set_inheritable(lease_fd, False)
+    if guarded:
+        guard(owner_fd, lease_fd, command)
+        return
     child = None
+    guard_read, guard_write = os.pipe()
     try:
-        # The confinement wrapper applies only to the child, never the owner.
-        child = subprocess.Popen(command, start_new_session=True)
+        child = subprocess.Popen(
+            [sys.executable, "-I", "-S", __file__, "--guard", str(guard_read), str(lease_fd), *command],
+            start_new_session=True,
+            pass_fds=(guard_read,) + (() if lease_fd < 0 else (lease_fd,)),
+        )
+        os.close(guard_read)
+        guard_read = -1
         # Retain the leader PID until group cleanup; reaping first permits reuse.
         while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
             readable, _, _ = select.select([owner_fd], [], [], 0.1)
             if readable:
                 break
     finally:
+        os.close(guard_write)
+        if guard_read >= 0:
+            os.close(guard_read)
         if child is not None:
             try:
                 os.killpg(child.pid, signal.SIGKILL)
