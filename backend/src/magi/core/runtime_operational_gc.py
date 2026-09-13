@@ -174,6 +174,12 @@ class RuntimeOperationalGC:
                     (un_cutoff_ms,),
                 )
 
+            if await self._table_exists(db, "plugin_rpc_receipts"):
+                counts["plugin_rpc_receipts_deleted"] = await self._delete_rows(
+                    db, "DELETE FROM plugin_rpc_receipts WHERE issued_at_ms < ?",
+                    (self._cutoff_ms(7),),
+                )
+
             if await self._table_exists(db, "plugin_ingress_events"):
                 counts["runtime_trace_plugin_ingress_deleted"] = await self._delete_rows(
                     db,

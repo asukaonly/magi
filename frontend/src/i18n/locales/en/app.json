@@ -2821,6 +2821,7 @@
     },
     "pluginActions": {
       "actions": {
+        "confirm": "Check result",
         "cancel": "Cancel"
       },
       "feedback": {

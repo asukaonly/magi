@@ -26,6 +26,17 @@ removed because assigning it to one of several accounts would be unsafe; receipt
 retain only identity hashes. Connection erasure removes payloads, and startup
 retires any obsolete generations left by an interrupted clear.
 
+Runtime trace revision `v8` adds `plugin_rpc_receipts` for connection creation and
+settings-action start. Admission and response commits use SQLite FULL synchronization.
+The journal stores an input hash (no request credentials), authenticated device,
+data epoch, request identity, owner and bounded response. It permits at most 4,096
+receipts and 64 MiB of results, with a 256 KiB per-result limit. It is not an execution
+queue: losing the owner of a running attempt makes its outcome uncertain. New
+attempt identities expire after 24 hours, so seven-day GC cannot enable a stale
+request to execute again; result lookup remains available for seven days. Connection
+content clear and global chat/content clear erase private results while preserving
+uncertain identity tombstones. Result recording cannot overwrite such tombstones.
+
 Alembic revision `v6` creates `background_delivery_receipts` and ingress retry
 columns/index and the work item delivery epoch. Admission uses a FULL synchronous
 transaction for both receipt and payload. Receipts contain identity and a payload fingerprint, not a payload

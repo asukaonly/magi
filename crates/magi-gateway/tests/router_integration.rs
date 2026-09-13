@@ -1136,6 +1136,8 @@ async fn cors_allows_desktop_origin_and_session_header() {
     assert!(allowed_headers.contains(api::security::SESSION_TOKEN_HEADER));
     assert!(allowed_headers.contains("range"));
     assert!(allowed_headers.contains("user-agent"));
+    assert!(allowed_headers.contains("x-magi-request-id"));
+    assert!(allowed_headers.contains("x-magi-data-epoch"));
     drop(guard);
 }
 

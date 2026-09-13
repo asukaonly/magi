@@ -8,6 +8,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), warning: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 
 import { PluginSettingsActions } from '@/components/settings/PluginSettingsActions';
+import { PluginRequestRejectedError } from '@/api/confirmed-plugin-request';
 import type { PluginSettingsActionSpec } from '@/api/modules/plugins';
 
 const action: PluginSettingsActionSpec = {
@@ -42,4 +43,33 @@ it('discards a previous account response after the connection changes', async ()
     status: 'succeeded', message: 'Work account connected', data: {}, settings_updates: {} }));
   expect(screen.queryByText('Work account connected')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled();
+});
+
+it('checks an uncertain start using the original inputs instead of a new action', async () => {
+  const user = userEvent.setup();
+  api.startSettingsAction.mockRejectedValueOnce(new Error('response lost'));
+  const props = { pluginId: 'example', connectionId: 'work', actions: [action] };
+  const { rerender } = render(<PluginSettingsActions {...props} values={{ folder: 'Original' }} />);
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  const confirm = await screen.findByRole('button', { name: 'settings.pluginActions.actions.confirm' });
+  expect(confirm).toBeEnabled();
+  rerender(<PluginSettingsActions {...props} values={{ folder: 'Changed' }} />);
+  api.startSettingsAction.mockResolvedValueOnce({ connection_id: 'work', plugin_id: 'example', action_id: 'connect',
+    session_id: 'run', status: 'succeeded', message: 'Done', data: {}, settings_updates: {} });
+  await user.click(confirm);
+  expect(api.startSettingsAction).toHaveBeenLastCalledWith('work', 'connect', { folder: 'Original' });
+});
+
+it('uses edited inputs for a new attempt after the original request was rejected', async () => {
+  const user = userEvent.setup();
+  api.startSettingsAction.mockRejectedValueOnce(new PluginRequestRejectedError());
+  const props = { pluginId: 'example', connectionId: 'work', actions: [action] };
+  const { rerender } = render(<PluginSettingsActions {...props} values={{ folder: 'Original' }} />);
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect(screen.queryByRole('button', { name: 'settings.pluginActions.actions.confirm' })).not.toBeInTheDocument();
+  rerender(<PluginSettingsActions {...props} values={{ folder: 'Changed' }} />);
+  api.startSettingsAction.mockResolvedValueOnce({ connection_id: 'work', plugin_id: 'example', action_id: 'connect',
+    session_id: 'run', status: 'succeeded', message: 'Done', data: {}, settings_updates: {} });
+  await user.click(screen.getByRole('button', { name: 'Connect' }));
+  expect(api.startSettingsAction).toHaveBeenLastCalledWith('work', 'connect', { folder: 'Changed' });
 });

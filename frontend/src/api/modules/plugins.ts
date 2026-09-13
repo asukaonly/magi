@@ -1,3 +1,4 @@
+import { confirmedPluginPost } from '../confirmed-plugin-request';
 import { api } from '../client';
 import { unwrapGatewayPayload } from '../client';
 import { parsePluginPackage, parsePluginsList, parsePluginCandidate, parsePluginRegistry, parsePluginPlan, parsePluginAction, parsePluginJob, parsePluginResource, parsePluginConnection, parsePluginConnections } from '../plugin-contract';
@@ -451,8 +452,8 @@ export const pluginsApi = {
   },
 
   createConnection: async (pluginId: string, input: PluginConnectionCreate): Promise<PluginConnection> => {
-    const response = await api.post<unknown>(`/plugins/${encodeURIComponent(pluginId)}/connections`, input);
-    return parsePluginConnection(response, pluginId);
+    return confirmedPluginPost(`/plugins/${encodeURIComponent(pluginId)}/connections`, input,
+      (response) => parsePluginConnection(response, pluginId));
   },
 
   getConnection: async (pluginId: string, connectionId: string): Promise<PluginConnection> => {
@@ -509,11 +510,10 @@ export const pluginsApi = {
     actionId: string,
     fieldValues: Record<string, unknown>
   ): Promise<PluginSettingsActionRunResponse> => {
-    const response = await api.post<unknown>(
+    return confirmedPluginPost(
       `/plugins/connections/${encodeURIComponent(connectionId)}/settings/actions/${encodeURIComponent(actionId)}/start`,
-      { field_values: fieldValues }
+      { field_values: fieldValues }, parsePluginAction
     );
-    return parsePluginAction(response);
   },
 
   pollSettingsAction: async (

@@ -1,3 +1,7 @@
+import time
+from uuid import uuid4
+from magi.runtime_trace import RuntimeTraceStore
+
 """Connection settings APIs are reachable and mint identities in the host."""
 
 from types import SimpleNamespace
@@ -17,8 +21,16 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.plugins.settings_service import PluginSettingsActionRun
 
 
+class RequestClient(TestClient):
+    def post(self, *args, **kwargs):
+        headers = {"x-magi-request-id": f"{int(time.time() * 1000)}-{uuid4()}",
+                   "x-magi-client-id": "device", "x-magi-data-epoch": "test-epoch"}
+        headers.update(kwargs.pop("headers", {}))
+        return super().post(*args, headers=headers, **kwargs)
+
+
 @pytest.fixture
-def api(monkeypatch):
+def api(monkeypatch, tmp_path):
     connections = {
         name: PluginConnection(
             connection_id=name, plugin_id="example", display_name=name
@@ -62,12 +74,18 @@ def api(monkeypatch):
     monkeypatch.setattr(
         routes, "_translate_resource_payload", lambda payload, _id: payload
     )
+    from magi.api.services import plugin_rpc
+    from _shared.db_schema import apply_chain_schema
+    apply_chain_schema("runtime_trace", tmp_path / "runtime_trace.db")
+    receipts = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    monkeypatch.setenv("MAGI_DATA_EPOCH", "test-epoch")
+    monkeypatch.setattr(plugin_rpc, "get_container", lambda: SimpleNamespace(runtime_trace_store=lambda: receipts))
     app = FastAPI()
     public = _build_public_router(
         routes.plugins_core_router, _PUBLIC_ROUTE_METHODS["plugins"]
     )
     app.include_router(public, prefix="/api/plugins")
-    return TestClient(app), service
+    return RequestClient(app), service
 
 
 def test_public_action_routes_use_connection_and_host_identity(api):
@@ -112,3 +130,12 @@ def test_public_resource_route_awaits_the_connection_service(api):
     assert response.json()["connection_id"] == "home"
     service.read_plugin_settings_resource.assert_awaited_once_with("home", "qr")
     assert client.get("/api/plugins/example/settings/resources/qr").status_code == 404
+
+
+def test_starting_the_same_request_replays_its_session_without_starting_twice(api):
+    client, service = api
+    headers = {"x-magi-request-id": f"{int(time.time() * 1000)}-{uuid4()}"}
+    first = client.post("/api/plugins/connections/work/settings/actions/login/start", json={}, headers=headers)
+    second = client.post("/api/plugins/connections/work/settings/actions/login/start", json={}, headers=headers)
+    assert first.status_code == 200 and second.json() == first.json()
+    assert service.start_plugin_settings_action.await_count == 1

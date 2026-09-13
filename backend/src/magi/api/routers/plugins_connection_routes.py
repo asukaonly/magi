@@ -7,7 +7,7 @@ from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
+from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from magi_plugin_sdk.runtime import CapabilityReadiness, PluginConnection
 
@@ -18,7 +18,7 @@ from .plugins_common import _require_package
 from .plugins_core_routes import _refresh_channels_after_plugin_change
 from .plugins_schemas import PluginPackageResponse
 
-class _ConnectionRoute(APIRoute):
+class _ConnectionRoute(ConfirmedPluginRpcRoute):
     """Keep write-only credential values out of request validation responses."""
 
     def get_route_handler(self):
@@ -132,7 +132,8 @@ async def list_plugin_connections(plugin_id: str) -> PluginConnectionsResponse:
     return await _execute(operation)
 
 
-@plugins_connection_router.post("/{plugin_id}/connections", response_model=PluginConnectionResponse, status_code=201)
+@plugins_connection_router.post("/{plugin_id}/connections", response_model=PluginConnectionResponse, status_code=201,
+                                responses={202: {"model": PluginRpcReceipt}}, openapi_extra=PLUGIN_RPC_OPENAPI)
 async def create_plugin_connection(plugin_id: str, request: ConnectionCreateRequest) -> PluginConnectionResponse:
     def operation() -> PluginConnectionResponse:
         manager, package = _manager(plugin_id)

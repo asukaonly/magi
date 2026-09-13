@@ -24,6 +24,7 @@ class ConnectionContentCoordinator:
         if context.connection.connection_id != connection.connection_id:
             raise ValueError("Content clear context belongs to another connection")
         if self._ingress_store_provider is not None:
+            await self._ingress_store_provider().forget_connection_rpc_results(connection.connection_id)
             await self._ingress_store_provider().retire_connection_ingress(connection.connection_id)
         request = UserContentClearRequest(
             connection_id=connection.connection_id, reason="user_clear_connection_content",
@@ -45,5 +46,6 @@ class ConnectionContentCoordinator:
     async def disconnect(self, connection: PluginConnection) -> None:
         """Fence stale source batches before the manager disposes the connection."""
         if self._ingress_store_provider is not None:
+            await self._ingress_store_provider().forget_connection_rpc_results(connection.connection_id)
             await self._ingress_store_provider().retire_connection_ingress(connection.connection_id)
         await self._source_store.disconnect_connection(connection.connection_id)

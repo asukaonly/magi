@@ -8,6 +8,7 @@ from dataclasses import fields
 from pathlib import Path
 import sqlite3
 import time
+from uuid import uuid4
 from typing import Any, Awaitable, Callable, TypeVar
 
 import aiosqlite
@@ -17,6 +18,7 @@ from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
 from .contracts import PluginIngressClearStateReader
 from .plugin_ingress import PluginIngressPersistenceMixin
+from .rpc_receipts import RpcReceiptPersistenceMixin
 from .runtime_notifications import RuntimeNotificationPersistenceMixin
 from .run_journal import RunJournalPersistenceMixin
 from .trace_records import TraceRecordPersistenceMixin
@@ -36,6 +38,7 @@ def _is_retryable_sqlite_lock(exc: Exception) -> bool:
 
 
 class RuntimeTraceStore(
+    RpcReceiptPersistenceMixin,
     RuntimeNotificationPersistenceMixin,
     PluginIngressPersistenceMixin,
     RunJournalPersistenceMixin,
@@ -50,6 +53,8 @@ class RuntimeTraceStore(
         plugin_ingress_clear_state_reader: PluginIngressClearStateReader | None = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
+        self.rpc_owner = str(uuid4())
+        self.rpc_active: set[tuple[str, str, str]] = set()
         self._plugin_ingress_clear_state_reader = plugin_ingress_clear_state_reader
         self._plugin_ingress_barrier = AsyncOperationBarrier()
         self._initialized = False

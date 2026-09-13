@@ -137,6 +137,8 @@ impl GatewaySecurity {
                 HeaderName::from_static(SESSION_TOKEN_HEADER),
                 HeaderName::from_static("last-event-id"),
                 HeaderName::from_static("x-magi-full-clear-transaction"),
+                HeaderName::from_static("x-magi-request-id"),
+                HeaderName::from_static("x-magi-data-epoch"),
             ])
             .max_age(Duration::from_secs(600))
     }

@@ -209,6 +209,17 @@ notification snapshot, including read-state changes made on another device. Hint
 arriving during a read coalesce into one trailing read; stale-center responses
 remain guarded by the runtime generation.
 
+Plugin connection creation and settings-action start additionally retain durable
+RPC receipts before invoking their existing lifecycle/operation paths. The receipt
+owner survives an HTTP timeout, scopes identities by authenticated device and data
+epoch, and exposes a read-only result lookup. Process replacement, unknown failures
+and erased results become `uncertain`, never a new attempt. The desktop retains only
+an input fingerprint and request ID; pending requests are not an offline command queue.
+It queries the original result after a lost reply, and only resubmits the same ID
+when the center explicitly reports that it was not admitted. Settings actions offer
+result confirmation for an uncertain start using the original inputs. Existing
+install candidate/job and chat turn recovery contracts remain the owners of those flows.
+
 ### Maintenance and process-local messages
 
 Full-clear lifecycle belongs to the independent service. It closes and drains

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from ..services.plugin_rpc import ConfirmedPluginRpcRoute, PluginRpcReceipt, PLUGIN_RPC_OPENAPI, rpc_identity
+from ...core.container import get_container
 
 from ... import i18n as core_i18n
 from ...config import get_config
@@ -35,7 +37,7 @@ from .plugins_schemas import (
     PluginsListResponse,
 )
 
-plugins_core_router = APIRouter()
+plugins_core_router = APIRouter(route_class=ConfirmedPluginRpcRoute)
 logger = get_logger(__name__)
 
 
@@ -236,6 +238,7 @@ def _serialize_action_run(
 @plugins_core_router.post(
     "/connections/{connection_id}/settings/actions/{action_id}/start",
     response_model=PluginSettingsActionRunResponse,
+    responses={202: {"model": PluginRpcReceipt}}, openapi_extra=PLUGIN_RPC_OPENAPI,
 )
 async def start_plugin_settings_action(
     connection_id: str,
@@ -359,3 +362,12 @@ __all__ = [
     "poll_plugin_settings_action",
     "start_plugin_settings_action",
 ]
+
+
+@plugins_core_router.get("/requests/{operation_id}", response_model=PluginRpcReceipt)
+async def get_plugin_request(operation_id: str, request: Request) -> PluginRpcReceipt:
+    peer, epoch, _ = rpc_identity(request, operation_id, writing=False)
+    snapshot = await get_container().runtime_trace_store().read_plugin_rpc(peer, epoch, operation_id)
+    if snapshot is None:
+        raise HTTPException(404, "Plugin request was not admitted")
+    return PluginRpcReceipt.model_validate(snapshot)

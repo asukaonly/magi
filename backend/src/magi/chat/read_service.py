@@ -628,6 +628,8 @@ class ChatReadService(
                 conn.execute("DELETE FROM runtime_notifications")
             if "user_notifications" in existing_tables:
                 conn.execute("DELETE FROM user_notifications")
+            if "plugin_rpc_receipts" in existing_tables:
+                conn.execute("UPDATE plugin_rpc_receipts SET result_json=NULL,http_status=NULL,state='uncertain'")
             conn.commit()
             conn.execute("VACUUM")
             checkpoint = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()

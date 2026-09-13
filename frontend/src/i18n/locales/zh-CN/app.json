@@ -2820,6 +2820,7 @@
     },
     "pluginActions": {
       "actions": {
+        "confirm": "确认结果",
         "cancel": "取消"
       },
       "feedback": {

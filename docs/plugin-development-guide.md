@@ -252,6 +252,16 @@ settings and write-only credentials. Run any declared setup actions on that
 connection, then enable with `PATCH .../connections/{connection_id}` using its
 current `expected_revision`.
 
+Connection creation and settings-action start require `X-Magi-Request-Id`
+(`<issued_at_ms>-<uuid>`) and `X-Magi-Data-Epoch`. Persist the request ID before
+sending; reuse it with identical inputs after a lost response. Query
+`GET /api/plugins/requests/{operation_id}` with the same data-epoch header to
+confirm the authenticated device's original attempt. A concurrent duplicate
+returns HTTP 202 with `running`; a completed duplicate replays its original HTTP
+status/body. A worker replacement or unconfirmed failure returns `uncertain` and
+must never automatically execute again. Other mutations retain their own revision,
+turn, candidate, or job contracts; this is not a generic offline command queue.
+
 The Settings page renders the same connection flow from the manifest. Package
 installation and integrity records remain in host config; account settings and
 credentials live under the selected runtime root's `plugin-connections/`.

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Loader2, QrCode, XCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import { PluginRequestRejectedError } from '@/api/confirmed-plugin-request';
 
 import {
   pluginsApi,
@@ -114,6 +115,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
   currentConnection.current = connectionId;
   const runs = useRef<Record<string, number>>({});
   const inFlight = useRef(new Set<string>());
+  const requestValues = useRef<Record<string, Record<string, unknown>>>({});
   const openedActionUrlsRef = useRef<Set<string>>(new Set());
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
 
@@ -121,6 +123,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
     mountedRef.current = true;
     setActionStates({});
     openedActionUrlsRef.current.clear();
+    requestValues.current = {};
     runs.current = {};
     return () => {
       mountedRef.current = false;
@@ -244,7 +247,9 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
       [action.action_id]: { loading: true },
     }));
     try {
-      const result = await pluginsApi.startSettingsAction(connectionId, action.action_id, values);
+      requestValues.current[inFlightKey] ??= structuredClone(values);
+      const result = await pluginsApi.startSettingsAction(connectionId, action.action_id, requestValues.current[inFlightKey]);
+      delete requestValues.current[inFlightKey];
       if (!isCurrent()) {
         return;
       }
@@ -259,8 +264,15 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
         return;
       }
       await completeAction(result);
-    } catch {
+    } catch (error) {
       if (!isCurrent()) return;
+      if (error instanceof PluginRequestRejectedError) {
+        delete requestValues.current[inFlightKey];
+        const message = t('settings.pluginActions.feedback.failed');
+        setActionStates((prev) => ({ ...prev, [action.action_id]: { loading: false, error: message } }));
+        toast.error(message);
+        return;
+      }
       const message = t('settings.pluginActions.feedback.uncertain');
       setActionStates((prev) => ({
         ...prev,
@@ -308,6 +320,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
         const running = Boolean(state?.loading && result?.status !== 'succeeded');
         const canCancel = Boolean(result?.session_id && result.status === 'pending');
         const status = result?.status;
+        const canConfirmStart = status === 'uncertain' && !result?.session_id;
 
         return (
           <section
@@ -346,11 +359,11 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
                   type="button"
                   variant={action.destructive ? 'destructive' : 'outline'}
                   size="sm"
-                  disabled={disabled || running || status === 'uncertain' || (action.requires_enabled && !connectionEnabled)}
+                  disabled={disabled || running || (status === 'uncertain' && !canConfirmStart) || (action.requires_enabled && !connectionEnabled)}
                   onClick={() => void startAction(action)}
                 >
                   {running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  {getActionCopy(action, 'button_label')}
+                  {canConfirmStart ? t('settings.pluginActions.actions.confirm') : getActionCopy(action, 'button_label')}
                 </Button>
               </div>
             </div>

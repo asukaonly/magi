@@ -1,3 +1,7 @@
+import time
+from uuid import uuid4
+from magi.runtime_trace import RuntimeTraceStore
+
 """Exercise connection handlers through the actual product route filter."""
 
 from types import SimpleNamespace
@@ -12,6 +16,14 @@ from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.plugins.connection_settings import connection_fields, validate_connection_settings
 from magi.plugins.connections import PluginConnectionStore
 from magi.utils.runtime import RuntimePaths
+
+
+class RequestClient(TestClient):
+    def post(self, *args, **kwargs):
+        headers = {"x-magi-request-id": f"{int(time.time() * 1000)}-{uuid4()}",
+                   "x-magi-client-id": "device", "x-magi-data-epoch": "test-epoch"}
+        headers.update(kwargs.pop("headers", {}))
+        return super().post(*args, headers=headers, **kwargs)
 
 
 @pytest.fixture
@@ -35,9 +47,15 @@ def api(tmp_path, monkeypatch):
                               update_connection=store.update, disconnect_connection=store.disconnect,
                               clear_connection_content=store.clear_content, connection_readiness=store.get_readiness)
     monkeypatch.setattr(routes, "_require_package", lambda plugin_id: (manager, require(plugin_id)))
+    from magi.api.services import plugin_rpc
+    from _shared.db_schema import apply_chain_schema
+    apply_chain_schema("runtime_trace", tmp_path / "runtime_trace.db")
+    receipts = RuntimeTraceStore(db_path=str(tmp_path / "runtime_trace.db"))
+    monkeypatch.setenv("MAGI_DATA_EPOCH", "test-epoch")
+    monkeypatch.setattr(plugin_rpc, "get_container", lambda: SimpleNamespace(runtime_trace_store=lambda: receipts))
     app = FastAPI()
     app.include_router(_build_public_router(routes.plugins_connection_router, _PUBLIC_ROUTE_METHODS["plugins"]), prefix="/api/plugins")
-    return TestClient(app), store, package
+    return RequestClient(app), store, package
 
 
 def test_product_allowlist_exposes_all_connection_handlers(api):
@@ -163,3 +181,12 @@ def test_public_package_authorization_binds_reviewed_digest(api, monkeypatch):
     manager.authorize_package.assert_called_once_with("example", "a" * 64)
     assert not store.list()
     assert client.post("/api/plugins/example/trust", json={}).status_code == 422
+
+
+def test_create_request_identity_cannot_create_a_second_connection(api):
+    client, store, _ = api
+    headers = {"x-magi-request-id": f"{int(time.time() * 1000)}-{uuid4()}"}
+    first = client.post("/api/plugins/example/connections", json={"display_name": "Work"}, headers=headers)
+    second = client.post("/api/plugins/example/connections", json={"display_name": "Work"}, headers=headers)
+    assert first.status_code == 201 and second.json() == first.json()
+    assert len(store.list()) == 1

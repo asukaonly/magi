@@ -7,6 +7,9 @@ const transport = vi.hoisted(() => ({
   post: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   patch: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
 }));
+vi.mock('@/api/confirmed-plugin-request', () => ({
+  confirmedPluginPost: async (path: string, body: unknown, parse: (value: unknown) => unknown) => parse(await transport.post(path, body)),
+}));
 vi.mock('@/api/client', () => ({ api: transport, unwrapGatewayPayload: (value: unknown) => value }));
 
 import { pluginsApi } from '@/api/modules/plugins';
