@@ -12,7 +12,7 @@ import inspect
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from magi_plugin_sdk.runtime import (
@@ -28,6 +28,23 @@ from magi_plugin_sdk.capabilities import HOST_METHODS, HostMethod
 from .operation_progress import publish_operation_progress
 from .host_services import HostServiceAuthorizer
 from ..core.tool_context import ToolExecutionContext
+
+class _TaskIdentity(Protocol):
+    task_id: str | None
+    session_id: str | None
+    user_id: str | None
+    turn_id: str | None
+
+
+class _OperationInvocationContext(Protocol):
+    """Structural host port; plugin admission does not import the agent runtime."""
+    task_context: _TaskIdentity
+    execution_context: ToolExecutionContext
+    trigger: str
+
+
+_InvocationContextT = TypeVar("_InvocationContextT", bound=_OperationInvocationContext)
+
 
 OperationInvoker = Callable[[str, dict[str, Any], InvocationIdentity, ToolExecutionContext], Awaitable[ToolResult]]
 OperationHandler = Callable[[dict[str, Any], ToolExecutionContext], Awaitable[OperationResult]]
@@ -502,7 +519,7 @@ class _BoundOperationTool(Tool):
             "invocation_triggers": list(spec.triggers),
         }
 
-    def prepare_invocation(self, ctx: InvocationContext) -> InvocationContext:
+    def prepare_invocation(self, ctx: _InvocationContextT) -> _InvocationContextT:
         """Attach host caller identity without accepting identities from arguments."""
         binding = self._operation_binding
         identity = ctx.execution_context.invocation
@@ -530,7 +547,7 @@ class _BoundOperationTool(Tool):
         return replace(ctx, execution_context=execution)
 
     async def admit_operation(
-        self, parameters: dict[str, Any], ctx: InvocationContext
+        self, parameters: dict[str, Any], ctx: _OperationInvocationContext
     ) -> ToolResult | None:
         identity = ctx.execution_context.invocation
         if ctx.task_context.user_id and identity.principal_id != ctx.task_context.user_id:
