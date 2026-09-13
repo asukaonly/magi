@@ -87,3 +87,22 @@ async def test_bad_ack_and_revoked_credentials_never_remove_events(tmp_path):
 def test_collector_rejects_unsafe_addresses(address):
     with pytest.raises(ValueError):
         validate_address(address)
+
+
+def test_collector_lease_survives_host_exit_until_plugin_supervisor_releases_it(tmp_path):
+    import os
+    from magi.collector.cli import instance
+    from magi.utils.worker_instance import duplicate_worker_lease
+    if os.name != "posix":
+        pytest.skip("Unix collector lease")
+    with instance(tmp_path):
+        inherited = duplicate_worker_lease()
+        assert inherited is not None
+    try:
+        with pytest.raises(RuntimeError, match="already owns"):
+            with instance(tmp_path):
+                pass
+    finally:
+        os.close(inherited)
+    with instance(tmp_path):
+        pass

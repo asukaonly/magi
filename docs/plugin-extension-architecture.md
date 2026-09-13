@@ -1638,7 +1638,9 @@ entry for a later check and does not terminate the process.
 A connected desktop remains a management UI. It does not silently install or run
 center plugins on the device. `magi-server collect` is a separate, lightweight
 collector host: a private transport queue and one trusted plugin worker family,
-without a gateway, agent loop, models or memory databases. The first verified
+without a gateway, agent loop, models or memory databases. Its trusted worker
+supervisors retain the same directory lease as the collector host, so a replacement
+cannot reopen plugin state before an exiting predecessor releases ownership. The first verified
 package is Git Activity 0.3.2 on macOS.
 
 A pull source opts in through `SourceSpec.metadata.remote_collection =

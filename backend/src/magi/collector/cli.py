@@ -39,20 +39,12 @@ def parser() -> argparse.ArgumentParser:
 
 @contextmanager
 def instance(root: Path) -> Iterator[None]:
-    from ..utils.private_data import protect_private_data_tree
+    from ..utils.worker_instance import WorkerInstance
     if os.name != "posix":
         raise RuntimeError("Standalone collection currently requires a macOS or Linux host")
-    import fcntl
-    protect_private_data_tree(root)
-    with (root / "collector.lock").open("a+") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError("A collector already owns this data directory") from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+    # The trusted plugin supervisors retain this same lease until cleanup finishes.
+    with WorkerInstance(root):
+        yield
 
 
 class NoCredentials:
