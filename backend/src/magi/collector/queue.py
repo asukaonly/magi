@@ -88,7 +88,7 @@ class CollectorQueue:
                 return
             attempts = row[0] + 1
             self.db.execute("UPDATE events SET attempts=?,retry_at=?,failure=?,terminal=? WHERE sequence=?",
-                            (attempts, time.time() + min(300, 2 ** min(attempts, 9)), code, terminal or attempts >= 10, sequence))
+                            (attempts, time.time() + min(300, 2 ** min(attempts, 9)), code, terminal, sequence))
 
     def recover(self, *, discard: bool = False) -> None:
         with self.db:

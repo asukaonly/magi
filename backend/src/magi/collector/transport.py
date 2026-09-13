@@ -34,29 +34,47 @@ class CollectorTransport:
         self.expires_at = 0.0
 
     async def request(self, method: str, path: str, *, body: object = None, token: str | None = None) -> dict:
-        if token is None:
-            if self.expires_at <= time.time() + 30:
-                session = await self.request("POST", "/server/session", token=self.credential["client_credential"])
-                if session.get("server_id") != self.credential["server_id"] or session.get("client_id") != self.credential["client_id"]:
-                    raise CollectorRejected("Collector server or device identity changed")
-                if not isinstance(session.get("access_token"), str) or not session["access_token"] or type(session.get("expires_at_ms")) is not int:
-                    raise ValueError("Invalid collector access session")
-                self.session = session["access_token"]
-                self.expires_at = session["expires_at_ms"] / 1000
-            token = self.session
-        response = await self.client.request(method, path, json=body, headers={"Authorization": f"Bearer {token}"})
-        if response.status_code in {401, 403}:
-            self.expires_at = 0
-            raise CollectorRejected("Collector authorization expired or was revoked; check the device grant")
-        response.raise_for_status()
-        value = response.json()
-        if not isinstance(value, dict):
-            raise ValueError("Invalid collector response")
-        if "success" in value:
-            if value["success"] is not True or not isinstance(value.get("data"), dict):
-                raise ValueError("Invalid collector response envelope")
-            value = value["data"]
-        return value
+        use_session = token is None
+        for attempt in range(2):
+            if use_session:
+                if self.expires_at <= time.time() + 30:
+                    session = await self.request("POST", "/auth/session", token=self.credential["client_credential"])
+                    if session.get("server_id") != self.credential["server_id"] or session.get("client_id") != self.credential["client_id"]:
+                        raise CollectorRejected("Collector server or device identity changed")
+                    if not isinstance(session.get("access_token"), str) or not session["access_token"] or type(session.get("expires_at_ms")) is not int:
+                        raise ValueError("Invalid collector access session")
+                    self.session = session["access_token"]
+                    self.expires_at = session["expires_at_ms"] / 1000
+                token = self.session
+            async with self.client.stream(method, path, json=body, headers={"x-magi-session-token": token}) as response:
+                if response.status_code == 401 and use_session and attempt == 0:
+                    # A restarted gateway loses access sessions, but retains device credentials.
+                    self.expires_at = 0
+                    continue
+                if response.status_code in {401, 403}:
+                    self.expires_at = 0
+                    raise CollectorRejected("Collector authorization expired or was revoked; check the device grant")
+                response.raise_for_status()
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    content.extend(chunk)
+                    if len(content) > 256 * 1024:
+                        raise ValueError("Collector response exceeds size limit")
+            value = json.loads(content)
+            if not isinstance(value, dict):
+                raise ValueError("Invalid collector response")
+            if "success" in value:
+                if value["success"] is not True or not isinstance(value.get("data"), dict):
+                    raise ValueError("Invalid collector response envelope")
+                value = value["data"]
+            return value
+        raise CollectorRejected("Collector access could not be renewed")
+
+    async def pair(self, name: str, code: str) -> dict:
+        """Use the same one-time grant endpoint as the desktop client."""
+        if len(code) != 64 or any(char not in "0123456789abcdefABCDEF" for char in code):
+            raise ValueError("Expected a 64-character hexadecimal collector pairing code")
+        return await self.request("POST", "/auth/pair", token=code, body={"name": name})
 
     async def scope(self, connection_id: str, plugin_version: str, plugin_id: str, *, claim: bool = False) -> dict[str, str]:
         info = await self.request("GET", "/server/info")
@@ -99,12 +117,18 @@ class CollectorTransport:
             if receipt.get("status") not in {"retry", "rejected"}:
                 raise ValueError("Invalid delivery receipt status")
             code = receipt.get("code")
-            safe_codes = {"inbox_full", "receipt_capacity", "processor_unavailable", "storage_unavailable", "connection_unavailable", "connection_epoch_changed", "handler_unavailable", "sequence_conflict"}
+            safe_codes = {"inbox_full", "receipt_capacity", "processor_unavailable", "storage_unavailable", "connection_unavailable", "connection_epoch_changed", "handler_unavailable", "stream_sequence_conflict", "event_identity_conflict", "handler_not_replay_safe"}
             queue.fail(row["sequence"], code if code in safe_codes else "delivery_rejected", terminal=receipt["status"] == "rejected")
             if code == "connection_epoch_changed":
                 raise CollectorRejected("Source content was cleared; old observations remain quarantined")
         except CollectorRejected:
             raise
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 409:
+                raise CollectorRejected("Server or source generation changed; preserve this queue and check its scope") from exc
+            queue.fail(row["sequence"], "invalid_event" if status in {400, 404, 413, 422} else "service_unavailable",
+                       terminal=400 <= status < 500 and status != 429)
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             queue.fail(row["sequence"], "transport_unavailable")
         return False

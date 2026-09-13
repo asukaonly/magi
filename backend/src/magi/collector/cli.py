@@ -116,7 +116,7 @@ async def initialize(args: argparse.Namespace, root: Path) -> None:
         if not portable:
             raise ValueError("Plugin does not declare a portable remote source")
         code = getpass.getpass("Collector pairing code: ").strip()
-        grant = await transport.request("POST", "/server/pair", token=code, body={"name": args.name})
+        grant = await transport.pair(args.name, code)
         from uuid import UUID
         UUID(grant["server_id"])
         UUID(grant["client_id"])

@@ -106,3 +106,37 @@ def test_collector_lease_survives_host_exit_until_plugin_supervisor_releases_it(
         os.close(inherited)
     with instance(tmp_path):
         pass
+
+
+@pytest.mark.asyncio
+async def test_long_outage_remains_retryable_and_resumes_without_manual_reset(tmp_path, monkeypatch):
+    value = scope()
+    queue = CollectorQueue(tmp_path / "queue.db", value)
+    queue.append(batch(), value)
+    clock = [1_000.0]
+    monkeypatch.setattr("magi.collector.queue.time.time", lambda: clock[0])
+    transport = CollectorTransport("http://localhost", {})
+    transport.session, transport.expires_at = "test", float("inf")
+    requests = []
+
+    def respond(request):
+        event = json.loads(request.content)["events"][0]
+        requests.append(event)
+        if len(requests) <= 20:
+            raise httpx.ConnectError("Offline", request=request)
+        return httpx.Response(200, json={"server_id": value["server_id"], "data_epoch": value["data_epoch"],
+            "receipts": [{"event_id": event["event_id"], "status": "accepted", "code": "accepted"}]})
+
+    await transport.client.aclose()
+    transport.client = httpx.AsyncClient(base_url="http://localhost/api", transport=httpx.MockTransport(respond))
+    try:
+        for _ in range(20):
+            assert not await transport.deliver(queue, value)
+            assert queue.status()["failed"] == 0
+            clock[0] += 301
+        assert await transport.deliver(queue, value)
+        assert queue.status()["pending"] == 0
+        assert all(event == requests[0] for event in requests)
+    finally:
+        await transport.close()
+        queue.close()

@@ -2491,3 +2491,72 @@ async fn notification_claims_require_current_generation_and_survive_repeated_req
         }
     }
 }
+
+/// Run explicitly with the backend Python environment to verify the real wire contract.
+#[tokio::test]
+#[ignore = "Requires MAGI_TEST_PYTHON pointing to an installed backend environment"]
+async fn python_collector_uses_live_gateway_auth_and_delivery() {
+    let _guard = router_test_guard();
+    let event_id = "8cf20514-7fbd-43d1-b579-72e31482bc82";
+    let epoch = "121ca17b-f581-46aa-9510-b06bf46f36fc";
+    let connection = "conn_11111111111111111111111111111111";
+    let (mut state, observed) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200, "headers": {"content-type":"application/json"},
+        "body": {"receipts": [{"event_id":event_id,"status":"accepted","code":"accepted"}]}
+    }))
+    .await;
+    state.maintenance = Some(Arc::new(DeliveryMaintenance(epoch.into())));
+    let grant = state
+        .security
+        .auth
+        .create_collector_grant(connection.into(), "git_activity".into())
+        .unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let router = api::build_router(state);
+    let serving = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let checkout = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let mut child = tokio::process::Command::new(
+        std::env::var("MAGI_TEST_PYTHON").expect("Set MAGI_TEST_PYTHON"),
+    )
+    .arg(checkout.join("backend/tests/collector/gateway_probe.py"))
+    .env("PYTHONPATH", checkout.join("backend/src"))
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped())
+    .kill_on_drop(true)
+    .spawn()
+    .unwrap();
+    let input = serde_json::json!({"address":address,"pairing_token":grant.pairing_token,
+        "event":{"event_id":event_id,"stream":"git_activity","sequence":1,"occurred_at_ms":1,
+        "payload":{"kind":"plugin_event","connection_id":connection,"connection_epoch":epoch,
+        "plugin_target":"git-activity","event_type":"source.change.v1","data":{"source_type":"git_activity"}}}});
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(input.to_string().as_bytes()).await.unwrap();
+    drop(stdin);
+    let output =
+        tokio::time::timeout(std::time::Duration::from_secs(30), child.wait_with_output()).await;
+    serving.abort();
+    let output = output.expect("Collector probe timed out").unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"]["path"], "/api/delivery/events");
+    assert_eq!(
+        requests[0]["params"]["headers"]["x-magi-client-id"],
+        result["client_id"]
+    );
+    assert_eq!(
+        requests[0]["params"]["headers"]["x-magi-collector-source"],
+        "git_activity"
+    );
+}

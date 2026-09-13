@@ -1347,7 +1347,10 @@ In a source checkout, replace `magi-server collect` with
 `./scripts/dev-collector.sh`; it uses `~/.magi-collector-dev`, overridable with
 `MAGI_COLLECTOR_DATA_DIR`. No local center or agent starts. `run --once` performs one
 collection and a bounded delivery pass. Ordinary `run` continues until Ctrl+C;
-restarting the same command resumes the queue and checkpoint. It is a foreground
+restarting the same command resumes the queue and checkpoint. Network failures and
+retryable server responses keep backing off (up to five minutes between attempts)
+without exhausting a retry budget. Permanent rejections require explicit recovery.
+It is a foreground
 process; use an OS service supervisor when unattended startup is required.
 
 `status` is read-only and can inspect a running collector. Stop it before

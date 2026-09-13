@@ -1679,8 +1679,9 @@ event before deletion. Overlapping source reads use a bounded 5,000-object local
 revision cache; eviction may resend an observation, whose center source version
 store remains authoritative for deduplication. The queue caps at 10,000 records
 and 64 MiB and pauses collection before advancing when full. Retries use bounded
-exponential backoff; ten failures or permanent rejection requires explicit retry
-or discard. Source/schema changes, revocation and content-generation changes stop
+exponential backoff without exhausting a budget during network outages; permanent
+rejection requires explicit retry or discard. A gateway restart renews the access
+session using the persisted collector credential. Source/schema changes, revocation and content-generation changes stop
 the collector without retargeting old records. Offline startup uses only its
 previously captured scope. A newly paired collector must contact the center before
 collecting. Recovery after a clear uses a new grant/directory and an explicitly
@@ -1692,3 +1693,17 @@ normal L1 facts and source events, feeding the existing memory processing and
 timeline UI. Per-connection ingestion locking, plugin disable/disconnect leases,
 clear fencing, failure diagnostics and retry controls apply to these observations
 as well as local ingress.
+
+The cross-language transport test starts the production Rust router on an isolated
+loopback port and calls it through the actual Python collector transport. Its
+Python environment is explicit because the Rust-only test environment does not
+install backend dependencies:
+
+```sh
+MAGI_TEST_PYTHON="$PWD/.venv/bin/python" cargo test -p magi-gateway --test router_integration python_collector_uses_live_gateway_auth_and_delivery -- --ignored
+```
+
+This verifies pairing, access-session renewal, source delivery and denial of
+administrator routes. Python collector/source tests separately cover real Git
+worker execution, durable checkpoints, lost acknowledgments, long outages and
+center materialization.
