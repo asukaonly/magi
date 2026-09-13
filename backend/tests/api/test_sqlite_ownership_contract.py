@@ -37,7 +37,14 @@ def test_sqlite_ownership_contract_matches_gateway_writes() -> None:
         "chat_sessions",
         None,
     ) in discovered
-    assert not any(operation == "create_index" for _, operation, _, _ in discovered)
+    assert {entry for entry in discovered if entry[1] == "create_index"} == {
+        (
+            "crates/magi-gateway/src/auth/storage.rs",
+            "create_index",
+            "notification_claims",
+            "notification_claim_age",
+        )
+    }
     assert not any("/schedules/" in file or "/tasks/" in file for file, _, _, _ in discovered)
 
 

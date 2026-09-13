@@ -1,3 +1,5 @@
+import { serverApi } from '@/api/modules/server';
+import i18n from 'i18next';
 import { centerLocalStorage } from './center-storage';
 import { getCurrentWindow, UserAttentionType } from '@tauri-apps/api/window';
 import {
@@ -154,11 +156,11 @@ export async function requestDesktopNotificationPermission(): Promise<boolean> {
 
 const notificationBody = (body: string, previewsEnabled: boolean): string => {
   if (!previewsEnabled) {
-    return 'Magi 有一条新消息';
+    return i18n.t('connections.notifications.newMessage', { ns: 'app' });
   }
   const normalized = normalizeString(body).replace(/\s+/g, ' ');
   if (!normalized) {
-    return 'Magi 有一条新消息';
+    return i18n.t('connections.notifications.newMessage', { ns: 'app' });
   }
   return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized;
 };
@@ -182,6 +184,8 @@ export async function notifyForUnreadChatMessage(request: UnreadChatNotification
   }
 
   try {
+    if (!request.dedupeId || !await serverApi.claimNotification(request.dedupeId)) return false;
+    if (!isBrowserContentGenerationCurrent(contentGeneration)) return false;
     sendNotification({
       title: normalizeString(request.title) || 'Magi',
       body: notificationBody(request.body, request.desktopNotificationPreviewsEnabled),

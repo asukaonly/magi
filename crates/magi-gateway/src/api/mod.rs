@@ -42,6 +42,8 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/memory/portability/restores/{candidate_id}/confirm", axum::routing::post(maintenance::restore))
         .route("/api/memory/clear", axum::routing::delete(maintenance::clear))
         .route("/api/events", axum::routing::get(events::subscribe))
+        .route("/api/server/notification-policy", axum::routing::get(server::notification_policy).put(server::set_notification_policy))
+        .route("/api/server/notification-claims", axum::routing::post(server::claim_notification))
         .route("/api/server/info", axum::routing::get(server::info))
         .route("/api/auth/pair", axum::routing::post(server::pair))
         .route("/api/auth/session", axum::routing::post(server::session))

@@ -29,6 +29,20 @@
   },
   "native_routes": [
     {
+      "path": "/api/server/notification-policy",
+      "methods": ["GET", "PUT"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
+      "path": "/api/server/notification-claims",
+      "methods": ["POST"],
+      "owner": "rust-native",
+      "owner_file": "crates/magi-gateway/src/api/server.rs",
+      "response_envelope": "native-json"
+    },
+    {
       "path": "/api/server/collector-grants",
       "methods": ["POST"],
       "owner": "rust-native",

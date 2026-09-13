@@ -1417,3 +1417,13 @@ dispatched, an admission task finishes publishing its durable marker even if the
 requesting client disconnects. Closing the database gate and recording the
 operation must not be left halfway through by request cancellation. The same
 operation ID remains retryable and its completed receipt prevents repeated work.
+
+System alert arbitration lives at the Rust transport boundary. The authenticated
+`/api/server/notification-policy` and `/api/server/notification-claims` routes
+share the center authentication database (schema 3), while Python continues to
+own durable message and notification content. Claims bind the current server/data
+generation and authenticated client ID. Single-device mode serializes claims
+across all devices; all-device mode deduplicates per device. A claim is committed
+before a best-effort native popup and does not acknowledge or mark the underlying
+message read. The bounded claim table is coordination metadata, not an offline
+push queue. See the product guide for retention and failure semantics.

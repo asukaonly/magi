@@ -55,6 +55,61 @@
       "operation": "create_table",
       "table": "clients",
       "purpose": "Own isolated service/server.db identity and client authorization, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_table",
+      "table": "collector_scopes",
+      "purpose": "Persist scoped collector authorization in service/server.db, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "insert",
+      "table": "collector_scopes",
+      "purpose": "Persist scoped collector authorization in service/server.db, outside Python business storage."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_table",
+      "table": "notification_policy",
+      "purpose": "Persist the center-wide desktop notification policy in service/server.db."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "insert",
+      "table": "notification_policy",
+      "purpose": "Persist the center-wide desktop notification policy in service/server.db."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "update",
+      "table": "notification_policy",
+      "purpose": "Persist the center-wide desktop notification policy in service/server.db."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_table",
+      "table": "notification_claims",
+      "purpose": "Arbitrate and expire bounded device notification claims in service/server.db without storing message content."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "insert",
+      "table": "notification_claims",
+      "purpose": "Arbitrate and expire bounded device notification claims in service/server.db without storing message content."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "delete",
+      "table": "notification_claims",
+      "purpose": "Arbitrate and expire bounded device notification claims in service/server.db without storing message content."
+    },
+    {
+      "file": "crates/magi-gateway/src/auth/storage.rs",
+      "operation": "create_index",
+      "table": "notification_claims",
+      "index": "notification_claim_age",
+      "purpose": "Bound notification-claim expiry work within gateway-owned service/server.db."
     }
   ]
 }

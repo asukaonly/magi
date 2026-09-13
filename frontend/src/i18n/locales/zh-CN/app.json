@@ -5751,6 +5751,16 @@
         "inbox_full": "中心队列已满，等待处理后继续。",
         "unknown": "投递失败，请检查连接与插件状态。"
       }
+    },
+    "notifications": {
+      "title": "多设备提醒",
+      "description": "选择此 Magi 的系统提醒出现在哪些设备上。每台设备仍可单独关闭提醒。",
+      "single": "仅一台在线设备",
+      "all": "所有在线设备",
+      "hint": "由第一个符合条件的在线设备提醒。应用完全退出后不会收到系统提醒，消息仍保存在 Magi 中。",
+      "loadFailed": "无法加载提醒设置。",
+      "saveFailed": "保存提醒设置失败，请重试。",
+      "newMessage": "Magi 有一条新消息"
     }
   },
   "centerFiles": {

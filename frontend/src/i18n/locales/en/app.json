@@ -5753,6 +5753,16 @@
         "inbox_full": "The center queue is full. Processing must catch up.",
         "unknown": "Delivery failed. Check the connection and plugin status."
       }
+    },
+    "notifications": {
+      "title": "Alerts across devices",
+      "description": "Choose where system alerts for this Magi appear. Each device can still turn off its own alerts.",
+      "single": "One online device",
+      "all": "All online devices",
+      "hint": "The first eligible online device shows the alert. Quit applications do not receive system alerts; messages remain available in Magi.",
+      "loadFailed": "Could not load alert settings.",
+      "saveFailed": "Could not save alert settings. Please retry.",
+      "newMessage": "Magi has a new message"
     }
   },
   "centerFiles": {

@@ -7,14 +7,18 @@ const {
   sendNotificationMock,
   requestUserAttentionMock,
   setBadgeCountMock,
+  claimNotification,
 } = vi.hoisted(() => ({
   isPermissionGrantedMock: vi.fn(),
   requestPermissionMock: vi.fn(),
   sendNotificationMock: vi.fn(),
   requestUserAttentionMock: vi.fn(),
   setBadgeCountMock: vi.fn(),
+  claimNotification: vi.fn(),
 }));
 
+vi.mock('i18next', () => ({ default: { t: () => 'Magi 有一条新消息' } }));
+vi.mock('@/api/modules/server', () => ({ serverApi: { claimNotification } }));
 vi.mock('@tauri-apps/plugin-notification', () => ({
   isPermissionGranted: isPermissionGrantedMock,
   requestPermission: requestPermissionMock,
@@ -34,6 +38,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 describe('desktop chat notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    claimNotification.mockResolvedValue(true);
     window.localStorage.clear();
     isPermissionGrantedMock.mockResolvedValue(true);
     requestPermissionMock.mockResolvedValue('granted');
@@ -89,6 +94,7 @@ describe('desktop chat notifications', () => {
       currentSessionId: 'session-a',
       title: 'Session B',
       body: 'the report is ready',
+      dedupeId: 'report-message',
       desktopNotificationsEnabled: true,
       desktopNotificationPreviewsEnabled: true,
     });
@@ -109,6 +115,7 @@ describe('desktop chat notifications', () => {
       currentSessionId: 'session-a',
       title: 'Session B',
       body: 'secret details',
+      dedupeId: 'secret-message',
       desktopNotificationsEnabled: true,
       desktopNotificationPreviewsEnabled: false,
     });
@@ -187,4 +194,16 @@ describe('desktop chat notifications', () => {
     expect(sendNotificationMock).not.toHaveBeenCalled();
     expect(window.localStorage.getItem('magi.desktopNotifications.sent.v1')).toBeNull();
   });
+});
+
+
+it('suppresses system alerts when another device owns the claim or the center is offline', async () => {
+  const { notifyForUnreadChatMessage } = await import('@/runtime/desktop-notifications');
+  const request = { sessionId: 'b', currentSessionId: 'a', title: 'Magi', body: 'ready', dedupeId: 'device-claim', desktopNotificationsEnabled: true, desktopNotificationPreviewsEnabled: true };
+  sendNotificationMock.mockClear();
+  isPermissionGrantedMock.mockResolvedValue(true);
+  claimNotification.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('Offline'));
+  expect(await notifyForUnreadChatMessage(request)).toBe(false);
+  expect(await notifyForUnreadChatMessage(request)).toBe(false);
+  expect(sendNotificationMock).not.toHaveBeenCalled();
 });

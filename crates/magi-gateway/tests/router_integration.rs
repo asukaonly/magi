@@ -164,6 +164,8 @@ async fn collectors_can_only_deliver_to_their_granted_source() {
         ("POST", "/api/server/pairing-grants"),
         ("POST", "/api/server/collector-grants"),
         ("POST", "/api/delivery/retry"),
+        ("GET", "/api/server/notification-policy"),
+        ("POST", "/api/server/notification-claims"),
     ] {
         let response = router
             .clone()
@@ -2464,4 +2466,28 @@ async fn native_session_list_rejects_unavailable_or_invalid_storage() {
     let (status, body) = request_json(router, "GET", "/api/messages/sessions", None).await;
     assert_eq!(status, 503);
     assert!(body.get("sessions").is_none());
+}
+
+#[tokio::test]
+async fn notification_claims_require_current_generation_and_survive_repeated_requests() {
+    let _guard = router_test_guard();
+    let mut state = test_state().await;
+    let epoch = "121ca17b-f581-46aa-9510-b06bf46f36fc";
+    state.maintenance = Some(Arc::new(DeliveryMaintenance(epoch.into())));
+    let id = state.security.auth.server_id.clone();
+    let router = api::build_router(state);
+    for (generation, expected_status, allowed) in
+        [("old", 409, false), (epoch, 200, true), (epoch, 200, false)]
+    {
+        let response = router.clone().oneshot(Request::builder().method("POST").uri("/api/server/notification-claims")
+            .header("x-magi-session-token", TEST_SESSION_TOKEN).header("content-type", "application/json")
+            .body(Body::from(serde_json::json!({"server_id":id,"data_epoch":generation,"notification_id":"message-one"}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), expected_status);
+        if expected_status == 200 {
+            let body: Value =
+                serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                    .unwrap();
+            assert_eq!(body["data"]["allowed"], allowed);
+        }
+    }
 }

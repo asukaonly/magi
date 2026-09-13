@@ -1365,3 +1365,25 @@ magi-server release-collector --connection-id conn_<id> --source-type git_activi
 Photo binaries, device permission dialogs and automatic desktop collector
 installation are not part of this source protocol. Their plugins continue to run
 on the center until they adopt an appropriate collector/resource contract.
+
+### System alerts across devices
+
+Settings → Center Connections offers a center-wide choice between **One online
+device** (the default) and **All online devices**. The first eligible device to
+claim a message shows its system alert in the first mode; it is not an inference
+about which device the user prefers or used most recently. Each device's existing
+notification enable and preview settings still apply. The current chat session
+remains excluded by the desktop's unread-message gate.
+
+An authenticated, generation-bound gateway claim atomically coordinates devices
+and is persisted before the native alert call. In all-device mode each device can
+claim once. The claim history contains IDs only, is bounded to 10,000 entries and
+expires after 24 hours. A full history declines new system alerts instead of
+unbounding storage; the ordinary message and notification history remains intact.
+This is best-effort system alert delivery, not an exactly-once OS guarantee: a
+crash after claiming can prevent the popup, and replay after retention expires can
+alert again. Failed/offline claims do not fall back to alerting every device.
+Unread state and content remain available through the normal reconnect flow.
+Fully quit applications require external OS push infrastructure and are not
+woken by the center. Collector-only credentials cannot claim alerts or change
+this policy.

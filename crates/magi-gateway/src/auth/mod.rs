@@ -73,6 +73,33 @@ pub struct AccessSession {
 }
 
 impl AuthStore {
+    pub fn notification_policy(&self) -> Result<String, String> {
+        self.database
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .notification_policy()
+    }
+    pub fn set_notification_policy(&self, mode: &str) -> Result<(), String> {
+        self.database
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_notification_policy(mode)
+    }
+    pub fn claim_notification(
+        &self,
+        epoch: &str,
+        notification: &str,
+        client: &str,
+    ) -> Result<bool, String> {
+        if notification.is_empty() || notification.len() > 256 {
+            return Err("Invalid notification identity".into());
+        }
+        self.database
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .claim_notification(epoch, notification, client, now_ms())
+    }
+
     pub fn open(path: &Path) -> Result<Self, String> {
         Self::from_database(storage::AuthDatabase::open(path)?)
     }
@@ -382,6 +409,42 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notification_claims_arbitrate_concurrent_devices_and_policy_changes() {
+        let store = std::sync::Arc::new(AuthStore::local("owner"));
+        let threads: Vec<_> = (0..8)
+            .map(|index| {
+                let store = store.clone();
+                std::thread::spawn(move || {
+                    store
+                        .claim_notification("epoch", "message", &format!("client-{index}"))
+                        .unwrap()
+                })
+            })
+            .collect();
+        assert_eq!(
+            threads
+                .into_iter()
+                .map(|thread| usize::from(thread.join().unwrap()))
+                .sum::<usize>(),
+            1
+        );
+        assert!(store
+            .claim_notification("new-epoch", "message", "client-a")
+            .unwrap());
+        store.set_notification_policy("all_devices").unwrap();
+        assert!(store
+            .claim_notification("epoch", "another-message", "client-a")
+            .unwrap());
+        assert!(store
+            .claim_notification("epoch", "another-message", "client-b")
+            .unwrap());
+        assert!(!store
+            .claim_notification("epoch", "another-message", "client-a")
+            .unwrap());
+        assert!(store.set_notification_policy("unknown").is_err());
+    }
 
     #[test]
     fn collector_scope_survives_restart_and_revocation() {

@@ -1,3 +1,4 @@
+import { CenterNotificationPolicy } from './CenterNotificationPolicy';
 import { useCenterRefresh } from '@/hooks/useCenterRefresh';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -68,6 +69,7 @@ export function CenterAccessPanel() {
   };
 
   return <section className="space-y-3 border-t border-border pt-5">
+    <CenterNotificationPolicy />
     <h2 className="text-sm font-semibold">{t('connections.access.title')}</h2>
     <p className="text-xs leading-5 text-muted-foreground">{t('connections.access.description')}</p>
     {clients?.filter((client) => client.revoked_at_ms === null).map((client) => <div key={client.client_id} className="space-y-2 rounded-md border border-border p-3">

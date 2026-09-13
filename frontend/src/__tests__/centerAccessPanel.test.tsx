@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { clients, revoke, pairing, profiles, t } = vi.hoisted(() => ({ clients: vi.fn(), revoke: vi.fn(), pairing: vi.fn(), profiles: vi.fn(), t: (key: string) => key }));
+vi.mock('@/components/connections/CenterNotificationPolicy', () => ({ CenterNotificationPolicy: () => null }));
 vi.mock('@/api/modules/server', () => ({ serverApi: { clients, revoke, pairingGrant: pairing } }));
 vi.mock('@/runtime/connections', () => ({ listConnectionProfiles: profiles }));
 vi.mock('@/runtime/config', () => ({ getRuntimeConfig: () => ({ profileId: 'local' }), resetRuntimeInitialization: vi.fn() }));

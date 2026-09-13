@@ -99,3 +99,59 @@ fn failure(status: StatusCode, code: &str) -> Response {
         "success": false, "error_code": code, "message": "Authentication operation could not be completed"
     }))).into_response()
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationPolicy {
+    mode: String,
+}
+
+pub async fn notification_policy(State(state): State<ApiState>) -> Response {
+    operation(state, |auth| {
+        auth.notification_policy()
+            .map(|mode| serde_json::json!({"mode":mode}))
+    })
+    .await
+}
+pub async fn set_notification_policy(
+    State(state): State<ApiState>,
+    Json(request): Json<NotificationPolicy>,
+) -> Response {
+    operation(state, move |auth| {
+        auth.set_notification_policy(&request.mode)?;
+        Ok(serde_json::json!({"mode":request.mode}))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationClaim {
+    server_id: String,
+    data_epoch: String,
+    notification_id: String,
+}
+
+pub async fn claim_notification(
+    State(state): State<ApiState>,
+    Extension(client): Extension<super::security::AuthenticatedClient>,
+    Json(request): Json<NotificationClaim>,
+) -> Response {
+    let Some(maintenance) = &state.maintenance else {
+        return failure(StatusCode::SERVICE_UNAVAILABLE, "service_unavailable");
+    };
+    if request.server_id != state.security.auth.server_id
+        || request.data_epoch != maintenance.status().data_epoch
+    {
+        return failure(StatusCode::CONFLICT, "data_epoch_changed");
+    }
+    operation(state, move |auth| {
+        auth.claim_notification(
+            &request.data_epoch,
+            &request.notification_id,
+            &client.client_id,
+        )
+        .map(|allowed| serde_json::json!({"allowed":allowed}))
+    })
+    .await
+}

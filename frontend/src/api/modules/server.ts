@@ -25,7 +25,19 @@ const clientSchema = z.object({ client_id: z.string().uuid(), name: z.string(), 
   role: z.enum(['admin', 'collector']), collector_scope: z.object({ connection_id: z.string().regex(/^conn_[0-9a-f]{32}$/), source_type: z.string().min(1) }).nullable(),
 }).refine((client) => (client.role === 'collector') === (client.collector_scope !== null), 'Invalid client role scope');
 
+const notificationPolicySchema = z.object({ mode: z.enum(['single_device', 'all_devices']) });
+export type CenterNotificationMode = z.infer<typeof notificationPolicySchema>['mode'];
+
 export const serverApi = {
+  async notificationPolicy() { return notificationPolicySchema.parse(unwrapGatewayPayload(await api.get<unknown>('/server/notification-policy'))); },
+  async setNotificationPolicy(mode: CenterNotificationMode) { return notificationPolicySchema.parse(unwrapGatewayPayload(await api.put<unknown>('/server/notification-policy', { mode }))); },
+  async claimNotification(notificationId: string): Promise<boolean> {
+    const runtime = getRuntimeConfig();
+    if (!runtime.serverId || !runtime.dataEpoch || !notificationId) return false;
+    return z.object({ allowed: z.boolean() }).parse(unwrapGatewayPayload(await api.post<unknown>('/server/notification-claims', {
+      server_id: runtime.serverId, data_epoch: runtime.dataEpoch, notification_id: notificationId,
+    }))).allowed;
+  },
   async info() {
     const info = infoSchema.parse(unwrapGatewayPayload(await api.get<unknown>('/server/info')));
     if (info.server_id !== getRuntimeConfig().serverId) throw new Error('Center identity changed');
