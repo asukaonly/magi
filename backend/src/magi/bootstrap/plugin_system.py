@@ -77,7 +77,10 @@ class PluginSystemModule(LifecycleModule):
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
         source_store = SourceStore(runtime_paths.runtime_dir / "plugin_sources.db")
         await source_store.initialize()
-        content = ConnectionContentCoordinator(source_store)
+        from ..core.container import get_container
+
+        container = get_container()
+        content = ConnectionContentCoordinator(source_store, ingress_store_provider=container.runtime_trace_store)
 
         async def enqueue_source_change(payload: dict[str, Any]) -> None:
             async def enqueue() -> None:
@@ -160,6 +163,7 @@ class PluginSystemModule(LifecycleModule):
             skill_registrar=skills,
             operation_registrar=operations,
             provider_registrar=providers,
+            ingress_registry=container.plugin_ingress_registry(),
             content_clearer=content.clear,
             connection_disconnector=content.disconnect,
             configure_instance=configure_instance,

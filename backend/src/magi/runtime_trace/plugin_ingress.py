@@ -63,6 +63,7 @@ class PluginIngressPersistenceMixin:
                 cursor = await db.execute(
                     """
                     INSERT INTO plugin_ingress_events (
+                        connection_id, connection_epoch,
                         source_kind,
                         producer,
                         plugin_target,
@@ -76,9 +77,10 @@ class PluginIngressPersistenceMixin:
                         processed_at_ms,
                         last_error,
                         created_at_ms
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        record.connection_id, record.connection_epoch,
                         record.source_kind,
                         record.producer,
                         record.plugin_target,
@@ -162,6 +164,7 @@ class PluginIngressPersistenceMixin:
         """Commit the deduplication receipt and the work item in one transaction."""
         fingerprint = hashlib.sha256(json.dumps({
             "stream": stream, "sequence": sequence, "occurred": record.occurred_at_ms,
+            "connection": record.connection_id, "connection_epoch": record.connection_epoch,
             "target": record.plugin_target, "type": record.event_type,
             "payload": json.loads(record.payload_json),
         }, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
@@ -200,10 +203,10 @@ class PluginIngressPersistenceMixin:
                 )
                 await db.execute("""
                     INSERT INTO plugin_ingress_events
-                    (source_kind, producer, plugin_target, event_type, occurred_at_ms,
+                    (connection_id, connection_epoch, source_kind, producer, plugin_target, event_type, occurred_at_ms,
                      payload_json, cursor_key, status, created_at_ms, delivery_epoch)
-                    VALUES ('background_delivery',?,?,?,?,?,?,'pending',?,?)
-                """, (producer_id, record.plugin_target, record.event_type, record.occurred_at_ms,
+                    VALUES (?,?,'background_delivery',?,?,?,?,?,?,'pending',?,?)
+                """, (record.connection_id, record.connection_epoch, producer_id, record.plugin_target, record.event_type, record.occurred_at_ms,
                       record.payload_json, stream, self._now_ms(), data_epoch))
                 await db.commit()
                 return "accepted"
@@ -219,6 +222,34 @@ class PluginIngressPersistenceMixin:
             await db.execute("""UPDATE plugin_ingress_events
                 SET status='pending', claimed_by=NULL, claimed_at_ms=NULL
                 WHERE source_kind='background_delivery' AND status='claimed'""")
+            await db.commit()
+
+    async def plugin_ingress_connection_ids(self) -> list[str]:
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            rows = await (await db.execute("SELECT DISTINCT connection_id FROM plugin_ingress_events")).fetchall()
+            return [row[0] for row in rows]
+
+    async def retire_connection_ingress(self, connection_id: str, *, keep_epoch: str | None = None) -> None:
+        """Erase fenced payloads after the lifecycle owner has drained its leases."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute("PRAGMA secure_delete=ON")
+            await db.execute(
+                "DELETE FROM plugin_ingress_events WHERE connection_id=? AND connection_epoch IS NOT ?",
+                (connection_id, keep_epoch),
+            )
+            await db.commit()
+        # Receipts contain hashes only and still reject reuse of an old event identity.
+        await secure_compact_sqlite(self.db_path, profile="hot_write")
+
+    async def defer_plugin_ingress(self, event_id: int) -> None:
+        """Retain disabled/unloaded connection work without exhausting its retry budget."""
+        async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
+            await db.execute(
+                "UPDATE plugin_ingress_events SET status='pending', claimed_by=NULL, claimed_at_ms=NULL, next_attempt_at_ms=? WHERE event_id=?",
+                (self._now_ms() + 1000, event_id),
+            )
             await db.commit()
 
     async def retry_background_delivery(self, event_id: int) -> None:

@@ -577,8 +577,8 @@ async def test_clear_and_disconnect_callbacks_are_drained_and_connection_scoped(
     )
     assert manager.connection_store.list() == []
     assert manager.iter_loaded_plugins() == []
-    assert events[-2] == ("disconnect", connection.connection_id)
-    assert events[-1] == ("shutdown", id(instances[2]))
+    assert events[-2] == ("shutdown", id(instances[2]))
+    assert events[-1] == ("disconnect", connection.connection_id)
 
 
 def test_uninstall_requires_explicit_connection_disconnect(tmp_path, monkeypatch):

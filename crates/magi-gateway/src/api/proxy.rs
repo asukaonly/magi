@@ -110,7 +110,7 @@ async fn attachment_upload_ipc_proxy(
     let method = req.method().to_string();
     let path = req.uri().path().to_string();
     let query = sanitize_forward_query(req.uri().query());
-    let headers = collect_forward_headers(req.headers());
+    let headers = collect_forward_headers(&req);
     let staged_path = new_staged_body_path();
     let staged_file = match create_secure_staged_file(&staged_path) {
         Ok(file) => tokio::fs::File::from_std(file),
@@ -158,7 +158,7 @@ async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request, max_body_bytes: us
     let path = req.uri().path().to_string();
     let query = sanitize_forward_query(req.uri().query());
 
-    let headers = collect_forward_headers(req.headers());
+    let headers = collect_forward_headers(&req);
 
     // Read body
     let body_bytes = match axum::body::to_bytes(req.into_body(), max_body_bytes).await {
@@ -190,15 +190,14 @@ async fn ipc_proxy(ipc: &crate::ipc::IpcClient, req: Request, max_body_bytes: us
     }
 }
 
-fn collect_forward_headers(
-    request_headers: &axum::http::HeaderMap,
-) -> serde_json::Map<String, Value> {
+fn collect_forward_headers(request: &Request) -> serde_json::Map<String, Value> {
     let mut headers = serde_json::Map::new();
-    for (name, value) in request_headers {
+    for (name, value) in request.headers() {
         let name_lower = name.as_str().to_ascii_lowercase();
         if name_lower == "connection"
             || name_lower == "content-length"
             || name_lower == "transfer-encoding"
+            || name_lower == "x-magi-client-id"
             || name_lower == super::security::SESSION_TOKEN_HEADER
         {
             continue;
@@ -206,6 +205,15 @@ fn collect_forward_headers(
         if let Ok(v) = value.to_str() {
             headers.insert(name.to_string(), Value::String(v.to_string()));
         }
+    }
+    if let Some(client) = request
+        .extensions()
+        .get::<super::security::AuthenticatedClient>()
+    {
+        headers.insert(
+            "x-magi-client-id".into(),
+            Value::String(client.client_id.clone()),
+        );
     }
     headers
 }
@@ -411,6 +419,24 @@ mod tests {
         Arc,
     };
     use tokio::io::AsyncWriteExt;
+
+    #[test]
+    fn forwarded_peer_identity_is_issued_by_authentication() {
+        let mut request = axum::http::Request::builder()
+            .header("x-magi-client-id", "spoofed")
+            .body(Body::empty())
+            .unwrap();
+        assert!(!super::collect_forward_headers(&request).contains_key("x-magi-client-id"));
+        request
+            .extensions_mut()
+            .insert(crate::api::security::AuthenticatedClient {
+                client_id: "paired-device".into(),
+            });
+        assert_eq!(
+            super::collect_forward_headers(&request)["x-magi-client-id"],
+            "paired-device"
+        );
+    }
 
     #[test]
     fn stages_binary_request_body_in_temp_file() {

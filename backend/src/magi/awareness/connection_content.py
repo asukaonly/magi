@@ -14,14 +14,17 @@ from ..awareness.source_store import SourceStore
 class ConnectionContentCoordinator:
     """Run after the manager drains the connection's active worker."""
 
-    def __init__(self, source_store: SourceStore, *, timeout_seconds: float = 30.0) -> None:
+    def __init__(self, source_store: SourceStore, *, ingress_store_provider=None, timeout_seconds: float = 30.0) -> None:
         self._source_store = source_store
+        self._ingress_store_provider = ingress_store_provider
         self._timeout_seconds = timeout_seconds
 
     async def clear(self, connection: PluginConnection, plugin: Plugin, context: PluginContext) -> None:
         """Keep source progress and previously imported memory while erasing local content."""
         if context.connection.connection_id != connection.connection_id:
             raise ValueError("Content clear context belongs to another connection")
+        if self._ingress_store_provider is not None:
+            await self._ingress_store_provider().retire_connection_ingress(connection.connection_id)
         request = UserContentClearRequest(
             connection_id=connection.connection_id, reason="user_clear_connection_content",
         )
@@ -41,4 +44,6 @@ class ConnectionContentCoordinator:
 
     async def disconnect(self, connection: PluginConnection) -> None:
         """Fence stale source batches before the manager disposes the connection."""
+        if self._ingress_store_provider is not None:
+            await self._ingress_store_provider().retire_connection_ingress(connection.connection_id)
         await self._source_store.disconnect_connection(connection.connection_id)

@@ -8,6 +8,8 @@ class WorkerIngressRecord:
     event_id: int
     source_kind: str
     producer: str
+    connection_id: str
+    connection_epoch: str
     plugin_target: str
     event_type: str
     occurred_at_ms: int

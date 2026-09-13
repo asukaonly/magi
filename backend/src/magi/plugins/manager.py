@@ -124,6 +124,7 @@ def build_plugin_runtime(
     skill_registrar: Any | None = None,
     hook_registry_provider: Callable[[], Any] | None = None,
     operation_registrar: Any | None = None,
+    ingress_registry: Any | None = None,
     provider_registrar: Any | None = None,
     content_clearer: Callable[..., Any] | None = None,
     connection_disconnector: Callable[[PluginConnection], Any] | None = None,
@@ -146,6 +147,7 @@ def build_plugin_runtime(
         skill_registrar=skill_registrar,
         hook_registry_provider=hook_registry_provider,
         operation_registrar=operation_registrar,
+        ingress_registry=ingress_registry,
         provider_registrar=provider_registrar,
         content_clearer=content_clearer,
         connection_disconnector=connection_disconnector,
@@ -186,6 +188,7 @@ class PluginManager(PluginInstallationMixin):
         skill_registrar: Any | None = None,
         hook_registry_provider: Callable[[], Any] | None = None,
         operation_registrar: Any | None = None,
+        ingress_registry: Any | None = None,
         provider_registrar: Any | None = None,
         content_clearer: Callable[..., Any] | None = None,
         connection_disconnector: Callable[[PluginConnection], Any] | None = None,
@@ -240,7 +243,12 @@ class PluginManager(PluginInstallationMixin):
 
             provider_registrar = PluginProviderRegistry(get_connection=self.connection_store.get)
         self.provider_registry = provider_registrar
+        from ..events.plugin_ingress import PluginIngressRegistry
+
+        self.ingress_registry = ingress_registry or PluginIngressRegistry()
         self._contribution_registrar = PluginContributionRegistrar(
+            ingress_registry=self.ingress_registry,
+            get_ingress_epoch=self.connection_store.ingress_epoch,
             tool_registry=tool_registry,
             source_registry=source_registry,
             history_importer_registry=history_importer_registry,
@@ -739,11 +747,12 @@ class PluginManager(PluginInstallationMixin):
             pass
         else:
             raise RuntimeError("Connection disconnect must run in the lifecycle worker")
+        self.unload_connection(connection_id)
+        self._drain_shutdowns_sync(connection.plugin_id)
+        self.connection_store.invalidate_ingress(connection_id, expected_revision=expected_revision)
         result = self._connection_disconnector(connection)
         if inspect.isawaitable(result):
             asyncio.run(result)
-        self.unload_connection(connection_id)
-        self._drain_shutdowns_sync(connection.plugin_id)
         self.connection_store.disconnect(connection_id, expected_revision=expected_revision)
         with self._lifecycle_write_lock:
             self._clear_connection_failure(connection_id)
@@ -763,6 +772,7 @@ class PluginManager(PluginInstallationMixin):
             raise RuntimeError("Connection content clear must run in the lifecycle worker")
         self.unload_connection(connection_id)
         self._drain_shutdowns_sync(connection.plugin_id)
+        self.connection_store.invalidate_ingress(connection_id, expected_revision=expected_revision)
         context = self.connection_store.context(connection_id)
         self._authorize_connection(connection)
         instance = self._instantiate_configured_plugin(
@@ -1069,6 +1079,7 @@ class PluginManager(PluginInstallationMixin):
 
         async def run_shutdown() -> None:
             try:
+                await self.ingress_registry.drain(connection_id)
                 result = instance.shutdown()
                 if inspect.isawaitable(result):
                     await result

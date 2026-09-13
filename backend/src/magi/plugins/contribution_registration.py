@@ -28,6 +28,8 @@ class PluginContributionRegistrar:
         skill_registrar: Any | None = None,
         operation_registrar: Any | None = None,
         provider_registrar: Any | None = None,
+        ingress_registry: Any | None = None,
+        get_ingress_epoch: Callable[[str], str] | None = None,
     ) -> None:
         self._tool_registry = tool_registry
         self._source_registry = source_registry
@@ -36,6 +38,8 @@ class PluginContributionRegistrar:
         self._skill_registrar = skill_registrar
         self._operation_registrar = operation_registrar
         self._provider_registrar = provider_registrar
+        self._ingress_registry = ingress_registry
+        self._get_ingress_epoch = get_ingress_epoch
         self._registrations: dict[str, list[Callable[[], None]]] = {}
         self._lock = threading.RLock()
 
@@ -335,6 +339,16 @@ class PluginContributionRegistrar:
                             surface="extensions",
                             metadata={"event_type": event_type.value, "matcher": matcher},
                         )
+                if self._ingress_registry is not None:
+                    from magi_plugin_sdk.sources import ScopedSourceRuntimePaths
+
+                    paths = ScopedSourceRuntimePaths(
+                        connection_id, plugin_id, plugin_instance.context.state_dir
+                    )
+                    disposers.append(self._ingress_registry.register(
+                        connection_id, self._get_ingress_epoch(connection_id),
+                        list(plugin_instance.get_plugin_ingress_registrations(runtime_paths=paths)),
+                    ))
                 return contributions
             except BaseException:
                 self.unregister(connection_id)

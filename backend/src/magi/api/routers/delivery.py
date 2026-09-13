@@ -8,7 +8,7 @@ import sqlite3
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from ...core.container import get_container
@@ -24,6 +24,8 @@ class StrictModel(BaseModel):
 
 class PluginEvent(StrictModel):
     kind: Literal["plugin_event"]
+    connection_id: Annotated[str, Field(pattern=r"^conn_[0-9a-f]{32}$")]
+    connection_epoch: UUID
     plugin_target: Key
     event_type: Key
     data: dict[str, JsonValue]
@@ -79,11 +81,15 @@ delivery_router = APIRouter()
 
 
 @delivery_router.post("/events", response_model=DeliveryReceipt)
-async def deliver(batch: DeliveryBatch) -> DeliveryReceipt:
+async def deliver(
+    batch: DeliveryBatch, x_magi_client_id: Annotated[str, Header(min_length=1)],
+) -> DeliveryReceipt:
     """ACK each fact only after its durable admission or idempotent materialization."""
     container = get_container()
     store = container.runtime_trace_store()
     registry = container.plugin_ingress_registry()
+    connections = container.plugin_manager().connection_store
+    producer_id = f"{x_magi_client_id}:{batch.producer_id}"
     receipts = []
     for event in batch.events:
         code = "accepted"
@@ -98,36 +104,50 @@ async def deliver(batch: DeliveryBatch) -> DeliveryReceipt:
             elif not registry.ready:
                 code, status = "processor_unavailable", "retry"
             else:
-                code = await store.accept_background_event(
-                    allow_new=registry.accepts_delivery(payload.plugin_target, payload.event_type),
-                    producer_id=str(batch.producer_id),
-                    data_epoch=str(batch.data_epoch),
-                    event_id=str(event.event_id),
-                    stream=event.stream,
-                    sequence=event.sequence,
-                    record=PluginIngressEventRecord(
-                        event_id=0,
-                        source_kind="background_delivery",
-                        producer=str(batch.producer_id),
-                        plugin_target=payload.plugin_target,
-                        event_type=payload.event_type,
-                        occurred_at_ms=event.occurred_at_ms,
-                        payload_json=json.dumps(payload.data, ensure_ascii=False),
-                    ),
-                )
-                status = (
-                    "accepted"
-                    if code == "accepted"
-                    else "retry"
-                    if code == "inbox_full"
-                    else "rejected"
-                )
+                try:
+                    epoch = connections.ingress_epoch(payload.connection_id)
+                except KeyError:
+                    epoch = None
+                if epoch != str(payload.connection_epoch):
+                    code, status = "connection_epoch_changed", "rejected"
+                else:
+                    with registry.lease(
+                        payload.connection_id, epoch, payload.plugin_target, payload.event_type
+                    ) as registration:
+                        if registration is None and not registry.connection_active(payload.connection_id):
+                            code, status = "connection_unavailable", "retry"
+                        else:
+                            code = await store.accept_background_event(
+                                allow_new=registration is not None and registration.replay_safe,
+                                producer_id=producer_id,
+                                data_epoch=str(batch.data_epoch),
+                                event_id=str(event.event_id), stream=event.stream,
+                                sequence=event.sequence,
+                                record=PluginIngressEventRecord(
+                                    event_id=0, source_kind="background_delivery", producer=producer_id,
+                                    connection_id=payload.connection_id, connection_epoch=epoch,
+                                    plugin_target=payload.plugin_target, event_type=payload.event_type,
+                                    occurred_at_ms=event.occurred_at_ms,
+                                    payload_json=json.dumps(payload.data, ensure_ascii=False),
+                                ),
+                            )
+                            status = "accepted" if code == "accepted" else "retry" if code == "inbox_full" else "rejected"
         except sqlite3.Error:
             code, status = "storage_unavailable", "retry"
         receipts.append(EventReceipt(event_id=event.event_id, status=status, code=code))
     return DeliveryReceipt(
         server_id=batch.server_id, data_epoch=batch.data_epoch, receipts=receipts
     )
+
+
+@delivery_router.get("/connections/{connection_id}")
+async def connection_delivery_scope(connection_id: str) -> dict[str, str]:
+    """Producers capture this scope when collecting, never while retrying old facts."""
+    try:
+        epoch = get_container().plugin_manager().connection_store.ingress_epoch(connection_id)
+    except KeyError as exc:
+        raise HTTPException(404, "Plugin connection does not exist") from exc
+    return {"connection_id": connection_id, "connection_epoch": epoch}
 
 
 @delivery_router.get("/status")

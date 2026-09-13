@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+from magi.events.plugin_ingress import PluginIngressRegistry
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,6 +12,12 @@ from _shared.sqlite_privacy import assert_sqlite_fragment_absent
 from magi.bootstrap.context import RuntimeBootstrapContext
 from magi.runtime_trace import RuntimeTraceStore, StoredPluginIngressEventRecord
 from magi_plugin_sdk.ingress import PluginIngressEventRecord
+
+
+def ingress_registry(entries):
+    registry = PluginIngressRegistry()
+    registry.register("conn_test", "epoch_test", entries)
+    return registry
 
 
 class _RecordingHandler:
@@ -53,13 +61,14 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
 
     processor = PluginIngressProcessorModule(
         context,
-        handlers=[
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        registry=ingress_registry([
             PluginIngressHandlerRegistration(
                 plugin_target="example_target",
                 event_type="example_event",
                 handler=handler,
             )
-        ],
+        ]),
         poll_interval_seconds=0.01,
         global_clear_pending=AsyncMock(return_value=False),
     )
@@ -68,6 +77,7 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
     try:
         event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",
@@ -112,13 +122,14 @@ async def test_plugin_ingress_processor_marks_events_failed_when_handler_raises(
 
     processor = PluginIngressProcessorModule(
         context,
-        handlers=[
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        registry=ingress_registry([
             PluginIngressHandlerRegistration(
                 plugin_target="example_target",
                 event_type="example_event",
                 handler=_FailingHandler(),
             )
-        ],
+        ]),
         poll_interval_seconds=0.01,
         global_clear_pending=AsyncMock(return_value=False),
     )
@@ -127,6 +138,7 @@ async def test_plugin_ingress_processor_marks_events_failed_when_handler_raises(
     try:
         event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",
@@ -169,13 +181,14 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
     context.runtime_trace.store = store
     processor = PluginIngressProcessorModule(
         context,
-        handlers=[
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        registry=ingress_registry([
             PluginIngressHandlerRegistration(
                 plugin_target="example_target",
                 event_type="example_event",
                 handler=handler,
             )
-        ],
+        ]),
         poll_interval_seconds=0.01,
         global_clear_pending=AsyncMock(return_value=False),
     )
@@ -185,6 +198,7 @@ async def test_plugin_ingress_clear_waits_for_claimed_handler_and_deletes_result
     try:
         event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",
@@ -232,13 +246,14 @@ async def test_plugin_ingress_processor_discards_queue_while_global_clear_pendin
     context.runtime_trace.store = store
     processor = PluginIngressProcessorModule(
         context,
-        handlers=[
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: "epoch_test"),
+        registry=ingress_registry([
             PluginIngressHandlerRegistration(
                 plugin_target="example_target",
                 event_type="example_event",
                 handler=handler,
             )
-        ],
+        ]),
         poll_interval_seconds=0.01,
         global_clear_pending=AsyncMock(return_value=True),
     )
@@ -247,6 +262,7 @@ async def test_plugin_ingress_processor_discards_queue_while_global_clear_pendin
     try:
         event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",

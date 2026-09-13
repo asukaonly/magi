@@ -11,6 +11,8 @@ pub const MAX_BATCH_BYTES: usize = MAX_BATCH_EVENTS * (MAX_EVENT_BYTES + 1024);
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BackgroundPayload {
     PluginEvent {
+        connection_id: String,
+        connection_epoch: String,
         plugin_target: String,
         event_type: String,
         data: Value,
@@ -24,11 +26,18 @@ impl BackgroundPayload {
     pub fn validate(&self) -> Result<(), String> {
         match self {
             Self::PluginEvent {
+                connection_id,
+                connection_epoch,
                 plugin_target,
                 event_type,
                 data,
             } => {
-                if !valid_key(plugin_target) || !valid_key(event_type) || !data.is_object() {
+                if !valid_key(connection_id)
+                    || !valid_id(connection_epoch)
+                    || !valid_key(plugin_target)
+                    || !valid_key(event_type)
+                    || !data.is_object()
+                {
                     return Err("Invalid plugin event".into());
                 }
             }

@@ -82,7 +82,13 @@ def bootstrap(tmp_path, monkeypatch, runtime_paths_with_schema):
     monkeypatch.setattr("magi.plugins.manager._resolve_search_paths", lambda: [package])
     monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: runtime_paths_with_schema)
     monkeypatch.setattr(SkillIndexer, "SKILL_LOCATIONS", [tmp_path / "empty-skills"])
-    container = SimpleNamespace(hook_registry=providers.Dependency(), hook_gateway=providers.Dependency())
+    from magi.events.plugin_ingress import PluginIngressRegistry
+    from magi.runtime_trace import RuntimeTraceStore
+
+    ingress = PluginIngressRegistry()
+    container = SimpleNamespace(hook_registry=providers.Dependency(), hook_gateway=providers.Dependency(),
+        plugin_ingress_registry=lambda: ingress,
+        runtime_trace_store=lambda: RuntimeTraceStore(db_path=str(runtime_paths_with_schema.runtime_trace_db_path)))
     monkeypatch.setattr("magi.core.container.get_container", lambda: container)
     user_hook_loader = AsyncMock()
     monkeypatch.setattr("magi.hooks.lifecycle.load_user_hook_handlers", user_hook_loader)

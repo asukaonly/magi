@@ -16,6 +16,10 @@ from magi.events.plugin_ingress import PluginIngressHandlerRegistration, PluginI
 from magi.runtime_trace import RuntimeTraceStore
 
 
+CONNECTION = "conn_" + "1" * 32
+EPOCH = str(uuid4())
+
+
 class Handler:
     async def handle_event(self, event, payload):
         pass
@@ -44,7 +48,7 @@ async def test_restore_verification_holds_inbox_without_discarding_rollback_work
     from magi.bootstrap.context import RuntimeBootstrapContext
     from magi.events.lifecycle import PluginIngressProcessorModule
 
-    client, store, _ = receiver
+    client, store, registry = receiver
     body = batch(event())
     await client.post("/api/delivery/events", json=body)
     context = RuntimeBootstrapContext()
@@ -52,9 +56,8 @@ async def test_restore_verification_holds_inbox_without_discarding_rollback_work
     processor = PluginIngressProcessorModule(
         context,
         global_clear_pending=AsyncMock(return_value=False),
-        handlers=[
-            PluginIngressHandlerRegistration("photos", "observed.v1", Handler(), replay_safe=True)
-        ],
+        registry=registry,
+        connection_store=SimpleNamespace(ingress_epoch=lambda cid: EPOCH),
         poll_interval_seconds=0.01,
     )
     monkeypatch.setenv("MAGI_MEMORY_RESTORE_OPERATION_ID", str(uuid4()))
@@ -83,6 +86,7 @@ def event(stream="photos", sequence=1, value="photo"):
         "occurred_at_ms": 1,
         "payload": {
             "kind": "plugin_event",
+            "connection_id": CONNECTION, "connection_epoch": EPOCH,
             "plugin_target": "photos",
             "event_type": "observed.v1",
             "data": {"value": value},
@@ -105,14 +109,15 @@ async def receiver(tmp_path, monkeypatch):
     await store.initialize()
     registry = PluginIngressRegistry()
     registry.ready = True
-    registry.entries[("photos", "observed.v1")] = PluginIngressHandlerRegistration(
+    registry.register(CONNECTION, EPOCH, [PluginIngressHandlerRegistration(
         "photos", "observed.v1", Handler(), replay_safe=True
-    )
+    )])
     monkeypatch.setattr(
         delivery,
         "get_container",
         lambda: SimpleNamespace(
-            runtime_trace_store=lambda: store, plugin_ingress_registry=lambda: registry
+            runtime_trace_store=lambda: store, plugin_ingress_registry=lambda: registry,
+            plugin_manager=lambda: SimpleNamespace(connection_store=SimpleNamespace(ingress_epoch=lambda cid: EPOCH)),
         ),
     )
     app = FastAPI()
@@ -120,7 +125,7 @@ async def receiver(tmp_path, monkeypatch):
         _build_public_router(delivery.delivery_router, _PUBLIC_ROUTE_METHODS["delivery"]),
         prefix="/api/delivery",
     )
-    async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app), base_url="http://test", headers={"x-magi-client-id": "device-a"}) as client:
         yield client, store, registry
     await store.shutdown()
 
@@ -267,3 +272,32 @@ async def test_notification_reads_are_monotonic_and_ack_only_after_persistence(
     assert (await client.post("/api/delivery/events", json=body)).json()["receipts"][0][
         "status"
     ] == "retry"
+
+
+@pytest.mark.asyncio
+async def test_authenticated_devices_cannot_collide_in_a_producer_stream(receiver):
+    client, store, _ = receiver
+    body = batch(event())
+    for device in ("device-a", "device-b"):
+        response = await client.post("/api/delivery/events", json=body, headers={"x-magi-client-id": device})
+        assert response.json()["receipts"][0]["status"] == "accepted"
+    assert (await store.background_delivery_status())["pending"] == 2
+
+
+@pytest.mark.asyncio
+async def test_clear_fences_unsent_events_and_keeps_other_connection_work(receiver, monkeypatch):
+    client, store, registry = receiver
+    first = batch(event())
+    await client.post("/api/delivery/events", json=first)
+    epoch = str(uuid4())
+    connection_store = delivery.get_container().plugin_manager().connection_store
+    monkeypatch.setattr(delivery, "get_container", lambda: SimpleNamespace(
+        runtime_trace_store=lambda: store, plugin_ingress_registry=lambda: registry,
+        plugin_manager=lambda: SimpleNamespace(connection_store=connection_store),
+    ))
+    connection_store.ingress_epoch = lambda cid: epoch
+    await store.retire_connection_ingress(CONNECTION)
+    replay = await client.post("/api/delivery/events", json=first)
+    assert replay.json()["receipts"][0]["code"] == "connection_epoch_changed"
+    assert (await store.background_delivery_status())["pending"] == 0
+    assert (await client.get(f"/api/delivery/connections/{CONNECTION}")).json()["connection_epoch"] == epoch

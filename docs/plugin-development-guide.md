@@ -692,8 +692,12 @@ receipt together with the domain write where possible, or pass an idempotency
 key to the external provider. Do not opt in an arbitrary tool/action executor.
 Handlers without this capability are rejected at background admission. The
 capability is carried through the supervised plugin worker registration protocol.
-Handlers are bound at runtime initialization; restart the center after changing
-receiver registrations before retrying quarantined work.
+Handlers are registered and disposed with their owning plugin connection. Reloading
+a connection replaces its handlers without restarting the center. Unload seals new
+admission and waits for in-flight admission/processing before shutting down the worker.
+Stopping a connection retains queued work without consuming its failure budget.
+Clearing content rotates a durable connection epoch before erasure; disconnecting
+removes the connection. Neither permits delayed observations from the old scope.
 Use versioned `event_type` values when the payload schema changes; the receiver
 plugin owns validation/normalization of that schema.
 
@@ -704,6 +708,11 @@ with destination `scope` (`profile_id`, `server_id`, `data_epoch`), connection
 `generation`, `event_id`, `stream`, `policy`, and a typed payload:
 `{"kind":"plugin_event","plugin_target":"example","event_type":"observation.v1","data":{...}}`.
 Read server identity/epoch from the authenticated connection, not user input.
+Plugin payloads also require the host-issued `connection_id` and `connection_epoch`
+from `GET /api/delivery/connections/{connection_id}`. Capture these when collecting
+and retain them through retries; never relabel old observations with a fresh epoch.
+The gateway supplies the authenticated device identity separately from the producer
+UUID, so different devices cannot collide in the receipt or stream namespace.
 Accepted enqueue means saved locally. HTTP receipt `accepted` means saved by
 the server, not that memory processing has finished. `/api/delivery/status`
 reports processing backlog/failures; `/api/delivery/retry` retries quarantined

@@ -73,6 +73,9 @@ class ControlledWorker(ProcessPluginProxy):
             if notify and self.handler is not None:
                 self.handler(reason)
 
+    def get_plugin_ingress_registrations(self, *, runtime_paths):
+        return []
+
     def get_tools(self):
         return [SampleTool]
 

@@ -14,7 +14,7 @@ from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..core.logger import get_logger
 from magi_plugin_sdk.ingress import PluginIngressEventRecord
 from .contracts import RuntimeCommandType
-from .plugin_ingress import PluginIngressHandlerRegistration
+from .plugin_ingress import PluginIngressRegistry
 from .events import (
     Event,
     EventLevel,
@@ -428,7 +428,8 @@ class PluginIngressProcessorModule(LifecycleModule):
         context: RuntimeBootstrapContext,
         *,
         global_clear_pending: Callable[[], Awaitable[bool]],
-        handlers: list[PluginIngressHandlerRegistration] | None = None,
+        registry: PluginIngressRegistry | None = None,
+        connection_store=None,
         poll_interval_seconds: float = 0.1,
     ):
         super().__init__(
@@ -439,43 +440,36 @@ class PluginIngressProcessorModule(LifecycleModule):
         self._poll_interval_seconds = poll_interval_seconds
         self._task: asyncio.Task | None = None
         self._running = False
-        self._handlers = {
-            (registration.plugin_target, registration.event_type): registration.handler
-            for registration in (handlers or [])
-        }
         from ..core.container import get_container
 
-        self._delivery_registry = get_container().plugin_ingress_registry()
-        self._registrations = list(handlers or [])
+        self._delivery_registry = registry or get_container().plugin_ingress_registry()
+        self._connection_store = connection_store
         self._global_clear_pending = global_clear_pending
 
     async def init(self) -> None:
-        plugin_manager = self._context.plugins.plugin_manager
         self._delivery_registry.ready = False
-        if plugin_manager is not None:
-            runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-            for plugin in plugin_manager.iter_loaded_plugins():
-                registrations = plugin.get_plugin_ingress_registrations(runtime_paths=runtime_paths)
-                for registration in registrations:
-                    self._registrations.append(registration)
-                    self._handlers[(registration.plugin_target, registration.event_type)] = (
-                        registration.handler
-                    )
+        if self._connection_store is None:
+            manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+            self._connection_store = manager.connection_store
         if self._context.runtime_commands.full_clear_recovery_pending:
             logger.warning("Plugin ingress processor held for full-clear recovery")
             return
         if os.environ.get("MAGI_MEMORY_RESTORE_OPERATION_ID"):
             logger.info("Plugin ingress processor held for memory restore verification")
             return
-        self._delivery_registry.entries = {
-            (entry.plugin_target, entry.event_type): entry for entry in self._registrations
-        }
         store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
         try:
             data_epoch = str(uuid.UUID(os.environ.get("MAGI_DATA_EPOCH", "")))
         except ValueError as exc:
             raise RuntimeError("Service data epoch is missing or invalid") from exc
         await store.recover_background_delivery_claims(data_epoch=data_epoch)
+        async with store.plugin_ingress_operation():
+            for connection_id in await store.plugin_ingress_connection_ids():
+                try:
+                    epoch = self._connection_store.ingress_epoch(connection_id)
+                except KeyError:
+                    epoch = None
+                await store.retire_connection_ingress(connection_id, keep_epoch=epoch)
         self._delivery_registry.ready = True
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
@@ -519,34 +513,34 @@ class PluginIngressProcessorModule(LifecycleModule):
         store,
         event: PluginIngressEventRecord,
     ) -> None:
-        handler = self._handlers.get((event.plugin_target, event.event_type))
-        if event.source_kind == "background_delivery" and not self._delivery_registry.accepts_delivery(
-            event.plugin_target, event.event_type
-        ):
-            handler = None
-        if handler is None:
-            await store.fail_plugin_ingress_event(
-                event.event_id,
-                error_text=(
-                    f"No plugin ingress handler registered for "
-                    f"{event.plugin_target}:{event.event_type}"
-                ),
-            )
-            return
-
         try:
-            payload = json.loads(event.payload_json or "{}")
-            if not isinstance(payload, dict):
-                raise ValueError("Plugin ingress payload must be an object")
-            if event.source_kind == "background_delivery":
-                await asyncio.wait_for(handler.handle_event(event, payload), timeout=60)
-            else:
-                await handler.handle_event(event, payload)
-        except Exception as exc:
-            if event.source_kind == "background_delivery":
-                await store.retry_background_delivery(event.event_id)
-            else:
-                await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
+            epoch = self._connection_store.ingress_epoch(event.connection_id)
+        except KeyError:
+            epoch = None
+        if epoch != event.connection_epoch:
+            await store.retire_connection_ingress(event.connection_id, keep_epoch=epoch)
             return
-
-        await store.complete_plugin_ingress_event(event.event_id)
+        with self._delivery_registry.lease(
+            event.connection_id, event.connection_epoch, event.plugin_target, event.event_type
+        ) as registration:
+            if registration is None:
+                if not self._delivery_registry.connection_active(event.connection_id):
+                    await store.defer_plugin_ingress(event.event_id)
+                else:
+                    await store.fail_plugin_ingress_event(event.event_id, error_text="Ingress handler is unavailable")
+                return
+            if event.source_kind == "background_delivery" and not registration.replay_safe:
+                await store.fail_plugin_ingress_event(event.event_id, error_text="Ingress handler is not replay safe")
+                return
+            try:
+                payload = json.loads(event.payload_json or "{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("Plugin ingress payload must be an object")
+                await asyncio.wait_for(registration.handler.handle_event(event, payload), timeout=60)
+            except Exception as exc:
+                if event.source_kind == "background_delivery":
+                    await store.retry_background_delivery(event.event_id)
+                else:
+                    await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
+                return
+            await store.complete_plugin_ingress_event(event.event_id)

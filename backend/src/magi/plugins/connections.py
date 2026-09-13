@@ -45,13 +45,14 @@ class _Record(BaseModel):
     credentials: dict[str, str] = Field(default_factory=dict, repr=False)
     private_state: dict[str, JsonValue] = Field(default_factory=dict)
     content_state: dict[str, JsonValue] = Field(default_factory=dict)
+    ingress_epoch: str
     state_revision: int = Field(default=0, ge=0)
     readiness: list[CapabilityReadiness] = Field(default_factory=list)
 
 
 class _Registry(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     connections: dict[str, _Record] = Field(default_factory=dict)
 
 
@@ -174,7 +175,7 @@ class PluginConnectionStore:
             connection_id=f"conn_{uuid4().hex}", plugin_id=plugin_id,
             display_name=display_name.strip(), settings=settings or {}, enabled=enabled,
         )
-        record = _Record(connection=connection)
+        record = _Record(connection=connection, ingress_epoch=str(uuid4()))
         self._credentials(record, credentials or {})
         with connection_file_lock(self.root):
             self._admit(record.connection)
@@ -194,6 +195,20 @@ class PluginConnectionStore:
     def get(self, connection_id: str) -> PluginConnection:
         with connection_file_lock(self.root):
             return self._record(self._read(), connection_id).connection.model_copy(deep=True)
+
+    def ingress_epoch(self, connection_id: str) -> str:
+        """Return the host-owned generation used to fence delayed observations."""
+        with connection_file_lock(self.root):
+            return self._record(self._read(), connection_id).ingress_epoch
+
+    def invalidate_ingress(self, connection_id: str, *, expected_revision: int) -> None:
+        """Fence old observations durably before any content is erased."""
+        with connection_file_lock(self.root):
+            registry = self._read()
+            record = self._record(registry, connection_id)
+            _check_revision(record.connection.revision, expected_revision)
+            record.ingress_epoch = str(uuid4())
+            self._write(registry)
 
     def update(
         self,

@@ -14,6 +14,8 @@ class StubIngressEvent:
     event_id = 1
     source_kind = "source"
     producer = "example_producer"
+    connection_id = "conn_test"
+    connection_epoch = "epoch_test"
     plugin_target = "example_target"
     event_type = "example_event"
     occurred_at_ms = 1234567890
@@ -40,6 +42,7 @@ def test_backend_ingress_contracts_reexport_sdk_symbols() -> None:
 
 def test_runtime_trace_keeps_storage_record_alias() -> None:
     record = StoredPluginIngressEventRecord(
+        connection_id="conn_test", connection_epoch="epoch_test",
         event_id=1,
         source_kind="source",
         producer="example_producer",

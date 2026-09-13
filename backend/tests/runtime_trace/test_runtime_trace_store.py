@@ -402,6 +402,7 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
     try:
         event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",
@@ -427,6 +428,7 @@ async def test_runtime_trace_store_claims_and_updates_plugin_ingress_events(tmp_
 
         failed_event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="example_producer",
@@ -480,6 +482,7 @@ async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
     try:
         stale_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="old_producer",
@@ -491,6 +494,7 @@ async def test_plugin_ingress_drops_events_at_or_before_memory_clear_cutoff(
         )
         fresh_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
+                connection_id="conn_test", connection_epoch="epoch_test",
                 event_id=0,
                 source_kind="desktop",
                 producer="new_producer",

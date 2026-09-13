@@ -172,9 +172,15 @@ For plugin facts, Python atomically writes a fingerprinted deduplication receipt
 and `plugin_ingress_events` work item before ACK. This is acceptance, not completed
 memory processing. The worker recovers interrupted claims, backs off failures,
 and quarantines after ten processing failures. Per-stream processing order is
-preserved; other streams continue. A replay-safe handler must deduplicate its
+preserved; failed/backed-off streams do not block independent streams. Handler
+execution remains serial, so a currently executing slow handler delays other handlers. A replay-safe handler must deduplicate its
 own effects using the stable host event ID. No transport layer promises exactly
-once external execution. Failed inbox work is retained by operational GC.
+once external execution. Failed inbox work is retained by operational GC. Ingress routing includes a
+host-owned plugin connection and content epoch, with leases shared by admission
+and processing. Plugin lifecycle detaches and drains these leases before worker
+shutdown. Clear/delete fence stale observations durably; ordinary reload retains
+the connection epoch and uses the replacement handler. Sender identity is scoped
+by the gateway-authenticated client, never by a forwarded caller-supplied header.
 
 Notification reads are the first desktop producer: exact-ID monotonic updates
 use a coalesced outbox and ACK after durable domain commit. Notification action,

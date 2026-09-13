@@ -158,7 +158,7 @@ async def test_replay_safe_ingress_registration_crosses_real_worker(proxy, plugi
     entries = await asyncio.to_thread(proxy.get_plugin_ingress_registrations, runtime_paths=None)
     assert len(entries) == 1 and entries[0].replay_safe is True
     assert (entries[0].plugin_target, entries[0].event_type) == ("process-test", "fact.v1")
-    record = PluginIngressEventRecord(event_id=42, source_kind="background_delivery", producer="device", plugin_target="process-test", event_type="fact.v1", occurred_at_ms=1)
+    record = PluginIngressEventRecord(connection_id=plugin_setup[1].connection_id, connection_epoch="test", event_id=42, source_kind="background_delivery", producer="device", plugin_target="process-test", event_type="fact.v1", occurred_at_ms=1)
     await entries[0].handler.handle_event(record, {"value": "hello"})
     await entries[0].handler.handle_event(record, {"value": "hello"})
     assert (plugin_setup[2].state_dir / "received-event").read_text() == "42:hello"

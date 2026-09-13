@@ -206,3 +206,19 @@ def test_private_paths_permissions_and_link_rejection(store, tmp_path):
     with pytest.raises(RuntimeError):
         store.clear_content(connection.connection_id, expected_revision=0)
     assert outside.read_text() == "untouched"
+
+
+def test_ingress_epoch_survives_settings_but_is_fenced_before_clear(store):
+    connection = store.create("example", display_name="Work")
+    epoch = store.ingress_epoch(connection.connection_id)
+    updated = store.update(connection.connection_id, expected_revision=0, display_name="Renamed")
+    assert store.ingress_epoch(connection.connection_id) == epoch
+    store.invalidate_ingress(connection.connection_id, expected_revision=updated.revision)
+    fenced = store.ingress_epoch(connection.connection_id)
+    assert fenced != epoch
+    reopened = PluginConnectionStore(runtime_paths=RuntimePaths(store.root.parents[1]), require_package=_require_package)
+    assert reopened.ingress_epoch(connection.connection_id) == fenced
+    assert reopened.get(connection.connection_id).revision == updated.revision
+    store.disconnect(connection.connection_id, expected_revision=updated.revision)
+    with pytest.raises(ConnectionNotFoundError):
+        reopened.ingress_epoch(connection.connection_id)

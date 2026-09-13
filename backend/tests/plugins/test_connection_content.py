@@ -307,3 +307,36 @@ async def test_clear_timeout_cancels_hook_without_erasing_source_progress_or_evi
     assert await runtime.source.checkpoint(left, "notes", "notes") == seeded.checkpoint
     assert await runtime.source.pending(seeded.checkpoint) == seeded.pending
     assert await runtime.source.read_resource(left, seeded.evidence)
+
+
+@pytest.mark.asyncio
+async def test_manager_unload_drains_ingress_and_reenable_replaces_handler(runtime, monkeypatch):
+    from magi.events.plugin_ingress import PluginIngressHandlerRegistration
+
+    registry = runtime.manager.ingress_registry
+    connection = runtime.connections[0]
+    cid = connection.connection_id
+    epoch = runtime.store.ingress_epoch(cid)
+    monkeypatch.setattr(ContentPlugin, "get_plugin_ingress_registrations", lambda self, **kwargs: [
+        PluginIngressHandlerRegistration("notes", "observed", self, replay_safe=True)
+    ])
+    await asyncio.to_thread(runtime.manager.update_connection, cid, expected_revision=0, enabled=True)
+    previous = runtime.manager.get_connection_plugin(cid)
+    with registry.lease(cid, epoch, "notes", "observed") as entry:
+        assert entry.handler is previous
+        stopping = asyncio.create_task(asyncio.to_thread(
+            runtime.manager.update_connection, cid, expected_revision=1, enabled=False))
+        for _ in range(100):
+            if not registry.connection_active(cid):
+                break
+            await asyncio.sleep(0.01)
+        assert not registry.connection_active(cid)
+        assert not stopping.done()
+        assert ("shutdown", cid, previous) not in runtime.events
+    await stopping
+    assert ("shutdown", cid, previous) in runtime.events
+    assert runtime.store.ingress_epoch(cid) == epoch
+    await asyncio.to_thread(runtime.manager.update_connection, cid, expected_revision=2, enabled=True)
+    with registry.lease(cid, epoch, "notes", "observed") as current:
+        assert current.handler is not previous
+    assert registry.connection_active(runtime.connections[1].connection_id)

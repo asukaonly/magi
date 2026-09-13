@@ -16,6 +16,14 @@ owner-only filesystem protection as connection credentials. Queue capacity is
 10,000 outstanding records / 64 MiB of payload; stream metadata is separate.
 
 Server delivery receipts and work items live in `runtime/runtime_trace.db`;
+Plugin connection registry schema `2` requires a host-owned `ingress_epoch` on
+all records. It has no schema-1 compatibility reader. A clear request rotates the
+epoch before erasure; settings updates and stop/start preserve it. Runtime trace
+revision `v7` requires connection-scoped ingress records. Unscoped pre-v7 work is
+removed because assigning it to one of several accounts would be unsafe; receipts
+retain only identity hashes. Connection erasure removes payloads, and startup
+retires any obsolete generations left by an interrupted clear.
+
 Alembic revision `v6` creates `background_delivery_receipts` and ingress retry
 columns/index and the work item delivery epoch. Admission uses a FULL synchronous
 transaction for both receipt and payload. Receipts contain identity and a payload fingerprint, not a payload
