@@ -52,6 +52,11 @@ class EchoTool(Tool):
         value = await get_host().call("test.echo", parameters.get("resource", "allowed"), {"agent":context.agent_id})
         return ToolResult(success=True, data=value, model_text="Echo received.")
 class TestPlugin(Plugin):
+    def get_plugin_ingress_registrations(self, *, runtime_paths):
+        from magi_plugin_sdk.ingress import PluginIngressHandlerRegistration
+        return [PluginIngressHandlerRegistration("process-test", "fact.v1", self, replay_safe=True)]
+    async def handle_event(self, event, payload):
+        (self.context.state_dir / "received-event").write_text(str(event.event_id) + ":" + payload["value"])
     def configure(self, **kwargs):
         super().configure(**kwargs)
         self.context.credentials.set("boot", "worker-value")
@@ -144,6 +149,19 @@ def proxy(plugin_setup, monkeypatch):
     instance = ProcessPluginProxy(*plugin_setup)
     yield instance
     instance._terminate()
+
+
+@pytest.mark.asyncio
+async def test_replay_safe_ingress_registration_crosses_real_worker(proxy, plugin_setup):
+    from magi.runtime_trace.contracts import PluginIngressEventRecord
+
+    entries = await asyncio.to_thread(proxy.get_plugin_ingress_registrations, runtime_paths=None)
+    assert len(entries) == 1 and entries[0].replay_safe is True
+    assert (entries[0].plugin_target, entries[0].event_type) == ("process-test", "fact.v1")
+    record = PluginIngressEventRecord(event_id=42, source_kind="background_delivery", producer="device", plugin_target="process-test", event_type="fact.v1", occurred_at_ms=1)
+    await entries[0].handler.handle_event(record, {"value": "hello"})
+    await entries[0].handler.handle_event(record, {"value": "hello"})
+    assert (plugin_setup[2].state_dir / "received-event").read_text() == "42:hello"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix process-family ownership")

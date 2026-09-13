@@ -23,7 +23,7 @@ function humanizePluginId(pluginId: string): string {
 
 export function NotificationCenter(): JSX.Element {
   const { t, i18n } = useTranslation('app');
-  const { items, markRead, markAllRead, dismiss, dismissAll, act } = useNotifications();
+  const { items, readError, markRead, markAllRead, dismiss, dismissAll, act } = useNotifications();
   const { items: dismissed, refresh: refreshDismissed, clear: restore } = useSuggestionDismissals();
   const [showDismissed, setShowDismissed] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -71,13 +71,13 @@ export function NotificationCenter(): JSX.Element {
   };
 
   const toggle = (n: NotificationItem) => {
+    if (!expanded.has(n.id) && n.status === 'unread') void markRead([n.id]);
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(n.id)) {
         next.delete(n.id);
       } else {
         next.add(n.id);
-        if (n.status === 'unread') void markRead([n.id]);
       }
       return next;
     });
@@ -99,6 +99,7 @@ export function NotificationCenter(): JSX.Element {
         ) : null}
       </div>
 
+      {readError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{t('notifications.readSaveFailed')}</p> : null}
       {items.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t('notifications.empty')}</p>
       ) : (

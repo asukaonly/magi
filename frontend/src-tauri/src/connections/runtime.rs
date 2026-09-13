@@ -19,7 +19,7 @@ pub struct ConnectionRuntime {
     generation: AtomicU64,
     shutting_down: AtomicBool,
     active: Mutex<Option<ActiveConnection>>,
-    operation: tokio::sync::Mutex<()>,
+    pub(crate) operation: tokio::sync::Mutex<()>,
     last_log: Mutex<Option<PathBuf>>,
 }
 
@@ -432,6 +432,7 @@ pub async fn select_connection_profile(
 pub async fn forget_connection_profile(
     connections: State<'_, connections::Connections>,
     state: State<'_, ConnectionRuntime>,
+    delivery: State<'_, crate::background_delivery::DeliveryRuntime>,
     profile_id: String,
 ) -> Result<(), String> {
     let _operation = state.operation.lock().await;
@@ -441,6 +442,10 @@ pub async fn forget_connection_profile(
     if connections.list().active_profile_id.as_deref() == Some(&profile_id) {
         state.disconnect()?;
     }
+    let queue_profile = profile_id.clone();
+    delivery
+        .storage(move |queue| queue.forget(&queue_profile))
+        .await?;
     connections.forget(profile_id).await
 }
 

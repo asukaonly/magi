@@ -29,6 +29,14 @@
   },
   "native_routes": [
     {
+      "path": "/api/delivery/events",
+      "methods": ["POST"],
+      "owner": "rust-proxy",
+      "owner_file": "crates/magi-gateway/src/api/delivery.rs",
+      "response_envelope": "python-passthrough",
+      "python_parity": {"owner_file": "backend/src/magi/api/routers/delivery.py", "description": "Gateway validates the delivery epoch under its maintenance permit before forwarding durable admission."}
+    },
+    {
       "path": "/api/server/maintenance",
       "methods": ["GET"],
       "owner": "rust-native",
@@ -462,6 +470,7 @@
     }
   ],
   "proxied_prefixes": [
+    {"prefix": "/api/delivery", "owner": "python-ipc", "owner_file": "backend/src/magi/api/routers/delivery.py"},
     {
       "prefix": "/api/files",
       "owner": "python-ipc",

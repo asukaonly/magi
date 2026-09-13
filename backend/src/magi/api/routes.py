@@ -309,6 +309,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/system-suggestions/dismissals/{dedupe_key}": {"DELETE"},
         "/system-suggestions/installable": {"GET"},
     },
+    "delivery": {"/events": {"POST"}, "/status": {"GET"}, "/retry": {"POST"}},
     "notifications": {
         "/notifications": {"GET"},
         "/notifications/mark-read": {"POST"},
@@ -411,6 +412,7 @@ _ROUTER_REGISTRATION_SPECS: tuple[_RouterRegistrationSpec, ...] = (
         "System Suggestions",
     ),
     _RouterRegistrationSpec("notifications_router", "notifications", "/api", "Notifications"),
+    _RouterRegistrationSpec("delivery_router", "delivery", "/api/delivery", "Background Delivery"),
     _RouterRegistrationSpec(
         "channels_bindings_router",
         "channels_bindings",

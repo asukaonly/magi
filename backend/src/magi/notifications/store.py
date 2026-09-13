@@ -224,6 +224,8 @@ class NotificationStore:
         with self._lock:
             conn = self._connect()
             try:
+                # A background delivery ACK must survive a host restart.
+                conn.execute("PRAGMA synchronous=FULL")
                 q = ",".join("?" for _ in ids)
                 conn.execute(
                     f"UPDATE user_notifications SET status='read', read_at_ms=? "

@@ -110,6 +110,7 @@
     "retryRefresh": "重新刷新"
   },
   "notifications": {
+    "readSaveFailed": "已读状态未能保存在本机，请重新打开这条通知重试。",
     "bellAria": "通知",
     "title": "通知",
     "empty": "暂无通知",
@@ -5617,6 +5618,15 @@
       "reinstall": "请重新安装此插件，再授权运行。"
     },
     "connections": {
+    "delivery": {
+      "title": "后台同步",
+      "description": "已保存的后台信息会在连接恢复后继续发送。切换连接后，待发送信息会保留到你重新连接原来的 Magi；完全退出应用期间会暂停发送。",
+      "outbox": "这台设备：{{pending}} 条待发送，{{failed}} 条需要处理",
+      "inbox": "Magi：{{pending}} 条待处理，{{failed}} 条处理失败",
+      "serverUnavailable": "暂时无法读取 Magi 的处理状态。已保存在本机的信息会保留。",
+      "retry": "重试失败的信息",
+      "failed": "无法读取或更新同步状态，请稍后重试。"
+    },
       "selectConnection": "选择 {{name}}",
       "choose": "选择一个连接",
       "title": "连接实例",

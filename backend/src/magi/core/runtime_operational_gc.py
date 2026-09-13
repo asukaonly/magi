@@ -179,7 +179,7 @@ class RuntimeOperationalGC:
                     db,
                     """
                     DELETE FROM plugin_ingress_events
-                    WHERE status IN ('completed', 'failed')
+                    WHERE (status = 'completed' OR (status = 'failed' AND source_kind != 'background_delivery'))
                       AND COALESCE(processed_at_ms, created_at_ms) < ?
                     """,
                     (plugin_ingress_cutoff_ms,),

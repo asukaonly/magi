@@ -390,6 +390,7 @@ class WorkerServer:
                             "target": target,
                             "plugin_target": entry.plugin_target,
                             "event_type": entry.event_type,
+                            "replay_safe": entry.replay_safe,
                         }
                     )
             else:

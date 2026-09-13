@@ -110,6 +110,7 @@
     "retryRefresh": "Refresh again"
   },
   "notifications": {
+    "readSaveFailed": "The read state could not be saved on this device. Reopen this notification to retry.",
     "bellAria": "Notifications",
     "title": "Notifications",
     "empty": "No notifications",
@@ -5619,6 +5620,15 @@
       "reinstall": "Reinstall this package before authorizing it."
     },
     "connections": {
+    "delivery": {
+      "title": "Background sync",
+      "description": "Saved background information is sent when the connection returns. Switching connections keeps pending information for the original Magi. Delivery pauses while the app is fully closed.",
+      "outbox": "This device: {{pending}} pending, {{failed}} need attention",
+      "inbox": "Magi: {{pending}} pending, {{failed}} failed",
+      "serverUnavailable": "Magi processing status is unavailable. Information saved on this device is retained.",
+      "retry": "Retry failed information",
+      "failed": "Unable to read or update sync status. Please try again."
+    },
       "selectConnection": "Select {{name}}",
       "choose": "Choose a connection",
       "title": "Connections",

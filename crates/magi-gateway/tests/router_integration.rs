@@ -21,6 +21,119 @@ static HOME_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 const TEST_SESSION_TOKEN: &str = "test-desktop-session-token";
 const TEST_IPC_AUTH_TOKEN: &str = "test-internal-ipc-auth-token";
 
+struct DeliveryMaintenance(String);
+impl magi_gateway::maintenance::MaintenanceControl for DeliveryMaintenance {
+    fn status(&self) -> magi_gateway::maintenance::MaintenanceStatus {
+        magi_gateway::maintenance::MaintenanceStatus {
+            version: 2,
+            operation_id: None,
+            kind: None,
+            phase: "idle".into(),
+            data_epoch: self.0.clone(),
+            content_epoch: self.0.clone(),
+            result: None,
+            error: None,
+        }
+    }
+    fn operation_status(
+        &self,
+        _: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<magi_gateway::maintenance::MaintenanceStatus>, String>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async { Ok(None) })
+    }
+    fn begin_restore(
+        &self,
+        _: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<magi_gateway::maintenance::MaintenanceStatus, String>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async { Err("unused".into()) })
+    }
+    fn begin_clear(
+        &self,
+        _: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<magi_gateway::maintenance::MaintenanceStatus, String>,
+                > + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async { Err("unused".into()) })
+    }
+}
+
+#[tokio::test]
+async fn background_delivery_requires_auth_epoch_and_bounded_facts_before_ipc() {
+    let _guard = router_test_guard();
+    let (mut state, observed) = test_state_with_api_forward_response(serde_json::json!({"status":200,"headers":{"content-type":"application/json"},"body":{"receipts":[]}})).await;
+    let epoch = "121ca17b-f581-46aa-9510-b06bf46f36fc";
+    state.maintenance = Some(Arc::new(DeliveryMaintenance(epoch.into())));
+    let body = serde_json::json!({"server_id":state.security.auth.server_id,"data_epoch":epoch,"producer_id":"3007493b-03c1-4d1f-9caf-02371927a35a","events":[{"event_id":"8cf20514-7fbd-43d1-b579-72e31482bc82","stream":"notification:1","sequence":1,"occurred_at_ms":1,"payload":{"kind":"notification_read","notification_id":1}}]});
+    let router = api::build_router(state);
+    for (token, data, expected) in [
+        ("", body.clone(), 401),
+        (
+            TEST_SESSION_TOKEN,
+            {
+                let mut b = body.clone();
+                b["data_epoch"] = serde_json::json!("6558f606-2b3e-4c58-a8dd-2ba8b537eb2f");
+                b
+            },
+            409,
+        ),
+        (
+            TEST_SESSION_TOKEN,
+            {
+                let mut b = body.clone();
+                b["events"][0]["payload"]["kind"] = serde_json::json!("execute_tool");
+                b
+            },
+            422,
+        ),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/delivery/events")
+                    .header("x-magi-session-token", token)
+                    .header("content-type", "application/json")
+                    .body(Body::from(data.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected);
+        assert!(observed.lock().unwrap().is_empty());
+    }
+    let (status, _) = request_json(
+        router,
+        "POST",
+        "/api/delivery/events",
+        Some(&body.to_string()),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let requests = observed.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["params"]["path"], "/api/delivery/events");
+}
+
 async fn accept_test_ipc_auth<R, W>(lines: &mut Lines<R>, writer: &mut W)
 where
     R: AsyncBufRead + Unpin,

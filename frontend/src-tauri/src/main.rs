@@ -192,6 +192,8 @@ fn disable_native_window_decorations(app: &AppHandle) {
     }
 }
 
+mod background_delivery;
+
 fn main() {
     let log_level = if cfg!(debug_assertions) {
         log::LevelFilter::Debug
@@ -222,6 +224,8 @@ fn main() {
             let connection_directory = app.path().app_config_dir()?.join("connections");
             app.manage(connections::Connections::open(&connection_directory).map_err(std::io::Error::other)?);
             connections::runtime::start_monitor(app.handle().clone());
+            app.manage(background_delivery::DeliveryRuntime::open(&client_directory.join("delivery")).map_err(std::io::Error::other)?);
+            background_delivery::start(app.handle().clone());
             let current_version = app.package_info().version.to_string();
             log::info!(
                 "Magi desktop setup starting (version={current_version}, log_level={log_level:?})"
@@ -268,6 +272,9 @@ fn main() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            background_delivery::enqueue_background_event,
+            background_delivery::background_delivery_status,
+            background_delivery::retry_background_delivery,
             downloads::download_portability_file,
             connections::runtime::list_connection_profiles,
             connections::runtime::pair_center,

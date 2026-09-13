@@ -138,6 +138,65 @@ Notification payloads remain hints about committed domain state. Product API
 mutations also emit scoped invalidations; they do not make cross-database
 notifications atomic with the business write.
 
+### Durable background delivery
+
+Desktop-origin background facts use the same path in local and remote modes:
+`producer -> magi-delivery outbox -> authenticated HTTP /api/delivery/events ->
+gateway data-epoch admission -> Python durable inbox/domain store`.
+`frontend/src-tauri/src/background_delivery.rs` owns the sender; WebView timers
+and page lifetimes do not own delivery. Fully quitting pauses transmission;
+reopening resumes persisted records. Only the active connection is sent to.
+Switching profiles retains the original destination, and forgetting a remote
+profile removes its private queued data.
+
+The request contract in `magi-service-contract::delivery` carries a stable
+producer ID, event UUID, stream, monotonic sequence, observation time, server ID
+and `data_epoch`. A stream has at most one event in flight; separate streams can
+share a batch (up to 32 events, 64 KiB payload each). Missing sequence numbers are
+allowed for coalesced state. Ordering never depends on device wall clocks.
+Retry uses persisted exponential backoff with jitter and server backpressure.
+The gateway admits at most four delivery batches concurrently.
+Uncertain responses replay the same event identity. Receipts must cover exactly
+the submitted IDs and match the destination before any record is removed.
+
+`reliable` retains accepted producer records until ACK or explicit data removal;
+`latest` coalesces unsent state in one stream and retains the latest state until
+ACK; `best_effort` expires after one hour and explicitly reports drops at capacity.
+The outbox caps pending/failed records at 10,000 and payload bytes at 64 MiB.
+Reliable/full queues reject admission so collectors must pause and retain their
+own cursor; a failed local write is never reported as successful collection.
+Permanent failures remain visible and block only their stream. A manual retry
+is available in Settings → Connections → Background sync.
+
+For plugin facts, Python atomically writes a fingerprinted deduplication receipt
+and `plugin_ingress_events` work item before ACK. This is acceptance, not completed
+memory processing. The worker recovers interrupted claims, backs off failures,
+and quarantines after ten processing failures. Per-stream processing order is
+preserved; other streams continue. A replay-safe handler must deduplicate its
+own effects using the stable host event ID. No transport layer promises exactly
+once external execution. Failed inbox work is retained by operational GC.
+
+Notification reads are the first desktop producer: exact-ID monotonic updates
+use a coalesced outbox and ACK after durable domain commit. Notification action,
+dismissal, mark-all-read, configuration, queries and tool execution remain direct
+requests. Chat retains its existing turn-ID recovery contract. Existing server
+Source collection retains its source journal/checkpoint contract instead of
+adding a redundant outbox around local domain writes. This change does not add
+client-side plugin installation, a collector host, or new telemetry collection.
+
+Gateway admission checks `data_epoch` while holding the maintenance permit.
+Clear and restore change this epoch; old outbox data is retired after observing
+the authenticated new epoch and cannot repopulate a cleared/restored center.
+The supervisor supplies the committed epoch to each worker as `MAGI_DATA_EPOCH`.
+Before starting ingress processing, Python retires inbox work and receipts from
+other epochs, then recovers current-epoch claims. Restore execution/verification
+workers hold ingress without deleting it: rollback resumes the old epoch; only
+a committed replacement retires its work. Ordinary service restarts keep the
+epoch. A delayed ACK cannot acknowledge a replacement record with a different
+identity, epoch, sequence or payload.
+
+### Maintenance and process-local messages
+
 Full-clear lifecycle belongs to the independent service. It closes and drains
 native SQLite access, stops the worker, then starts a restricted recovery worker
 with the durable clear transaction identity. No ordinary collector/agent starts

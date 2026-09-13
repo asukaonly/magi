@@ -187,6 +187,7 @@ pub async fn run(
                 &config,
                 &socket,
                 &token,
+                &maintenance.status().data_epoch,
                 recovery
                     .as_ref()
                     .map(|marker| marker.transaction_id.as_str()),
@@ -635,6 +636,7 @@ impl WorkerProcess {
         config: &ServerConfig,
         socket: &str,
         token: &str,
+        data_epoch: &str,
         clear_id: Option<&str>,
         restore_id: Option<&str>,
     ) -> Result<Self, String> {
@@ -644,6 +646,7 @@ impl WorkerProcess {
         command
             .args(&config.worker.args)
             .env("MAGI_HOME", &config.data_dir)
+            .env("MAGI_DATA_EPOCH", data_epoch)
             .env("MAGI_IPC_SOCKET", socket)
             .env("MAGI_IPC_AUTH_TOKEN", token)
             .env("MAGI_PLUGIN_PYTHON", &config.worker.plugin_python)

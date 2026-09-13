@@ -273,11 +273,12 @@ Rust workspace packages have distinct compilation and process boundaries:
 - `magi-service-contract` owns service configuration, the private launch handshake,
   and the server protocol version. It depends only on serialization libraries.
 - `magi-platform` owns native filesystem protection, with no service workflows.
+- `magi-delivery` owns private producer outboxes for durable background facts; it never opens center databases.
 - `magi-server-runtime` composes the gateway and supervises Python; center clear
   and restore lifecycle state belongs here, including durable clear markers.
 - `magi-gateway` owns HTTP/SSE, authentication, native SQLite access and Python IPC.
 
-The desktop depends on the shared contract and platform crates, never the service
+The desktop depends on the shared contract, platform and producer-delivery crates, never the service
 runtime, gateway or database libraries. The server entry uses the runtime and
 shared crates; its direct gateway dependency is test-only. Libraries do not create
 additional processes. `scripts/check-rust-boundaries.py` checks declared workspace
@@ -821,6 +822,7 @@ magi/
 │   └── tests/
 ├── crates/
 │   ├── magi-service-contract/ # Shared launch configuration and wire contracts
+│   ├── magi-delivery/     # Private producer outbox and retry state
 │   ├── magi-platform/     # Native filesystem protection
 │   ├── magi-server-runtime/ # Service lifecycle and Python supervision
 │   └── magi-gateway/      # HTTP/SSE routes, authentication, IPC and DB access

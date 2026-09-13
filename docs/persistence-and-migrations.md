@@ -5,6 +5,27 @@ those schemas over time. If you are about to add a SQLite column,
 create a new table, change an index, or reason about which database
 file owns a piece of state — start here.
 
+## Desktop background delivery storage
+
+`<Tauri app_config_dir>/delivery/outbox.db` is a private producer database,
+independent of the selected server's `data_dir`. `magi-delivery` owns schema
+version 1, producer identity, per-destination stream sequences, pending payloads,
+leases and retry deadlines. It uses an OS ownership lock, SQLite FULL synchronous
+commits, DELETE journaling and secure deletion. Supported platforms use the same
+owner-only filesystem protection as connection credentials. Queue capacity is
+10,000 outstanding records / 64 MiB of payload; stream metadata is separate.
+
+Server delivery receipts and work items live in `runtime/runtime_trace.db`;
+Alembic revision `v6` creates `background_delivery_receipts` and ingress retry
+columns/index and the work item delivery epoch. Admission uses a FULL synchronous
+transaction for both receipt and payload. Receipts contain identity and a payload fingerprint, not a payload
+copy, and survive completed-work GC so a lost ACK cannot reprocess old facts.
+Failed background ingress work is retained until retried or explicitly cleared.
+Full content clear removes receipts and queued payloads under the ingress barrier.
+The gateway data epoch additionally invalidates offline work on clear/restore.
+The next normal worker retires inbox work and receipts from replaced epochs before
+recovering claims; restricted restore workers leave the inbox paused and intact.
+
 ## Runtime SQLite layout
 
 All runtime data is rooted under `RuntimePaths.base_dir`

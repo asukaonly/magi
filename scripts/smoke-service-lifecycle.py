@@ -26,6 +26,7 @@ from typing import Any
 
 
 async def worker_loop(root: Path) -> None:
+    uuid.UUID(os.environ["MAGI_DATA_EPOCH"])
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGTERM, stop.set)
@@ -65,6 +66,7 @@ async def worker_loop(root: Path) -> None:
 
     server = await asyncio.start_unix_server(handle, os.environ["MAGI_IPC_SOCKET"])
     (root / "runtime/worker.ready").write_text(str(os.getpid()))
+    (root / "runtime/worker.epoch").write_text(os.environ["MAGI_DATA_EPOCH"])
     await stop.wait()
     server.close()
     await server.wait_closed()
@@ -159,6 +161,7 @@ def smoke(executable: Path) -> None:
         ready = lambda: service.request("/server/info")[1]["data"]["service_ready"]
         try:
             eventually(ready)
+            assert (root / "runtime/worker.epoch").read_text() == service.request("/server/info")[1]["data"]["maintenance"]["data_epoch"]
             first_pid = pid_path.read_text()
             (root / "slow").touch()
             status, _ = service.request("/lifecycle-fixture-slow")

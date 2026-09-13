@@ -72,6 +72,12 @@ pub struct CenterClient {
     base_url: String,
 }
 
+pub struct DeliveryFailure {
+    pub code: &'static str,
+    pub permanent: bool,
+    pub retry_after_ms: Option<i64>,
+}
+
 impl CenterClient {
     pub fn local(base_url: &str) -> Result<Self, String> {
         initialize_tls();
@@ -139,6 +145,59 @@ impl CenterClient {
             return Err("Center protocol is unsupported; update the client or center".into());
         }
         Ok(info)
+    }
+
+    pub async fn deliver(
+        &self,
+        access: &str,
+        batch: &magi_service_contract::delivery::DeliveryBatch,
+    ) -> Result<magi_service_contract::delivery::DeliveryReceipt, DeliveryFailure> {
+        let interrupted = || DeliveryFailure {
+            code: "connection_unavailable",
+            permanent: false,
+            retry_after_ms: None,
+        };
+        let mut response = self
+            .http
+            .post(format!("{}/delivery/events", self.base_url))
+            .header(TOKEN_HEADER, access)
+            .json(batch)
+            .send()
+            .await
+            .map_err(|_| interrupted())?;
+        let status = response.status();
+        if !status.is_success() {
+            let code = match status.as_u16() {
+                401 | 403 => "authorization_required",
+                409 => "scope_changed",
+                404 => "delivery_unsupported",
+                413 | 422 | 400 => "invalid_event",
+                429 => "server_busy",
+                _ => "service_unavailable",
+            };
+            return Err(DeliveryFailure {
+                code,
+                permanent: matches!(status.as_u16(), 400 | 404 | 413 | 422),
+                retry_after_ms: response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .map(|v| v.saturating_mul(1000)),
+            });
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| interrupted())? {
+            if bytes.len() + chunk.len() > MAX_RESPONSE_BYTES {
+                return Err(interrupted());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&bytes).map_err(|_| DeliveryFailure {
+            code: "invalid_receipt",
+            permanent: false,
+            retry_after_ms: None,
+        })
     }
 
     async fn request<T: DeserializeOwned>(
@@ -244,6 +303,140 @@ fn initialize_tls() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn background_delivery_survives_lost_http_ack_and_desktop_restart() {
+        use magi_delivery::{DeliveryPolicy, Outbox, Scope};
+        use magi_service_contract::delivery::{
+            BackgroundPayload, DeliveryBatch, DeliveryReceipt, EventReceipt, ReceiptStatus,
+        };
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = tokio::spawn(async move {
+            let mut stored: Option<Value> = None;
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut header_end = None;
+                let mut length = 0;
+                loop {
+                    let mut buffer = [0; 4096];
+                    let count = socket.read(&mut buffer).await.unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&buffer[..count]);
+                    assert!(bytes.len() < 100000);
+                    if header_end.is_none() {
+                        if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&bytes[..end]);
+                            assert!(headers.starts_with("POST /api/delivery/events "));
+                            assert!(headers.contains("x-magi-session-token: test-access"));
+                            length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length: ")
+                                        .map(|v| v.parse::<usize>().unwrap())
+                                })
+                                .unwrap();
+                            header_end = Some(end + 4);
+                        }
+                    }
+                    if header_end.is_some_and(|end| bytes.len() >= end + length) {
+                        break;
+                    }
+                }
+                let body = &bytes[header_end.unwrap()..header_end.unwrap() + length];
+                let request: Value = serde_json::from_slice(body).unwrap();
+                if attempt == 0 {
+                    stored = Some(request);
+                    continue;
+                } // Commit, then lose the response.
+                assert_eq!(Some(&request), stored.as_ref());
+                let batch: DeliveryBatch = serde_json::from_value(request).unwrap();
+                let receipt = DeliveryReceipt {
+                    server_id: batch.server_id,
+                    data_epoch: batch.data_epoch,
+                    receipts: batch
+                        .events
+                        .into_iter()
+                        .map(|event| EventReceipt {
+                            event_id: event.event_id,
+                            status: ReceiptStatus::Accepted,
+                            code: "accepted".into(),
+                        })
+                        .collect(),
+                };
+                let body = serde_json::to_string(&receipt).unwrap();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let scope = Scope {
+            profile_id: "local".into(),
+            server_id: uuid::Uuid::new_v4().to_string(),
+            data_epoch: uuid::Uuid::new_v4().to_string(),
+        };
+        let mut queue = Outbox::open(dir.path()).unwrap();
+        queue
+            .enqueue(
+                &scope,
+                "notification:1",
+                &uuid::Uuid::new_v4().to_string(),
+                BackgroundPayload::NotificationRead { notification_id: 1 },
+                DeliveryPolicy::Latest,
+                1,
+            )
+            .unwrap();
+        let batch = queue.claim(&scope, 2).unwrap();
+        let client = CenterClient::local(&format!("http://{address}/api")).unwrap();
+        assert!(client.deliver("test-access", &batch).await.is_err());
+        queue
+            .retry(&batch, 3, "connection_unavailable", None)
+            .unwrap();
+        drop(queue);
+        let mut queue = Outbox::open(dir.path()).unwrap();
+        let batch = queue.claim(&scope, 10000).unwrap();
+        let client = CenterClient::remote(&format!("http://{address}/api")).unwrap();
+        let receipt = client.deliver("test-access", &batch).await.ok().unwrap();
+        queue.acknowledge(&batch, &receipt, 10001).unwrap();
+        assert_eq!(queue.status(&scope).unwrap().pending, 0);
+        receiver.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn background_delivery_classifies_backpressure_and_permanent_errors() {
+        use magi_service_contract::delivery::DeliveryBatch;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for (status, permanent, code) in [
+            (429, false, "server_busy"),
+            (503, false, "service_unavailable"),
+            (422, true, "invalid_event"),
+            (401, false, "authorization_required"),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                socket.read(&mut request).await.unwrap();
+                socket.write_all(format!("HTTP/1.1 {status} Error\r\nRetry-After: 60\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            });
+            let client = CenterClient::local(&format!("http://{address}/api")).unwrap();
+            let batch = DeliveryBatch {
+                server_id: String::new(),
+                data_epoch: String::new(),
+                producer_id: String::new(),
+                events: vec![],
+            };
+            let failure = client.deliver("test-access", &batch).await.err().unwrap();
+            assert_eq!(
+                (failure.permanent, failure.code, failure.retry_after_ms),
+                (permanent, code, Some(60000))
+            );
+            server.await.unwrap();
+        }
+    }
 
     const PAIR_CODE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 

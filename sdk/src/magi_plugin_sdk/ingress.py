@@ -45,6 +45,8 @@ class PluginIngressHandlerRegistration:
     plugin_target: str
     event_type: str
     handler: PluginIngressEventHandler
+    # Opt in only when repeating the same event_id cannot repeat an external effect.
+    replay_safe: bool = False
 
 
 __all__ = [

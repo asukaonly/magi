@@ -12,6 +12,7 @@
  */
 import { api, unwrapGatewayPayload } from '../client';
 import type { SuggestionPlugin } from './systemSuggestions';
+import { enqueueNotificationRead } from '@/runtime/background-delivery';
 
 export type NotificationKind = 'suggestion';
 export type NotificationStatus = 'unread' | 'read' | 'actioned' | 'dismissed';
@@ -43,7 +44,7 @@ export async function listNotifications(params?: { limit?: number; offset?: numb
   return unwrapGatewayPayload(r);
 }
 export async function markRead(ids: number[]): Promise<void> {
-  await api.post('/notifications/mark-read', { ids });
+  await enqueueNotificationRead(ids);
 }
 export async function markAllRead(): Promise<void> {
   await api.post('/notifications/mark-read', { all: true });

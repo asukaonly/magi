@@ -443,26 +443,46 @@ class PluginIngressProcessorModule(LifecycleModule):
             (registration.plugin_target, registration.event_type): registration.handler
             for registration in (handlers or [])
         }
+        from ..core.container import get_container
+
+        self._delivery_registry = get_container().plugin_ingress_registry()
+        self._registrations = list(handlers or [])
         self._global_clear_pending = global_clear_pending
 
     async def init(self) -> None:
         plugin_manager = self._context.plugins.plugin_manager
+        self._delivery_registry.ready = False
         if plugin_manager is not None:
             runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
             for plugin in plugin_manager.iter_loaded_plugins():
                 registrations = plugin.get_plugin_ingress_registrations(runtime_paths=runtime_paths)
                 for registration in registrations:
+                    self._registrations.append(registration)
                     self._handlers[(registration.plugin_target, registration.event_type)] = (
                         registration.handler
                     )
         if self._context.runtime_commands.full_clear_recovery_pending:
             logger.warning("Plugin ingress processor held for full-clear recovery")
             return
+        if os.environ.get("MAGI_MEMORY_RESTORE_OPERATION_ID"):
+            logger.info("Plugin ingress processor held for memory restore verification")
+            return
+        self._delivery_registry.entries = {
+            (entry.plugin_target, entry.event_type): entry for entry in self._registrations
+        }
+        store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
+        try:
+            data_epoch = str(uuid.UUID(os.environ.get("MAGI_DATA_EPOCH", "")))
+        except ValueError as exc:
+            raise RuntimeError("Service data epoch is missing or invalid") from exc
+        await store.recover_background_delivery_claims(data_epoch=data_epoch)
+        self._delivery_registry.ready = True
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
 
     async def shutdown(self) -> None:
         self._running = False
+        self._delivery_registry.ready = False
         if self._task is not None:
             self._task.cancel()
             try:
@@ -500,6 +520,10 @@ class PluginIngressProcessorModule(LifecycleModule):
         event: PluginIngressEventRecord,
     ) -> None:
         handler = self._handlers.get((event.plugin_target, event.event_type))
+        if event.source_kind == "background_delivery" and not self._delivery_registry.accepts_delivery(
+            event.plugin_target, event.event_type
+        ):
+            handler = None
         if handler is None:
             await store.fail_plugin_ingress_event(
                 event.event_id,
@@ -510,14 +534,19 @@ class PluginIngressProcessorModule(LifecycleModule):
             )
             return
 
-        payload = json.loads(event.payload_json or "{}")
-        if not isinstance(payload, dict):
-            payload = {}
-
         try:
-            await handler.handle_event(event, payload)
+            payload = json.loads(event.payload_json or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Plugin ingress payload must be an object")
+            if event.source_kind == "background_delivery":
+                await asyncio.wait_for(handler.handle_event(event, payload), timeout=60)
+            else:
+                await handler.handle_event(event, payload)
         except Exception as exc:
-            await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
+            if event.source_kind == "background_delivery":
+                await store.retry_background_delivery(event.event_id)
+            else:
+                await store.fail_plugin_ingress_event(event.event_id, error_text=str(exc))
             return
 
         await store.complete_plugin_ingress_event(event.event_id)

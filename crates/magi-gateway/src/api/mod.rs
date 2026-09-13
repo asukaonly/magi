@@ -1,3 +1,4 @@
+mod delivery;
 mod events;
 mod health;
 mod llm;
@@ -35,6 +36,7 @@ pub fn build_router(state: ApiState) -> Router {
     let events = Arc::clone(&state.events);
 
     Router::new()
+        .route("/api/delivery/events", axum::routing::post(delivery::receive))
         .route("/api/server/maintenance", axum::routing::get(maintenance::status))
         .route("/api/server/maintenance/{operation_id}", axum::routing::get(maintenance::operation))
         .route("/api/memory/portability/restores/{candidate_id}/confirm", axum::routing::post(maintenance::restore))

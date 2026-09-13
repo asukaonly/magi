@@ -38,6 +38,7 @@ def _hermetic_runtime_paths(monkeypatch, tmp_path_factory):
 
     root = tmp_path_factory.mktemp("runtime-home")
     monkeypatch.setenv("MAGI_HOME", str(root))
+    monkeypatch.setenv("MAGI_DATA_EPOCH", "3f6bb646-46ea-4650-8424-ea74bd384be3")
     monkeypatch.setattr(runtime, "_runtime_paths", RuntimePaths(base_dir=root))
 
 

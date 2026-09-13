@@ -39,6 +39,12 @@ def _create_chat_read_service():
     return ChatReadService()
 
 
+def _create_plugin_ingress_registry():
+    from ..events.plugin_ingress import PluginIngressRegistry
+
+    return PluginIngressRegistry()
+
+
 def _create_chat_attachment_ingestion_service():
     """Factory function for LocalChatAttachmentIngestionService."""
     from ..chat.attachment_ingestion import LocalChatAttachmentIngestionService
@@ -108,6 +114,7 @@ class Container(containers.DeclarativeContainer):
     plugin_projection_service: providers.Singleton[PluginProjectionService] = providers.Singleton(object)
     source_registry: providers.Singleton[SourceRegistry] = providers.Singleton(object)
     runtime_trace_store: providers.Singleton[RuntimeTraceStore] = providers.Singleton(object)
+    plugin_ingress_registry = providers.Singleton(_create_plugin_ingress_registry)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)
     skill_loader: providers.Singleton[Any] = providers.Singleton(object)
     skill_runner: providers.Singleton[Any] = providers.Singleton(object)

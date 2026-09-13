@@ -12,7 +12,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = {"magi-platform", "magi-service-contract"}
 WORKSPACE_DEPENDENCIES = {
-    "magi-desktop": SHARED,
+    "magi-desktop": SHARED | {"magi-delivery"},
+    "magi-delivery": SHARED,
     "magi-server": SHARED | {"magi-server-runtime"},
     "magi-server-runtime": SHARED | {"magi-gateway"},
     "magi-gateway": {"magi-service-contract"},

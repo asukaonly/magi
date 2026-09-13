@@ -2502,12 +2502,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "magi-delivery"
+version = "0.1.0"
+dependencies = [
+ "magi-platform",
+ "magi-service-contract",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "magi-desktop"
 version = "0.1.29"
 dependencies = [
  "base64 0.22.1",
  "libc",
  "log",
+ "magi-delivery",
  "magi-platform",
  "magi-service-contract",
  "objc2",

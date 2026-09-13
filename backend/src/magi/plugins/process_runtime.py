@@ -1314,7 +1314,8 @@ class ProcessPluginProxy(Plugin):
         entries = self._request_sync("ingress_catalog", {})
         return [
             PluginIngressHandlerRegistration(
-                entry["plugin_target"], entry["event_type"], IngressProxy(self, entry["target"])
+                entry["plugin_target"], entry["event_type"], IngressProxy(self, entry["target"]),
+                replay_safe=entry["replay_safe"],
             )
             for entry in entries
         ]

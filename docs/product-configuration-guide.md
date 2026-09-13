@@ -1269,3 +1269,22 @@ run without a core model; model-dependent extraction and Agent tasks wait for
 configuration. A remote desktop starts neither a local center nor a local
 Python worker. Readiness errors must distinguish an unavailable management
 service from an available service awaiting model configuration.
+
+## Background sync in connection settings
+
+Settings → Connections includes background sync status for the current Magi:
+this device's pending/failed outbox records and the server's pending/failed
+processing records. A temporarily unavailable server does not hide local queue
+status. Users can retry failed records after correcting the connection or
+receiver plugin. Queued work stays tied to its original connection; switching
+connections does not move it. Fully exiting the desktop pauses sending until
+the next launch. Forgetting a connection deletes its local queued data, while
+clearing or restoring server data invalidates old delivery epochs.
+
+Opening an unread notification saves the exact-ID read state locally first and
+updates the display after that write succeeds, even while offline. A local
+storage failure leaves the notification unread and shows a retry hint. Reopening
+the notification center overlays pending read states over server snapshots.
+Explicit mark-all-read, dismissals and notification actions still require a
+successful direct request. Ordinary operations are not silently queued for later
+execution.

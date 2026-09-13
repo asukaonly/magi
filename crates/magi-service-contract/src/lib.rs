@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod config;
+pub mod delivery;
 pub mod health;
 pub mod lifecycle;
 pub mod restart_budget;

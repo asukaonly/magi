@@ -683,6 +683,39 @@ Guidelines:
 - ingress contracts are imported only from `magi_plugin_sdk.ingress`
 - event typing uses `magi_plugin_sdk.ingress.PluginIngressEventRecord`; backend imports are not part of the external SDK
 
+### Receiving durable background facts
+
+To accept `/api/delivery/events` plugin facts, register an ingress handler with
+`replay_safe=True`. This is an explicit promise that handling the same host
+`event.event_id` again is safe after an interrupted attempt. Store an effect
+receipt together with the domain write where possible, or pass an idempotency
+key to the external provider. Do not opt in an arbitrary tool/action executor.
+Handlers without this capability are rejected at background admission. The
+capability is carried through the supervised plugin worker registration protocol.
+Handlers are bound at runtime initialization; restart the center after changing
+receiver registrations before retrying quarantined work.
+Use versioned `event_type` values when the payload schema changes; the receiver
+plugin owns validation/normalization of that schema.
+
+A producer must persist before advancing its collection checkpoint and keep its
+event UUID stable across uncertain retries. `magi-delivery::Outbox` provides the
+native producer queue. Desktop native callers use `enqueue_background_event`
+with destination `scope` (`profile_id`, `server_id`, `data_epoch`), connection
+`generation`, `event_id`, `stream`, `policy`, and a typed payload:
+`{"kind":"plugin_event","plugin_target":"example","event_type":"observation.v1","data":{...}}`.
+Read server identity/epoch from the authenticated connection, not user input.
+Accepted enqueue means saved locally. HTTP receipt `accepted` means saved by
+the server, not that memory processing has finished. `/api/delivery/status`
+reports processing backlog/failures; `/api/delivery/retry` retries quarantined
+work explicitly. Unsupported handlers are retained as failed producer records
+until installation/configuration is corrected and the user retries.
+
+The desktop still has no general collector/plugin host. Do not assume that an
+Apple Photos plugin installed on the server can read a client's photo-library
+paths. A future client collector must send portable facts/assets and install a
+matching receiver contribution when custom processing is needed. Existing Source
+poll/watch implementations continue using the host's source journal/checkpoints.
+
 ## History Importer Plugins
 
 History importers return tuples from `get_history_importers()`:
