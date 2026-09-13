@@ -393,7 +393,9 @@ def test_chrome_history_requires_connection_and_defaults_source_disabled(
     assert resolved is not None
     _, _, _, spec = resolved
     assert spec.metadata["default_settings"]["enabled"] is False
-    assert "edge_whitelist" not in spec.metadata["default_settings"]
+    declared_edges = next(field for field in chrome_package.manifest.settings_fields
+                          if field.key == "sources.chrome_history.edge_whitelist")
+    assert spec.metadata["default_settings"]["edge_whitelist"] == declared_edges.default
     activation_flow = spec.metadata["activation_flow"]
     assert activation_flow["enabled_key"] == "sources.chrome_history.enabled"
     assert activation_flow["configured_key"] == "sources.chrome_history.initial_sync_configured"
