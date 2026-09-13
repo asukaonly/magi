@@ -48,6 +48,23 @@ pub async fn create_pairing(State(state): State<ApiState>) -> Response {
     operation(state, |auth| auth.create_pairing_grant()).await
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollectorPairRequest {
+    connection_id: String,
+    source_type: String,
+}
+
+pub async fn create_collector_pairing(
+    State(state): State<ApiState>,
+    Json(request): Json<CollectorPairRequest>,
+) -> Response {
+    operation(state, move |auth| {
+        auth.create_collector_grant(request.connection_id, request.source_type)
+    })
+    .await
+}
+
 pub async fn clients(State(state): State<ApiState>) -> Response {
     operation(state, |auth| auth.clients()).await
 }

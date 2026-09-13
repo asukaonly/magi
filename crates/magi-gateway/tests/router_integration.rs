@@ -134,6 +134,74 @@ async fn background_delivery_requires_auth_epoch_and_bounded_facts_before_ipc() 
     assert_eq!(requests[0]["params"]["path"], "/api/delivery/events");
 }
 
+#[tokio::test]
+async fn collectors_can_only_deliver_to_their_granted_source() {
+    let _guard = router_test_guard();
+    let (mut state, observed)=test_state_with_api_forward_response(serde_json::json!({"status":200,"headers":{"content-type":"application/json"},"body":{"ok":true}})).await;
+    let epoch = "121ca17b-f581-46aa-9510-b06bf46f36fc";
+    let connection = "conn_11111111111111111111111111111111";
+    state.maintenance = Some(Arc::new(DeliveryMaintenance(epoch.into())));
+    let grant = state
+        .security
+        .auth
+        .create_collector_grant(connection.into(), "git_activity".into())
+        .unwrap();
+    let device = state
+        .security
+        .auth
+        .pair(&grant.pairing_token, "Collector")
+        .unwrap();
+    let session = state
+        .security
+        .auth
+        .renew(&device.client_credential)
+        .unwrap();
+    let body = serde_json::json!({"server_id":state.security.auth.server_id,"data_epoch":epoch,"producer_id":"3007493b-03c1-4d1f-9caf-02371927a35a","events":[{"event_id":"8cf20514-7fbd-43d1-b579-72e31482bc82","stream":"git","sequence":1,"occurred_at_ms":1,"payload":{"kind":"plugin_event","connection_id":connection,"connection_epoch":epoch,"plugin_target":"git-activity","event_type":"source.change.v1","data":{"source_type":"git_activity"}}}]});
+    let router = api::build_router(state);
+    for (method, path) in [
+        ("GET", "/api/config"),
+        ("GET", "/api/events"),
+        ("POST", "/api/server/pairing-grants"),
+        ("POST", "/api/server/collector-grants"),
+        ("POST", "/api/delivery/retry"),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("x-magi-session-token", &session.access_token)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 403, "{path}");
+    }
+    for allowed in [false, true] {
+        let mut data = body.clone();
+        if !allowed {
+            data["events"][0]["payload"]["data"]["source_type"] = serde_json::json!("photos");
+        }
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/delivery/events")
+                    .header("x-magi-session-token", &session.access_token)
+                    .header("content-type", "application/json")
+                    .body(Body::from(data.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), if allowed { 200 } else { 403 });
+    }
+    assert_eq!(observed.lock().unwrap().len(), 1);
+}
+
 async fn accept_test_ipc_auth<R, W>(lines: &mut Lines<R>, writer: &mut W)
 where
     R: AsyncBufRead + Unpin,

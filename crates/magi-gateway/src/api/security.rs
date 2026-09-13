@@ -315,6 +315,20 @@ pub async fn enforce_gateway_access(
                 }
             }
         } else if let Some(client_id) = security.auth.authenticate(&token) {
+            if let Some(scope) = security.auth.collector_scope(&client_id) {
+                let allowed = (request.method() == Method::POST && path == "/api/delivery/events")
+                    || (request.method() == Method::GET
+                        && (path == "/api/server/info"
+                            || path
+                                == format!("/api/collector/connections/{}", scope.connection_id)));
+                if !allowed {
+                    return error_response(
+                        StatusCode::FORBIDDEN,
+                        "Collector credentials cannot manage the center",
+                        "collector_scope_denied",
+                    );
+                }
+            }
             request
                 .extensions_mut()
                 .insert(AuthenticatedClient { client_id });

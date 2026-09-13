@@ -484,7 +484,7 @@ Notes:
 - the Rust gateway owns pairing, revocable device authentication, exact WebView-origin checks, and short-lived access tickets for DOM-loaded private resources. The service stores credential hashes; the desktop keeps reusable credentials in its native-only `connections/credentials.json` with current-user filesystem permissions and short-lived sessions in memory. The credential file is separate from the serialized profile contract and is replaced atomically. There is no OS-vault access or credential migration; missing credentials require pairing again.
 - Python, plugins, and business layers must not receive, persist, log, or place gateway credentials in resource URLs
 - resource tickets are transport grants only; chat, timeline, and personality owners still decide whether the referenced resource exists, is active, and may be read
-- every remote owner device pairs independently. Future restricted collectors require separately scoped capabilities; they must not inherit a desktop owner credential
+- every remote owner device pairs independently. Collector grants bind a separate revocable credential to one connection and source type. The gateway permits only service identity, that collection scope, and `source.change.v1` delivery for that scope; collectors cannot read chats, run tools, receive event streams, or manage the center. A source may have only one active collector credential. Revoke it before pairing a replacement. Authentication schema version 2 persists the role across restarts and prevents older servers from opening the database as unrestricted owner credentials
 - `ipc/` owns the server, NDJSON protocol parsing, and method-to-handler routing
 - `transport/` owns the in-memory FastAPI/ASGI app used for IPC request dispatch
 

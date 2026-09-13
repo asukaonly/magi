@@ -25,6 +25,14 @@ struct Memory {
     active_clients: HashSet<String>,
     sessions: HashMap<String, Session>,
     grants: HashMap<String, Instant>,
+    collector_grants: HashMap<String, CollectorScope>,
+    collector_clients: HashMap<String, CollectorScope>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CollectorScope {
+    pub connection_id: String,
+    pub source_type: String,
 }
 
 struct Session {
@@ -38,6 +46,8 @@ pub struct ClientInfo {
     pub name: String,
     pub created_at_ms: i64,
     pub revoked_at_ms: Option<i64>,
+    pub role: String,
+    pub collector_scope: Option<CollectorScope>,
 }
 
 #[derive(Clone, Serialize)]
@@ -77,6 +87,7 @@ impl AuthStore {
     }
 
     fn from_database(database: storage::AuthDatabase) -> Result<Self, String> {
+        let collector_clients = database.collector_scopes()?;
         let active_clients = database
             .clients()?
             .into_iter()
@@ -88,6 +99,7 @@ impl AuthStore {
             database: Mutex::new(database),
             memory: RwLock::new(Memory {
                 active_clients,
+                collector_clients,
                 ..Memory::default()
             }),
         })
@@ -172,6 +184,8 @@ impl AuthStore {
     pub fn create_pairing_grant(&self) -> Result<PairingGrant, String> {
         let mut memory = self.memory.write().unwrap_or_else(|e| e.into_inner());
         memory.grants.retain(|_, expires| *expires > Instant::now());
+        let live: HashSet<_> = memory.grants.keys().cloned().collect();
+        memory.collector_grants.retain(|key, _| live.contains(key));
         if memory.grants.len() >= 8 {
             return Err("Too many active pairing grants".into());
         }
@@ -184,6 +198,40 @@ impl AuthStore {
             expires_at_ms: now_ms() + PAIR_TTL.as_millis() as i64,
             server_id: self.server_id.clone(),
         })
+    }
+
+    pub fn create_collector_grant(
+        &self,
+        connection_id: String,
+        source_type: String,
+    ) -> Result<PairingGrant, String> {
+        if !magi_service_contract::delivery::valid_connection_id(&connection_id)
+            || !magi_service_contract::delivery::valid_key(&source_type)
+        {
+            return Err("Invalid collector scope".into());
+        }
+        let grant = self.create_pairing_grant()?;
+        self.memory
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .collector_grants
+            .insert(
+                hash(&grant.pairing_token),
+                CollectorScope {
+                    connection_id,
+                    source_type,
+                },
+            );
+        Ok(grant)
+    }
+
+    pub fn collector_scope(&self, client_id: &str) -> Option<CollectorScope> {
+        self.memory
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .collector_clients
+            .get(client_id)
+            .cloned()
     }
 
     pub fn validates_pairing_grant(&self, token: &str) -> bool {
@@ -208,19 +256,33 @@ impl AuthStore {
         if token.len() > 256 {
             return Err("Pairing grant is invalid or expired".into());
         }
-        let grant = self
-            .memory
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .grants
-            .remove(&hash(token));
+        let (grant, scope) = {
+            let mut memory = self.memory.write().unwrap_or_else(|e| e.into_inner());
+            (
+                memory.grants.remove(&hash(token)),
+                memory.collector_grants.remove(&hash(token)),
+            )
+        };
         if !grant.is_some_and(|expires| expires > Instant::now()) {
             return Err("Pairing grant is invalid or expired".into());
         }
         let client_id = uuid::Uuid::new_v4().to_string();
         let credential = random_token();
         let database = self.database.lock().unwrap_or_else(|e| e.into_inner());
-        database.insert_client(&client_id, name, &hash(&credential), now_ms())?;
+        database.insert_client(
+            &client_id,
+            name,
+            &hash(&credential),
+            now_ms(),
+            scope.as_ref(),
+        )?;
+        if let Some(scope) = scope {
+            self.memory
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .collector_clients
+                .insert(client_id.clone(), scope);
+        }
         self.memory
             .write()
             .unwrap_or_else(|e| e.into_inner())
@@ -320,6 +382,34 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collector_scope_survives_restart_and_revocation() {
+        let path =
+            std::env::temp_dir().join(format!("magi-collector-auth-{}.db", uuid::Uuid::new_v4()));
+        let store = AuthStore::open(&path).unwrap();
+        let connection = "conn_11111111111111111111111111111111";
+        let grant = store
+            .create_collector_grant(connection.into(), "git_activity".into())
+            .unwrap();
+        let client = store.pair(&grant.pairing_token, "Collector").unwrap();
+        assert_eq!(store.clients().unwrap()[0].role, "collector");
+        let duplicate = store
+            .create_collector_grant(connection.into(), "git_activity".into())
+            .unwrap();
+        assert!(store.pair(&duplicate.pairing_token, "Duplicate").is_err());
+        drop(store);
+        let store = AuthStore::open(&path).unwrap();
+        let scope = store.collector_scope(&client.client_id).unwrap();
+        assert_eq!(scope.connection_id, connection);
+        assert_eq!(scope.source_type, "git_activity");
+        let session = store.renew(&client.client_credential).unwrap();
+        store.revoke(&client.client_id).unwrap();
+        assert!(store.authenticate(&session.access_token).is_none());
+        assert!(store.renew(&client.client_credential).is_err());
+        drop(store);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn operator_sessions_expire_are_bounded_and_preserve_process_owner() {

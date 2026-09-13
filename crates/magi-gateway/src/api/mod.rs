@@ -46,6 +46,7 @@ pub fn build_router(state: ApiState) -> Router {
         .route("/api/auth/pair", axum::routing::post(server::pair))
         .route("/api/auth/session", axum::routing::post(server::session))
         .route("/api/server/pairing-grants", axum::routing::post(server::create_pairing))
+        .route("/api/server/collector-grants", axum::routing::post(server::create_collector_pairing))
         .route("/api/server/clients", axum::routing::get(server::clients))
         .route("/api/server/clients/{client_id}", axum::routing::delete(server::revoke))
         // Health / readiness
