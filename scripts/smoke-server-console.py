@@ -109,7 +109,7 @@ class Terminal:
         while time.monotonic() < deadline:
             stripped = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", self.buffer)
             if value in stripped:
-                self.buffer = ""
+                self.buffer = stripped.split(value, 1)[1]
                 return
             if select.select([self.fd], [], [], 0.1)[0]:
                 try:
@@ -129,6 +129,13 @@ class Terminal:
         status = None
         def reaped() -> bool:
             nonlocal status
+            if select.select([self.fd], [], [], 0)[0]:
+                try:
+                    chunk = os.read(self.fd, 65536).decode(errors="replace")
+                    self.buffer += chunk
+                    self.transcript += chunk
+                except OSError:
+                    pass
             pid, status = os.waitpid(self.pid, os.WNOHANG)
             return pid != 0
         wait_for(reaped, "Console did not exit", 50)
@@ -166,12 +173,18 @@ def main() -> None:
             (failed_data / "logs/service.log").mkdir(parents=True)
             failed = Terminal([executable, "--config", str(failed_config)])
             terminals.append(failed)
+            failed.expect("What would you like to do?")
+            failed.send("\r")
             failed.expect("Startup diagnostics:")
-            assert failed.exit() != 0
+            failed.expect("What would you like to do?")
+            failed.send("\x1b[B" * 3 + "\r")
+            assert failed.exit() == 0
             plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", failed.transcript)
-            assert plain.index("Service is not ready") < plain.index("Startup diagnostics:")
+            assert plain.index("Configuration service is unavailable") < plain.index("Startup diagnostics:")
             assert "│" in plain and "└" in plain
             wait_for(lambda: stopped(failed_data), "Failed startup left an owned runtime")
+
+            print("PASS: startup recovery", flush=True)
 
             # First run: initialize, choose language, then cancel before credentials.
             terminal = Terminal([executable, "--config", str(config), "--development-root", project, "--data-dir", str(data), "--port", "0"])
@@ -179,6 +192,8 @@ def main() -> None:
             terminal.expect("data directory (absolute path)")
             terminal.send("\r")
             terminal.expect("Loopback port")
+            terminal.send("\r")
+            terminal.expect("What would you like to do?")
             terminal.send("\r")
             terminal.expect("run mode")
             terminal.send("\r")
@@ -194,9 +209,36 @@ def main() -> None:
             wait_for(lambda: stopped(data), "Cancelled wizard left an owned runtime")
             assert json.loads(config.with_suffix(".console.json").read_text())["run_mode"] == "foreground"
 
+            # Merely opening a stopped deployment must not start its runtime.
+            stopped_menu = Terminal([executable, "--config", str(config)])
+            terminals.append(stopped_menu)
+            stopped_menu.expect("What would you like to do?")
+            assert "The service is stopped" in stopped_menu.transcript
+            assert stopped(data)
+            stopped_menu.send("\x1b[B" * 3 + "\r")
+            assert stopped_menu.exit() == 0
+            assert stopped(data)
+
+            # A live lease without management is diagnosed, never auto-started or waited on.
+            with (data / "runtime/owner.lock").open("r+") as owner:
+                fcntl.flock(owner, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                unreachable = Terminal([executable, "--config", str(config)])
+                terminals.append(unreachable)
+                unreachable.expect("What would you like to do?")
+                assert "management connection is" in unreachable.transcript
+                assert "Wait for the configuration service" not in unreachable.transcript
+                assert "Start this deployment" not in unreachable.transcript
+                unreachable.send("\x1b[B" * 3 + "\r")
+                assert unreachable.exit() == 0
+            assert stopped(data)
+
+            print("PASS: stopped and unreachable menus", flush=True)
+
             # Resume from saved English, switch to Chinese before selecting a persona.
             terminal = Terminal([executable, "--config", str(config)])
             terminals.append(terminal)
+            terminal.expect("What would you like to do?")
+            terminal.send("\r")
             terminal.expect("2/5")
             terminal.send("\r")
             terminal.expect("3/5")
@@ -215,6 +257,8 @@ def main() -> None:
             terminal.send("\r")
             terminal.expect("5/5", 60)
             terminal.send("\r")
+            terminal.expect("What would you like to do?", 60)
+            terminal.send("\x1b[B" * 5 + "\r")
             terminal.expect("Running in foreground", 60)
             assert "console-secret-should-stay-hidden" not in terminal.transcript
             assert api(data, "/config/onboarding-status")["data"]["completed"]
@@ -223,12 +267,30 @@ def main() -> None:
             assert persona["locale"] == "zh"
             assert Model.calls >= 1
 
-            # Existing configured instance: status only, same PID and no paired devices.
+            print("PASS: initial configuration", flush=True)
+
+            # Existing configured instance: management menu, same owner and no implicit pairing.
             before = management(data, "status")
             second = Terminal([executable, "--config", str(config)])
             terminals.append(second)
-            second.expect("Service remains running")
+            second.expect("What would you like to do?")
+            assert "Setup is complete" in second.transcript
+            assert "Start this deployment" not in second.transcript
+            # Edit language/persona alone, without repeating the model configuration.
+            second.send("\r")
+            second.expect("Configure Magi — changes apply to all connected devices")
+            second.send("\x1b[B\r")
+            second.expect("Magi language — persona content")
+            second.send("\x1b[B\r")
+            second.expect("Default persona")
+            second.send("\r")
+            second.expect("Configure Magi — changes apply to all connected devices")
+            second.send("\x1b[B" * 2 + "\r")
+            second.expect("What would you like to do?")
+            assert "Model provider" not in second.transcript
+            second.send("\x1b[B" * 5 + "\r")
             assert second.exit() == 0
+            assert api(data, "/config")["data"]["preferences"]["language"] == "en"
             assert management(data, "status")["server_id"] == before["server_id"]
             assert management(data, "clients") == []
 
@@ -246,6 +308,8 @@ def main() -> None:
             terminal.exit()
             wait_for(lambda: stopped(data), "Foreground Ctrl+C left an owned runtime", 50)
 
+            print("PASS: existing-service configuration and foreground teardown", flush=True)
+
             # Desktop handoff against another clean data root: real one-time pairing.
             data2, config2 = root / "handoff", root / "handoff.json"
             subprocess.run([executable, "init", "--config", str(config2), "--data-dir", str(data2), "--development-root", project, "--port", "0"], check=True, capture_output=True)
@@ -253,9 +317,12 @@ def main() -> None:
             wait_for(lambda: management(data2, "status")["service_ready"], "Handoff service not ready")
             handoff = Terminal([executable, "--config", str(config2)])
             terminals.append(handoff)
+            handoff.expect("What would you like to do?")
+            handoff.send("\r")
             handoff.expect("2/5")
             handoff.send("\x1b[B\r")
-            handoff.expect("Service remains running")
+            handoff.expect("What would you like to do?")
+            handoff.send("\x1b[B" * 5 + "\r")
             assert handoff.exit() == 0
             plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", handoff.transcript)
             grant = re.search(r"\b[0-9a-f]{64}\b", plain)
@@ -266,6 +333,30 @@ def main() -> None:
                 assert json.load(response)["success"]
             assert not api(data2, "/config/onboarding-status")["data"]["completed"]
             assert service.poll() is None
+
+            # Device revocation defaults to keeping access, then requires explicit confirmation.
+            devices = Terminal([executable, "--config", str(config2)])
+            terminals.append(devices)
+            devices.expect("What would you like to do?")
+            devices.send("\x1b[B" * 2 + "\r")
+            devices.expect("Paired devices — select one to revoke access")
+            devices.send("\r")
+            devices.expect("Revoke this device's access?")
+            devices.send("\r")
+            devices.expect("What would you like to do?")
+            assert management(data2, "clients")[0]["revoked_at_ms"] is None
+            devices.send("\x1b[B" * 2 + "\r")
+            devices.expect("Paired devices — select one to revoke access")
+            devices.send("\r")
+            devices.expect("Revoke this device's access?")
+            devices.send("y")
+            devices.expect("What would you like to do?")
+            assert management(data2, "clients")[0]["revoked_at_ms"] is not None
+            devices.send("\x1b[B" * 5 + "\r")
+            assert devices.exit() == 0
+            assert service.poll() is None
+            print("PASS: paired-device management and confirmation", flush=True)
+
             payload["llm"]["providers"]["custom"]["api_key"] = "reject-console"
             payload["llm"]["providers"]["custom"]["services"]["chat"]["api_key"] = "reject-console"
             invalid = subprocess.run([executable, "configure", "--config", str(config2), "--from-stdin"], input=json.dumps(payload), capture_output=True, text=True, timeout=90)
@@ -277,8 +368,11 @@ def main() -> None:
             applied = subprocess.run([executable, "configure", "--config", str(config2), "--from-stdin"], input=json.dumps(payload), capture_output=True, text=True, timeout=90)
             assert applied.returncode == 0, applied.stderr
             assert api(data2, "/config/onboarding-status")["data"]["completed"]
-            print("PASS: ordered startup diagnostics, file-only service logs, cancellation, resume, language/persona, model verification, reconfigure, running reuse, foreground shutdown, desktop pairing and noninteractive first setup/failure")
+            print("PASS: startup recovery menu, read-only stopped/unreachable menus, ordered diagnostics, saved-step resume, scoped configuration, model verification, running reuse, foreground shutdown, desktop pairing and noninteractive setup/failure")
         except BaseException:
+            if terminals:
+                plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", terminals[-1].transcript)
+                print("Last isolated console output:\n" + plain[-2400:], flush=True)
             for name in ("service.log", "backend.log"):
                 log = data / "logs" / name
                 if log.exists():

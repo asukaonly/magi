@@ -205,3 +205,137 @@ fn managed_output_captures_startup_failures_without_changing_console_output() {
     assert!(desktop.stderr.is_empty());
     assert!(!fs::read(fixture.0.join("desktop.log")).unwrap().is_empty());
 }
+
+#[test]
+fn status_is_read_only_before_initialization() {
+    let fixture = Fixture::new();
+    let config = fixture.0.join("missing/server.json");
+    let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["status", "--config"])
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let status: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(status["state"], "not_configured");
+    assert!(!config.parent().unwrap().exists());
+    for command in ["run", "pair", "clients", "logs"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args([command, "--config"])
+            .arg(&config)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("No deployment configuration exists")
+        );
+        assert!(!config.parent().unwrap().exists());
+    }
+}
+
+#[test]
+fn management_commands_on_a_stopped_deployment_do_not_start_it() {
+    let fixture = Fixture::new();
+    let config_path = fixture.0.join("config.json");
+    let mut config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    config.port = 0;
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    for args in [
+        vec!["pair"],
+        vec!["clients"],
+        vec!["revoke", "--client-id", "test"],
+        vec!["configure", "--from-stdin"],
+        vec!["collector-connections", "--plugin-id", "calendar"],
+        vec![
+            "pair-collector",
+            "--connection-id",
+            "test",
+            "--source-type",
+            "calendar",
+        ],
+        vec![
+            "release-collector",
+            "--connection-id",
+            "test",
+            "--source-type",
+            "calendar",
+        ],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(&args)
+            .arg("--config")
+            .arg(&config_path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}");
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("stopped") || error.contains("state could not be verified"),
+            "{args:?}: {error}"
+        );
+        assert!(!config.data_dir.exists(), "{args:?}");
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["status", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let status: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(matches!(
+        status["state"].as_str(),
+        Some("stopped" | "unknown")
+    ));
+    assert!(!config.data_dir.exists());
+}
+
+#[test]
+fn logs_are_bounded_and_do_not_start_services() {
+    let fixture = Fixture::new();
+    let config_path = fixture.0.join("config.json");
+    let config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let log = config.data_dir.join("logs/service.log");
+    fs::create_dir_all(log.parent().unwrap()).unwrap();
+    let mut content = "old line\n".repeat(8192);
+    content.push_str("first recent\nsecond recent\nthird recent\n");
+    fs::write(&log, content).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["logs", "--lines", "2", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "second recent\nthird recent\n"
+    );
+    assert!(!config.data_dir.join("runtime").exists());
+    for lines in ["0", "201"] {
+        assert!(!Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["logs", "--lines", lines, "--config"])
+            .arg(&config_path)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
+    #[cfg(unix)]
+    {
+        fs::remove_file(&log).unwrap();
+        std::os::unix::fs::symlink(&config_path, &log).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["logs", "--config"])
+            .arg(&config_path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

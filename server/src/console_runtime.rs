@@ -170,13 +170,20 @@ fn capture_diagnostics(mut source: impl Read) -> std::io::Result<String> {
 pub fn wait_ready(
     config: &ServerConfig,
     foreground: &mut Option<Foreground>,
+    mut report: impl FnMut(String),
 ) -> Result<(), String> {
-    let deadline = Instant::now() + Duration::from_secs(config.startup_timeout_secs + 10);
+    let started = Instant::now();
+    let timeout = Duration::from_secs(config.startup_timeout_secs + 10);
     loop {
         if let Some(child) = foreground.as_mut() {
             child.check_running()?;
         }
         let detail = match management(config, Request::Status) {
+            Ok(status) if matches!(status["supervisor"]["phase"].as_str(), Some("failed" | "stopping")) => {
+                return Err(format!("Configuration service cannot become ready: runtime is {}. {} Check service.log before retrying.",
+                    status["supervisor"]["phase"].as_str().unwrap_or("unavailable"),
+                    status["supervisor"]["last_error"].as_str().unwrap_or("")));
+            },
             Ok(status) if status["service_ready"] == true => return Ok(()),
             Ok(status) => format!(
                 "Local management responds, but the configuration service is not ready. Supervisor phase: {}.",
@@ -184,14 +191,19 @@ pub fn wait_ready(
             ),
             Err(error) => format!("Local management is unavailable: {error}"),
         };
-        if Instant::now() >= deadline {
+        report(format!(
+            "Waiting {}s / {}s — {detail}",
+            started.elapsed().as_secs(),
+            timeout.as_secs()
+        ));
+        if started.elapsed() >= timeout {
             return Err(format!(
                 "Service setup timed out.\n{detail}\nManagement socket: {}\nService log: {}\nFor a background deployment, run magi-server restart with the same --config path, then retry setup. Stop the service before moving or removing its data directories.",
                 config.data_dir.join("runtime/manage.sock").display(),
                 config.data_dir.join("logs/service.log").display(),
             ));
         }
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(500));
     }
 }
 
@@ -205,7 +217,9 @@ mod tests {
         let root = std::env::temp_dir().join(format!("magi-console-{}", uuid::Uuid::new_v4()));
         let mut config = ServerConfig::for_bundle(&root.join("bundle"), root.join("data"));
         config.startup_timeout_secs = 1;
-        let error = wait_ready(&config, &mut None).unwrap_err();
+        let mut progress = Vec::new();
+        let error = wait_ready(&config, &mut None, |detail| progress.push(detail)).unwrap_err();
+        assert!(progress.first().unwrap().contains("Waiting 0s / 11s"));
         assert!(error.contains("Local management is unavailable"));
         assert!(error.contains("Cannot connect to running service"));
         assert!(error.contains(
@@ -224,6 +238,34 @@ mod tests {
         ));
         assert!(error.contains("magi-server restart"));
         assert!(!root.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_runtime_returns_without_waiting_for_the_startup_deadline() {
+        use std::io::{BufRead, BufReader, Write};
+        let root =
+            std::env::temp_dir().join(format!("mc-{}", &uuid::Uuid::new_v4().to_string()[..8]));
+        let config = ServerConfig::for_bundle(&root.join("bundle"), root.join("data"));
+        std::fs::create_dir_all(config.data_dir.join("runtime")).unwrap();
+        let socket =
+            std::os::unix::net::UnixListener::bind(config.data_dir.join("runtime/manage.sock"))
+                .unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = socket.accept().unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).unwrap();
+            writeln!(stream.get_mut(), "{}", serde_json::json!({"success":true,"data":{
+                "service_ready":false,"supervisor":{"phase":"failed","last_error":"Fixture worker failure"}
+            }})).unwrap();
+        });
+        let started = Instant::now();
+        let error = wait_ready(&config, &mut None, |_| {}).unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(error.contains("Fixture worker failure"));
+        server.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

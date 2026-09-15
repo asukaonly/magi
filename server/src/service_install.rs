@@ -18,7 +18,7 @@ fn xml(value: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn launch_agent(
+pub(crate) fn launch_agent(
     executable: &Path,
     config_path: &Path,
     config: &ServerConfig,
@@ -59,10 +59,18 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
         process::Command,
         time::{Duration, Instant},
     };
+    let config = crate::cli::load_config(config_path)?;
     let config_path = config_path.canonicalize().map_err(|e| e.to_string())?;
-    let config = ServerConfig::load(&config_path)?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     let expected = launch_agent(&executable, &config_path, &config)?;
+    let inspected = crate::service_inspection::inspect(&config_path, &config);
+    use crate::service_inspection::Registration;
+    if matches!(
+        inspected.registration,
+        Registration::OtherInstallation | Registration::Unknown
+    ) {
+        return Err("Cannot manage this login service: its deployment ownership could not be verified. Inspect status and use the matching executable and configuration.".into());
+    }
     // A user agent must run under the logged-in owner, never as a root daemon.
     let uid = unsafe { libc::geteuid() };
     if uid == 0 {
@@ -164,7 +172,9 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     }
     // The caller owns presentation: JSON for automation, step feedback for the wizard.
     Ok(
-        serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true}),
+        serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true,
+            "outcome": if matches!(command, "install" | "start") && inspected.loaded { "already_loaded" } else if matches!(command, "install" | "start" | "restart") { "start_requested" } else { "stopped" },
+            "message": if matches!(command, "install" | "start") && inspected.loaded { "The login service was already loaded; this request did not restart it. Check status for readiness." } else if matches!(command, "install" | "start" | "restart") { "Background start requested. Check status for readiness." } else { "Background service stopped. Data is preserved." }}),
     )
 }
 

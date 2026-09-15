@@ -3,7 +3,7 @@
 use crate::{
     cli::{self, InitOptions},
     console_api::{array, management, string, Api, Request, SetupDocument},
-    console_runtime::{self, Foreground, RunMode},
+    console_runtime::RunMode,
 };
 use magi_service_contract::config::ServerConfig;
 use serde_json::{json, Value};
@@ -22,7 +22,7 @@ fn terminal() -> Result<(), String> {
     Ok(())
 }
 
-fn ui<T>(result: std::io::Result<T>) -> Result<T, String> {
+pub(crate) fn ui<T>(result: std::io::Result<T>) -> Result<T, String> {
     result.map_err(|error| {
         if error.kind() == std::io::ErrorKind::Interrupted {
             "Setup cancelled. Saved steps can be resumed.".into()
@@ -36,7 +36,7 @@ fn text(prompt: &str, default: &str) -> Result<String, String> {
     ui(cliclack::input(prompt).default_input(default).interact())
 }
 
-fn clean(value: &str) -> String {
+pub(crate) fn clean(value: &str) -> String {
     value
         .chars()
         .filter(|c| !c.is_control())
@@ -44,7 +44,7 @@ fn clean(value: &str) -> String {
         .collect()
 }
 
-fn progress<T>(
+pub(crate) fn progress<T>(
     pending: &str,
     success: &str,
     failure: &str,
@@ -63,13 +63,13 @@ fn progress<T>(
     result
 }
 
-fn run_mode() -> Result<RunMode, String> {
+pub(crate) fn run_mode(background_available: bool) -> Result<RunMode, String> {
     let mut select = cliclack::select("1/5 · Service settings — run mode").item(
         RunMode::Foreground,
         "Foreground",
         "Runs while this terminal is open; Ctrl+C stops it",
     );
-    if cfg!(target_os = "macos") {
+    if background_available && cfg!(target_os = "macos") {
         select = select.item(
             RunMode::Background,
             "Background after login",
@@ -87,7 +87,7 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
         return Err("Deployment already exists. Initialization options cannot change it; edit its config while stopped.".into());
     }
     let config = if exists {
-        ServerConfig::load(path)?
+        cli::load_config(path)?
     } else {
         let default_data = match &options.data_dir {
             Some(data) => data.clone(),
@@ -119,95 +119,7 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
             config.data_dir.join("logs").display()
         ),
     ))?;
-    let running = management(&config, Request::Status).is_ok();
-    let mut foreground = None;
-    let mut background_requested = false;
-    let result: Result<(), String> = (|| {
-        if !running {
-            // Do not replace a recovering owner merely because management is unavailable.
-            drop(magi_platform::instance::InstanceLease::runtime_owner(&config.data_dir)
-                .map_err(|_| "This data directory already has an owner. Check its status/logs and retry when management is ready.")?);
-            let mode = match console_runtime::saved_mode(path)? {
-                Some(mode) => mode,
-                None => {
-                    let mode = run_mode()?;
-                    console_runtime::save_mode(path, mode)?;
-                    mode
-                }
-            };
-            cli::validate_worker(&config)?;
-            if mode == RunMode::Background {
-                progress(
-                    "Installing and starting the background service",
-                    "Background start requested; checking configuration service readiness",
-                    "Background service could not be registered or requested",
-                    || crate::service_install::execute("install", path),
-                )?;
-                background_requested = true;
-            } else {
-                foreground = Some(Foreground::start(path, &config)?);
-            }
-        } else {
-            ui(cliclack::log::info(
-                "1/5 · Service settings — using the running instance",
-            ))?;
-        }
-        progress(
-            "Waiting for the configuration service",
-            "Configuration service is ready",
-            "Service is not ready",
-            || console_runtime::wait_ready(&config, &mut foreground),
-        )?;
-        let api = Api::connect(&config)?;
-        if !api.completed()? {
-            let in_terminal = ui(cliclack::select("2/5 · Setup method")
-                .item(
-                    true,
-                    "Configure in this terminal",
-                    "Language, model connection and default persona",
-                )
-                .item(
-                    false,
-                    "Continue in desktop",
-                    "Show a pairing code and finish setup in Magi desktop",
-                )
-                .interact())?;
-            if in_terminal {
-                interactive_configure(&api)?;
-            }
-            pairing(&config, &api)?;
-        }
-        summary(path, &config, &api)?;
-        if foreground.is_some() {
-            ui(cliclack::outro(
-                "Running in foreground. Press Ctrl+C to stop this service.",
-            ))?;
-        } else {
-            ui(cliclack::outro(
-                "Service remains running after this terminal closes.",
-            ))?;
-        }
-        Ok(())
-    })();
-    if result.is_err() {
-        if foreground.is_some() {
-            let _ = cliclack::log::info("Stopping the foreground service started by this console. Saved configuration is retained.");
-            drop(foreground.take());
-        } else if background_requested {
-            let _ = cliclack::log::info(
-                "The background service remains registered. Saved configuration is retained.",
-            );
-        } else if running {
-            let _ = cliclack::log::info(
-                "This console has not stopped the existing service. Saved configuration is retained.",
-            );
-        }
-    }
-    result?;
-    if let Some(owner) = foreground {
-        owner.wait()?;
-    }
-    Ok(())
+    crate::console_manager::run(path, &config)
 }
 
 pub fn configure(path: &Path, from_stdin: bool) -> Result<(), String> {
@@ -215,7 +127,8 @@ pub fn configure(path: &Path, from_stdin: bool) -> Result<(), String> {
         terminal()?;
         ui(cliclack::intro("Configure Magi — existing service"))?;
     }
-    let config = ServerConfig::load(path)?;
+    let config = cli::load_config(path)?;
+    crate::deployment_status::require_management(&config, path, true)?;
     let api = Api::connect(&config)?;
     if from_stdin {
         if std::io::stdin().is_terminal() {
@@ -234,45 +147,105 @@ pub fn configure(path: &Path, from_stdin: bool) -> Result<(), String> {
         apply_document(&api, document)?;
         println!("Configuration saved. The existing service remains running.");
     } else {
-        interactive_configure(&api)?;
+        edit_configuration(&api)?;
         summary(path, &config, &api)?;
         ui(cliclack::outro(
-            "Configuration saved. The existing service remains running.",
+            "Configuration session closed. Saved changes are retained; the existing service remains running.",
         ))?;
     }
     Ok(())
 }
 
-fn interactive_configure(api: &Api) -> Result<(), String> {
+pub(crate) fn interactive_configure(api: &Api) -> Result<(), String> {
     let completed = api.completed()?;
-    let mut snapshot = api.snapshot(completed)?;
-    let initial = string(&snapshot["preferences"], "language")?.to_owned();
-    let language = ui(cliclack::select(
+    let snapshot = api.snapshot(completed)?;
+    let language = choose_language(
+        &snapshot,
         "3/5 · Magi language — persona content and default conversation language",
-    )
-    .item(
-        "zh".to_owned(),
-        "Chinese (Simplified)",
-        "Chinese persona content and default conversation language",
-    )
-    .item(
-        "en".to_owned(),
-        "English",
-        "English persona content and default conversation language",
-    )
-    .initial_value(initial)
-    .interact())?;
-    snapshot = api.set_language(completed, &language)?;
+    )?;
+    let snapshot = api.set_language(completed, &language)?;
+    let snapshot = configure_models(
+        api,
+        snapshot,
+        completed,
+        "4/5 · Model configuration — keep and verify the saved models?",
+    )?;
+    let slug = choose_persona(api, &language, "5/5 · Default persona")?;
+    api.activate_seed(&language, &slug)?;
+    if !completed {
+        api.save(&snapshot, false, true)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn edit_configuration(api: &Api) -> Result<(), String> {
+    if !api.completed()? {
+        return interactive_configure(api);
+    }
+    loop {
+        let action = ui(cliclack::select(
+            "Configure Magi — changes apply to all connected devices",
+        )
+        .item("models", "Models", "Verify and save model settings")
+        .item(
+            "persona",
+            "Magi language and default persona",
+            "Choose persona content in the selected language",
+        )
+        .item("back", "Back", "Keep saved changes")
+        .interact())?;
+        if action == "back" {
+            return Ok(());
+        }
+        let snapshot = api.snapshot(true)?;
+        match action {
+            "models" => {
+                configure_models(api, snapshot, true, "Keep and verify the saved models?")?;
+            }
+            "persona" => {
+                let language = choose_language(
+                    &snapshot,
+                    "Magi language — persona content and default conversation language",
+                )?;
+                let slug = choose_persona(api, &language, "Default persona")?;
+                api.set_language(true, &language)?;
+                api.activate_seed(&language, &slug)?;
+            }
+            _ => unreachable!(),
+        }
+        ui(cliclack::log::success("Configuration saved"))?;
+    }
+}
+
+fn choose_language(snapshot: &Value, prompt: &str) -> Result<String, String> {
+    let initial = string(&snapshot["preferences"], "language")?.to_owned();
+    let language = ui(cliclack::select(prompt)
+        .item(
+            "zh".to_owned(),
+            "Chinese (Simplified)",
+            "Chinese persona content and default conversation language",
+        )
+        .item(
+            "en".to_owned(),
+            "English",
+            "English persona content and default conversation language",
+        )
+        .initial_value(initial)
+        .interact())?;
+    Ok(language)
+}
+
+fn configure_models(
+    api: &Api,
+    mut snapshot: Value,
+    completed: bool,
+    prompt: &str,
+) -> Result<Value, String> {
     loop {
         let configured = snapshot["llm"]["selections"]["core"]["model"]
             .as_str()
             .is_some_and(|s| !s.is_empty());
-        let reuse = configured
-            && ui(cliclack::confirm(
-                "4/5 · Model configuration — keep and verify the saved models?",
-            )
-            .initial_value(true)
-            .interact())?;
+        let reuse = configured && ui(cliclack::confirm(prompt).initial_value(true).interact())?;
         let llm = if reuse {
             snapshot["llm"].clone()
         } else {
@@ -301,6 +274,10 @@ fn interactive_configure(api: &Api) -> Result<(), String> {
             }
         }
     }
+    Ok(snapshot)
+}
+
+fn choose_persona(api: &Api, language: &str, prompt: &str) -> Result<String, String> {
     let previews = api.call(
         "GET",
         &format!("/personas/seed-previews?locale={language}"),
@@ -310,7 +287,7 @@ fn interactive_configure(api: &Api) -> Result<(), String> {
     if choices.is_empty() {
         return Err("No builtin personas are available for the selected language".into());
     }
-    let mut select = cliclack::select("5/5 · Default persona");
+    let mut select = cliclack::select(prompt);
     let active = api.call("GET", "/personas/active", None)?;
     let personas = api.call("GET", "/personas/", None)?;
     let current = array(&personas, "data")?
@@ -329,18 +306,13 @@ fn interactive_configure(api: &Api) -> Result<(), String> {
             select = select.initial_value(slug);
         }
     }
-    let slug = ui(select.interact())?;
-    api.activate_seed(&language, &slug)?;
-    if !completed {
-        api.save(&snapshot, false, true)?;
-    }
-    Ok(())
+    ui(select.interact())
 }
 
 fn collect_model(api: &Api, previous: &Value) -> Result<Value, String> {
     let catalog = api.call("GET", "/llm/providers/catalog", None)?;
     let providers = array(&catalog["data"], "providers")?;
-    let mut select = cliclack::select("4/5 · Model configuration — provider");
+    let mut select = cliclack::select("Model provider");
     for entry in providers {
         if entry["source"] == "builtin" {
             let id = string(entry, "id")?.to_owned();
@@ -455,7 +427,7 @@ fn apply_document(api: &Api, document: SetupDocument) -> Result<(), String> {
     Ok(())
 }
 
-fn pairing(config: &ServerConfig, api: &Api) -> Result<(), String> {
+pub(crate) fn pairing(config: &ServerConfig, api: &Api) -> Result<(), String> {
     let grant = management(config, Request::Pair)?;
     ui(cliclack::note("Connect Magi desktop", format!(
         "Choose Connect to remote Magi.\nSame-machine address: {}\nPairing code (single use, 30 minutes):\n{}\nCopy only the code, without quotes. Restarting the service invalidates it.",
@@ -463,7 +435,7 @@ fn pairing(config: &ServerConfig, api: &Api) -> Result<(), String> {
     )))
 }
 
-fn summary(path: &Path, config: &ServerConfig, api: &Api) -> Result<(), String> {
+pub(crate) fn summary(path: &Path, config: &ServerConfig, api: &Api) -> Result<(), String> {
     let completed = api.completed()?;
     let readiness = api.call("GET", "/ready", None)?;
     let state = if !completed {

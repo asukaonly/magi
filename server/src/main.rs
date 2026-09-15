@@ -1,14 +1,17 @@
 mod cli;
 mod console;
 mod console_api;
+mod console_manager;
 mod console_runtime;
+mod deployment_status;
 mod managed_output;
+mod service_inspection;
 mod service_install;
 mod service_watch;
 
 use clap::Parser;
 use magi_server_runtime::supervisor;
-use magi_service_contract::{config::ServerConfig, OwnerBootstrap};
+use magi_service_contract::OwnerBootstrap;
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
@@ -46,7 +49,7 @@ fn run(
                 .map_err(|e| e.to_string())?,
         );
     }
-    let config = ServerConfig::load(&config_path)?;
+    let config = cli::load_config(&config_path)?;
     // Resolve process-wide runtime paths before creating any runtime threads.
     std::env::set_var("MAGI_HOME", &config.data_dir);
     let token = if externally_owned {

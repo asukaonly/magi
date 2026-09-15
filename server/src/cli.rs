@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Parser)]
-#[command(name = "magi-server", version = version(), about = "Magi Server — run without a command for guided setup")]
+#[command(name = "magi-server", version = version(), about = "Magi Server — run without a command to set up or manage this deployment")]
 pub struct Cli {
     /// Deployment configuration (default: ~/.config/magi-server/server.json).
     #[arg(long, global = true)]
@@ -68,8 +68,13 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Show running service health as JSON.
+    /// Inspect deployment state as JSON, including stopped or unreachable services.
     Status,
+    /// Read the latest service log lines without starting a service.
+    Logs {
+        #[arg(long, default_value_t = 40, value_parser = clap::value_parser!(u16).range(1..=200))]
+        lines: u16,
+    },
     /// Generate a single-use pairing code valid for 30 minutes.
     Pair,
     /// List plugin connections and their IDs for collector enrollment.
@@ -140,6 +145,14 @@ pub fn home_path(relative: &str) -> Result<PathBuf, String> {
         .ok_or("User home is unavailable".into())
 }
 
+pub fn load_config(path: &Path) -> Result<ServerConfig, String> {
+    if !path.try_exists().map_err(|e| e.to_string())? {
+        return Err(format!("No deployment configuration exists at {}. Run magi-server with the same --config path for guided setup, or use init for automation.", path.display()));
+    }
+    ServerConfig::load(path)
+        .map_err(|error| format!("Cannot load deployment at {}: {error}", path.display()))
+}
+
 pub fn execute(
     cli: Cli,
     output: &mut Option<crate::managed_output::ManagedOutput>,
@@ -162,6 +175,9 @@ pub fn execute(
     match cli.command {
         None => crate::console::launch(&path, cli.init),
         Some(Command::Init) => {
+            if path.try_exists().map_err(|e| e.to_string())? {
+                return Err(format!("Deployment already exists at {}. Run magi-server with the same --config path to manage it, or configure to edit its running Magi settings.", path.display()));
+            }
             let data = match &cli.init.data_dir {
                 Some(data) => data.clone(),
                 None => home_path(".magi-center")?,
@@ -186,7 +202,8 @@ pub fn execute(
             if !magi_gateway_key(&plugin_id) {
                 return Err("Invalid plugin identity".into());
             }
-            let config = ServerConfig::load(&path)?;
+            let config = load_config(&path)?;
+            crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
             print_json(&api.call("GET", &format!("/plugins/{plugin_id}/connections"), None)?)
         }
@@ -197,7 +214,8 @@ pub fn execute(
             if !magi_gateway_key(&connection_id) {
                 return Err("Invalid connection identity".into());
             }
-            let config = ServerConfig::load(&path)?;
+            let config = load_config(&path)?;
+            crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
             print_json(&api.call(
                 "POST",
@@ -209,7 +227,8 @@ pub fn execute(
             connection_id,
             source_type,
         }) => {
-            let config = ServerConfig::load(&path)?;
+            let config = load_config(&path)?;
+            crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
             print_json(&api.call(
                 "POST",
@@ -218,8 +237,19 @@ pub fn execute(
             )?)
         }
         Some(Command::Configure { from_stdin }) => crate::console::configure(&path, from_stdin),
+        Some(Command::Status) => print_json(
+            &serde_json::to_value(crate::deployment_status::inspect_path(&path)?)
+                .map_err(|e| e.to_string())?,
+        ),
+        Some(Command::Logs { lines }) => {
+            println!(
+                "{}",
+                crate::deployment_status::log_tail(&load_config(&path)?, usize::from(lines))?
+            );
+            Ok(())
+        }
         Some(Command::Config { action }) => {
-            let config = ServerConfig::load(&path)?;
+            let config = load_config(&path)?;
             match action {
                 ConfigAction::Show => {
                     print_json(&serde_json::to_value(config).map_err(|e| e.to_string())?)
@@ -234,7 +264,6 @@ pub fn execute(
         Some(command) => {
             use crate::console_api::Request;
             let request = match command {
-                Command::Status => Request::Status,
                 Command::Pair => Request::Pair,
                 Command::Clients => Request::Clients,
                 Command::Revoke { client_id } => Request::Revoke { client_id },
@@ -255,7 +284,8 @@ pub fn execute(
                 }
                 _ => unreachable!(),
             };
-            let config = ServerConfig::load(&path)?;
+            let config = load_config(&path)?;
+            crate::deployment_status::require_management(&config, &path, false)?;
             print_json(&crate::console_api::management(&config, request)?)
         }
     }

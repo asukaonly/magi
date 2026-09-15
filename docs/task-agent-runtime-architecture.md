@@ -100,6 +100,18 @@ The headless owner backs off and cools down on repeated failures, resets its
 budget after sustained responses, and logs gateway failures/retries. `max_restarts:
 0` keeps the gateway stopped and the owner alive until an explicit operator restart. The
 API supervisor status continues to describe the Python worker, not its outer owner.
+The server console shares a read-only deployment inspector with explicit `status`
+and operator-command preconditions. It combines the private management response,
+existing owner/server/worker leases, and (on macOS) a verified launchd registration
+and loaded arguments. It does not create lease files while inspecting. A loaded
+matching job with a missing socket is unreachable, including after a live runtime
+directory was moved; a listening port never grants lifecycle ownership. This
+inspector controls presentation and avoids implicit starts, while OS leases remain
+the authoritative runtime exclusion mechanism. `status` reports service readiness
+separately from business setup completion and Agent readiness. The interactive
+console only tears down foreground children it started; exits and configuration
+edits never adopt or terminate an existing owner.
+
 A lightweight authenticated IPC `ping` probes the Python main event loop every
 10 seconds with a 5-second deadline. Three consecutive failures replace the
 worker; slow asynchronous model requests and deferred capabilities do not count

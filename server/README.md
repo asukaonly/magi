@@ -35,14 +35,31 @@ client finishes it. The console summary reports Agent readiness separately from
 configuration completion and does not assume an HTTPS proxy exists.
 Completing terminal setup also prints a first pairing code for connecting a UI.
 
-Run the same command again to resume saved setup. If the service is already
-running, the console reuses it; configured instances show their status without
-repeating setup or generating another pairing code. A stopped instance starts
-using the mode saved in the adjacent `server.console.json` file. This file holds
-only the console run-mode preference, never model keys or business settings.
+Run the same command again to inspect or manage this deployment. The console
+adapts to its current state:
 
-Foreground mode keeps the console open. Ctrl+C, cancellation, or loss of its
-terminal stops the headless owner it launched and its gateway/Python processes;
+| State | What the console offers |
+| --- | --- |
+| No deployment configuration | Create the deployment settings, then explicitly start and set up Magi |
+| Saved deployment, stopped | Start using the saved run mode, inspect paths/logs, or exit |
+| Running, setup incomplete | Resume saved steps here or finish in desktop; pair devices |
+| Running, setup complete | Configure individual settings, connect/manage devices, diagnostics and logs |
+| Starting or recovering | Show runtime phase; explicitly wait with elapsed time and a deadline, or recheck later |
+| Failed or stopping | Inspect the failure/state and choose a recovery action; no automatic waiting |
+| Existing owner/job, management unavailable | Show the missing connection and verified background recovery options |
+| Unknown state or occupied port without a verified owner | Inspect diagnostics; never assume the port belongs to this deployment |
+
+Opening the menu never implicitly starts or restarts an existing deployment.
+A start uses the mode saved in the adjacent `server.console.json` file, or asks
+on first use. This file holds only the console run-mode preference, never model
+keys or business settings. Completed deployments do not repeat setup or generate
+a pairing code until that action is selected. The configuration menu can change
+models alone, or language and the default persona together.
+
+Foreground mode keeps the console open. Choose **Keep running in this terminal**
+to leave the menu while serving, or confirm **Stop this foreground service and
+exit** to close it. Ctrl+C, cancellation, or loss of its terminal stops the
+headless owner it launched and its gateway/Python processes;
 saved steps remain available. This adds a console coordinator while interactive
 foreground mode is open. Background mode installs the login service and keeps
 running after terminal exit. Editing an existing service never takes ownership
@@ -64,7 +81,8 @@ Later launches keep using that saved path regardless of the shell's directory.
 Within the data root, business configuration is in `config/agent.yaml`, persisted
 domain data is in `data/`, and diagnostics are in `logs/`.
 
-For scripts and service managers, use explicit commands. They never prompt:
+For scripts and service managers, use `init`, `run`, and the explicit management
+commands. They never prompt (`configure` uses `--from-stdin` for automation):
 
 ```sh
 /Applications/MagiServer/magi-server init \
@@ -100,8 +118,31 @@ center is supported per macOS user; foreground instances can use separate data
 roots and ports. The owner retains its data-root lease during restart cooldowns,
 preventing another desktop or console owner from taking over that root.
 
-`start`, `stop`, and `restart` manage this specific LaunchAgent. `status` reports
-runtime readiness through a private local management socket. Logs are under
+`start`, `stop`, and `restart` manage this specific LaunchAgent. They validate
+both the on-disk registration and loaded job arguments before acting. Repeating
+`install` or `start` reports `already_loaded` for an existing job; it does not
+restart it or claim that it is ready. `restart` reports `start_requested`; use
+`status` to check readiness. Interactive lifecycle changes require confirmation.
+
+`status` reports JSON even when no configuration exists or management is
+unavailable. Its `state` is `not_configured`, `stopped`, `running`, `starting`,
+`recovering`, `failed`, `stopping`, `unreachable`, `port_conflict` or `unknown`.
+It includes configuration/data/log paths, verified login-service state and the
+last management error. A reachable service also provides `server_id`,
+`protocol_version`, `base_url`, `service_ready` and `supervisor`. A successful
+command exit means inspection succeeded; automation must inspect `state` and
+`service_ready` to determine availability. Configuration-service readiness does
+not prove that onboarding is complete or the Agent is ready.
+
+`logs --lines 40` displays a bounded tail of the service log (1–200 lines, at most
+32 KiB read). Neither `status` nor `logs` starts processes or creates runtime
+files. Native `pair`, `clients`, and `revoke` remain available during Python
+recovery if the management channel responds. `configure`, `collector-connections`,
+`pair-collector` and `release-collector` require configuration-service readiness
+and fail with a next step when unavailable. `collect` remains an independent
+device runner; it does not start or require a local center.
+
+Logs are under
 `<data-dir>/logs`: `service.log` for the managed service and `backend.log` for
 Python. Each native output log retains an 8 MiB current file and two backups.
 The interactive guide displays the log directory and writes service diagnostics
@@ -112,9 +153,11 @@ the terminal unless `run --log-file <absolute-path>` is supplied; explicit
 service-management commands print JSON results for automation.
 Each service start creates missing log directories with private permissions,
 including after a stopped service's logs were cleaned. A successful launchd
-start request does not guarantee readiness; the console waits for the local
-management service and reports its last connection error or supervisor phase
-on timeout.
+start request does not guarantee readiness; after an explicit start the console
+waits for the local management service, showing elapsed time and runtime phase.
+Failure or timeout returns to recovery options. Reentering a console whose live
+job has lost its management socket goes straight to diagnostics instead of
+starting another owner or silently waiting again.
 
 Stop the service before moving or removing data-root directories. Removing
 `runtime/` from a live service breaks console management even while the HTTP

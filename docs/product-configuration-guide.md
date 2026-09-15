@@ -92,11 +92,29 @@ steps survive cancellation; completion is saved only after successful model
 verification and persona activation. A resumed template includes the center's
 saved language. Persona selection checks both locale and seed identity.
 
-The default command reuses a running instance and skips setup once completion is
-persisted. `configure` explicitly edits a running center, including after initial
-setup; `configure --from-stdin` accepts a secret-bearing JSON setup document for
-automation without prompts or secrets in command arguments. Non-interactive
-startup uses `init` then `run`, never the interactive default entry.
+The default command first inspects the selected deployment without starting it.
+A configured, running instance opens a management menu: change models or language
+and persona, generate a pairing code, manage paired devices, inspect diagnostics
+and logs, or exit. An incomplete instance offers continued terminal or desktop
+setup using its saved draft. A stopped instance offers an explicit start using
+its saved run mode. Merely opening or exiting the menu does not start, restart,
+reconfigure or pair a device.
+
+Starting and recovering instances expose bounded waiting with elapsed time and
+supervisor phase. An active owner or verified login job whose management endpoint
+is missing is shown as unreachable, with diagnostics and recovery actions rather
+than automatic startup or waiting. Pairing and device revocation only require the
+native management channel; model/persona configuration and collector enrollment
+also require the Python configuration service. Failed or stopping runtimes do not
+enter a fresh automatic wait. An occupied port alone never proves ownership.
+
+`configure` edits a running center; completed setup offers individual configuration
+areas instead of repeating the guide. `configure --from-stdin` accepts a
+secret-bearing JSON setup document for automation without prompts or secrets in
+command arguments. Non-interactive startup uses `init` then `run`, never the
+interactive default entry. `status` returns a read-only JSON snapshot even before
+initialization or when stopped/unreachable; `logs --lines <1..200>` reads a bounded
+service-log tail without starting anything.
 
 Foreground setup stops only its own service on cancellation or terminal loss.
 An existing service or an explicitly installed background service keeps running.
@@ -107,9 +125,14 @@ prompts. Service diagnostics go to the displayed data-root log directory; early
 startup failures are displayed after the progress renderer has stopped. Explicit
 service-management subcommands retain their machine-readable JSON output.
 Background registration/start requests are not reported as service readiness.
-Setup timeouts include the latest management-channel failure or supervisor
-phase, the socket/log locations, and a restart instruction. Service startup
-creates missing log directories independently of first-time installation.
+Setup timeouts return to the menu with the latest management-channel failure or
+supervisor phase and socket/log locations. Interactive restart, stop, uninstall
+and device revocation require confirmation. Background lifecycle actions are only
+offered for a registration whose disk configuration and loaded arguments match
+this executable and deployment. A missing persisted server identity is called
+out before an interactive background restart; it never triggers automatic data
+restoration. Service startup creates missing log directories independently of
+first-time installation.
 
 Packaged deployments default to `~/.magi-center` for data and
 `~/.config/magi-server/server.json` for deployment configuration. These paths

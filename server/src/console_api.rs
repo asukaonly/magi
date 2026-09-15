@@ -101,7 +101,8 @@ impl Api {
                 "x-magi-session-token",
                 string(&access["session"], "access_token")?,
             )
-            .header("accept-language", "en");
+            .header("accept-language", "en")
+            .timeout(Duration::from_secs(if method == "GET" { 8 } else { 90 }));
         if let Some(body) = body {
             request = request.json(body);
         }
@@ -127,6 +128,12 @@ impl Api {
         self.call("GET", "/config/onboarding-status", None)?["data"]["completed"]
             .as_bool()
             .ok_or("Invalid setup status".into())
+    }
+
+    pub fn agent_ready(&self) -> Result<bool, String> {
+        self.call("GET", "/ready", None)?["data"]["runtime_ready"]
+            .as_bool()
+            .ok_or("Invalid Agent readiness status".into())
     }
 
     pub fn snapshot(&self, completed: bool) -> Result<Value, String> {
