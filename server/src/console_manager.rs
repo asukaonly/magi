@@ -65,7 +65,10 @@ pub fn run(path: &Path, config: &ServerConfig) -> Result<(), String> {
             }
         }
         let snapshot = deployment_status::inspect(path, config);
-        ui(cliclack::note("Service state", snapshot.describe()))?;
+        ui(cliclack::note(
+            "Service state",
+            snapshot.summary(foreground.is_some()),
+        ))?;
         let completed = if snapshot.configuration_available() {
             match console::progress(
                 "Checking Magi configuration and Agent readiness",
@@ -101,6 +104,8 @@ pub fn run(path: &Path, config: &ServerConfig) -> Result<(), String> {
         };
         let exit_hint = if foreground.is_some() {
             "This console owns the foreground service. Closing it stops that service."
+        } else if snapshot.can_start() {
+            "The service is stopped. Choose Start this deployment when ready."
         } else {
             "Exiting this console leaves existing and background services running."
         };

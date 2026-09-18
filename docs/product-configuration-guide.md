@@ -130,9 +130,13 @@ enter a fresh automatic wait. An occupied port alone never proves ownership.
 areas instead of repeating the guide. `configure --from-stdin` accepts a
 secret-bearing JSON setup document for automation without prompts or secrets in
 command arguments. Non-interactive startup uses `init` then `run`, never the
-interactive default entry. `status` returns a read-only JSON snapshot even before
-initialization or when stopped/unreachable; `logs --lines <1..200>` reads a bounded
-service-log tail without starting anything.
+interactive default entry. `status` shows readable state in a terminal and JSON when piped; `--json`
+selects JSON explicitly. Inspection works before initialization and while stopped
+or unreachable. `logs --lines <1..200> --source service|backend` reads a bounded
+tail; `--follow` follows appends and rotation until Ctrl+C, without starting or
+stopping a service. Missing logs are an empty state. Normal stopped/startup states
+do not display missing management sockets as failures. Full details remain in
+View diagnostics; the main menu shows a compact state summary.
 
 Foreground setup stops only its own service on cancellation or terminal loss.
 An existing service or an explicitly installed background service keeps running.

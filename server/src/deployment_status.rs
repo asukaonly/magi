@@ -45,6 +45,21 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub fn summary(&self, foreground: bool) -> String {
+        let state = if foreground && self.state == State::Running {
+            "Magi is running in this terminal."
+        } else {
+            &self.message
+        };
+        let address = self
+            .management
+            .as_ref()
+            .and_then(|m| m.get("base_url"))
+            .and_then(Value::as_str)
+            .map(|url| format!("\nLocal address: {}", url.trim_end_matches("/api")))
+            .unwrap_or_default();
+        format!("{state}{address}")
+    }
     pub fn configuration_available(&self) -> bool {
         self.state == State::Running
     }
@@ -109,7 +124,11 @@ impl Snapshot {
                 }
             }
         }
-        if let Some(error) = &self.management_error {
+        if let Some(error) = self
+            .management_error
+            .as_ref()
+            .filter(|_| self.state != State::Stopped)
+        {
             lines.push(format!("Management: {error}"));
         }
         if let Some(error) = &self.managed.detail {
@@ -240,45 +259,24 @@ pub fn require_management(
 }
 
 pub fn log_tail(config: &ServerConfig, lines: usize) -> Result<String, String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let path = config.data_dir.join("logs/service.log");
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let mut file = options
-        .open(&path)
-        .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-    let metadata = file.metadata().map_err(|e| e.to_string())?;
-    if !metadata.is_file() {
-        return Err("Service log must be a regular file".into());
-    }
-    let size = metadata.len();
-    file.seek(SeekFrom::Start(size.saturating_sub(32 * 1024)))
-        .map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    file.take(32 * 1024)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&bytes);
-    let tail = text.lines().rev().take(lines).collect::<Vec<_>>();
-    Ok(tail
-        .into_iter()
-        .rev()
-        .collect::<Vec<_>>()
-        .join("\n")
-        .chars()
-        .filter(|c| !c.is_control() || matches!(*c, '\n' | '\t'))
-        .collect())
+    crate::operator_logs::tail(&config.data_dir.join("logs/service.log"), lines)
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn normal_stopped_summary_does_not_report_a_missing_socket_as_failure() {
+        let mut value = snapshot(State::Stopped);
+        value.message = "The service is stopped.".into();
+        value.management_error = Some("No such file or directory".into());
+        assert!(!value.summary(false).contains("No such file"));
+        assert!(!value.describe().contains("No such file"));
+        value.state = State::Unreachable;
+        assert!(value.describe().contains("No such file"));
+    }
 
     pub fn snapshot(state: State) -> Snapshot {
         Snapshot {

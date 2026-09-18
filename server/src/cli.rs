@@ -3,7 +3,7 @@
 use clap::{Args, Parser, Subcommand};
 use magi_service_contract::config::ServerConfig;
 use std::{
-    io::Write,
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
 };
 
@@ -68,12 +68,20 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
-    /// Inspect deployment state as JSON, including stopped or unreachable services.
-    Status,
+    /// Inspect this deployment. Human-readable in a terminal; JSON when piped.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
     /// Read the latest service log lines without starting a service.
     Logs {
         #[arg(long, default_value_t = 40, value_parser = clap::value_parser!(u16).range(1..=200))]
         lines: u16,
+        #[arg(long, value_enum, default_value = "service")]
+        source: crate::operator_logs::Source,
+        /// Keep displaying new lines until Ctrl+C; never starts a service.
+        #[arg(long)]
+        follow: bool,
     },
     /// Generate a single-use pairing code valid for 30 minutes.
     Pair,
@@ -246,17 +254,31 @@ pub fn execute(
             let api = crate::console_api::Api::connect(&config)?;
             crate::console_connection::guide(&config, &api.base_url)
         }
-        Some(Command::Status) => print_json(
-            &serde_json::to_value(crate::deployment_status::inspect_path(&path)?)
-                .map_err(|e| e.to_string())?,
-        ),
-        Some(Command::Logs { lines }) => {
-            println!(
-                "{}",
-                crate::deployment_status::log_tail(&load_config(&path)?, usize::from(lines))?
-            );
-            Ok(())
+        Some(Command::Status { json }) => {
+            let status = crate::deployment_status::inspect_path(&path)?;
+            if json || !std::io::stdout().is_terminal() {
+                print_json(&serde_json::to_value(status).map_err(|e| e.to_string())?)
+            } else {
+                println!("Deployment: {}\n{}", path.display(), status.describe());
+                if status.configuration_available() {
+                    let config = load_config(&path)?;
+                    let api = crate::console_api::Api::connect(&config)?;
+                    if !api.completed()? {
+                        println!("Setup: incomplete. Run configure or connect to finish.");
+                    } else if api.agent_ready()? {
+                        println!("Setup: complete. Agent is ready.");
+                    } else {
+                        println!("Setup: complete. Agent is not ready; inspect logs.");
+                    }
+                }
+                Ok(())
+            }
         }
+        Some(Command::Logs {
+            lines,
+            source,
+            follow,
+        }) => crate::operator_logs::run(&load_config(&path)?, source, usize::from(lines), follow),
         Some(Command::Config { action }) => {
             let config = load_config(&path)?;
             match action {

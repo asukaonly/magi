@@ -191,8 +191,13 @@ pub fn wait_ready(
             ),
             Err(error) => format!("Local management is unavailable: {error}"),
         };
+        let progress = if detail.starts_with("Local management is unavailable") {
+            "Starting the service"
+        } else {
+            "Starting the configuration runtime"
+        };
         report(format!(
-            "Waiting {}s / {}s — {detail}",
+            "Waiting {}s / {}s — {progress}",
             started.elapsed().as_secs(),
             timeout.as_secs()
         ));

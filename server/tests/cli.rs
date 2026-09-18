@@ -339,3 +339,76 @@ fn logs_are_bounded_and_do_not_start_services() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn backend_log_follow_reads_appends_and_rotation_without_a_runtime() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        process::Stdio,
+        time::Duration,
+    };
+    struct ReaderProcess(std::process::Child);
+    impl Drop for ReaderProcess {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let fixture = Fixture::new();
+    let config_path = fixture.0.join("config.json");
+    let config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let log = config.data_dir.join("logs/backend.log");
+    let empty = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["logs", "--source", "backend", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(empty.status.success());
+    assert!(!config.data_dir.exists());
+    fs::create_dir_all(log.parent().unwrap()).unwrap();
+    fs::write(&log, "initial\n").unwrap();
+    let mut process = ReaderProcess(
+        Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["logs", "--source", "backend", "--follow", "--config"])
+            .arg(config_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let output = process.0.stdout.take().unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(output).lines() {
+            if sender.send(line.unwrap()).is_err() {
+                break;
+            }
+        }
+    });
+    assert_eq!(
+        receiver.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "initial"
+    );
+    writeln!(
+        fs::OpenOptions::new().append(true).open(&log).unwrap(),
+        "appended"
+    )
+    .unwrap();
+    assert_eq!(
+        receiver.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "appended"
+    );
+    fs::rename(&log, log.with_extension("old")).unwrap();
+    fs::write(&log, "rotated\n").unwrap();
+    assert_eq!(
+        receiver.recv_timeout(Duration::from_secs(5)).unwrap(),
+        "rotated"
+    );
+    assert!(!config.data_dir.join("runtime").exists());
+    drop(process);
+    reader.join().unwrap();
+}

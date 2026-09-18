@@ -408,3 +408,10 @@ temporary data directory. It also suspends the whole gateway process and checks
 headless recovery and final Python drain. The Linux gateway CI job runs this
 probe with an isolated SDK environment. It does not load business plugins or
 model providers.
+
+### Read status and follow logs
+
+`status` is readable in a terminal and JSON in a pipe; use `status --json` to
+request JSON explicitly. `logs --source backend --follow` follows the Python log;
+`logs --source service --follow` follows the service owner log. Ctrl+C stops only
+log viewing. Missing log files mean no entries yet, not a startup failure.

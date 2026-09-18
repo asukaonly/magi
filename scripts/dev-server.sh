@@ -16,10 +16,10 @@ Usage: scripts/dev-server.sh [command] [options]
 Use the same commands as magi-server, with the development deployment selected.
   (no command)       Open setup or manage this deployment
   run                Run in this terminal (Ctrl+C stops the service)
-  status              Inspect this deployment without starting it
+  status [--json]     Inspect this deployment without starting it
   configure          Edit models, language and persona
   connect            Guide desktop pairing and HTTPS access
-  logs               Read service logs
+  logs [--follow]    Read service logs (--source service|backend)
   config show        Inspect deployment settings
   <command> --help    Show all options for a command
 
