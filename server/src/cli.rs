@@ -77,6 +77,8 @@ pub enum Command {
     },
     /// Generate a single-use pairing code valid for 30 minutes.
     Pair,
+    /// Guide a desktop connection, including HTTPS checks for another device.
+    Connect,
     /// List plugin connections and their IDs for collector enrollment.
     CollectorConnections {
         #[arg(long)]
@@ -237,6 +239,13 @@ pub fn execute(
             )?)
         }
         Some(Command::Configure { from_stdin }) => crate::console::configure(&path, from_stdin),
+        Some(Command::Connect) => {
+            crate::console::terminal()?;
+            let config = load_config(&path)?;
+            crate::deployment_status::require_management(&config, &path, false)?;
+            let api = crate::console_api::Api::connect(&config)?;
+            crate::console_connection::guide(&config, &api.base_url)
+        }
         Some(Command::Status) => print_json(
             &serde_json::to_value(crate::deployment_status::inspect_path(&path)?)
                 .map_err(|e| e.to_string())?,

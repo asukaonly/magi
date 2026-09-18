@@ -80,8 +80,8 @@ Implementation notes:
 
 Running `magi-server` without a subcommand opens an English console flow. Its
 five steps are service settings, setup method, Magi language, model configuration,
-and default persona. Choosing desktop setup skips the last three and displays
-the actual loopback URL plus a single-use thirty-minute pairing code. The console
+and default persona. Choosing desktop setup skips the last three and opens
+device connection guidance. The console
 interface remains English; the selected `zh`/`en` Magi language is saved in the
 center and determines the builtin persona catalog and default conversation
 language. It does not override any desktop's interface language.
@@ -97,6 +97,18 @@ verification retains the current attempt in memory: users may retry unchanged,
 edit only the key, address or model names, or choose another provider. Unverified
 attempts never replace saved model settings. Provider failures show actionable
 categories without reflecting raw provider responses or credentials.
+
+The device connection guide (`connect`, or Connect another device in the menu)
+asks whether desktop runs on this computer or another device. Local connections
+use the actual loopback port. Other-device connections explain same-host HTTPS
+proxy setup and probe the supplied HTTPS origin without sending any credentials.
+The check requires valid TLS, rejects redirects and checks the public health
+response; it proves reachability from the service host, not target-device access
+or server identity. Pairing still verifies identity in desktop. The guide displays
+the address and a single-use thirty-minute code, then lets the operator check
+for a newly paired administrator device through the local management channel.
+Skipping HTTPS or pairing explicitly leaves that stage pending. It never installs
+a proxy, changes networking, or pairs a device implicitly.
 
 The default command first inspects the selected deployment without starting it.
 A configured, running instance opens a management menu: change models or language

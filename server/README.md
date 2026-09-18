@@ -258,6 +258,14 @@ For a source-development center, the corresponding pairing command is
 
 ### Connect from another computer
 
+Run `magi-server connect --config <file>` (or choose **Connect another device**)
+for guided connection. Select **On another device** to see proxy instructions
+using this deployment's actual port, check your HTTPS address, and generate a
+pairing code. The health check sends no credentials and verifies HTTPS without
+ignoring certificate errors. It checks access from this Mac; finish pairing on
+the target device, then choose **Check for a paired device** to confirm enrollment.
+You can leave the guide at any time with the connection explicitly pending.
+
 The gateway listens only on loopback. Put a standard HTTPS reverse proxy on the
 same Mac. For a private network, an optional convenience is
 [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve):

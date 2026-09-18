@@ -2,7 +2,7 @@
 
 use crate::{
     cli::{self, InitOptions},
-    console_api::{array, management, string, Api, Request, SetupDocument},
+    console_api::{array, string, Api, SetupDocument},
     console_runtime::RunMode,
 };
 use magi_service_contract::config::ServerConfig;
@@ -12,7 +12,7 @@ use std::{
     path::Path,
 };
 
-fn terminal() -> Result<(), String> {
+pub(crate) fn terminal() -> Result<(), String> {
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         return Err("Guided setup requires a terminal. Use init and run for automation, or configure --from-stdin against a running service.".into());
     }
@@ -537,11 +537,7 @@ fn apply_document(api: &Api, document: SetupDocument) -> Result<(), String> {
 }
 
 pub(crate) fn pairing(config: &ServerConfig, api: &Api) -> Result<(), String> {
-    let grant = management(config, Request::Pair)?;
-    ui(cliclack::note("Connect Magi desktop", format!(
-        "Choose Connect to remote Magi.\nSame-machine address: {}\nPairing code (single use, 30 minutes):\n{}\nCopy only the code, without quotes. Restarting the service invalidates it.",
-        api.base_url.trim_end_matches("/api"), string(&grant, "pairing_token")?
-    )))
+    crate::console_connection::guide(config, &api.base_url)
 }
 
 pub(crate) fn summary(path: &Path, config: &ServerConfig, api: &Api) -> Result<(), String> {

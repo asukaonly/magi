@@ -1,6 +1,7 @@
 mod cli;
 mod console;
 mod console_api;
+mod console_connection;
 mod console_manager;
 mod console_runtime;
 mod deployment_status;
@@ -21,7 +22,7 @@ fn main() {
     let guided = std::io::stderr().is_terminal()
         && matches!(
             args.command,
-            None | Some(cli::Command::Configure { from_stdin: false })
+            None | Some(cli::Command::Configure { from_stdin: false } | cli::Command::Connect)
         );
     let outcome = cli::execute(args, &mut output);
     let failed = outcome.is_err();

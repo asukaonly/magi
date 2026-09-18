@@ -270,6 +270,8 @@ def main() -> None:
             terminal.send("\x1b[B\r")
             terminal.expect("5/5", 60)
             terminal.send("\r")
+            terminal.expect("Where will you use Magi desktop?", 60)
+            terminal.send("\x1b[B" * 2 + "\r")
             terminal.expect("What would you like to do?", 60)
             terminal.send("\x1b[B" * 5 + "\r")
             terminal.expect("Running in foreground", 60)
@@ -334,9 +336,9 @@ def main() -> None:
             handoff.send("\r")
             handoff.expect("2/5")
             handoff.send("\x1b[B\r")
-            handoff.expect("What would you like to do?")
-            handoff.send("\x1b[B" * 5 + "\r")
-            assert handoff.exit() == 0
+            handoff.expect("Where will you use Magi desktop?")
+            handoff.send("\r")
+            handoff.expect("Finish connecting your device")
             plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", handoff.transcript)
             grant = re.search(r"\b[0-9a-f]{64}\b", plain)
             assert grant, "Missing pairing code"
@@ -344,6 +346,11 @@ def main() -> None:
             request = urllib.request.Request(status["base_url"] + "/auth/pair", data=b'{"name":"Console smoke"}', headers={"x-magi-session-token":grant[0], "Content-Type":"application/json"})
             with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(request, timeout=10) as response:
                 assert json.load(response)["success"]
+            handoff.send("\r")
+            handoff.expect("Device paired with this Magi: Console smoke")
+            handoff.expect("What would you like to do?")
+            handoff.send("\x1b[B" * 5 + "\r")
+            assert handoff.exit() == 0
             assert not api(data2, "/config/onboarding-status")["data"]["completed"]
             assert service.poll() is None
 
