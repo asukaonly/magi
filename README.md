@@ -185,6 +185,12 @@ Scored on LongMemEval `_s` (500 questions) with an LLM judge (`glm-5`); a second
 
 ## Install
 
+For a Mac that will host Magi for other devices, use the standalone **MagiServer**
+bundle and follow the [service deployment guide](server/README.md). Run its
+`magi-server` executable to set up or manage the service. For source development,
+`./scripts/dev-server.sh` opens the same console with a separate development
+configuration; `./scripts/dev-server.sh run` starts that configured deployment.
+
 Magi is distributed as a packaged desktop application. End users do not need to install Python, Node.js, or Rust.
 
 1. Open [GitHub Releases](https://github.com/asukaonly/magi/releases)

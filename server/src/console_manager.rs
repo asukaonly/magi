@@ -21,6 +21,7 @@ pub enum Action {
     Check,
     Wait,
     Service,
+    Deployment,
     KeepRunning,
     Exit,
 }
@@ -48,6 +49,7 @@ fn actions(snapshot: &Snapshot, foreground: bool) -> Vec<Action> {
     if snapshot.managed.owned() && !foreground {
         result.push(Action::Service);
     }
+    result.push(Action::Deployment);
     if foreground {
         result.push(Action::KeepRunning);
     }
@@ -57,7 +59,9 @@ fn actions(snapshot: &Snapshot, foreground: bool) -> Vec<Action> {
 
 pub fn run(path: &Path, config: &ServerConfig) -> Result<(), String> {
     let mut foreground: Option<Foreground> = None;
+    let mut settings = config.clone();
     loop {
+        let config = &settings;
         if let Some(child) = &mut foreground {
             if let Err(error) = child.check_running() {
                 ui(cliclack::log::warning(error))?;
@@ -146,6 +150,10 @@ pub fn run(path: &Path, config: &ServerConfig) -> Result<(), String> {
                     "Background service options",
                     "Start, restart, stop or uninstall this verified deployment",
                 ),
+                Action::Deployment => (
+                    "Deployment settings",
+                    "Run mode, port, folders and upgrade checks",
+                ),
                 Action::KeepRunning => (
                     "Keep running in this terminal",
                     "Leave the menu; Ctrl+C stops this foreground service",
@@ -218,7 +226,18 @@ pub fn run(path: &Path, config: &ServerConfig) -> Result<(), String> {
             Action::Pair => Api::connect(config).and_then(|api| console::pairing(config, &api)),
             Action::Devices => devices(config),
             Action::Service => service_options(path, config, &mut foreground),
+            Action::Deployment => crate::console_deployment::menu(path, &mut foreground),
         };
+        if action == Action::Deployment {
+            let updated = crate::cli::load_config(path)?;
+            if foreground
+                .as_ref()
+                .is_some_and(|child| !child.owns(&updated))
+            {
+                return Err("The data directory changed outside this console. Its original foreground service is stopping; reopen the selected deployment.".into());
+            }
+            settings = updated;
+        }
         if let Err(error) = result {
             if error.starts_with("Setup cancelled.") {
                 return Err(error);
@@ -238,7 +257,10 @@ fn confirm(prompt: &str) -> Result<bool, String> {
     ui(cliclack::confirm(prompt).initial_value(false).interact())
 }
 
-fn wait(config: &ServerConfig, foreground: &mut Option<Foreground>) -> Result<(), String> {
+pub(crate) fn wait(
+    config: &ServerConfig,
+    foreground: &mut Option<Foreground>,
+) -> Result<(), String> {
     let spinner = cliclack::spinner();
     spinner.start("Waiting for the configuration service");
     let result =
@@ -252,7 +274,7 @@ fn wait(config: &ServerConfig, foreground: &mut Option<Foreground>) -> Result<()
     result
 }
 
-fn start(
+pub(crate) fn start(
     path: &Path,
     config: &ServerConfig,
     foreground: &mut Option<Foreground>,

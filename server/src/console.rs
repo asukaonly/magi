@@ -108,17 +108,41 @@ pub(crate) fn progress<T>(
 }
 
 pub(crate) fn run_mode(background_available: bool) -> Result<RunMode, String> {
-    let mut select = cliclack::select("1/5 · Service settings — run mode").item(
+    choose_run_mode(
+        "1/5 · Service settings — run mode",
+        background_available,
+        None,
+    )
+}
+
+pub(crate) fn choose_run_mode(
+    prompt: &str,
+    background_available: bool,
+    initial: Option<RunMode>,
+) -> Result<RunMode, String> {
+    if !background_available {
+        ui(cliclack::log::info(if cfg!(target_os = "macos") {
+            "Background mode is unavailable: another deployment owns the login service, or its ownership cannot be verified. View diagnostics for details."
+        } else {
+            "Background login service is available on macOS. Use your operating system's service manager for unattended deployment."
+        }))?;
+    }
+    let mut select = cliclack::select(prompt).item(
         RunMode::Foreground,
-        "Foreground",
-        "Runs while this terminal is open; Ctrl+C stops it",
+        "Temporary development — foreground",
+        "Closing this terminal or pressing Ctrl+C stops the service",
     );
     if background_available && cfg!(target_os = "macos") {
         select = select.item(
             RunMode::Background,
-            "Background after login",
-            "Install a macOS login service; keeps running after this terminal closes",
+            "Long-term use — background after login",
+            "Keeps running after closing the terminal; stops on logout; requires an awake Mac",
         );
+    }
+    if let Some(mode) = initial
+        .filter(|m| *m == RunMode::Foreground || background_available && cfg!(target_os = "macos"))
+    {
+        select = select.initial_value(mode);
     }
     ui(select.interact())
 }
@@ -128,7 +152,7 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
     ui(cliclack::intro("Magi Server"))?;
     let exists = path.try_exists().map_err(|e| e.to_string())?;
     if exists && options.supplied() {
-        return Err("Deployment already exists. Initialization options cannot change it; edit its config while stopped.".into());
+        return Err("Deployment already exists. Initialization options cannot change it; use config edit for run mode and port settings.".into());
     }
     let config = if exists {
         cli::load_config(path)?

@@ -126,8 +126,8 @@ both the on-disk registration and loaded job arguments before acting. Repeating
 restart it or claim that it is ready. `restart` reports `start_requested`; use
 `status` to check readiness. Interactive lifecycle changes require confirmation.
 
-`status` reports JSON even when no configuration exists or management is
-unavailable. Its `state` is `not_configured`, `stopped`, `running`, `starting`,
+`status --json` reports a machine-readable snapshot even when no configuration
+exists or management is unavailable. Plain `status` is readable in a terminal. Its `state` is `not_configured`, `stopped`, `running`, `starting`,
 `recovering`, `failed`, `stopping`, `unreachable`, `port_conflict` or `unknown`.
 It includes configuration/data/log paths, verified login-service state and the
 last management error. A reachable service also provides `server_id`,
@@ -156,7 +156,7 @@ service-management commands print JSON results for automation.
 Each service start creates missing log directories with private permissions,
 including after a stopped service's logs were cleaned. A successful launchd
 start request does not guarantee readiness; after an explicit start the console
-waits for the local management service, showing elapsed time and runtime phase.
+waits for the local management service, showing elapsed time and startup stage.
 Failure or timeout returns to recovery options. Reentering a console whose live
 job has lost its management socket goes straight to diagnostics instead of
 starting another owner or silently waiting again.
@@ -177,13 +177,19 @@ magi-server config show
 magi-server config validate
 ```
 
-Stop a foreground service before editing this JSON file. For an installed login
+Use `magi-server config edit` or **Deployment settings** in the console to change
+the port or switch between temporary foreground and background-after-login mode.
+The console explains why background mode is unavailable and asks before stopping
+its own foreground process or a verified login service. Port changes preserve
+data, update the login registration if owned, and offer a separate restart choice.
+You no longer need to remove console preference files to change run mode.
+The same menu shows and opens data, configuration and log folders.
+
+For advanced JSON edits, stop a foreground service first. For an installed login
 service, use `uninstall` with the original config, edit and validate the file,
 then `install` again so its command and shutdown deadline remain synchronized.
 Changing `data_dir` selects another store; it does not move existing data.
-`init` never overwrites an existing deployment. To change the interactive launch
-preference, stop/uninstall the service and remove only the adjacent
-`server.console.json`; the next no-command launch asks for run mode again.
+`init` never overwrites an existing deployment.
 
 Business settings live under the configured data root and are edited through
 Magi desktop or `magi-server configure`. These changes preserve unrelated
@@ -337,6 +343,12 @@ Prefer the connected UI so changes receive validation and runtime activation.
 If editing these files manually, stop the service first and restart afterwards.
 
 ## Upgrade and uninstall
+
+Run `magi-server config upgrade-check --config <file>` before upgrading, or choose
+**Check before upgrading** in Deployment settings. This read-only check displays
+the current state, runtime-file checks, exact config/data locations and the stop,
+backup and replacement steps for this deployment. It does not install updates or
+claim that a backup or future release is compatible.
 
 1. Use the **existing installation and configuration** to run `uninstall --config <file>`.
    This stops the managed service and removes its launch registration while preserving data.

@@ -135,6 +135,10 @@ pub enum Command {
 pub enum ConfigAction {
     Show,
     Validate,
+    /// Change run mode or port, and inspect deployment folders.
+    Edit,
+    /// Read-only current-deployment checks and upgrade instructions.
+    UpgradeCheck,
 }
 
 fn version() -> &'static str {
@@ -290,6 +294,20 @@ pub fn execute(
                     println!("Deployment configuration is valid.");
                     Ok(())
                 }
+                ConfigAction::Edit => {
+                    crate::console::terminal()?;
+                    let mut foreground = None;
+                    crate::console_deployment::menu(&path, &mut foreground)?;
+                    if let Some(child) = foreground {
+                        println!("Running in foreground. Press Ctrl+C to stop this service.");
+                        child.wait()?;
+                    }
+                    Ok(())
+                }
+                ConfigAction::UpgradeCheck => {
+                    println!("{}", crate::console_deployment::upgrade_check(&path)?);
+                    Ok(())
+                }
             }
         }
         Some(command) => {
@@ -385,6 +403,34 @@ pub fn create_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())
+}
+
+pub fn replace_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if !metadata.is_file() {
+                return Err("Configuration must be a regular file, not a link".into());
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if metadata.nlink() != 1 || metadata.uid() != unsafe { libc::geteuid() } {
+                    return Err(
+                        "Configuration must be owned exclusively by the current account".into(),
+                    );
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
+    let result = create_private_file(&temporary, bytes)
+        .and_then(|_| std::fs::rename(&temporary, path).map_err(|e| e.to_string()));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn run_collector(options: &InitOptions, args: Vec<String>) -> Result<(), String> {

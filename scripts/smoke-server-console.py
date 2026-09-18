@@ -177,7 +177,7 @@ def main() -> None:
             failed.send("\r")
             failed.expect("Startup diagnostics:")
             failed.expect("What would you like to do?")
-            failed.send("\x1b[B" * 3 + "\r")
+            failed.send("\x1b[B" * 4 + "\r")
             assert failed.exit() == 0
             plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", failed.transcript)
             assert plain.index("Configuration service is unavailable") < plain.index("Startup diagnostics:")
@@ -217,7 +217,7 @@ def main() -> None:
             stopped_menu.expect("What would you like to do?")
             assert "The service is stopped" in stopped_menu.transcript
             assert stopped(data)
-            stopped_menu.send("\x1b[B" * 3 + "\r")
+            stopped_menu.send("\x1b[B" * 4 + "\r")
             assert stopped_menu.exit() == 0
             assert stopped(data)
 
@@ -230,7 +230,7 @@ def main() -> None:
                 assert "management connection is" in unreachable.transcript
                 assert "Wait for the configuration service" not in unreachable.transcript
                 assert "Start this deployment" not in unreachable.transcript
-                unreachable.send("\x1b[B" * 3 + "\r")
+                unreachable.send("\x1b[B" * 4 + "\r")
                 assert unreachable.exit() == 0
             assert stopped(data)
 
@@ -273,7 +273,34 @@ def main() -> None:
             terminal.expect("Where will you use Magi desktop?", 60)
             terminal.send("\x1b[B" * 2 + "\r")
             terminal.expect("What would you like to do?", 60)
+            # Edit the owned foreground deployment without losing its data.
+            previous_identity = management(data, "status")["server_id"]
+            with socket.socket() as reservation:
+                reservation.bind(("127.0.0.1", 0))
+                next_port = reservation.getsockname()[1]
             terminal.send("\x1b[B" * 5 + "\r")
+            terminal.expect("Check before upgrading")
+            terminal.send("\x1b[B\r")
+            terminal.expect("Local port (0 selects an available port)")
+            terminal.send(f"{next_port}\r")
+            terminal.expect("Stop this deployment and save the new port?")
+            terminal.send("\r")
+            terminal.expect("Check before upgrading")
+            assert management(data, "status")["server_id"] == previous_identity
+            assert json.loads(config.read_text())["port"] == 0
+            terminal.send("\x1b[B\r")
+            terminal.expect("Local port (0 selects an available port)")
+            terminal.send(f"{next_port}\r")
+            terminal.expect("Stop this deployment and save the new port?")
+            terminal.send("y")
+            terminal.expect("Start this deployment with the new port now?", 60)
+            terminal.send("y")
+            terminal.expect("Check before upgrading", 60)
+            terminal.send("\x1b[B" * 4 + "\r")
+            terminal.expect("What would you like to do?")
+            assert management(data, "status")["server_id"] == previous_identity
+            assert f":{next_port}/api" in management(data, "status")["base_url"]
+            terminal.send("\x1b[B" * 6 + "\r")
             terminal.expect("Running in foreground", 60)
             assert "console-secret-should-stay-hidden" not in terminal.transcript
             assert api(data, "/config/onboarding-status")["data"]["completed"]
@@ -303,7 +330,7 @@ def main() -> None:
             second.send("\x1b[B" * 2 + "\r")
             second.expect("What would you like to do?")
             assert "Model provider" not in second.transcript
-            second.send("\x1b[B" * 5 + "\r")
+            second.send("\x1b[B" * 6 + "\r")
             assert second.exit() == 0
             assert api(data, "/config")["data"]["preferences"]["language"] == "en"
             assert management(data, "status")["server_id"] == before["server_id"]
@@ -349,7 +376,7 @@ def main() -> None:
             handoff.send("\r")
             handoff.expect("Device paired with this Magi: Console smoke")
             handoff.expect("What would you like to do?")
-            handoff.send("\x1b[B" * 5 + "\r")
+            handoff.send("\x1b[B" * 6 + "\r")
             assert handoff.exit() == 0
             assert not api(data2, "/config/onboarding-status")["data"]["completed"]
             assert service.poll() is None
@@ -372,7 +399,7 @@ def main() -> None:
             devices.send("y")
             devices.expect("What would you like to do?")
             assert management(data2, "clients")[0]["revoked_at_ms"] is not None
-            devices.send("\x1b[B" * 5 + "\r")
+            devices.send("\x1b[B" * 6 + "\r")
             assert devices.exit() == 0
             assert service.poll() is None
             print("PASS: paired-device management and confirmation", flush=True)

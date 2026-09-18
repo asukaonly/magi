@@ -156,6 +156,21 @@ out before an interactive background restart; it never triggers automatic data
 restoration. Service startup creates missing log directories independently of
 first-time installation.
 
+Deployment settings (`config edit`, also available in the menu) expose run mode,
+port, folders and an upgrade checklist. Run mode explains temporary foreground
+versus background after login, including logout/sleep limits and why background
+registration is unavailable. Switching mode requires explicit confirmation; it
+can stop only this console's child or a verified loaded login service. An inactive
+registration does not confer ownership of a separate foreground runtime.
+Port changes confirm interruption, acquire data-root runtime leases before an
+atomic configuration write, preserve business data and refresh an owned login
+registration without implicitly starting it. Starting after the edit is a
+separate choice. Concurrent configuration edits are detected rather than silently
+overwritten. Advanced runtime paths and data migration remain deliberate offline
+operations; changing a data path does not move existing data. `config upgrade-check`
+reports current files, state and concrete backup/replacement steps without claiming
+a backup or a future release has been validated.
+
 Packaged deployments default to `~/.magi-center` for data and
 `~/.config/magi-server/server.json` for deployment configuration. These paths
 are rooted in the user's home directory, not the shell's current directory.

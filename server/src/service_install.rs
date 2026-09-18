@@ -119,7 +119,7 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
         }
         Ok(())
     };
-    if command == "install" {
+    if matches!(command, "install" | "register") {
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
         if !plist.exists() {
             // Pre-create the service-owned log directory before launchd starts it.
@@ -149,6 +149,7 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     }
     let plist_arg = plist.to_str().ok_or("Launch agent path is not UTF-8")?;
     match command {
+        "register" => {}
         "install" | "start" => {
             if !loaded()? {
                 launchctl(&["enable", &target])?;
@@ -173,8 +174,8 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     // The caller owns presentation: JSON for automation, step feedback for the wizard.
     Ok(
         serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true,
-            "outcome": if matches!(command, "install" | "start") && inspected.loaded { "already_loaded" } else if matches!(command, "install" | "start" | "restart") { "start_requested" } else { "stopped" },
-            "message": if matches!(command, "install" | "start") && inspected.loaded { "The login service was already loaded; this request did not restart it. Check status for readiness." } else if matches!(command, "install" | "start" | "restart") { "Background start requested. Check status for readiness." } else { "Background service stopped. Data is preserved." }}),
+            "outcome": if command == "register" { "registered" } else if matches!(command, "install" | "start") && inspected.loaded { "already_loaded" } else if matches!(command, "install" | "start" | "restart") { "start_requested" } else { "stopped" },
+            "message": if command == "register" { "Login startup is registered. The service has not been started." } else if matches!(command, "install" | "start") && inspected.loaded { "The login service was already loaded; this request did not restart it. Check status for readiness." } else if matches!(command, "install" | "start" | "restart") { "Background start requested. Check status for readiness." } else { "Background service stopped. Data is preserved." }}),
     )
 }
 

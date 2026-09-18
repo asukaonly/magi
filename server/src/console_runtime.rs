@@ -35,13 +35,14 @@ pub fn saved_mode(path: &Path) -> Result<Option<RunMode>, String> {
 }
 
 pub fn save_mode(path: &Path, mode: RunMode) -> Result<(), String> {
-    crate::cli::create_private_file(
+    crate::cli::replace_private_file(
         &path.with_extension("console.json"),
         &serde_json::to_vec(&Preferences { run_mode: mode }).map_err(|e| e.to_string())?,
     )
 }
 
 pub struct Foreground {
+    data_dir: std::path::PathBuf,
     child: Child,
     input: Option<ChildStdin>,
     shutdown_timeout: Duration,
@@ -71,6 +72,7 @@ impl Foreground {
         let mut child = command.spawn().map_err(|e| e.to_string())?;
         let input = child.stdin.take();
         let mut foreground = Self {
+            data_dir: config.data_dir.clone(),
             child,
             input,
             shutdown_timeout: Duration::from_secs(config.owner_shutdown_timeout_secs() + 2),
@@ -95,6 +97,10 @@ impl Foreground {
             return Err(self.exit_error(status));
         }
         Ok(())
+    }
+
+    pub fn owns(&self, config: &ServerConfig) -> bool {
+        self.data_dir == config.data_dir
     }
 
     fn exit_error(&mut self, status: std::process::ExitStatus) -> String {

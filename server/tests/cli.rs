@@ -131,6 +131,36 @@ fn default_entry_refuses_noninteractive_input_without_creating_data() {
 }
 
 #[test]
+fn upgrade_check_is_read_only_and_configuration_edit_requires_a_terminal() {
+    let fixture = Fixture::new();
+    let config_path = fixture.0.join("config.json");
+    let config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    let original = serde_json::to_vec(&config).unwrap();
+    fs::write(&config_path, &original).unwrap();
+    let check = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["config", "upgrade-check", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(check.status.success());
+    let text = String::from_utf8_lossy(&check.stdout);
+    assert!(text.contains(config.data_dir.to_str().unwrap()));
+    assert!(text.contains("does not verify a backup"));
+    assert!(!config.data_dir.exists());
+    let edit = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["config", "edit", "--config"])
+        .arg(&config_path)
+        .output()
+        .unwrap();
+    assert!(!edit.status.success());
+    assert!(String::from_utf8_lossy(&edit.stderr).contains("requires a terminal"));
+    assert_eq!(fs::read(config_path).unwrap(), original);
+}
+
+#[test]
 fn explicit_commands_reject_invalid_or_misplaced_arguments() {
     for args in [
         vec!["revoke"],
