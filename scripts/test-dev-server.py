@@ -39,6 +39,9 @@ class DevelopmentCommands(unittest.TestCase):
             result = subprocess.run([str(SCRIPT), "collect", "status"], env=env, capture_output=True, text=True, check=True)
             args = json.loads(result.stdout)
             self.assertLess(args.index("--development-root"), args.index("collect"))
+            result = subprocess.run([str(SCRIPT), "collect", "status", "--data-dir", str(root / "collector")], env=env, capture_output=True, text=True, check=True)
+            args = json.loads(result.stdout)
+            self.assertLess(args.index("--data-dir"), args.index("collect"))
             self.assertEqual(config.read_text(), "existing config")
 
 

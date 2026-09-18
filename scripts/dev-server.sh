@@ -19,8 +19,10 @@ Use the same commands as magi-server, with the development deployment selected.
   status [--json]     Inspect this deployment without starting it
   configure          Edit models, language and persona
   connect            Guide desktop pairing and HTTPS access
-  logs [--follow]    Read service logs (--source service|backend)
+  logs [--follow]     Read service logs (--source service|backend)
   config show        Inspect deployment settings
+  config edit        Change run mode or port; inspect folders
+  config upgrade-check  Read-only checks before replacing the service bundle
   <command> --help    Show all options for a command
 
 Default config: ~/.config/magi-server/dev.json
@@ -43,14 +45,15 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { printf 'Missing value for %s\n' "$1" >&2; exit 1; }
       case "$1" in
         --config) CONFIG_PATH="$2" ;;
-        --data-dir) HAS_DATA=true; ARGS+=("$1" "$2") ;;
-        --development-root|--bundle-root) HAS_RUNTIME=true; ARGS+=("$1" "$2") ;;
-        *) ARGS+=("$1" "$2") ;;
+        --data-dir) HAS_DATA=true; EXTRA+=("$1" "$2") ;;
+        --development-root|--bundle-root) HAS_RUNTIME=true; EXTRA+=("$1" "$2") ;;
+        *) EXTRA+=("$1" "$2") ;;
       esac
       shift 2 ;;
     --config=*) CONFIG_PATH="${1#--config=}"; shift ;;
-    --data-dir=*) HAS_DATA=true; ARGS+=("$1"); shift ;;
-    --development-root=*|--bundle-root=*) HAS_RUNTIME=true; ARGS+=("$1"); shift ;;
+    --data-dir=*) HAS_DATA=true; EXTRA+=("$1"); shift ;;
+    --port=*) EXTRA+=("$1"); shift ;;
+    --development-root=*|--bundle-root=*) HAS_RUNTIME=true; EXTRA+=("$1"); shift ;;
     *)
       if [[ -z "$COMMAND" && "$1" != -* ]]; then COMMAND="$1"; fi
       ARGS+=("$1"); shift ;;
