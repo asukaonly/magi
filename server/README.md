@@ -70,7 +70,9 @@ after setup, using the same server APIs and masked secrets as desktop:
 /Applications/MagiServer/magi-server configure
 ```
 
-For source development, use `./scripts/dev-server.sh --setup`. It keeps the
+For source development, use `./scripts/dev-server.sh`. With no command it opens
+the console; append `run`, `status`, `configure`, `connect`, `logs`, or any other
+server subcommand to operate on the same development configuration. It keeps the
 development config/data defaults separate from the packaged deployment:
 `~/.config/magi-server/dev.json` and `~/.magi-center-dev`.
 
@@ -362,9 +364,10 @@ repository's `.venv`, then run:
 ./scripts/dev-server.sh
 ```
 
-The script builds the debug server as needed, creates
-`~/.config/magi-server/dev.json` on first use, and runs only the center using
-Python source from this checkout. Its default data directory is
+The script builds the debug server as needed and opens setup or management for
+`~/.config/magi-server/dev.json`. First setup creates the configuration after
+validating your inputs. Run `./scripts/dev-server.sh run` after setup to start
+only the center using Python source from this checkout. Its default data directory is
 `~/.magi-center-dev` and its default loopback port is `19080`. Existing config
 files are reused without modification. Control-C stops the owned runtime;
 source changes require a restart. Tauri, Vite and a packaged sidecar are not needed.
@@ -380,7 +383,9 @@ To create another development instance, use absolute paths:
 
 On subsequent runs, pass only `--config` for that instance. `--data-dir` and
 `--port` are initialization options and are rejected when the config exists;
-edit the existing config to change those values. Use `--help` for all options.
+use deployment settings to change the existing port. Use `--help` for common
+commands or `<command> --help` for that command's options. Inspection commands
+do not create configuration, start services, or require the Python environment.
 
 From the repository, `node scripts/prepare-service-bundle.mjs` stages the shared
 service component under `build/service`. Release builds must supply a verified,

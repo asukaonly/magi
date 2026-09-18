@@ -144,18 +144,22 @@ For a source checkout with its Python environment installed:
 ./scripts/dev-server.sh
 ```
 
-Add `--setup` to use the English console wizard against that development config.
+The script opens the English console by default. It forwards service subcommands
+to the same development config: use `run`, `status`, `configure`, `connect`,
+`logs`, `config`, or lifecycle commands without repeating the config path.
 Packaged users start with a single `magi-server` command; a new deployment asks
 for service settings, terminal/desktop setup, Magi language, models and persona.
 The CLI interface stays English while persona content follows the chosen language.
 An existing configured service is reused without creating new pairing grants.
 See [the operator guide](../server/README.md) for explicit automation commands.
 
-This macOS/Linux development shortcut initializes
-`~/.config/magi-server/dev.json` once and reuses it on later runs, with
+This macOS/Linux development shortcut selects
+`~/.config/magi-server/dev.json`, with
 `~/.magi-center-dev` as its default data root. It builds the debug server and
 uses the repository's `.venv` and Python source without starting the desktop.
-Stop with Control-C and restart after code changes. `--config` selects another
+Use `./scripts/dev-server.sh run` after setup for a foreground run.
+Read-only commands never initialize data or require the Python environment.
+Stop a foreground run with Control-C and restart after code changes. `--config` selects another
 absolute config path; `--data-dir` and `--port` apply only when creating a new
 config. Existing settings are never rewritten by the shortcut.
 

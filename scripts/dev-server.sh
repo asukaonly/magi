@@ -3,75 +3,67 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_PATH="${HOME}/.config/magi-server/dev.json"
-DATA_DIR="${HOME}/.magi-center-dev"
-PORT=19080
-INIT_OPTIONS_SET=false
-GUIDED_SETUP=false
+COMMAND=""
+ARGS=()
+EXTRA=()
+HAS_DATA=false
+HAS_RUNTIME=false
 
 usage() {
-  cat <<'EOF'
-Usage: scripts/dev-server.sh [--setup] [--config <file>] [--data-dir <directory>] [--port <port>]
+  cat <<'HELP'
+Usage: scripts/dev-server.sh [command] [options]
 
-Start the development center without Tauri or the frontend.
-Requires Cargo and the repository's .venv with backend dependencies installed.
+Use the same commands as magi-server, with the development deployment selected.
+  (no command)       Open setup or manage this deployment
+  run                Run in this terminal (Ctrl+C stops the service)
+  status              Inspect this deployment without starting it
+  configure          Edit models, language and persona
+  connect            Guide desktop pairing and HTTPS access
+  logs               Read service logs
+  config show        Inspect deployment settings
+  <command> --help    Show all options for a command
 
-  --config    Absolute configuration path (default: ~/.config/magi-server/dev.json)
-  --data-dir  Absolute data directory for a NEW config (default: ~/.magi-center-dev)
-  --port      HTTP port for a NEW config (default: 19080; 0 chooses a free port)
-  --setup     Open the English console setup flow (requires a terminal)
-  -h, --help  Show this help
-
-Existing configurations are reused without modification. To change an existing
-port or data directory, edit that config or choose a new --config path.
-Foreground runs stop with Ctrl+C; guided background mode stays running.
+Default config: ~/.config/magi-server/dev.json
+New deployment data: ~/.magi-center-dev
+Use --config /absolute/path.json to select another deployment.
+Use --data-dir and --port with first setup or init only.
+Read-only commands never initialize a deployment or require Python.
+Requires Cargo; starting a service also requires the repository's .venv.
 Source changes require a restart; there is no hot reload.
-EOF
+HELP
 }
 
-fail() {
-  printf 'Error: %s\n' "$1" >&2
-  exit 1
-}
-
+if [[ $# -eq 1 && ( "$1" == --help || "$1" == -h ) ]]; then
+  usage
+  exit 0
+fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) usage; exit 0 ;;
-    --setup) GUIDED_SETUP=true; shift ;;
-    --config|--data-dir|--port)
-      [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || fail "Missing value for $1"
+    --config|--data-dir|--port|--development-root|--bundle-root)
+      [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || { printf 'Missing value for %s\n' "$1" >&2; exit 1; }
       case "$1" in
         --config) CONFIG_PATH="$2" ;;
-        --data-dir) DATA_DIR="$2"; INIT_OPTIONS_SET=true ;;
-        --port) PORT="$2"; INIT_OPTIONS_SET=true ;;
+        --data-dir) HAS_DATA=true; ARGS+=("$1" "$2") ;;
+        --development-root|--bundle-root) HAS_RUNTIME=true; ARGS+=("$1" "$2") ;;
+        *) ARGS+=("$1" "$2") ;;
       esac
-      shift 2
-      ;;
-    *) fail "Unknown argument: $1 (use --help)" ;;
+      shift 2 ;;
+    --config=*) CONFIG_PATH="${1#--config=}"; shift ;;
+    --data-dir=*) HAS_DATA=true; ARGS+=("$1"); shift ;;
+    --development-root=*|--bundle-root=*) HAS_RUNTIME=true; ARGS+=("$1"); shift ;;
+    *)
+      if [[ -z "$COMMAND" && "$1" != -* ]]; then COMMAND="$1"; fi
+      ARGS+=("$1"); shift ;;
   esac
 done
 
-[[ "$CONFIG_PATH" == /* ]] || fail "Configuration path must be absolute"
-if [[ -e "$CONFIG_PATH" || -L "$CONFIG_PATH" ]]; then
-  [[ "$INIT_OPTIONS_SET" == false ]] || fail "--data-dir and --port only apply to a new configuration"
+[[ "$CONFIG_PATH" == /* ]] || { printf 'Configuration path must be absolute\n' >&2; exit 1; }
+if [[ "$COMMAND" == init || ( -z "$COMMAND" && ! -e "$CONFIG_PATH" && ! -L "$CONFIG_PATH" ) ]]; then
+  [[ "$HAS_DATA" == true ]] || EXTRA+=(--data-dir "${HOME}/.magi-center-dev")
+  [[ "$HAS_RUNTIME" == true ]] || EXTRA+=(--development-root "$ROOT_DIR")
+elif [[ "$COMMAND" == collect && "$HAS_RUNTIME" == false ]]; then
+  EXTRA+=(--development-root "$ROOT_DIR")
 fi
-command -v cargo >/dev/null 2>&1 || fail "Cargo is required; install the Rust toolchain first"
-if [[ "$GUIDED_SETUP" == true ]]; then
-  [[ -t 0 && -t 2 ]] || fail "--setup requires a terminal"
-fi
-[[ -x "${ROOT_DIR}/.venv/bin/python" ]] || fail "Install the backend development environment in ${ROOT_DIR}/.venv first"
-
+printf 'Development deployment: %s\n' "$CONFIG_PATH" >&2
 cd "$ROOT_DIR"
-if [[ ! -e "$CONFIG_PATH" && ! -L "$CONFIG_PATH" ]]; then
-  cargo run --locked -p magi-server -- init \
-    --config "$CONFIG_PATH" \
-    --data-dir "$DATA_DIR" \
-    --development-root "$ROOT_DIR" \
-    --port "$PORT"
-fi
-
-printf 'Starting development center with config: %s\n' "$CONFIG_PATH"
-if [[ "$GUIDED_SETUP" == true ]]; then
-  exec cargo run --locked -p magi-server -- --config "$CONFIG_PATH"
-fi
-# The service owner handles shutdown and recovery; the launcher owns no extra supervisor.
-exec cargo run --locked -p magi-server -- run --config "$CONFIG_PATH"
+exec cargo run --quiet --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}
