@@ -32,8 +32,52 @@ pub(crate) fn ui<T>(result: std::io::Result<T>) -> Result<T, String> {
     })
 }
 
-fn text(prompt: &str, default: &str) -> Result<String, String> {
+pub(crate) fn text(prompt: &str, default: &str) -> Result<String, String> {
     ui(cliclack::input(prompt).default_input(default).interact())
+}
+
+fn validate_data_path(value: &str) -> Result<(), String> {
+    let path = Path::new(value);
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err(
+            "Enter an absolute directory without '..' (for example /Users/you/.magi-center)".into(),
+        );
+    }
+    if path.exists() && !path.is_dir() {
+        return Err("Choose a directory, not a file".into());
+    }
+    if path.parent().is_none() || cli::home_path("").is_ok_and(|home| path == home) {
+        return Err(
+            "Choose a dedicated Magi directory, not the filesystem root or your home directory"
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_provider_url(value: &str) -> Result<(), String> {
+    let url = reqwest::Url::parse(value).map_err(|_| "Enter a complete HTTP(S) provider URL")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("Use an HTTP(S) URL without credentials, query parameters or fragments".into());
+    }
+    Ok(())
+}
+
+fn provider_url(default: &str) -> Result<String, String> {
+    ui(cliclack::input("Provider base URL")
+        .default_input(default)
+        .validate(|value: &String| validate_provider_url(value))
+        .interact())
 }
 
 pub(crate) fn clean(value: &str) -> String {
@@ -93,10 +137,12 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
             Some(data) => data.clone(),
             None => cli::home_path(".magi-center")?,
         };
-        let data = text(
+        let data: String = ui(cliclack::input(
             "1/5 · Service settings — data directory (absolute path)",
-            &default_data.to_string_lossy(),
-        )?;
+        )
+        .default_input(&default_data.to_string_lossy())
+        .validate(|value: &String| validate_data_path(value))
+        .interact())?;
         let port: u16 = ui(
             cliclack::input("Loopback port (0 selects an available port)")
                 .default_input(&options.port.unwrap_or(19080).to_string())
@@ -241,16 +287,16 @@ fn configure_models(
     completed: bool,
     prompt: &str,
 ) -> Result<Value, String> {
+    let configured = snapshot["llm"]["selections"]["core"]["model"]
+        .as_str()
+        .is_some_and(|s| !s.is_empty());
+    let reuse = configured && ui(cliclack::confirm(prompt).initial_value(true).interact())?;
+    let mut llm = if reuse {
+        snapshot["llm"].clone()
+    } else {
+        collect_model(api, &snapshot["llm"])?
+    };
     loop {
-        let configured = snapshot["llm"]["selections"]["core"]["model"]
-            .as_str()
-            .is_some_and(|s| !s.is_empty());
-        let reuse = configured && ui(cliclack::confirm(prompt).initial_value(true).interact())?;
-        let llm = if reuse {
-            snapshot["llm"].clone()
-        } else {
-            collect_model(api, &snapshot["llm"])?
-        };
         let tested = progress(
             "Verifying core and fast models (a small provider request may be billed)",
             "Model connection verified",
@@ -265,16 +311,85 @@ fn configure_models(
             }
             Err(error) => {
                 ui(cliclack::log::warning(error))?;
-                if !ui(cliclack::confirm("Try model configuration again?")
-                    .initial_value(true)
-                    .interact())?
-                {
-                    return Err("Model setup is incomplete. The saved draft can be resumed.".into());
+                loop {
+                    match ui(
+                        cliclack::select("Model settings are retained in this session")
+                            .item(
+                                "edit",
+                                "Edit a setting",
+                                "Correct one field without starting over",
+                            )
+                            .item("retry", "Retry verification", "Use the same settings")
+                            .item(
+                                "back",
+                                "Return to menu",
+                                "Discard this unverified attempt; keep saved configuration",
+                            )
+                            .interact(),
+                    )? {
+                        "edit" => llm = edit_model(api, &llm)?,
+                        "retry" => break,
+                        _ => return Err(
+                            "Model setup is incomplete. Previously saved settings are unchanged."
+                                .into(),
+                        ),
+                    }
                 }
             }
         }
     }
     Ok(snapshot)
+}
+
+fn edit_model(api: &Api, previous: &Value) -> Result<Value, String> {
+    let field = ui(
+        cliclack::select("Which model setting would you like to change?")
+            .item("key", "API key", "Keep the provider, address and models")
+            .item("url", "Provider address", "Keep the credential and models")
+            .item(
+                "models",
+                "Model names",
+                "Core: conversations; fast: lightweight tasks",
+            )
+            .item("provider", "Change provider", "Choose another provider")
+            .item("back", "Back", "Keep this attempt")
+            .interact(),
+    )?;
+    if field == "provider" {
+        return collect_model(api, previous);
+    }
+    let mut llm = previous.clone();
+    let id = string(&llm["selections"]["core"], "provider_id")?.to_owned();
+    match field {
+        "key" => {
+            let key: String = ui(cliclack::password("Provider API key (hidden)")
+                .allow_empty()
+                .interact())?;
+            llm["providers"][&id]["api_key"] = key.clone().into();
+            llm["providers"][&id]["services"]["chat"]["api_key"] = key.into();
+        }
+        "url" => {
+            let url = provider_url(llm["providers"][&id]["base_url"].as_str().unwrap_or(""))?;
+            llm["providers"][&id]["base_url"] = url.clone().into();
+            llm["providers"][&id]["services"]["chat"]["base_url"] = url.into();
+        }
+        "models" => {
+            let core = text("Core model", string(&llm["selections"]["core"], "model")?)?;
+            let fast = text(
+                "Fast model",
+                string(&llm["selections"]["auxiliary"], "model")?,
+            )?;
+            llm["selections"]["core"]["model"] = core.clone().into();
+            llm["selections"]["memory_summarizer"] = llm["selections"]["core"].clone();
+            llm["selections"]["auxiliary"]["model"] = fast.clone().into();
+            if id == "custom" {
+                llm["providers"][&id]["custom_models"] = json!([core, fast]);
+                llm["providers"][&id]["custom_default_model"] = core.into();
+            }
+        }
+        _ => {}
+    }
+    Ok(llm)
 }
 
 fn choose_persona(api: &Api, language: &str, prompt: &str) -> Result<String, String> {
@@ -316,7 +431,8 @@ fn collect_model(api: &Api, previous: &Value) -> Result<Value, String> {
     for entry in providers {
         if entry["source"] == "builtin" {
             let id = string(entry, "id")?.to_owned();
-            select = select.item(id.clone(), id, "");
+            let label = entry["display_name"].as_str().unwrap_or(&id);
+            select = select.item(id.clone(), clean(label), "");
         }
     }
     select = select.item(
@@ -356,14 +472,7 @@ fn collect_model(api: &Api, previous: &Value) -> Result<Value, String> {
             .clone();
     }
     let default_url = meta["default_base_url"].as_str().unwrap_or("");
-    let base_url = text("Provider base URL", default_url)?;
-    let url = reqwest::Url::parse(&base_url).map_err(|_| "Enter a valid provider URL")?;
-    if !matches!(url.scheme(), "http" | "https")
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return Err("Provider URL must be HTTP(S) without embedded credentials".into());
-    }
+    let base_url = provider_url(default_url)?;
     let key_required = meta["fields"]["api_key"]["required"]
         .as_bool()
         .unwrap_or(id != "custom");
@@ -450,4 +559,26 @@ pub(crate) fn summary(path: &Path, config: &ServerConfig, api: &Api) -> Result<(
         config.data_dir.display(), api.base_url.trim_end_matches("/api"),
         path.display().to_string().replace('\'', "'\\''"), path.display().to_string().replace('\'', "'\\''"), config.data_dir.join("logs/service.log").display(),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_validation_rejects_unusable_values_before_advancing() {
+        assert!(validate_data_path("relative").is_err());
+        assert!(validate_data_path("/tmp/../data").is_err());
+        assert!(validate_data_path("/tmp/magi-test-data").is_ok());
+        for value in [
+            "oops",
+            "file:///tmp/file",
+            "https://key@host",
+            "https://host?key=secret",
+        ] {
+            assert!(validate_provider_url(value).is_err());
+        }
+        assert!(validate_provider_url("http://127.0.0.1:1234/v1").is_ok());
+        assert!(validate_provider_url("https://example.com/v1").is_ok());
+    }
 }

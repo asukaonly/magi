@@ -3,7 +3,7 @@
 use magi_service_contract::config::ServerConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::{io::Read, time::Duration};
 
 #[cfg(unix)]
 pub use magi_server_runtime::management::Request;
@@ -109,6 +109,11 @@ impl Api {
         let response = request.send().map_err(|_| format!("Service request failed: {method} {path}. Check service status and logs; changes may have been saved."))?;
         let status = response.status();
         if !status.is_success() {
+            if path == "/llm/providers/test" {
+                let mut detail = String::new();
+                let _ = response.take(16_384).read_to_string(&mut detail);
+                return Err(model_error(status.as_u16(), &detail));
+            }
             return Err(if status.as_u16() == 409 {
                 "Configuration changed in another client. Run configure again to reload it.".into()
             } else {
@@ -251,6 +256,32 @@ impl Api {
     }
 }
 
+fn model_error(status: u16, detail: &str) -> String {
+    // Provider errors can reflect credentials or private URLs. Classify them,
+    // but never print their raw body in the terminal.
+    let detail = detail.to_lowercase();
+    let message = if status == 401
+        || detail.contains("401")
+        || detail.contains("authentication_error")
+        || detail.contains("invalid_api_key")
+    {
+        "The provider rejected the API key. Check or replace the key, then retry."
+    } else if status == 403 || detail.contains("403") || detail.contains("permission_denied") {
+        "The provider denied access. Check this key's permissions and model access."
+    } else if status == 429 || detail.contains("429") || detail.contains("insufficient_quota") {
+        "The provider's quota or rate limit was reached. Check billing or wait before retrying."
+    } else if status == 404 || detail.contains("404") || detail.contains("model_not_found") {
+        "The provider endpoint or model was not found. Check the address and model name."
+    } else if detail.contains("timeout") || detail.contains("timed out") {
+        "The provider did not respond in time. Check connectivity, then retry with the same settings."
+    } else if detail.contains("connection") || detail.contains("connecterror") {
+        "The service could not reach the provider. Check its address and network access from this machine."
+    } else {
+        "Model verification failed. Check the provider settings; diagnostic details are in the backend log."
+    };
+    format!("{message} Your entries are retained for this session.")
+}
+
 fn validate_loopback(base: &str) -> Result<(), String> {
     let url = reqwest::Url::parse(base).map_err(|_| "Invalid local service address")?;
     if url.scheme() != "http"
@@ -280,6 +311,19 @@ pub struct SetupDocument {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_failures_are_actionable_without_reflecting_secrets() {
+        let error = model_error(
+            502,
+            r#"{"detail":"Error 401 authentication_error secret-key"}"#,
+        );
+        assert!(error.contains("rejected the API key"));
+        assert!(!error.contains("secret-key"));
+        assert!(model_error(502, "model_not_found").contains("model was not found"));
+        assert!(model_error(502, "429").contains("quota or rate limit"));
+        assert!(model_error(502, "timed out").contains("did not respond"));
+        assert!(!model_error(502, "unexpected secret-key").contains("secret-key"));
+    }
     #[test]
     fn operator_http_cannot_leave_loopback() {
         assert!(validate_loopback("http://127.0.0.1:19080/api").is_ok());

@@ -92,6 +92,12 @@ steps survive cancellation; completion is saved only after successful model
 verification and persona activation. A resumed template includes the center's
 saved language. Persona selection checks both locale and seed identity.
 
+Directory and provider-address inputs validate before advancing. Failed model
+verification retains the current attempt in memory: users may retry unchanged,
+edit only the key, address or model names, or choose another provider. Unverified
+attempts never replace saved model settings. Provider failures show actionable
+categories without reflecting raw provider responses or credentials.
+
 The default command first inspects the selected deployment without starting it.
 A configured, running instance opens a management menu: change models or language
 and persona, generate a pairing code, manage paired devices, inspect diagnostics
