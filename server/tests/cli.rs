@@ -67,7 +67,9 @@ fn run_rejects_an_active_lock_or_port_before_creating_runtime_data() {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        // Allow the bounded OS inspection (5s) and management request (6s),
+        // while still rejecting entry into the runtime's recovery loop.
+        let deadline = Instant::now() + Duration::from_secs(15);
         let timely = loop {
             if child.try_wait().unwrap().is_some() {
                 break true;
@@ -79,7 +81,11 @@ fn run_rejects_an_active_lock_or_port_before_creating_runtime_data() {
             std::thread::sleep(Duration::from_millis(20));
         };
         let output = child.wait_with_output().unwrap();
-        assert!(timely, "run entered a wait/retry loop");
+        assert!(
+            timely,
+            "run did not finish bounded inspection: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(!output.status.success());
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(

@@ -123,7 +123,9 @@ def _heartbeat_script(
     script = (
         "import pathlib,subprocess,sys,time; "
         f"child=subprocess.Popen([sys.executable, '-c', {child!r}, {str(heartbeat_path)!r}]); "
-        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid), encoding='utf-8'); "
+        f"pid_file=pathlib.Path({str(pid_path)!r}); "
+        "pid_file.with_suffix('.tmp').write_text(str(child.pid), encoding='utf-8'); "
+        "pid_file.with_suffix('.tmp').replace(pid_file); "
         "print(child.pid, flush=True)"
     )
     if not root_exits_first:
@@ -346,7 +348,9 @@ async def test_successful_root_exit_terminates_detached_descendant(tmp_path: Pat
         f"{str(heartbeat_path)!r}], stdin=subprocess.DEVNULL, "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
         "time.sleep(0.2); "
-        f"pathlib.Path({str(pid_path)!r}).write_text(str(child.pid), encoding='utf-8')"
+        f"pid_file=pathlib.Path({str(pid_path)!r}); "
+        "pid_file.with_suffix('.tmp').write_text(str(child.pid), encoding='utf-8'); "
+        "pid_file.with_suffix('.tmp').replace(pid_file)"
     )
 
     result = await managed_subprocess.run_bounded_subprocess(
