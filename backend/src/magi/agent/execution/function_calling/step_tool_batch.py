@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from contextlib import suppress
-from typing import Any
+from typing import Any, Coroutine
 
 from ....core.logger import get_logger
 from ...cancel import CancelToken
@@ -233,7 +233,7 @@ class FunctionCallingToolBatchExecutor:
             escalation_count=result.data["escalation_count"],
             denial_reason=denial_reason,
         )
-        if approved and state.journal is not None:
+        if approved and reasoning_state is not None and state.journal is not None:
             await state.journal.append(
                 AgentRunEventType.REASONING_DEPTH_CHANGED,
                 step_index=iteration,
@@ -324,7 +324,7 @@ class FunctionCallingToolBatchExecutor:
         *,
         tool_call: Any,
         cancel_token: CancelToken,
-        invocation: Any,
+        invocation: Coroutine[Any, Any, ToolCallResult],
     ) -> ToolCallResult:
         tool_task = asyncio.create_task(
             invocation,

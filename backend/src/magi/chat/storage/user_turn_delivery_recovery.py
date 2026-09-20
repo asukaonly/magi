@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TYPE_CHECKING, cast
 
 from ...core.sqlite import sqlite_connection_async
 from ..contracts import (
@@ -19,6 +20,10 @@ from ..terminal_outcomes import (
 )
 from .user_turn_delivery_errors import ChatTurnConflictError
 from .user_turn_delivery_rows import normalize_delivery_attempt_no
+
+
+if TYPE_CHECKING:
+    from .model_context import ChatModelContextPersistenceMixin
 
 
 class ChatUserTurnDeliveryRecoveryPersistenceMixin:
@@ -196,7 +201,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                         visible_text=visible_text,
                         error_text=str(owner["error_text"] or "").strip() or None,
                     )
-                    await self._promote_model_context_run_with_connection(
+                    await cast("ChatModelContextPersistenceMixin", self)._promote_model_context_run_with_connection(
                         db,
                         session_id=str(owner["session_id"]),
                         run_id=effective_run_id,
@@ -395,7 +400,7 @@ class ChatUserTurnDeliveryRecoveryPersistenceMixin:
                         status="failed",
                         error_text="Accepted user turn could not be recovered",
                     )
-                    await self._promote_model_context_run_with_connection(
+                    await cast("ChatModelContextPersistenceMixin", self)._promote_model_context_run_with_connection(
                         db,
                         session_id=session_id,
                         run_id=effective_run_id,

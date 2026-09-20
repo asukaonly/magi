@@ -20,6 +20,10 @@ from ...core.logger import get_logger
 logger = get_logger(__name__)
 
 
+class _PluginResponseProviderProtocol(Protocol):
+    async def invoke_response(self, **kwargs: Any) -> ProviderResponse: ...
+
+
 class _ProviderBridgeRequestHostProtocol(Protocol):
     llm: Any
 
@@ -194,7 +198,7 @@ class ProviderBridgeRequestMixin:
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
         if getattr(host.llm, "is_plugin_provider", False) is True:
-            return await host.llm.invoke_response(
+            return await cast(_PluginResponseProviderProtocol, host.llm).invoke_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -399,7 +403,7 @@ class ProviderBridgeRequestMixin:
     ) -> ProviderResponse:
         host = cast(_ProviderBridgeRequestHostProtocol, self)
         if getattr(host.llm, "is_plugin_provider", False) is True:
-            return await host.llm.invoke_response(
+            return await cast(_PluginResponseProviderProtocol, host.llm).invoke_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 tools=tools,

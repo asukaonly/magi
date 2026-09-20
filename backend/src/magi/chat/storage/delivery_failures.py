@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TYPE_CHECKING, cast
 from dataclasses import dataclass
 
 import aiosqlite
@@ -18,6 +19,10 @@ from ..rhythm_completion import complete_visible_rhythm_segments
 from ..terminal_outcomes import model_context_terminal_outcome
 from .messages import MESSAGE_SELECT_COLUMNS
 from .serialization import row_to_message
+
+
+if TYPE_CHECKING:
+    from .model_context import ChatModelContextPersistenceMixin
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +232,7 @@ class ChatDeliveryFailurePersistenceMixin:
                         visible_text=visible_text,
                         error_text=terminal_error,
                     )
-                    await self._promote_model_context_run_with_connection(
+                    await cast("ChatModelContextPersistenceMixin", self)._promote_model_context_run_with_connection(
                         db,
                         session_id=str(delivery_row["session_id"]),
                         run_id=effective_run_id,

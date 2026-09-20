@@ -34,6 +34,9 @@ class FunctionCallingRunJournal:
         state: FunctionCallingStepState,
         run_input: AgentRunRequest,
     ) -> None:
+        reasoning_state = state.reasoning_state
+        if reasoning_state is None:
+            raise RuntimeError("Run reasoning state must be initialized before journaling")
         log_fields = {
             "run_id": run_input.run_id,
             "parent_run_id": run_input.parent_run_id,
@@ -51,8 +54,8 @@ class FunctionCallingRunJournal:
                 run_input.capability_resolution.get("rejected_tools", [])
             ),
             "reasoning_preference": run_input.reasoning_policy.preference.value,
-            "reasoning_requested": state.reasoning_state.requested_depth.value,
-            "reasoning_effective": state.reasoning_state.effective_depth.value,
+            "reasoning_requested": reasoning_state.requested_depth.value,
+            "reasoning_effective": reasoning_state.effective_depth.value,
             "reasoning_maximum": run_input.reasoning_policy.maximum_depth.value,
             "reasoning_escalation_budget": run_input.reasoning_policy.max_escalations,
             "reasoning_escalation_step": run_input.reasoning_policy.escalation_step,
@@ -77,7 +80,7 @@ class FunctionCallingRunJournal:
                 payload={
                     "checkpoint_reason": run_input.checkpoint.reason,
                     "checkpoint_note": run_input.checkpoint.note,
-                    "reasoning_state": state.reasoning_state.to_dict(),
+                    "reasoning_state": reasoning_state.to_dict(),
                     "repair_iterations": state.repair_iterations,
                     "evidence": [item.to_ref().to_dict() for item in state.tool_evidence],
                 },
@@ -131,7 +134,7 @@ class FunctionCallingRunJournal:
             AgentRunEventType.REASONING_POLICY_RESOLVED,
             payload={
                 **run_input.reasoning_policy.to_dict(),
-                **state.reasoning_state.to_dict(),
+                **reasoning_state.to_dict(),
             },
         )
 
@@ -147,6 +150,7 @@ class FunctionCallingRunJournal:
     ) -> None:
         if state.journal is None:
             return
+        reasoning_state = state.reasoning_state
         await state.journal.append(
             AgentRunEventType.CONTEXT_PREPARED,
             step_index=step_index,
@@ -156,7 +160,7 @@ class FunctionCallingRunJournal:
                 messages=messages,
                 tools=tools,
                 reasoning_state=(
-                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
+                    reasoning_state.to_dict() if reasoning_state is not None else {}
                 ),
             ),
         )
@@ -204,7 +208,7 @@ class FunctionCallingRunJournal:
                 "failure_reason": outcome.failure_reason,
                 "evidence": [item.to_ref().to_dict() for item in state.tool_evidence],
                 "reasoning_state": (
-                    state.reasoning_state.to_dict() if state.reasoning_state is not None else {}
+                    reasoning_state.to_dict() if reasoning_state is not None else {}
                 ),
             },
         )

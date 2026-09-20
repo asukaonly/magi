@@ -28,6 +28,10 @@ class _ReconciledAssertionWrite:
 class _L2StoreReconcileHostProtocol(Protocol):
     db_path: str
 
+    async def resolve_independent_evidence_keys(
+        self, event_ids: list[str]
+    ) -> dict[str, str]: ...
+
     async def list_tom_assertions(
         self,
         *,
@@ -60,7 +64,7 @@ class L2StoreReconcileMixin(
         host = cast(_L2StoreReconcileHostProtocol, self)
         assertions = await decorate_assertion_display(host.db_path, assertions)
 
-        keys = await self.resolve_independent_evidence_keys([str(event_id) for assertion in assertions for event_id in assertion.get("evidence_events", [])])
+        keys = await host.resolve_independent_evidence_keys([str(event_id) for assertion in assertions for event_id in assertion.get("evidence_events", [])])
         normalized_entity_type = entity_type or assertions[0]["entity_type"]
         writes = [
             self._reconciled_assertion_write(

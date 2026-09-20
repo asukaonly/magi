@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
 from collections.abc import Iterable
@@ -369,7 +370,7 @@ def _retained_facet_confidence(
     if retained_count <= 0:
         return 0.0
     bounded = min(max(confidence, 0.0), 1.0)
-    return 1.0 - ((1.0 - bounded) ** (retained_count / original_count))
+    return 1.0 - math.pow(1.0 - bounded, retained_count / original_count)
 
 
 async def _active_facet_source_event_ids(

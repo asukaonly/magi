@@ -13,6 +13,10 @@ from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubbe
 from ...config.models import ThinkingDepth
 
 
+class _PluginResponseProviderProtocol(Protocol):
+    async def stream_tool_response(self, **kwargs: Any) -> ToolStreamResult: ...
+
+
 class _ToolStreamingHostProtocol(ProviderBridgeStreamingHostProtocol, Protocol):
     def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> Any: ...
 
@@ -65,7 +69,7 @@ class ProviderBridgeToolStreamingMixin:
         """Stream an LLM call with tools."""
         host = cast(_ToolStreamingHostProtocol, self)
         if getattr(host.llm, "is_plugin_provider", False) is True:
-            return await host.llm.stream_tool_response(
+            return await cast(_PluginResponseProviderProtocol, host.llm).stream_tool_response(
                 system_prompt=system_prompt,
                 messages=messages,
                 tools=tools,

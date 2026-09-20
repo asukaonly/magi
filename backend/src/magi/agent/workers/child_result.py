@@ -121,24 +121,24 @@ class ChildRunResult:
             summary=str(value.get("summary") or "").strip(),
             result_status=str(value.get("result_status") or "").strip(),
             findings=tuple(
-                item
+                finding
                 for raw in _list(value.get("findings"))
-                if (item := ChildFinding.from_dict(raw)) is not None
+                if (finding := ChildFinding.from_dict(raw)) is not None
             ),
             evidence=tuple(
-                item
+                evidence_item
                 for raw in _list(value.get("evidence"))
-                if (item := ChildEvidence.from_dict(raw)) is not None
+                if (evidence_item := ChildEvidence.from_dict(raw)) is not None
             ),
             artifacts=tuple(
-                item
+                artifact
                 for raw in _list(value.get("artifacts"))
-                if (item := ChildArtifact.from_dict(raw)) is not None
+                if (artifact := ChildArtifact.from_dict(raw)) is not None
             ),
             verification=tuple(
-                item
+                verification_item
                 for raw in _list(value.get("verification"))
-                if (item := ChildVerification.from_dict(raw)) is not None
+                if (verification_item := ChildVerification.from_dict(raw)) is not None
             ),
             records=tuple(dict(item) for item in _list(value.get("records")) if isinstance(item, dict)),
             gaps=_strings(value.get("gaps")),

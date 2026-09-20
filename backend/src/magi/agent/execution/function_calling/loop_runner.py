@@ -329,14 +329,17 @@ class FunctionCallingLoopRunner:
         self,
         state: FunctionCallingStepState,
     ) -> ThinkingDepth:
-        requested = state.reasoning_state.requested_depth
+        reasoning_state = state.reasoning_state
+        if reasoning_state is None:
+            raise RuntimeError("Run reasoning state must be initialized before resolving depth")
+        requested = reasoning_state.requested_depth
         resolver = getattr(
             getattr(self._host, "provider_bridge", None),
             "resolve_effective_reasoning_depth",
             None,
         )
         effective = resolver(requested) if callable(resolver) else requested
-        state.reasoning_state.effective_depth = effective
+        reasoning_state.effective_depth = effective
         return effective
 
     async def _handle_step_outcome(
