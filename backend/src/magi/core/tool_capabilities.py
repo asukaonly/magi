@@ -58,6 +58,14 @@ class BackgroundPort(Protocol):
 
 
 @runtime_checkable
+class TaskQueryPort(Protocol):
+    async def query(
+        self, *, user_id: str, session_id: str | None, task_id: str | None,
+        status: str | None, limit: int, offset: int,
+    ) -> dict[str, Any]: ...
+
+
+@runtime_checkable
 class MemoryQueryPort(Protocol):
     """Port for hybrid memory retrieval operations.
 
@@ -231,6 +239,7 @@ class ToolCapabilities:
     image_gen: Optional[ImageGenPort] = None
     interaction: Optional[InteractionPort] = None
     detach: Optional[DetachPort] = None
+    task_query: Optional[TaskQueryPort] = None
 
 
 __all__ = [
@@ -245,4 +254,5 @@ __all__ = [
     "InteractionPort",
     "AskOutcome",
     "DetachPort",
+    "TaskQueryPort",
 ]

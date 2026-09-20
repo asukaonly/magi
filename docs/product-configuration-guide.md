@@ -932,6 +932,17 @@ Current storage implementation notes:
 
 ## Tool And Plugin Management
 
+The read-only `task_query` tool answers questions about actual background work
+using the same durable tasks shown by the task page. It defaults to the active
+conversation; `scope=user` includes other conversations owned by the current
+user. Queries expose bounded status, summary, failure and waiting-for-user
+facts, never internal prompts, checkpoints, or raw execution payloads. Empty
+results are distinct from unavailable service or inaccessible task errors.
+The tool does not start, retry, or cancel work, and a running state does not
+provide a completion percentage or estimated finish time. Future schedules
+remain owned by `schedule`, child-run control by `agent`, and execution detail
+inspection by `trace_query`.
+
 Tool management covers:
 
 - builtin tools

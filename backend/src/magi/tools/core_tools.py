@@ -32,6 +32,7 @@ from .builtin.read_chat_attachment_tool import ReadChatAttachmentTool
 from .builtin.schedule_tool import ScheduleTool
 from .builtin.system_settings_tool import SystemSettingsTool
 from .builtin.trace_query_tool import TraceQueryTool
+from .builtin.task_query_tool import TaskQueryTool
 from .builtin.verify_tool import VerifyTool
 from .builtin.weather_tool import WeatherTool
 from .builtin.web_fetch_tool import WebFetchTool
@@ -66,6 +67,7 @@ def core_tool_classes_for_os(os_name: str | None = None) -> tuple[type, ...]:
         SystemSettingsTool,
         MemoryQueryTool,
         TraceQueryTool,
+        TaskQueryTool,
         ScheduleTool,
         PrepareChatAttachmentsTool,
         ReadChatAttachmentTool,

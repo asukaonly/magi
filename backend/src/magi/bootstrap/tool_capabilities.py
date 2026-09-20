@@ -108,6 +108,14 @@ class _HostBackgroundPort:
         return await resolve_background_task_manager().resume_from_wait(task_id)
 
 
+class _HostTaskQueryPort:
+    async def query(self, **kwargs: Any) -> dict[str, Any]:
+        from magi.agent.background.provider import resolve_background_task_manager
+        from magi.agent.background.query import BackgroundTaskQueryService
+
+        return await BackgroundTaskQueryService(resolve_background_task_manager().store).query(**kwargs)
+
+
 class _HostMemoryQueryPort:
     """Adapter that routes MemoryQueryPort calls to the host memory layer.
 
@@ -303,6 +311,7 @@ def build_tool_capabilities() -> ToolCapabilities:
             image_gen=_HostImageGenPort(),
             interaction=_HostInteractionPort(),
             detach=_HostDetachPort(),
+            task_query=_HostTaskQueryPort(),
         )
     return _capabilities
 

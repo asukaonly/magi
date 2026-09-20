@@ -37,6 +37,7 @@ _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "find-relevant-tools",
     "memory_query",
     "trace_query",
+    "task_query",
     *_RUNTIME_FACT_TOOLS,
 )
 
