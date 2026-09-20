@@ -6,6 +6,14 @@ pub struct InstanceLease {
     _file: File,
 }
 
+impl Drop for InstanceLease {
+    fn drop(&mut self) {
+        // A concurrent fork can retain this open file until exec. Release the
+        // lock explicitly when its owner drops, even while that copy exists.
+        let _ = self._file.unlock();
+    }
+}
+
 impl InstanceLease {
     /// Inspect an existing lease without creating runtime directories or lock files.
     pub fn is_held(path: &Path) -> Result<bool, String> {
@@ -25,7 +33,10 @@ impl InstanceLease {
             return Err("Runtime lease is not a regular file".into());
         }
         match file.try_lock() {
-            Ok(()) => Ok(false),
+            Ok(()) => {
+                file.unlock().map_err(|error| error.to_string())?;
+                Ok(false)
+            }
             Err(std::fs::TryLockError::WouldBlock) => Ok(true),
             Err(std::fs::TryLockError::Error(error)) => Err(error.to_string()),
         }
@@ -75,6 +86,20 @@ impl InstanceLease {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropping_owner_releases_lock_with_a_duplicate_handle() {
+        let path = std::env::temp_dir().join(format!("magi-lease-dup-test-{}", std::process::id()));
+        let lease = InstanceLease::acquire(&path).unwrap();
+        let duplicate = lease._file.try_clone().unwrap();
+        assert!(InstanceLease::acquire(&path).is_err());
+        drop(lease);
+        let replacement = InstanceLease::acquire(&path).unwrap();
+        drop(duplicate);
+        assert!(InstanceLease::acquire(&path).is_err());
+        drop(replacement);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn lease_excludes_second_owner_and_survives_stale_file() {
