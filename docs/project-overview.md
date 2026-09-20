@@ -251,6 +251,10 @@ The desktop native connection component stores versioned profile metadata in
 its app configuration `connections/` directory. Device credentials are stored
 separately in `connections/credentials.json`, with current-user filesystem
 permissions (Unix directory `0700`, file `0600`; Windows current-user ACL).
+Windows protection accepts the current user's SID or the process token's exact
+default-owner SID, then normalizes ownership to the user before applying the
+private ACL. This includes paths created by an elevated process without accepting
+an arbitrary foreign owner.
 The file is native-only and excluded from frontend profile responses, logs and
 center exports. It is not encrypted against other programs running as that user.
 Pairing and reconnecting never access Keychain or Credential Manager. Existing

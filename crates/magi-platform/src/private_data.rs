@@ -196,6 +196,7 @@ fn clear_macos_extended_acl(path: &Path) -> Result<(), String> {
 #[cfg(windows)]
 struct WindowsPrivateAcl {
     current_sid: windows_sys::Win32::Security::PSID,
+    default_owner_sid: windows_sys::Win32::Security::PSID,
     security_descriptor: windows_sys::Win32::Security::PSECURITY_DESCRIPTOR,
     dacl: *mut windows_sys::Win32::Security::ACL,
 }
@@ -208,9 +209,12 @@ impl WindowsPrivateAcl {
             ConvertStringSecurityDescriptorToSecurityDescriptorW, ConvertStringSidToSidW,
             SDDL_REVISION_1,
         };
-        use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+        use windows_sys::Win32::Security::{
+            GetSecurityDescriptorDacl, GetSecurityDescriptorOwner, TokenOwner, TokenUser,
+        };
 
-        let sid = current_windows_user_sid_string()?;
+        let sid = current_windows_token_sid_string(TokenUser)?;
+        let default_owner = current_windows_token_sid_string(TokenOwner)?;
         let mut current_sid = null_mut();
         let sid_wide = wide_string(&sid);
         if unsafe { ConvertStringSidToSidW(sid_wide.as_ptr(), &mut current_sid) } == 0 {
@@ -220,7 +224,7 @@ impl WindowsPrivateAcl {
             ));
         }
 
-        let sddl = format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;{sid})");
+        let sddl = format!("O:{default_owner}D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;{sid})");
         let sddl_wide = wide_string(&sddl);
         let mut security_descriptor = null_mut();
         if unsafe {
@@ -244,6 +248,8 @@ impl WindowsPrivateAcl {
         let mut dacl_present = 0;
         let mut dacl_defaulted = 0;
         let mut dacl = null_mut();
+        let mut default_owner_sid = null_mut();
+        let mut owner_defaulted = 0;
         if unsafe {
             GetSecurityDescriptorDacl(
                 security_descriptor,
@@ -254,6 +260,14 @@ impl WindowsPrivateAcl {
         } == 0
             || dacl_present == 0
             || dacl.is_null()
+            || unsafe {
+                GetSecurityDescriptorOwner(
+                    security_descriptor,
+                    &mut default_owner_sid,
+                    &mut owner_defaulted,
+                )
+            } == 0
+            || default_owner_sid.is_null()
         {
             unsafe {
                 windows_sys::Win32::Foundation::LocalFree(current_sid);
@@ -264,6 +278,7 @@ impl WindowsPrivateAcl {
 
         Ok(Self {
             current_sid,
+            default_owner_sid,
             security_descriptor,
             dacl,
         })
@@ -301,7 +316,12 @@ impl WindowsPrivateAcl {
                 path.display()
             ));
         }
-        let owner_matches = !owner.is_null() && unsafe { EqualSid(owner, self.current_sid) } != 0;
+        let current_user_owns =
+            !owner.is_null() && unsafe { EqualSid(owner, self.current_sid) } != 0;
+        // Elevated processes can create files owned by their token's default
+        // owner group. Accept that exact identity and assign the private user.
+        let owner_matches = current_user_owns
+            || (!owner.is_null() && unsafe { EqualSid(owner, self.default_owner_sid) } != 0);
         unsafe {
             LocalFree(security_descriptor);
         }
@@ -316,8 +336,18 @@ impl WindowsPrivateAcl {
             SetNamedSecurityInfoW(
                 path_wide.as_ptr(),
                 SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                null_mut(),
+                DACL_SECURITY_INFORMATION
+                    | PROTECTED_DACL_SECURITY_INFORMATION
+                    | if current_user_owns {
+                        0
+                    } else {
+                        OWNER_SECURITY_INFORMATION
+                    },
+                if current_user_owns {
+                    null_mut()
+                } else {
+                    self.current_sid
+                },
                 null_mut(),
                 self.dacl,
                 null(),
@@ -409,11 +439,15 @@ fn windows_file_link_count(path: &Path) -> Result<u32, String> {
 }
 
 #[cfg(windows)]
-fn current_windows_user_sid_string() -> Result<String, String> {
+fn current_windows_token_sid_string(
+    information: windows_sys::Win32::Security::TOKEN_INFORMATION_CLASS,
+) -> Result<String, String> {
     use std::ptr::{null_mut, read_unaligned};
     use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
-    use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenOwner, TokenUser, TOKEN_OWNER, TOKEN_QUERY, TOKEN_USER,
+    };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     let mut token: HANDLE = null_mut();
@@ -427,7 +461,7 @@ fn current_windows_user_sid_string() -> Result<String, String> {
     let result = (|| {
         let mut required = 0u32;
         unsafe {
-            GetTokenInformation(token, TokenUser, null_mut(), 0, &mut required);
+            GetTokenInformation(token, information, null_mut(), 0, &mut required);
         }
         if required == 0 {
             return Err(format!(
@@ -440,7 +474,7 @@ fn current_windows_user_sid_string() -> Result<String, String> {
         if unsafe {
             GetTokenInformation(
                 token,
-                TokenUser,
+                information,
                 buffer.as_mut_ptr().cast(),
                 required,
                 &mut required,
@@ -452,9 +486,19 @@ fn current_windows_user_sid_string() -> Result<String, String> {
                 std::io::Error::last_os_error()
             ));
         }
-        let token_user = unsafe { read_unaligned(buffer.as_ptr().cast::<TOKEN_USER>()) };
+        let token_sid = if information == TokenUser {
+            unsafe {
+                read_unaligned(buffer.as_ptr().cast::<TOKEN_USER>())
+                    .User
+                    .Sid
+            }
+        } else if information == TokenOwner {
+            unsafe { read_unaligned(buffer.as_ptr().cast::<TOKEN_OWNER>()).Owner }
+        } else {
+            return Err("Unsupported Windows token identity".into());
+        };
         let mut sid_text = null_mut();
-        if unsafe { ConvertSidToStringSidW(token_user.User.Sid, &mut sid_text) } == 0 {
+        if unsafe { ConvertSidToStringSidW(token_sid, &mut sid_text) } == 0 {
             return Err(format!(
                 "Failed to format the current Windows account identity: {}",
                 std::io::Error::last_os_error()
@@ -491,6 +535,23 @@ fn wide_path(path: &Path) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn protects_paths_created_with_the_current_token_owner() {
+        let root = std::env::temp_dir().join(format!("magi-private-token-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("config.json"), b"{}").unwrap();
+        let result = protect_magi_data_root(&root).unwrap();
+        assert_eq!(result.protected_directories, 1);
+        assert_eq!(result.protected_files, 1);
+        assert_eq!(protect_magi_data_root(&root).unwrap(), result);
+        fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(all(test, unix))]
