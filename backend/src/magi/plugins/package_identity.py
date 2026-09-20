@@ -184,8 +184,6 @@ def purge_plugin_bytecode_caches(root: Path) -> None:
             ) from exc
         for entry in entries:
             try:
-                # DirEntry metadata omits file IDs and link counts on Windows.
-                # Compare fresh path metadata with the opened handle on every OS.
                 entry_stat = os.stat(entry.path, follow_symlinks=False)
             except OSError as exc:
                 raise PluginPackageContentChangedError(
@@ -261,7 +259,9 @@ def _collect_package_files(
                 raise UnsafePluginPackageEntryError(str(exc)) from exc
             relative_path = identity_path.relative_path
             try:
-                entry_stat = entry.stat(follow_symlinks=False)
+                # Windows DirEntry metadata omits identity fields required by
+                # the later comparison with the opened file handle.
+                entry_stat = os.stat(entry.path, follow_symlinks=False)
             except OSError as exc:
                 raise PluginPackageContentChangedError(
                     f"Plugin package entry cannot be inspected: {relative_path}: {exc}"

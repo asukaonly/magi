@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import shutil
@@ -40,6 +41,24 @@ def test_package_identity_changes_with_file_content(tmp_path: Path) -> None:
     source.write_bytes(b"version = 2\n")
 
     assert compute_package_sha256(plugin_root) != original
+
+
+def test_package_identity_uses_full_metadata_when_directory_cache_omits_ids(tmp_path, monkeypatch):
+    root = tmp_path / "plugin"
+    source = _write(root, "plugin.py", b"value = 1\n")
+    expected = compute_package_sha256(root)
+    cached = source.stat()
+    incomplete = SimpleNamespace(
+        st_dev=0, st_ino=0, st_nlink=0, st_mode=cached.st_mode,
+        st_size=cached.st_size, st_mtime_ns=cached.st_mtime_ns, st_ctime_ns=cached.st_ctime_ns,
+    )
+
+    @contextmanager
+    def scan(_path):
+        yield iter([SimpleNamespace(name=source.name, path=str(source), stat=lambda **_: incomplete)])
+
+    monkeypatch.setattr(package_identity_module.os, "scandir", scan)
+    assert compute_package_sha256(root) == expected
 
 
 def test_package_identity_changes_with_relative_path(tmp_path: Path) -> None:
