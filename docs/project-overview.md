@@ -24,6 +24,7 @@ Current release expectations are:
 - `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
 - the full frontend, backend, API-contract, Rust gateway, and desktop-shell validation suite belongs to `ci.yml`; release jobs consume that result instead of repeating the same checks on every platform
+- backend CI logs each test identity and emits thread traces after two minutes in one test. Parallel scheduling limits queued batches to 16 tests so the first failure can finish promptly without draining hundreds of already assigned cases; successful runs still execute the complete suite
 - frontend contributors and CI share `npm run check:full`: application and build/test configuration type checks, lint, import boundaries, generated contracts, translation keys/interpolation, component tests, and the production build; `npm run check` runs the static checks only. These checks do not replace a packaged desktop smoke test.
 - each platform release job prepares its native dependencies and plugin runtime, then the Tauri build hook builds the frontend and shared Rust/Python service bundle exactly once before producing the desktop bundle
 - standalone Mac package metadata reads the service protocol from the bundled executable and rejects an executable whose version differs from the release version

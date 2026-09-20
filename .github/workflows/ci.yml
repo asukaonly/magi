@@ -159,11 +159,13 @@ jobs:
         # fast full-coverage feedback. Nightly (schedule): canonical single-process
         # run as a backstop in case parallelism ever masks an ordering-dependent
         # failure. Coverage is identical across both; only the runner differs.
+        # Bound queued work so fail-fast does not drain hundreds of extra tests.
+        # Keep test names and stalled-thread traces even when a runner times out.
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m pytest -q --maxfail=1 --durations=20
+            python -m pytest -vv --tb=short --maxfail=1 --durations=20 -o faulthandler_timeout=120
           else
-            python -m pytest -n auto -q --maxfail=1 --durations=20
+            python -m pytest -n auto --maxschedchunk=16 -vv --tb=short --maxfail=1 --durations=20 -o faulthandler_timeout=120
           fi
 
       - name: Run headless evaluation client tests
