@@ -152,6 +152,24 @@ def proxy(plugin_setup, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_worker_home_is_defined_for_both_native_path_conventions(plugin_setup):
+    manifest, _connection, _context = plugin_setup
+    Path(manifest.plugin_dir, "plugin.py").write_text(PLUGIN + '''
+from pathlib import Path
+class EchoTool(EchoTool):
+    async def execute(self, parameters, context):
+        return ToolResult(success=True, data={"home":str(Path.home()), "profile":os.environ["USERPROFILE"]})
+''')
+    instance = ProcessPluginProxy(*plugin_setup)
+    try:
+        result = await instance.get_tools()[0]().execute({}, ToolExecutionContext(agent_id="test"))
+        assert Path(result.data["home"]) == Path.home()
+        assert Path(result.data["profile"]) == Path.home()
+    finally:
+        await instance.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_replay_safe_ingress_registration_crosses_real_worker(proxy, plugin_setup):
     from magi.runtime_trace.contracts import PluginIngressEventRecord
 

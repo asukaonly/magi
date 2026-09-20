@@ -272,6 +272,7 @@ class ProcessPluginProxy(Plugin):
         env.update(
             {
                 "HOME": str(source_home),
+                "USERPROFILE": str(source_home),
                 "TMPDIR": str(resources_dir),
                 "TEMP": str(resources_dir),
                 "TMP": str(resources_dir),
