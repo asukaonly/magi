@@ -195,11 +195,14 @@ Magi is distributed as a packaged desktop application. End users do not need to 
 
 1. Open [GitHub Releases](https://github.com/asukaonly/magi/releases)
 2. Download the latest installer for your platform:
-   - **macOS Apple Silicon**: `Magi_aarch64.dmg`
-   - **macOS Intel**: `Magi_x64.dmg`
+   - **macOS Apple Silicon**: `Magi_<version>_aarch64.dmg`
    - **Windows**: `Magi_<version>_x64-setup.exe`
 3. Install and launch Magi
 4. Complete onboarding for language, model/provider setup, and basic preferences
+
+Releases after v0.1.30 provide macOS desktop and standalone service packages only
+for Apple Silicon. Intel Mac packages are no longer built or officially validated;
+existing release assets are retained.
 
 ## Beta Notes
 

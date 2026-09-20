@@ -20,6 +20,7 @@ Desktop artifacts are distributed through GitHub Releases.
 The repository automation source of truth is `.github/workflows/release.yml`.
 Current release expectations are:
 
+- official desktop release targets are macOS Apple Silicon and Windows x64; standalone Mac service packages target Apple Silicon. Releases after v0.1.30 no longer build or officially validate Intel Mac packages. Existing release assets are retained; generic build tooling may still accept Intel targets for contributor builds
 - maintainers run `scripts/bump-release.sh` only from an up-to-date `main` branch; the script synchronizes version metadata, pushes `main`, and gates tag creation on a successful `ci.yml` run for the exact release commit
 - `release.yml` independently verifies that exact-commit CI result before any platform build, so a manually pushed tag cannot bypass the validation gate
 - the pushed tag must match the version stored in `frontend/package.json`, `frontend/src-tauri/tauri.conf.json`, `frontend/src-tauri/Cargo.toml`, and `backend/pyproject.toml`
@@ -75,8 +76,8 @@ prove that already distributed installers or installed applications were updated
 
 Before publishing the draft, a maintainer records the release commit, artifact
 checksum, OS version, architecture, executed cases and results in the draft's
-validation section. Each supported target (macOS Apple Silicon, macOS Intel and
-Windows x64) needs actual installation/launch evidence for its own artifact.
+validation section. Each supported target (macOS Apple Silicon and Windows x64)
+needs actual installation/launch evidence for its own artifact.
 An unsigned local build proves local behavior only; it does not prove signing,
 notarization, installer behavior, updates or another target's runtime.
 

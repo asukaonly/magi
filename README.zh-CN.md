@@ -188,11 +188,13 @@ Magi 以打包好的桌面应用交付。普通用户不需要安装 Python、No
 
 1. 打开 [GitHub Releases](https://github.com/asukaonly/magi/releases)
 2. 下载对应平台的最新安装包：
-   - **macOS Apple Silicon**：`Magi_aarch64.dmg`
-   - **macOS Intel**：`Magi_x64.dmg`
+   - **macOS Apple Silicon**：`Magi_<version>_aarch64.dmg`
    - **Windows**：`Magi_<version>_x64-setup.exe`
 3. 安装并启动 Magi
 4. 完成语言、模型/提供商和基础偏好配置
+
+v0.1.30 之后的版本仅为 Apple Silicon 提供 macOS 桌面包和独立服务包。
+Intel Mac 不再参与官方打包和验收，已有版本的安装包保留。
 
 ## Beta 阶段说明
 

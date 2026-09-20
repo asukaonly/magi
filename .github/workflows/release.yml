@@ -53,11 +53,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS Intel
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            os_family: macos
-            bundles: app,dmg
           - label: macOS Apple Silicon
             runner: macos-14
             target: aarch64-apple-darwin
@@ -250,8 +245,9 @@ jobs:
             echo "| Platform | File |"
             echo "|----------|------|"
             echo "| macOS (Apple Silicon) | \`Magi_${current_tag#v}_aarch64.dmg\` |"
-            echo "| macOS (Intel) | \`Magi_${current_tag#v}_x64.dmg\` |"
             echo "| Windows | \`Magi_${current_tag#v}_x64-setup.exe\` |"
+            echo
+            echo "macOS desktop and standalone service packages require Apple Silicon. Intel Mac packages are no longer produced."
             echo
             echo "> Other assets (\`.app.tar.gz\`, \`.sig\`, \`.json\`) are for the built-in auto-updater. No manual download needed."
             echo
