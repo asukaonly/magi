@@ -152,16 +152,18 @@ jobs:
 
       - name: Run backend test suite
         working-directory: backend
-        timeout-minutes: 15
+        # The full suite exceeds 10,000 tests. Hosted runners can need more
+        # than 15 minutes; keep a bounded budget without truncating coverage.
+        timeout-minutes: 45
         # PR + push to main: run the full suite in parallel (pytest-xdist) for
         # fast full-coverage feedback. Nightly (schedule): canonical single-process
         # run as a backstop in case parallelism ever masks an ordering-dependent
         # failure. Coverage is identical across both; only the runner differs.
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m pytest -q
+            python -m pytest -q --maxfail=1 --durations=20
           else
-            python -m pytest -n auto -q
+            python -m pytest -n auto -q --maxfail=1 --durations=20
           fi
 
       - name: Run headless evaluation client tests
