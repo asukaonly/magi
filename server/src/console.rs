@@ -601,7 +601,8 @@ mod tests {
     fn input_validation_rejects_unusable_values_before_advancing() {
         assert!(validate_data_path("relative").is_err());
         assert!(validate_data_path("/tmp/../data").is_err());
-        assert!(validate_data_path("/tmp/magi-test-data").is_ok());
+        let data = std::env::temp_dir().join("magi-test-data");
+        assert!(validate_data_path(data.to_str().unwrap()).is_ok());
         for value in [
             "oops",
             "file:///tmp/file",

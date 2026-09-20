@@ -172,9 +172,9 @@ mod tests {
     fn loaded_job_must_match_actual_arguments_not_only_disk_registration() {
         let root = Path::new("/Users/test/Magi data");
         let config = ServerConfig::for_bundle(Path::new("/Applications/Magi Server"), root.into());
-        let text = "gui/501/app.magi.server = {\n\tstate = running\n\targuments = {\n\t\t/app/server\n\t\trun\n\t\t--config\n\t\t/config.json\n\t\t--log-file\n\t\t/Users/test/Magi data/logs/service.log\n\t}\n\tpid = 123\n\tlast exit code = 1\n\tresource = {\n\t\tstate = active\n\t}\n}";
+        let text = format!("gui/501/app.magi.server = {{\n\tstate = running\n\targuments = {{\n\t\t/app/server\n\t\trun\n\t\t--config\n\t\t/config.json\n\t\t--log-file\n\t\t{}\n\t}}\n\tpid = 123\n\tlast exit code = 1\n\tresource = {{\n\t\tstate = active\n\t}}\n}}", config.data_dir.join("logs/service.log").display());
         let result = parse_loaded_job(
-            text,
+            &text,
             Path::new("/app/server"),
             Path::new("/config.json"),
             &config,
