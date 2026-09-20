@@ -10,6 +10,7 @@ from ...events.recall_feedback import RecallFeedbackKind
 from ...events.first_context import normalize_first_context
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from magi.core.chat_assets.paths import SAFE_CHAT_ASSET_COMPONENT_PATTERN
+from ...core.client_environment import ClientEnvironment
 
 
 class RecallFeedbackRequestModel(BaseModel):
@@ -80,6 +81,9 @@ class UserMessageRequest(BaseModel):
     """User message request."""
 
     message: str = Field(default="", description="User message content")
+    client_environment: ClientEnvironment | None = Field(
+        default=None, description="Advisory client timezone and OS for this turn, not user identity"
+    )
     user_id: str = Field(default=DEFAULT_USER_ID, description="User ID")
     session_id: Optional[str] = Field(None, description="Session ID")
     attachments: List[Dict[str, Any]] = Field(

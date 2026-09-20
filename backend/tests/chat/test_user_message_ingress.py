@@ -12,6 +12,7 @@ import pytest
 from magi.chat import ingress as service
 from magi.chat import first_context_projection as projection_confirmation
 from magi.core.operation_barrier import AsyncOperationBarrier
+from magi.core.client_environment import ClientEnvironment
 from magi.i18n import language_context
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
 
@@ -260,6 +261,32 @@ class _FakeChatReadService:
             (),
             {"workspace_path": self.workspace_path, "user_id": user_id, "session_id": session_id},
         )()
+
+
+@pytest.mark.asyncio
+async def test_client_environment_is_turn_bound_and_excluded_from_memory_and_retry_identity(monkeypatch):
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+    kwargs = dict(source="api", user_id="u1", session_id="session-environment",
+                  client_turn_id="turn-environment", message="What time is it?")
+    first = await service.dispatch_user_message(
+        **kwargs, client_environment=ClientEnvironment(timezone="Asia/Shanghai", os="windows"),
+    )
+    retry = await service.dispatch_user_message(
+        **kwargs, client_environment=ClientEnvironment(timezone="America/New_York", os="macos"),
+    )
+    assert first.success and retry.success
+    assert len(store.created_turns) == 1
+    assert store.runtime_envelope_by_id["turn-environment"]["client_environment"] == {
+        "timezone": "Asia/Shanghai", "os": "windows",
+    }
+    assert "client_environment" not in store.created_turns[0]["message_payload"]
+    assert "client_environment" not in queue.commands[0].metadata
+    assert "Asia/Shanghai" not in str(projector.user_messages)
 
 
 @dataclass(slots=True)

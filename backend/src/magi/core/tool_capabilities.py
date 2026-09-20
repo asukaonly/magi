@@ -66,6 +66,12 @@ class TaskQueryPort(Protocol):
 
 
 @runtime_checkable
+class EnvironmentPort(Protocol):
+    async def read_client(self, *, user_id: str, session_id: str, turn_id: str) -> dict[str, Any]: ...
+    async def read_location(self) -> dict[str, Any]: ...
+
+
+@runtime_checkable
 class MemoryQueryPort(Protocol):
     """Port for hybrid memory retrieval operations.
 
@@ -240,6 +246,7 @@ class ToolCapabilities:
     interaction: Optional[InteractionPort] = None
     detach: Optional[DetachPort] = None
     task_query: Optional[TaskQueryPort] = None
+    environment: Optional[EnvironmentPort] = None
 
 
 __all__ = [
@@ -255,4 +262,5 @@ __all__ = [
     "AskOutcome",
     "DetachPort",
     "TaskQueryPort",
+    "EnvironmentPort",
 ]

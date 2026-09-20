@@ -37,6 +37,7 @@ def render_runtime_world_state(runtime: RuntimeSystemContext) -> str:
     return "\n".join(
         [
             "# Runtime World State",
+            "* Scope: Magi service host. User/client environment may differ; query environment_query or current_time when needed.",
             f"* Local Date: {runtime.current_date}",
             f"* Timezone: {runtime.timezone}",
             f"* OS: {runtime.os_name} {runtime.os_version}",

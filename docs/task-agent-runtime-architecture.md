@@ -451,6 +451,17 @@ natural language:
 - controlled interaction responses;
 - workspace and source-channel identity.
 
+The message API also accepts a bounded `client_environment` (OS family and
+validated IANA timezone). Chat owns this advisory snapshot in the durable turn
+delivery envelope, outside message identity, transcript content and memory
+projection. Idempotent retries reuse the first accepted snapshot. Host tool
+capabilities read it only for the owning user/session/turn and apply a 30-minute
+freshness window. Runtime World State describes the service host; it is not a
+substitute for client context in remote connections. `environment_query` and
+`current_time` expose this distinction as resident read-only fact tools.
+`task_query` is a resident bounded read of existing background tasks, with
+owner and optional conversation scope enforced by its host adapter.
+
 Slash recognition is owned before the model-facing run:
 
 - `CommandRegistry` is the canonical catalog for client, control, tool, and

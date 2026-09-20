@@ -7,6 +7,7 @@ import { parseConversationHistory, parseSessionList } from '../event-contract';
 import { api, unwrapGatewayPayload } from '../client';
 import { DEFAULT_USER_ID } from '@/constants';
 import type { RecallFeedbackRequest } from '@/domain/chat/recall-feedback';
+import { captureClientEnvironment, type ClientEnvironment } from '../client-environment';
 
 export interface ChatAttachment {
   attachment_id: string;
@@ -43,6 +44,10 @@ export interface UserMessageRequest {
     arguments: string[];
   };
   metadata?: Record<string, unknown>;
+}
+
+interface UserMessageTransportRequest extends UserMessageRequest {
+  client_environment: ClientEnvironment;
 }
 
 export interface ChatReplyPreview {
@@ -269,7 +274,11 @@ type TraceResponse = {
 export const messagesApi = {
   /** Send user message */
   sendMessage: async (request: UserMessageRequest): Promise<{ success: boolean; message: string; data?: MessageData }> => {
-    const response = await api.post<MessageData>('/messages/send', request);
+    const payload: UserMessageTransportRequest = {
+      ...request,
+      client_environment: captureClientEnvironment(),
+    };
+    const response = await api.post<MessageData>('/messages/send', payload);
     return response;
   },
 

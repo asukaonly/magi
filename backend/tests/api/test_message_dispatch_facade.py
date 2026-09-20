@@ -38,6 +38,7 @@ async def test_dispatch_user_message_forwards_to_bound_dispatcher(monkeypatch: p
             "runtime_namespace": None,
             "interaction_kind": None,
             "first_context": None,
+            "client_environment": None,
         }
     ]
 

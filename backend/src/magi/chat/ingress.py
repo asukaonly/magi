@@ -59,6 +59,7 @@ from .first_context_projection import (
     wait_for_first_context_memory_projection,
 )
 from .provider import get_chat_projector, get_chat_store
+from ..core.client_environment import ClientEnvironment
 from .store import ChatTurnConflictError
 from .session_mutations import chat_session_mutation
 
@@ -97,6 +98,7 @@ class _UserMessageSubmission:
     metadata: dict[str, Any]
     runtime_namespace: str
     request_fingerprint: str
+    client_environment: ClientEnvironment | None = None
 
 
 @dataclass(slots=True)
@@ -339,6 +341,7 @@ async def dispatch_user_message(
     runtime_namespace: str | None = None,
     interaction_kind: str | None = None,
     first_context: dict[str, Any] | None = None,
+    client_environment: ClientEnvironment | None = None,
 ) -> MessageDispatchOutcome:
     """Resolve chat-owned metadata and enqueue a user-message runtime command."""
 
@@ -443,6 +446,9 @@ async def dispatch_user_message(
                     first_context=first_context,
                     request_fingerprint=request_fingerprint,
                 )
+                # Advisory transport facts are excluded from message identity. A
+                # retry keeps the first accepted snapshot even if the device moved.
+                submission.client_environment = client_environment
                 hook_error = await _apply_user_prompt_submit_hook(submission)
                 if hook_error is not None:
                     return hook_error
@@ -845,6 +851,10 @@ def _build_runtime_envelope(submission: _UserMessageSubmission) -> dict[str, obj
         "interaction_kind": submission.interaction_kind,
         "metadata": dict(submission.metadata),
         "runtime_namespace": submission.runtime_namespace,
+        "client_environment": (
+            submission.client_environment.model_dump(mode="json")
+            if submission.client_environment is not None else None
+        ),
     }
 
 
@@ -893,6 +903,11 @@ def _restore_submission_from_runtime_envelope(
         str(runtime_envelope.get("interaction_kind") or "").strip() or None
     )
     submission.metadata = dict(raw_metadata)
+    client_environment = runtime_envelope.get("client_environment")
+    submission.client_environment = (
+        ClientEnvironment.model_validate(client_environment)
+        if client_environment is not None else None
+    )
     submission.runtime_namespace = (
         str(runtime_envelope.get("runtime_namespace") or "").strip() or DEFAULT_RUNTIME_NAMESPACE
     )

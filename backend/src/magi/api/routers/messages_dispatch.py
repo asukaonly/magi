@@ -125,6 +125,7 @@ async def _dispatch_api_user_message(request: UserMessageRequest):
         reply_to_message_id=reply_to_message_id,
         workspace_path=request.workspace_path,
         client_turn_id=request.client_turn_id,
+        client_environment=request.client_environment,
         metadata=metadata,
         runtime_namespace=str(metadata.get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
         interaction_kind=request.interaction_kind,
@@ -146,6 +147,7 @@ async def _prepare_api_dispatch_metadata(
     metadata.pop("reasoning_preference", None)
     metadata.pop("run_disposition", None)
     metadata.pop("skill_invocation", None)
+    metadata.pop("client_environment", None)
     if request.recall_feedback is not None:
         metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
     if request.reasoning_preference is not None:

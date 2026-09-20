@@ -28,7 +28,7 @@ from typing import Any
 # main LLM so the model can hand off a large repetitive job mid-loop instead of
 # processing items one-by-one and hitting the per-turn iteration cap — without
 # depending on the router having pre-selected it.
-_RUNTIME_FACT_TOOLS: tuple[str, ...] = ("current_time",)
+_RUNTIME_FACT_TOOLS: tuple[str, ...] = ("current_time", "environment_query")
 
 _EXPLICIT_RESIDENT_TOOLS: tuple[str, ...] = (
     "detach_to_background",

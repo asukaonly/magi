@@ -932,6 +932,28 @@ Current storage implementation notes:
 
 ## Tool And Plugin Management
 
+`environment_query` distinguishes the interaction client from the Magi service
+host. Desktop/browser message sends attach only an advisory OS family and IANA
+timezone. These facts live in the accepted turn's delivery envelope, not the
+visible message, L1 evidence, or personal memory. Retries retain the first
+accepted snapshot; a new turn captures new context. Snapshots expire after
+30 minutes, never confer device access, and cannot be borrowed from another
+user, conversation, or turn.
+
+`current_time` uses a fresh client timezone when available and otherwise labels
+its answer as service-host time. `target=client` requires a fresh client zone;
+`target=service` explicitly selects the host, and an explicit IANA `timezone`
+supports questions about other places. Missing user context must not be inferred
+from the host timezone or location.
+
+The environment tool's location section reads existing Wi-Fi/IP samples only.
+Each observation retains its source, age, expiry and estimated precision; it
+does not perform new collection or return raw coordinates. Host samples do not
+establish the user's current city, and IP observations may describe a network
+exit. Unknown or stale context stays explicit. Current-content sharing continues
+to use chat attachments, and long-lived preferences use governed memory; this
+capability adds no screen capture, device inventory or parallel profile store.
+
 The read-only `task_query` tool answers questions about actual background work
 using the same durable tasks shown by the task page. It defaults to the active
 conversation; `scope=user` includes other conversations owned by the current

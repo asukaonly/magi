@@ -116,6 +116,30 @@ class _HostTaskQueryPort:
         return await BackgroundTaskQueryService(resolve_background_task_manager().store).query(**kwargs)
 
 
+class _HostEnvironmentPort:
+    async def read_client(self, *, user_id: str, session_id: str, turn_id: str) -> dict[str, Any]:
+        from magi.chat.client_environment import read_client_environment
+        from magi.chat.provider import get_chat_store
+
+        if not user_id or not session_id or not turn_id:
+            return {"status": "unknown", "subject": "interaction_client"}
+        try:
+            store = get_chat_store()
+        except RuntimeError:
+            return {"status": "unavailable", "subject": "interaction_client"}
+        return await read_client_environment(store, user_id=user_id, session_id=session_id, turn_id=turn_id)
+
+    async def read_location(self) -> dict[str, Any]:
+        from magi.location.provider import get_location_sample_store
+        from magi.location.snapshot import read_host_location
+
+        try:
+            store = get_location_sample_store()
+        except RuntimeError:
+            return {"status": "unavailable", "subject": "service_host", "user_location": "unknown"}
+        return await read_host_location(store)
+
+
 class _HostMemoryQueryPort:
     """Adapter that routes MemoryQueryPort calls to the host memory layer.
 
@@ -312,6 +336,7 @@ def build_tool_capabilities() -> ToolCapabilities:
             interaction=_HostInteractionPort(),
             detach=_HostDetachPort(),
             task_query=_HostTaskQueryPort(),
+            environment=_HostEnvironmentPort(),
         )
     return _capabilities
 

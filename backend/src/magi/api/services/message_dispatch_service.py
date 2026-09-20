@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...core.runtime_bindings import require_user_message_dispatcher
+from ...core.client_environment import ClientEnvironment
 from ...events.user_message_dispatch import (
     ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,
     ASK_RESPONSE_RESOLVE_FAILED,
@@ -38,6 +39,7 @@ async def dispatch_user_message(
     runtime_namespace: str | None = None,
     interaction_kind: str | None = None,
     first_context: dict[str, Any] | None = None,
+    client_environment: ClientEnvironment | None = None,
 ) -> MessageDispatchOutcome:
     """Forward a user-message request to the active chat ingress service."""
 
@@ -65,6 +67,7 @@ async def dispatch_user_message(
         runtime_namespace=runtime_namespace,
         interaction_kind=interaction_kind,
         first_context=first_context,
+        client_environment=client_environment,
     )
 
 
