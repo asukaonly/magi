@@ -77,4 +77,11 @@ else
   export MAGI_CLI_LAUNCHER="$ROOT_DIR/scripts/dev-server.sh"
 fi
 cd "$ROOT_DIR"
-exec cargo run --quiet --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}
+CARGO_OUTPUT=(--quiet)
+case "$COMMAND" in
+  install|start|stop|restart|uninstall)
+    printf 'Preparing development command (building if needed)...\n' >&2
+    CARGO_OUTPUT=()
+    ;;
+esac
+exec cargo run ${CARGO_OUTPUT[@]+"${CARGO_OUTPUT[@]}"} --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}

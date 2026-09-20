@@ -6,9 +6,12 @@ mod console_deployment;
 mod console_manager;
 mod console_runtime;
 mod deployment_status;
+#[cfg(any(target_os = "macos", all(test, unix)))]
+mod launchctl;
 mod managed_output;
 mod operator_command;
 mod operator_logs;
+mod operator_progress;
 mod service_inspection;
 mod service_install;
 mod service_watch;

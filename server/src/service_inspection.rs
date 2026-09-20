@@ -55,14 +55,11 @@ pub fn inspect(_path: &Path, _config: &ServerConfig) -> ManagedService {
 
 #[cfg(target_os = "macos")]
 fn inspect_macos(path: &Path, config: &ServerConfig) -> Result<ManagedService, String> {
-    use std::{fs, os::unix::fs::MetadataExt, process::Command};
+    use std::{fs, os::unix::fs::MetadataExt};
     let uid = unsafe { libc::geteuid() };
     let plist = crate::cli::home_path("Library/LaunchAgents/app.magi.server.plist")?;
     let target = format!("gui/{uid}/app.magi.server");
-    let output = Command::new("/bin/launchctl")
-        .args(["print", &target])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = crate::launchctl::output(&["print", &target], crate::launchctl::INSPECT_TIMEOUT)?;
     // launchctl uses 113 for a missing job. Other failures are unknown, not stopped.
     if !output.status.success() && output.status.code() != Some(113) {
         return Err("Cannot inspect the login service in this user session".into());

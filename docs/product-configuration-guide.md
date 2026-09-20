@@ -170,6 +170,15 @@ return results to the step UI instead of printing JSON or service logs between
 prompts. Service diagnostics go to the displayed data-root log directory; early
 startup failures are displayed after the progress renderer has stopped. Explicit
 service-management subcommands retain their machine-readable JSON output.
+Explicit lifecycle commands show phase messages and elapsed time every five
+seconds on terminal stderr while keeping stdout JSON. The interactive console
+retains ownership of its own renderer. The development launcher exposes build
+activity for lifecycle commands so a build wait is distinguishable from a stop.
+OS service-manager calls have bounded output and deadlines. The stop deadline
+includes the unload request itself as well as confirmation that the job is gone;
+only the OS's explicit missing-job result counts as unloaded. A timeout reports
+uncertain completion and a deployment-specific status command, without issuing
+another stop or killing service processes by an unverified PID.
 Background registration/start requests are not reported as service readiness.
 Setup timeouts return to the menu with the latest management-channel failure or
 supervisor phase and socket/log locations. Interactive restart, stop, uninstall

@@ -38,6 +38,9 @@ class DevelopmentCommands(unittest.TestCase):
                 self.assertFalse(config.exists())
                 if arguments[0] == "status":
                     self.assertEqual(result.stderr, "")
+                if arguments[0] == "stop":
+                    self.assertNotIn("--quiet", args)
+                    self.assertIn("building if needed", result.stderr)
             chosen = root / "config with spaces.json"
             result = subprocess.run([str(SCRIPT), "status", "--config", str(chosen)], env=env, capture_output=True, text=True, check=True)
             self.assertIn(str(chosen), json.loads(result.stdout))

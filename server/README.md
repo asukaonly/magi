@@ -125,6 +125,15 @@ both the on-disk registration and loaded job arguments before acting. Repeating
 `install` or `start` reports `already_loaded` for an existing job; it does not
 restart it or claim that it is ready. `restart` reports `start_requested`; use
 `status` to check readiness. Interactive lifecycle changes require confirmation.
+Explicit lifecycle commands report their current stage immediately and elapsed
+time every five seconds when stderr is a terminal; stdout remains JSON. With the
+development launcher, Cargo build progress is visible before the command starts.
+For stop/uninstall and the stop phase of restart, the unload request and removal
+confirmation share one deadline: the configured owner shutdown budget plus ten
+seconds (53 seconds with the default configuration). Ownership inspection has a
+five-second timeout and other OS control calls have ten-second timeouts. A helper
+timeout never implies that the service stopped: check the printed status command
+before retrying. An OS inspection error is unknown, not a missing job.
 
 `run` starts a new foreground owner; it does not restart an existing service.
 Its initial read-only check rejects a reachable service, held runtime leases,

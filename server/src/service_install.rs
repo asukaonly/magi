@@ -52,13 +52,32 @@ pub(crate) fn launch_agent(
 
 #[cfg(target_os = "macos")]
 pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, String> {
+    execute_with_progress(command, config_path, &|_| {})
+}
+
+pub fn execute_cli(command: &str, config_path: &Path) -> Result<serde_json::Value, String> {
+    crate::operator_progress::run(|progress| execute_with_progress(command, config_path, progress))
+        .map_err(|error| {
+            format!(
+                "{error}\nCheck this deployment:\n  {}",
+                crate::operator_command::display(config_path, &["status"])
+            )
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn execute_with_progress(
+    command: &str,
+    config_path: &Path,
+    progress: &dyn Fn(&str),
+) -> Result<serde_json::Value, String> {
     use std::{
         fs,
         io::Write,
         os::unix::fs::{MetadataExt, OpenOptionsExt},
-        process::Command,
         time::{Duration, Instant},
     };
+    progress("Checking background service ownership...");
     let config = crate::cli::load_config(config_path)?;
     let config_path = config_path.canonicalize().map_err(|e| e.to_string())?;
     let executable = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -69,7 +88,7 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
         inspected.registration,
         Registration::OtherInstallation | Registration::Unknown
     ) {
-        return Err("Cannot manage this login service: its deployment ownership could not be verified. Inspect status and use the matching executable and configuration.".into());
+        return Err(format!("Cannot manage this login service: its deployment ownership could not be verified. {} Inspect status and use the matching executable and configuration.", inspected.detail.as_deref().unwrap_or("The registration belongs to another installation.")));
     }
     // A user agent must run under the logged-in owner, never as a root daemon.
     let uid = unsafe { libc::geteuid() };
@@ -81,11 +100,8 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     let plist = directory.join(format!("{LABEL}.plist"));
     let domain = format!("gui/{uid}");
     let target = format!("{domain}/{LABEL}");
-    let launchctl = |args: &[&str]| -> Result<(), String> {
-        let output = Command::new("/bin/launchctl")
-            .args(args)
-            .output()
-            .map_err(|e| e.to_string())?;
+    let launchctl = |args: &[&str], timeout: Duration| -> Result<(), String> {
+        let output = crate::launchctl::output(args, timeout)?;
         if output.status.success() {
             Ok(())
         } else {
@@ -95,28 +111,34 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
             ))
         }
     };
-    let loaded = || -> Result<bool, String> {
-        Ok(Command::new("/bin/launchctl")
-            .args(["print", &target])
-            .output()
-            .map_err(|e| e.to_string())?
-            .status
-            .success())
+    let loaded = |timeout: Duration| -> Result<bool, String> {
+        let output = crate::launchctl::output(&["print", &target], timeout)?;
+        loaded_from_status(output.status.success(), output.status.code())
     };
     let unload = || -> Result<(), String> {
-        if loaded()? {
-            launchctl(&["bootout", &target])?;
-        }
-        // launchd can retain a departing job briefly after bootout returns.
-        // A subsequent start must not mistake that job for a live registration.
         let deadline =
             Instant::now() + Duration::from_secs(config.owner_shutdown_timeout_secs() + 10);
-        while loaded()? {
-            if Instant::now() >= deadline {
-                return Err("Timed out waiting for the managed service to unload".into());
-            }
-            std::thread::sleep(Duration::from_millis(100));
+        let remaining = || {
+            deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
+                .ok_or_else(|| "Timed out waiting for the managed service to unload. Check status before retrying.".to_string())
+        };
+        if loaded(remaining()?.min(crate::launchctl::INSPECT_TIMEOUT))? {
+            progress(&format!(
+                "Stopping background service (shutdown budget: {}s; stop deadline: {}s)...",
+                config.owner_shutdown_timeout_secs(),
+                config.owner_shutdown_timeout_secs() + 10
+            ));
+            launchctl(&["bootout", &target], remaining()?)?;
+        } else {
+            progress("Background service is already stopped.");
+            return Ok(());
         }
+        // The deadline includes bootout itself, not only the later removal check.
+        progress("Confirming that macOS has removed the background job...");
+        while loaded(remaining()?.min(crate::launchctl::INSPECT_TIMEOUT))? {
+            std::thread::sleep(Duration::from_millis(100).min(remaining()?));
+        }
+        progress("Background service stopped. Data is preserved.");
         Ok(())
     };
     if matches!(command, "install" | "register") {
@@ -151,11 +173,15 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     match command {
         "register" => {}
         "install" | "start" => {
-            if !loaded()? {
-                launchctl(&["enable", &target])?;
-                launchctl(&["bootstrap", &domain, plist_arg])?;
+            progress("Requesting background startup from macOS...");
+            if !loaded(crate::launchctl::INSPECT_TIMEOUT)? {
+                launchctl(&["enable", &target], crate::launchctl::CONTROL_TIMEOUT)?;
+                launchctl(
+                    &["bootstrap", &domain, plist_arg],
+                    crate::launchctl::CONTROL_TIMEOUT,
+                )?;
             }
-            launchctl(&["kickstart", &target])?;
+            launchctl(&["kickstart", &target], crate::launchctl::CONTROL_TIMEOUT)?;
         }
         "stop" | "uninstall" => {
             unload()?;
@@ -165,9 +191,13 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
         }
         "restart" => {
             unload()?;
-            launchctl(&["enable", &target])?;
-            launchctl(&["bootstrap", &domain, plist_arg])?;
-            launchctl(&["kickstart", &target])?;
+            progress("Requesting background startup from macOS...");
+            launchctl(&["enable", &target], crate::launchctl::CONTROL_TIMEOUT)?;
+            launchctl(
+                &["bootstrap", &domain, plist_arg],
+                crate::launchctl::CONTROL_TIMEOUT,
+            )?;
+            launchctl(&["kickstart", &target], crate::launchctl::CONTROL_TIMEOUT)?;
         }
         _ => return Err("Unknown service installation command".into()),
     }
@@ -179,14 +209,41 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     )
 }
 
+#[cfg(any(test, target_os = "macos"))]
+fn loaded_from_status(success: bool, code: Option<i32>) -> Result<bool, String> {
+    if success {
+        Ok(true)
+    } else if code == Some(113) {
+        Ok(false)
+    } else {
+        Err("Cannot confirm whether the background job is loaded; macOS inspection failed".into())
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn execute(_command: &str, _config_path: &Path) -> Result<serde_json::Value, String> {
     Err("Managed service installation is supported on macOS in this release; use run for a foreground service".into())
 }
 
+#[cfg(not(target_os = "macos"))]
+fn execute_with_progress(
+    command: &str,
+    config_path: &Path,
+    _progress: &dyn Fn(&str),
+) -> Result<serde_json::Value, String> {
+    execute(command, config_path)
+}
+
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_inspection_never_means_stopped() {
+        assert_eq!(loaded_from_status(true, Some(0)).unwrap(), true);
+        assert_eq!(loaded_from_status(false, Some(113)).unwrap(), false);
+        assert!(loaded_from_status(false, Some(1)).is_err());
+        assert!(loaded_from_status(false, None).is_err());
+    }
     #[test]
     fn launch_agent_uses_owned_arguments_and_preserves_path_characters() {
         let config = ServerConfig::for_bundle(

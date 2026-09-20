@@ -310,19 +310,19 @@ pub fn execute(
                 Command::Clients => Request::Clients,
                 Command::Revoke { client_id } => Request::Revoke { client_id },
                 Command::Install => {
-                    return print_json(&crate::service_install::execute("install", &path)?)
+                    return print_json(&crate::service_install::execute_cli("install", &path)?)
                 }
                 Command::Start => {
-                    return print_json(&crate::service_install::execute("start", &path)?)
+                    return print_json(&crate::service_install::execute_cli("start", &path)?)
                 }
                 Command::Stop => {
-                    return print_json(&crate::service_install::execute("stop", &path)?)
+                    return print_json(&crate::service_install::execute_cli("stop", &path)?)
                 }
                 Command::Restart => {
-                    return print_json(&crate::service_install::execute("restart", &path)?)
+                    return print_json(&crate::service_install::execute_cli("restart", &path)?)
                 }
                 Command::Uninstall => {
-                    return print_json(&crate::service_install::execute("uninstall", &path)?)
+                    return print_json(&crate::service_install::execute_cli("uninstall", &path)?)
                 }
                 _ => unreachable!(),
             };
