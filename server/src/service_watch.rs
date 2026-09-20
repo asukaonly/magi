@@ -183,6 +183,7 @@ pub async fn run(
     config: ServerConfig,
     path: PathBuf,
     mut shutdown: watch::Receiver<bool>,
+    format: crate::operator_output::Format,
 ) -> Result<(), String> {
     let _lease = InstanceLease::runtime_owner(&config.data_dir)?;
     // Refuse a live service before entering retry policy, including direct owners.
@@ -208,7 +209,9 @@ pub async fn run(
         };
         match launch {
             Ok((mut service, started)) => {
-                if let Ok(json) = serde_json::to_string(&started) {
+                if format == crate::operator_output::Format::Text {
+                    println!("{}\nLocal address: {}\nData: {}\nThe gateway is listening; Python and Agent readiness are checked separately.\nPress Ctrl+C to stop this foreground service.{}", crate::operator_output::Tone::Pending.line("Magi Server is starting in this terminal."), started.base_url.trim_end_matches("/api"), config.data_dir.display(), crate::operator_output::next_step(&path, "check readiness from another terminal", &["status"]));
+                } else if let Ok(json) = serde_json::to_string(&started) {
                     let _ = writeln!(std::io::stdout(), "{json}");
                 }
                 let mut health = ServiceHealth::default();
@@ -219,6 +222,13 @@ pub async fn run(
                                 config.owner_shutdown_timeout_secs(),
                             )))
                             .await;
+                        if format == crate::operator_output::Format::Text {
+                            println!(
+                                "{}",
+                                crate::operator_output::Tone::Success
+                                    .line("Foreground service stopped. Your data is preserved.")
+                            );
+                        }
                         return Ok(());
                     }
                     if let Some(status) = service.child.try_wait().map_err(|e| e.to_string())? {

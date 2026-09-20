@@ -70,17 +70,19 @@ impl Snapshot {
         self.state == State::Stopped
     }
     pub fn recovery_hint(&self) -> String {
-        let command = self
-            .config_path
-            .display()
-            .to_string()
-            .replace('\'', "'\\''");
+        let command = |args: &[&str]| crate::operator_command::display(&self.config_path, args);
         let next = if self.managed.owned() && self.managed.loaded {
-            format!("Check logs or run magi-server restart --config '{command}'.")
+            format!(
+                "Inspect this deployment before restarting:\n  {}",
+                command(&["status"])
+            )
         } else if self.can_start() {
-            format!("Run magi-server --config '{command}' to start this deployment.")
+            format!("Open this deployment to start it:\n  {}", command(&[]))
         } else {
-            "Check status and the original owner. Do not start another service against this data directory.".into()
+            format!(
+                "Inspect the original owner before starting another instance:\n  {}",
+                command(&["status"])
+            )
         };
         format!("{} {next}", self.message)
     }

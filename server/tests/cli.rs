@@ -182,6 +182,166 @@ fn console_version_and_help_do_not_require_a_configuration() {
         .unwrap();
     assert!(help.status.success());
     assert!(String::from_utf8_lossy(&help.stdout).contains("--bundle-root"));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--json"));
+    assert!(String::from_utf8_lossy(&help.stdout).contains("--text"));
+}
+
+#[test]
+fn explicit_output_modes_cover_saved_config_logs_and_failures() {
+    let fixture = Fixture::new();
+    let path = fixture.0.join("config.json");
+    let mut config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    config.port = 0;
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    for args in [
+        vec!["config", "show"],
+        vec!["config", "validate"],
+        vec!["config", "upgrade-check"],
+        vec!["status"],
+        vec!["logs"],
+    ] {
+        let json = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(&args)
+            .args(["--json", "--config"])
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(
+            json.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&json.stderr)
+        );
+        assert!(
+            serde_json::from_slice::<serde_json::Value>(&json.stdout).is_ok(),
+            "{args:?}"
+        );
+        assert!(json.stderr.is_empty());
+        let text = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(&args)
+            .args(["--text", "--config"])
+            .arg(&path)
+            .env("TERM", "dumb")
+            .output()
+            .unwrap();
+        assert!(text.status.success(), "{args:?}");
+        assert!(serde_json::from_slice::<serde_json::Value>(&text.stdout).is_err());
+        assert!(!config.data_dir.exists());
+    }
+    for args in [
+        vec!["--json", "--text", "status"],
+        vec!["--json", "connect"],
+        vec!["--json", "configure"],
+        vec!["--json", "logs", "--follow"],
+    ] {
+        let error = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(&args)
+            .arg("--config")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!error.status.success(), "{args:?}");
+        assert!(error.stdout.is_empty());
+        assert!(!config.data_dir.exists());
+    }
+    let error = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["stop", "--json", "--config"])
+        .arg(fixture.0.join("missing.json"))
+        .output()
+        .unwrap();
+    assert!(!error.status.success());
+    assert!(error.stdout.is_empty());
+    let value: serde_json::Value = serde_json::from_slice(&error.stderr).unwrap();
+    assert_eq!(value["success"], false);
+}
+
+#[cfg(unix)]
+#[test]
+fn device_commands_render_text_or_json_without_extra_mutations() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixListener,
+    };
+    let fixture = Fixture::new();
+    let path = fixture.0.join("config.json");
+    let config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        fixture.0.join("data"),
+    );
+    fs::create_dir_all(config.data_dir.join("runtime")).unwrap();
+    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
+    for json in [false, true] {
+        for (args, action, reply, title) in [
+            (
+                vec!["clients"],
+                "clients",
+                serde_json::json!([]),
+                "No paired devices yet",
+            ),
+            (
+                vec!["pair"],
+                "pair",
+                serde_json::json!({"pairing_token":"test-pairing-code", "expires_at_ms":123, "server_id":"test-server"}),
+                "Desktop pairing code created",
+            ),
+            (
+                vec!["revoke", "--client-id", "test-device"],
+                "revoke",
+                serde_json::Value::Null,
+                "Device access revoked",
+            ),
+        ] {
+            let socket = config.data_dir.join("runtime/manage.sock");
+            let listener = UnixListener::bind(&socket).unwrap();
+            let server = std::thread::spawn(move || {
+                for expected in ["status", action] {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .unwrap();
+                    let mut line = String::new();
+                    BufReader::new(&mut stream).read_line(&mut line).unwrap();
+                    assert_eq!(
+                        serde_json::from_str::<serde_json::Value>(&line).unwrap()["command"],
+                        expected
+                    );
+                    let data = if expected == "status" {
+                        serde_json::json!({"service_ready":false, "protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION})
+                    } else {
+                        reply.clone()
+                    };
+                    writeln!(
+                        stream,
+                        "{}",
+                        serde_json::json!({"success":true, "data":data})
+                    )
+                    .unwrap();
+                }
+            });
+            let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+                .args(args)
+                .arg(if json { "--json" } else { "--text" })
+                .arg("--config")
+                .arg(&path)
+                .output()
+                .unwrap();
+            server.join().unwrap();
+            fs::remove_file(socket).unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if json {
+                assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_ok());
+            } else {
+                assert!(String::from_utf8_lossy(&output.stdout).contains(title));
+            }
+            assert!(output.stderr.is_empty());
+        }
+    }
 }
 
 #[test]
@@ -324,7 +484,7 @@ fn status_is_read_only_before_initialization() {
         .unwrap();
     assert!(detailed.status.success());
     let text = String::from_utf8_lossy(&detailed.stdout);
-    assert!(text.starts_with("Magi Server - Not configured"));
+    assert!(text.contains("Magi Server - Not configured"));
     assert!(text.contains("Technical details"));
     assert!(!config.parent().unwrap().exists());
     assert!(!Command::new(env!("CARGO_BIN_EXE_magi-server"))
@@ -391,7 +551,7 @@ fn readiness_connection_failure_preserves_the_deployment_report() {
     server.join().unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.starts_with("Magi Server - Needs attention"));
+    assert!(text.contains("Magi Server - Needs attention"));
     assert!(text.contains("Could not check"));
     assert!(text.contains("Readiness error"));
     assert!(text.contains(data.to_str().unwrap()));

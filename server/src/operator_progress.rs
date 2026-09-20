@@ -1,18 +1,20 @@
 //! Explicit lifecycle commands own their progress; interactive prompts keep their renderer.
 
 use std::{
-    io::IsTerminal,
     sync::{mpsc, Mutex},
     time::{Duration, Instant},
 };
 
-pub fn run<T>(operation: impl FnOnce(&dyn Fn(&str)) -> Result<T, String>) -> Result<T, String> {
-    if !std::io::stderr().is_terminal() {
+pub fn run<T>(
+    enabled: bool,
+    operation: impl FnOnce(&dyn Fn(&str)) -> Result<T, String>,
+) -> Result<T, String> {
+    if !enabled {
         return operation(&|_| {});
     }
     report(
         operation,
-        &|message| eprintln!("{message}"),
+        &|message| eprintln!("{}", crate::operator_output::Tone::Pending.line(message)),
         Duration::from_secs(5),
     )
 }
@@ -50,17 +52,7 @@ fn report<T>(
         let result = operation(&update);
         let _ = done.send(());
         let _ = ticker.join();
-        if result.is_ok() {
-            emit(&format!(
-                "Service command completed in {:.1}s.",
-                started.elapsed().as_secs_f64()
-            ));
-        } else {
-            emit(&format!(
-                "Service command did not complete ({:.1}s elapsed).",
-                started.elapsed().as_secs_f64()
-            ));
-        }
+        // The caller prints the actual outcome once, after this renderer stops.
         result
     })
 }
@@ -97,7 +89,7 @@ mod tests {
         assert!(lines
             .iter()
             .any(|l| l.contains("elapsed - Waiting for macOS")));
-        assert!(lines.last().unwrap().contains("did not complete"));
+        assert!(lines.last().unwrap().contains("elapsed -"));
         assert!(!lines.iter().any(|l| l.contains("command completed")));
     }
 }

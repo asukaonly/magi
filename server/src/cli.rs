@@ -1,9 +1,13 @@
 //! Explicit automation commands and the interactive default entry point.
 
+use crate::{
+    command_output,
+    operator_output::{next_step, Format, Options, Tone},
+};
 use clap::{Args, Parser, Subcommand};
 use magi_service_contract::config::ServerConfig;
 use std::{
-    io::{IsTerminal, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -13,6 +17,8 @@ pub struct Cli {
     /// Deployment configuration (default: ~/.config/magi-server/server.json).
     #[arg(long, global = true)]
     pub config: Option<PathBuf>,
+    #[command(flatten)]
+    pub output: Options,
     #[command(flatten)]
     pub init: InitOptions,
     #[command(subcommand)]
@@ -70,10 +76,8 @@ pub enum Command {
     },
     /// Inspect this deployment. Human-readable in a terminal; JSON when piped.
     Status {
-        #[arg(long, conflicts_with = "details")]
-        json: bool,
         /// Include technical diagnostics and history; always print readable text.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "json")]
         details: bool,
     },
     /// Read the latest service log lines without starting a service.
@@ -164,7 +168,11 @@ pub fn home_path(relative: &str) -> Result<PathBuf, String> {
 
 pub fn load_config(path: &Path) -> Result<ServerConfig, String> {
     if !path.try_exists().map_err(|e| e.to_string())? {
-        return Err(format!("No deployment configuration exists at {}. Run magi-server with the same --config path for guided setup, or use init for automation.", path.display()));
+        return Err(format!(
+            "No deployment configuration exists at {}.{}",
+            path.display(),
+            next_step(path, "open guided setup (or use init for automation)", &[])
+        ));
     }
     ServerConfig::load(path)
         .map_err(|error| format!("Cannot load deployment at {}: {error}", path.display()))
@@ -174,6 +182,27 @@ pub fn execute(
     cli: Cli,
     output: &mut Option<crate::managed_output::ManagedOutput>,
 ) -> Result<(), String> {
+    let format = cli.output.format();
+    if cli.output.json
+        && matches!(
+            &cli.command,
+            None | Some(
+                Command::Connect
+                    | Command::Configure { from_stdin: false }
+                    | Command::Config {
+                        action: ConfigAction::Edit
+                    }
+            )
+        )
+    {
+        return Err("This command is interactive. Use an explicit command for JSON output; configure accepts --from-stdin.".into());
+    }
+    if cli.output.json && matches!(&cli.command, Some(Command::Logs { follow: true, .. })) {
+        return Err(
+            "logs --follow streams log text. Omit --json, or omit --follow for a JSON snapshot."
+                .into(),
+        );
+    }
     let path = match cli.config {
         Some(path) => path,
         None => home_path(".config/magi-server/server.json")?,
@@ -199,9 +228,8 @@ pub fn execute(
                 Some(data) => data.clone(),
                 None => home_path(".magi-center")?,
             };
-            create_config(&path, &cli.init, data, cli.init.port.unwrap_or(19080))?;
-            println!("Created server configuration: {}", path.display());
-            Ok(())
+            let config = create_config(&path, &cli.init, data, cli.init.port.unwrap_or(19080))?;
+            format.print(&serde_json::json!({"command":"init", "config_path":path, "data_dir":config.data_dir, "started":false}), || Ok(command_output::initialized(&path, &config)))
         }
         Some(Command::Run {
             bootstrap_stdin,
@@ -212,9 +240,10 @@ pub fn execute(
             bootstrap_stdin,
             shutdown_on_stdin_close,
             log_file,
+            format,
             output,
         ),
-        Some(Command::Collect { args }) => run_collector(&cli.init, args),
+        Some(Command::Collect { args }) => run_collector(&cli.init, cli.output, args),
         Some(Command::CollectorConnections { plugin_id }) => {
             if !magi_gateway_key(&plugin_id) {
                 return Err("Invalid plugin identity".into());
@@ -222,7 +251,8 @@ pub fn execute(
             let config = load_config(&path)?;
             crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
-            print_json(&api.call("GET", &format!("/plugins/{plugin_id}/connections"), None)?)
+            let value = api.call("GET", &format!("/plugins/{plugin_id}/connections"), None)?;
+            format.print(&value, || command_output::connections(&plugin_id, &value))
         }
         Some(Command::ReleaseCollector {
             connection_id,
@@ -234,11 +264,20 @@ pub fn execute(
             let config = load_config(&path)?;
             crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
-            print_json(&api.call(
+            let value = api.call(
                 "POST",
                 &format!("/delivery/collector/{connection_id}/release"),
                 Some(&serde_json::json!({"source_type":source_type})),
-            )?)
+            )?;
+            if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+                return Err("The service did not confirm the collector release".into());
+            }
+            format.print(&value, || {
+                Ok(format!(
+                    "{}\nConnection: {connection_id}\nSource: {source_type}",
+                    Tone::Success.line("Source collection returned to this Magi server.")
+                ))
+            })
         }
         Some(Command::PairCollector {
             connection_id,
@@ -247,13 +286,18 @@ pub fn execute(
             let config = load_config(&path)?;
             crate::deployment_status::require_management(&config, &path, true)?;
             let api = crate::console_api::Api::connect(&config)?;
-            print_json(&api.call(
+            let value = api.call(
                 "POST",
                 "/server/collector-grants",
                 Some(&serde_json::json!({"connection_id":connection_id,"source_type":source_type})),
-            )?)
+            )?;
+            format.print(&value, || {
+                command_output::pairing(&value, Some((&connection_id, &source_type)))
+            })
         }
-        Some(Command::Configure { from_stdin }) => crate::console::configure(&path, from_stdin),
+        Some(Command::Configure { from_stdin }) => {
+            crate::console::configure(&path, from_stdin, format)
+        }
         Some(Command::Connect) => {
             crate::console::terminal()?;
             let config = load_config(&path)?;
@@ -261,9 +305,9 @@ pub fn execute(
             let api = crate::console_api::Api::connect(&config)?;
             crate::console_connection::guide(&config, &api.base_url)
         }
-        Some(Command::Status { json, details }) => {
+        Some(Command::Status { details }) => {
             let status = crate::deployment_status::inspect_path(&path)?;
-            if json || (!details && !std::io::stdout().is_terminal()) {
+            if format == Format::Json && !details {
                 print_json(&serde_json::to_value(status).map_err(|e| e.to_string())?)
             } else {
                 let setup = crate::status_output::inspect_setup(&status);
@@ -275,17 +319,22 @@ pub fn execute(
             lines,
             source,
             follow,
-        }) => crate::operator_logs::run(&load_config(&path)?, source, usize::from(lines), follow),
+        }) => crate::operator_logs::run(
+            &load_config(&path)?,
+            source,
+            usize::from(lines),
+            follow,
+            cli.output.json,
+        ),
         Some(Command::Config { action }) => {
             let config = load_config(&path)?;
             match action {
                 ConfigAction::Show => {
-                    print_json(&serde_json::to_value(config).map_err(|e| e.to_string())?)
+                    format.print(&config, || command_output::configuration(&path, &config))
                 }
                 ConfigAction::Validate => {
                     validate_worker(&config)?;
-                    println!("Deployment configuration is valid.");
-                    Ok(())
+                    format.print(&serde_json::json!({"valid":true, "config_path":path, "runtime_files_present":true}), || Ok(format!("{}\nConfig: {}\nRuntime files are present. This does not check service or model readiness.{}", Tone::Success.line("Deployment configuration is valid."), path.display(), next_step(&path, "check service state", &["status"]))))
                 }
                 ConfigAction::Edit => {
                     crate::console::terminal()?;
@@ -298,37 +347,52 @@ pub fn execute(
                     Ok(())
                 }
                 ConfigAction::UpgradeCheck => {
-                    println!("{}", crate::console_deployment::upgrade_check(&path)?);
-                    Ok(())
+                    let check = crate::console_deployment::upgrade_check(&path)?;
+                    format.print(
+                        &serde_json::json!({"config_path":path, "read_only":true, "report":check}),
+                        || Ok(format!("{}\n{check}", Tone::Info.line("Upgrade checklist"))),
+                    )
                 }
             }
         }
         Some(command) => {
             use crate::console_api::Request;
-            let request = match command {
+            let request = match &command {
                 Command::Pair => Request::Pair,
                 Command::Clients => Request::Clients,
-                Command::Revoke { client_id } => Request::Revoke { client_id },
-                Command::Install => {
-                    return print_json(&crate::service_install::execute_cli("install", &path)?)
-                }
-                Command::Start => {
-                    return print_json(&crate::service_install::execute_cli("start", &path)?)
-                }
-                Command::Stop => {
-                    return print_json(&crate::service_install::execute_cli("stop", &path)?)
-                }
-                Command::Restart => {
-                    return print_json(&crate::service_install::execute_cli("restart", &path)?)
-                }
-                Command::Uninstall => {
-                    return print_json(&crate::service_install::execute_cli("uninstall", &path)?)
+                Command::Revoke { client_id } => Request::Revoke {
+                    client_id: client_id.clone(),
+                },
+                Command::Install
+                | Command::Start
+                | Command::Stop
+                | Command::Restart
+                | Command::Uninstall => {
+                    let action = match command {
+                        Command::Install => "install",
+                        Command::Start => "start",
+                        Command::Stop => "stop",
+                        Command::Restart => "restart",
+                        _ => "uninstall",
+                    };
+                    let value = crate::service_install::execute_cli(action, &path, format)?;
+                    return format.print(&value, || command_output::lifecycle(&path, &value));
                 }
                 _ => unreachable!(),
             };
             let config = load_config(&path)?;
             crate::deployment_status::require_management(&config, &path, false)?;
-            print_json(&crate::console_api::management(&config, request)?)
+            let value = crate::console_api::management(&config, request)?;
+            match command {
+                Command::Pair => format.print(&value, || {
+                    let mut text = command_output::pairing(&value, None)?;
+                    text.push_str(&next_step(&path, "show this service's address", &["status"]));
+                    Ok(text)
+                }),
+                Command::Clients => format.print(&value, || command_output::clients(&path, &value)),
+                Command::Revoke { client_id } => format.print(&serde_json::json!({"revoked":true, "client_id":client_id}), || Ok(format!("{}\nDevice ID: {client_id}\nThe device must pair again to regain access.{}", Tone::Success.line("Device access revoked."), next_step(&path, "review paired devices", &["clients"])))),
+                _ => unreachable!(),
+            }
         }
     }
 }
@@ -426,7 +490,7 @@ pub fn replace_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     result
 }
 
-fn run_collector(options: &InitOptions, args: Vec<String>) -> Result<(), String> {
+fn run_collector(options: &InitOptions, output: Options, args: Vec<String>) -> Result<(), String> {
     let data = options
         .data_dir
         .clone()
@@ -445,9 +509,14 @@ fn run_collector(options: &InitOptions, args: Vec<String>) -> Result<(), String>
     };
     validate_worker(&config)?;
     let mut command = std::process::Command::new(&config.worker.executable);
+    command.args(&config.worker.args).arg("--collector");
+    if output.json {
+        command.arg("--json");
+    }
+    if output.text {
+        command.arg("--text");
+    }
     command
-        .args(&config.worker.args)
-        .arg("--collector")
         .args(args)
         .env("MAGI_HOME", &config.data_dir)
         .env("MAGI_PLUGIN_PYTHON", &config.worker.plugin_python)

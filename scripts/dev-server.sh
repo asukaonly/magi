@@ -8,6 +8,7 @@ ARGS=()
 EXTRA=()
 HAS_DATA=false
 HAS_RUNTIME=false
+JSON_OUTPUT=false
 
 usage() {
   cat <<'HELP'
@@ -18,11 +19,21 @@ Use the same commands as magi-server, with the development deployment selected.
   run                Run in this terminal (Ctrl+C stops the service)
   status [--details|--json]  Inspect this deployment without starting it
   configure          Edit models, language and persona
+  init               Create deployment settings without starting a service
   connect            Guide desktop pairing and HTTPS access
   logs [--follow]     Read service logs (--source service|backend)
   config show        Inspect deployment settings
   config edit        Change run mode or port; inspect folders
+  config validate    Check saved configuration and runtime files
   config upgrade-check  Read-only checks before replacing the service bundle
+  install / start    Install or start the background login service
+  stop / restart     Stop or restart the background login service
+  uninstall          Remove login startup; preserve all data
+  pair / clients     Create a pairing code or list paired devices
+  revoke             Revoke a paired device (--client-id ID)
+  collector-connections  List a plugin's connections (--plugin-id ID)
+  pair-collector / release-collector  Manage source collection access
+  collect <command>  Run or inspect a device collector (collect --help)
   <command> --help    Show all options for a command
 
 Default config: ~/.config/magi-server/dev.json
@@ -32,6 +43,9 @@ Use --data-dir and --port with first setup or init only.
 Read-only commands never initialize a deployment or require Python.
 Requires Cargo; starting a service also requires the repository's .venv.
 Source changes require a restart; there is no hot reload.
+Results use readable text in a terminal and JSON in a pipe.
+Use --json for explicit JSON or --text for readable redirected output.
+Logs remain log text; logs --json returns a snapshot. Interactive guides do not accept --json.
 HELP
 }
 
@@ -54,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     --data-dir=*) HAS_DATA=true; EXTRA+=("$1"); shift ;;
     --port=*) EXTRA+=("$1"); shift ;;
     --development-root=*|--bundle-root=*) HAS_RUNTIME=true; EXTRA+=("$1"); shift ;;
+    --json) JSON_OUTPUT=true; ARGS+=("$1"); shift ;;
     *)
       if [[ -z "$COMMAND" && "$1" != -* ]]; then COMMAND="$1"; fi
       ARGS+=("$1"); shift ;;
@@ -67,9 +82,6 @@ if [[ "$COMMAND" == init || ( -z "$COMMAND" && ! -e "$CONFIG_PATH" && ! -L "$CON
 elif [[ "$COMMAND" == collect && "$HAS_RUNTIME" == false ]]; then
   EXTRA+=(--development-root "$ROOT_DIR")
 fi
-if [[ "$COMMAND" != status ]]; then
-  printf 'Development deployment: %s\n' "$CONFIG_PATH" >&2
-fi
 # Presentation only: copied commands must also work from the caller's directory.
 if [[ "$PWD" == "$ROOT_DIR" ]]; then
   export MAGI_CLI_LAUNCHER="./scripts/dev-server.sh"
@@ -80,8 +92,10 @@ cd "$ROOT_DIR"
 CARGO_OUTPUT=(--quiet)
 case "$COMMAND" in
   install|start|stop|restart|uninstall)
-    printf 'Preparing development command (building if needed)...\n' >&2
-    CARGO_OUTPUT=()
+    if [[ -t 2 && "$JSON_OUTPUT" == false ]]; then
+      printf 'Preparing development command (building if needed)...\n' >&2
+      CARGO_OUTPUT=()
+    fi
     ;;
 esac
 exec cargo run ${CARGO_OUTPUT[@]+"${CARGO_OUTPUT[@]}"} --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}

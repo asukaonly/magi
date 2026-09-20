@@ -1,4 +1,5 @@
 mod cli;
+mod command_output;
 mod console;
 mod console_api;
 mod console_connection;
@@ -12,6 +13,7 @@ mod launchctl;
 mod managed_output;
 mod operator_command;
 mod operator_logs;
+mod operator_output;
 mod operator_progress;
 mod service_inspection;
 mod service_install;
@@ -27,6 +29,7 @@ use std::path::PathBuf;
 fn main() {
     let mut output = None;
     let args = cli::Cli::parse();
+    let json_errors = args.output.json;
     let guided = std::io::stderr().is_terminal()
         && matches!(
             args.command,
@@ -41,8 +44,10 @@ fn main() {
     let outcome = cli::execute(args, &mut output);
     let failed = outcome.is_err();
     if let Err(error) = outcome {
-        if !guided || cliclack::outro_cancel(&error).is_err() {
-            eprintln!("{error}");
+        if json_errors {
+            eprintln!("{}", serde_json::json!({"success":false, "message":error}));
+        } else if !guided || cliclack::outro_cancel(&error).is_err() {
+            eprintln!("{}", operator_output::Tone::Error.line(error));
         }
     }
     drop(output);
@@ -56,6 +61,7 @@ fn run(
     externally_owned: bool,
     shutdown_on_stdin_close: bool,
     log_file: Option<PathBuf>,
+    format: operator_output::Format,
     output: &mut Option<managed_output::ManagedOutput>,
 ) -> Result<(), String> {
     if let Some(path) = log_file {
@@ -127,7 +133,7 @@ fn run(
             shutdown_tx.send_replace(true);
         });
         if !externally_owned {
-            return service_watch::run(config, config_path, shutdown_rx).await;
+            return service_watch::run(config, config_path, shutdown_rx, format).await;
         }
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         tokio::spawn(async move {

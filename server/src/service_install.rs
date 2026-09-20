@@ -55,14 +55,20 @@ pub fn execute(command: &str, config_path: &Path) -> Result<serde_json::Value, S
     execute_with_progress(command, config_path, &|_| {})
 }
 
-pub fn execute_cli(command: &str, config_path: &Path) -> Result<serde_json::Value, String> {
-    crate::operator_progress::run(|progress| execute_with_progress(command, config_path, progress))
-        .map_err(|error| {
-            format!(
-                "{error}\nCheck this deployment:\n  {}",
-                crate::operator_command::display(config_path, &["status"])
-            )
-        })
+pub fn execute_cli(
+    command: &str,
+    config_path: &Path,
+    format: crate::operator_output::Format,
+) -> Result<serde_json::Value, String> {
+    crate::operator_progress::run(format.progress(), |progress| {
+        execute_with_progress(command, config_path, progress)
+    })
+    .map_err(|error| {
+        format!(
+            "{error}\nCheck this deployment:\n  {}",
+            crate::operator_command::display(config_path, &["status"])
+        )
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -90,6 +96,14 @@ fn execute_with_progress(
     ) {
         return Err(format!("Cannot manage this login service: its deployment ownership could not be verified. {} Inspect status and use the matching executable and configuration.", inspected.detail.as_deref().unwrap_or("The registration belongs to another installation.")));
     }
+    if inspected.registration == Registration::NotInstalled
+        && matches!(command, "stop" | "uninstall")
+    {
+        return Ok(
+            serde_json::json!({"command":command, "outcome":"not_installed", "data_dir":config.data_dir,
+            "data_preserved":true, "message":"No background login service is installed. This command does not stop a foreground service."}),
+        );
+    }
     // A user agent must run under the logged-in owner, never as a root daemon.
     let uid = unsafe { libc::geteuid() };
     if uid == 0 {
@@ -115,7 +129,7 @@ fn execute_with_progress(
         let output = crate::launchctl::output(&["print", &target], timeout)?;
         loaded_from_status(output.status.success(), output.status.code())
     };
-    let unload = || -> Result<(), String> {
+    let unload = || -> Result<bool, String> {
         let deadline =
             Instant::now() + Duration::from_secs(config.owner_shutdown_timeout_secs() + 10);
         let remaining = || {
@@ -130,16 +144,14 @@ fn execute_with_progress(
             ));
             launchctl(&["bootout", &target], remaining()?)?;
         } else {
-            progress("Background service is already stopped.");
-            return Ok(());
+            return Ok(false);
         }
         // The deadline includes bootout itself, not only the later removal check.
         progress("Confirming that macOS has removed the background job...");
         while loaded(remaining()?.min(crate::launchctl::INSPECT_TIMEOUT))? {
             std::thread::sleep(Duration::from_millis(100).min(remaining()?));
         }
-        progress("Background service stopped. Data is preserved.");
-        Ok(())
+        Ok(true)
     };
     if matches!(command, "install" | "register") {
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
@@ -160,8 +172,16 @@ fn execute_with_progress(
                 .map_err(|e| e.to_string())?;
         }
     }
-    let metadata =
-        fs::symlink_metadata(&plist).map_err(|_| "Service is not installed; run install first")?;
+    let metadata = fs::symlink_metadata(&plist).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            format!(
+                "No background login service is installed. Install it first:\n  {}",
+                crate::operator_command::display(&config_path, &["install"])
+            )
+        } else {
+            format!("Cannot inspect the background registration: {error}")
+        }
+    })?;
     if !metadata.is_file()
         || metadata.uid() != uid
         || metadata.nlink() != 1
@@ -170,6 +190,7 @@ fn execute_with_progress(
         return Err("The existing launch agent belongs to a different installation; use its original executable and configuration to uninstall it first".into());
     }
     let plist_arg = plist.to_str().ok_or("Launch agent path is not UTF-8")?;
+    let mut was_loaded = true;
     match command {
         "register" => {}
         "install" | "start" => {
@@ -184,7 +205,7 @@ fn execute_with_progress(
             launchctl(&["kickstart", &target], crate::launchctl::CONTROL_TIMEOUT)?;
         }
         "stop" | "uninstall" => {
-            unload()?;
+            was_loaded = unload()?;
             if command == "uninstall" {
                 fs::remove_file(&plist).map_err(|e| e.to_string())?;
             }
@@ -204,8 +225,8 @@ fn execute_with_progress(
     // The caller owns presentation: JSON for automation, step feedback for the wizard.
     Ok(
         serde_json::json!({"command":command,"launch_agent":plist,"data_dir":config.data_dir,"data_preserved":true,
-            "outcome": if command == "register" { "registered" } else if matches!(command, "install" | "start") && inspected.loaded { "already_loaded" } else if matches!(command, "install" | "start" | "restart") { "start_requested" } else { "stopped" },
-            "message": if command == "register" { "Login startup is registered. The service has not been started." } else if matches!(command, "install" | "start") && inspected.loaded { "The login service was already loaded; this request did not restart it. Check status for readiness." } else if matches!(command, "install" | "start" | "restart") { "Background start requested. Check status for readiness." } else { "Background service stopped. Data is preserved." }}),
+            "outcome": if command == "register" { "registered" } else if command == "stop" && !was_loaded { "already_stopped" } else if matches!(command, "install" | "start") && inspected.loaded { "already_loaded" } else if matches!(command, "install" | "start" | "restart") { "start_requested" } else { "stopped" },
+            "message": if command == "register" { "Login startup is registered. The service has not been started." } else if command == "uninstall" { "Background service uninstalled. Data and configuration are preserved." } else if command == "stop" && !was_loaded { "Background service is already stopped. Data is preserved." } else if matches!(command, "install" | "start") && inspected.loaded { "The login service was already loaded; this request did not restart it. Check status for readiness." } else if matches!(command, "install" | "start" | "restart") { "Background start requested. Check status for readiness." } else { "Background service stopped. Data is preserved." }}),
     )
 }
 

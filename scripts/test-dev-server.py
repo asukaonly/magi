@@ -2,6 +2,7 @@
 """Check development command routing without starting or registering services."""
 import json
 import os
+import pty
 from pathlib import Path
 import subprocess
 import tempfile
@@ -11,6 +12,23 @@ SCRIPT = Path(__file__).resolve().with_name("dev-server.sh")
 
 
 class DevelopmentCommands(unittest.TestCase):
+    def test_terminal_build_progress_is_disabled_for_explicit_json(self):
+        with tempfile.TemporaryDirectory(prefix="magi-dev-tty-") as directory:
+            root = Path(directory)
+            cargo = root / "cargo"
+            cargo.write_text('#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n')
+            cargo.chmod(0o755)
+            env = {**os.environ, "HOME": str(root), "PATH": f"{root}:{os.environ['PATH']}"}
+            for flags in ([], ["--json"]):
+                master, slave = pty.openpty()
+                try:
+                    result = subprocess.run([str(SCRIPT), "stop", *flags], env=env, stdout=subprocess.PIPE, stderr=slave, text=True, check=True)
+                    args = json.loads(result.stdout)
+                    self.assertEqual("--quiet" in args, bool(flags))
+                finally:
+                    os.close(slave)
+                    os.close(master)
+
     def test_display_launcher_matches_the_callers_directory(self):
         with tempfile.TemporaryDirectory(prefix="magi-dev-hints-") as directory:
             root = Path(directory)
@@ -39,8 +57,8 @@ class DevelopmentCommands(unittest.TestCase):
                 if arguments[0] == "status":
                     self.assertEqual(result.stderr, "")
                 if arguments[0] == "stop":
-                    self.assertNotIn("--quiet", args)
-                    self.assertIn("building if needed", result.stderr)
+                    self.assertIn("--quiet", args)
+                    self.assertEqual(result.stderr, "")
             chosen = root / "config with spaces.json"
             result = subprocess.run([str(SCRIPT), "status", "--config", str(chosen)], env=env, capture_output=True, text=True, check=True)
             self.assertIn(str(chosen), json.loads(result.stdout))

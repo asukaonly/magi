@@ -160,7 +160,16 @@ fn next_steps(snapshot: &Snapshot, setup: &Setup) -> String {
 }
 
 pub fn render(snapshot: &Snapshot, setup: &Setup, details: bool) -> String {
-    let mut lines = vec![format!("Magi Server - {}", heading(snapshot, setup))];
+    let title = heading(snapshot, setup);
+    let tone = match title {
+        "Ready" => crate::operator_output::Tone::Success,
+        "Starting" | "Recovering" | "Stopping" => crate::operator_output::Tone::Pending,
+        "Needs attention" | "Agent not ready" | "Setup required" => {
+            crate::operator_output::Tone::Warning
+        }
+        _ => crate::operator_output::Tone::Info,
+    };
+    let mut lines = vec![tone.line(format!("Magi Server - {title}"))];
     if snapshot.state == State::Unreachable {
         lines.push(
             "A runtime is still active, but its management connection is unavailable.".into(),
@@ -335,7 +344,7 @@ mod tests {
         value.managed.last_exit_code = Some(1);
         value.management_error = Some("No such file or directory (os error 2)".into());
         let text = render(&value, &Setup::NotChecked, false);
-        assert!(text.starts_with("Magi Server - Needs attention"));
+        assert!(text.contains("Magi Server - Needs attention"));
         assert!(text.contains("Running (background owner PID 123)"));
         assert!(text.contains("Unknown (management unavailable)"));
         assert!(text.contains("manage.sock [missing]"));
@@ -383,13 +392,13 @@ mod tests {
             ),
         ] {
             let text = render(&value, &setup, false);
-            assert!(text.starts_with(&format!("Magi Server - {title}\n")));
+            assert!(text.contains(&format!("Magi Server - {title}\n")));
             assert!(!text.contains("Request timed out"));
         }
         value.data_identity_missing = true;
         assert!(
             render(&value, &Setup::Complete { agent_ready: true }, false)
-                .starts_with("Magi Server - Needs attention")
+                .contains("Magi Server - Needs attention")
         );
     }
 
@@ -403,7 +412,7 @@ mod tests {
             value.data_identity_missing = true;
             value.management_error = Some("No such file or directory".into());
             let text = render(&value, &Setup::NotChecked, false);
-            assert!(text.starts_with(&format!("Magi Server - {title}\n")));
+            assert!(text.contains(&format!("Magi Server - {title}\n")));
             assert!(!text.contains("Needs attention"));
             assert!(!text.contains("socket missing"));
             assert!(!text.contains("No such file"));
@@ -416,7 +425,7 @@ mod tests {
         let mut value = snapshot(State::Recovering);
         value.management = json!({"service_ready":false,"supervisor":{"phase":"cooldown","restart_count":2,"last_error":"probe timed out"}}).as_object().cloned();
         let text = render(&value, &Setup::NotChecked, false);
-        assert!(text.starts_with("Magi Server - Recovering"));
+        assert!(text.contains("Magi Server - Recovering"));
         assert!(text.contains("Waiting to retry"));
         assert!(render(&value, &Setup::NotChecked, true).contains("probe timed out"));
         value = snapshot(State::PortConflict);

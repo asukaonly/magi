@@ -99,6 +99,42 @@ All commands accept `--config <absolute-path>` to target a specific deployment.
 The no-command entry requires a terminal and refuses redirected input before
 creating deployment configuration or starting a process.
 
+## Command output
+
+Results are readable English in a terminal. A short status icon marks completed
+actions (✅), pending work (⏳), attention needed (⚠️), information (ℹ️), or
+failure (❌). The words always carry the meaning; basic terminals (`TERM=dumb`)
+use text markers. Results include relevant paths and copyable next steps for the
+selected deployment. The development launcher does not repeat the deployment
+header already present in the result.
+
+| Commands | Terminal result |
+| --- | --- |
+| `init`, `config show`, `config validate`, `config upgrade-check` | Saved settings, validation scope, or a read-only upgrade checklist |
+| `install`, `start`, `restart` | Start request accepted or already loaded; `status` checks actual readiness |
+| `stop`, `uninstall` | Stopped, already stopped, or no login service installed; data preservation and registration behavior |
+| `status` | Overall state, separate readiness checks, paths and state-specific next steps |
+| `pair`, `pair-collector` | Copyable single-use code, lifetime and intended use |
+| `clients`, `revoke` | Named devices and access states, empty-state guidance, or revocation confirmation |
+| `collector-connections`, `release-collector` | Connection names/IDs or the source returned to server collection |
+| `configure --from-stdin` | Configuration saved without echoing submitted secrets |
+| `run` | Foreground address and data path; gateway startup is distinct from Agent readiness |
+| `collect status/run/retry/discard` | Queue counts, failures and next steps; an empty queue does not prove the collector is running |
+
+Use `--json` for structured results, or `--text` to keep readable output when
+redirecting stdout. Structured commands default to JSON when piped. With
+`--json`, command failures emit a JSON error on stderr and exit nonzero; progress
+messages are suppressed. Parser errors and `--help` use the argument parser's
+normal text. Interactive setup, `configure`, `connect` and `config edit` do not
+accept `--json`; use explicit commands or `configure --from-stdin` for automation.
+Collector `init` still prompts privately for its pairing code.
+
+`logs` intentionally streams plain log lines. `logs --json` returns a bounded
+snapshot; it cannot be combined with `--follow`. `run --json` emits a listener
+announcement per gateway start, with runtime diagnostics on stderr. The desktop's
+private startup protocol always remains machine-readable, regardless of terminal
+formatting. `status --details` always produces readable text.
+
 `run` stays in the foreground as a lightweight Rust owner. It starts a separate
 Rust gateway process, which owns Python. Control-C stops the complete owned
 runtime. The default
@@ -126,7 +162,8 @@ both the on-disk registration and loaded job arguments before acting. Repeating
 restart it or claim that it is ready. `restart` reports `start_requested`; use
 `status` to check readiness. Interactive lifecycle changes require confirmation.
 Explicit lifecycle commands report their current stage immediately and elapsed
-time every five seconds when stderr is a terminal; stdout remains JSON. With the
+time every five seconds in terminal text mode. The result is printed once after
+the progress renderer stops. With the
 development launcher, Cargo build progress is visible before the command starts.
 For stop/uninstall and the stop phase of restart, the unload request and removal
 confirmation share one deadline: the configured owner shutdown budget plus ten

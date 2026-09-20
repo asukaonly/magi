@@ -14,25 +14,32 @@ import shutil
 import socket
 import sys
 import time
+import sqlite3
+import httpx
 from typing import Iterator
+from . import output
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="magi-server collect", description="Collect one device source without starting a center or agent.")
+    display = argparse.ArgumentParser(add_help=False)
+    formatting = display.add_mutually_exclusive_group()
+    formatting.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Print structured JSON")
+    formatting.add_argument("--text", action="store_true", default=argparse.SUPPRESS, help="Print readable text even when redirected")
+    root = argparse.ArgumentParser(prog="magi-server collect", description="Collect one device source without starting a center or agent.", parents=[display])
     commands = root.add_subparsers(dest="action", required=True)
-    init = commands.add_parser("init", help="Pair and claim a source; prompts privately for the pairing code")
+    init = commands.add_parser("init", parents=[display], help="Pair and claim a source; prompts privately for the pairing code")
     init.add_argument("--address", required=True)
     init.add_argument("--connection", required=True)
     init.add_argument("--plugin", type=Path, required=True)
     init.add_argument("--settings-file", type=Path, required=True, help="Local source settings JSON, without credentials")
     init.add_argument("--trust-plugin", action="store_true", required=True, help="Allow this plugin to run with your OS account access")
     init.add_argument("--name", default=socket.gethostname())
-    run = commands.add_parser("run", help="Collect and upload until Ctrl+C; restart with the same directory to resume")
+    run = commands.add_parser("run", parents=[display], help="Collect and upload until Ctrl+C; restart with the same directory to resume")
     run.add_argument("--once", action="store_true")
     run.add_argument("--interval", type=int, default=60)
-    commands.add_parser("status", help="Show queue counts and safe error codes")
-    commands.add_parser("retry", help="Retry failed deliveries without changing their identities")
-    discard = commands.add_parser("discard", help="Discard failed deliveries, retaining sequence watermarks")
+    commands.add_parser("status", parents=[display], help="Show queue counts and safe error codes")
+    commands.add_parser("retry", parents=[display], help="Retry failed deliveries without changing their identities")
+    discard = commands.add_parser("discard", parents=[display], help="Discard failed deliveries, retaining sequence watermarks")
     discard.add_argument("--confirm", action="store_true", required=True)
     return root
 
@@ -129,7 +136,8 @@ async def initialize(args: argparse.Namespace, root: Path) -> None:
         if scope["plugin_id"] != manifest.plugin_id or scope["source_type"] not in portable:
             raise ValueError("Granted source does not match the installed collector plugin")
         write_connection_json(root / "scope.json", json.dumps(scope))
-        print(f"Collector paired. Data: {root}\nRun: magi-server --data-dir '{root}' collect run")
+        output.emit({"paired": True, "data_dir": str(root), "connection_id": args.connection},
+                    f"{output.line('Collector paired.', 'success')}\nData: {root}\n\nNext step — start collection:\n  {output.command(root, 'run')}", machine=args.machine)
     finally:
         if process is not None:
             await process.shutdown()
@@ -197,18 +205,20 @@ async def run_collector(args: argparse.Namespace, root: Path, config: dict, cred
                     queue.append(batch, scope)
                     next_collection = time.monotonic() + (args.interval if batch.complete else 1)
                 except BufferError:
-                    print("Collector queue is full; collection paused until delivery frees space.")
+                    print(output.line("Collector queue is full; collection paused until delivery frees space.", "warning"), file=sys.stderr)
                     next_collection = time.monotonic() + args.interval
             for _ in range(32):
                 if not await transport.deliver(queue, scope):
                     break
             if args.once:
-                print(json.dumps(queue.status()))
+                output.emit(queue.status(), output.queue_report(queue.status(), root, "Collection pass completed"), machine=args.machine)
                 break
             try:
                 await asyncio.wait_for(stopped.wait(), timeout=1)
             except asyncio.TimeoutError:
                 pass
+        if not args.once:
+            output.emit(queue.status(), output.queue_report(queue.status(), root, "Collector stopped; queued items are preserved"), machine=args.machine)
     finally:
         if queue is not None:
             queue.close()
@@ -220,18 +230,25 @@ async def run_collector(args: argparse.Namespace, root: Path, config: dict, cred
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if getattr(args, "json", False) and getattr(args, "text", False):
+        parser().error("--json and --text cannot be combined")
+    args.machine = getattr(args, "json", False) or (not getattr(args, "text", False) and not sys.stdout.isatty())
     root = Path(os.environ.get("MAGI_HOME", str(Path.home() / ".magi-collector"))).expanduser().absolute()
-    if root in {Path.home(), Path(root.anchor)}:
-        raise ValueError("Collector data needs a dedicated directory")
     os.environ["MAGI_HOME"] = str(root)
     try:
+        if root in {Path.home(), Path(root.anchor)}:
+            raise ValueError("Collector data needs a dedicated directory")
         if args.action == "status":
-            import sqlite3
+            if not (root / "outbox.db").exists():
+                output.emit({"state": "not_initialized", "data_dir": str(root)},
+                            f"{output.line('No collector queue yet.')}\nData: {root}\nPair a collector, then run it to create its queue.\n  {output.command(root, 'init', '--help')}", machine=args.machine)
+                return 0
             with sqlite3.connect((root / "outbox.db").as_uri() + "?mode=ro", uri=True) as database:
                 database.row_factory = sqlite3.Row
                 counts = database.execute("SELECT COUNT(*),COALESCE(SUM(terminal),0) FROM events").fetchone()
                 head = database.execute("SELECT sequence,attempts,retry_at,failure,terminal FROM events ORDER BY sequence LIMIT 1").fetchone()
-                print(json.dumps({"pending": counts[0], "failed": counts[1], "head": dict(head) if head else None}, indent=2))
+                value = {"pending": counts[0], "failed": counts[1], "head": dict(head) if head else None}
+                output.emit(value, output.queue_report(value, root), machine=args.machine)
             return 0
         with instance(root):
             if args.action == "init":
@@ -240,6 +257,8 @@ def main(argv: list[str] | None = None) -> int:
             paired = json.loads((root / "collector.json").read_text())
             config, credential = paired["config"], paired["credential"]
             if args.action == "run":
+                if not args.machine:
+                    print(output.line("Collector running. Press Ctrl+C to stop; queued items are preserved."))
                 asyncio.run(run_collector(args, root, config, credential))
             else:
                 from .queue import CollectorQueue
@@ -250,10 +269,14 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     if args.action != "status":
                         queue.recover(discard=args.action == "discard")
-                    print(json.dumps(queue.status(), indent=2))
+                    title = "Failed deliveries discarded" if args.action == "discard" else "Failed deliveries scheduled for retry"
+                    output.emit(queue.status(), output.queue_report(queue.status(), root, title), machine=args.machine)
                 finally:
                     queue.close()
         return 0
-    except (OSError, ValueError, RuntimeError) as exc:
-        print(f"Collector stopped: {exc}")
+    except (OSError, ValueError, RuntimeError, sqlite3.Error, httpx.HTTPError) as exc:
+        if args.machine:
+            print(json.dumps({"success": False, "message": str(exc)}), file=sys.stderr)
+        else:
+            print(output.line(f"Collector command failed: {exc}\nData: {root}\nInspect this collector:\n  {output.command(root, 'status')}", "error"), file=sys.stderr)
         return 1

@@ -79,23 +79,33 @@ pub fn run(
     source: Source,
     lines: usize,
     follow: bool,
+    json: bool,
 ) -> Result<(), String> {
     let path = config.data_dir.join("logs").join(source.filename());
     if !follow {
         let text = tail(&path, lines)?;
-        println!(
-            "{}",
-            if text.is_empty() {
-                "No log entries yet."
-            } else {
-                &text
-            }
-        );
+        if json {
+            return crate::cli::print_json(
+                &serde_json::json!({"path":path, "lines":text.lines().collect::<Vec<_>>()}),
+            );
+        }
+        if text.is_empty() {
+            eprintln!(
+                "{}",
+                crate::operator_output::Tone::Info
+                    .line(format!("No log entries yet.\nLog: {}", path.display()))
+            );
+            return Ok(());
+        }
+        println!("{text}");
         return Ok(());
     }
     eprintln!(
-        "Following {}; Ctrl+C ends log viewing. Service state is unchanged.",
-        path.display()
+        "{}",
+        crate::operator_output::Tone::Info.line(format!(
+            "Following {}; Ctrl+C ends log viewing. Service state is unchanged.",
+            path.display()
+        ))
     );
     let mut previous = None;
     let mut offset = 0;

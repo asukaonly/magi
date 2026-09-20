@@ -192,7 +192,11 @@ pub fn launch(path: &Path, options: InitOptions) -> Result<(), String> {
     crate::console_manager::run(path, &config)
 }
 
-pub fn configure(path: &Path, from_stdin: bool) -> Result<(), String> {
+pub fn configure(
+    path: &Path,
+    from_stdin: bool,
+    format: crate::operator_output::Format,
+) -> Result<(), String> {
     if !from_stdin {
         terminal()?;
         ui(cliclack::intro("Configure Magi — existing service"))?;
@@ -215,7 +219,13 @@ pub fn configure(path: &Path, from_stdin: bool) -> Result<(), String> {
         let document: SetupDocument = serde_json::from_slice(&bytes)
             .map_err(|_| "Expected a setup document with language, llm and persona_slug")?;
         apply_document(&api, document)?;
-        println!("Configuration saved. The existing service remains running.");
+        format.print(
+            &serde_json::json!({"saved":true, "config_path":path}),
+            || {
+                Ok(crate::operator_output::Tone::Success
+                    .line("Configuration saved. The existing service remains running."))
+            },
+        )?;
     } else {
         edit_configuration(&api)?;
         summary(path, &config, &api)?;

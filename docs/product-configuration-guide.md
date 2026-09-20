@@ -172,9 +172,34 @@ The console owns terminal rendering throughout setup: installation and startup
 return results to the step UI instead of printing JSON or service logs between
 prompts. Service diagnostics go to the displayed data-root log directory; early
 startup failures are displayed after the progress renderer has stopped. Explicit
-service-management subcommands retain their machine-readable JSON output.
+service-management subcommands use readable English summaries in terminals.
+All structured result commands share `--json` and `--text`: terminal stdout
+defaults to readable text, redirected stdout to JSON; `--text` forces readable
+output when redirected. Explicit `--json` suppresses lifecycle progress and emits
+command errors as JSON on stderr with a nonzero exit. Argument-parser help/errors
+retain normal parser text. Interactive guides reject `--json`; automation uses
+explicit actions or `configure --from-stdin`.
+
+Summaries cover initialization, deployment settings/validation/upgrade checks,
+service actions, pairing, device access, collector connections/grants and stdin
+configuration. They show an outcome, relevant context and deployment-specific
+next steps. Success, pending, warning, information and error markers use a small
+consistent set of icons with text fallbacks for basic terminals. Icons never
+replace words. Start/restart acknowledgement is pending, not proof of readiness;
+an allowed device is not necessarily online. Stop distinguishes already stopped
+and not installed, and uninstall explains that data is retained. Missing login
+registration does not imply a foreground or desktop-owned runtime was stopped.
+
+Direct foreground startup prints a readable listener announcement in a terminal
+and retains machine-readable announcements for scripts and the private desktop
+startup protocol. Log commands remain plain log text; explicit `logs --json`
+returns a bounded snapshot and cannot be combined with `--follow`. Device
+collector commands follow the same output policy, including a read-only missing
+queue state and separate queued/failed counts. Collector `init` still requires
+private pairing-code input; JSON formatting does not make it unattended.
+
 Explicit lifecycle commands show phase messages and elapsed time every five
-seconds on terminal stderr while keeping stdout JSON. The interactive console
+seconds on terminal stderr in text mode. The interactive console
 retains ownership of its own renderer. The development launcher exposes build
 activity for lifecycle commands so a build wait is distinguishable from a stop.
 OS service-manager calls have bounded output and deadlines. The stop deadline
