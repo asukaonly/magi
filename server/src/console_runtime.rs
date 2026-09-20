@@ -153,7 +153,7 @@ impl Drop for Foreground {
 
 fn capture_diagnostics(mut source: impl Read) -> std::io::Result<String> {
     // Service logs go to files. Capture pre-log startup errors without sharing the terminal.
-    let mut tail = VecDeque::with_capacity(8192);
+    let mut tail: VecDeque<u8> = VecDeque::with_capacity(8192);
     let mut buffer = [0; 4096];
     loop {
         match source.read(&mut buffer) {
