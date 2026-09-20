@@ -94,6 +94,10 @@ cleanup, including when an outer tool deadline expires during that cleanup.
 Subscription stop retains ownership after revoking
 access, so a cancelled caller or a concurrent retry cannot abandon a watcher.
 The host reports an uncertain failure if cleanup exceeds its deadline.
+Worker callback waits preserve cancellation even when a reply completes in the
+same event-loop turn. Replies arriving after callback cancellation are discarded
+without stopping the protocol reader; they cannot prevent subscription stop or
+subsequent requests from completing.
 
 Watch-capable sources implement `Source.watch(context, emitter)` as a coroutine
 that lives until cancelled. The host starts it under a distinct subscription

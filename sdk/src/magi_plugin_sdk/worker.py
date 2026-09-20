@@ -14,7 +14,7 @@ import socket
 import sys
 import threading
 import uuid
-from concurrent.futures import Future
+from concurrent.futures import Future, InvalidStateError
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -49,6 +49,21 @@ class RemoteHostError(RuntimeError):
     """The scoped host broker denied or failed a request."""
 
 
+async def _await_callback(future: Future[Any], timeout: float) -> Any:
+    """Bound a callback without losing cancellation to concurrent completion."""
+    wrapped = asyncio.wrap_future(future)
+    try:
+        done, _ = await asyncio.wait((wrapped,), timeout=timeout)
+        if not done:
+            raise asyncio.TimeoutError("Host callback deadline expired")
+        return wrapped.result()
+    finally:
+        if not wrapped.done():
+            wrapped.cancel()
+        elif not wrapped.cancelled():
+            wrapped.exception()
+
+
 class WorkerHost:
     """The only worker-facing entry to explicitly granted host capabilities."""
 
@@ -60,9 +75,7 @@ class WorkerHost:
             "capability",
             {"capability": capability, "resource": resource, "payload": payload},
         )
-        return await asyncio.wait_for(
-            asyncio.wrap_future(future), self.server.callback_timeout
-        )
+        return await _await_callback(future, self.server.callback_timeout)
 
 
 class WorkerCredentials:
@@ -103,9 +116,7 @@ class RemoteChannelPort:
                 {"port": self.port, "method": method, "args": args, "kwargs": kwargs},
                 parent="channel",
             )
-            return await asyncio.wait_for(
-                asyncio.wrap_future(future), self.server.callback_timeout
-            )
+            return await _await_callback(future, self.server.callback_timeout)
 
         return invoke
 
@@ -116,9 +127,7 @@ class WorkerProgress:
 
     async def __call__(self, value: dict[str, Any]) -> None:
         future = self.server.callback("progress", {"value": value})
-        await asyncio.wait_for(
-            asyncio.wrap_future(future), self.server.callback_timeout
-        )
+        await _await_callback(future, self.server.callback_timeout)
 
 
 class RemoteSourceEmitter:
@@ -129,7 +138,7 @@ class RemoteSourceEmitter:
         future = self.server.callback(
             "source", {"method": method, "value": value}, parent=self.lease
         )
-        return await asyncio.wait_for(asyncio.wrap_future(future), self.server.callback_timeout)
+        return await _await_callback(future, self.server.callback_timeout)
 
     async def emit(self, change: SourceChange) -> None:
         await self._call("emit", change)
@@ -215,14 +224,20 @@ class WorkerServer:
                         future = self.callbacks.get(frame.get("id"))
                     if future is None or future.done():
                         continue
-                    if frame.get("ok") is True:
-                        future.set_result(frame.get("result"))
-                    else:
-                        future.set_exception(
-                            RemoteHostError(
-                                str(frame.get("error", "Host callback failed"))
+                    try:
+                        if frame.get("ok") is True:
+                            future.set_result(frame.get("result"))
+                        else:
+                            future.set_exception(
+                                RemoteHostError(
+                                    str(frame.get("error", "Host callback failed"))
+                                )
                             )
-                        )
+                    except InvalidStateError:
+                        # The event loop can cancel after the reader's done
+                        # check. A late reply must not kill the transport thread.
+                        if not future.cancelled():
+                            raise
                 else:
                     self.loop.call_soon_threadsafe(self._receive, frame)
         except (EOFError, OSError, ProtocolError):
@@ -428,7 +443,7 @@ class WorkerServer:
         future = self.callback(kind, payload)
         # Interactive services have their own bounded timeout. The host's
         # original invocation deadline remains the outer authority.
-        return await asyncio.wait_for(asyncio.wrap_future(future), max(self.callback_timeout, 301.0))
+        return await _await_callback(future, max(self.callback_timeout, 301.0))
 
     async def _watch_source(self, lease: str, watch: Any, context: Any) -> None:
         try:
