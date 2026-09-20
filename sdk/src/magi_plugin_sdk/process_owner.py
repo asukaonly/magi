@@ -7,11 +7,41 @@ the runtime lease. Either supervisor can die without orphaning plugin work.
 
 from __future__ import annotations
 
+import errno
 import os
 import select
 import signal
 import subprocess
 import sys
+from contextlib import closing
+
+
+def wait_for_exit_or_owner(child_pid: int, owner_fd: int) -> None:
+    """Observe exit without reaping the process-group leader before cleanup."""
+    if sys.platform == "darwin":
+        with closing(select.kqueue()) as events:
+            changes = [
+                select.kevent(child_pid, filter=select.KQ_FILTER_PROC,
+                              flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                              fflags=select.KQ_NOTE_EXIT),
+                select.kevent(owner_fd, filter=select.KQ_FILTER_READ,
+                              flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT),
+            ]
+            try:
+                observed = events.control(changes, 1, None)
+                for event in observed:
+                    if event.flags & select.KQ_EV_ERROR and event.data:
+                        if event.data == errno.ESRCH:
+                            return
+                        raise OSError(event.data, os.strerror(event.data))
+            except ProcessLookupError:
+                # The child exited before the process watch was registered.
+                return
+        return
+    while os.waitid(os.P_PID, child_pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+        readable, _, _ = select.select([owner_fd], [], [], 0.1)
+        if readable:
+            return
 
 
 def guard(owner_fd: int, lease_fd: int, command: list[str]) -> None:
@@ -21,10 +51,7 @@ def guard(owner_fd: int, lease_fd: int, command: list[str]) -> None:
         os.set_inheritable(lease_fd, False)
     try:
         child = subprocess.Popen(command)
-        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
-            readable, _, _ = select.select([owner_fd], [], [], 0.1)
-            if readable:
-                break
+        wait_for_exit_or_owner(child.pid, owner_fd)
     finally:
         # This guardian is the live group leader, so the group ID cannot be reused.
         # SIGKILL reaches descendants even if plugin code blocks or ignores signals.
@@ -55,10 +82,7 @@ def main() -> None:
         os.close(guard_read)
         guard_read = -1
         # Retain the leader PID until group cleanup; reaping first permits reuse.
-        while os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
-            readable, _, _ = select.select([owner_fd], [], [], 0.1)
-            if readable:
-                break
+        wait_for_exit_or_owner(child.pid, owner_fd)
     finally:
         os.close(guard_write)
         if guard_read >= 0:

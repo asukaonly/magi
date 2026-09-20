@@ -64,6 +64,9 @@ guardian outside the plugin confinement boundary. The owner watches the host's
 lifetime pipe; the guardian watches the owner's lifetime pipe. The worker shares
 the guardian's process group. An owner crash triggers guardian cleanup; a guardian
 crash triggers the owner's cleanup while it retains the unreaped group leader PID.
+macOS observes child exit with a native kqueue process watch; other Unix targets
+use non-reaping waitid. This keeps group identity reserved until cleanup without
+depending on Python's macOS waitid wrapper, which is absent before Python 3.13.
 Neither supervisor imports plugin code. Diagnostics report the outer owner PID,
 and a dedicated host monitor detects its exit without waiting for stdout EOF.
 Only the trusted supervisors retain inherited runtime instance leases. Group
