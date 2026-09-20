@@ -136,6 +136,16 @@ command exit means inspection succeeded; automation must inspect `state` and
 `service_ready` to determine availability. Configuration-service readiness does
 not prove that onboarding is complete or the Agent is ready.
 
+The terminal report groups the outcome, individual checks, next steps and paths.
+Process presence, management connectivity, Python state and Agent readiness are
+separate checks. Missing paths are labeled `[missing]`; displaying a configured
+log path does not imply the file exists. If an active deployment has no identity
+file, the report directs the operator to stop and restore or explicitly replace
+its data before restarting. It never restores files or restarts automatically.
+Use `status --details` for readable technical diagnostics, including raw errors
+and the previous process exit code (which does not describe current health).
+This flag prints text even in a pipe and cannot be combined with `--json`.
+
 `logs --lines 40` displays a bounded tail of the service log (1–200 lines, at most
 32 KiB read). Neither `status` nor `logs` starts processes or creates runtime
 files. Native `pair`, `clients`, and `revoke` remain available during Python

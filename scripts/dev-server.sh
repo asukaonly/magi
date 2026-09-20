@@ -16,7 +16,7 @@ Usage: scripts/dev-server.sh [command] [options]
 Use the same commands as magi-server, with the development deployment selected.
   (no command)       Open setup or manage this deployment
   run                Run in this terminal (Ctrl+C stops the service)
-  status [--json]     Inspect this deployment without starting it
+  status [--details|--json]  Inspect this deployment without starting it
   configure          Edit models, language and persona
   connect            Guide desktop pairing and HTTPS access
   logs [--follow]     Read service logs (--source service|backend)
@@ -67,6 +67,8 @@ if [[ "$COMMAND" == init || ( -z "$COMMAND" && ! -e "$CONFIG_PATH" && ! -L "$CON
 elif [[ "$COMMAND" == collect && "$HAS_RUNTIME" == false ]]; then
   EXTRA+=(--development-root "$ROOT_DIR")
 fi
-printf 'Development deployment: %s\n' "$CONFIG_PATH" >&2
+if [[ "$COMMAND" != status ]]; then
+  printf 'Development deployment: %s\n' "$CONFIG_PATH" >&2
+fi
 cd "$ROOT_DIR"
 exec cargo run --quiet --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}

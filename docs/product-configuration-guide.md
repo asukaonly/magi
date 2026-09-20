@@ -132,7 +132,19 @@ secret-bearing JSON setup document for automation without prompts or secrets in
 command arguments. Non-interactive startup uses `init` then `run`, never the
 interactive default entry. `status` shows readable state in a terminal and JSON when piped; `--json`
 selects JSON explicitly. Inspection works before initialization and while stopped
-or unreachable. `logs --lines <1..200> --source service|backend` reads a bounded
+or unreachable. The readable status report leads with the overall outcome, then
+separates process presence, local management connectivity, Python runtime,
+configuration-service readiness, Agent readiness and the service identity file.
+It follows with state-specific next steps and a single list of paths, marking
+missing or unreadable paths explicitly. An active process is never presented as
+proof that Magi is ready; an unavailable readiness request remains an unknown
+result in the report. Missing identity data in an active deployment prioritizes
+stopping and restoring or explicitly replacing data before restarting.
+`status --details` adds raw errors, OS registration details and historical exit
+codes labeled as previous-run information; it always prints readable text and
+cannot be combined with `--json`. The development launcher does not duplicate
+the deployment path above status output. Neither display mode changes lifecycle
+or repairs data. `logs --lines <1..200> --source service|backend` reads a bounded
 tail; `--follow` follows appends and rotation until Ctrl+C, without starting or
 stopping a service. Missing logs are an empty state. Normal stopped/startup states
 do not display missing management sockets as failures. Full details remain in

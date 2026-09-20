@@ -70,8 +70,11 @@ pub enum Command {
     },
     /// Inspect this deployment. Human-readable in a terminal; JSON when piped.
     Status {
-        #[arg(long)]
+        #[arg(long, conflicts_with = "details")]
         json: bool,
+        /// Include technical diagnostics and history; always print readable text.
+        #[arg(long)]
+        details: bool,
     },
     /// Read the latest service log lines without starting a service.
     Logs {
@@ -258,23 +261,13 @@ pub fn execute(
             let api = crate::console_api::Api::connect(&config)?;
             crate::console_connection::guide(&config, &api.base_url)
         }
-        Some(Command::Status { json }) => {
+        Some(Command::Status { json, details }) => {
             let status = crate::deployment_status::inspect_path(&path)?;
-            if json || !std::io::stdout().is_terminal() {
+            if json || (!details && !std::io::stdout().is_terminal()) {
                 print_json(&serde_json::to_value(status).map_err(|e| e.to_string())?)
             } else {
-                println!("Deployment: {}\n{}", path.display(), status.describe());
-                if status.configuration_available() {
-                    let config = load_config(&path)?;
-                    let api = crate::console_api::Api::connect(&config)?;
-                    if !api.completed()? {
-                        println!("Setup: incomplete. Run configure or connect to finish.");
-                    } else if api.agent_ready()? {
-                        println!("Setup: complete. Agent is ready.");
-                    } else {
-                        println!("Setup: complete. Agent is not ready; inspect logs.");
-                    }
-                }
+                let setup = crate::status_output::inspect_setup(&status);
+                println!("{}", crate::status_output::render(&status, &setup, details));
                 Ok(())
             }
         }

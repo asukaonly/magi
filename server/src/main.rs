@@ -11,6 +11,7 @@ mod operator_logs;
 mod service_inspection;
 mod service_install;
 mod service_watch;
+mod status_output;
 
 use clap::Parser;
 use magi_server_runtime::supervisor;

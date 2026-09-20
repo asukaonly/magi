@@ -85,64 +85,7 @@ impl Snapshot {
         format!("{} {next}", self.message)
     }
     pub fn describe(&self) -> String {
-        let mut lines = vec![
-            self.message.clone(),
-            format!("Config: {}", self.config_path.display()),
-        ];
-        if let Some(data) = &self.data_dir {
-            lines.push(format!("Data: {}", data.display()));
-        }
-        if let Some(log) = &self.log_path {
-            lines.push(format!("Service log: {}", log.display()));
-        }
-        if let Some(pid) = self.managed.pid {
-            lines.push(format!("Background owner PID: {pid}"));
-        }
-        if let Some(phase) = &self.managed.phase {
-            lines.push(format!("Login service state: {phase}"));
-        }
-        if let Some(code) = self.managed.last_exit_code {
-            lines.push(format!("Previous background exit code: {code}"));
-        }
-        if let Some(m) = &self.management {
-            if let Some(url) = m.get("base_url").and_then(Value::as_str) {
-                lines.push(format!(
-                    "Same-machine address: {}",
-                    url.trim_end_matches("/api")
-                ));
-            }
-            if let Some(supervisor) = m.get("supervisor") {
-                lines.push(format!(
-                    "Runtime: {}",
-                    supervisor["phase"].as_str().unwrap_or("unknown")
-                ));
-                if let Some(count) = supervisor["restart_count"].as_u64() {
-                    lines.push(format!("Runtime restarts: {count}"));
-                }
-                if let Some(error) = supervisor["last_error"].as_str() {
-                    lines.push(format!("Last runtime error: {error}"));
-                }
-            }
-        }
-        if let Some(error) = self
-            .management_error
-            .as_ref()
-            .filter(|_| self.state != State::Stopped)
-        {
-            lines.push(format!("Management: {error}"));
-        }
-        if let Some(error) = &self.managed.detail {
-            lines.push(format!("Login service: {error}"));
-        }
-        if self.data_identity_missing && !self.can_start() {
-            lines.push("The current directory has no persisted server identity. Check whether its data was moved before restarting.".into());
-        }
-        lines
-            .join("\n")
-            .chars()
-            .filter(|c| !c.is_control() || *c == '\n')
-            .take(8192)
-            .collect()
+        crate::status_output::render(self, &crate::status_output::Setup::NotChecked, true)
     }
 }
 

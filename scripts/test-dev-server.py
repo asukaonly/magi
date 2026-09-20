@@ -19,11 +19,13 @@ class DevelopmentCommands(unittest.TestCase):
             cargo.chmod(0o755)
             env = {**os.environ, "HOME": str(root), "PATH": f"{root}:{os.environ['PATH']}"}
             config = root / ".config/magi-server/dev.json"
-            for arguments in (["status"], ["logs", "--lines", "20"], ["config", "show"], ["run"], ["connect"], ["configure"], ["stop"]):
+            for arguments in (["status"], ["status", "--details"], ["status", "--json"], ["logs", "--lines", "20"], ["config", "show"], ["run"], ["connect"], ["configure"], ["stop"]):
                 result = subprocess.run([str(SCRIPT), *arguments], env=env, capture_output=True, text=True, check=True)
                 args = json.loads(result.stdout)
                 self.assertEqual(args[args.index("--") + 1:], ["--config", str(config), *arguments])
                 self.assertFalse(config.exists())
+                if arguments[0] == "status":
+                    self.assertEqual(result.stderr, "")
             chosen = root / "config with spaces.json"
             result = subprocess.run([str(SCRIPT), "status", "--config", str(chosen)], env=env, capture_output=True, text=True, check=True)
             self.assertIn(str(chosen), json.loads(result.stdout))

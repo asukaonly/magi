@@ -249,6 +249,23 @@ fn status_is_read_only_before_initialization() {
     let status: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(status["state"], "not_configured");
     assert!(!config.parent().unwrap().exists());
+    let detailed = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["status", "--details", "--config"])
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(detailed.status.success());
+    let text = String::from_utf8_lossy(&detailed.stdout);
+    assert!(text.starts_with("Magi Server - Not configured"));
+    assert!(text.contains("Technical details"));
+    assert!(!config.parent().unwrap().exists());
+    assert!(!Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["status", "--details", "--json", "--config"])
+        .arg(&config)
+        .output()
+        .unwrap()
+        .status
+        .success());
     for command in ["run", "pair", "clients", "logs"] {
         let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
             .args([command, "--config"])
@@ -261,6 +278,56 @@ fn status_is_read_only_before_initialization() {
         );
         assert!(!config.parent().unwrap().exists());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn readiness_connection_failure_preserves_the_deployment_report() {
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixListener,
+    };
+    let fixture = Fixture::new();
+    let config_path = fixture.0.join("config.json");
+    let data = fixture.0.join("data");
+    fs::create_dir_all(data.join("runtime")).unwrap();
+    fs::create_dir_all(data.join("service")).unwrap();
+    fs::write(data.join("service/server.db"), []).unwrap();
+    let config = magi_service_contract::config::ServerConfig::for_bundle(
+        &fixture.0.join("bundle"),
+        data.clone(),
+    );
+    fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+    let listener = UnixListener::bind(data.join("runtime/manage.sock")).unwrap();
+    // Return the initial snapshot, then disappear before the Agent readiness check.
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        drop(listener);
+        let mut line = String::new();
+        BufReader::new(&mut stream).read_line(&mut line).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()["command"],
+            "status"
+        );
+        writeln!(stream, "{}", serde_json::json!({"success":true,"data":{
+            "server_id":uuid::Uuid::new_v4().to_string(),
+            "protocol_version":magi_service_contract::SERVER_PROTOCOL_VERSION,
+            "service_ready":true,"supervisor":{"phase":"ready"},"base_url":"http://127.0.0.1:19080/api"
+        }})).unwrap();
+    });
+    let output = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+        .args(["status", "--details", "--config"])
+        .arg(config_path)
+        .output()
+        .unwrap();
+    server.join().unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.starts_with("Magi Server - Needs attention"));
+    assert!(text.contains("Could not check"));
+    assert!(text.contains("Readiness error"));
+    assert!(text.contains(data.to_str().unwrap()));
+    assert!(!data.join("runtime/worker.lock").exists());
 }
 
 #[test]
