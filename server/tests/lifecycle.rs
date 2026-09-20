@@ -267,7 +267,13 @@ fn repeated_crashes_enter_visible_cooldown_and_retry() {
             let status = server.get("/api/server/info", true);
             if status.contains("\"phase\":\"cooldown\"") {
                 saw_cooldown = true;
-                assert!(status.contains("Python runtime exited"));
+                // Process exit and IPC closure race when a worker crashes.
+                // Either observation must retain an actionable failure reason.
+                assert!(
+                    status.contains("Python runtime exited")
+                        || status.contains("Python IPC connection closed"),
+                    "Cooldown did not preserve the crash reason: {status}"
+                );
                 assert!(!status.contains("\"next_retry_at_ms\":null"));
                 break;
             }
