@@ -32,6 +32,74 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn run_rejects_an_active_lock_or_port_before_creating_runtime_data() {
+    use std::{
+        net::TcpListener,
+        process::Stdio,
+        time::{Duration, Instant},
+    };
+    for moved_lock in [false, true] {
+        let fixture = Fixture::new();
+        let data = fixture.0.join("data");
+        let config_path = fixture.0.join("config.json");
+        let lease = magi_platform::instance::InstanceLease::runtime_owner(&data).unwrap();
+        let mut config = magi_service_contract::config::ServerConfig::for_bundle(
+            &fixture.0.join("bundle"),
+            data.clone(),
+        );
+        let occupied = if moved_lock {
+            // The old owner keeps its lock, but the configured path no longer reaches it.
+            fs::rename(data.join("runtime"), fixture.0.join("moved-runtime")).unwrap();
+            Some(TcpListener::bind(("127.0.0.1", 0)).unwrap())
+        } else {
+            None
+        };
+        config.port = occupied
+            .as_ref()
+            .map(|l| l.local_addr().unwrap().port())
+            .unwrap_or(0);
+        fs::write(&config_path, serde_json::to_vec(&config).unwrap()).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_magi-server"))
+            .args(["run", "--config"])
+            .arg(&config_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let timely = loop {
+            if child.try_wait().unwrap().is_some() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                break false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let output = child.wait_with_output().unwrap();
+        assert!(timely, "run entered a wait/retry loop");
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            error.contains("does not restart an existing service"),
+            "{error}"
+        );
+        assert!(error.contains("status --config"), "{error}");
+        assert!(!error.contains("recovery will retry"));
+        assert!(output.stdout.is_empty());
+        assert!(!data.join("service").exists());
+        assert!(!data.join("logs").exists());
+        assert!(!data.join("runtime/worker.lock").exists());
+        if moved_lock {
+            assert!(!data.join("runtime").exists());
+        }
+        drop(lease);
+    }
+}
+
+#[test]
 fn packaged_init_uses_bundle_paths_and_refuses_overwriting_config() {
     let fixture = Fixture::new();
     let config = fixture.0.join("config/server.json");

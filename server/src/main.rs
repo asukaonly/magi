@@ -61,6 +61,9 @@ fn run(
         );
     }
     let config = cli::load_config(&config_path)?;
+    if !externally_owned {
+        deployment_status::require_stopped_for_run(&config_path, &config)?;
+    }
     // Resolve process-wide runtime paths before creating any runtime threads.
     std::env::set_var("MAGI_HOME", &config.data_dir);
     let token = if externally_owned {

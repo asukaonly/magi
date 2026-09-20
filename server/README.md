@@ -126,6 +126,15 @@ both the on-disk registration and loaded job arguments before acting. Repeating
 restart it or claim that it is ready. `restart` reports `start_requested`; use
 `status` to check readiness. Interactive lifecycle changes require confirmation.
 
+`run` starts a new foreground owner; it does not restart an existing service.
+Its initial read-only check rejects a reachable service, held runtime leases,
+another verified active background owner, unknown ownership checks, or an occupied
+configured port before entering the retry loop. This also catches a moved runtime
+directory when the old owner is still registered or still occupies the port.
+It prints a status command for the selected deployment instead of waiting or
+creating a new identity. When launchd starts the verified owner itself, that PID
+does not count as another process; management, lease and port checks still apply.
+
 `status --json` reports a machine-readable snapshot even when no configuration
 exists or management is unavailable. Plain `status` is readable in a terminal. Its `state` is `not_configured`, `stopped`, `running`, `starting`,
 `recovering`, `failed`, `stopping`, `unreachable`, `port_conflict` or `unknown`.

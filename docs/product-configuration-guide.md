@@ -130,7 +130,14 @@ enter a fresh automatic wait. An occupied port alone never proves ownership.
 areas instead of repeating the guide. `configure --from-stdin` accepts a
 secret-bearing JSON setup document for automation without prompts or secrets in
 command arguments. Non-interactive startup uses `init` then `run`, never the
-interactive default entry. `status` shows readable state in a terminal and JSON when piped; `--json`
+interactive default entry. `run` starts a new foreground owner; it never restarts
+an existing deployment. Before reserving the data directory or entering retries,
+it checks management connectivity, existing leases, verified background ownership
+and port occupancy. A conflict exits with a deployment-specific status command.
+The verified background owner currently being launched may proceed only when
+management, lease and port checks are clear. Existing owned-child recovery keeps
+its supervision policy; the check applies when creating a new standalone owner.
+`status` shows readable state in a terminal and JSON when piped; `--json`
 selects JSON explicitly. Inspection works before initialization and while stopped
 or unreachable. The readable status report leads with the overall outcome, then
 separates process presence, local management connectivity, Python runtime,

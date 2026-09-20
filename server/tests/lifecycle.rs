@@ -191,7 +191,9 @@ fn server_owns_worker_without_tauri_and_rejects_duplicate_instance() {
         .output()
         .unwrap();
     assert!(!duplicate.status.success());
-    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already running"));
+    assert!(
+        String::from_utf8_lossy(&duplicate.stderr).contains("does not restart an existing service")
+    );
     server.owner.take();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {

@@ -100,6 +100,23 @@ pub fn inspect_path(path: &Path) -> Result<Snapshot, String> {
 }
 
 pub fn inspect(path: &Path, config: &ServerConfig) -> Snapshot {
+    inspect_for_owner(path, config, None)
+}
+
+/// Check before creating runtime files or entering the owner's retry loop.
+pub fn require_stopped_for_run(path: &Path, config: &ServerConfig) -> Result<(), String> {
+    let snapshot = inspect_for_owner(path, config, Some(std::process::id()));
+    if snapshot.can_start() {
+        return Ok(());
+    }
+    Err(format!(
+        "Cannot start another instance. The run command starts a new foreground service; it does not restart an existing service.\n{}\nInspect the next steps for this deployment:\n  {}",
+        snapshot.message,
+        crate::operator_command::display(path, &["status"])
+    ))
+}
+
+fn inspect_for_owner(path: &Path, config: &ServerConfig, starting_owner: Option<u32>) -> Snapshot {
     let managed = service_inspection::inspect(path, config);
     let result = management(config, Request::Status).and_then(|v| {
         let m = v.as_object().ok_or("Invalid management status")?;
@@ -135,7 +152,7 @@ pub fn inspect(path: &Path, config: &ServerConfig) -> Snapshot {
             Duration::from_millis(200),
         )
         .is_ok();
-    snapshot.state = classify(&snapshot, lease_error.is_some(), occupied);
+    snapshot.state = classify(&snapshot, lease_error.is_some(), occupied, starting_owner);
     snapshot.message = match snapshot.state {
         State::Running => if snapshot.managed.owned() && snapshot.managed.pid.is_some() { "Magi is running in the background." } else { "Magi is running under an existing owner." },
         State::Starting => "The configuration service is starting.",
@@ -155,7 +172,12 @@ pub fn inspect(path: &Path, config: &ServerConfig) -> Snapshot {
     snapshot
 }
 
-fn classify(snapshot: &Snapshot, lease_error: bool, occupied: bool) -> State {
+fn classify(
+    snapshot: &Snapshot,
+    lease_error: bool,
+    occupied: bool,
+    starting_owner: Option<u32>,
+) -> State {
     if let Some(m) = &snapshot.management {
         return match m
             .get("supervisor")
@@ -172,7 +194,15 @@ fn classify(snapshot: &Snapshot, lease_error: bool, occupied: bool) -> State {
     if snapshot.owner_active {
         return State::Unreachable;
     }
-    if snapshot.managed.owned() && snapshot.managed.loaded {
+    // A verified launchd job can be this new owner itself. It must still pass
+    // management, lease and port checks before being allowed to create a runtime.
+    if snapshot.managed.owned()
+        && snapshot.managed.loaded
+        && snapshot
+            .managed
+            .pid
+            .is_none_or(|pid| Some(pid) != starting_owner)
+    {
         return if snapshot.managed.pid.is_some() {
             State::Unreachable
         } else {
@@ -253,33 +283,37 @@ pub(crate) mod tests {
             value.management = json!({"service_ready":ready,"supervisor":{"phase":phase}})
                 .as_object()
                 .cloned();
-            assert_eq!(classify(&value, false, false), expected, "{ready} {phase}");
+            assert_eq!(
+                classify(&value, false, false, None),
+                expected,
+                "{ready} {phase}"
+            );
         }
     }
 
     #[test]
     fn missing_endpoint_does_not_mean_stopped_or_authorize_a_port_owner() {
         let mut value = snapshot(State::Unknown);
-        assert_eq!(classify(&value, false, false), State::Stopped);
-        assert_eq!(classify(&value, false, true), State::PortConflict);
-        assert_eq!(classify(&value, true, false), State::Unknown);
+        assert_eq!(classify(&value, false, false, None), State::Stopped);
+        assert_eq!(classify(&value, false, true, None), State::PortConflict);
+        assert_eq!(classify(&value, true, false, None), State::Unknown);
         value.owner_active = true;
-        assert_eq!(classify(&value, false, false), State::Unreachable);
+        assert_eq!(classify(&value, false, false, None), State::Unreachable);
         value.owner_active = false;
         value.managed.registration = Registration::Owned;
         value.managed.loaded = true;
         value.managed.pid = Some(123);
         // A moved runtime directory can hide all leases and sockets from the CLI.
-        assert_eq!(classify(&value, false, false), State::Unreachable);
+        assert_eq!(classify(&value, false, false, None), State::Unreachable);
         value.managed.pid = None;
-        assert_eq!(classify(&value, false, false), State::Recovering);
+        assert_eq!(classify(&value, false, false, None), State::Recovering);
         value.managed.loaded = false;
-        assert_eq!(classify(&value, false, false), State::Stopped);
+        assert_eq!(classify(&value, false, false, None), State::Stopped);
         value.managed.registration = Registration::Unknown;
-        assert_eq!(classify(&value, false, false), State::Unknown);
+        assert_eq!(classify(&value, false, false, None), State::Unknown);
         value.managed.registration = Registration::OtherInstallation;
         value.managed.loaded = true;
-        assert_eq!(classify(&value, false, true), State::PortConflict);
+        assert_eq!(classify(&value, false, true, None), State::PortConflict);
         assert!(!value.managed.owned());
     }
 
@@ -290,5 +324,31 @@ pub(crate) mod tests {
         assert_eq!(status.state, State::NotConfigured);
         assert!(!status.can_start());
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn starting_background_owner_excludes_only_itself_from_process_detection() {
+        let mut value = snapshot(State::Unknown);
+        value.managed.registration = Registration::Owned;
+        value.managed.loaded = true;
+        value.managed.pid = Some(123);
+        assert_eq!(classify(&value, false, false, Some(123)), State::Stopped);
+        assert_eq!(
+            classify(&value, false, false, Some(456)),
+            State::Unreachable
+        );
+        assert_eq!(
+            classify(&value, false, true, Some(123)),
+            State::PortConflict
+        );
+        assert_eq!(classify(&value, true, false, Some(123)), State::Unknown);
+        value.owner_active = true;
+        assert_eq!(
+            classify(&value, false, false, Some(123)),
+            State::Unreachable
+        );
+        value.owner_active = false;
+        value.managed.pid = None;
+        assert_eq!(classify(&value, false, false, Some(123)), State::Recovering);
     }
 }
