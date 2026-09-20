@@ -27,3 +27,21 @@ def isolated_plugin_runtime_config(monkeypatch, tmp_path_factory):
     monkeypatch.setattr(loader, "_loader", loader.ConfigLoader())
     paths = RuntimePaths(runtime_root / "runtime")
     monkeypatch.setattr("magi.plugins.connections.get_runtime_paths", lambda: paths)
+
+
+@pytest.fixture(autouse=True)
+def report_test_worker_startup_failure(monkeypatch):
+    """Expose bounded stderr from synthetic workers when platform startup fails."""
+    from magi.plugins.process_runtime import ProcessPluginProxy
+
+    launch = ProcessPluginProxy._launch
+
+    def observed_launch(self, *args, **kwargs):
+        try:
+            return launch(self, *args, **kwargs)
+        except BaseException:
+            self._terminate("Test worker startup failed")
+            print("Synthetic worker startup stderr:", bytes(self._stderr).decode("utf-8", "replace"))
+            raise
+
+    monkeypatch.setattr(ProcessPluginProxy, "_launch", observed_launch)
