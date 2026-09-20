@@ -28,11 +28,15 @@ impl RotatingLog {
         if log.file.as_ref().unwrap().metadata()?.len() > limit {
             // Retain a bounded tail when adopting an older, unbounded log.
             use std::io::{Read, Seek, SeekFrom};
-            let mut old = open_private(path)?;
+            // Truncation requires write access; an append-only Windows handle
+            // does not permit set_len, even when it allows appending output.
+            let mut old =
+                open_private_with_options(path, OpenOptions::new().read(true).write(true))?;
             old.seek(SeekFrom::End(-(limit as i64)))?;
             let mut tail = Vec::with_capacity(limit as usize);
             old.read_to_end(&mut tail)?;
             old.set_len(0)?;
+            old.seek(SeekFrom::Start(0))?;
             old.write_all(&tail)?;
         }
         for index in 1..=BACKUPS {
@@ -108,8 +112,10 @@ impl Write for RotatingLog {
 }
 
 fn open_private(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.create(true).read(true).append(true);
+    open_private_with_options(path, OpenOptions::new().create(true).read(true).append(true))
+}
+
+fn open_private_with_options(path: &Path, options: &mut OpenOptions) -> io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -189,8 +195,11 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let path = root.join("backend.log");
         fs::write(&path, b"old-long-output").unwrap();
-        let log = RotatingLog::with_limit(&path, 4).unwrap();
+        let mut log = RotatingLog::with_limit(&path, 4).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"tput");
+        log.write_all(b"next").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"next");
+        assert_eq!(fs::read(log.backup(1)).unwrap(), b"tput");
         drop(log);
         fs::remove_dir_all(root).unwrap();
     }
