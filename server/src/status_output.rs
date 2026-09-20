@@ -130,29 +130,31 @@ fn python_label(snapshot: &Snapshot) -> String {
     }
 }
 
-fn next_steps(snapshot: &Snapshot, setup: &Setup) -> &'static str {
+fn next_steps(snapshot: &Snapshot, setup: &Setup) -> String {
+    let command = |args: &[&str]| crate::operator_command::display(&snapshot.config_path, args);
     if identity_at_risk(snapshot) {
-        return if snapshot.managed.owned() && snapshot.managed.loaded {
-            "Stop this deployment using the console or the stop command.\n  Restore its original data before restarting, or explicitly choose a fresh setup.\n  Restarting with a new identity requires devices to pair again."
+        let stop = if snapshot.managed.owned() && snapshot.managed.loaded {
+            format!("1. Stop this deployment:\n     {}", command(&["stop"]))
         } else {
-            "Stop the runtime through its original owner before restoring or replacing data.\n  Restore its original data before restarting, or explicitly choose a fresh setup.\n  Restarting with a new identity requires devices to pair again."
+            "1. Stop the runtime through its original owner.".into()
         };
+        return format!("{stop}\n  2. Restore its original data before restarting, or explicitly choose a fresh setup.\n     Restarting with a new identity requires devices to pair again.\n  3. After resolving the data, reopen this deployment:\n     {}\n  Do not use run or restart before resolving the missing data.", command(&[]));
     }
     match snapshot.state {
-        State::NotConfigured => "Open the console to create this deployment.",
-        State::Stopped => "Open the console to start this deployment. If data was moved, restore it first.",
-        State::Starting | State::Stopping => "Check status again shortly; inspect logs if this state persists.",
-        State::Recovering | State::Failed => "Inspect logs and --details for the startup failure before retrying.",
+        State::NotConfigured => format!("Create this deployment:\n  {}", command(&[])),
+        State::Stopped => format!("Start this deployment from the console. If data was moved, restore it first:\n  {}", command(&[])),
+        State::Starting | State::Stopping => format!("Check again shortly:\n  {}\n  If this state persists, inspect logs:\n  {}", command(&["status"]), command(&["logs"])),
+        State::Recovering | State::Failed => format!("Inspect the startup failure before retrying:\n  {}\n  {}", command(&["logs"]), command(&["status", "--details"])),
         State::Unreachable if snapshot.managed.owned() && snapshot.managed.loaded =>
-            "Inspect --details and the data paths. Use the console to restart the verified background service if needed.",
-        State::Unreachable | State::Unknown => "Inspect --details and the original runtime owner before starting another instance.",
-        State::PortConflict => "Identify the process using the configured port, or change the port in Deployment settings.",
+            format!("Inspect the data paths first:\n  {}\n  If the original data is intact, restart this background deployment:\n  {}", command(&["status", "--details"]), command(&["restart"])),
+        State::Unreachable | State::Unknown => format!("Inspect diagnostics and the original runtime owner before starting another instance:\n  {}", command(&["status", "--details"])),
+        State::PortConflict => format!("Identify the process using the configured port. To choose another port:\n  {}", command(&["config", "edit"])),
         State::Running => match setup {
-            Setup::Incomplete => "Run configure or connect to finish setup for this deployment.",
-            Setup::Complete { agent_ready: false } => "Inspect backend logs for Agent startup or configuration errors.",
-            Setup::Unavailable(_) => "Run status again; inspect --details and logs if the readiness check keeps failing.",
-            Setup::Complete { agent_ready: true } => "No action needed.",
-            Setup::NotChecked => "Use the console to check setup and Agent readiness.",
+            Setup::Incomplete => format!("Finish setup:\n  {}\n  Or connect a desktop:\n  {}", command(&["configure"]), command(&["connect"])),
+            Setup::Complete { agent_ready: false } => format!("Inspect Agent startup or configuration errors:\n  {}", command(&["logs", "--source", "backend"])),
+            Setup::Unavailable(_) => format!("Check readiness again; inspect logs if it keeps failing:\n  {}", command(&["status", "--details"])),
+            Setup::Complete { agent_ready: true } => "No action needed.".into(),
+            Setup::NotChecked => format!("Check setup and Agent readiness:\n  {}", command(&["status"])),
         },
     }
 }
@@ -343,10 +345,25 @@ mod tests {
         assert!(!text.contains("os error"));
         assert!(!text.contains("Previous exit code"));
         assert!(!text.contains("Use the console to restart"));
+        assert!(text.contains(&crate::operator_command::display(
+            &value.config_path,
+            &["stop"]
+        )));
+        assert!(!text.contains(&crate::operator_command::display(
+            &value.config_path,
+            &["restart"]
+        )));
         let details = render(&value, &Setup::NotChecked, true);
         assert!(details.contains("1 (previous run; not current health)"));
         assert!(details.contains("os error 2"));
         assert!(!root.exists());
+        value.managed.registration = Registration::OtherInstallation;
+        let text = render(&value, &Setup::NotChecked, false);
+        assert!(text.contains("through its original owner"));
+        assert!(!text.contains(&crate::operator_command::display(
+            &value.config_path,
+            &["stop"]
+        )));
     }
 
     #[test]

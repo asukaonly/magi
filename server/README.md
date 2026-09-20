@@ -142,6 +142,12 @@ separate checks. Missing paths are labeled `[missing]`; displaying a configured
 log path does not imply the file exists. If an active deployment has no identity
 file, the report directs the operator to stop and restore or explicitly replace
 its data before restarting. It never restores files or restarts automatically.
+Next steps print copyable commands retaining the selected configuration and, in
+development, the `dev-server.sh` launcher. A verified background deployment with
+missing identity data gets a `stop` command first; reopening the console is listed
+only after restoring data or explicitly choosing a fresh setup. It does not get
+an immediate restart command. An unverified process owner never gets a stop or
+restart command based only on an occupied port.
 Use `status --details` for readable technical diagnostics, including raw errors
 and the previous process exit code (which does not describe current health).
 This flag prints text even in a pipe and cannot be combined with `--json`.

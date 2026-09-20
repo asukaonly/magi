@@ -70,5 +70,11 @@ fi
 if [[ "$COMMAND" != status ]]; then
   printf 'Development deployment: %s\n' "$CONFIG_PATH" >&2
 fi
+# Presentation only: copied commands must also work from the caller's directory.
+if [[ "$PWD" == "$ROOT_DIR" ]]; then
+  export MAGI_CLI_LAUNCHER="./scripts/dev-server.sh"
+else
+  export MAGI_CLI_LAUNCHER="$ROOT_DIR/scripts/dev-server.sh"
+fi
 cd "$ROOT_DIR"
 exec cargo run --quiet --locked -p magi-server -- --config "$CONFIG_PATH" ${EXTRA[@]+"${EXTRA[@]}"} ${ARGS[@]+"${ARGS[@]}"}

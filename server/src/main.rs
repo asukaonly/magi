@@ -7,6 +7,7 @@ mod console_manager;
 mod console_runtime;
 mod deployment_status;
 mod managed_output;
+mod operator_command;
 mod operator_logs;
 mod service_inspection;
 mod service_install;

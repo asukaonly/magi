@@ -11,6 +11,18 @@ SCRIPT = Path(__file__).resolve().with_name("dev-server.sh")
 
 
 class DevelopmentCommands(unittest.TestCase):
+    def test_display_launcher_matches_the_callers_directory(self):
+        with tempfile.TemporaryDirectory(prefix="magi-dev-hints-") as directory:
+            root = Path(directory)
+            cargo = root / "cargo"
+            cargo.write_text('#!/usr/bin/env python3\nimport os\nprint(os.environ["MAGI_CLI_LAUNCHER"])\n')
+            cargo.chmod(0o755)
+            env = {**os.environ, "HOME": str(root), "PATH": f"{root}:{os.environ['PATH']}"}
+            for cwd, expected in [(SCRIPT.parent.parent, "./scripts/dev-server.sh"), (root, str(SCRIPT))]:
+                result = subprocess.run([str(SCRIPT), "status"], cwd=cwd, env=env, capture_output=True, text=True, check=True)
+                self.assertEqual(result.stdout.strip(), expected)
+                self.assertEqual(result.stderr, "")
+
     def test_commands_keep_the_selected_deployment_without_initializing_it(self):
         with tempfile.TemporaryDirectory(prefix="magi-dev-entry-") as directory:
             root = Path(directory)
