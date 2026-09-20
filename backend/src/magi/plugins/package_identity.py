@@ -184,7 +184,9 @@ def purge_plugin_bytecode_caches(root: Path) -> None:
             ) from exc
         for entry in entries:
             try:
-                entry_stat = entry.stat(follow_symlinks=False)
+                # DirEntry metadata omits file IDs and link counts on Windows.
+                # Compare fresh path metadata with the opened handle on every OS.
+                entry_stat = os.stat(entry.path, follow_symlinks=False)
             except OSError as exc:
                 raise PluginPackageContentChangedError(
                     f"Plugin package entry cannot be inspected while clearing caches: "
