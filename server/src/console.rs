@@ -386,9 +386,11 @@ fn edit_model(api: &Api, previous: &Value) -> Result<Value, String> {
     let id = string(&llm["selections"]["core"], "provider_id")?.to_owned();
     match field {
         "key" => {
-            let key: String = ui(cliclack::password("Provider API key (hidden)")
-                .allow_empty()
-                .interact())?;
+            let key: String = ui(crate::console_secret::read(|| {
+                cliclack::password("Provider API key (hidden)")
+                    .allow_empty()
+                    .interact()
+            }))?;
             llm["providers"][&id]["api_key"] = key.clone().into();
             llm["providers"][&id]["services"]["chat"]["api_key"] = key.into();
         }
@@ -505,7 +507,7 @@ fn collect_model(api: &Api, previous: &Value) -> Result<Value, String> {
     if !key_required {
         password = password.allow_empty();
     }
-    let api_key = ui(password.interact())?;
+    let api_key = ui(crate::console_secret::read(|| password.interact()))?;
     provider["api_key"] = api_key.clone().into();
     provider["base_url"] = base_url.clone().into();
     if !provider["services"].is_object() {

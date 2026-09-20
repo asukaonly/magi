@@ -97,6 +97,9 @@ verification retains the current attempt in memory: users may retry unchanged,
 edit only the key, address or model names, or choose another provider. Unverified
 attempts never replace saved model settings. Provider failures show actionable
 categories without reflecting raw provider responses or credentials.
+Password prompts disable terminal echo before displaying their labels, so an
+immediate paste is hidden as well. The original terminal mode is restored when
+the prompt succeeds or is cancelled.
 
 The device connection guide (`connect`, or Connect another device in the menu)
 asks whether desktop runs on this computer or another device. Local connections

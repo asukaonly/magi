@@ -5,6 +5,7 @@ mod console_connection;
 mod console_deployment;
 mod console_manager;
 mod console_runtime;
+mod console_secret;
 mod deployment_status;
 #[cfg(any(target_os = "macos", all(test, unix)))]
 mod launchctl;
