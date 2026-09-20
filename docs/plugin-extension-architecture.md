@@ -1637,6 +1637,9 @@ channel, lifecycle or memory-projection ownership.
 Managed subprocess orphan cleanup requires a live matching process identity.
 If the operating system cannot provide that identity, the SDK keeps the registry
 entry for a later check and does not terminate the process.
+One-shot subprocess completion observes the root exit independently of output
+pipe closure, then terminates remaining descendants before returning. A child
+retaining stdout cannot turn a successful root exit into a command timeout.
 
 ### Explicit device collection
 

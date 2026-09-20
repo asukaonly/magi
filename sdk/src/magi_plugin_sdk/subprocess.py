@@ -47,8 +47,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
-from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import IO, Any, BinaryIO
+
+from magi_plugin_sdk.runtime_paths import get_magi_home
 
 logger = logging.getLogger(__name__)
 
@@ -696,6 +697,12 @@ def _validate_bounded_subprocess_arguments(
         raise ValueError("terminate_grace_seconds must be non-negative")
 
 
+async def _wait_for_root_exit(process: asyncio.subprocess.Process) -> None:
+    """Observe root exit independently of descendants holding output pipes."""
+    while process.returncode is None:
+        await asyncio.sleep(0.02)
+
+
 async def _collect_bounded_subprocess(
     process: asyncio.subprocess.Process,
     *,
@@ -720,7 +727,7 @@ async def _collect_bounded_subprocess(
         max_spill_bytes=max_spill_bytes,
         spill_directory=spill_directory,
     )
-    wait_task = asyncio.create_task(process.wait())
+    wait_task = asyncio.create_task(_wait_for_root_exit(process))
     stdout_task = asyncio.create_task(_drain_stream(process.stdout, stdout_capture))
     stderr_task = asyncio.create_task(_drain_stream(process.stderr, stderr_capture))
     component_tasks = (wait_task, stdout_task, stderr_task)

@@ -121,8 +121,9 @@ def _heartbeat_script(
         "for _ in iter(int, 1)]"
     )
     script = (
-        "import pathlib,subprocess,sys,time; "
-        f"child=subprocess.Popen([sys.executable, '-c', {child!r}, {str(heartbeat_path)!r}]); "
+        "import pathlib,subprocess,sys,time\n"
+        f"child=subprocess.Popen([sys.executable, '-c', {child!r}, {str(heartbeat_path)!r}])\n"
+        f"while not pathlib.Path({str(heartbeat_path)!r}).exists(): time.sleep(0.01)\n"
         f"pid_file=pathlib.Path({str(pid_path)!r}); "
         "pid_file.with_suffix('.tmp').write_text(str(child.pid), encoding='utf-8'); "
         "pid_file.with_suffix('.tmp').replace(pid_file); "
@@ -311,7 +312,7 @@ async def test_timeout_terminates_descendant_process(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_timeout_terminates_descendant_after_root_exits(tmp_path: Path) -> None:
+async def test_root_exit_terminates_descendant_with_inherited_pipes(tmp_path: Path) -> None:
     pid_path = tmp_path / "orphan-timeout-child.pid"
     heartbeat_path = tmp_path / "orphan-timeout-heartbeat.txt"
     script = _heartbeat_script(pid_path, heartbeat_path, root_exits_first=True)
@@ -319,13 +320,13 @@ async def test_timeout_terminates_descendant_after_root_exits(tmp_path: Path) ->
     result = await managed_subprocess.run_bounded_subprocess(
         [sys.executable, "-c", script],
         shell=False,
-        timeout=0.5,
+        timeout=5,
         terminate_grace_seconds=0.1,
     )
 
     child_pid = int(pid_path.read_text(encoding="utf-8"))
     try:
-        assert result.timed_out is True
+        assert result.timed_out is False
         assert result.returncode == 0
         await _assert_heartbeat_stopped(heartbeat_path)
     finally:
@@ -404,10 +405,21 @@ async def test_cancellation_terminates_descendant_and_is_reraised(
 @pytest.mark.asyncio
 async def test_cancellation_terminates_descendant_after_root_exits(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     pid_path = tmp_path / "orphan-cancel-child.pid"
     heartbeat_path = tmp_path / "orphan-cancel-heartbeat.txt"
     script = _heartbeat_script(pid_path, heartbeat_path, root_exits_first=True)
+    cleaning = asyncio.Event()
+    terminate = managed_subprocess._terminate_process_tree
+
+    async def hold_first_cleanup(*args, **kwargs):
+        if not cleaning.is_set():
+            cleaning.set()
+            await asyncio.Event().wait()
+        return await terminate(*args, **kwargs)
+
+    monkeypatch.setattr(managed_subprocess, "_terminate_process_tree", hold_first_cleanup)
     task = asyncio.create_task(
         managed_subprocess.run_bounded_subprocess(
             [sys.executable, "-c", script],
@@ -420,7 +432,7 @@ async def test_cancellation_terminates_descendant_after_root_exits(
     await _wait_for_path(pid_path)
     await _wait_for_path(heartbeat_path)
     child_pid = int(pid_path.read_text(encoding="utf-8"))
-    await asyncio.sleep(0.15)
+    await asyncio.wait_for(cleaning.wait(), 5)
     task.cancel()
     try:
         with pytest.raises(asyncio.CancelledError):
