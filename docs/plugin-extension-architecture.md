@@ -1427,6 +1427,13 @@ the approved package. Python `__pycache__` directories are removed before
 sealing and verification; loose bytecode and every source, native extension,
 script, and data file remain covered.
 
+Package hashing compares file identity, type, size and modification time across
+directory scans and opened handles. Change time is also checked before and
+after reading the same handle and between directory scans. On Windows, path
+stat reports creation time as `ctime` while handle stat reports change time,
+so that field is not compared across the two APIs. Link, reparse-point and
+hard-link rejection still applies before reading package content.
+
 The registry snapshot fingerprint identifies the marketplace view and source.
 The installation plan adds the requested target, operation, complete dependency
 closure and current installed identities, and hashes that complete review as

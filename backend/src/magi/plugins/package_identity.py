@@ -31,6 +31,9 @@ _SCAN_SOURCE = "source"
 _SCAN_INSTALLED_SOURCE = "installed-source"
 _SCAN_INSTALLED = "installed"
 _WINDOWS_REPARSE_POINT_ATTRIBUTE = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+# Windows path stat exposes creation time as ctime, while fstat exposes change
+# time. Compare ctime within each API, never across these different meanings.
+_PATH_HANDLE_CTIME_COMPARABLE = os.name != "nt"
 
 
 class PluginPackageIdentityError(ValueError):
@@ -433,6 +436,7 @@ def _require_unchanged_regular_file(
         opened_stat,
         relative_path=package_file.relative_path,
         stage=stage,
+        compare_ctime=_PATH_HANDLE_CTIME_COMPARABLE,
     )
 
 
@@ -442,6 +446,7 @@ def _require_same_file_state(
     *,
     relative_path: str,
     stage: str,
+    compare_ctime: bool = True,
 ) -> None:
     before_state = (
         before.st_dev,
@@ -449,7 +454,7 @@ def _require_same_file_state(
         stat.S_IFMT(before.st_mode),
         before.st_size,
         before.st_mtime_ns,
-        before.st_ctime_ns,
+        before.st_ctime_ns if compare_ctime else None,
     )
     after_state = (
         after.st_dev,
@@ -457,7 +462,7 @@ def _require_same_file_state(
         stat.S_IFMT(after.st_mode),
         after.st_size,
         after.st_mtime_ns,
-        after.st_ctime_ns,
+        after.st_ctime_ns if compare_ctime else None,
     )
     if before_state != after_state:
         raise PluginPackageContentChangedError(
@@ -485,6 +490,7 @@ def _require_path_still_references_file(
         path_stat,
         relative_path=package_file.relative_path,
         stage="while being read",
+        compare_ctime=_PATH_HANDLE_CTIME_COMPARABLE,
     )
 
 

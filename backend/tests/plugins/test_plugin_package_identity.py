@@ -70,6 +70,39 @@ def test_package_identity_changes_with_relative_path(tmp_path: Path) -> None:
     assert compute_package_sha256(first_root) != compute_package_sha256(second_root)
 
 
+@pytest.mark.parametrize("changed_during_read", [False, True])
+def test_path_and_handle_ctime_semantics_preserve_read_change_detection(
+    tmp_path, monkeypatch, changed_during_read,
+):
+    root = tmp_path / "plugin"
+    _write(root, "plugin.py", b"value = 1\n")
+    expected = compute_package_sha256(root)
+    original_fstat = os.fstat
+    calls = 0
+
+    def handle_stat(fd):
+        nonlocal calls
+        calls += 1
+        metadata = original_fstat(fd)
+        # Model Windows path ctime (creation) versus handle ctime (change).
+        return SimpleNamespace(
+            st_dev=metadata.st_dev, st_ino=metadata.st_ino,
+            st_mode=metadata.st_mode, st_nlink=metadata.st_nlink,
+            st_size=metadata.st_size, st_mtime_ns=metadata.st_mtime_ns,
+            st_ctime_ns=metadata.st_ctime_ns + 1_000_000 + (
+                calls if changed_during_read else 0
+            ),
+        )
+
+    monkeypatch.setattr(package_identity_module, "_PATH_HANDLE_CTIME_COMPARABLE", False)
+    monkeypatch.setattr(package_identity_module.os, "fstat", handle_stat)
+    if changed_during_read:
+        with pytest.raises(PluginPackageContentChangedError, match="while being read"):
+            compute_package_sha256(root)
+    else:
+        assert compute_package_sha256(root) == expected
+
+
 def test_package_identity_is_cross_platform_stable_for_executable_permission(
     tmp_path: Path,
 ) -> None:
