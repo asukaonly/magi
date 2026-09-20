@@ -1,4 +1,4 @@
-"""Retain ownership of asynchronous plugin cleanup during cancellation."""
+"""Retain ownership of asynchronous resource cleanup during cancellation."""
 
 import asyncio
 from collections.abc import Awaitable

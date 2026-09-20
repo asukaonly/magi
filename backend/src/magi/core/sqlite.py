@@ -12,6 +12,8 @@ from typing import AsyncIterator, Iterator
 
 import aiosqlite
 
+from .async_cleanup import finish_cleanup
+
 
 @dataclass(frozen=True, slots=True)
 class SqliteProfile:
@@ -150,7 +152,18 @@ async def connect_aiosqlite(
     """Open an async SQLite connection with the shared policy applied."""
     expanded = Path(db_path).expanduser()
     expanded.parent.mkdir(parents=True, exist_ok=True)
-    db = await aiosqlite.connect(str(expanded), timeout=timeout_seconds)
+    opening = asyncio.ensure_future(aiosqlite.connect(str(expanded), timeout=timeout_seconds))
+    try:
+        db = await asyncio.shield(opening)
+    except asyncio.CancelledError:
+        # Cancelling the await cannot stop sqlite3.connect in its worker thread.
+        # Keep ownership until that operation settles and close any result.
+        async def close_cancelled_open() -> None:
+            opened = await opening
+            await opened.close()
+
+        await finish_cleanup(close_cancelled_open())
+        raise
     try:
         return await configure_aiosqlite(
             db,
@@ -161,7 +174,7 @@ async def connect_aiosqlite(
         # Configuration performs worker-thread I/O. If the caller is cancelled
         # during that work, close the partially opened connection before the
         # event loop can go away.
-        await asyncio.shield(db.close())
+        await finish_cleanup(db.close())
         raise
 
 
@@ -201,7 +214,7 @@ async def sqlite_connection_async(
     try:
         yield db
     finally:
-        await db.close()
+        await finish_cleanup(db.close())
 
 
 @asynccontextmanager
@@ -226,7 +239,7 @@ async def sqlite_transaction_async(
         await db.rollback()
         raise
     finally:
-        await db.close()
+        await finish_cleanup(db.close())
 
 
 async def secure_compact_sqlite(

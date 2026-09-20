@@ -488,3 +488,91 @@ def test_sqlite_transaction_rolls_back_on_error(tmp_path) -> None:
         assert int(row[0]) == 0
     finally:
         conn.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_sqlite_open_drains_thread_before_returning(monkeypatch, tmp_path):
+    import threading
+
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    real_connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self):
+            super().close()
+            closed.set()
+
+    def blocked_connect(*args, **kwargs):
+        loop.call_soon_threadsafe(started.set)
+        if not release.wait(5):
+            raise RuntimeError("Test did not release SQLite open")
+        return real_connect(*args, **kwargs, factory=TrackedConnection)
+
+    monkeypatch.setattr("magi.core.sqlite.sqlite3.connect", blocked_connect)
+    task = asyncio.create_task(connect_aiosqlite(tmp_path / "cancelled-open.db"))
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done(), "Cancellation must retain ownership of the opening thread"
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert closed.is_set(), "Cancelled open must close its newly created database"
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.to_thread(closed.wait, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("context", [sqlite_connection_async, sqlite_transaction_async])
+async def test_cancelled_sqlite_close_drains_thread_before_returning(
+    monkeypatch, tmp_path, context
+):
+    import threading
+
+    loop = asyncio.get_running_loop()
+    started = asyncio.Event()
+    release = threading.Event()
+    closed = threading.Event()
+    real_connect = sqlite3.connect
+
+    class TrackedConnection(sqlite3.Connection):
+        def close(self):
+            loop.call_soon_threadsafe(started.set)
+            if not release.wait(5):
+                raise RuntimeError("Test did not release SQLite close")
+            super().close()
+            closed.set()
+
+    monkeypatch.setattr(
+        "magi.core.sqlite.sqlite3.connect",
+        lambda *args, **kwargs: real_connect(*args, **kwargs, factory=TrackedConnection),
+    )
+
+    async def use_connection():
+        async with context(tmp_path / "cancelled-close.db") as db:
+            await db.execute("CREATE TABLE test_items (value TEXT)")
+
+    task = asyncio.create_task(use_connection())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done(), "Repeated cancellation must wait for SQLite close"
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert closed.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.to_thread(closed.wait, 1)

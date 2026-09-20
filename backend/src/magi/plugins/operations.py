@@ -26,7 +26,7 @@ from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
 from magi_plugin_sdk.capabilities import HOST_METHODS, HostMethod
 
 from .operation_progress import publish_operation_progress
-from .async_cleanup import finish_cleanup
+from ..core.async_cleanup import finish_cleanup
 from .host_services import HostServiceAuthorizer
 from ..core.tool_context import ToolExecutionContext
 

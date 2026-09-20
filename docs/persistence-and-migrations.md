@@ -56,6 +56,15 @@ The gateway data epoch additionally invalidates offline work on clear/restore.
 The next normal worker retires inbox work and receipts from replaced epochs before
 recovering claims; restricted restore workers leave the inbox paused and intact.
 
+## Async SQLite lifetime
+
+The shared helpers in `magi.core.sqlite` own connection creation and closure
+through cancellation. Cancelling an awaiting coroutine cannot interrupt SQLite
+work already running in its worker thread. An interrupted open therefore waits
+for the connection result and closes it; context exit waits for pending work and
+closure, including repeated cancellation. Shutdown must not report completion
+while these operations can still create or update database files.
+
 ## Runtime SQLite layout
 
 All runtime data is rooted under `RuntimePaths.base_dir`

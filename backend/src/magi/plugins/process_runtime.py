@@ -42,7 +42,7 @@ from magi_plugin_sdk.transport import (
 from magi_plugin_sdk.worker_catalog import CHANNEL_PORTS
 
 from ..utils.worker_instance import duplicate_worker_lease
-from .async_cleanup import finish_cleanup as _finish_cleanup
+from ..core.async_cleanup import finish_cleanup as _finish_cleanup
 from .process_broker import CapabilityBroker, CapabilityDenied
 from .process_confinement import plan_confinement
 
