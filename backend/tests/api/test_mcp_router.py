@@ -97,7 +97,9 @@ def client(tmp_path, monkeypatch):
         _build_public_router(mcp_router, _PUBLIC_ROUTE_METHODS["mcp"]),
         prefix="/api/mcp",
     )
-    yield TestClient(app), manager
+    with TestClient(app) as test_client:
+        yield test_client, manager
+        test_client.portal.call(manager.stop_all)
 
     monkeypatch.setattr(mcp_lifecycle, "_active_manager", None)
     rt_mod._runtime_paths = None
