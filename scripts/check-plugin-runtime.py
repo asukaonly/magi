@@ -573,4 +573,9 @@ async def main() -> int:
 
 if __name__ == "__main__":
     with runtime_home:
-        raise SystemExit(asyncio.run(main()))
+        try:
+            raise SystemExit(asyncio.run(main()))
+        finally:
+            import logging
+
+            logging.shutdown()
