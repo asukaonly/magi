@@ -752,7 +752,8 @@ def test_v13_rekeys_history_only_relationship_references(
         )
         connection.commit()
 
-    command.upgrade(config, "head")
+    # Inspect this migration before later revisions invalidate profile caches.
+    command.upgrade(config, "v13_stable_context_scopes")
 
     with sqlite3.connect(db_path) as connection:
         connection.row_factory = sqlite3.Row
@@ -894,7 +895,8 @@ def test_v13_invalidates_ambiguous_history_only_relationship_references(
         )
         connection.commit()
 
-    command.upgrade(config, "head")
+    # Inspect this migration before later revisions invalidate profile caches.
+    command.upgrade(config, "v13_stable_context_scopes")
 
     with sqlite3.connect(db_path) as connection:
         migrated_ids = {

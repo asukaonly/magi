@@ -30,6 +30,10 @@ async def _seed_entity_catalog(db_path: str, rows: list[tuple[str, str]]) -> Non
             "CREATE TABLE IF NOT EXISTS entity_catalog ("
             " entity_id TEXT PRIMARY KEY, canonical_name TEXT)"
         )
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS entity_identity_redirects ("
+            "source_entity_id TEXT PRIMARY KEY, target_entity_id TEXT)"
+        )
         await db.executemany(
             "INSERT INTO entity_catalog (entity_id, canonical_name) VALUES (?, ?)",
             rows,

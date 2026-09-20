@@ -27,6 +27,7 @@ def test_public_assertion_search_and_review_share_fact_display(tmp_path, monkeyp
     db_path = str(tmp_path / "memory.db")
     with sqlite3.connect(db_path) as db:
         db.execute("CREATE TABLE entity_catalog (entity_id TEXT, canonical_name TEXT)")
+        db.execute("CREATE TABLE entity_identity_redirects (source_entity_id TEXT PRIMARY KEY, target_entity_id TEXT)")
         db.execute("INSERT INTO entity_catalog VALUES ('food:opaque', '草莓')")
     assertion = {
         "assertion_id": "assert-strawberry", "entity_id": "user:local_user", "entity_type": "user",
@@ -88,6 +89,7 @@ def test_public_relation_list_keeps_canonical_names_and_visibility_query(tmp_pat
     db_path = str(tmp_path / "memory.db")
     with sqlite3.connect(db_path) as db:
         db.execute("CREATE TABLE entity_catalog (entity_id TEXT, canonical_name TEXT)")
+        db.execute("CREATE TABLE entity_identity_redirects (source_entity_id TEXT PRIMARY KEY, target_entity_id TEXT)")
         db.executemany("INSERT INTO entity_catalog VALUES (?, ?)", [
             ("user:local_user", "用户"), ("food:opaque", "草莓"),
         ])
