@@ -2401,6 +2401,20 @@
       "remote": "Remote",
       "off": "Off"
     },
+    "contextTools": {
+      "environment": {
+        "name": "Current environment",
+        "description": "Check device, timezone and stored location information, distinguishing your device from the computer running Magi."
+      },
+      "tasks": {
+        "name": "Background task status",
+        "description": "Check background task status, result summaries and tasks waiting for your input."
+      },
+      "time": {
+        "name": "Current time",
+        "description": "Check the current time using your device's timezone when available, or a timezone you specify."
+      }
+    },
     "toolStatus": {
       "noIndependentSettings": "This tool has no independent settings.",
       "ready": "Ready",

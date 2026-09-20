@@ -2400,6 +2400,20 @@
       "remote": "远程",
       "off": "关闭"
     },
+    "contextTools": {
+      "environment": {
+        "name": "当前环境",
+        "description": "查看设备、时区和已有的位置线索，并区分你使用的设备与运行 Magi 的电脑。"
+      },
+      "tasks": {
+        "name": "后台任务查询",
+        "description": "查看后台任务的状态、结果摘要和需要你处理的事项。"
+      },
+      "time": {
+        "name": "当前时间",
+        "description": "查询当前时间，优先使用你设备的时区，也可以查询指定时区。"
+      }
+    },
     "toolStatus": {
       "noIndependentSettings": "此工具不提供独立配置。",
       "ready": "已就绪",

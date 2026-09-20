@@ -5,6 +5,7 @@
  */
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import {
   ChevronDown,
   ChevronUp,
@@ -30,6 +31,28 @@ interface ToolConfigCardProps {
   disabled?: boolean;
 }
 
+function toolDisplayCopy(tool: ToolConfig, t: TFunction<'app'>) {
+  switch (tool.name) {
+    case 'environment_query':
+      return {
+        name: t('settings.contextTools.environment.name'),
+        description: t('settings.contextTools.environment.description'),
+      };
+    case 'task_query':
+      return {
+        name: t('settings.contextTools.tasks.name'),
+        description: t('settings.contextTools.tasks.description'),
+      };
+    case 'current_time':
+      return {
+        name: t('settings.contextTools.time.name'),
+        description: t('settings.contextTools.time.description'),
+      };
+    default:
+      return { name: tool.display_name, description: tool.description };
+  }
+}
+
 export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
   tool,
   values,
@@ -39,6 +62,7 @@ export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
   disabled = false,
 }) => {
   const { t } = useTranslation('app');
+  const display = toolDisplayCopy(tool, t);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
   const toggleProvider = (providerName: string) => {
@@ -63,7 +87,7 @@ export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <CardTitle className="text-base">{tool.display_name}</CardTitle>
+              <CardTitle className="text-base">{display.name}</CardTitle>
               {tool.is_ready ? (
                 <Badge variant="default" className="text-xs">
                   <CheckCircle className="mr-1 h-3 w-3" />
@@ -77,7 +101,7 @@ export const ToolConfigCard: React.FC<ToolConfigCardProps> = ({
               )}
             </div>
             <CardDescription className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-              {tool.description}
+              {display.description}
             </CardDescription>
           </div>
           {tool.configurable ? <Switch
