@@ -77,6 +77,43 @@ def setup(runtime_paths_with_schema):
 
 
 @pytest.mark.asyncio
+async def test_repeated_cancellation_waits_for_operation_cleanup(setup):
+    registry, _tools, _ledger, connections = setup
+    started, cleaning, release, cleaned = (asyncio.Event() for _ in range(4))
+
+    async def handler(_parameters, _context):
+        try:
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await release.wait()
+            cleaned.set()
+
+    registry.register(plugin_id="test", connection_id="conn_a", spec=spec(), handler=handler)
+    identity = build_host_invocation(connections["conn_a"], trigger="user", task_id="task")
+    context = ToolExecutionContext(
+        agent_id="test", connection=connections["conn_a"], invocation=identity,
+    )
+    binding = next(iter(registry._entries.values()))
+    task = asyncio.create_task(registry.execute(binding, {"payload": 1}, context))
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        task.cancel()
+        await asyncio.wait_for(cleaning.wait(), 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+        assert cleaned.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_same_host_ledger_handles_ui_and_model_invocations(setup):
     registry, tools, ledger, connections = setup
     handler = AsyncMock(return_value=OperationResult(status="succeeded", value={"receipt": "ok"}))

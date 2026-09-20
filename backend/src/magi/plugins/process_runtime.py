@@ -19,7 +19,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Awaitable, Callable, Coroutine, Sequence
+from typing import Any, Callable, Coroutine, Sequence
 import uuid
 
 from magi_plugin_sdk.base import Plugin
@@ -42,6 +42,7 @@ from magi_plugin_sdk.transport import (
 from magi_plugin_sdk.worker_catalog import CHANNEL_PORTS
 
 from ..utils.worker_instance import duplicate_worker_lease
+from .async_cleanup import finish_cleanup as _finish_cleanup
 from .process_broker import CapabilityBroker, CapabilityDenied
 from .process_confinement import plan_confinement
 
@@ -114,23 +115,6 @@ class _SourceLease:
     loop: asyncio.AbstractEventLoop
     active: bool = True
     stopping: Future[None] | None = None
-
-
-async def _finish_cleanup(operation: Awaitable[Any]) -> Any:
-    """Defer every cancellation until bounded cleanup has actually settled."""
-    task = asyncio.ensure_future(operation)
-    interrupted: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as exc:
-            if task.cancelled():
-                raise
-            interrupted = exc
-    result = task.result()
-    if interrupted is not None:
-        raise interrupted
-    return result
 
 
 def _interpreter_paths(executable: str) -> dict[str, Any]:

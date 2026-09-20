@@ -89,7 +89,9 @@ Synchronous scoped credential callbacks cannot be interrupted midway; their
 dispatch completion is also included in draining, so connection cleanup cannot
 finish while such a callback is still mutating its credential store.
 Repeated cancellation and nested tool timeouts defer their outcome until this
-bounded cleanup settles. Subscription stop retains ownership after revoking
+bounded cleanup settles. The operation deadline retains its handler task through
+cleanup, including when an outer tool deadline expires during that cleanup.
+Subscription stop retains ownership after revoking
 access, so a cancelled caller or a concurrent retry cannot abandon a watcher.
 The host reports an uncertain failure if cleanup exceeds its deadline.
 

@@ -26,6 +26,7 @@ from magi_plugin_sdk.tools import Tool, ToolResult, ToolSchema
 from magi_plugin_sdk.capabilities import HOST_METHODS, HostMethod
 
 from .operation_progress import publish_operation_progress
+from .async_cleanup import finish_cleanup
 from .host_services import HostServiceAuthorizer
 from ..core.tool_context import ToolExecutionContext
 
@@ -438,16 +439,19 @@ class PluginOperationRegistry:
                     )
                     if watcher in done:
                         raise asyncio.CancelledError
-                return await task
+                return await asyncio.shield(task)
             finally:
                 tasks = [task] + ([watcher] if watcher is not None else [])
                 for pending in tasks:
                     if not pending.done():
                         pending.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                await finish_cleanup(asyncio.gather(*tasks, return_exceptions=True))
 
+        handler_task = asyncio.create_task(invoke_handler())
         try:
-            result = await asyncio.wait_for(invoke_handler(), binding.spec.timeout_seconds)
+            result = await asyncio.wait_for(
+                asyncio.shield(handler_task), binding.spec.timeout_seconds
+            )
             result = OperationResult.model_validate(result)
             if result.status == "succeeded":
                 _validate_json(binding.output_validator, result.value)
@@ -485,6 +489,9 @@ class PluginOperationRegistry:
             )
         finally:
             active = False
+            if not handler_task.done():
+                handler_task.cancel()
+            await finish_cleanup(asyncio.gather(handler_task, return_exceptions=True))
         return ToolResult.from_operation(result)
 
 
