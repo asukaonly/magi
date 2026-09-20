@@ -34,6 +34,10 @@ const version = (await readFile(path.join(root, 'VERSION'), 'utf8')).trim();
 if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version)) throw new Error('Invalid service version');
 if ((await readFile(path.join(source, 'VERSION'), 'utf8')).trim() !== version) throw new Error('Service bundle version is stale');
 run('/usr/bin/lipo', [path.join(source, 'magi-server'), '-verify_arch', target.startsWith('aarch64') ? 'arm64' : 'x86_64']);
+const executableVersion = run(path.join(source, 'magi-server'), ['--version'], true).trim();
+const versionMatch = /^magi-server (\d+\.\d+\.\d+) \(protocol (\d+)\)$/.exec(executableVersion);
+if (!versionMatch || versionMatch[1] !== version) throw new Error('Service executable version does not match the package');
+const protocol = Number(versionMatch[2]);
 const identity = process.env.APPLE_SIGNING_IDENTITY;
 const canNotarize = identity && process.env.APPLE_ID && process.env.APPLE_PASSWORD && process.env.APPLE_TEAM_ID;
 if (process.env.MAGI_REQUIRE_SERVICE_NOTARIZATION === '1' && !canNotarize) {
@@ -68,7 +72,7 @@ try {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(image)) hash.update(chunk);
   await writeFile(`${image}.sha256`, `${hash.digest('hex')}  ${path.basename(image)}\n`);
-  await writeFile(`${image}.json`, JSON.stringify({ version, target, protocol: 1, signed: Boolean(identity), notarized: Boolean(canNotarize) }, null, 2) + '\n');
+  await writeFile(`${image}.json`, JSON.stringify({ version, target, protocol, signed: Boolean(identity), notarized: Boolean(canNotarize) }, null, 2) + '\n');
   process.stdout.write(`${image}\n`);
 } finally {
   await rm(staging, { recursive: true, force: true });
