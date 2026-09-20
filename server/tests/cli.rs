@@ -186,6 +186,44 @@ fn console_version_and_help_do_not_require_a_configuration() {
     assert!(String::from_utf8_lossy(&help.stdout).contains("--text"));
 }
 
+#[cfg(unix)]
+#[test]
+fn collector_hints_retain_the_packaged_executable_or_development_launcher() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::new();
+    let worker = fixture.0.join("bundle/sidecar-dist/magi-backend");
+    fs::write(&worker, "#!/bin/sh\nprintf '%s' \"$MAGI_CLI_LAUNCHER\"\n").unwrap();
+    fs::set_permissions(&worker, fs::Permissions::from_mode(0o700)).unwrap();
+    for launcher in [None, Some("/source checkout/scripts/dev-server.sh")] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_magi-server"));
+        command
+            .args(["--bundle-root"])
+            .arg(fixture.0.join("bundle"))
+            .arg("--data-dir")
+            .arg(fixture.0.join("data"))
+            .args(["collect", "status"])
+            .env_remove("MAGI_CLI_LAUNCHER");
+        if let Some(value) = launcher {
+            command.env("MAGI_CLI_LAUNCHER", value);
+        }
+        let result = command.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let shown = String::from_utf8(result.stdout).unwrap();
+        match launcher {
+            Some(value) => assert_eq!(shown, value),
+            None => assert_eq!(
+                fs::canonicalize(shown).unwrap(),
+                fs::canonicalize(env!("CARGO_BIN_EXE_magi-server")).unwrap()
+            ),
+        }
+        assert!(!fixture.0.join("data").exists());
+    }
+}
+
 #[test]
 fn explicit_output_modes_cover_saved_config_logs_and_failures() {
     let fixture = Fixture::new();

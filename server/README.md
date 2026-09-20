@@ -107,6 +107,10 @@ failure (❌). The words always carry the meaning; basic terminals (`TERM=dumb`)
 use text markers. Results include relevant paths and copyable next steps for the
 selected deployment. The development launcher does not repeat the deployment
 header already present in the result.
+Packaged commands use the actual server executable path, including collector
+next steps; they do not require `magi-server` to be on `PATH`. Development
+commands retain `scripts/dev-server.sh`. Non-default deployment configuration
+paths and collector data directories remain explicit in copied commands.
 
 | Commands | Terminal result |
 | --- | --- |

@@ -152,7 +152,9 @@ result in the report. Missing identity data in an active deployment prioritizes
 stopping and restoring or explicitly replacing data before restarting.
 Next steps include copyable commands for the same deployment. Development commands
 retain the development launcher, and custom configuration paths remain explicit
-and shell-quoted. A missing identity file with a verified active background owner
+and shell-quoted. Packaged commands use the actual executable path, including
+collector guidance passed through the Python process, without relying on `PATH`.
+A missing identity file with a verified active background owner
 offers `stop` first, then a manual data decision and reopening the console; it does
 not offer an immediate `restart`. Unverified owners get inspection guidance only.
 `status --details` adds raw errors, OS registration details and historical exit

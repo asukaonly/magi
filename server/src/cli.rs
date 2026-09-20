@@ -508,6 +508,13 @@ fn run_collector(options: &InitOptions, output: Options, args: Vec<String>) -> R
         ServerConfig::for_bundle(&bundle, data)
     };
     validate_worker(&config)?;
+    // The collector runs in Python, so pass the Rust entry point before exec.
+    let launcher = match std::env::var_os("MAGI_CLI_LAUNCHER") {
+        Some(launcher) => launcher,
+        None => std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .into_os_string(),
+    };
     let mut command = std::process::Command::new(&config.worker.executable);
     command.args(&config.worker.args).arg("--collector");
     if output.json {
@@ -518,6 +525,7 @@ fn run_collector(options: &InitOptions, output: Options, args: Vec<String>) -> R
     }
     command
         .args(args)
+        .env("MAGI_CLI_LAUNCHER", launcher)
         .env("MAGI_HOME", &config.data_dir)
         .env("MAGI_PLUGIN_PYTHON", &config.worker.plugin_python)
         .env_remove("MAGI_IPC_AUTH_TOKEN")
