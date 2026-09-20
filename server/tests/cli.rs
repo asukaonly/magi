@@ -42,14 +42,20 @@ fn run_rejects_an_active_lock_or_port_before_creating_runtime_data() {
         let fixture = Fixture::new();
         let data = fixture.0.join("data");
         let config_path = fixture.0.join("config.json");
-        let lease = magi_platform::instance::InstanceLease::runtime_owner(&data).unwrap();
+        // Windows cannot rename a directory containing a locked file. Start
+        // the unreachable owner at its separate location on every platform.
+        let owner_data = if moved_lock {
+            fixture.0.join("old-data")
+        } else {
+            data.clone()
+        };
+        let lease = magi_platform::instance::InstanceLease::runtime_owner(&owner_data).unwrap();
         let mut config = magi_service_contract::config::ServerConfig::for_bundle(
             &fixture.0.join("bundle"),
             data.clone(),
         );
         let occupied = if moved_lock {
             // The old owner keeps its lock, but the configured path no longer reaches it.
-            fs::rename(data.join("runtime"), fixture.0.join("moved-runtime")).unwrap();
             Some(TcpListener::bind(("127.0.0.1", 0)).unwrap())
         } else {
             None
@@ -418,9 +424,11 @@ fn upgrade_check_is_read_only_and_configuration_edit_requires_a_terminal() {
         .output()
         .unwrap();
     assert!(check.status.success());
-    let text = String::from_utf8_lossy(&check.stdout);
-    assert!(text.contains(config.data_dir.to_str().unwrap()));
-    assert!(text.contains("does not verify a backup"));
+    let result: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    let report = result["report"].as_str().unwrap();
+    assert!(report.contains(config.data_dir.to_str().unwrap()));
+    assert!(report.contains("does not verify a backup"));
+    assert_eq!(result["read_only"], true);
     assert!(!config.data_dir.exists());
     let edit = Command::new(env!("CARGO_BIN_EXE_magi-server"))
         .args(["config", "edit", "--config"])
