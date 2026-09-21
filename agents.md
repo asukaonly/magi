@@ -10,6 +10,7 @@ This document defines mandatory implementation and delivery rules for coding age
 
 **Do**
 - Align major changes with the active `docs/` architecture and product guides before implementation.
+- Use the project-local [TypeSafe skill](.agents/skills/typesafe-ai/SKILL.md) for relevant AI feature design and implementation. Read its live documentation and applicable cookbooks before adding or changing a TypeSafe integration.
 - Keep `docs/` root reserved for long-lived source-of-truth documents only.
 - Keep each task atomic and independently verifiable.
 - Commit immediately after each completed independent task.
