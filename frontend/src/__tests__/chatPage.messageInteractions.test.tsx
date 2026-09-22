@@ -436,6 +436,8 @@ defineChatPageSuite('ChatPage message interactions', () => {
     toastWarningMock.mockClear();
 
     render(<ChatPage />);
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('Before refresh');
+    await user.clear(screen.getByPlaceholderText('chat.inputPlaceholder'));
     await user.type(
       screen.getByPlaceholderText('chat.inputPlaceholder'),
       'After refresh',
@@ -716,7 +718,9 @@ defineChatPageSuite('ChatPage message interactions', () => {
     act(() => {
       useConversationStore.getState().setCurrentSessionId('session-1');
     });
-    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('Keep session two draft');
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('Retry session one');
+    await user.clear(screen.getByPlaceholderText('chat.inputPlaceholder'));
+    await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), 'New visible session one draft');
     await user.click(screen.getByRole('button', { name: 'chat.send' }));
 
     await waitFor(() => {
@@ -730,9 +734,13 @@ defineChatPageSuite('ChatPage message interactions', () => {
     expect(requests[3]?.client_turn_id).not.toBe(requests[0]?.client_turn_id);
     expect(requests[3]).toEqual(expect.objectContaining({
       session_id: 'session-1',
-      message: 'Keep session two draft',
+      message: 'New visible session one draft',
       attachments: [],
     }));
+    act(() => {
+      useConversationStore.getState().setCurrentSessionId('session-2');
+    });
+    expect(screen.getByPlaceholderText('chat.inputPlaceholder')).toHaveValue('Keep session two draft');
   });
 
   it('renders image thumbnails for persisted history attachments', async () => {

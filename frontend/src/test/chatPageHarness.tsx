@@ -1,4 +1,6 @@
 import { resetChatReadMemory } from '@/runtime/chat-read-cache';
+import { clearAllChatDrafts } from '@/runtime/chat-draft-storage';
+import { centerLocalStorage, setCenterStorageScope } from '@/runtime/center-storage';
 import { cleanup } from '@testing-library/react';
 import type { ImgHTMLAttributes } from 'react';
 import {
@@ -395,7 +397,10 @@ export function defineChatPageSuite(
     });
 
     beforeEach(() => {
-    resetChatReadMemory();
+      resetChatReadMemory();
+      setCenterStorageScope('chat-page-tests', 'content');
+      centerLocalStorage().clear();
+      clearAllChatDrafts();
       window.sessionStorage.clear();
       defaultHistorySnapshots.clear();
       realtimeListener = null;
