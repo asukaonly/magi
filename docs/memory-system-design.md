@@ -3364,6 +3364,13 @@ MAGI_LIVE_MEMORY_EVAL=1 PYTHONPATH=src:../sdk/src python -m pytest \
   -k live -q --junitxml=/tmp/magi-live-memory-journey.xml
 ```
 
+The live variant uses default retrieval intent, expansion, and grounding settings
+with the configured provider; it does not force `episode_recall` or a session
+restriction, and it does not require an exact model confidence value. The scripted
+variant remains a wiring regression with controlled retrieval. Both variants
+still use accelerated ingestion and disabled vectors, and neither runs the full
+`ChatTaskAgent` desktop journey.
+
 Without explicit provider configuration the live case is skipped, not counted
 as passed. The fixture is synthetic; tests never consume the user's actual
 conversation database. Live results should be reported with model, test revision,

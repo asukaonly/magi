@@ -2,7 +2,9 @@
 
 The default provider is a scripted transport, including non-asserted and negative
 propositions. It tests host governance, not model accuracy. The opt-in live variant uses
-one explicitly configured OpenAI-compatible provider for extraction and answers.
+one explicitly configured OpenAI-compatible provider for extraction, default
+query interpretation/filtering, and answers. It does not force a retrieval mode.
+Vector indexing, batching latency, and ChatTaskAgent remain outside this fixture.
 """
 
 from __future__ import annotations
@@ -170,20 +172,24 @@ def event_for(case, timestamp):
     }
 
 
-async def recalled(memory, query):
+async def recalled(memory, query, *, adapter):
+    from magi.llm import LLMProviderBridge
+
+    scripted = isinstance(adapter, ScriptedTransport)
     port = _HostMemoryQueryPort()
     port._service = HybridRetrievalService(
         memory,
-        config=RetrievalConfig(
+        llm_provider_bridge=None if scripted else LLMProviderBridge(adapter),
+        config=(RetrievalConfig(
             intent_decider_llm_enabled=False,
             intent_shadow_eval_enabled=False,
             grounding_filter_enabled=False,
             query_expansion_enabled=False,
-        ),
+        ) if scripted else RetrievalConfig()),
     )
     tool = MemoryQueryTool()
     result = await tool.execute(
-        {"query": query, "query_mode": "episode_recall", "session_id": "second-session"},
+        {"query": query, **({"query_mode": "episode_recall"} if scripted else {})},
         ToolExecutionContext(
             agent_id="journey",
             capabilities=ToolCapabilities(memory_query=port),
@@ -238,7 +244,8 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         apple_claim = next(row for row in claims if row["object_surface"] == "苹果")
         assert apple_claim["fact_kind"] == "stable_preference"
         assert apple_claim["temporal_cue"] == "unspecified"
-        assert apple_claim["confidence"] == pytest.approx(0.9)
+        if isinstance(adapter, ScriptedTransport):
+            assert apple_claim["confidence"] == pytest.approx(0.9)
         apple_edges = await memory.l2.get_relationships(subject_id="user:local_user", predicates=["LIKES"])
         assert any(edge["fact_kind"] == "stable_preference" and "苹果" in str(edge) for edge in apple_edges)
         request_event = await memory.l1.get_event("journey-requested_address")
@@ -318,7 +325,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         )
         assert "明日香改名" in response.content
         assert "明日香2" not in response.content
-        recall = await recalled(memory, "我说过喜欢爵士乐吗")
+        recall = await recalled(memory, "我说过喜欢爵士乐吗", adapter=adapter)
         assert "爵士乐" in json.dumps(recall, ensure_ascii=False)
 
         # Import the same authored source through the production importer.
@@ -366,7 +373,7 @@ async def run_journey(tmp_path, monkeypatch, adapter):
         assert await memory.l3.get_summary_by_id(summary["summary_id"]) is None
         assert "爵士乐" not in await prompt_for(memory)
         assert "明日香改名" in await prompt_for(memory)
-        recall = await recalled(memory, "我说过喜欢爵士乐吗")
+        recall = await recalled(memory, "我说过喜欢爵士乐吗", adapter=adapter)
         assert "爵士乐" not in json.dumps(recall["findings"], ensure_ascii=False)
         assert not any(event_id in json.dumps(recall["findings"]) for event_id in forgotten)
         answer = await LLMProviderBridge(adapter).chat_response(
