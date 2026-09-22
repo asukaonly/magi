@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::db;
 
-const DEFAULT_USER_ID: &str = "default_user";
+const DEFAULT_USER_ID: &str = "local_user";
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 

@@ -2478,14 +2478,14 @@ async fn native_session_pages_expose_older_rows_and_reject_stale_boundaries() {
     let connection = rusqlite::Connection::open(directory.join("chat.db")).unwrap();
     connection.execute_batch(
         "CREATE TABLE chat_read_revisions(user_id TEXT,scope TEXT,epoch TEXT,revision INTEGER);
-         INSERT INTO chat_read_revisions VALUES ('default_user','','epoch',1);
+         INSERT INTO chat_read_revisions VALUES ('local_user','','epoch',1);
          CREATE TABLE chat_sessions(session_id TEXT,user_id TEXT,title TEXT,title_overridden INTEGER,
             last_message_preview TEXT,last_user_message_preview TEXT,workspace_path TEXT,
             updated_at_ms INTEGER,last_message_at_ms INTEGER,message_count INTEGER,history_version INTEGER,
             created_at_ms INTEGER,deleted_at_ms INTEGER,archived_at_ms INTEGER);"
     ).unwrap();
     for index in 0..51 {
-        connection.execute("INSERT INTO chat_sessions VALUES (?1,'default_user','Chat',0,'Hi','Hi',NULL,1,NULL,1,1,1,NULL,NULL)",
+        connection.execute("INSERT INTO chat_sessions VALUES (?1,'local_user','Chat',0,'Hi','Hi',NULL,1,NULL,1,1,1,NULL,NULL)",
             [format!("session-{index:03}")]).unwrap();
     }
     let router = api::build_router(test_state().await);
