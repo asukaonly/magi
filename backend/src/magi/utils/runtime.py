@@ -6,7 +6,7 @@ from pathlib import Path
 from magi_plugin_sdk.runtime_paths import get_magi_home
 from typing import Optional
 
-from .private_data import protect_private_data_tree
+from .private_data import protect_private_data_tree, protect_private_directory
 
 # Use standard logging to avoid circular imports
 logger = logging.getLogger(__name__)
@@ -26,7 +26,10 @@ class RuntimePaths:
             base_dir = get_magi_home()
 
         self.base_dir = Path(base_dir)
-        protect_private_data_tree(self.base_dir)
+        from .worker_instance import owns_audited_root
+
+        if not owns_audited_root(self.base_dir):
+            protect_private_data_tree(self.base_dir)
         self._ensure_directories()
 
     def _ensure_directories(self):
@@ -56,9 +59,7 @@ class RuntimePaths:
         ]
 
         for directory in directories:
-            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if os.name != "nt":
-                directory.chmod(0o700)
+            protect_private_directory(directory)
 
         logger.info(f"Runtime directory: {self.base_dir}")
 

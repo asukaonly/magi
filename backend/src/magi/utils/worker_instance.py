@@ -5,14 +5,22 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import signal
+import stat
 import sys
 import threading
 from typing import IO
 
-from .private_data import protect_private_data_tree
+from .private_data import protect_private_data_tree, protect_private_directory
 
 _lease_lock = threading.Lock()
 _active_lease: int | None = None
+_active_root: Path | None = None
+
+
+def owns_audited_root(root: Path) -> bool:
+    """Only the live worker lease may reuse its completed tree audit."""
+    with _lease_lock:
+        return _active_lease is not None and _active_root == Path(os.path.abspath(root))
 
 
 def duplicate_worker_lease() -> int | None:
@@ -35,14 +43,19 @@ class WorkerInstance:
         self._monitor: threading.Thread | None = None
 
     def __enter__(self) -> WorkerInstance:
-        global _active_lease
-        protect_private_data_tree(self._root)
+        global _active_lease, _active_root
+        protect_private_directory(self._root)
         runtime_dir = self._root / "runtime"
-        runtime_dir.mkdir(mode=0o700, exist_ok=True)
+        protect_private_directory(runtime_dir)
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(runtime_dir / "worker.lock", flags, 0o600)
         self._file = os.fdopen(fd, "r+b")
         try:
+            metadata = os.fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise OSError("Worker lease must be a private regular file")
+            if os.name != "nt" and metadata.st_uid != os.geteuid():
+                raise OSError("Worker lease belongs to another account")
             if os.name == "nt":
                 import msvcrt
 
@@ -59,6 +72,11 @@ class WorkerInstance:
             self._file.close()
             self._file = None
             raise RuntimeError("A Python runtime already owns this Magi data directory") from error
+        try:
+            protect_private_data_tree(self._root)
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
         if self._parent_pid is not None:
             if self._parent_pid <= 0 or os.getppid() != self._parent_pid:
                 self.__exit__(None, None, None)
@@ -67,10 +85,11 @@ class WorkerInstance:
             self._monitor.start()
         with _lease_lock:
             _active_lease = fd
+            _active_root = Path(os.path.abspath(self._root))
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        global _active_lease
+        global _active_lease, _active_root
         self._stop.set()
         if self._monitor is not None:
             self._monitor.join(timeout=1)
@@ -78,6 +97,7 @@ class WorkerInstance:
             with _lease_lock:
                 if _active_lease == self._file.fileno():
                     _active_lease = None
+                    _active_root = None
                 self._file.close()
             self._file = None
 

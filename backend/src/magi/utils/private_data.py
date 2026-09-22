@@ -37,6 +37,19 @@ def protect_private_data_tree(base_dir: Path) -> PrivateDataProtectionResult:
     return _protect_unix_tree(root)
 
 
+def protect_private_directory(directory: Path) -> None:
+    """Validate a known directory without repeating the complete startup audit."""
+    root = Path(os.path.abspath(os.fspath(directory)))
+    _ensure_real_root(root)
+    metadata = os.lstat(root)
+    if sys.platform != "win32":
+        if metadata.st_uid != os.geteuid():
+            raise PrivateDataProtectionError(f"Magi data path is not owned by the current account: {root}")
+        if sys.platform == "darwin":
+            _clear_macos_extended_acl(root)
+        os.chmod(root, 0o700, follow_symlinks=False)
+
+
 def _ensure_real_root(root: Path) -> None:
     try:
         root_stat = os.lstat(root)

@@ -51,8 +51,8 @@ pub struct Foreground {
 
 impl Foreground {
     pub fn start(path: &Path, config: &ServerConfig) -> Result<Self, String> {
-        std::fs::create_dir_all(config.data_dir.join("logs")).map_err(|e| e.to_string())?;
-        magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+        magi_platform::private_data::protect_private_directory(&config.data_dir)?;
+        magi_platform::private_data::protect_private_directory(&config.data_dir.join("logs"))?;
         let mut command = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
         command
             .args(["run", "--config"])

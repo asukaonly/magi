@@ -28,13 +28,10 @@ pub async fn run(
     if magi_gateway::db::configured_magi_base_dir()? != config.data_dir {
         return Err("MAGI_HOME must match server configuration before starting the runtime".into());
     }
-    magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+    magi_platform::private_data::protect_private_directory(&config.data_dir)?;
     let runtime_dir = config.data_dir.join("runtime");
-    fs::create_dir_all(&runtime_dir)
-        .map_err(|e| format!("Failed to create runtime directory: {e}"))?;
-    fs::create_dir_all(config.data_dir.join("logs"))
-        .map_err(|e| format!("Failed to create logs: {e}"))?;
-    magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+    magi_platform::private_data::protect_private_directory(&runtime_dir)?;
+    magi_platform::private_data::protect_private_directory(&config.data_dir.join("logs"))?;
     let _lease = InstanceLease::acquire(&runtime_dir.join("server.lock"))?;
     // A previous supervisor can disappear before its worker releases the data root.
     let orphan_deadline = Instant::now() + Duration::from_secs(config.shutdown_timeout_secs + 2);
@@ -56,14 +53,17 @@ pub async fn run(
         }
     }
     let service_dir = config.data_dir.join("service");
-    fs::create_dir_all(&service_dir).map_err(|e| e.to_string())?;
+    // Auth is opened before Python readiness; audit its small subtree separately.
+    magi_platform::private_data::protect_magi_data_root(&service_dir)?;
+    #[cfg(windows)]
+    magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
     let auth = Arc::new(magi_gateway::auth::AuthStore::open(
         &service_dir.join("server.db"),
     )?);
     if let Some(token) = owner_token {
         auth.bootstrap_local_owner(&token);
     }
-    magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+    magi_platform::private_data::protect_magi_data_root(&service_dir)?;
     let security = Arc::new(api::security::GatewaySecurity::with_auth(Arc::clone(&auth)));
     let socket = ipc_address(&config)?;
 

@@ -205,7 +205,7 @@ pub async fn run(
         let launch = tokio::select! {
             biased;
             _ = stopped(&mut shutdown) => return Ok(()),
-            result = Service::start(&path, Duration::from_secs(config.shutdown_timeout_secs + 15)) => result,
+            result = Service::start(&path, Duration::from_secs(config.listener_startup_timeout_secs())) => result,
         };
         match launch {
             Ok((mut service, started)) => {

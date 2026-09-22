@@ -139,6 +139,11 @@ impl ServerConfig {
         }
     }
 
+    /// Allow predecessor drain plus the configured startup budget before binding.
+    pub fn listener_startup_timeout_secs(&self) -> u64 {
+        self.startup_timeout_secs + self.shutdown_timeout_secs + 2
+    }
+
     /// Worker drain plus bounded transport and log cleanup.
     pub fn service_shutdown_timeout_secs(&self) -> u64 {
         self.shutdown_timeout_secs + 8
@@ -173,5 +178,14 @@ mod tests {
         config.data_dir = project.join("test-data");
         config.max_restarts = 100;
         assert!(config.validate().is_err());
+    }
+    #[test]
+    fn listener_budget_includes_startup_and_predecessor_drain() {
+        let mut config = ServerConfig::for_bundle(Path::new("/bundle"), "/data".into());
+        config.startup_timeout_secs = 120;
+        config.shutdown_timeout_secs = 4;
+        assert_eq!(config.listener_startup_timeout_secs(), 126);
+        config.startup_timeout_secs = 240;
+        assert_eq!(config.listener_startup_timeout_secs(), 246);
     }
 }

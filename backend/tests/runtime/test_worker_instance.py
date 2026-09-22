@@ -9,7 +9,7 @@ import threading
 
 import pytest
 
-from magi.utils.worker_instance import WorkerInstance
+from magi.utils.worker_instance import WorkerInstance, owns_audited_root
 
 
 def test_worker_lease_excludes_another_owner_until_shutdown(tmp_path: Path) -> None:
@@ -88,3 +88,46 @@ def test_worker_uses_supervisor_shutdown_budget(tmp_path, monkeypatch):
     worker._watch_owner()
     assert waits == [45]
     assert "MAGI_WORKER_SHUTDOWN_TIMEOUT_SECS" not in os.environ
+
+
+def test_runtime_paths_reuse_only_the_live_worker_audit(tmp_path, monkeypatch):
+    from magi.utils.runtime import RuntimePaths
+    import magi.utils.runtime as runtime
+
+    real_audit = runtime.protect_private_data_tree
+    audited = []
+
+    def audit(root):
+        audited.append(root)
+        return real_audit(root)
+
+    monkeypatch.setattr(runtime, "protect_private_data_tree", audit)
+    root = tmp_path / "worker"
+    with WorkerInstance(root):
+        assert owns_audited_root(root)
+        RuntimePaths(root)
+        RuntimePaths(root)
+        assert audited == []
+        other = tmp_path / "other"
+        RuntimePaths(other)
+        assert audited == [other]
+    assert not owns_audited_root(root)
+    RuntimePaths(root)
+    assert audited == [other, root]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX link ownership")
+def test_tree_audit_still_rejects_links_and_releases_failed_lease(tmp_path):
+    root = tmp_path / "worker"
+    root.mkdir()
+    external = tmp_path / "external"
+    external.write_text("private")
+    link = root / "asset"
+    link.symlink_to(external)
+    with pytest.raises(RuntimeError, match="must not be a link"):
+        with WorkerInstance(root):
+            pass
+    assert not owns_audited_root(root)
+    link.unlink()
+    with WorkerInstance(root):
+        assert owns_audited_root(root)

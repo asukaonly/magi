@@ -162,7 +162,7 @@ impl LocalService {
                 });
             let _ = sender.send(result);
         });
-        let deadline = Instant::now() + Duration::from_secs(config.shutdown_timeout_secs + 15);
+        let deadline = Instant::now() + Duration::from_secs(config.listener_startup_timeout_secs());
         let info = loop {
             if cancelled.load(Ordering::Acquire) {
                 return Err("Service launch cancelled".into());

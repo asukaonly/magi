@@ -134,6 +134,13 @@ The core Unix worker also has a native guardian in its process group. A private
 gateway lifetime pipe asks it to drain and then kill the owned group on gateway
 death, independently of Python threads and the GIL. The guardian executes from
 the same server binary and retains no inherited runtime leases or listeners.
+Unix startup performs one complete private-data audit under the Python worker
+lease. Rust checks the root, lifecycle directories and its small authentication
+store before binding; business database routes remain gated until Python finishes
+the audit and initializes storage. Runtime path construction reuses only that
+live audited lease and still validates named directory boundaries. Windows retains
+one native ACL audit plus Python boundary validation. Listener startup uses the
+configured startup budget plus any predecessor drain, independently of model setup.
 
 The Python worker publishes management readiness after foundational storage and
 configuration initialize, before optional plugin/Agent startup. Missing core

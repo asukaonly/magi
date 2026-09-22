@@ -157,9 +157,8 @@ fn execute_with_progress(
         fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
         if !plist.exists() {
             // Pre-create the service-owned log directory before launchd starts it.
-            magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
-            fs::create_dir_all(config.data_dir.join("logs")).map_err(|e| e.to_string())?;
-            magi_platform::private_data::protect_magi_data_root(&config.data_dir)?;
+            magi_platform::private_data::protect_private_directory(&config.data_dir)?;
+            magi_platform::private_data::protect_private_directory(&config.data_dir.join("logs"))?;
             let mut file = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)

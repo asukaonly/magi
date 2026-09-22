@@ -8,16 +8,25 @@ pub struct PrivateDataProtectionResult {
 }
 
 pub fn protect_magi_data_root(root: &Path) -> Result<PrivateDataProtectionResult, String> {
+    protect_root(root, true)
+}
+
+/// Protect a known directory boundary without walking unrelated stored data.
+pub fn protect_private_directory(root: &Path) -> Result<PrivateDataProtectionResult, String> {
+    protect_root(root, false)
+}
+
+fn protect_root(root: &Path, recursive: bool) -> Result<PrivateDataProtectionResult, String> {
     ensure_private_root_exists(root)?;
     let mut result = PrivateDataProtectionResult::default();
 
     #[cfg(unix)]
-    protect_unix_entry(root, &mut result)?;
+    protect_unix_entry(root, &mut result, recursive)?;
 
     #[cfg(windows)]
     {
         let acl = WindowsPrivateAcl::new()?;
-        protect_windows_entry(root, &acl, &mut result)?;
+        protect_windows_entry(root, &acl, &mut result, recursive)?;
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -78,7 +87,11 @@ fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
 }
 
 #[cfg(unix)]
-fn protect_unix_entry(path: &Path, result: &mut PrivateDataProtectionResult) -> Result<(), String> {
+fn protect_unix_entry(
+    path: &Path,
+    result: &mut PrivateDataProtectionResult,
+    recursive: bool,
+) -> Result<(), String> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let metadata = fs::symlink_metadata(path)
@@ -121,9 +134,10 @@ fn protect_unix_entry(path: &Path, result: &mut PrivateDataProtectionResult) -> 
 
     if metadata.is_dir() {
         result.protected_directories += 1;
-        let children = read_children(path)?;
-        for child in children {
-            protect_unix_entry(&child, result)?;
+        if recursive {
+            for child in read_children(path)? {
+                protect_unix_entry(&child, result, true)?;
+            }
         }
     } else {
         result.protected_files += 1;
@@ -378,6 +392,7 @@ fn protect_windows_entry(
     path: &Path,
     acl: &WindowsPrivateAcl,
     result: &mut PrivateDataProtectionResult,
+    recursive: bool,
 ) -> Result<(), String> {
     let metadata = fs::symlink_metadata(path)
         .map_err(|error| format!("Failed to inspect private Magi path: {error}"))?;
@@ -397,9 +412,10 @@ fn protect_windows_entry(
     acl.protect(path)?;
     if metadata.is_dir() {
         result.protected_directories += 1;
-        let children = read_children(path)?;
-        for child in children {
-            protect_windows_entry(&child, acl, result)?;
+        if recursive {
+            for child in read_children(path)? {
+                protect_windows_entry(&child, acl, result, true)?;
+            }
         }
     } else {
         result.protected_files += 1;
@@ -649,5 +665,15 @@ mod tests {
 
         assert_eq!(error, "Magi data root must be a real directory");
         fs::remove_dir_all(parent).unwrap();
+    }
+    #[test]
+    fn directory_protection_does_not_walk_unrelated_payloads() {
+        let root = std::env::temp_dir().join(format!("magi-boundary-{}", std::process::id()));
+        fs::create_dir_all(root.join("payload")).unwrap();
+        fs::write(root.join("payload/file"), b"data").unwrap();
+        let result = protect_private_directory(&root).unwrap();
+        assert_eq!(result.protected_directories, 1);
+        assert_eq!(result.protected_files, 0);
+        fs::remove_dir_all(root).unwrap();
     }
 }

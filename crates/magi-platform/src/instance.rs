@@ -44,10 +44,10 @@ impl InstanceLease {
 
     /// Reserve one data root across service restarts, including cooldown periods.
     pub fn runtime_owner(root: &Path) -> Result<Self, String> {
-        crate::private_data::protect_magi_data_root(root)?;
+        crate::private_data::protect_private_directory(root)?;
         let runtime = root.join("runtime");
         std::fs::create_dir_all(&runtime).map_err(|e| e.to_string())?;
-        crate::private_data::protect_magi_data_root(&runtime)?;
+        crate::private_data::protect_private_directory(&runtime)?;
         Self::acquire(&runtime.join("owner.lock"))
     }
 
