@@ -77,9 +77,9 @@ function storeHead(key: string, data: Page, checkedAt: number): void {
   } catch { /* Quota and storage failures leave the confirmed in-memory snapshot usable. */ }
 }
 
-function restore<T extends Page>(key: string, parse: (value: unknown) => T): Window<T> | undefined {
+function restore<T extends Page>(key: string, parse: (value: unknown) => T, entries = readStored().entries): Window<T> | undefined {
   if (invalidations.has(key)) return undefined;
-  const saved = readStored().entries.find((item) => item.key === key);
+  const saved = entries.find((item) => item.key === key);
   if (!saved || saved.checkedAt > Date.now() || Date.now() - saved.checkedAt > CACHE_TTL_MS) return undefined;
   try {
     const data = parse(saved.data);
@@ -148,16 +148,17 @@ export type OfflineChatSnapshot = {
 
 /** Read only persisted heads; never request missing pages or attachment content. */
 export function savedOfflineChats(): OfflineChatSnapshot[] {
-  const list = restore(keyFor(), parseSessionList);
+  const entries = readStored().entries;
+  const list = restore(keyFor(), parseSessionList, entries);
   const items = new Map<string, OfflineChatSnapshot>();
   for (const session of list?.pages[0].sessions ?? []) {
     items.set(session.session_id, { sessionId: session.session_id, title: session.title, checkedAt: list!.checkedAt });
   }
   const prefix = keyFor('');
-  for (const entry of readStored().entries) {
+  for (const entry of entries) {
     if (!entry.key.startsWith(prefix)) continue;
     const sessionId = entry.key.slice(prefix.length);
-    const history = restore(entry.key, parseConversationHistory);
+    const history = restore(entry.key, parseConversationHistory, entries);
     if (!history || history.pages[0].session_id !== sessionId) continue;
     const existing = items.get(sessionId);
     items.set(sessionId, {
