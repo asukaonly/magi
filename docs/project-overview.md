@@ -625,8 +625,33 @@ then revalidate. Failed reads retain the last snapshot and show its stale state.
 A changed revision rebuilds all previously loaded pages atomically, preventing
 old page fragments from retaining deleted rows. Explicit deletion, memory clear
 and center switching invalidate pending owners before old responses can commit.
-Cold launch still requires authentication and content-epoch discovery; this
-cache does not provide a fully offline cold-start mode.
+The live application still requires authentication and current-epoch discovery.
+After a classified network-unavailable startup failure, a previously connected
+profile may explicitly open a separate read-only offline view. A private native
+attestation binds the profile, server, remote client/address (or local data root),
+both epochs and last successful verification time; it contains no credentials.
+Unknown profiles, rejected authorization, invalid TLS, identity/protocol errors,
+and known maintenance or incomplete device cleanup never authorize this view.
+The offline reader does not mount the live application, subscribe to events,
+request missing pages or load attachment resources. Remote mode never starts a
+local service as a fallback.
+
+Offline content is an earlier snapshot: an unreachable device cannot learn
+about subsequent deletion or authorization revocation until it reconnects. The
+view states this explicitly. It offers manual reconnect and another attempt
+30 seconds after the previous attempt finishes. Successful reconnect verifies
+identity, authorization, both epochs and maintenance, erases obsolete content,
+then restores live actions. Known maintenance revokes offline eligibility before
+admitting a destructive request; only a completed bootstrap can attest it again.
+
+Ordinary text drafts are separate device-owned state, isolated by center,
+content epoch and conversation. They are bounded to 50 conversations / 100 KiB
+for 30 days, and remain text drafts after reconnect rather than queued sends.
+Version comparisons prevent late send acknowledgments from erasing newer text.
+Storage failures retain bounded unsaved text in process memory and expose its
+unsaved state; deleting a conversation or clearing memory also clears drafts.
+Attachments, pending question answers, recall feedback and other send metadata
+are not persisted as text drafts.
 
 ### Conversation lifecycle
 

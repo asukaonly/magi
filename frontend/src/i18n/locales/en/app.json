@@ -26,9 +26,9 @@
     "memoryModelConfigure": "Configure vector model",
     "memoryModelSkip": "Skip for now",
     "chat": {
-    "cachedHistory": "Showing saved messages · last checked {{time}}",
-    "loadOlderHistory": "Load earlier messages",
-    "loadingOlderHistory": "Loading earlier messages…",
+      "cachedHistory": "Showing saved messages · last checked {{time}}",
+      "loadOlderHistory": "Load earlier messages",
+      "loadingOlderHistory": "Loading earlier messages…",
       "title": "Chat with me",
       "body": "Talk with your persona right here."
     },
@@ -5731,9 +5731,9 @@
     "loadFailed": "Saved connections could not be loaded.",
     "switchHint": "Switching reloads the interface. Save unsent content first. Remote Magi keeps running when you disconnect.",
     "confirmSwitchTitle": "Switch to “{{name}}”?",
-    "confirmSwitchDescription": "Magi will reload, and any unsent message will be lost. It will rebuild conversation, memory, and task views using the selected connection. Tasks on the current remote center keep running.",
+    "confirmSwitchDescription": "Magi will reload using the selected connection. Saved text drafts remain on this device; unsent attachments and unsaved changes will be lost. Tasks on the current remote Magi keep running.",
     "confirmPairTitle": "Pair and switch to “{{name}}”?",
-    "confirmPairDescription": "After pairing succeeds, Magi will reload, and any unsent message will be lost. It will rebuild conversation, memory, and task views using the new connection.",
+    "confirmPairDescription": "After pairing, Magi will reload using the new connection. Saved text drafts remain on this device; unsent attachments and unsaved changes will be lost.",
     "unsavedSettingsWarning": "Unsaved settings will be lost. Cancel and save them first, or confirm to continue switching.",
     "confirmSwitch": "Switch and reload",
     "confirmPair": "Pair and reload",
@@ -5833,5 +5833,28 @@
     "downloading": "Saving to this device…",
     "downloadFailed": "Could not save the file. Check the connection and available disk space, then try again.",
     "downloadSaved": "Saved to the location you selected."
+  },
+  "offline": {
+    "title": "Offline · saved conversations",
+    "open": "Open saved conversations",
+    "available": "You can open conversations previously saved on this device and write text drafts. Sending messages and changing settings require a connection.",
+    "notice": "These are earlier snapshots. Changes or deletions on the server may not be reflected here. Magi will try reconnecting every 30 seconds and check the server before restoring online actions.",
+    "verifiedAt": "Last connected: {{time}}",
+    "reconnect": "Reconnect now",
+    "reconnecting": "Reconnecting…",
+    "savedChats": "Saved conversations",
+    "untitledChat": "Untitled conversation",
+    "noChats": "No recent conversations are saved on this device.",
+    "snapshotAt": "Snapshot saved: {{time}}",
+    "recentOnly": "Only the most recent saved messages are available. Reconnect to load earlier messages.",
+    "noHistory": "No messages from this conversation are saved on this device. Reconnect to load them.",
+    "user": "You",
+    "assistant": "Magi",
+    "attachments": "Attachments (available after reconnecting): {{names}}",
+    "draft": "Text draft on this device",
+    "draftPlaceholder": "Write a draft here. It will not be sent automatically.",
+    "draftSaved": "Saved on this device. Continue editing after reconnecting; sending always requires your action.",
+    "draftUnsaved": "This draft could not be saved to disk. Copy it before closing the app.",
+    "networkUnavailable": "Magi could not be reached. Check that the service is running and the connection address is correct."
   }
 }

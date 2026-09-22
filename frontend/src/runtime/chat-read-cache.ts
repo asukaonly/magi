@@ -139,6 +139,37 @@ export function cachedChatSessions(): ChatReadSnapshot<SessionListResponse> | un
   return combineSessions(window);
 }
 
+export type OfflineChatSnapshot = {
+  sessionId: string;
+  title: string;
+  checkedAt: number;
+  history?: ChatReadSnapshot<ConversationHistory>;
+};
+
+/** Read only persisted heads; never request missing pages or attachment content. */
+export function savedOfflineChats(): OfflineChatSnapshot[] {
+  const list = restore(keyFor(), parseSessionList);
+  const items = new Map<string, OfflineChatSnapshot>();
+  for (const session of list?.pages[0].sessions ?? []) {
+    items.set(session.session_id, { sessionId: session.session_id, title: session.title, checkedAt: list!.checkedAt });
+  }
+  const prefix = keyFor('');
+  for (const entry of readStored().entries) {
+    if (!entry.key.startsWith(prefix)) continue;
+    const sessionId = entry.key.slice(prefix.length);
+    const history = restore(entry.key, parseConversationHistory);
+    if (!history || history.pages[0].session_id !== sessionId) continue;
+    const existing = items.get(sessionId);
+    items.set(sessionId, {
+      sessionId,
+      title: existing?.title ?? history.pages[0].messages.find((message) => message.role === 'user')?.content.slice(0, 80) ?? '',
+      checkedAt: history.checkedAt,
+      history: combineHistory(history),
+    });
+  }
+  return [...items.values()];
+}
+
 function stalePage(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'status' in error && error.status === 409;
 }

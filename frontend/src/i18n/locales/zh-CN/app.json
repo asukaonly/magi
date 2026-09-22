@@ -26,9 +26,9 @@
     "memoryModelConfigure": "配置向量模型",
     "memoryModelSkip": "暂时跳过",
     "chat": {
-    "cachedHistory": "正在显示已保存的消息 · 上次核对于 {{time}}",
-    "loadOlderHistory": "加载更早的消息",
-    "loadingOlderHistory": "正在加载更早的消息…",
+      "cachedHistory": "正在显示已保存的消息 · 上次核对于 {{time}}",
+      "loadOlderHistory": "加载更早的消息",
+      "loadingOlderHistory": "正在加载更早的消息…",
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"
     },
@@ -5729,9 +5729,9 @@
     "loadFailed": "无法读取已保存的连接。",
     "switchHint": "切换会重新载入界面，请先保存未发送的内容。断开连接不会停止远程 Magi。",
     "confirmSwitchTitle": "切换到“{{name}}”？",
-    "confirmSwitchDescription": "Magi 将重新载入，当前未发送的消息会丢失。重新载入后将使用所选连接建立对话、记忆和任务视图；远程中心上的任务不会停止。",
+    "confirmSwitchDescription": "Magi 将使用所选连接重新载入。已保存的文字草稿会留在这台设备，未发送的附件和未保存的更改会丢失；当前远程 Magi 上的任务继续运行。",
     "confirmPairTitle": "配对并切换到“{{name}}”？",
-    "confirmPairDescription": "配对成功后，Magi 将重新载入，当前未发送的消息会丢失。重新载入后将使用新连接建立对话、记忆和任务视图。",
+    "confirmPairDescription": "配对成功后，Magi 将使用新连接重新载入。已保存的文字草稿会留在这台设备，未发送的附件和未保存的更改会丢失。",
     "unsavedSettingsWarning": "尚未保存的设置会丢失。请先取消并保存，或确认继续切换。",
     "confirmSwitch": "切换并重新载入",
     "confirmPair": "配对并重新载入",
@@ -5831,5 +5831,28 @@
     "downloading": "正在保存到这台设备…",
     "downloadFailed": "文件未能保存。请检查连接和可用磁盘空间后重试。",
     "downloadSaved": "已保存到你选择的位置。"
+  },
+  "offline": {
+    "title": "离线 · 已保存的对话",
+    "open": "打开已保存的对话",
+    "available": "可以查看这台设备之前保存的对话、写文字草稿。发送消息和修改设置需要先连接 Magi。",
+    "notice": "这里显示的是之前保存的内容，可能尚未反映服务端的修改或删除。每 30 秒会尝试重连，核对服务端状态后恢复在线操作。",
+    "verifiedAt": "上次连接：{{time}}",
+    "reconnect": "立即重连",
+    "reconnecting": "正在重连…",
+    "savedChats": "已保存的对话",
+    "untitledChat": "未命名对话",
+    "noChats": "这台设备还没有保存近期对话。",
+    "snapshotAt": "内容保存于：{{time}}",
+    "recentOnly": "仅显示最近保存的消息。更早的内容需要重连后加载。",
+    "noHistory": "这台设备没有保存此对话的消息，重连后才能加载。",
+    "user": "你",
+    "assistant": "Magi",
+    "attachments": "附件（重连后可查看）：{{names}}",
+    "draft": "这台设备上的文字草稿",
+    "draftPlaceholder": "可以先写下想说的话，重连后不会自动发送。",
+    "draftSaved": "已保存在这台设备。重连后可继续编辑，由你决定是否发送。",
+    "draftUnsaved": "草稿暂时无法保存到磁盘，关闭应用前请先复制文字。",
+    "networkUnavailable": "暂时无法连接 Magi，请检查服务是否运行、连接地址是否正确。"
   }
 }

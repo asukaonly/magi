@@ -399,9 +399,30 @@ session list. Each center and content epoch has its own cache. Deleting chat
 content or clearing memory also removes the corresponding local snapshots.
 The cache holds at most eight recent history pages and one session-list page,
 up to 1 MiB for seven days. It is a convenience for recent reads, not a promise
-that every conversation is available offline. Initial launch still connects to
-the center to verify identity and the current data epoch. Writes continue to
-use their existing explicit confirmation and retry flows.
+that every conversation is available offline. Initial launch attempts to verify
+the center identity and current data epoch. If the connection is unreachable,
+a previously verified profile offers **Open saved conversations**. This opens
+a separate offline reader, with the connection name/address, last connected
+time, snapshot time and clear stale-content notice. Missing history and
+attachment files require reconnection; settings and server actions are absent.
+Unknown or unauthorized profiles, identity/certificate errors and known pending
+maintenance cannot use this fallback.
+
+Offline mode can save plain text drafts for existing saved conversations. Drafts
+also persist in the live composer, scoped to the center/content epoch/session,
+for up to 30 days, 50 conversations and 100 KiB. They do not include attachments,
+question answers or recall feedback. Reconnecting never submits a draft; the
+user reviews and sends it. Failed persistence must show an unsaved notice,
+even if the current process retains the text. The offline editor limits text to
+20,000 characters to fit the bounded draft store.
+
+The offline reader retries 30 seconds after a connection attempt completes and
+also offers **Reconnect now**. It keeps the snapshot usable during a network
+retry. Authorization rejection or another disqualifying result closes the
+offline reader; a successful connection finishes identity/epoch checks and
+pending cleanup before mounting the live app. Remote connection failure never
+starts local Magi as a substitute. Writes continue to use their existing
+explicit confirmation and retry flows.
 
 ## Settings Page
 
@@ -862,8 +883,11 @@ The destructive **Clear All Memory** action is broader than L0-L4:
   proactive notifications plus their delivery history
 - it erases existing center diagnostic log contents while center writers are
   paused; new operational entries can appear after the boundary
-- each connected desktop clears its own caches and logs separately; offline
-  devices must reconcile the durable data epoch before displaying cached content
+- each connected desktop clears its own caches and logs separately; an
+  unreachable device can still show an explicitly opened earlier offline
+  snapshot until it learns about the clear. It must reconcile the durable epochs
+  and clear obsolete content before returning to the live app. Known local
+  clear/restore intent or incomplete cleanup blocks the offline reader entirely
 - it preserves product configuration: installed/enabled channels, external
   account authentication, channel binding preferences, LLM settings, persona
   settings, and unrelated runtime notifications are not remembered

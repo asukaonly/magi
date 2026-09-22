@@ -29,12 +29,24 @@ export function centerStorageKey(key: string): string { return prefix + key; }
 export function centerLocalStorage(): Storage { return new CenterStorage(window.localStorage, prefix); }
 export function centerSessionStorage(): Storage { return new CenterStorage(window.sessionStorage, prefix); }
 
+/** Bind a previously verified snapshot without reconciling or deleting other epochs. */
+export function bindOfflineCenterStorageScope(serverId: string, contentEpoch: string): void {
+  if (!serverId || !contentEpoch) throw new Error('Center storage identity is missing');
+  const nextPrefix = `magi.center.${encodeURIComponent(serverId)}.${encodeURIComponent(contentEpoch)}.`;
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (const key of ['maintenance.pending-clear', 'maintenance.pending-restore', 'maintenance.device-cleanup']) {
+      if (storage.getItem(nextPrefix + key)) throw new Error('Center maintenance must finish before cached content can open');
+    }
+  }
+  prefix = nextPrefix;
+}
+
 export function setCenterStorageScope(serverId: string, contentEpoch: string): void {
   if (!serverId || !contentEpoch) throw new Error('Center storage identity is missing');
   const serverPrefix = `magi.center.${encodeURIComponent(serverId)}.`;
   const nextPrefix = `${serverPrefix}${encodeURIComponent(contentEpoch)}.`;
   let changed = false;
-  // Offline devices learn about clears before loading any cached content.
+  // Authenticated reconnect reconciles clears before mounting the live application.
   for (const storage of [window.localStorage, window.sessionStorage]) {
     const obsolete: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {

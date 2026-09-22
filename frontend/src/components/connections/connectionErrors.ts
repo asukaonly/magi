@@ -1,6 +1,7 @@
 /** Map native connection protocol errors to localized recovery instructions. */
 export function connectionErrorKey(code: string): string | null {
   switch (code) {
+    case 'center_network_unavailable': return 'offline.networkUnavailable';
     case 'connection_has_pending_data': return 'connections.repair.pendingRequired';
     case 'repair_center_changed': return 'connections.repair.centerChanged';
     case 'local_credential_missing': return 'connections.errors.localCredentialMissing';
