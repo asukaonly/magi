@@ -209,16 +209,10 @@ class L2PipelineUtilityMixin:
         claim: L2Phase1FactClaim,
         user_texts: list[str],
     ) -> bool:
-        fragments = [
-            str(claim.evidence_text or "").strip(),
-            str(claim.object_ref or "").strip(),
-        ]
-        fragments.extend(self._expand_profile_signal_values(claim.object_ref))
-        normalized_fragments = [fragment for fragment in fragments if fragment]
-        if not normalized_fragments:
-            return False
-        user_text_blob = "\n".join(user_texts).casefold()
-        return any(fragment.casefold() in user_text_blob for fragment in normalized_fragments)
+        # Literal value provenance is validated by claim_grounding; this guard
+        # independently requires the current quote to come from the user.
+        quote = str(claim.evidence_text or "").strip()
+        return bool(quote) and any(quote.casefold() in text.casefold() for text in user_texts)
 
     def _expand_profile_signal_values(self, value: Any) -> set[str]:
         text = str(value or "").strip()

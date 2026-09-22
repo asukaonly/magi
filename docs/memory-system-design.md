@@ -890,6 +890,15 @@ records, families, routes, conflicts, lifecycle fields, or persistence actions.
 Extraction profiles no longer expose `summary_instructions`; L3 narrative
 generation and its source hooks retain their separate ownership.
 
+Literal objects follow the same source-provenance boundary as entity names.
+The complete literal value must occur in the current evidence quote or an
+already validated immediate confirmation/clarification antecedent. A matching
+quote alone cannot authorize an unrelated extracted name, goal, or preference.
+Typed birth dates may use deterministic numeric date normalization, while
+`object_surface` retains the exact original date span. Numeric ages and years
+require a complete number boundary. This is source grounding, not proof of
+semantic entailment; authorship and proposition checks still apply.
+
 Claim extraction contract v7 separates the raw object reference from source
 wording. `object_value` retains the emitted entity reference or literal value;
 `object_surface` holds an exact grounded name, or is absent. Evidence locators

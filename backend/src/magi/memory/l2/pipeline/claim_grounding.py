@@ -13,6 +13,8 @@ from ..models import (
     L2Phase1Result,
 )
 from ..phase1_models import L2AssertionMode, L2TemporalCue
+from ..claim_text import claim_object_is_literal
+from ..literal_grounding import grounded_literal_surface
 from .history_markdown import (
     HISTORY_DOCUMENT_EVENT_TYPE,
     find_history_document_author_occurrence,
@@ -46,7 +48,7 @@ def ground_phase1_fact_claims(
             eligible_events=eligible_events,
             grounded_event_ids=grounded_event_ids,
             context_frame=context_frame,
-        ):
+        ) or _literal_claim_rejection_reason(claim, context_frame):
             rejected_count += 1
             continue
         if grounded_event_ids != valid_original_ids and original_event_ids:
@@ -192,6 +194,7 @@ def normalize_phase1_claim_contract(
                 context_frame=context_frame,
             )
         )
+        rejection_reason = rejection_reason or _literal_claim_rejection_reason(typed_claim, context_frame)
         if rejection_reason:
             rejected_count += 1
             normalizations.append(f"fact_claims[{index}]: dropped candidate ({rejection_reason})")
@@ -292,6 +295,25 @@ def _contextual_claim_rejection_reason(
 
     claim.antecedent_event_ids = required_ids
     claim.confidence = min(claim.confidence, _CONTEXTUAL_CLAIM_CONFIDENCE_CAP)
+    return None
+
+
+def _literal_claim_rejection_reason(
+    claim: L2Phase1FactClaim,
+    context_frame: list[dict[str, object]],
+) -> str | None:
+    if not claim_object_is_literal(claim.predicate):
+        return None
+    sources = [claim.evidence_text]
+    if claim.evidence_mode is not L2ClaimEvidenceMode.DIRECT:
+        antecedent_ids = set(claim.antecedent_event_ids)
+        sources.extend(
+            str(message["content"])
+            for message in context_frame
+            if message["event_id"] in antecedent_ids
+        )
+    if grounded_literal_surface(claim.predicate, claim.object_ref, sources) is None:
+        return "literal value lacks authorized evidence"
     return None
 
 

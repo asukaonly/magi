@@ -157,7 +157,7 @@ async def test_entity_claim_name_survives_pipeline_restart_and_portrait(
         assert claim["object_surface"] == surface
         assert claim["subject_ref"] == "user:u1"
         assert claim["temporal_cue"] == "unspecified"
-        assert claim["extractor_contract_version"] == 8
+        assert claim["extractor_contract_version"] == 9
         hydrated_claim = await store.l2.get_grounded_claim(claim["claim_id"])
         assert hydrated_claim is not None
         evidence_rows = hydrated_claim["evidence"]
@@ -677,5 +677,53 @@ async def test_contextual_confirmation_resolves_catalog_without_new_mention_evid
             ) as cursor:
                 assert (await cursor.fetchone())[0] == 0
         assert len(adapter.calls) == 1
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("predicate", "object_type", "fact_kind", "value", "evidence"), [
+    ("REAL_NAME", "concept", "explicit_fact", "王小明", "我喜欢苹果"),
+    ("PLANS_TO", "activity", "future_intent", "删除公司的全部文件", "我计划去海边"),
+])
+async def test_ungrounded_literal_never_reaches_persisted_memory_or_portrait(
+    tmp_path, predicate, object_type, fact_kind, value, evidence,
+):
+    event_id = "evt-ungrounded-literal"
+    store, _adapter = await _open_store(tmp_path, _response(
+        event_id=event_id, object_ref=value, evidence=evidence, entities=[],
+        predicate=predicate, object_type=object_type, fact_kind=fact_kind,
+    ))
+    try:
+        await _ingest(store, event_id=event_id, content=evidence)
+        assert await store.l2.list_grounded_claims() == []
+        assert await store.l2.list_current_assertions(entity_id="user:u1") == []
+        portrait = await UserPortraitProjectionBuilder(store.l2).build("u1")
+        assert portrait.prompt_summary == []
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_normalized_birth_date_retains_its_exact_source_span(tmp_path):
+    event_id = "evt-normalized-birthday"
+    evidence = "我出生于1992年9月8日"
+    store, _adapter = await _open_store(tmp_path, _response(
+        event_id=event_id, object_ref="1992-09-08", evidence=evidence, entities=[],
+        predicate="BIRTH_DATE", object_type="concept", fact_kind="explicit_fact",
+    ))
+    try:
+        await _ingest(store, event_id=event_id, content=evidence)
+        claims = await store.l2.list_grounded_claims()
+        assert len(claims) == 1
+        assert claims[0]["object_value"] == "1992-09-08"
+        assert claims[0]["object_surface"] == "1992年9月8日"
+        hydrated = await store.l2.get_grounded_claim(claims[0]["claim_id"])
+        assert hydrated["evidence"][0]["evidence_locator"]["reference_surfaces"]["object"] == "1992年9月8日"
+        assertions = await store.l2.list_current_assertions(entity_id="user:u1")
+        assert len(assertions) == 1
+        assert assertions[0]["trait_value"] == "1992-09-08"
+        portrait = await UserPortraitProjectionBuilder(store.l2).build("u1")
+        assert any("1992-09-08" in line for line in portrait.prompt_summary)
     finally:
         await store.shutdown()

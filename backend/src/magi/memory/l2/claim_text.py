@@ -10,6 +10,7 @@ from typing import Any
 import aiosqlite
 
 from .ontology_aliases import canonicalize_predicate
+from .literal_grounding import grounded_literal_surface
 from .phase1_models import L2Phase1FactClaim, L2Phase1Result
 from .semantic_routing import ObjectRole, assertion_predicate_descriptors
 
@@ -47,9 +48,9 @@ def grounded_reference_surface(
 ) -> str | None:
     """Select exact source wording; a resolver ID is never a source name."""
     ref = claim.object_ref if role == "object" else claim.subject_ref
-    if role == "object" and claim_object_is_literal(claim.predicate):
-        return ref
     sources = [claim.evidence_text, *antecedent_texts]
+    if role == "object" and claim_object_is_literal(claim.predicate):
+        return grounded_literal_surface(claim.predicate, ref, sources)
     matches = [
         entity for entity in result.entities
         if ref in {entity.surface, entity.normalized_name, entity.resolved_id, *entity.alias_signals}

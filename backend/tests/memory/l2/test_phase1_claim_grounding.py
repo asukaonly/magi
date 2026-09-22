@@ -724,3 +724,45 @@ def test_confirmation_semantics_do_not_depend_on_a_fixed_reply_vocabulary():
     }])
     assert stats["kept"] == 1
     assert result.fact_claims[0].confidence <= 0.75
+
+
+@pytest.mark.parametrize(("predicate", "value", "evidence", "kept"), [
+    ("REAL_NAME", "王小明", "我喜欢苹果", 0),
+    ("PREFERRED_FORM_OF_ADDRESS", "小明或者小王", "叫我小明", 0),
+    ("PLANS_TO", "删除公司的全部文件", "我计划去海边", 0),
+    ("REAL_NAME", "王小明", "我叫王小明", 1),
+    ("PREFERRED_FORM_OF_ADDRESS", "user:self", "请叫我user:self", 1),
+    ("BIRTH_DATE", "1992-09-08", "我出生于1992年9月8日", 1),
+    ("BIRTH_DATE", "1992-09-08", "我出生于1993年9月8日", 0),
+    ("BIRTH_DATE", "09-08", "我的生日是9月8日", 1),
+    ("BIRTH_DATE", "02-29", "生日是2月29日", 1),
+    ("BIRTH_DATE", "1993-02-29", "生日是1993年2月29日", 0),
+    ("STATED_AGE", "30", "我今年130岁", 0),
+    ("STATED_AGE", "30", "我今年30岁", 1),
+])
+def test_literal_claim_value_requires_complete_authorized_source(predicate, value, evidence, kept):
+    claim = _claim(predicate=predicate, object_ref=value, object_type="concept", evidence_text=evidence)
+    result = L2Phase1Result(fact_claims=[claim])
+    stats = ground_phase1_fact_claims(result, _window(("evt-current", evidence)))
+    assert stats["kept"] == kept
+
+
+@pytest.mark.parametrize("mode", ["confirmation", "clarification"])
+def test_literal_claim_can_use_validated_immediate_context(mode):
+    context = [
+        {"event_id": "evt-user", "role": "user", "content": "我叫王小明"},
+        {"event_id": "evt-assistant", "role": "assistant", "content": "你的真实姓名是王小明，对吗？"},
+    ]
+    antecedents = ["evt-assistant"] if mode == "confirmation" else ["evt-user", "evt-assistant"]
+    claim = _claim(predicate="REAL_NAME", object_ref="王小明", object_type="concept", evidence_text="对的", evidence_mode=mode, antecedent_event_ids=antecedents)
+    result = L2Phase1Result(fact_claims=[claim])
+    stats = ground_phase1_fact_claims(result, _window(("evt-current", "对的")), context_messages=context)
+    assert stats["kept"] == 1
+    assert claim.confidence <= 0.75
+
+
+def test_literal_claim_cannot_borrow_an_uncited_context_value():
+    claim = _claim(predicate="REAL_NAME", object_ref="王小明", object_type="concept", evidence_text="我喜欢苹果")
+    result = L2Phase1Result(fact_claims=[claim])
+    stats = ground_phase1_fact_claims(result, _window(("evt-current", "我喜欢苹果")), context_messages=[{"event_id":"evt-old", "role":"user", "content":"我的同事叫王小明"}])
+    assert stats["kept"] == 0
