@@ -2,3 +2,5 @@
 
 pub mod instance;
 pub mod private_data;
+#[cfg(unix)]
+pub mod worker_guardian;

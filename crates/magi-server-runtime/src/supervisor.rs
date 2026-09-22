@@ -627,6 +627,8 @@ struct WorkerProcess {
     pid: u32,
     output: Vec<tokio::task::JoinHandle<()>>,
     group_stopped: bool,
+    #[cfg(unix)]
+    _guardian: magi_platform::worker_guardian::WorkerGuardian,
     #[cfg(windows)]
     job: crate::windows_job::WorkerJob,
 }
@@ -676,7 +678,11 @@ impl WorkerProcess {
             command.env_remove("PYTHONPATH");
         }
         #[cfg(unix)]
-        command.process_group(0);
+        let guardian = magi_platform::worker_guardian::WorkerGuardian::prepare(
+            command.as_std_mut(),
+            &std::env::current_exe().map_err(|e| e.to_string())?,
+            config.shutdown_timeout_secs,
+        ).map_err(|e| format!("Failed to prepare worker guardian: {e}"))?;
         #[cfg(windows)]
         command.creation_flags(0x08000000);
         if let Some(clear_id) = clear_id {
@@ -701,6 +707,8 @@ impl WorkerProcess {
             pid,
             output,
             group_stopped: false,
+            #[cfg(unix)]
+            _guardian: guardian,
             #[cfg(windows)]
             job,
         })

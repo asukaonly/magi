@@ -130,6 +130,10 @@ instance leases live in `magi-platform`; shared probe accounting and restart
 budgets live in `magi-service-contract`, without pulling service implementation
 into the desktop. External Unix plugins additionally have a small Python owner
 that reaps their processes independently of plugin execution.
+The core Unix worker also has a native guardian in its process group. A private
+gateway lifetime pipe asks it to drain and then kill the owned group on gateway
+death, independently of Python threads and the GIL. The guardian executes from
+the same server binary and retains no inherited runtime leases or listeners.
 
 The Python worker publishes management readiness after foundational storage and
 configuration initialize, before optional plugin/Agent startup. Missing core

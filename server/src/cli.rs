@@ -52,6 +52,12 @@ impl InitOptions {
 
 #[derive(Subcommand)]
 pub enum Command {
+    #[cfg(unix)]
+    #[command(hide = true)]
+    WorkerGuardian {
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=60))]
+        drain_secs: u64,
+    },
     /// Create deployment configuration without prompts; does not start the service.
     Init,
     /// Run in the foreground without prompts. Ctrl+C stops the owned service.
@@ -182,6 +188,10 @@ pub fn execute(
     cli: Cli,
     output: &mut Option<crate::managed_output::ManagedOutput>,
 ) -> Result<(), String> {
+    #[cfg(unix)]
+    if let Some(Command::WorkerGuardian { drain_secs }) = cli.command {
+        return magi_platform::worker_guardian::run(drain_secs);
+    }
     let format = cli.output.format();
     if cli.output.json
         && matches!(

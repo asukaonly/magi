@@ -42,6 +42,14 @@ async def worker_loop(root: Path) -> None:
                 assert request["params"]["token"] == token
                 result = {"authenticated": True}
             elif method == "ping":
+                if (root / "gil-hang").exists():
+                    import ctypes
+
+                    (root / "gil-hang").unlink()
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                    (root / "gil-blocked").touch()
+                    # PyDLL retains the GIL; Python's parent-monitor thread cannot run.
+                    ctypes.PyDLL(None).sleep(60)
                 if (root / "hang").exists():
                     (root / "hang").unlink()
                     time.sleep(60)  # noqa: ASYNC251 -- Deliberately block the real event loop.
@@ -193,6 +201,20 @@ def smoke(executable: Path) -> None:
             assert status == 200
             assert service.request("/server/info", token=renewed["data"]["access_token"])[0] == 200
             print("PASS: service crash releases predecessor ownership and preserves paired identity", flush=True)
+
+            blocked_pid = pid_path.read_text()
+            (root / "gil-hang").touch()
+            eventually(lambda: (root / "gil-blocked").exists())
+            killed_at = time.monotonic()
+            service.process.kill()
+            service.process.wait(timeout=5)
+            service.close()
+            service = Service(executable, config)
+            eventually(ready, timeout=12)
+            assert pid_path.read_text() != blocked_pid
+            assert time.monotonic() - killed_at < 12
+            assert service.request("/server/info")[1]["data"]["server_id"] == server_id
+            print("PASS: native guardian reclaims a GIL-blocked worker after gateway death", flush=True)
             final_pid = pid_path.read_text()
             service.close()
             assert service.process.returncode == 0
