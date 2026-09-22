@@ -7,6 +7,7 @@ import {
   normalizeTurnUxPlan,
 } from '@/domain/chat/state';
 import { normalizeChatTimestamp } from '@/domain/chat/timestamps';
+import { invalidateChatHistorySession } from '@/hooks/chatRetryInvalidation';
 import { useBackgroundTaskStore } from '@/stores/background-tasks';
 import { useNotificationStore } from '@/stores/notifications';
 import { useChatTraceStore } from '@/stores/chat-trace';
@@ -232,6 +233,7 @@ export const applyRealtimeStoreProjection = (
     try {
       const session = payload.session_summary == null ? null : parseChatSession(payload.session_summary);
       if (session && session.session_id !== sessionId) return false;
+      invalidateChatHistorySession(sessionId);
       conversationStore.removeMessage(sessionId, messageId);
       if (session && isRealtimeChatSessionProjectionAllowed(sessionId)) conversationStore.upsertSession(session);
       return true;

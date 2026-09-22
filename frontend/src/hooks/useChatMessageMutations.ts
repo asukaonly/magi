@@ -14,6 +14,7 @@ import {
   retireRealtimeChatMessage,
 } from '@/realtime/chat-projection-retirement';
 import { useDelegationsStore } from '@/stores/delegations-store';
+import { invalidateChatHistorySession } from './chatRetryInvalidation';
 
 const USER_ID = DEFAULT_USER_ID;
 
@@ -96,6 +97,7 @@ export function useChatMessageMutations({
       ) {
         throw new Error('Message delete request was not completed');
       }
+      invalidateChatHistorySession(currentSessionId);
       retireRealtimeChatMessage(currentSessionId, message);
       for (const { delegationId } of readCodeAgentDelegations(message.payload)) {
         retireRealtimeChatDelegation(currentSessionId, delegationId);
